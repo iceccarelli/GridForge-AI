@@ -1,82 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { Pause, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { openAudit } from "@/lib/ui";
 
 /**
- * Reference single-line diagram (SLD) of a data-center internal power system.
+ * Cinematic single-line diagram. Six scenes trace the power path from the
+ * utility grid, across the POI metering boundary, through step-down, the
+ * behind-the-meter firming layer, conditioning, LV distribution, and finally
+ * into the GPU racks. Current animates along the active conductors; the rest of
+ * the diagram dims so the eye follows the live path.
  *
- * Original artwork. The architecture shown — grid → POI/metering boundary →
- * switchboard → UPS → distribution → PDU/racks, with behind-the-meter gensets,
- * BESS, PV and cooling — is standard power-engineering practice, not anyone's
- * proprietary figure. Ratings are INDICATIVE planning ranges, not a spec for a
- * specific site. Click a block to see its role.
+ * Original artwork. Architecture is standard power-engineering practice, not a
+ * proprietary figure. Every voltage / power / current value is INDICATIVE for a
+ * 100 MW-class facility — illustrative, not a spec for any specific site.
  */
 
 type Id = "grid" | "hvmv" | "msb" | "ups" | "mvlv" | "racks" | "cooling" | "gensets" | "bess" | "solar";
-
-const DETAIL: Record<Id, { label: string; rating: string; behind: boolean; role: string }> = {
-  grid: {
-    label: "Utility grid",
-    rating: "~230 kV transmission (indicative)",
-    behind: false,
-    role: "The utility feed across the point of interconnection. Subject to the multi-year interconnection queue — the exact constraint behind-the-meter generation is built to bypass.",
-  },
-  hvmv: {
-    label: "HV/MV transformer",
-    rating: "~230 / 13.2 kV (indicative)",
-    behind: false,
-    role: "Steps transmission voltage down to the medium-voltage distribution level feeding the facility switchboard.",
-  },
-  msb: {
-    label: "Main switchboard",
-    rating: "MV main bus",
-    behind: true,
-    role: "The coupling point where the grid feed, on-site generation and storage meet. The EMS arbitrates sources here — this is where 'behind the meter' begins.",
-  },
-  ups: {
-    label: "AC UPS / conditioning",
-    rating: "~80 × 3 MVA class (indicative)",
-    behind: true,
-    role: "Power conditioning and ride-through for sub-cycle events. The BESS sits alongside for the longer sub-second to multi-second transients the racks throw.",
-  },
-  mvlv: {
-    label: "MV/LV transformer",
-    rating: "~13.2 kV / 480 V (indicative)",
-    behind: true,
-    role: "Steps medium voltage down to the low-voltage distribution bus that feeds the PDUs.",
-  },
-  racks: {
-    label: "PDU → IT racks",
-    rating: "480 V → PSUs → GPUs",
-    behind: true,
-    role: "The compute halls — racked GPUs drawing the spiky, synchronized training load the entire power system is engineered around.",
-  },
-  cooling: {
-    label: "Cooling plant",
-    rating: "~30–40% of total load",
-    behind: true,
-    role: "A large, somewhat steadier draw running alongside the racks. Often overlooked in firm-power sizing, but it materially shifts the load profile.",
-  },
-  gensets: {
-    label: "Containerized gensets",
-    rating: "indicative N × 3 MW",
-    behind: true,
-    role: "Gas or diesel generation in skids/containers — firm baseload and backup, dispatchable on-site without touching the interconnection queue.",
-  },
-  bess: {
-    label: "Containerized BESS",
-    rating: "Li-ion · ~15–60 min (indicative)",
-    behind: true,
-    role: "Battery storage in containers — sub-second transient absorption plus price arbitrage. The fast layer that lets firm generation stay sized to the average, not the peak.",
-  },
-  solar: {
-    label: "On-site PV",
-    rating: "behind-the-meter solar",
-    behind: true,
-    role: "Cuts energy cost and carbon intensity when the sun is up; firmed by gensets and BESS so the cluster never feels the intermittency.",
-  },
-};
+type EdgeKey =
+  | "gridHv" | "hvMsb" | "msbUps" | "upsMvlv" | "mvlvRacks"
+  | "gensetsMsb" | "bessUps" | "solarRacks" | "upsCool";
 
 const NODES: Record<Id, { x: number; y: number; w: number; h: number }> = {
   grid: { x: 24, y: 150, w: 110, h: 58 },
@@ -91,28 +34,111 @@ const NODES: Record<Id, { x: number; y: number; w: number; h: number }> = {
   solar: { x: 660, y: 300, w: 116, h: 52 },
 };
 
+const LABEL: Record<Id, { label: string; sub?: string }> = {
+  grid: { label: "Grid", sub: "230 kV" },
+  hvmv: { label: "" },
+  msb: { label: "MSB", sub: "main bus" },
+  ups: { label: "AC UPS", sub: "conditioning" },
+  mvlv: { label: "" },
+  racks: { label: "IT racks", sub: "480V → GPUs" },
+  cooling: { label: "Cooling", sub: "30–40% load" },
+  gensets: { label: "Gensets", sub: "containerized" },
+  bess: { label: "BESS", sub: "containerized" },
+  solar: { label: "On-site PV", sub: "behind-meter" },
+};
+
 const COLOR: Record<Id, string> = {
   grid: "#FFB020", hvmv: "#8A94A6", msb: "#00E5FF", ups: "#00E5FF", mvlv: "#8A94A6",
   racks: "#34D399", cooling: "#8A94A6", gensets: "#FFB020", bess: "#00E5FF", solar: "#34D399",
 };
 
-const POI_X = 150;
+const EDGES: Record<EdgeKey, string> = {
+  gridHv: "M134 179 H168",
+  hvMsb: "M238 179 H268",
+  msbUps: "M372 179 H420",
+  upsMvlv: "M524 179 H560",
+  mvlvRacks: "M630 179 H668",
+  gensetsMsb: "M320 300 V179",
+  bessUps: "M472 300 V208",
+  solarRacks: "M718 300 V214",
+  upsCool: "M472 150 V82",
+};
+
+type Scene = {
+  eyebrow: string; title: string; v: string; p: string; i: string; note: string;
+  nodes: Id[]; edges: EdgeKey[];
+};
+
+const SCENES: Scene[] = [
+  {
+    eyebrow: "SCENE 1 / 6", title: "Grid intake", v: "230 kV", p: "~100 MW", i: "~260 A",
+    note: "Utility power crosses the POI — the metered boundary. Everything to the right is invisible to the TSO in real time.",
+    nodes: ["grid", "hvmv"], edges: ["gridHv"],
+  },
+  {
+    eyebrow: "SCENE 2 / 6", title: "MV step-down", v: "13.2 kV", p: "~100 MW", i: "~4.6 kA",
+    note: "The HV/MV transformer drops transmission voltage onto the medium-voltage main switchboard bus.",
+    nodes: ["hvmv", "msb"], edges: ["hvMsb"],
+  },
+  {
+    eyebrow: "SCENE 3 / 6", title: "Behind-the-meter firming", v: "MV bus", p: "firm + storage + PV", i: "—",
+    note: "Gensets, BESS and on-site PV inject at the bus. Firm generation is sized to the average; the battery covers the transients — and none of it touches the interconnection queue.",
+    nodes: ["gensets", "bess", "solar", "msb"], edges: ["gensetsMsb", "bessUps", "solarRacks"],
+  },
+  {
+    eyebrow: "SCENE 4 / 6", title: "Conditioning & cooling", v: "MV", p: "IT + ~30–40% cooling", i: "—",
+    note: "Power is conditioned through the AC UPS; the BESS rides through sub-second events. Cooling runs as a large parallel draw off the bus.",
+    nodes: ["msb", "ups", "cooling", "bess"], edges: ["msbUps", "upsCool"],
+  },
+  {
+    eyebrow: "SCENE 5 / 6", title: "LV distribution", v: "480 V", p: "to PDUs", i: "distributed",
+    note: "The MV/LV transformer steps down to the 480 V distribution bus feeding the power distribution units.",
+    nodes: ["ups", "mvlv"], edges: ["upsMvlv"],
+  },
+  {
+    eyebrow: "SCENE 6 / 6", title: "Delivery to compute", v: "480 V", p: "→ GPU racks", i: "per-rack",
+    note: "PDUs feed the racks: 480 V → PSUs → GPUs. The spiky, synchronized training load the entire system is engineered around — the whole chain, live.",
+    nodes: ["grid", "hvmv", "msb", "ups", "mvlv", "racks", "cooling", "gensets", "bess", "solar"],
+    edges: ["gridHv", "hvMsb", "msbUps", "upsMvlv", "mvlvRacks", "gensetsMsb", "bessUps", "solarRacks", "upsCool"],
+  },
+];
+
+const NODE_SCENE: Record<Id, number> = {
+  grid: 0, hvmv: 1, msb: 2, gensets: 2, bess: 2, solar: 2, ups: 3, cooling: 3, mvlv: 4, racks: 5,
+};
+
+const DUR = 4200;
 
 export function SingleLineDiagram() {
-  const [sel, setSel] = useState<Id>("bess");
-  const d = DETAIL[sel];
+  const [scene, setScene] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const sc = SCENES[scene];
+  const activeNode = (id: Id) => sc.nodes.includes(id);
+  const activeEdge = (k: EdgeKey) => sc.edges.includes(k);
 
-  const Node = ({ id, label, sub }: { id: Id; label: string; sub?: string }) => {
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => setScene((s) => (s + 1) % SCENES.length), DUR);
+    return () => clearInterval(id);
+  }, [playing]);
+
+  const go = (n: number) => { setPlaying(false); setScene((n + SCENES.length) % SCENES.length); };
+
+  const Node = ({ id }: { id: Id }) => {
     const n = NODES[id];
     const c = COLOR[id];
-    const active = sel === id;
+    const on = activeNode(id);
+    const { label, sub } = LABEL[id];
     return (
-      <g onClick={() => setSel(id)} style={{ cursor: "pointer" }}>
+      <g
+        onClick={() => go(NODE_SCENE[id])}
+        style={{ cursor: "pointer", opacity: on ? 1 : 0.26, transition: "opacity 0.6s ease" }}
+      >
         <rect
           x={n.x} y={n.y} width={n.w} height={n.h} rx={8}
-          fill={active ? `${c}1a` : "#0b1120"}
-          stroke={c} strokeWidth={active ? 2 : 1}
-          style={{ filter: active ? `drop-shadow(0 0 8px ${c}66)` : "none", transition: "all 0.25s" }}
+          fill={on ? `${c}1f` : "#0b1120"}
+          stroke={c} strokeWidth={on ? 2 : 1}
+          style={{ filter: on ? `drop-shadow(0 0 10px ${c}88)` : "none", transition: "all 0.5s ease" }}
         />
         <text x={n.x + n.w / 2} y={n.y + (sub ? n.h / 2 - 3 : n.h / 2 + 4)} textAnchor="middle" fill="#F5F7FA" fontSize="11" fontWeight="600" fontFamily="var(--font-sans)">{label}</text>
         {sub && <text x={n.x + n.w / 2} y={n.y + n.h / 2 + 11} textAnchor="middle" fill="#5A6478" fontSize="8.5" fontFamily="var(--font-mono), monospace" letterSpacing="0.05em">{sub}</text>}
@@ -122,72 +148,107 @@ export function SingleLineDiagram() {
 
   return (
     <div className="panel p-6 sm:p-8 relative overflow-hidden">
+      <style>{`
+        @keyframes gfflow { to { stroke-dashoffset: -120; } }
+        @keyframes gffade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        @keyframes gfbar { from { width: 0%; } to { width: 100%; } }
+      `}</style>
       <div className="blueprint absolute inset-0 pointer-events-none opacity-40" />
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 relative">
         <div>
           <div className="eyebrow">FIG. 04 — REFERENCE SINGLE-LINE DIAGRAM</div>
-          <h3 className="text-xl sm:text-2xl font-semibold tracking-tight mt-1">The system, end to end.</h3>
-          <p className="text-sm text-mute mt-1 max-w-lg">A 100 MW-class behind-the-meter facility. Click any block to see what it does and why it&apos;s there.</p>
+          <h3 className="text-xl sm:text-2xl font-semibold tracking-tight mt-1">Watch the power flow, grid to GPU.</h3>
+          <p className="text-sm text-mute mt-1 max-w-lg">A 100 MW-class behind-the-meter facility, traced end to end. Press play, step through, or click any block.</p>
         </div>
         <span className="pill pill-progress shrink-0">ILLUSTRATIVE · INDICATIVE RATINGS</span>
       </div>
 
       {/* diagram */}
-      <div className="rounded-xl border border-line bg-[#070b14] p-2 sm:p-4">
-        <svg viewBox="0 0 800 372" className="w-full" role="img" aria-label="Single-line diagram">
+      <div className="rounded-xl border border-line bg-[#070b14] p-2 sm:p-4 relative">
+        <svg viewBox="0 0 800 372" className="w-full" role="img" aria-label="Animated single-line diagram">
           {/* behind-the-meter shaded region */}
-          <rect x={POI_X} y={0} width={800 - POI_X} height={372} fill="rgba(0,229,255,0.025)" />
-          {/* POI boundary */}
-          <line x1={POI_X} y1={10} x2={POI_X} y2={362} stroke="#00E5FF" strokeWidth={1.5} strokeDasharray="6 5" opacity={0.7} />
-          <text x={POI_X - 6} y={24} textAnchor="end" fill="#8A94A6" fontSize="8.5" fontFamily="var(--font-mono), monospace">TSO-VISIBLE</text>
-          <text x={POI_X + 8} y={24} textAnchor="start" fill="#F87171" fontSize="8.5" fontFamily="var(--font-mono), monospace">BEHIND THE METER — NOT VISIBLE TO TSO IN REAL TIME</text>
-          <text x={POI_X} y={358} textAnchor="middle" fill="#00E5FF" fontSize="8.5" fontFamily="var(--font-mono), monospace">POI</text>
+          <rect x={150} y={0} width={650} height={372} fill="rgba(0,229,255,0.025)" />
+          <line x1={150} y1={10} x2={150} y2={362} stroke="#00E5FF" strokeWidth={1.5} strokeDasharray="6 5" opacity={0.7} />
+          <text x={144} y={24} textAnchor="end" fill="#8A94A6" fontSize="8.5" fontFamily="var(--font-mono), monospace">TSO-VISIBLE</text>
+          <text x={158} y={24} textAnchor="start" fill="#F87171" fontSize="8.5" fontFamily="var(--font-mono), monospace">BEHIND THE METER — NOT VISIBLE TO TSO IN REAL TIME</text>
+          <text x={150} y={358} textAnchor="middle" fill="#00E5FF" fontSize="8.5" fontFamily="var(--font-mono), monospace">POI</text>
 
-          {/* main bus */}
-          <polyline points="134,179 668,179" fill="none" stroke="#1E3A52" strokeWidth={2} />
-          {/* drops */}
-          <polyline points="472,82 472,150" fill="none" stroke="#1E3A52" strokeWidth={1.5} />
-          <polyline points="320,300 320,179" fill="none" stroke="#1E3A52" strokeWidth={1.5} />
-          <polyline points="472,300 472,208" fill="none" stroke="#1E3A52" strokeWidth={1.5} />
-          <polyline points="718,300 718,214" fill="none" stroke="#1E3A52" strokeWidth={1.5} />
+          {/* base conductors (always visible, faint) */}
+          {(Object.keys(EDGES) as EdgeKey[]).map((k) => (
+            <path key={k} d={EDGES[k]} fill="none" stroke="#1E3A52" strokeWidth={2} />
+          ))}
 
           {/* transformer glyphs */}
-          {[NODES.hvmv, NODES.mvlv].map((t, i) => (
-            <g key={i}>
+          {[NODES.hvmv, NODES.mvlv].map((t, idx) => (
+            <g key={idx}>
               <circle cx={t.x + t.w / 2 - 8} cy={t.y + t.h / 2} r={9} fill="none" stroke="#8A94A6" strokeWidth={1.2} />
               <circle cx={t.x + t.w / 2 + 8} cy={t.y + t.h / 2} r={9} fill="none" stroke="#8A94A6" strokeWidth={1.2} />
             </g>
           ))}
 
-          <Node id="grid" label="Grid" sub="230 kV" />
-          <Node id="hvmv" label="" />
-          <Node id="msb" label="MSB" sub="main bus" />
-          <Node id="ups" label="AC UPS" sub="conditioning" />
-          <Node id="mvlv" label="" />
-          <Node id="racks" label="IT racks" sub="480V → GPUs" />
-          <Node id="cooling" label="Cooling" sub="30–40% load" />
-          <Node id="gensets" label="Gensets" sub="containerized" />
-          <Node id="bess" label="BESS" sub="containerized" />
-          <Node id="solar" label="On-site PV" sub="behind-meter" />
+          {/* animated flow on active edges — remounts per scene */}
+          <g key={scene}>
+            {sc.edges.map((k, idx) => (
+              <g key={k}>
+                <path id={`fp-${scene}-${idx}`} d={EDGES[k]} fill="none" stroke="#00E5FF" strokeWidth={2.6}
+                  strokeLinecap="round" strokeDasharray="6 10"
+                  style={{ animation: "gfflow 1s linear infinite", filter: "drop-shadow(0 0 4px #00E5FF)" }} />
+                {[0, 0.5].map((b, j) => (
+                  <circle key={j} r={3} fill="#9EEBFF" style={{ filter: "drop-shadow(0 0 5px #00E5FF)" }}>
+                    <animateMotion dur="1.5s" begin={`${b}s`} repeatCount="indefinite">
+                      <mpath href={`#fp-${scene}-${idx}`} />
+                    </animateMotion>
+                  </circle>
+                ))}
+              </g>
+            ))}
+          </g>
+
+          <Node id="grid" /><Node id="hvmv" /><Node id="msb" /><Node id="ups" /><Node id="mvlv" />
+          <Node id="racks" /><Node id="cooling" /><Node id="gensets" /><Node id="bess" /><Node id="solar" />
 
           <text x={203} y={158} textAnchor="middle" fill="#5A6478" fontSize="8" fontFamily="var(--font-mono), monospace">HV/MV</text>
           <text x={595} y={158} textAnchor="middle" fill="#5A6478" fontSize="8" fontFamily="var(--font-mono), monospace">MV/LV</text>
         </svg>
       </div>
 
-      {/* detail panel */}
-      <div className="mt-5 rounded-lg border border-line bg-[#0b1120] p-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-base font-semibold text-ghost">{d.label}</span>
-          <span className="data text-[11px] text-mute">· {d.rating}</span>
-          <span className={`pill ${d.behind ? "pill-progress" : "pill-queue"} text-[10px]`}>{d.behind ? "BEHIND THE METER" : "TSO-VISIBLE"}</span>
+      {/* scene readout */}
+      <div key={`r-${scene}`} className="mt-5 rounded-lg border border-line bg-[#0b1120] p-4" style={{ animation: "gffade 0.5s ease" }}>
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <span className="eyebrow text-[10px]">{sc.eyebrow}</span>
+          <span className="text-base font-semibold text-ghost">{sc.title}</span>
         </div>
-        <p className="text-[14px] text-mute leading-relaxed mt-2">{d.role}</p>
+        <div className="grid grid-cols-3 gap-px bg-line rounded-lg overflow-hidden border border-line mb-3">
+          <Stat label="Voltage" value={sc.v} accent="power" />
+          <Stat label="Power (indicative)" value={sc.p} accent="ghost" />
+          <Stat label="Current (illustrative)" value={sc.i} accent="queue" />
+        </div>
+        <p className="text-[14px] text-mute leading-relaxed">{sc.note}</p>
+      </div>
+
+      {/* transport controls */}
+      <div className="mt-4 flex items-center gap-3">
+        <button onClick={() => setPlaying((p) => !p)} className="btn-secondary px-3 py-2 rounded-lg text-sm inline-flex items-center gap-2 shrink-0" aria-label={playing ? "Pause" : "Play"}>
+          {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {playing ? "Pause" : "Play"}
+        </button>
+        <button onClick={() => go(scene - 1)} className="btn-ghost px-2.5 py-2 rounded-lg shrink-0" aria-label="Previous scene"><ChevronLeft className="w-4 h-4" /></button>
+        <div className="flex-1 flex items-center gap-1.5">
+          {SCENES.map((_, idx) => (
+            <button key={idx} onClick={() => go(idx)} className="flex-1 h-1.5 rounded-full overflow-hidden bg-line relative" aria-label={`Scene ${idx + 1}`}>
+              {idx < scene && <span className="absolute inset-0 bg-power/60" />}
+              {idx === scene && (
+                <span className="absolute inset-y-0 left-0 bg-power" style={{ width: playing ? "100%" : "100%", animation: playing ? `gfbar ${DUR}ms linear` : "none" }} />
+              )}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => go(scene + 1)} className="btn-ghost px-2.5 py-2 rounded-lg shrink-0" aria-label="Next scene"><ChevronRight className="w-4 h-4" /></button>
       </div>
 
       {/* deployment building blocks */}
-      <div className="mt-6">
+      <div className="mt-7">
         <div className="eyebrow text-[10px] mb-3">PHYSICAL BUILDING BLOCKS</div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {BLOCKS.map((b) => (
@@ -203,15 +264,26 @@ export function SingleLineDiagram() {
       {/* references + CTA */}
       <div className="mt-6 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-faint max-w-xl leading-relaxed">
-          Illustrative reference — indicative ratings, not a site spec. Training-cluster
-          power signatures grounded in published profiles (Uptime Institute, 2025);
-          capacity-demand context from industry studies (McKinsey, IDC, Gartner). A
-          Feasibility Study produces the bankable single-line and ratings for your site.
+          Illustrative reference — indicative ratings, not a site spec. Currents shown are
+          order-of-magnitude for a 100 MW-class facility. Training-cluster power signatures
+          grounded in published profiles (Uptime Institute, 2025); capacity-demand context
+          from industry studies (McKinsey, IDC, Gartner). A Feasibility Study produces the
+          bankable single-line and ratings for your site.
         </p>
         <button onClick={() => openAudit("single-line")} className="btn-primary px-4 py-2 rounded-lg text-sm shrink-0">
           Scope this for my site →
         </button>
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent: "power" | "ghost" | "queue" }) {
+  const color = accent === "power" ? "text-power" : accent === "queue" ? "text-queue" : "text-ghost";
+  return (
+    <div className="bg-panel p-3">
+      <div className={`data text-base font-semibold ${color}`}>{value}</div>
+      <div className="text-[10px] text-mute mt-0.5">{label}</div>
     </div>
   );
 }
@@ -234,7 +306,6 @@ const BLOCKS: { title: string; sub: string; icon: React.ReactNode }[] = [
       <>
         <rect x="6" y="12" width="36" height="20" rx="2" fill="#0b1120" stroke="#FFB020" strokeWidth="1.4" />
         <circle cx="48" cy="22" r="6" fill="none" stroke="#FFB020" strokeWidth="1.4" />
-        <line x1="42" y1="22" x2="42" y2="22" stroke="#FFB020" />
       </>
     ),
   },
