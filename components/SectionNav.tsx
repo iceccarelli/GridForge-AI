@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
  */
 const SECTIONS = [
   { id: "problem", label: "Problem" },
+  { id: "intelligence", label: "Live data" },
   { id: "comparator", label: "Comparator" },
   { id: "simulator", label: "Simulator" },
   { id: "services", label: "Services" },

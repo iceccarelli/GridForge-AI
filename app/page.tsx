@@ -20,6 +20,7 @@ import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
 import { ConfigStudio } from "@/components/ConfigStudio";
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
+import { LiveMarket } from "@/components/LiveMarket";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -211,6 +212,21 @@ export default function Home() {
             Stop waiting on the queue <ArrowRight size={16} />
           </button>
         </div>
+      </section>
+
+      {/* ============== LIVE MARKET ============== */}
+      <section id="intelligence" className="max-w-5xl mx-auto px-6 pt-4 pb-16">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">REAL DATA, NOT A MOCKUP</div>
+          <h2 className="section-title">The market proves the thesis daily.</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            This pulls the live EPEX day-ahead curve for the German grid. The
+            volatility you see is the whole reason on-site storage and firm
+            behind-the-meter power pencil out — and it&apos;s fetched live, not
+            illustrated.
+          </p>
+        </div>
+        <LiveMarket />
       </section>
 
       {/* ============== APPROACH ============== */}
