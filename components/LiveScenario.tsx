@@ -5,8 +5,10 @@ import {
   Bar,
   BarChart,
   Cell,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
   YAxis,
 } from "recharts";
 import { Activity, BatteryCharging, Zap } from "lucide-react";
@@ -24,7 +26,13 @@ import { openAudit } from "@/lib/ui";
  */
 
 type Series = { t: number; price: number }[];
-const RTE = 0.9; // round-trip efficiency assumption
+const RTE_OPTIONS = [0.85, 0.9, 0.95] as const;
+const CYCLE_OPTIONS = [1, 2] as const;
+const pad = (n: number) => String(n).padStart(2, "0");
+const fmtHM = (ms: number) => {
+  const d = new Date(ms);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 function useTween(target: number, dur = 600) {
   const [v, setV] = useState(target);
@@ -66,6 +74,18 @@ export function LiveScenario() {
   const [bess, setBess] = useState(160); // MWh (4h battery → power = bess/4)
   const [arb, setArb] = useState(true);
   const [annual, setAnnual] = useState(false);
+  const [cycles, setCycles] = useState<(typeof CYCLE_OPTIONS)[number]>(1);
+  const [rte, setRte] = useState<(typeof RTE_OPTIONS)[number]>(0.9);
+  const [fees, setFees] = useState(false);
+  const [feeRate, setFeeRate] = useState(80);
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    const set = () => setNowMs(Date.now());
+    set();
+    const id = setInterval(set, 30000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -87,13 +107,15 @@ export function LiveScenario() {
     const hours = series.length;
     const prices = series.map((s) => s.price);
 
-    // grid-only energy bill: constant load × each hour's price
-    const gridDay = prices.reduce((sum, p) => sum + p * mw, 0);
+    // delivered energy bill: load × (wholesale + optional grid fees) each hour
+    const fee = fees ? feeRate : 0;
+    const gridDay = prices.reduce((sum, p) => sum + (p + fee) * mw, 0);
 
-    // BESS arbitrage: 4h battery → power = bess/4. Charge the N cheapest hours,
-    // discharge the N priciest, one cycle/day.
+    // BESS arbitrage on the wholesale spread. 4h battery → power = bess/4.
+    // Charge the N cheapest hours, discharge the N priciest; N scales with cycles.
     const bessMW = bess / 4;
-    const nHours = bess > 0 ? Math.min(hours, Math.max(1, Math.round(bess / Math.max(bessMW, 1)))) : 0;
+    const nBase = bess > 0 ? Math.max(1, Math.round(bess / Math.max(bessMW, 1))) : 0;
+    const nHours = Math.min(Math.floor(hours / 2), nBase * cycles);
     const order = prices.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p);
     const chargeIdx = new Set(order.slice(0, nHours).map((o) => o.i));
     const dischargeIdx = new Set(order.slice(hours - nHours).map((o) => o.i));
@@ -101,13 +123,14 @@ export function LiveScenario() {
       idx.size ? [...idx].reduce((s, i) => s + prices[i], 0) / idx.size : 0;
     const avgCharge = avg(chargeIdx);
     const avgDischarge = avg(dischargeIdx);
-    const energyMoved = bess; // one cycle
-    const arbDay = Math.max(0, energyMoved * (avgDischarge * RTE - avgCharge));
+    const energyMoved = bess * cycles;
+    const arbDay = Math.max(0, energyMoved * (avgDischarge * rte - avgCharge));
 
     const bars = series.map((s, i) => ({
       hour: new Date(s.t).getHours(),
       price: s.price,
       role: arb && chargeIdx.has(i) ? "charge" : arb && dischargeIdx.has(i) ? "discharge" : "idle",
+      isNow: nowMs != null && s.t <= nowMs && nowMs < s.t + 3600000,
     }));
 
     return {
@@ -117,11 +140,12 @@ export function LiveScenario() {
       spread: avgDischarge - avgCharge,
       bars,
     };
-  }, [series, mw, bess, arb]);
+  }, [series, mw, bess, arb, cycles, rte, fees, feeRate, nowMs]);
 
   const mult = annual ? 365 : 1;
   const tGrid = useTween(model ? model.gridDay * mult : 0);
   const tArb = useTween(model ? model.arbDay * mult : 0);
+  const nowHour = model?.bars.find((b) => b.isNow)?.hour ?? null;
 
   if (failed)
     return (
@@ -182,6 +206,14 @@ export function LiveScenario() {
               axisLine={{ stroke: "#1E2942" }}
               width={40}
             />
+            <XAxis
+              dataKey="hour"
+              tick={{ fill: "#5A6478", fontSize: 9, fontFamily: "var(--font-mono), monospace" }}
+              tickLine={false}
+              axisLine={{ stroke: "#1E2942" }}
+              interval={3}
+              tickFormatter={(v) => `${pad(Number(v))}`}
+            />
             <Tooltip
               cursor={{ fill: "rgba(255,255,255,0.03)" }}
               contentStyle={{
@@ -204,15 +236,29 @@ export function LiveScenario() {
                 <Cell
                   key={i}
                   fill={b.role === "charge" ? "#34D399" : b.role === "discharge" ? "#F87171" : "#1E3A52"}
+                  stroke={b.isNow ? "#00E5FF" : undefined}
+                  strokeWidth={b.isNow ? 2 : 0}
                 />
               ))}
             </Bar>
+            {nowHour != null && (
+              <ReferenceLine x={nowHour} stroke="#00E5FF" strokeWidth={1} strokeDasharray="3 3" />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex items-center gap-4 data text-[11px] text-faint mb-6">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-verified" />charge (cheapest)</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-flag" />discharge (priciest)</span>
+      <div className="flex items-center justify-between gap-4 data text-[11px] text-faint mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-verified" />charge (cheapest)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-flag" />discharge (priciest)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 rounded bg-power" />now</span>
+        </div>
+        {nowMs != null && (
+          <span className="inline-flex items-center gap-1.5 text-power shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" />
+            {fmtHM(nowMs)} · live
+          </span>
+        )}
       </div>
 
       {/* knobs */}
@@ -227,9 +273,34 @@ export function LiveScenario() {
         <Toggle on={annual} onClick={() => setAnnual((s) => !s)} label="Annualize" />
       </div>
 
+      {/* operator calibration */}
+      <div className="rounded-lg border border-line bg-[#0b1120] p-4 mb-6">
+        <div className="eyebrow text-[10px] mb-3">OPERATOR CALIBRATION</div>
+        <div className="grid sm:grid-cols-3 gap-5">
+          <Segmented label="Battery cycles / day" value={cycles} options={CYCLE_OPTIONS} fmt={(v) => `${v}×`} onChange={setCycles} />
+          <Segmented label="Round-trip efficiency" value={rte} options={RTE_OPTIONS} fmt={(v) => `${Math.round(v * 100)}%`} onChange={setRte} />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[13px] text-ghost">Grid fees &amp; levies</span>
+              <span className="data text-[12px] text-queue">{fees ? `+€${feeRate}/MWh` : "off"}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Toggle on={fees} onClick={() => setFees((s) => !s)} label="" />
+              <input
+                type="range" min={0} max={160} step={10} value={feeRate} disabled={!fees}
+                onChange={(e) => setFeeRate(Number(e.target.value))}
+                className="flex-1 accent-[#FFB020] cursor-pointer disabled:opacity-40"
+                aria-label="Grid fees and levies"
+              />
+            </div>
+            <div className="text-[10px] text-faint mt-1.5">editable estimate — network charges + levies vary by site</div>
+          </div>
+        </div>
+      </div>
+
       {/* results */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line">
-        <Result value={fmtEuro(tGrid)} label={`Grid energy bill / ${annual ? "yr" : "day"}`} accent="ghost" />
+        <Result value={fmtEuro(tGrid)} label={`${fees ? "All-in" : "Wholesale"} energy bill / ${annual ? "yr" : "day"}`} accent="ghost" />
         <Result
           value={arb ? `−${fmtEuro(tArb)}` : "—"}
           label={`BESS arbitrage saves / ${annual ? "yr" : "day"}`}
@@ -244,9 +315,9 @@ export function LiveScenario() {
 
       <div className="mt-5 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-faint max-w-lg leading-relaxed">
-          Computed on today&apos;s real EPEX curve. Arbitrage assumes one cycle/day
-          at {Math.round(RTE * 100)}% round-trip efficiency — a planning estimate,
-          not a guarantee. A Power Audit replaces it with your measured load.
+          Computed on today&apos;s real EPEX curve. Arbitrage assumes {cycles} cycle{cycles > 1 ? "s" : ""}/day
+          at {Math.round(rte * 100)}% round-trip efficiency; grid fees are your editable estimate —
+          all planning inputs, not guarantees. A Power Audit replaces them with your measured load.
         </p>
         <button onClick={() => openAudit("scenario")} className="btn-primary px-4 py-2 rounded-lg text-sm shrink-0">
           Model my real site →
@@ -322,6 +393,39 @@ function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; labe
       </span>
       {label}
     </button>
+  );
+}
+
+function Segmented<T extends number>({
+  label,
+  value,
+  options,
+  fmt,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  fmt: (v: T) => string;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[13px] text-ghost mb-2">{label}</div>
+      <div className="inline-flex rounded-lg border border-line overflow-hidden">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            className={`px-3 py-1.5 text-[12px] font-semibold transition ${
+              value === o ? "bg-power/15 text-power" : "text-mute hover:text-ghost"
+            }`}
+          >
+            {fmt(o)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

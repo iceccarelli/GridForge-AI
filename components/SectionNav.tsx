@@ -17,6 +17,7 @@ const SECTIONS = [
   { id: "how", label: "How it works" },
   { id: "architectures", label: "Architectures" },
   { id: "configure", label: "Configure" },
+  { id: "single-line", label: "Architecture" },
   { id: "faq", label: "FAQ" },
 ];
 

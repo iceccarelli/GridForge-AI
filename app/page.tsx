@@ -18,6 +18,7 @@ import { TimeToPower } from "@/components/TimeToPower";
 import { LoadSimulator } from "@/components/LoadSimulator";
 import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
 import { ConfigStudio } from "@/components/ConfigStudio";
+import { SingleLineDiagram } from "@/components/SingleLineDiagram";
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 import { LiveConsole } from "@/components/LiveConsole";
@@ -469,6 +470,20 @@ export default function Home() {
           </p>
         </div>
         <ConfigStudio />
+      </section>
+
+      {/* ============== SINGLE-LINE DIAGRAM ============== */}
+      <section id="single-line" className="max-w-5xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">THE REFERENCE ARCHITECTURE, IN DETAIL</div>
+          <h2 className="section-title">What the internal power system actually looks like.</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            Past the marketing: a real single-line diagram of a behind-the-meter
+            facility — grid, metering boundary, switchboard, UPS, distribution, and
+            the on-site generation and storage that keep the racks fed. Click through it.
+          </p>
+        </div>
+        <SingleLineDiagram />
       </section>
 
       {/* ============== TECHNOLOGY ============== */}
