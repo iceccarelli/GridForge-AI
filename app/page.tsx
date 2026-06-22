@@ -21,6 +21,7 @@ import { ConfigStudio } from "@/components/ConfigStudio";
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 import { LiveMarket } from "@/components/LiveMarket";
+import { GridMix } from "@/components/GridMix";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -227,6 +228,9 @@ export default function Home() {
           </p>
         </div>
         <LiveMarket />
+        <div className="mt-6">
+          <GridMix />
+        </div>
       </section>
 
       {/* ============== APPROACH ============== */}
