@@ -20,8 +20,7 @@ import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
 import { ConfigStudio } from "@/components/ConfigStudio";
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
-import { LiveMarket } from "@/components/LiveMarket";
-import { GridMix } from "@/components/GridMix";
+import { LiveConsole } from "@/components/LiveConsole";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -227,10 +226,7 @@ export default function Home() {
             illustrated.
           </p>
         </div>
-        <LiveMarket />
-        <div className="mt-6">
-          <GridMix />
-        </div>
+        <LiveConsole />
       </section>
 
       {/* ============== APPROACH ============== */}

@@ -248,3 +248,20 @@ textarea:focus-visible {
     stroke-dashoffset: 0;
   }
 }
+
+/* Live console: one-shot light sweep replayed on each data refresh */
+.console-sweep {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 229, 255, 0.06),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: console-sweep 1.1s cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes console-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
