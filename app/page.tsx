@@ -19,6 +19,7 @@ import { LoadSimulator } from "@/components/LoadSimulator";
 import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
 import { ConfigStudio } from "@/components/ConfigStudio";
 import { SectionNav } from "@/components/SectionNav";
+import { JsonLd } from "@/components/JsonLd";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -55,6 +56,7 @@ export default function Home() {
 
   return (
     <div className="overflow-hidden">
+      <JsonLd />
       <SectionNav />
       {/* ============== HERO ============== */}
       <section className="relative min-h-[100dvh] flex items-center pt-24 pb-16">
