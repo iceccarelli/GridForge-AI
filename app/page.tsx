@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { openAudit } from "@/lib/ui";
 import { TimeToPower } from "@/components/TimeToPower";
+import { LoadSimulator } from "@/components/LoadSimulator";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -254,6 +255,22 @@ export default function Home() {
             })}
           </div>
         </div>
+      </section>
+
+      {/* ============== DEMONSTRATION ============== */}
+      <section id="simulator" className="max-w-5xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">SEE THE PHYSICS</div>
+          <h2 className="section-title">Most power engineers model a flat load.</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            AI training doesn&apos;t draw flat. Checkpoints and all-reduce steps
+            slam the cluster with sharp, sub-second transients. Size your firm
+            generation for those peaks and you overbuild; ignore them and you
+            brown out. The battery is what catches the spike — here&apos;s the
+            stack doing it, live.
+          </p>
+        </div>
+        <LoadSimulator />
       </section>
 
       {/* ============== SERVICES ============== */}

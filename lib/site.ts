@@ -176,3 +176,85 @@ export const FAQ = [
     a: "AI data-center developers, colocation providers, and the investors backing them — anyone whose compute roadmap is gated by time-to-power in a constrained market.",
   },
 ];
+
+// ============================================================================
+// INTERACTIVE DEMO DATA
+// Parameters for the on-site EMS load simulator. The simulator renders a
+// DETERMINISTIC, illustrative model — not measured field data. Every figure
+// it derives is computed live from these inputs in the browser; nothing here
+// is presented as a delivered result. Labeled "illustrative model" in the UI.
+// ============================================================================
+
+export const EMS_SIM = {
+  // Window of the simulated trace, in seconds.
+  windowSeconds: 120,
+  samples: 121,
+  // Nominal cluster draw the stack is sized around (MW). User-adjustable.
+  defaultLoadMW: 80,
+  loadRangeMW: [20, 200] as const,
+  // Share of average load covered by on-site renewables (user-adjustable).
+  defaultRenewablePct: 25,
+  // Physical response characteristics of each layer of the stack. These are
+  // ordinary engineering ranges for the equipment class, used to shape the
+  // illustrative curves — not a spec sheet for a specific product.
+  stack: {
+    gas: { label: "Gas baseload", color: "#FFB020", rampSecondsToFull: 300 },
+    fuelCell: { label: "Fuel-cell firming", color: "#A78BFA", rampSecondsToFull: 12 },
+    bess: { label: "BESS (sub-second)", color: "#00E5FF", rampSecondsToFull: 0.4 },
+    renewables: { label: "On-site renewables", color: "#34D399", rampSecondsToFull: 0 },
+  },
+  // A training checkpoint/all-reduce causes a sharp, brief collective transient.
+  // Public load studies of large training jobs show exactly this signature.
+  spike: { magnitudePct: 38, widthSeconds: 4, source: "Meta/LLNL training-load studies, 2024–2025" },
+} as const;
+
+// Time-to-Power comparator defaults (drives the interactive sliders).
+export const COMPARATOR = {
+  defaultMW: 80,
+  mwRange: [10, 250] as const,
+  // Queue wait the user can dial in for their market, in months.
+  defaultQueueMonths: 72,
+  queueRange: [36, 108] as const,
+  onSiteMonths: 18,
+  // Illustrative revenue-at-risk per MW-year of delayed compute. User can edit.
+  // Anchored to public colo lease ranges; labeled as an assumption, not a quote.
+  defaultRevPerMWYear: 1_400_000,
+  revSource: "Derived from public hyperscale colo lease ranges, 2025",
+} as const;
+
+// Modular configurator reference variants. These map to the REF-0x designs in
+// ARCHITECTURES — indicative sizing envelopes, not fixed quotes.
+export const CONFIG_VARIANTS = [
+  {
+    code: "REF-01-S",
+    name: "Skid · sub-40 MW",
+    mwMax: 40,
+    firmMix: "Gas baseload + BESS",
+    deployMonths: 14,
+    note: "Single-skid hybrid for a first phase or edge training pod.",
+  },
+  {
+    code: "REF-01-M",
+    name: "Containerized · 40–120 MW",
+    mwMax: 120,
+    firmMix: "Gas + fuel-cell firming + BESS + renewables",
+    deployMonths: 18,
+    note: "Phased containerized build; capacity tracks the cluster ramp.",
+  },
+  {
+    code: "REF-01-L",
+    name: "Campus · 120 MW+",
+    mwMax: 9_999,
+    firmMix: "Multi-genset + fuel cell + utility-scale BESS + PPA",
+    deployMonths: 24,
+    note: "Campus-scale hybrid with grid as secondary reliability layer.",
+  },
+] as const;
+
+// Indicative pricing bands for the productized services. Fixed-scope entry
+// points; ranges, not quotes — every engagement is scoped to the site.
+export const PACKAGES = [
+  { tier: "Power Audit & Site Assessment", band: "€25k–€45k", basis: "Fixed scope · 10–14 days", anchor: true },
+  { tier: "Feasibility Study & Financial Model", band: "€45k–€95k", basis: "Per site · 3–5 weeks" },
+  { tier: "Integration Design & Engineering", band: "Scoped per site", basis: "Quoted after feasibility" },
+] as const;
