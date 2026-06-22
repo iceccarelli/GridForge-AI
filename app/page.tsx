@@ -22,6 +22,7 @@ import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 import { LiveConsole } from "@/components/LiveConsole";
 import { LiveScenario } from "@/components/LiveScenario";
+import { SystemFlow } from "@/components/SystemFlow";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -379,6 +380,20 @@ export default function Home() {
             Scope an engagement <ArrowRight size={16} />
           </button>
         </div>
+      </section>
+
+      {/* ============== HOW IT WORKS ============== */}
+      <section id="how" className="max-w-5xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">THE PIPELINE, STEP BY STEP</div>
+          <h2 className="section-title">What actually happens when load spikes.</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            Behind-the-meter only works if the system handles the sharp, sub-second
+            transients of AI training. Here&apos;s the exact sequence — play it, or
+            step through it yourself.
+          </p>
+        </div>
+        <SystemFlow />
       </section>
 
       {/* ============== REFERENCE ARCHITECTURES ============== */}

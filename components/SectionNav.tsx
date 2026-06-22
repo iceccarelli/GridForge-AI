@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: "comparator", label: "Comparator" },
   { id: "simulator", label: "Simulator" },
   { id: "services", label: "Services" },
+  { id: "how", label: "How it works" },
   { id: "architectures", label: "Architectures" },
   { id: "configure", label: "Configure" },
   { id: "faq", label: "FAQ" },

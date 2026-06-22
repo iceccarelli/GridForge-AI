@@ -265,3 +265,13 @@ textarea:focus-visible {
     transform: translateX(100%);
   }
 }
+
+/* System-flow: animated energy path along active edges */
+.flow-active {
+  animation: flowmove 0.7s linear infinite;
+}
+@keyframes flowmove {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
