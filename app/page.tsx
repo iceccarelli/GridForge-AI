@@ -17,6 +17,7 @@ import { openAudit } from "@/lib/ui";
 import { TimeToPower } from "@/components/TimeToPower";
 import { LoadSimulator } from "@/components/LoadSimulator";
 import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
+import { ConfigStudio } from "@/components/ConfigStudio";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -415,6 +416,20 @@ export default function Home() {
             </button>
           </div>
         </div>
+      </section>
+
+      {/* ============== CONFIGURATOR ============== */}
+      <section id="configure" className="max-w-5xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">MATCH A DESIGN TO YOUR SITE</div>
+          <h2 className="section-title">Which reference fits your build?</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            Dial in your target capacity and firm/renewable balance. It maps you
+            to a reference variant with an honest first-power timeline and a
+            phasing plan — a starting point for the conversation, not a quote.
+          </p>
+        </div>
+        <ConfigStudio />
       </section>
 
       {/* ============== TECHNOLOGY ============== */}
