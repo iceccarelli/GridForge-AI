@@ -16,6 +16,7 @@ import {
 import { openAudit } from "@/lib/ui";
 import { TimeToPower } from "@/components/TimeToPower";
 import { LoadSimulator } from "@/components/LoadSimulator";
+import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -255,6 +256,20 @@ export default function Home() {
             })}
           </div>
         </div>
+      </section>
+
+      {/* ============== COMPARATOR ============== */}
+      <section id="comparator" className="max-w-5xl mx-auto px-6 pt-20 pb-4">
+        <div className="max-w-2xl mb-10">
+          <div className="eyebrow mb-3">QUANTIFY THE GAP</div>
+          <h2 className="section-title">What is the queue costing you?</h2>
+          <p className="text-mute text-[15px] leading-relaxed mt-4">
+            The hero shows the gap. This puts a number on it for your project —
+            cluster size, your market&apos;s interconnection wait, and what a
+            megawatt of online compute is worth to you.
+          </p>
+        </div>
+        <TimeToPowerComparator />
       </section>
 
       {/* ============== DEMONSTRATION ============== */}
