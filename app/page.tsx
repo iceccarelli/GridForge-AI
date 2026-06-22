@@ -21,6 +21,7 @@ import { ConfigStudio } from "@/components/ConfigStudio";
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 import { LiveConsole } from "@/components/LiveConsole";
+import { LiveScenario } from "@/components/LiveScenario";
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -227,6 +228,9 @@ export default function Home() {
           </p>
         </div>
         <LiveConsole />
+        <div className="mt-6">
+          <LiveScenario />
+        </div>
       </section>
 
       {/* ============== APPROACH ============== */}
