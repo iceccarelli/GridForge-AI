@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { openAudit } from "@/lib/ui";
 import { Logo } from "@/components/Navbar";
+import { useMarket, arbPerDay, type MarketSnapshot } from "@/lib/market";
 
 interface User { email: string; name: string; company: string; }
 interface Upload { id: string; title: string; project: string; src: string; }
@@ -75,7 +76,8 @@ export default function Dashboard() {
   const [tab, setTab] = useState<"projects" | "reports" | "pilot" | "visuals">("projects");
   const [selected, setSelected] = useState<Project | null>(null);
   const [openReport, setOpenReport] = useState<(typeof reports)[number] | null>(null);
-  const [epex, setEpex] = useState<number | null>(null);
+  const market = useMarket();
+  const epex = market.epex;
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [lightbox, setLightbox] = useState<Visual | null>(null);
 
@@ -97,14 +99,6 @@ export default function Dashboard() {
     if (!auth || !data) { router.push("/"); return; }
     try { setUser(JSON.parse(data)); } catch { router.push("/"); }
   }, [router]);
-
-  useEffect(() => {
-    let live = true;
-    fetch("/api/market").then((r) => r.json()).then((d) => {
-      if (live && d?.ok && typeof d.current === "number") setEpex(d.current);
-    }).catch(() => {});
-    return () => { live = false; };
-  }, []);
 
   const logout = () => {
     sessionStorage.removeItem("gridforge_demo");
@@ -207,6 +201,7 @@ export default function Dashboard() {
         {/* Projects */}
         {tab === "projects" && (
           <div className="space-y-4">
+            <MarketStrip market={market} />
             {projects.map((p) => (
               <motion.div key={p.id} whileHover={{ y: -1 }} className="panel p-6 sm:p-7 flex flex-col lg:flex-row lg:items-center gap-7">
                 <div className="flex-1">
@@ -238,6 +233,7 @@ export default function Dashboard() {
 
         {/* Reports */}
         {tab === "reports" && (
+          <div className="space-y-3">
           <div className="panel overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -263,6 +259,8 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <MarketSnapshotLine market={market} />
           </div>
         )}
 
@@ -290,6 +288,7 @@ export default function Dashboard() {
             </div>
 
             <div className="lg:col-span-2 space-y-5">
+              <LiveMarketPanel market={market} />
               <div className="panel p-6">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="p-2 rounded-lg bg-verified/10"><CheckCircle2 className="text-verified w-5 h-5" /></div>
@@ -320,7 +319,7 @@ export default function Dashboard() {
       </div>
 
       <AnimatePresence>
-        {selected && <ProjectDrawer project={selected} epex={epex} onClose={() => setSelected(null)} />}
+        {selected && <ProjectDrawer project={selected} market={market} onClose={() => setSelected(null)} />}
       </AnimatePresence>
       <AnimatePresence>
         {openReport && <ReportDrawer report={openReport} onClose={() => setOpenReport(null)} />}
@@ -332,7 +331,8 @@ export default function Dashboard() {
   );
 }
 
-function ProjectDrawer({ project, epex, onClose }: { project: Project; epex: number | null; onClose: () => void }) {
+function ProjectDrawer({ project, market, onClose }: { project: Project; market: MarketSnapshot; onClose: () => void }) {
+  const epex = market.epex;
   const { load, savingsToday, cap } = useMemo(() => telemetry(project), [project]);
   const [nowHour, setNowHour] = useState(12);
   useEffect(() => { setNowHour(new Date().getHours()); }, []);
@@ -366,6 +366,13 @@ function ProjectDrawer({ project, epex, onClose }: { project: Project; epex: num
             <Tile icon={DollarSign} label="Savings today" value={`$${(savingsToday / 1000).toFixed(1)}k`} sub="sample" accent />
             <Tile icon={Zap} label="Wholesale now" value={epex != null ? `€${Math.round(epex)}` : "—"} sub={epex != null ? "LIVE · EPEX DE" : "feed offline"} live={epex != null} />
           </div>
+
+          {market.spread != null && (
+            <div className="rounded-lg border border-line bg-[#0b1120] p-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[11px]"><span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" /><span className="data text-power">LIVE · EPEX DE</span><span className="text-mute">today&apos;s spread €{Math.round(market.spread)}/MWh</span></span>
+              <span className="data text-[11px] text-mute">est. arbitrage on sample BESS · <span className="text-verified">{fmtEur(arbPerDay(market.spread, cap * 2, 1))}/day</span></span>
+            </div>
+          )}
 
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
@@ -582,6 +589,79 @@ function Lightbox({ visual, onClose }: { visual: Visual; onClose: () => void }) 
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+function fmtEur(n: number | null) {
+  if (n == null) return "—";
+  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
+  return `€${Math.round(n)}`;
+}
+
+function MarketStrip({ market }: { market: MarketSnapshot }) {
+  if (!market.ok) {
+    return <div className="panel p-3 data text-[11px] text-faint">{market.loading ? "Loading live market…" : "Live market feed unavailable — account data below is sample."}</div>;
+  }
+  return (
+    <div className="panel p-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div className="flex items-center gap-1.5 data text-[10px] text-power"><span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" />LIVE · EPEX DE</div>
+      <Stat2 label="Wholesale now" value={`€${Math.round(market.epex!)}`} />
+      <Stat2 label="Today's spread" value={`€${Math.round(market.spread!)}/MWh`} />
+      <Stat2 label="Day avg" value={`€${Math.round(market.avg!)}`} />
+      {market.renewablePct != null && <Stat2 label="Renewable now" value={`${market.renewablePct}%`} accent />}
+      <div className="ml-auto data text-[10px] text-faint hidden lg:block">real market data · account figures below are sample</div>
+    </div>
+  );
+}
+
+function Stat2({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div>
+      <div className="data text-[9px] text-faint tracking-[0.08em]">{label.toUpperCase()}</div>
+      <div className={`data text-sm font-semibold ${accent ? "text-verified" : "text-ghost"}`}>{value}</div>
+    </div>
+  );
+}
+
+function MarketSnapshotLine({ market }: { market: MarketSnapshot }) {
+  if (!market.ok) return null;
+  return (
+    <div className="data text-[11px] text-faint px-1 flex flex-wrap items-center gap-1.5">
+      <span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" />
+      <span className="text-power">LIVE · EPEX DE</span>
+      <span>market snapshot — wholesale €{Math.round(market.epex!)}/MWh · day avg €{Math.round(market.avg!)} · spread €{Math.round(market.spread!)}, as of today. Documents above are sample.</span>
+    </div>
+  );
+}
+
+function LiveMarketPanel({ market }: { market: MarketSnapshot }) {
+  return (
+    <div className="panel p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-semibold flex items-center gap-2"><Activity size={16} className="text-power" /> Live market</div>
+        <span className="data text-[9px] text-power flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" />EPEX · ISE</span>
+      </div>
+      {market.ok ? (
+        <div className="grid grid-cols-2 gap-y-4 gap-x-3">
+          <PStat label="Wholesale now" value={`€${Math.round(market.epex!)}`} />
+          <PStat label="Today's spread" value={`€${Math.round(market.spread!)}`} />
+          <PStat label="Renewable now" value={market.renewablePct != null ? `${market.renewablePct}%` : "—"} accent />
+          <PStat label="Arb / day · 48 MW pilot" value={fmtEur(arbPerDay(market.spread, 96, 1))} accent />
+        </div>
+      ) : (
+        <div className="text-sm text-mute">{market.loading ? "Loading live market…" : "Live market feed unavailable right now."}</div>
+      )}
+      <div className="text-[10px] text-faint mt-4 leading-relaxed">Wholesale, spread and renewable share are real &amp; live (EPEX · Fraunhofer ISE). The arbitrage figure applies today&apos;s real spread to the pilot&apos;s sample 96 MWh BESS — illustrative.</div>
+    </div>
+  );
+}
+
+function PStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div>
+      <div className="data text-[10px] text-faint tracking-[0.08em]">{label.toUpperCase()}</div>
+      <div className={`data text-2xl font-semibold mt-1 ${accent ? "text-verified" : "text-ghost"}`}>{value}</div>
+    </div>
   );
 }
 
