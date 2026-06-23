@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   FileText, Clock, TrendingUp, Calendar, CheckCircle2, ArrowRight, LogOut,
   Plus, MapPin, Zap, Gauge, X, Battery, Activity, DollarSign, Download,
+  Image as ImageIcon, UploadCloud, Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
@@ -14,6 +15,8 @@ import { openAudit } from "@/lib/ui";
 import { Logo } from "@/components/Navbar";
 
 interface User { email: string; name: string; company: string; }
+interface Upload { id: string; title: string; project: string; src: string; }
+type Visual = { title: string; src?: string; node?: React.ReactNode; tag?: string };
 interface Project {
   id: number; name: string; location: string; capacity: string;
   status: "Active" | "In progress" | "Planning"; progress: number;
@@ -69,10 +72,24 @@ function telemetry(p: Project) {
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<"projects" | "reports" | "pilot">("projects");
+  const [tab, setTab] = useState<"projects" | "reports" | "pilot" | "visuals">("projects");
   const [selected, setSelected] = useState<Project | null>(null);
   const [openReport, setOpenReport] = useState<(typeof reports)[number] | null>(null);
   const [epex, setEpex] = useState<number | null>(null);
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [lightbox, setLightbox] = useState<Visual | null>(null);
+
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach((f) => {
+      if (!f.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => setUploads((u) => [...u, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title: f.name.replace(/\.[^.]+$/, ""), project: "", src: String(reader.result) }]);
+      reader.readAsDataURL(f);
+    });
+  };
+  const updateUpload = (id: string, patch: Partial<Upload>) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const removeUpload = (id: string) => setUploads((u) => u.filter((x) => x.id !== id));
 
   useEffect(() => {
     const auth = sessionStorage.getItem("gridforge_demo");
@@ -175,6 +192,7 @@ export default function Dashboard() {
             { key: "projects", label: "Projects", icon: Zap },
             { key: "reports", label: "Reports", icon: FileText },
             { key: "pilot", label: "Pilot status", icon: Clock },
+            { key: "visuals", label: "Shared visuals", icon: ImageIcon },
           ].map((t) => {
             const Icon = t.icon; const active = tab === t.key;
             return (
@@ -291,6 +309,10 @@ export default function Dashboard() {
           </div>
         )}
 
+        {tab === "visuals" && (
+          <VisualsTab uploads={uploads} projects={projects} onFiles={addFiles} onUpdate={updateUpload} onRemove={removeUpload} onOpen={setLightbox} />
+        )}
+
         <div className="mt-14 text-center data text-[11px] text-faint leading-relaxed">
           Interactive preview. In a live deployment this connects to your real projects via authenticated APIs.<br />
           Questions? <span className="text-power">power@gridforge.ai</span>
@@ -302,6 +324,9 @@ export default function Dashboard() {
       </AnimatePresence>
       <AnimatePresence>
         {openReport && <ReportDrawer report={openReport} onClose={() => setOpenReport(null)} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {lightbox && <Lightbox visual={lightbox} onClose={() => setLightbox(null)} />}
       </AnimatePresence>
     </div>
   );
@@ -432,6 +457,131 @@ function ReportDrawer({ report, onClose }: { report: (typeof reports)[number]; o
         </div>
       </motion.div>
     </>
+  );
+}
+
+const SAMPLE_VISUALS: { title: string; tag: string; node: React.ReactNode }[] = [
+  {
+    title: "Reference single-line — your site",
+    tag: "DIAGRAM",
+    node: (
+      <svg viewBox="0 0 240 160" className="w-full h-full p-4" aria-hidden>
+        <line x1="70" y1="12" x2="70" y2="150" stroke="#00E5FF" strokeDasharray="4 4" opacity="0.6" />
+        <rect x="16" y="64" width="40" height="32" rx="4" fill="#0b1120" stroke="#FFB020" />
+        <rect x="92" y="64" width="40" height="32" rx="4" fill="#0b1120" stroke="#00E5FF" />
+        <rect x="160" y="60" width="48" height="40" rx="4" fill="#0b1120" stroke="#34D399" />
+        <line x1="56" y1="80" x2="92" y2="80" stroke="#1E3A52" strokeWidth="2" />
+        <line x1="132" y1="80" x2="160" y2="80" stroke="#1E3A52" strokeWidth="2" />
+        <rect x="92" y="120" width="40" height="24" rx="3" fill="#0b1120" stroke="#00E5FF" />
+        <line x1="112" y1="120" x2="112" y2="96" stroke="#1E3A52" strokeWidth="2" />
+        <text x="36" y="83" fill="#8A94A6" fontSize="8" textAnchor="middle" fontFamily="var(--font-mono), monospace">GRID</text>
+        <text x="112" y="83" fill="#8A94A6" fontSize="8" textAnchor="middle" fontFamily="var(--font-mono), monospace">MSB</text>
+        <text x="184" y="83" fill="#8A94A6" fontSize="8" textAnchor="middle" fontFamily="var(--font-mono), monospace">RACKS</text>
+        <text x="112" y="136" fill="#8A94A6" fontSize="7" textAnchor="middle" fontFamily="var(--font-mono), monospace">BESS</text>
+      </svg>
+    ),
+  },
+  {
+    title: "Sample load profile — 24 h",
+    tag: "TELEMETRY",
+    node: (
+      <svg viewBox="0 0 240 160" className="w-full h-full p-4" aria-hidden>
+        <defs><linearGradient id="svgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00E5FF" stopOpacity="0.5" /><stop offset="100%" stopColor="#00E5FF" stopOpacity="0.03" /></linearGradient></defs>
+        <polygon points="16,120 16,96 40,92 64,70 88,84 112,52 136,66 160,44 184,72 208,58 224,64 224,120" fill="url(#svgrad)" />
+        <polyline points="16,96 40,92 64,70 88,84 112,52 136,66 160,44 184,72 208,58 224,64" fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" />
+        <line x1="16" y1="120" x2="224" y2="120" stroke="#1E2942" strokeWidth="1" />
+      </svg>
+    ),
+  },
+];
+
+function VisualsTab({ uploads, projects, onFiles, onUpdate, onRemove, onOpen }: {
+  uploads: Upload[]; projects: Project[];
+  onFiles: (f: FileList | null) => void; onUpdate: (id: string, patch: Partial<Upload>) => void;
+  onRemove: (id: string) => void; onOpen: (v: Visual) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="panel p-6">
+        <div className="eyebrow">CLIENT-TAILORED VISUALS</div>
+        <h3 className="text-lg font-semibold tracking-tight mt-1">Share the visuals behind the work.</h3>
+        <p className="text-sm text-mute mt-1 mb-5 max-w-xl">Upload the single-line diagrams, load profiles, and site photos prepared for this client — they appear here, tailored to the account.</p>
+        <UploadZone onFiles={onFiles} />
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {SAMPLE_VISUALS.map((v, i) => (
+          <button key={`s${i}`} onClick={() => onOpen({ title: v.title, node: v.node, tag: v.tag })} className="panel p-0 overflow-hidden text-left hover:border-power/40 transition-colors">
+            <div className="aspect-[4/3] bg-[#070b14] flex items-center justify-center overflow-hidden">{v.node}</div>
+            <div className="p-4">
+              <span className="pill pill-progress text-[10px]">{v.tag} · SAMPLE</span>
+              <div className="font-medium text-sm mt-2">{v.title}</div>
+            </div>
+          </button>
+        ))}
+        {uploads.map((u) => (
+          <div key={u.id} className="panel p-0 overflow-hidden">
+            <button onClick={() => onOpen({ title: u.title || "Untitled", src: u.src })} className="block w-full aspect-[4/3] bg-[#070b14] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={u.src} alt={u.title} className="w-full h-full object-contain" />
+            </button>
+            <div className="p-4 space-y-2">
+              <input value={u.title} onChange={(e) => onUpdate(u.id, { title: e.target.value })} placeholder="Add a caption…" className="w-full bg-transparent border-b border-line focus:border-power outline-none text-sm py-1 text-ghost" />
+              <div className="flex items-center gap-2">
+                <select value={u.project} onChange={(e) => onUpdate(u.id, { project: e.target.value })} className="flex-1 bg-[#0b1120] border border-line rounded-lg px-2 py-1.5 text-xs text-mute outline-none focus:border-power/50">
+                  <option value="">No project</option>
+                  {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <button onClick={() => onRemove(u.id)} className="p-2 rounded-lg border border-line text-faint hover:text-flag hover:border-flag/40 transition-colors" aria-label="Remove"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="text-[11px] text-faint leading-relaxed">
+        Preview only — uploads stay in this browser session and aren&apos;t saved. In a live deployment, visuals are delivered to the client via authenticated storage. Share only assets you have the rights to use.
+      </div>
+    </div>
+  );
+}
+
+function UploadZone({ onFiles }: { onFiles: (f: FileList | null) => void }) {
+  const [drag, setDrag] = useState(false);
+  return (
+    <label
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); onFiles(e.dataTransfer.files); }}
+      className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-10 cursor-pointer transition ${drag ? "border-power bg-power/5" : "border-line hover:border-power/40"}`}
+    >
+      <UploadCloud className={`w-7 h-7 ${drag ? "text-power" : "text-mute"}`} />
+      <div className="text-sm text-ghost">Drop images here, or <span className="text-power">browse</span></div>
+      <div className="data text-[10px] text-faint">PNG · JPG · SVG — single-lines, load profiles, site photos</div>
+      <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
+    </label>
+  );
+}
+
+function Lightbox({ visual, onClose }: { visual: Visual; onClose: () => void }) {
+  return (
+    <motion.div className="fixed inset-0 z-[120] bg-black/85 flex items-center justify-center p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} transition={{ ease: [0.23, 1, 0.32, 1], duration: 0.22 }} className="panel max-w-4xl w-full max-h-[88vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-line sticky top-0 bg-panel">
+          <div className="flex items-center gap-2">
+            {visual.tag && <span className="pill pill-progress text-[10px]">{visual.tag}</span>}
+            <span className="font-medium text-sm">{visual.title}</span>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg border border-line text-mute hover:bg-white/5" aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="p-5 flex items-center justify-center bg-[#070b14]">
+          {visual.src
+            ? // eslint-disable-next-line @next/next/no-img-element
+              <img src={visual.src} alt={visual.title} className="max-w-full max-h-[70vh] object-contain" />
+            : <div className="w-full max-w-2xl">{visual.node}</div>}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
