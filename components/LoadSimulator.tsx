@@ -374,7 +374,20 @@ export function LoadSimulator() {
           operator publishes live GPU telemetry, so on a real deployment this monitor
           streams your cluster&apos;s actual data instead.
         </p>
-        <button onClick={() => openAudit("ems-simulator")} className="btn-secondary px-4 py-2 rounded-lg text-sm shrink-0">
+        <button
+          onClick={() =>
+            openAudit("ems-simulator", {
+              capacityMW: loadMW,
+              renewablePct: renewPct,
+              scenario: SCENARIOS.find((s) => s.id === scenarioId)?.label ?? scenarioId,
+              service: "Commissioning & EMS Tuning",
+              summary: `Modeled a ${loadMW} MW load on the "${
+                SCENARIOS.find((s) => s.id === scenarioId)?.label ?? scenarioId
+              }" workload at ~${renewPct}% renewable. Want to run the EMS against our real load profile.`,
+            })
+          }
+          className="btn-secondary px-4 py-2 rounded-lg text-sm shrink-0"
+        >
           Run it on my load profile →
         </button>
       </div>

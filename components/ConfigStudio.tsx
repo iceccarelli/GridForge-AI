@@ -123,7 +123,18 @@ export function ConfigStudio() {
         <p className="text-xs text-faint">
           Variant selected by capacity envelope; mix adapts to your inputs.
         </p>
-        <button onClick={() => openAudit("configurator")} className="btn-primary px-4 py-2 rounded-lg text-sm">
+        <button
+          onClick={() =>
+            openAudit("configurator", {
+              capacityMW: mw,
+              firmPct,
+              fuel,
+              service: "Integration Design & Engineering",
+              summary: `Configured a ${mw} MW reference system: ${result.mix}. Variant: ${result.variant.name}, ${result.phases} phase(s). Want this scoped for our site.`,
+            })
+          }
+          className="btn-primary px-4 py-2 rounded-lg text-sm"
+        >
           Get this configuration scoped →
         </button>
       </div>
