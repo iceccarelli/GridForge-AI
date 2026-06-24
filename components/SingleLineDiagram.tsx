@@ -301,7 +301,17 @@ export function SingleLineDiagram() {
           from industry studies (McKinsey, IDC, Gartner). A Feasibility Study produces the
           bankable single-line and ratings for your site.
         </p>
-        <button onClick={() => openAudit("single-line")} className="btn-primary px-4 py-2 rounded-lg text-sm shrink-0">
+        <button
+          onClick={() =>
+            openAudit("single-line", {
+              service: "Integration Design & Engineering",
+              summary: `Reviewing the single-line reference design (was on "${
+                SCENES[scene]?.title ?? "the walkthrough"
+              }"). Want a bankable single-line and equipment ratings for our site.`,
+            })
+          }
+          className="btn-primary px-4 py-2 rounded-lg text-sm shrink-0"
+        >
           Scope this for my site →
         </button>
       </div>

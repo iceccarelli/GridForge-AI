@@ -118,7 +118,18 @@ export function TimeToPowerComparator() {
           is a planning timeline, not a guarantee — a Power Audit replaces it with
           a defensible date for your site.
         </p>
-        <button onClick={() => openAudit("comparator")} className="btn-primary px-4 py-2 rounded-lg text-sm">
+        <button
+          onClick={() =>
+            openAudit("comparator", {
+              capacityMW: mw,
+              service: "Feasibility Study & Financial Model",
+              summary: `Time-to-power model: ${mw} MW, grid queue at ${queueMonths} months vs ~${m.onSite} months on-site — ${m.saved} months saved, ~$${Math.round(
+                m.revAtRisk / 1_000_000
+              )}M revenue at risk. Want this validated against our real interconnection position.`,
+            })
+          }
+          className="btn-primary px-4 py-2 rounded-lg text-sm"
+        >
           Pressure-test my timeline →
         </button>
       </div>

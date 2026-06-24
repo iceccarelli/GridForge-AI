@@ -54,12 +54,16 @@ async function persist(record: LeadRecord): Promise<void> {
     console.log("[GridForge] lead (not persisted — Supabase unset):", JSON.stringify(record));
     return;
   }
+  // New secret keys (sb_secret_…) go on apikey only; legacy service_role JWTs
+  // also need the Bearer header to elevate past RLS.
+  const auth: Record<string, string> = key.startsWith("sb_secret_")
+    ? { apikey: key }
+    : { apikey: key, Authorization: `Bearer ${key}` };
   try {
     const res = await fetch(`${url}/rest/v1/leads`, {
       method: "POST",
       headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
+        ...auth,
         "Content-Type": "application/json",
         Prefer: "return=minimal",
       },

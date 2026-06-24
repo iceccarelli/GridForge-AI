@@ -82,10 +82,13 @@ function sb() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return {
-    url,
-    headers: { apikey: key, Authorization: `Bearer ${key}` } as Record<string, string>,
-  };
+  // New secret keys (sb_secret_…) are NOT JWTs and must be sent ONLY on the
+  // apikey header — sending them as a Bearer token returns 401. Legacy
+  // service_role JWTs need the Bearer header to elevate the Postgres role.
+  const headers: Record<string, string> = key.startsWith("sb_secret_")
+    ? { apikey: key }
+    : { apikey: key, Authorization: `Bearer ${key}` };
+  return { url, headers };
 }
 
 export function supabaseConfigured(): boolean {
