@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { scoreLead, type LeadInput } from "@/lib/lead";
+import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
+import { extractLead } from "@/lib/extract";
 
 export const runtime = "nodejs";
-
-// GridForge scoping agent. Powered by Claude, grounded in REF-01 (hybrid BTM
-// microgrid) engineering. Gives DIRECTIONAL feasibility reads only — never a
-// bankable number for free (that's the paid Audit). Can qualify a prospect
-// mid-conversation using the same scoreLead() as the audit form.
 
 const SYSTEM = `You are the GridForge AI scoping engineer — a senior power-systems engineer for behind-the-meter (BTM) power serving AI data centers. You speak with data-center developers, neocloud operators, and hyperscaler procurement.
 
@@ -26,14 +22,29 @@ ENGAGEMENTS (this is what they buy)
 
 HOW YOU HELP (max value, honest boundary)
 - Give genuine DIRECTIONAL first-pass reads: rough sizing logic, queue-bypass options, BTM-vs-grid tradeoffs, whether their situation looks viable. Real engineering value — this is what makes them choose GridForge over a contact form.
-- NEVER give a bankable number, guaranteed LCOE/IRR, or a final design for free. That's the paid Audit/Feasibility. Say so plainly: "a directional read is free; the bankable model is the paid Feasibility."
-- Be concise, technical, and honest. If BTM is the wrong answer for their case, say so — that honesty is the brand.
-- Always move toward a next step: collect site details (MW, location, timeline, grid status) and route them to the right engagement.
-
-CONVERSATION GOAL
-Collect, naturally: approximate MW, location, timeline (immediate / this quarter / exploratory), interconnection status (in queue / study phase / offer received / no application yet), and which service fits. Once you have MW + timeline + grid status, tell them you can qualify their site and recommend the entry engagement.
+- NEVER give a bankable number, guaranteed LCOE/IRR, or a final design for free. That's the paid Audit/Feasibility. Say so plainly.
+- Be concise, technical, honest. If BTM is the wrong answer, say so — that honesty is the brand.
+- Always move toward a next step: collect site details (MW, location, timeline, grid status) and route to the right engagement. Once you have MW + timeline + grid status, tell them you can qualify their site and recommend the entry engagement, and ask for their name, company, and work email so the team can follow up.
 
 Keep replies short (2–4 sentences usually). You are an engineer, not a marketer.`;
+
+async function persistLead(record: Record<string, unknown>): Promise<void> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return;
+  const auth: Record<string, string> = key.startsWith("sb_secret_")
+    ? { apikey: key }
+    : { apikey: key, Authorization: `Bearer ${key}` };
+  try {
+    await fetch(`${url}/rest/v1/leads`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify(record),
+    });
+  } catch (err) {
+    console.error("[GridForge] agent lead persist error:", err);
+  }
+}
 
 export async function POST(req: Request) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -41,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Agent not configured" }, { status: 503 });
   }
 
-  let body: { messages?: { role: "user" | "assistant"; content: string }[] } = {};
+  let body: { messages?: { role: "user" | "assistant"; content: string }[]; captured?: boolean } = {};
   try {
     body = await req.json();
   } catch {
@@ -54,6 +65,8 @@ export async function POST(req: Request) {
 
   const anthropic = new Anthropic({ apiKey: key });
 
+  // 1) Generate the engineer's reply
+  let reply = "";
   try {
     const resp = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -61,15 +74,49 @@ export async function POST(req: Request) {
       system: SYSTEM,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     });
-
-    const text = resp.content
-      .map((b) => (b.type === "text" ? b.text : ""))
-      .filter(Boolean)
-      .join("\n");
-
-    return NextResponse.json({ ok: true, reply: text });
+    reply = resp.content.map((b) => (b.type === "text" ? b.text : "")).filter(Boolean).join("\n");
   } catch (err) {
     console.error("[GridForge] chat agent error:", err);
     return NextResponse.json({ ok: false, error: "Agent unavailable" }, { status: 500 });
   }
+
+  // 2) Try to qualify + capture (only after enough turns, only once per session)
+  let lead: { tier: string; score: number; captured: boolean } | null = null;
+  if (messages.length >= 3 && !body.captured) {
+    const extracted = await extractLead(messages, key);
+    if (extracted) {
+      const input: LeadInput = {
+        capacity: extracted.capacity,
+        location: extracted.location || "Not specified",
+        urgency: extracted.urgency,
+        gridStatus: extracted.gridStatus,
+        services: extracted.services.length ? extracted.services : ["Not sure yet — need a recommendation"],
+        message: extracted.message || "Captured via scoping agent",
+        name: extracted.name || "Scoping-agent prospect",
+        company: extracted.company || "Unknown (via agent)",
+        email: extracted.email || "no-email@scoping-agent.local",
+      };
+      const { score, tier, reasons } = scoreLead(input);
+      await persistLead({
+        name: input.name,
+        company: input.company,
+        email: input.email,
+        location: input.location,
+        capacity_mw: parseCapacityMW(input.capacity),
+        urgency: input.urgency,
+        grid_status: input.gridStatus,
+        services: input.services,
+        message: input.message,
+        context: "scoping-agent",
+        source: "scoping-agent",
+        score,
+        tier,
+        reasons,
+        status: "new",
+      });
+      lead = { tier, score, captured: true };
+    }
+  }
+
+  return NextResponse.json({ ok: true, reply, lead });
 }

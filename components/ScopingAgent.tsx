@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Loader2 } from "lucide-react";
 import { openAudit } from "@/lib/ui";
+import { startDeposit } from "@/lib/checkout";
+import { ArrowRight } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -17,6 +19,8 @@ export function ScopingAgent() {
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [lead, setLead] = useState<{ tier: string; score: number } | null>(null);
+  const [captured, setCaptured] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,11 +38,15 @@ export function ScopingAgent() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.filter((m) => m !== GREETING) }),
+        body: JSON.stringify({ messages: next.filter((m) => m !== GREETING), captured }),
       });
       const data = await res.json();
       if (data.ok && data.reply) {
         setMessages([...next, { role: "assistant", content: data.reply }]);
+        if (data.lead && !captured) {
+          setLead({ tier: data.lead.tier, score: data.lead.score });
+          setCaptured(true);
+        }
       } else {
         setMessages([
           ...next,
@@ -104,6 +112,37 @@ export function ScopingAgent() {
             )}
           </div>
 
+          {lead && (
+            <div className="border-t border-line px-4 py-3 bg-power/[0.04]">
+              {lead.tier === "hot" ? (
+                <>
+                  <div className="data text-[10px] uppercase tracking-[0.12em] text-power mb-1.5">
+                    Your site qualifies · priority
+                  </div>
+                  <button
+                    onClick={() => startDeposit({ service: "Power Audit & Site Assessment", founding: true })}
+                    className="w-full rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all"
+                  >
+                    Reserve your engagement <ArrowRight size={14} />
+                  </button>
+                </>
+              ) : lead.tier === "warm" ? (
+                <button
+                  onClick={() => openAudit("scoping-agent")}
+                  className="w-full rounded-lg border border-power/50 text-power px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center gap-2 hover:bg-power/10 transition-all"
+                >
+                  Request your full audit <ArrowRight size={14} />
+                </button>
+              ) : (
+                <button
+                  onClick={() => openAudit("scoping-agent")}
+                  className="w-full rounded-lg border border-line text-mute px-4 py-2.5 text-sm font-medium hover:text-white hover:border-power/40 transition-all"
+                >
+                  Get a written assessment →
+                </button>
+              )}
+            </div>
+          )}
           <div className="border-t border-line p-3">
             <div className="flex items-end gap-2">
               <textarea
