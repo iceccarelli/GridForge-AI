@@ -13,7 +13,8 @@ import { NextResponse } from "next/server";
  */
 
 const URL = "https://api.energy-charts.info/public_power?country=de";
-export const revalidate = 900; // 15 minutes
+export const dynamic = "force-dynamic"; // never fetch upstream at build time
+export const revalidate = 900; // 15 minutes (request-time cache)
 
 type PT = { name: string; data: (number | null)[] };
 

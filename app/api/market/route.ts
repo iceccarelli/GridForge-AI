@@ -13,7 +13,8 @@ import { NextResponse } from "next/server";
  */
 
 const AWATTAR_DE = "https://api.awattar.de/v1/marketdata";
-export const revalidate = 1800; // 30 minutes
+export const dynamic = "force-dynamic"; // never fetch awattar at build time
+export const revalidate = 1800; // 30 minutes (request-time cache)
 
 type AwattarEntry = {
   start_timestamp: number;
