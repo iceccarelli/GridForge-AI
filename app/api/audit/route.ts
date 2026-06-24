@@ -153,7 +153,7 @@ async function notify(record: LeadRecord): Promise<void> {
           to: [to],
           reply_to: record.email,
           subject: `[${record.tier.toUpperCase()}] Audit — ${record.company} (${record.capacity})`,
-          text: `New audit request via gridforge.ai\n\n${lines}`,
+          text: `New audit request via timetopower.ai\n\n${lines}`,
         }),
       });
     } catch (err) {
@@ -161,6 +161,37 @@ async function notify(record: LeadRecord): Promise<void> {
     }
   }
 
+  // Confirmation email to the lead — closes the loop with a branded acknowledgment.
+  const realEmail =
+    record.email &&
+    record.email.includes("@") &&
+    !record.email.endsWith("@scoping-agent.local");
+  if (apiKey && realEmail) {
+    const hot = record.tier === "hot";
+    const nextSteps = hot
+      ? "Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nYou can reserve your Power Audit now \u2014 a fully-credited deposit secures senior engineering capacity, and the Founding Partner credit applies while slots remain:\nhttps://timetopower.ai/pricing"
+      : "We will review your site and respond within 1 business day.\n\nThe entry point is a Power Audit & Site Assessment (10\u201314 days): a clear go / no-go plus preliminary sizing. Details and pricing:\nhttps://timetopower.ai/pricing";
+    try {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          to: [record.email],
+          reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+          subject: `GridForge AI \u2014 audit request received (${record.capacity} site)`,
+          text:
+            `Thank you for your request.\n\n` +
+            `We received your submission for a ${record.capacity} site in ${record.location}.\n\n` +
+            `${nextSteps}\n\n` +
+            `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
+            `\u2014 GridForge AI\nIndependent \u00b7 physics-first behind-the-meter power for AI`,
+        }),
+      });
+    } catch (err) {
+      console.error("[GridForge] Lead confirmation Resend error:", err);
+    }
+  }
   // Slack: only ping for hot leads, so the channel stays signal not noise.
   const slack = process.env.SLACK_WEBHOOK_URL;
   if (slack && record.tier === "hot") {
