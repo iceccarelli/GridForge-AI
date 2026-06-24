@@ -417,7 +417,17 @@ export function SystemFlow() {
           ))}
         </div>
 
-        <button onClick={() => openAudit("system-flow")} className="btn-primary px-4 py-2 rounded-lg text-sm ml-auto shrink-0">
+        <button
+          onClick={() =>
+            openAudit("system-flow", {
+              service: "Commissioning & EMS Tuning",
+              summary: `Reviewing the EMS load-response flow (was on "${
+                STEPS[step]?.title ?? "the walkthrough"
+              }"). Want the dispatch logic and N+1 response designed and tuned for our site.`,
+            })
+          }
+          className="btn-primary px-4 py-2 rounded-lg text-sm ml-auto shrink-0"
+        >
           Design this for my site →
         </button>
       </div>
