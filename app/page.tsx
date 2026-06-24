@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
@@ -33,6 +34,7 @@ import {
   FAQ,
   SITE,
 } from "@/lib/site";
+import { POWER_BLOCKS } from "@/lib/catalog";
 
 const heroImages = [
   "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=2000&q=80",
@@ -383,6 +385,58 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ============== WHAT YOU CAN DEPLOY ============== */}
+      <section id="deploy" className="max-w-7xl mx-auto px-6 py-20">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+          <div className="max-w-xl">
+            <div className="eyebrow mb-3">MEGAWATTS IN MONTHS</div>
+            <h2 className="section-title">Power blocks you can deploy.</h2>
+          </div>
+          <p className="max-w-sm text-mute">
+            Productized behind-the-meter capacity, engineered to your site. Energized
+            in months while the interconnection queue says years.
+          </p>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+          {POWER_BLOCKS.map((b) => (
+            <div
+              key={b.id}
+              className={`panel panel-hover sweep p-6 flex flex-col ${
+                b.flagship ? "border-power/40" : ""
+              }`}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="data text-[10px] text-faint">{b.firmPct}% FIRM</div>
+                {b.flagship && <span className="pill pill-progress">MOST REQUESTED</span>}
+              </div>
+              <div className="text-3xl font-semibold text-power leading-none">
+                {b.capacityMW}
+                <span className="text-base"> MW</span>
+              </div>
+              <h3 className="text-base font-semibold tracking-tight mt-3 mb-2">{b.name}</h3>
+              <p className="text-ghost/75 text-[13px] leading-relaxed flex-1">{b.tagline}</p>
+              <div className="mt-5 pt-4 border-t border-line">
+                <div className="data text-[10px] text-faint mb-1">TIME TO ENERGIZED</div>
+                <div className="data text-sm text-queue">{b.leadTime}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-10 flex flex-wrap gap-3">
+          <Link
+            href="/infrastructure"
+            className="btn-primary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
+          >
+            See full specs &amp; configure <ArrowRight size={16} />
+          </Link>
+          <Link
+            href="/pricing"
+            className="btn-secondary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
+          >
+            Pricing &amp; reserve
+          </Link>
+        </div>
+      </section>
       {/* ============== HOW IT WORKS ============== */}
       <section id="how" className="max-w-5xl mx-auto px-6 py-20">
         <div className="max-w-2xl mb-10">
