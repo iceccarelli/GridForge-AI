@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { AuditModal } from "@/components/AuditModal";
+import { ScopingAgent } from "@/components/ScopingAgent";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -79,6 +80,7 @@ export default function RootLayout({
         <Navbar />
         <main>{children}</main>
         <Footer />
+        <ScopingAgent />
         <AuditModal />
         <Toaster position="top-center" theme="dark" richColors closeButton />
       </body>
