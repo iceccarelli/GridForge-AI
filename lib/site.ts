@@ -7,6 +7,17 @@
 // ============================================================================
 
 export const SITE = {
+  // Social profiles — fill in each URL as the account goes live.
+  // Leave as empty string to keep the footer icon inactive (renders, links to #).
+  social: {
+    linkedin: "",
+    x: "",
+    youtube: "",
+    medium: "",
+    bluesky: "",
+    instagram: "",
+    facebook: "",
+  },
   name: "GridForge AI",
   tagline: "Speed to Power for AI Data Centers",
   email: "power@gridforge.ai",
