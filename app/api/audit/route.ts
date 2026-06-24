@@ -8,8 +8,8 @@ export const runtime = "nodejs";
 //   • persists to Supabase if SUPABASE_* env vars are set, and
 //   • notifies via Resend / Slack for hot leads if configured.
 // If nothing is configured it logs server-side and still returns ok, so the
-// UX never silently fails. NEXT_PUBLIC_FORMSPREE_ID remains the simplest path
-// and bypasses this route entirely.
+// UX never silently fails. The form ALWAYS posts here; Formspree (if set) is a
+// redundant server-side forward, not a bypass.
 export async function POST(req: Request) {
   let raw: unknown;
   try {
