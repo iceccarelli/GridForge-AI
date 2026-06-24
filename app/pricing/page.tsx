@@ -6,6 +6,8 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { SERVICES, PACKAGES, SITE } from "@/lib/site";
 import { openAudit } from "@/lib/ui";
+import { startDeposit } from "@/lib/checkout";
+import { COMMERCE, foundingSlotsRemaining, eur } from "@/lib/commerce";
 
 const TIERS = PACKAGES.map((pkg) => {
   const svc = SERVICES.find((s) => s.title === pkg.tier);
@@ -98,6 +100,40 @@ export default function PricingPage() {
             <span>Independent · vendor-neutral</span>
             <span>Physics-first · bankable models</span>
             <span>{SITE.baseLocation}</span>
+          </div>
+
+          <div className="mt-16 rounded-[var(--radius)] border border-power/30 bg-power/[0.04] p-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="max-w-xl">
+                <div className="eyebrow text-power mb-2">Reserve your engagement</div>
+                <h3 className="text-2xl font-semibold tracking-tight">
+                  {eur(COMMERCE.deposit.amountCents)} deposit to start
+                </h3>
+                <p className="text-mute text-[14px] leading-relaxed mt-2">
+                  {COMMERCE.deposit.description}
+                </p>
+                {COMMERCE.founding.enabled && foundingSlotsRemaining() > 0 && (
+                  <p className="data text-xs text-queue mt-3">
+                    Founding Partner: {eur(COMMERCE.founding.creditCents)} credit ·{" "}
+                    {foundingSlotsRemaining()} of {COMMERCE.founding.totalSlots} slots remaining
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() =>
+                  startDeposit({
+                    service: "Power Audit & Site Assessment",
+                    founding: COMMERCE.founding.enabled && foundingSlotsRemaining() > 0,
+                  })
+                }
+                className="shrink-0 rounded-lg bg-power text-ink px-6 py-3.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/90 transition-all"
+              >
+                Reserve — pay deposit <ArrowRight size={15} />
+              </button>
+            </div>
+            <p className="data text-[11px] text-faint mt-4">
+              Secure payment via Stripe · fully credited against your engagement · refundable if we decline the project.
+            </p>
           </div>
 
           <div className="mt-16 rounded-[var(--radius)] border border-line bg-panel p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
