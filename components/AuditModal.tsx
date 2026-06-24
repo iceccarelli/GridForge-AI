@@ -117,11 +117,8 @@ export function AuditModal() {
       capacityMW: parseCapacityMW(data.capacity),
       prefill: prefill ?? null,
     };
-    const formspreeId = process.env.NEXT_PUBLIC_FORMSPREE_ID;
-
     try {
-      const endpoint = formspreeId ? `https://formspree.io/f/${formspreeId}` : "/api/audit";
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),

@@ -40,10 +40,40 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
 
-  await Promise.allSettled([persist(record), notify(record)]);
+  await Promise.allSettled([persist(record), notify(record), forwardFormspree(record)]);
 
   // Don't leak internal scoring to the client.
   return NextResponse.json({ ok: true, tier });
+}
+
+// --- Optional Formspree forward (redundant email/archive; never the primary
+// path). Reads either a dedicated server var or your existing public id, so
+// submissions keep reaching Formspree without bypassing Supabase/scoring. -----
+async function forwardFormspree(record: LeadRecord): Promise<void> {
+  const id = process.env.FORMSPREE_FORWARD_ID || process.env.NEXT_PUBLIC_FORMSPREE_ID;
+  if (!id) return;
+  try {
+    await fetch(`https://formspree.io/f/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        name: record.name,
+        company: record.company,
+        email: record.email,
+        location: record.location,
+        capacity: record.capacity,
+        urgency: record.urgency,
+        gridStatus: record.gridStatus,
+        services: record.services.join(", "),
+        tier: record.tier,
+        score: record.score,
+        source: record.context,
+        message: record.message,
+      }),
+    });
+  } catch (err) {
+    console.error("[GridForge] Formspree forward error:", err);
+  }
 }
 
 // --- Persistence (Supabase REST; no SDK dependency needed) -------------------
