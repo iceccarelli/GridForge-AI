@@ -10,6 +10,7 @@ import { openAudit } from "@/lib/ui";
 const navLinks = [
   { href: "#problem", label: "Problem" },
   { href: "#services", label: "Services" },
+  { href: "pricing", label: "Pricing" },
   { href: "#architectures", label: "Architectures" },
   { href: "#technology", label: "Technology" },
   { href: "#about", label: "About" },
