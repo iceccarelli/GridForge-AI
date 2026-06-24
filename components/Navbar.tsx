@@ -10,8 +10,8 @@ import { openAudit } from "@/lib/ui";
 const navLinks = [
   { href: "#problem", label: "Problem" },
   { href: "#services", label: "Services" },
-  { href: "infrastructure", label: "Infrastructure" },
-  { href: "pricing", label: "Pricing" },
+  { href: "/infrastructure", label: "Infrastructure", route: true },
+  { href: "/pricing", label: "Pricing", route: true },
   { href: "#architectures", label: "Architectures" },
   { href: "#technology", label: "Technology" },
   { href: "#about", label: "About" },
@@ -31,6 +31,10 @@ export function Navbar() {
 
   const scrollTo = (href: string) => {
     setIsOpen(false);
+    if (href.startsWith("/")) {
+      window.location.href = href;
+      return;
+    }
     if (href.startsWith("#")) {
       const el = document.querySelector(href);
       if (el) {
@@ -64,15 +68,25 @@ export function Navbar() {
           </Link>
 
           <div className="hidden lg:flex items-center gap-8 text-sm font-medium">
-            {navLinks.map((link) => (
-              <button
-                key={link.href}
-                onClick={() => scrollTo(link.href)}
-                className="text-mute hover:text-white transition-colors"
-              >
-                {link.label}
-              </button>
-            ))}
+            {navLinks.map((link) =>
+              "route" in link && link.route ? (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-mute hover:text-white transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <button
+                  key={link.href}
+                  onClick={() => scrollTo(link.href)}
+                  className="text-mute hover:text-white transition-colors"
+                >
+                  {link.label}
+                </button>
+              )
+            )}
           </div>
 
           <div className="hidden lg:flex items-center gap-3">
