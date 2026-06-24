@@ -114,6 +114,35 @@ export async function POST(req: Request) {
         reasons,
         status: "new",
       });
+      // Send the lead a branded confirmation (agent path mirrors the form path)
+      const rkey = process.env.RESEND_API_KEY;
+      const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <power@timetopower.ai>";
+      const leadEmail = extracted.email;
+      if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
+        const hot = tier === "hot";
+        const next = hot
+          ? "Your site qualifies as a priority engagement. We will respond within 1 business day. Reserve your Power Audit now: https://timetopower.ai/pricing"
+          : "We will review your site and respond within 1 business day. Start with a Power Audit: https://timetopower.ai/pricing";
+        try {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${rkey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from,
+              to: [leadEmail],
+              reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+              subject: `GridForge AI \u2014 your ${extracted.capacity} site scoping`,
+              text:
+                `Thank you for scoping your site with our engineer.\n\n` +
+                `${next}\n\n` +
+                `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
+                `\u2014 GridForge AI`,
+            }),
+          });
+        } catch (err) {
+          console.error("[GridForge] agent lead confirmation error:", err);
+        }
+      }
       lead = { tier, score, captured: true };
     }
   }
