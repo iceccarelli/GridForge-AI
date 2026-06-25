@@ -8,7 +8,7 @@ import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
 import { snapshotFor, asOfLabel } from "@/lib/queue-data";
-import { Loader2, LogOut, Send, Download } from "lucide-react";
+import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 
 type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
@@ -100,6 +100,7 @@ function ProvBadge({ p }: { p: string }) {
 function Intelligence({ email }: { email: string }) {
   const m = useMarket();
   const q = useQueue();
+  const [refreshKey, setRefreshKey] = useState(0);
   const fmt = (n: number | null, s = "") => n === null ? "--" : n.toLocaleString("en-IE", { maximumFractionDigits: 1 }) + s;
 
   // Live EPEX overwrites the DE row's modeled cost/renewables.
@@ -167,8 +168,11 @@ function Intelligence({ email }: { email: string }) {
         ))}
       </div>
 
+      {/* Saved scenarios comparison */}
+      <SavedScenarios email={email} refreshKey={refreshKey} />
+
       {/* Cost-of-delay calculator — the core hook */}
-      <DelayCalculator />
+      <DelayCalculator email={email} onSaved={() => setRefreshKey((k) => k + 1)} />
 
       {/* AI siting analyst */}
       <SitingAnalyst email={email} />
@@ -176,7 +180,55 @@ function Intelligence({ email }: { email: string }) {
   );
 }
 
-function DelayCalculator() {
+type Scenario = { id: string; name: string; mw: number; region_id: string; value_per_mw_month: number; months_saved: number; avoided_eur: number };
+
+function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: number }) {
+  const [rows, setRows] = useState<Scenario[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    fetch("/api/scenarios?email=" + encodeURIComponent(email))
+      .then((r) => r.json())
+      .then((j) => { if (on) { setRows(j.scenarios || []); setLoaded(true); } })
+      .catch(() => { if (on) setLoaded(true); });
+    return () => { on = false; };
+  }, [email, refreshKey]);
+
+  async function remove(id: string) {
+    setRows((rs) => rs.filter((r) => r.id !== id));
+    await fetch("/api/scenarios?email=" + encodeURIComponent(email) + "&id=" + encodeURIComponent(id), { method: "DELETE" });
+  }
+
+  if (!loaded || rows.length === 0) return null;
+  const best = Math.max(...rows.map((r) => r.avoided_eur));
+
+  return (
+    <div className="rounded-[var(--radius)] border border-line bg-panel p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="eyebrow text-power mb-1">Your scenarios</div>
+          <h2 className="text-lg font-semibold tracking-tight">Saved sites — compared</h2>
+        </div>
+        <div className="data text-[10px] text-faint">{rows.length} saved</div>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {rows.map((r) => (
+          <div key={r.id} className={`rounded-lg border p-4 ${r.avoided_eur === best ? "border-power/40 bg-power/[0.04]" : "border-line bg-ink"}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-medium text-white text-sm">{r.name}</div>
+              <button onClick={() => remove(r.id)} className="data text-[10px] text-faint hover:text-red-400 shrink-0">remove</button>
+            </div>
+            <div className="text-2xl font-semibold text-power tracking-tight mt-2">{eurCompact(r.avoided_eur)}</div>
+            <div className="data text-[10px] text-faint mt-1">{r.months_saved} months sooner{r.avoided_eur === best ? " · best" : ""}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => void }) {
   const [mw, setMw] = useState(100);
   const [valuePerMwMonth, setVpm] = useState(25000);
   const ranked = [...SITING_REGIONS].map((r) => ({ ...r, score: sitingScore(r) })).sort((a, b) => b.score - a.score);
@@ -184,6 +236,32 @@ function DelayCalculator() {
   const region = ranked.find((r) => r.id === regionId) ?? ranked[0];
   const d = costOfDelay(mw, region, valuePerMwMonth);
   const pct = d.queueCostEur > 0 ? (d.btmCostEur / d.queueCostEur) * 100 : 0;
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  async function saveScenario() {
+    setSaving(true);
+    setSavedMsg("");
+    try {
+      const res = await fetch("/api/scenarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          name: region.region + " · " + mw + " MW",
+          mw,
+          regionId: region.id,
+          valuePerMwMonth,
+          monthsSaved: d.monthsSaved,
+          avoidedEur: d.avoidedEur,
+        }),
+      });
+      const j = await res.json();
+      if (j.ok) { setSavedMsg("Saved"); onSaved(); }
+      else setSavedMsg("Could not save");
+    } catch { setSavedMsg("Could not save"); }
+    finally { setSaving(false); setTimeout(() => setSavedMsg(""), 2500); }
+  }
 
   return (
     <div className="rounded-[var(--radius)] border border-line bg-panel p-6">
@@ -231,9 +309,15 @@ function DelayCalculator() {
           </div>
         </div>
       </div>
-      <button onClick={() => generateSitingBrief({ mw, region, valuePerMwMonth })} className="mt-5 rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
-        <Download size={14} /> Download board brief (PDF)
-      </button>
+      <div className="mt-5 flex flex-wrap gap-3 items-center">
+        <button onClick={() => generateSitingBrief({ mw, region, valuePerMwMonth })} className="rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
+          <Download size={14} /> Download board brief (PDF)
+        </button>
+        <button onClick={saveScenario} disabled={saving} className="rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50 hover:bg-power/90 transition-all">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Save scenario</>}
+        </button>
+        {savedMsg && <span className="data text-[11px] text-power">{savedMsg}</span>}
+      </div>
       <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a paid Audit confirms site-specific figures.</p>
     </div>
   );
