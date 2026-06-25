@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
+import { DelayDemo } from "@/components/DelayDemo";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 
 export default function IntelligencePage() {
@@ -47,6 +48,10 @@ export default function IntelligencePage() {
               interconnection-queue insight, and fastest-to-energize scoring across regions.
               The intelligence layer for teams racing to power AI.
             </p>
+          </div>
+
+          <div className="mt-12">
+            <DelayDemo />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-14">
