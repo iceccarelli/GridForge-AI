@@ -7,7 +7,8 @@ import { Navbar } from "@/components/Navbar";
 import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
-import { Loader2, LogOut, Send } from "lucide-react";
+import { Loader2, LogOut, Send, Download } from "lucide-react";
+import { generateSitingBrief } from "@/lib/brief";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -211,6 +212,9 @@ function DelayCalculator() {
           </div>
         </div>
       </div>
+      <button onClick={() => generateSitingBrief({ mw, region, valuePerMwMonth })} className="mt-5 rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
+        <Download size={14} /> Download board brief (PDF)
+      </button>
       <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a paid Audit confirms site-specific figures.</p>
     </div>
   );
