@@ -7,8 +7,25 @@ import { Navbar } from "@/components/Navbar";
 import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
+import { snapshotFor, asOfLabel } from "@/lib/queue-data";
 import { Loader2, LogOut, Send, Download } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
+
+type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
+
+function useQueue() {
+  const [live, setLive] = useState<QueueLive>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let on = true;
+    fetch("/api/queue")
+      .then((r) => r.json())
+      .then((j) => { if (on) { setLive(j?.live ?? null); setLoaded(true); } })
+      .catch(() => { if (on) setLoaded(true); });
+    return () => { on = false; };
+  }, []);
+  return { live, loaded };
+}
 
 export default function AccountPage() {
   const router = useRouter();
@@ -82,6 +99,7 @@ function ProvBadge({ p }: { p: string }) {
 
 function Intelligence({ email }: { email: string }) {
   const m = useMarket();
+  const q = useQueue();
   const fmt = (n: number | null, s = "") => n === null ? "--" : n.toLocaleString("en-IE", { maximumFractionDigits: 1 }) + s;
 
   // Live EPEX overwrites the DE row's modeled cost/renewables.
@@ -130,6 +148,7 @@ function Intelligence({ email }: { email: string }) {
           </table>
         </div>
         <p className="data text-[10px] text-faint mt-2">Score weights speed-to-power (BTM), cost, and queue congestion. Queue = est. interconnection wait; BTM = GridForge time-to-energized. Modeled figures are documented estimates, not bankable.</p>
+        <p className="data text-[10px] text-faint mt-1">Queue figures: latest published ISO reports (ERCOT GIS, PJM, MISO, SPP){q.live ? " · live US grid demand " + q.live.value.toLocaleString() + " MW (" + q.live.source + ")" : ""}.</p>
       </div>
 
       {/* Live EPEX strip */}
