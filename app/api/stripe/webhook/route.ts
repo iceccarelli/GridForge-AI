@@ -30,12 +30,100 @@ export async function POST(req: Request) {
     const company = (session.metadata?.company as string) || "";
     const amount = session.amount_total ?? 0;
 
-    // Mark the most recent matching lead deposit_paid (match by email, newest first).
-    await markDepositPaid({ email, company, amount, sessionId: session.id });
-    await notifyFounder({ email, company, amount });
+    const kind = (session.metadata?.kind as string) || "engagement_deposit";
+    if (kind === "intelligence_subscription") {
+      const plan = (session.metadata?.plan as string) || "unknown";
+      const customerId = typeof session.customer === "string" ? session.customer : "";
+      await recordSubscription({ email, plan, sessionId: session.id, customerId });
+      await notifySubscriber({ email, plan });
+    } else {
+      // Mark the most recent matching lead deposit_paid (match by email, newest first).
+      await markDepositPaid({ email, company, amount, sessionId: session.id });
+      await notifyFounder({ email, company, amount });
+    }
   }
 
   return NextResponse.json({ ok: true, received: true });
+}
+
+async function recordSubscription(p: {
+  email: string;
+  plan: string;
+  sessionId: string;
+  customerId: string;
+}): Promise<void> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key || !p.email) return;
+  const auth: Record<string, string> = key.startsWith("sb_secret_")
+    ? { apikey: key }
+    : { apikey: key, Authorization: `Bearer ${key}` };
+  try {
+    await fetch(
+      `${url}/rest/v1/subscriptions?email=eq.${encodeURIComponent(p.email)}&status=eq.active`,
+      {
+        method: "PATCH",
+        headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "superseded" }),
+      }
+    );
+    await fetch(`${url}/rest/v1/subscriptions`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({
+        email: p.email,
+        plan: p.plan,
+        status: "active",
+        stripe_session_id: p.sessionId,
+        stripe_customer_id: p.customerId,
+      }),
+    });
+  } catch (err) {
+    console.error("[GridForge] subscription record error:", err);
+  }
+}
+
+async function notifySubscriber(p: { email: string; plan: string }): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const to = process.env.LEAD_TO_EMAIL;
+  const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <power@timetopower.ai>";
+  if (!apiKey) return;
+  if (to) {
+    try {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject: `New Intelligence subscriber \u2014 ${p.plan} (${p.email})`,
+          text: `New GridForge Intelligence subscription.\n\nEmail: ${p.email}\nPlan: ${p.plan}`,
+        }),
+      });
+    } catch (err) {
+      console.error("[GridForge] subscriber notify error:", err);
+    }
+  }
+  if (p.email && p.email.includes("@")) {
+    try {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          to: [p.email],
+          reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+          subject: "Welcome to GridForge Intelligence",
+          text:
+            `Your ${p.plan} subscription is active.\n\n` +
+            `Sign in to your live dashboard: https://timetopower.ai/account/login\n\n` +
+            `\u2014 GridForge AI`,
+        }),
+      });
+    } catch (err) {
+      console.error("[GridForge] subscriber welcome error:", err);
+    }
+  }
 }
 
 async function markDepositPaid(p: {
