@@ -30,6 +30,75 @@ export function TimeToPower() {
   const [series, setSeries] = useState<Series | null>(null);
   const [current, setCurrent] = useState<number | null>(null);
 
+  // --- Autoplay scenario reel -------------------------------------------------
+  // Five critical buyer stories. The reel glides the four knobs to each target
+  // every 10s; because it calls the real setters, every bar + headline figure
+  // animates for free. Grabbing a knob pauses autoplay for 20s, then it resumes.
+  const SCENARIOS = useMemo(
+    () => [
+      { title: "Hyperscaler · Northern Virginia", sub: "PJM — the most congested grid on earth", mw: 200, queueYrs: 6.0, onsiteMo: 16, revPerMW: 2.4 },
+      { title: "Training cluster · Texas", sub: "ERCOT — deregulated, fast behind-the-meter", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
+      { title: "Sovereign AI · Germany", sub: "Live EPEX — bypass grid fees entirely", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
+      { title: "Inference fleet · Kansas", sub: "SPP — wind-rich, low cost, lighter queue", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
+      { title: "Your site · modeled by GridForge", sub: "This is what a Power Audit confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
+    ],
+    []
+  );
+  const [sceneIdx, setSceneIdx] = useState(0);
+  const [captionOn, setCaptionOn] = useState(true);
+  const pausedUntil = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  // Pause autoplay for 20s whenever the user interacts with a control.
+  const nudge = () => { pausedUntil.current = Date.now() + 20000; };
+
+  useEffect(() => {
+    const easeInOutCubic = (t: number) =>
+      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    let dwellTimer: ReturnType<typeof setTimeout>;
+
+    function glideTo(next: number) {
+      const from = SCENARIOS[sceneIdx];
+      const to = SCENARIOS[next];
+      const dur = 1600;
+      const t0 = performance.now();
+      setCaptionOn(false);
+      const step = (now: number) => {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = easeInOutCubic(p);
+        setMW(Math.round(from.mw + (to.mw - from.mw) * e));
+        setQueueYrs(Number((from.queueYrs + (to.queueYrs - from.queueYrs) * e).toFixed(1)));
+        setOnsiteMo(Math.round(from.onsiteMo + (to.onsiteMo - from.onsiteMo) * e));
+        setRevPerMW(Number((from.revPerMW + (to.revPerMW - from.revPerMW) * e).toFixed(1)));
+        if (p < 1) {
+          rafRef.current = requestAnimationFrame(step);
+        } else {
+          setSceneIdx(next);
+          setCaptionOn(true);
+        }
+      };
+      rafRef.current = requestAnimationFrame(step);
+    }
+
+    function schedule() {
+      dwellTimer = setTimeout(function tick() {
+        if (Date.now() < pausedUntil.current) {
+          dwellTimer = setTimeout(tick, 1000); // wait out the pause, re-check
+          return;
+        }
+        glideTo((sceneIdx + 1) % SCENARIOS.length);
+      }, 10000);
+    }
+    schedule();
+
+    return () => {
+      clearTimeout(dwellTimer);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [sceneIdx, SCENARIOS]);
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     let live = true;
     fetch("/api/market")
@@ -65,7 +134,11 @@ export function TimeToPower() {
       <div className="flex items-start justify-between gap-4 mb-6 relative">
         <div>
           <div className="eyebrow">FIG. 01 — TIME TO POWER</div>
-          <div className="text-sm text-mute mt-1">Application → energized · drag the knobs to model your site</div>
+          <div className="text-sm text-mute mt-1" style={{ opacity: captionOn ? 1 : 0.25, transition: "opacity 0.5s ease" }}>
+            <span className="text-power font-medium">{SCENARIOS[sceneIdx].title}</span>
+            <span className="mx-1.5 text-faint">·</span>
+            {SCENARIOS[sceneIdx].sub}
+          </div>
         </div>
         <LiveEpex series={series} current={current} />
       </div>
@@ -94,10 +167,26 @@ export function TimeToPower() {
 
       {/* Knobs */}
       <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4">
-        <Knob label="Capacity" value={mw} unit="MW" min={10} max={500} step={10} onChange={setMW} />
-        <Knob label="Queue wait" value={queueYrs} unit="yr" min={2} max={8} step={0.5} onChange={setQueueYrs} fixed={1} />
-        <Knob label="On-site time-to-power" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} />
-        <Knob label="Revenue / MW-yr" value={revPerMW} unit="$M" min={0.5} max={4} step={0.1} onChange={setRevPerMW} fixed={1} assumption />
+        <Knob label="Capacity" value={mw} unit="MW" min={10} max={500} step={10} onChange={setMW} onNudge={nudge} />
+        <Knob label="Queue wait" value={queueYrs} unit="yr" min={2} max={8} step={0.5} onChange={setQueueYrs} fixed={1} onNudge={nudge} />
+        <Knob label="On-site time-to-power" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
+        <Knob label="Revenue / MW-yr" value={revPerMW} unit="$M" min={0.5} max={4} step={0.1} onChange={setRevPerMW} fixed={1} assumption onNudge={nudge} />
+
+        {/* Scene dots — show the reel is alive and progressing */}
+        <div className="col-span-2 flex items-center justify-center gap-2 mt-1">
+          {SCENARIOS.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => { nudge(); setSceneIdx(i); }}
+              aria-label={"Scenario " + (i + 1)}
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: i === sceneIdx ? 22 : 6,
+                background: i === sceneIdx ? "var(--power, #38bdf8)" : "rgba(255,255,255,0.18)",
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Finance payoff */}
@@ -159,9 +248,9 @@ function Track({ label, sub, tone, fraction, markerLabel }: {
   );
 }
 
-function Knob({ label, value, unit, min, max, step, onChange, fixed = 0, assumption = false }: {
+function Knob({ label, value, unit, min, max, step, onChange, fixed = 0, assumption = false, onNudge }: {
   label: string; value: number; unit: string; min: number; max: number; step: number;
-  onChange: (v: number) => void; fixed?: number; assumption?: boolean;
+  onChange: (v: number) => void; fixed?: number; assumption?: boolean; onNudge?: () => void;
 }) {
   return (
     <label className="block">
@@ -176,7 +265,8 @@ function Knob({ label, value, unit, min, max, step, onChange, fixed = 0, assumpt
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerDown={onNudge}
+        onChange={(e) => { onNudge?.(); onChange(Number(e.target.value)); }}
         className="w-full accent-[#00E5FF] cursor-pointer"
         aria-label={label}
       />
