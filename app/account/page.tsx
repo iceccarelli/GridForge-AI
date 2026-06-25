@@ -238,6 +238,33 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
   const pct = d.queueCostEur > 0 ? (d.btmCostEur / d.queueCostEur) * 100 : 0;
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [showBrief, setShowBrief] = useState(false);
+  const [briefCompany, setBriefCompany] = useState("");
+
+  async function downloadBrief() {
+    generateSitingBrief({ mw, region, valuePerMwMonth, preparedFor: briefCompany || undefined });
+    setShowBrief(false);
+    // Log the brief as a lead in the existing funnel (best-effort).
+    try {
+      await fetch("/api/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          capacity: mw + " MW",
+          location: region.region,
+          urgency: "exploratory",
+          gridStatus: "unknown",
+          services: ["Power Audit & Site Assessment"],
+          message: "Generated a board brief for " + mw + " MW in " + region.region + " (" + eurCompact(d.avoidedEur) + " unlocked).",
+          name: "Intelligence subscriber",
+          company: briefCompany || "Intelligence subscriber",
+          email,
+          context: "intelligence-brief",
+        }),
+      });
+    } catch { /* non-blocking */ }
+    setBriefCompany("");
+  }
 
   async function saveScenario() {
     setSaving(true);
@@ -310,7 +337,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
         </div>
       </div>
       <div className="mt-5 flex flex-wrap gap-3 items-center">
-        <button onClick={() => generateSitingBrief({ mw, region, valuePerMwMonth })} className="rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
+        <button onClick={() => setShowBrief(true)} className="rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
           <Download size={14} /> Download board brief (PDF)
         </button>
         <button onClick={saveScenario} disabled={saving} className="rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50 hover:bg-power/90 transition-all">
@@ -319,6 +346,22 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
         {savedMsg && <span className="data text-[11px] text-power">{savedMsg}</span>}
       </div>
       <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a paid Audit confirms site-specific figures.</p>
+      {showBrief && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6" onClick={() => setShowBrief(false)}>
+          <div className="w-full max-w-md rounded-[var(--radius)] border border-line bg-panel p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="eyebrow text-power mb-2">Board brief</div>
+            <h3 className="text-lg font-semibold tracking-tight">Prepare your brief</h3>
+            <p className="text-mute text-[13px] mt-1 mb-4">We will brand the one-pager for your organization. Optional — leave blank for an unbranded brief.</p>
+            <input value={briefCompany} onChange={(e) => setBriefCompany(e.target.value)} placeholder="Company / organization" className="w-full bg-ink border border-line rounded-lg px-3.5 py-2.5 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
+            <div className="flex gap-3 mt-4">
+              <button onClick={downloadBrief} className="flex-1 rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all">
+                <Download size={14} /> Generate PDF
+              </button>
+              <button onClick={() => setShowBrief(false)} className="rounded-lg border border-line text-mute px-4 py-2.5 text-sm hover:text-white transition-all">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
