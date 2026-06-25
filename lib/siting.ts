@@ -75,3 +75,39 @@ export function sitingScore(r: SitingRegion): number {
   const queue = 100 - r.congestion;                       // less congested better
   return Math.round(speed * 0.45 + cost * 0.3 + queue * 0.25);
 }
+
+// --- Cost-of-delay: the core hook. Quantifies what the interconnection queue
+// costs vs. the BTM path, in euros. The per-MW-month value is the CUSTOMER's
+// own stranded-value assumption (default conservative, fully adjustable) — a
+// sophisticated buyer trusts a transparent model they can tune over a black box.
+export interface DelayResult {
+  monthsSaved: number;
+  avoidedEur: number;
+  queueCostEur: number;
+  btmCostEur: number;
+  valuePerMwMonth: number;
+}
+
+export function costOfDelay(
+  mw: number,
+  region: SitingRegion,
+  valuePerMwMonth = 25000
+): DelayResult {
+  const monthsSaved = Math.max(0, region.queueWaitMonths - region.btmMonths);
+  const queueCostEur = mw * valuePerMwMonth * region.queueWaitMonths;
+  const btmCostEur = mw * valuePerMwMonth * region.btmMonths;
+  return {
+    monthsSaved,
+    avoidedEur: mw * valuePerMwMonth * monthsSaved,
+    queueCostEur,
+    btmCostEur,
+    valuePerMwMonth,
+  };
+}
+
+export function eurCompact(n: number): string {
+  if (n >= 1e9) return "€" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "€" + (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return "€" + (n / 1e3).toFixed(0) + "K";
+  return "€" + Math.round(n).toLocaleString("en-IE");
+}
