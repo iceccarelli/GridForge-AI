@@ -17,8 +17,8 @@ const IMAGES = [
   "1558494949-ef010cbdcc31",
 ];
 
-const SRC = (id: string, w = 1920) =>
-  `https://images.unsplash.com/photo-${id}?w=${w}&q=70&auto=format&fit=crop`;
+const SRC = (id: string, w = 2560) =>
+  `https://images.unsplash.com/photo-${id}?w=${w}&q=85&auto=format&fit=crop`;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -41,36 +41,46 @@ export function BackgroundReel() {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     setIsMobile(window.matchMedia("(max-width: 768px)").matches);
     // Preload all images so crossfades never flash.
-    order.forEach((id) => { const img = new Image(); img.src = SRC(id); });
+    order.forEach((id) => { const img = new Image(); img.src = SRC(id, isMobile ? 1280 : 2560); });
     const t = setInterval(() => setIdx((i) => (i + 1) % order.length), HOLD_MS);
     return () => clearInterval(t);
   }, [order]);
 
+  const animate = !reduced && !isMobile;
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden bg-ink">
-      {order.map((id, i) => (
+      <style>{`
+        @keyframes bgKenBurns {
+          0%   { transform: scale(1.04) translate(0, 0); }
+          100% { transform: scale(1.20) translate(1.5%, -1.2%); }
+        }
+      `}</style>
+      {order.map((id, i) => {
+        const active = i === idx;
+        return (
         <div
           key={id}
           className="absolute inset-0"
           style={{
-            opacity: i === idx ? 1 : 0,
-            transition: "opacity 2200ms ease-in-out",
+            opacity: active ? 1 : 0,
+            transition: "opacity 1600ms ease-in-out",
           }}
         >
           <div
             className="absolute inset-0"
             style={{
-              backgroundImage: `url(${SRC(id, isMobile ? 900 : 1920)})`,
+              backgroundImage: `url(${SRC(id, isMobile ? 1280 : 2560)})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
               filter: "brightness(1.45) contrast(1.05) saturate(1.18)",
-              transform: i === idx && !reduced && !isMobile ? "scale(1.16)" : "scale(1.05)",
-              transition: (reduced || isMobile) ? "none" : "transform 11000ms ease-out",
+              transform: animate ? undefined : "scale(1.06)",
+              animation: animate && active ? "bgKenBurns 11000ms ease-out forwards" : undefined,
               willChange: "transform, opacity",
             }}
           />
         </div>
-      ))}
+        );
+      })}
       {/* Calibrated overlay: dark enough for crisp text, light enough that the
           imagery still reads. Slightly stronger at top/bottom for nav + footer. */}
       <div
