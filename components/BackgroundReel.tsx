@@ -20,6 +20,16 @@ const IMAGES = [
 const SRC = (id: string, w = 2560) =>
   `https://images.unsplash.com/photo-${id}?w=${w}&q=85&auto=format&fit=crop`;
 
+const PANS = [
+  { from: "scale(1.06) translate(0%, 0%)",     to: "scale(1.24) translate(-2.5%, -1.8%)" }, // push in, drift up-left
+  { from: "scale(1.20) translate(2%, 1.5%)",   to: "scale(1.05) translate(-1.5%, -1%)" },   // pull back, drift
+  { from: "scale(1.08) translate(-2%, 0%)",    to: "scale(1.22) translate(2.5%, -1.5%)" },  // pan left-to-right, zoom
+  { from: "scale(1.22) translate(0%, -2%)",    to: "scale(1.08) translate(1.5%, 2%)" },     // descend, pull back
+  { from: "scale(1.06) translate(1.5%, 1.5%)", to: "scale(1.22) translate(-2%, -2.5%)" },   // diagonal push
+  { from: "scale(1.18) translate(-1.5%, 1%)",  to: "scale(1.06) translate(2%, -1.5%)" },    // sweep right, settle
+];
+const EASE = "cubic-bezier(0.22, 0.61, 0.36, 1)"; // filmic ease-out
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -29,7 +39,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-const HOLD_MS = 9000; // time each image is shown before crossfade
+const HOLD_MS = 10000; // time each image is shown before crossfade
 
 export function BackgroundReel() {
   const order = useMemo(() => shuffle(IMAGES), []);
@@ -50,10 +60,12 @@ export function BackgroundReel() {
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden bg-ink">
       <style>{`
-        @keyframes bgKenBurns {
-          0%   { transform: scale(1.04) translate(0, 0); }
-          100% { transform: scale(1.20) translate(1.5%, -1.2%); }
-        }
+        ${[0,1,2,3,4,5].map((k) => `
+          @keyframes bgKB${k} {
+            0%   { transform: ${PANS[k].from}; }
+            100% { transform: ${PANS[k].to}; }
+          }
+        `).join("")}
       `}</style>
       {order.map((id, i) => {
         const active = i === idx;
@@ -73,8 +85,8 @@ export function BackgroundReel() {
               backgroundSize: "cover",
               backgroundPosition: "center",
               filter: "brightness(1.45) contrast(1.05) saturate(1.18)",
-              transform: animate ? undefined : "scale(1.06)",
-              animation: animate && active ? "bgKenBurns 11000ms ease-out forwards" : undefined,
+              transform: animate ? PANS[i % PANS.length].from : "scale(1.08)",
+              animation: animate && active ? `bgKB${i % PANS.length} 17000ms ${EASE} forwards` : undefined,
               willChange: "transform, opacity",
             }}
           />
