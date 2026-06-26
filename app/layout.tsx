@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BackgroundReel } from "@/components/BackgroundReel";
+import { MotionProvider } from "@/components/MotionProvider";
 import { AuditModal } from "@/components/AuditModal";
 import { ScopingAgent } from "@/components/ScopingAgent";
 
@@ -82,6 +83,7 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
       </head>
       <body className="font-sans antialiased text-ghost">
+        <MotionProvider>
         <Navbar />
         <BackgroundReel />
         <main className="relative">{children}</main>
@@ -89,6 +91,7 @@ export default function RootLayout({
         <ScopingAgent />
         <AuditModal />
         <Toaster position="top-center" theme="dark" richColors closeButton />
+        </MotionProvider>
       </body>
     </html>
   );

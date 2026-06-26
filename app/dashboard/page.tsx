@@ -7,7 +7,7 @@ import {
   Plus, MapPin, Zap, Gauge, X, Battery, Activity, DollarSign, Download,
   Image as ImageIcon, UploadCloud, Trash2,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -203,7 +203,7 @@ export default function Dashboard() {
           <div className="space-y-4">
             <MarketStrip market={market} />
             {projects.map((p) => (
-              <motion.div key={p.id} whileHover={{ y: -1 }} className="panel p-6 sm:p-7 flex flex-col lg:flex-row lg:items-center gap-7">
+              <m.div key={p.id} whileHover={{ y: -1 }} className="panel p-6 sm:p-7 flex flex-col lg:flex-row lg:items-center gap-7">
                 <div className="flex-1">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -226,7 +226,7 @@ export default function Dashboard() {
                     VIEW PROJECT <ArrowRight size={14} />
                   </button>
                 </div>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         )}
@@ -342,8 +342,8 @@ function ProjectDrawer({ project, market, onClose }: { project: Project; market:
 
   return (
     <>
-      <motion.div className="fixed inset-0 bg-black/60 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
-      <motion.div
+      <m.div className="fixed inset-0 bg-black/60 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <m.div
         className="fixed right-0 top-0 bottom-0 w-full max-w-2xl bg-[#080d18] border-l border-line z-50 overflow-y-auto"
         initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "tween", duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       >
@@ -422,7 +422,7 @@ function ProjectDrawer({ project, market, onClose }: { project: Project; market:
             A live deployment connects to your project&apos;s authenticated telemetry.
           </div>
         </div>
-      </motion.div>
+      </m.div>
     </>
   );
 }
@@ -430,8 +430,8 @@ function ProjectDrawer({ project, market, onClose }: { project: Project; market:
 function ReportDrawer({ report, onClose }: { report: (typeof reports)[number]; onClose: () => void }) {
   return (
     <>
-      <motion.div className="fixed inset-0 bg-black/60 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
-      <motion.div
+      <m.div className="fixed inset-0 bg-black/60 z-40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+      <m.div
         className="fixed right-0 top-0 bottom-0 w-full max-w-xl bg-[#080d18] border-l border-line z-50 overflow-y-auto"
         initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "tween", duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       >
@@ -462,7 +462,7 @@ function ReportDrawer({ report, onClose }: { report: (typeof reports)[number]; o
           </button>
           <div className="text-[10px] text-faint leading-relaxed">This is a sample report preview. Live accounts deliver the actual engineering deliverable via authenticated download.</div>
         </div>
-      </motion.div>
+      </m.div>
     </>
   );
 }
@@ -572,8 +572,8 @@ function UploadZone({ onFiles }: { onFiles: (f: FileList | null) => void }) {
 
 function Lightbox({ visual, onClose }: { visual: Visual; onClose: () => void }) {
   return (
-    <motion.div className="fixed inset-0 z-[120] bg-black/85 flex items-center justify-center p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} transition={{ ease: [0.23, 1, 0.32, 1], duration: 0.22 }} className="panel max-w-4xl w-full max-h-[88vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+    <m.div className="fixed inset-0 z-[120] bg-black/85 flex items-center justify-center p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <m.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} transition={{ ease: [0.23, 1, 0.32, 1], duration: 0.22 }} className="panel max-w-4xl w-full max-h-[88vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-line sticky top-0 bg-panel">
           <div className="flex items-center gap-2">
             {visual.tag && <span className="pill pill-progress text-[10px]">{visual.tag}</span>}
@@ -587,8 +587,8 @@ function Lightbox({ visual, onClose }: { visual: Visual; onClose: () => void }) 
               <img src={visual.src} alt={visual.title} className="max-w-full max-h-[70vh] object-contain" />
             : <div className="w-full max-w-2xl">{visual.node}</div>}
         </div>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }
 

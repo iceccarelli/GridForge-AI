@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { X, ArrowRight, ArrowLeft, ShieldCheck, Check, Gauge } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { AUDIT_EVENT, type AuditPrefill, type AuditOpenDetail } from "@/lib/ui";
 import {
@@ -139,14 +139,14 @@ export function AuditModal() {
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
+        <m.div
           className="fixed inset-0 z-[120] flex items-center justify-center bg-black/85 p-4"
           onClick={() => setIsOpen(false)}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 30, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -196,7 +196,7 @@ export function AuditModal() {
                     )}
                   </div>
                   <div className="h-1 rounded-full bg-line overflow-hidden">
-                    <motion.div
+                    <m.div
                       className="h-full bg-power"
                       initial={false}
                       animate={{ width: `${pct}%` }}
@@ -207,7 +207,7 @@ export function AuditModal() {
 
                 <form onSubmit={handleSubmit(onSubmit)} className="p-7 pt-5">
                   <AnimatePresence mode="wait">
-                    <motion.div
+                    <m.div
                       key={step}
                       initial={{ opacity: 0, x: 16 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -312,7 +312,7 @@ export function AuditModal() {
                           </div>
                         </>
                       )}
-                    </motion.div>
+                    </m.div>
                   </AnimatePresence>
 
                   {/* Nav */}
@@ -343,8 +343,8 @@ export function AuditModal() {
                 </form>
               </>
             )}
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

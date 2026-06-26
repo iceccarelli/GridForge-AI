@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
   Search,
@@ -109,7 +109,7 @@ export default function Home() {
           </div>
         </div>
 
-        <motion.a
+        <m.a
           href="#market"
           aria-label="Scroll"
           animate={{ y: [0, 7, 0] }}
@@ -117,7 +117,7 @@ export default function Home() {
           className="absolute bottom-7 left-1/2 -translate-x-1/2 text-faint hover:text-mute hidden sm:block"
         >
           <ChevronDown size={22} />
-        </motion.a>
+        </m.a>
       </section>
 
       {/* ============== MARKET REALITY ============== */}
@@ -644,7 +644,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
       </button>
       <AnimatePresence initial={false}>
         {open && (
-          <motion.div
+          <m.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -652,7 +652,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
             className="overflow-hidden"
           >
             <p className="text-mute leading-relaxed pt-3 pr-8">{a}</p>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

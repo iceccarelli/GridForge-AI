@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { COMPARATOR } from "@/lib/site";
 import { openAudit } from "@/lib/ui";
 
@@ -150,7 +150,7 @@ function Bar({
         <span className={`eyebrow ${tone === "queue" ? "eyebrow-queue" : ""} text-[10px]`}>{sub}</span>
       </div>
       <div className="relative h-9 rounded-lg bg-[#070b14] border border-line overflow-hidden">
-        <motion.div
+        <m.div
           className="absolute inset-y-0 left-0 rounded-lg"
           style={{
             background:

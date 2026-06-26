@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Menu, X, ArrowRight } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { openAudit } from "@/lib/ui";
 
@@ -117,7 +117,7 @@ export function Navbar() {
 
         <AnimatePresence>
           {isOpen && (
-            <motion.div
+            <m.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
@@ -154,7 +154,7 @@ export function Navbar() {
                   </button>
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
       </nav>
@@ -215,14 +215,14 @@ function LoginModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4"
       onClick={onClose}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      <motion.div
+      <m.div
         initial={{ opacity: 0, scale: 0.96, y: 18 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 18 }}
@@ -295,7 +295,7 @@ function LoginModal({ onClose }: { onClose: () => void }) {
             <span className="data text-power">demo2026</span>
           </p>
         </div>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }

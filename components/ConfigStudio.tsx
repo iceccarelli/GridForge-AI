@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { Boxes, Clock, Layers, Fuel } from "lucide-react";
 import { CONFIG_VARIANTS } from "@/lib/site";
 import { openAudit } from "@/lib/ui";
@@ -88,7 +88,7 @@ export function ConfigStudio() {
         {/* Output */}
         <div className="relative">
           <AnimatePresence mode="wait">
-            <motion.div
+            <m.div
               key={result.variant.code}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -114,7 +114,7 @@ export function ConfigStudio() {
                 cluster ramp. Indicative only — a Feasibility Study produces the
                 bankable sizing and economics.
               </p>
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         </div>
       </div>
