@@ -9,12 +9,12 @@ import { useEffect, useMemo, useState } from "react";
 // motion and depth behind, content always leading.
 
 const IMAGES = [
+  "1473341304170-971dccb5ac1e", // transmission truss towers
+  "1413882353314-73389f63b6fd", // transmission towers, dramatic sky
+  "1610028290816-5d937a395a49", // electric post at sunset (bright)
   "1639066648921-82d4500abf1a", // server racks, blue-lit
-  "1682559736721-c2e77ff4c650", // wires into a server
+  "1682559736721-c2e77ff4c650", // server wiring
   "1451187580459-43490279c0fa", // network / earth, blue-toned
-  "1736517323453-6aec5ed21947", // modern data center building
-  "1737524174470-6a5e3df3750b", // data center building, cool tone
-  "1666723342543-8d2f7e0e1a2e", // server hall, cyan
 ];
 
 const SRC = (id: string) =>
@@ -61,7 +61,7 @@ export function BackgroundReel() {
               backgroundImage: `url(${SRC(id)})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
-              filter: "brightness(1.3) contrast(1.06) saturate(1.15)",
+              filter: "brightness(1.45) contrast(1.05) saturate(1.18)",
               transform: i === idx && !reduced ? "scale(1.16)" : "scale(1.05)",
               transition: reduced ? "none" : "transform 11000ms ease-out",
               willChange: "transform, opacity",
@@ -75,7 +75,7 @@ export function BackgroundReel() {
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(180deg, rgba(6,9,18,0.80) 0%, rgba(6,9,18,0.42) 30%, rgba(6,9,18,0.40) 68%, rgba(6,9,18,0.82) 100%)",
+            "linear-gradient(180deg, rgba(6,9,18,0.74) 0%, rgba(6,9,18,0.30) 32%, rgba(6,9,18,0.28) 66%, rgba(6,9,18,0.78) 100%)",
         }}
       />
       {/* Faint brand tint for cohesion with the power-blue accent. */}
