@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { BackgroundReel } from "@/components/BackgroundReel";
 import { AuditModal } from "@/components/AuditModal";
 import { ScopingAgent } from "@/components/ScopingAgent";
 
@@ -76,9 +77,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`dark ${inter.variable} ${mono.variable}`}>
-      <body className="font-sans antialiased bg-ink text-ghost">
+      <body className="font-sans antialiased text-ghost">
         <Navbar />
-        <main>{children}</main>
+        <BackgroundReel />
+        <main className="relative">{children}</main>
         <Footer />
         <ScopingAgent />
         <AuditModal />
