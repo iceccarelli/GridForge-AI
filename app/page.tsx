@@ -15,6 +15,7 @@ import {
   Rocket,
 } from "lucide-react";
 import { openAudit } from "@/lib/ui";
+import { HeroReel } from "@/components/HeroReel";
 import { TimeToPower } from "@/components/TimeToPower";
 import { LoadSimulator } from "@/components/LoadSimulator";
 import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
@@ -54,11 +55,8 @@ export default function Home() {
       {/* ============== HERO ============== */}
       <section className="relative min-h-[100dvh] flex items-center pt-24 pb-16">
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-          {/* Global BackgroundReel shows through here. Light scrims only:
-              readable headline on the left, image breathes on the right. */}
-          <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/45 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-b from-ink/40 via-transparent to-ink/70" />
-          <div className="absolute inset-0 blueprint opacity-20" />
+          {/* Hero has its OWN power-grid reel, distinct from the site-wide data-center reel. */}
+          <HeroReel />
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 lg:gap-10 items-center w-full">
