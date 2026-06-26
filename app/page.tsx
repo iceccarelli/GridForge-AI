@@ -36,11 +36,6 @@ import {
 } from "@/lib/site";
 import { POWER_BLOCKS } from "@/lib/catalog";
 
-const heroImages = [
-  "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=2000&q=80",
-  "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=2000&q=80",
-  "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=2000&q=80",
-];
 
 const serviceIcons: Record<string, React.ElementType> = {
   search: Search,
@@ -50,15 +45,7 @@ const serviceIcons: Record<string, React.ElementType> = {
 };
 
 export default function Home() {
-  const [imgIndex, setImgIndex] = useState(0);
 
-  useEffect(() => {
-    const t = setInterval(
-      () => setImgIndex((p) => (p + 1) % heroImages.length),
-      8000
-    );
-    return () => clearInterval(t);
-  }, []);
 
   return (
     <div className="overflow-hidden">
@@ -66,28 +53,12 @@ export default function Home() {
       <SectionNav />
       {/* ============== HERO ============== */}
       <section className="relative min-h-[100dvh] flex items-center pt-24 pb-16">
-        <div className="absolute inset-0 z-0 overflow-hidden">
-          <AnimatePresence mode="wait">
-            {heroImages.map(
-              (img, i) =>
-                i === imgIndex && (
-                  <motion.img
-                    key={i}
-                    src={img}
-                    alt=""
-                    aria-hidden
-                    className="absolute inset-0 w-full h-full object-cover brightness-[0.28]"
-                    initial={{ opacity: 0, scale: 1.06 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 1.6, ease: [0.23, 1, 0.32, 1] }}
-                  />
-                )
-            )}
-          </AnimatePresence>
-          <div className="absolute inset-0 bg-gradient-to-b from-ink/80 via-ink/70 to-ink" />
-          <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/40 to-transparent" />
-          <div className="absolute inset-0 blueprint opacity-50" />
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+          {/* Global BackgroundReel shows through here. Light scrims only:
+              readable headline on the left, image breathes on the right. */}
+          <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/45 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-b from-ink/40 via-transparent to-ink/70" />
+          <div className="absolute inset-0 blueprint opacity-20" />
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 lg:gap-10 items-center w-full">
