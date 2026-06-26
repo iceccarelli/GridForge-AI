@@ -242,7 +242,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
   const [briefCompany, setBriefCompany] = useState("");
 
   async function downloadBrief() {
-    generateSitingBrief({ mw, region, valuePerMwMonth, preparedFor: briefCompany || undefined });
+    await generateSitingBrief({ mw, region, valuePerMwMonth, preparedFor: briefCompany || undefined });
     setShowBrief(false);
     // Log the brief as a lead in the existing funnel (best-effort).
     try {

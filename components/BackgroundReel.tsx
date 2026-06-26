@@ -18,7 +18,7 @@ const IMAGES = [
 ];
 
 const SRC = (id: string) =>
-  `https://images.unsplash.com/photo-${id}?w=2400&q=80&auto=format&fit=crop`;
+  `https://images.unsplash.com/photo-${id}?w=1920&q=70&auto=format&fit=crop`;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];

@@ -16,16 +16,17 @@ import {
 } from "lucide-react";
 import { openAudit } from "@/lib/ui";
 import { HeroReel } from "@/components/HeroReel";
+import dynamic from "next/dynamic";
 import { TimeToPower } from "@/components/TimeToPower";
-import { LoadSimulator } from "@/components/LoadSimulator";
-import { TimeToPowerComparator } from "@/components/TimeToPowerComparator";
-import { ConfigStudio } from "@/components/ConfigStudio";
-import { SingleLineDiagram } from "@/components/SingleLineDiagram";
+const LoadSimulator = dynamic(() => import("@/components/LoadSimulator").then(m => m.LoadSimulator));
+const TimeToPowerComparator = dynamic(() => import("@/components/TimeToPowerComparator").then(m => m.TimeToPowerComparator));
+const ConfigStudio = dynamic(() => import("@/components/ConfigStudio").then(m => m.ConfigStudio));
+const SingleLineDiagram = dynamic(() => import("@/components/SingleLineDiagram").then(m => m.SingleLineDiagram));
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
-import { LiveConsole } from "@/components/LiveConsole";
-import { LiveScenario } from "@/components/LiveScenario";
-import { SystemFlow } from "@/components/SystemFlow";
+const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
+const LiveScenario = dynamic(() => import("@/components/LiveScenario").then(m => m.LiveScenario));
+const SystemFlow = dynamic(() => import("@/components/SystemFlow").then(m => m.SystemFlow));
 import {
   MARKET_STATS,
   PROBLEM_CARDS,

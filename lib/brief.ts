@@ -1,10 +1,9 @@
-import { jsPDF } from "jspdf";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, type SitingRegion } from "@/lib/siting";
 
 // One-page board brief. Branded, transparent, and built from the SAME model the
 // dashboard uses, so the figures a developer screenshots match the PDF they
 // walk into a board meeting with. This is the artifact that does the selling.
-export function generateSitingBrief(opts: {
+export async function generateSitingBrief(opts: {
   mw: number;
   region: SitingRegion;
   valuePerMwMonth: number;
@@ -12,6 +11,7 @@ export function generateSitingBrief(opts: {
   preparedFor?: string;
 }) {
   const { mw, region, valuePerMwMonth, analysis, preparedFor } = opts;
+  const { jsPDF } = await import("jspdf");
   const d = costOfDelay(mw, region, valuePerMwMonth);
   const ranked = [...SITING_REGIONS].map((r) => ({ ...r, score: sitingScore(r) })).sort((a, b) => b.score - a.score);
 

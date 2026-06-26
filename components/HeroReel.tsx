@@ -15,7 +15,7 @@ const HERO_IMAGES = [
   "1451187580459-43490279c0fa",
 ];
 
-const SRC = (id: string) => `https://images.unsplash.com/photo-${id}?w=2400&q=80&auto=format&fit=crop`;
+const SRC = (id: string) => `https://images.unsplash.com/photo-${id}?w=1920&q=70&auto=format&fit=crop`;
 
 function shuffle<T>(a: T[]): T[] {
   const r = [...a];
