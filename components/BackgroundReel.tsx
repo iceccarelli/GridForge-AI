@@ -17,8 +17,8 @@ const IMAGES = [
   "1558494949-ef010cbdcc31",
 ];
 
-const SRC = (id: string) =>
-  `https://images.unsplash.com/photo-${id}?w=1920&q=70&auto=format&fit=crop`;
+const SRC = (id: string, w = 1920) =>
+  `https://images.unsplash.com/photo-${id}?w=${w}&q=70&auto=format&fit=crop`;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -35,9 +35,11 @@ export function BackgroundReel() {
   const order = useMemo(() => shuffle(IMAGES), []);
   const [idx, setIdx] = useState(0);
   const [reduced, setReduced] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    setIsMobile(window.matchMedia("(max-width: 768px)").matches);
     // Preload all images so crossfades never flash.
     order.forEach((id) => { const img = new Image(); img.src = SRC(id); });
     const t = setInterval(() => setIdx((i) => (i + 1) % order.length), HOLD_MS);
@@ -58,12 +60,12 @@ export function BackgroundReel() {
           <div
             className="absolute inset-0"
             style={{
-              backgroundImage: `url(${SRC(id)})`,
+              backgroundImage: `url(${SRC(id, isMobile ? 900 : 1920)})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
               filter: "brightness(1.45) contrast(1.05) saturate(1.18)",
-              transform: i === idx && !reduced ? "scale(1.16)" : "scale(1.05)",
-              transition: reduced ? "none" : "transform 11000ms ease-out",
+              transform: i === idx && !reduced && !isMobile ? "scale(1.16)" : "scale(1.05)",
+              transition: (reduced || isMobile) ? "none" : "transform 11000ms ease-out",
               willChange: "transform, opacity",
             }}
           />

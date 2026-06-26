@@ -15,7 +15,7 @@ const HERO_IMAGES = [
   "1451187580459-43490279c0fa",
 ];
 
-const SRC = (id: string) => `https://images.unsplash.com/photo-${id}?w=1920&q=70&auto=format&fit=crop`;
+const SRC = (id: string, w = 1920) => `https://images.unsplash.com/photo-${id}?w=${w}&q=70&auto=format&fit=crop`;
 
 function shuffle<T>(a: T[]): T[] {
   const r = [...a];
@@ -27,9 +27,11 @@ export function HeroReel() {
   const order = useMemo(() => shuffle(HERO_IMAGES), []);
   const [idx, setIdx] = useState(0);
   const [reduced, setReduced] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    setIsMobile(window.matchMedia("(max-width: 768px)").matches);
     order.forEach((id) => { const i = new Image(); i.src = SRC(id); });
     const t = setInterval(() => setIdx((i) => (i + 1) % order.length), 8000);
     return () => clearInterval(t);
@@ -40,12 +42,12 @@ export function HeroReel() {
       {order.map((id, i) => (
         <div key={id} className="absolute inset-0" style={{ opacity: i === idx ? 1 : 0, transition: "opacity 2000ms ease-in-out" }}>
           <div className="absolute inset-0" style={{
-            backgroundImage: `url(${SRC(id)})`,
+            backgroundImage: `url(${SRC(id, isMobile ? 900 : 1920)})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
             filter: "brightness(1.45) contrast(1.05) saturate(1.18)",
-            transform: i === idx && !reduced ? "scale(1.16)" : "scale(1.05)",
-            transition: reduced ? "none" : "transform 10000ms ease-out",
+            transform: i === idx && !reduced && !isMobile ? "scale(1.16)" : "scale(1.05)",
+            transition: (reduced || isMobile) ? "none" : "transform 10000ms ease-out",
             willChange: "transform, opacity",
           }} />
         </div>
