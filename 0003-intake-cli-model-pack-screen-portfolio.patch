@@ -1,0 +1,2038 @@
+From 623d51d1bb2dce501a379b28a6a341d7f7955eee Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 21:15:59 +0000
+Subject: [PATCH] feat(gridforge): intake pipeline, CLI, model pack, Density
+ Screen and Portfolio Screen
+
+Patch 0003. Turns the engine into a delivery machine: one JSON file per hall in,
+a priced engagement out. This is the leverage step - everything that used to be
+retyped per project now happens once, so project N+1 costs a fraction of project 1.
+
+    python3 -m gridforge init   -o intake.json      blank pack to send a client
+    python3 -m gridforge gaps      intake.json      the data request
+    python3 -m gridforge screen    intake.json -o out   EUR 4,500 Density Screen
+    python3 -m gridforge study     intake.json -o out   EUR 22-45k Envelope Study
+    python3 -m gridforge portfolio halls/*.json -o out  EUR 60-140k Portfolio Screen
+
+INTAKE AND THE DATA-GAP LEDGER (gridforge/intake/)
+
+- A declarative intake document: 16 declared fields, 13 of them required before a
+  study can be issued. A value may be a bare number or {value, evidence, note,
+  source} where the customer wants to qualify it.
+- Anything not supplied falls back to a library default AND is recorded as a gap
+  carrying why it binds and where the customer can get it. The gap list is a
+  deliverable in its own right: "here are the eleven numbers that decide your
+  answer, seven of which nobody has measured" is what sells the study from the
+  screen.
+- A fallback can never masquerade as customer data - supplied values are E5,
+  fallbacks are E0, and a test enforces it. An empty transformer or UPS schedule
+  counts as missing, not as supplied.
+- IntakeReport.can_issue gates ISSUED mode; engagement_recommendation says which
+  product to sell against this intake.
+
+DELIVERY (gridforge/cli.py, gridforge/serialize.py)
+
+- Scenarios are now data in the intake, not code in an example: the standard five
+  (retained air, RDHx, hybrid DLC, full DLC, full DLC + behind-the-meter), each
+  selectable per project.
+- Seven generic sensitivity knobs applicable to any site, run against the relieved
+  case.
+- model_pack.json: inputs, gaps, scenarios, ladder, energisation curve, economics
+  and the provenance digest of every headline number. It ships to the client - it
+  is what lets them re-run our conclusion when their inputs change.
+- Bad intake exits 2 with a one-line error, not a traceback. A failed report gate
+  exits 3 and writes nothing.
+
+TWO NEW SELLABLE ARTEFACTS
+
+- Density Screen (reporting/screen.py): the five-day door-opener. Binding
+  constraint, first six rungs, time to power, and the data request. Short on
+  purpose, and worth its fee on its own.
+- Portfolio Screen (reporting/portfolio.py): N halls ranked by one methodology,
+  with a portfolio-level view of which constraint binds across several halls -
+  because a shared constraint is a programme, not a site problem. Highest revenue
+  per founder-hour in the ladder, since only the inputs change.
+
+On the four synthetic reference halls: 225 deployable racks across the portfolio,
+Oslo first at 88 racks, London last at 6 racks but energised in 36 weeks rather
+than 160. The three ranking objectives disagree, which is the point - a test fails
+if they ever agree, because an objective that changes nothing is decoration.
+
+62 tests pass, up from 43. Still no third-party dependency at import time.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ Makefile                            |  22 +-
+ docs/07_DELIVERY_RUNBOOK.md         |  37 +++
+ examples/intake/dublin_hall.json    | 106 ++++++++
+ examples/intake/london_hall.json    |  79 ++++++
+ examples/intake/nordic_hall.json    |  95 +++++++
+ examples/intake/reference_hall.json |  82 ++++++
+ gridforge/README.md                 |  19 +-
+ gridforge/__main__.py               |   3 +
+ gridforge/cli.py                    | 257 ++++++++++++++++++
+ gridforge/intake/loader.py          | 401 ++++++++++++++++++++++++++++
+ gridforge/intake/schema.py          | 136 ++++++++++
+ gridforge/reporting/portfolio.py    | 150 +++++++++++
+ gridforge/reporting/screen.py       | 123 +++++++++
+ gridforge/serialize.py              | 111 ++++++++
+ tests/test_architecture.py          |  12 +-
+ tests/test_intake_and_cli.py        | 171 ++++++++++++
+ 16 files changed, 1796 insertions(+), 8 deletions(-)
+ create mode 100644 docs/07_DELIVERY_RUNBOOK.md
+ create mode 100644 examples/intake/dublin_hall.json
+ create mode 100644 examples/intake/london_hall.json
+ create mode 100644 examples/intake/nordic_hall.json
+ create mode 100644 examples/intake/reference_hall.json
+ create mode 100644 gridforge/__main__.py
+ create mode 100644 gridforge/cli.py
+ create mode 100644 gridforge/intake/loader.py
+ create mode 100644 gridforge/intake/schema.py
+ create mode 100644 gridforge/reporting/portfolio.py
+ create mode 100644 gridforge/reporting/screen.py
+ create mode 100644 gridforge/serialize.py
+ create mode 100644 tests/test_intake_and_cli.py
+
+diff --git a/Makefile b/Makefile
+index 2d88dbb..2a11c8f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,4 +1,4 @@
+-.PHONY: test reference gates clean
++.PHONY: test reference gates study screen portfolio intake clean
+ 
+ test:
+ 	python3 -m pytest tests -q
+@@ -6,6 +6,26 @@ test:
+ reference:
+ 	python3 -m examples.reference_site
+ 
++# --- delivery ---------------------------------------------------------------
++# INTAKE=path/to/client.json make screen|study
++INTAKE ?= examples/intake/reference_hall.json
++OUT    ?= out
++
++intake:
++	python3 -m gridforge init -o $(OUT)/intake.json
++
++gaps:
++	python3 -m gridforge gaps $(INTAKE)
++
++screen:
++	python3 -m gridforge screen $(INTAKE) -o $(OUT)
++
++study:
++	python3 -m gridforge study $(INTAKE) -o $(OUT)
++
++portfolio:
++	python3 -m gridforge portfolio examples/intake/*.json -o $(OUT) --client "Reference Operator (synthetic)"
++
+ gates: test
+ 	@echo "All architecture, provenance and language gates passed."
+ 
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+new file mode 100644
+index 0000000..15bc90f
+--- /dev/null
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -0,0 +1,37 @@
++# Delivery runbook
++
++One JSON file per hall. Everything else is a command.
++
++## The engagement, end to end
++
++| Step | Command | Send the client | Charge |
++|---|---|---|---|
++| 1. First call | `python3 -m gridforge init -o intake.json` | the blank intake | — |
++| 2. They send it back part-filled | `python3 -m gridforge gaps intake.json` | the data request, verbatim from the output | — |
++| 3. Screen | `python3 -m gridforge screen intake.json -o out/` | `density_screen.pdf` + the gap list | **€4,500**, credited against step 4 |
++| 4. Study | `python3 -m gridforge study intake.json -o out/` | `envelope_study.*` + `model_pack.json` | **€22k–€45k** |
++| 5. Portfolio | `python3 -m gridforge portfolio halls/*.json -o out/ --client "X"` | ranked table + one model pack per hall | **€60k–€140k** |
++
++`model_pack.json` is part of the deliverable, not an internal artefact. It is what lets a client
++re-run the conclusion when their inputs change, and it is what makes the next engagement cheap.
++
++## Rules that do not bend
++
++- **Never issue on assumptions.** `gaps` tells you whether the intake supports a study
++  (`can_issue`). If it does not, sell the screen. The reports run in SCREENING mode and carry a
++  mandatory evidence disclosure; `ReportMode.ISSUED` will refuse a deliverable whose capacity
++  claims sit below their evidence floor, which is the behaviour you want the day a client asks
++  their lender to rely on it.
++- **The gap list is a product, not an apology.** "Here are the eleven numbers that decide your
++  answer, seven of which nobody has measured" is the sentence that sells step 4 from step 3.
++- **Ask the objective before you show a ranking.** Max compute, min cost per rack and fastest to
++  power routinely disagree. `--objective` sets it and the report states which one drove the answer.
++- **Never quote equipment.** The relief options carry indicative capex so the ladder has a shape;
++  they are not a bill of materials and we do not take a margin on hardware.
++
++## Per-project time
++
++Intake assembly and judgement are the only manual work left. Everything the engine does — context
++assembly, five scenarios, the ladder, time to power, sensitivity, economics, the report, the
++provenance appendix, the model pack — is one command. Track hours per project; when a step keeps
++reappearing as manual work, it belongs in here.
+diff --git a/examples/intake/dublin_hall.json b/examples/intake/dublin_hall.json
+new file mode 100644
+index 0000000..4337d71
+--- /dev/null
++++ b/examples/intake/dublin_hall.json
+@@ -0,0 +1,106 @@
++{
++  "project": {
++    "client": "Reference Project (synthetic)",
++    "reference": "REF-EU-02/DUB-01",
++    "objective": "max_compute",
++    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
++  },
++  "site": {
++    "id": "REF-EU-02",
++    "name": "Reference Dublin Campus",
++    "country": "IE",
++    "metro": "Dublin",
++    "design_drybulb_C": 26,
++    "design_wetbulb_C": 19
++  },
++  "hall": {
++    "id": "DUB-01",
++    "build_year": 2019,
++    "floor_type": "slab",
++    "net_white_space_m2": 2400,
++    "floor_loading_kPa": 20,
++    "clear_height_m": 4.2,
++    "aisle_pitch_m": 2.4,
++    "rack_positions": 420,
++    "positions_available": 260,
++    "design_density_kW_per_rack": 12,
++    "containment": "cold_aisle"
++  },
++  "grid": {
++    "dso": "Reference DSO",
++    "firm_capacity_MVA": 11.0,
++    "power_factor": 0.97,
++    "contracted_MW": 10.0,
++    "current_site_peak_MW": 6.1,
++    "current_it_load_MW": 4.2,
++    "queue_note": "Under the CRU Large Energy User policy the site's load cannot increase until matching dispatchable generation is connected and separately metered. In-hall densification within the existing contracted load is the only fast path."
++  },
++  "transformers": [
++    {
++      "id": "TX-A/B",
++      "unit_rating_MVA": 5.0,
++      "units": 3,
++      "redundancy": "N+1",
++      "derating_factor": 0.9,
++      "replacement_lead_time_weeks": 160
++    }
++  ],
++  "ups": [
++    {
++      "id": "UPS-1",
++      "unit_rating_kW": 1200,
++      "units": 6,
++      "redundancy": "N+1",
++      "step_load_capability": 0.5
++    }
++  ],
++  "lv": {
++    "voltage_V": 400,
++    "phases": 3,
++    "busway_ampacity_A": 800,
++    "busway_runs": 10,
++    "busway_utilisation_limit": 0.8,
++    "tapoff_max_A": 250
++  },
++  "thermal": {
++    "plant": {
++      "id": "CH-PLANT",
++      "chilled_water_capacity_kW": 7600,
++      "design_supply_C": 18,
++      "design_return_C": 26,
++      "pump_flow_capacity_l_per_min": 14000,
++      "available_head_kPa": 250,
++      "free_cooling_hours_per_year": 2600
++    },
++    "residual_air_capacity_kW_per_rack": {
++      "value": 16,
++      "evidence": "E3",
++      "note": "Measured per-tile airflow, 2025 survey"
++    },
++    "cdus": []
++  },
++  "compute": {
++    "platform": "gb300_nvl72",
++    "utilisation": 0.75,
++    "default_architecture": "hybrid_dlc"
++  },
++  "btm_options": [
++    {
++      "id": "GEN-8MW",
++      "kind": "gas_engine",
++      "capacity_MW": 8.0,
++      "capex_eur_per_kW": 820,
++      "lead_time_weeks": 56,
++      "firm": true,
++      "opex_eur_per_MWh": 110,
++      "permitting_note": "CRU policy requires dispatchable generation at 100% of demand, separately connected and metered at 10 MVA or above."
++    }
++  ],
++  "scenarios": [
++    "retained_air",
++    "rdhx",
++    "hybrid_dlc",
++    "full_dlc",
++    "full_dlc_btm"
++  ]
++}
+\ No newline at end of file
+diff --git a/examples/intake/london_hall.json b/examples/intake/london_hall.json
+new file mode 100644
+index 0000000..be9e1d5
+--- /dev/null
++++ b/examples/intake/london_hall.json
+@@ -0,0 +1,79 @@
++{
++  "project": {
++    "client": "Reference Project (synthetic)",
++    "reference": "REF-EU-04/LON-03",
++    "objective": "max_compute",
++    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
++  },
++  "site": {
++    "id": "REF-EU-04",
++    "name": "Reference London Docklands",
++    "country": "GB",
++    "metro": "London",
++    "design_drybulb_C": 31,
++    "design_wetbulb_C": 21
++  },
++  "hall": {
++    "id": "LON-03",
++    "build_year": 2009,
++    "floor_type": "raised_floor",
++    "floor_loading_kPa": 9,
++    "clear_height_m": 2.7,
++    "rack_positions": 320,
++    "positions_available": 60,
++    "design_density_kW_per_rack": 5,
++    "containment": "cold_aisle"
++  },
++  "grid": {
++    "dso": "Reference DSO",
++    "firm_capacity_MVA": 8.0,
++    "power_factor": 0.97,
++    "contracted_MW": 7.0,
++    "current_site_peak_MW": 5.9,
++    "current_it_load_MW": 3.8,
++    "queue_note": "West London substation reinforcement is not expected before the early 2030s."
++  },
++  "transformers": [
++    {
++      "id": "TX-A/B",
++      "unit_rating_MVA": 5.0,
++      "units": 3,
++      "redundancy": "N+1",
++      "derating_factor": 0.9,
++      "replacement_lead_time_weeks": 160
++    }
++  ],
++  "ups": [],
++  "lv": {
++    "voltage_V": 400,
++    "phases": 3,
++    "busway_ampacity_A": 250,
++    "busway_runs": 6,
++    "busway_utilisation_limit": 0.8,
++    "tapoff_max_A": 32
++  },
++  "thermal": {
++    "plant": {
++      "id": "CH-PLANT",
++      "chilled_water_capacity_kW": 4200,
++      "design_supply_C": 6,
++      "design_return_C": 12,
++      "available_head_kPa": 250,
++      "free_cooling_hours_per_year": 2600
++    },
++    "cdus": []
++  },
++  "compute": {
++    "platform": "gb300_nvl72",
++    "utilisation": 0.75,
++    "default_architecture": "hybrid_dlc"
++  },
++  "btm_options": [],
++  "scenarios": [
++    "retained_air",
++    "rdhx",
++    "hybrid_dlc",
++    "full_dlc",
++    "full_dlc_btm"
++  ]
++}
+\ No newline at end of file
+diff --git a/examples/intake/nordic_hall.json b/examples/intake/nordic_hall.json
+new file mode 100644
+index 0000000..17e5080
+--- /dev/null
++++ b/examples/intake/nordic_hall.json
+@@ -0,0 +1,95 @@
++{
++  "project": {
++    "client": "Reference Project (synthetic)",
++    "reference": "REF-EU-03/NOR-04",
++    "objective": "max_compute",
++    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
++  },
++  "site": {
++    "id": "REF-EU-03",
++    "name": "Reference Nordic Campus",
++    "country": "NO",
++    "metro": "Oslo",
++    "design_drybulb_C": 24,
++    "design_wetbulb_C": 17
++  },
++  "hall": {
++    "id": "NOR-04",
++    "build_year": 2021,
++    "floor_type": "slab",
++    "net_white_space_m2": 2400,
++    "floor_loading_kPa": 25,
++    "clear_height_m": 4.8,
++    "aisle_pitch_m": 2.7,
++    "rack_positions": 300,
++    "positions_available": 300,
++    "design_density_kW_per_rack": 20,
++    "containment": "cold_aisle"
++  },
++  "grid": {
++    "dso": "Reference DSO",
++    "firm_capacity_MVA": 30.0,
++    "power_factor": 0.97,
++    "contracted_MW": 26.0,
++    "current_site_peak_MW": 8.0,
++    "current_it_load_MW": 5.5,
++    "queue_note": "Firm capacity already contracted and largely unused; the constraint is inside the building, not at the connection."
++  },
++  "transformers": [
++    {
++      "id": "TX-A/B",
++      "unit_rating_MVA": 5.0,
++      "units": 3,
++      "redundancy": "N+1",
++      "derating_factor": 0.9,
++      "replacement_lead_time_weeks": 160
++    }
++  ],
++  "ups": [
++    {
++      "id": "UPS-1",
++      "unit_rating_kW": 1200,
++      "units": 6,
++      "redundancy": "N+1",
++      "step_load_capability": 0.5
++    }
++  ],
++  "lv": {
++    "voltage_V": 400,
++    "phases": 3,
++    "busway_ampacity_A": 1000,
++    "busway_runs": 12,
++    "busway_utilisation_limit": 0.8,
++    "tapoff_max_A": 400
++  },
++  "thermal": {
++    "plant": {
++      "id": "CH-PLANT",
++      "chilled_water_capacity_kW": 9000,
++      "design_supply_C": 20,
++      "design_return_C": 30,
++      "pump_flow_capacity_l_per_min": 22000,
++      "available_head_kPa": 250,
++      "free_cooling_hours_per_year": 7600
++    },
++    "residual_air_capacity_kW_per_rack": {
++      "value": 22,
++      "evidence": "E3",
++      "note": "Measured, 2026 commissioning data"
++    },
++    "cdus": []
++  },
++  "compute": {
++    "platform": "gb300_nvl72",
++    "utilisation": 0.75,
++    "default_architecture": "hybrid_dlc"
++  },
++  "btm_options": [],
++  "scenarios": [
++    "retained_air",
++    "rdhx",
++    "hybrid_dlc",
++    "full_dlc",
++    "full_dlc_btm"
++  ]
++}
+\ No newline at end of file
+diff --git a/examples/intake/reference_hall.json b/examples/intake/reference_hall.json
+new file mode 100644
+index 0000000..90f1bb9
+--- /dev/null
++++ b/examples/intake/reference_hall.json
+@@ -0,0 +1,82 @@
++{
++  "project": {
++    "client": "Reference Project (synthetic)",
++    "reference": "REF-EU-01/DH-02",
++    "objective": "max_compute",
++    "note": "SYNTHETIC REFERENCE DATA — not a customer asset. Used to demonstrate the deliverable."
++  },
++  "site": {
++    "id": "REF-EU-01",
++    "name": "Reference Colocation Campus",
++    "country": "DE",
++    "metro": "Frankfurt",
++    "design_drybulb_C": 34,
++    "design_wetbulb_C": 21
++  },
++  "hall": {
++    "id": "DH-02",
++    "build_year": 2015,
++    "floor_type": "raised_floor",
++    "net_white_space_m2": 2400,
++    "floor_loading_kPa": {"value": 12, "note": "Design value from the building record, not a survey"},
++    "clear_height_m": 3.2,
++    "aisle_pitch_m": 2.4,
++    "rack_positions": 560,
++    "positions_available": 180,
++    "design_density_kW_per_rack": 8,
++    "containment": "cold_aisle"
++  },
++  "grid": {
++    "dso": "Reference DSO",
++    "firm_capacity_MVA": 14.0,
++    "power_factor": 0.97,
++    "contracted_MW": 12.0,
++    "current_site_peak_MW": {"value": 7.4, "note": "12 months of half-hourly metered data"},
++    "current_it_load_MW": 4.9,
++    "queue_note": "No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it."
++  },
++  "transformers": [
++    {"id": "TX-A/B", "unit_rating_MVA": 5.0, "units": 3, "redundancy": "N+1",
++     "derating_factor": 0.9, "replacement_lead_time_weeks": 160}
++  ],
++  "ups": [
++    {"id": "UPS-1", "unit_rating_kW": 1200, "units": 6, "redundancy": "N+1",
++     "step_load_capability": 0.5}
++  ],
++  "lv": {
++    "voltage_V": 400,
++    "phases": 3,
++    "busway_ampacity_A": {"value": 400, "note": "Legacy 400 A busway; modern AI halls use 800-1000 A"},
++    "busway_runs": 8,
++    "busway_utilisation_limit": 0.8,
++    "tapoff_max_A": 63
++  },
++  "thermal": {
++    "plant": {
++      "id": "CH-PLANT",
++      "chilled_water_capacity_kW": 6800,
++      "design_supply_C": {"value": 6, "note": "Legacy low-temperature plant"},
++      "design_return_C": 12,
++      "pump_flow_capacity_l_per_min": 9000,
++      "available_head_kPa": 250,
++      "free_cooling_hours_per_year": 2600
++    },
++    "residual_air_capacity_kW_per_rack": {"value": 9, "evidence": "E3",
++      "note": "Derived from hall design density and containment; confirm by measurement"},
++    "cdus": []
++  },
++  "compute": {
++    "platform": "gb300_nvl72",
++    "utilisation": 0.75,
++    "default_architecture": "hybrid_dlc"
++  },
++  "btm_options": [
++    {"id": "BESS-2MW-8MWh", "kind": "bess", "capacity_MW": 2.0, "capex_eur_per_kW": 900,
++     "lead_time_weeks": 30, "firm": true, "firm_capacity_factor": 0.5,
++     "permitting_note": "No combustion consent required; grid-code compliance and fire separation govern the programme."},
++    {"id": "GEN-5MW", "kind": "gas_engine", "capacity_MW": 5.0, "capex_eur_per_kW": 800,
++     "lead_time_weeks": 44, "firm": true, "opex_eur_per_MWh": 95,
++     "permitting_note": "Emissions consent and fuel supply are the schedule risk, not the equipment."}
++  ],
++  "scenarios": ["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"]
++}
+diff --git a/gridforge/README.md b/gridforge/README.md
+index 3eb2061..9281f20 100644
+--- a/gridforge/README.md
++++ b/gridforge/README.md
+@@ -3,12 +3,21 @@
+ Answers one question: **how much AI compute can this hall carry, what binds first,
+ and what does each step of extra density cost?**
+ 
++```bash
++python3 -m gridforge init -o intake.json      # blank intake to send a client
++python3 -m gridforge gaps    intake.json      # the data request
++python3 -m gridforge screen  intake.json -o out   # Density Screen
++python3 -m gridforge study   intake.json -o out   # Capacity & Density Envelope Study
++python3 -m gridforge portfolio halls/*.json -o out  # N halls, one methodology
++```
++
+ ```python
+-from gridforge.constraints import EnvelopeContext
++from gridforge.intake.loader import load
+ from gridforge.envelope import solve, ladder
+ 
+-res = solve(ctx)      # -> max racks, binding constraint, every constraint evaluated
+-lad = ladder(ctx)     # -> Headroom Ladder: relieve the binding constraint, solve again
++intake = load("intake.json")
++res = solve(intake.context)   # -> max racks, binding constraint, every constraint evaluated
++lad = ladder(intake.context)  # -> Headroom Ladder: relieve the binding constraint, solve again
+ ```
+ 
+ ## Structure
+@@ -23,7 +32,9 @@ lad = ladder(ctx)     # -> Headroom Ladder: relieve the binding constraint, solv
+ | `economics/` | screening capex/opex, AACE Class 5 |
+ | `envelope/` | the solver and the Headroom Ladder |
+ | `validation/` | `Quantity`, `Provenance`, evidence classes E0-E7 |
+-| `reporting/` | report model, CI gates, Markdown + HTML renderers |
++| `intake/` | customer intake schema, loader, and the data-gap ledger |
++| `reporting/` | report model, CI gates, Markdown + HTML renderers, screen / study / portfolio |
++| `cli.py`, `serialize.py` | the delivery pipeline and the machine-readable model pack |
+ | `integrations/` | ports for ThermalForge / DERIM / GridOS. Nothing implemented yet. |
+ 
+ `tests/test_architecture.py` enforces the dependency rule, including the rule that
+diff --git a/gridforge/__main__.py b/gridforge/__main__.py
+new file mode 100644
+index 0000000..eb53e2f
+--- /dev/null
++++ b/gridforge/__main__.py
+@@ -0,0 +1,3 @@
++from .cli import main
++
++raise SystemExit(main())
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+new file mode 100644
+index 0000000..5134940
+--- /dev/null
++++ b/gridforge/cli.py
+@@ -0,0 +1,257 @@
++"""Command line: one intake file in, a delivered engagement out.
++
++    python -m gridforge init      > intake.json        # blank pack to send a client
++    python -m gridforge gaps        intake.json        # the data request, before any work
++    python -m gridforge screen      intake.json -o out # the EUR 4,500 Density Screen
++    python -m gridforge study       intake.json -o out # the EUR 22-45k Envelope Study
++    python -m gridforge portfolio   *.json       -o out # the EUR 60-140k Portfolio Screen
++
++This module is the automation ledger from docs/01 §7 made real. Everything that used
++to be retyped per project - context assembly, scenario set, sensitivity knobs, report
++structure, provenance appendix, model pack - happens here once. What is left per
++project is the intake and the judgement, which is what the fee is actually for.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from dataclasses import dataclass
++from pathlib import Path
++
++from .common import ASSUMED, V
++from .constraints import EnvelopeContext
++from .intake.loader import IntakeError, blank_intake, load
++from .reporting import run_all_gates, to_html, to_markdown
++from .reporting.gates import GateFailure, ReportMode
++from .reporting.portfolio import SiteEntry
++from .reporting.portfolio import build as build_portfolio
++from .reporting.screen import build as build_screen
++from .reporting.study import Objective, _pick_recommended, collect_claims
++from .reporting.study import build as build_study
++from .scenario import run_all, sensitivity
++from .serialize import write_model_pack
++
++OBJECTIVES = {o.value: o for o in Objective}
++
++
++# --- generic sensitivity knobs, applicable to any site -----------------------
++def _scale_contract(f: float):
++    def fn(c: EnvelopeContext) -> EnvelopeContext:
++        c = c.copy()
++        c.power.grid.contracted_MW = c.power.grid.contracted_MW * V(
++            f, "1", f"contracted power x{f}", ASSUMED)
++        return c
++    return fn
++
++
++def _scale_pue(f: float):
++    def fn(c: EnvelopeContext) -> EnvelopeContext:
++        c = c.copy()
++        c.pue = c.pue * V(f, "1", f"PUE x{f}", ASSUMED)
++        return c
++    return fn
++
++
++def _set_air(kW: float):
++    def fn(c: EnvelopeContext) -> EnvelopeContext:
++        c = c.copy()
++        c.thermal.residual_air_capacity_kW_per_rack = V(
++            kW, "kW", f"per-position air capacity {kW} kW", ASSUMED)
++        return c
++    return fn
++
++
++def _scale_liquid(f: float):
++    def fn(c: EnvelopeContext) -> EnvelopeContext:
++        import dataclasses
++        c = c.copy()
++        lf = min(max(c.cluster.platform.liquid_fraction.value * f, 0.0), 0.98)
++        c.cluster.platform = dataclasses.replace(
++            c.cluster.platform,
++            liquid_fraction=V(lf, "1", f"liquid capture fraction {lf:.2f}", ASSUMED))
++        return c
++    return fn
++
++
++def _scale_rack_kW(f: float):
++    def fn(c: EnvelopeContext) -> EnvelopeContext:
++        import dataclasses
++        c = c.copy()
++        kw = c.cluster.platform.rack_kW.value * f
++        c.cluster.platform = dataclasses.replace(
++            c.cluster.platform, rack_kW=V(kw, "kW", f"platform rack power {kw:.0f} kW", ASSUMED))
++        return c
++    return fn
++
++
++SENSITIVITY_KNOBS = {
++    "Contracted power 20% lower": _scale_contract(0.8),
++    "Contracted power at full firm capacity": _scale_contract(1.2),
++    "PUE 10% worse than assumed": _scale_pue(1.1),
++    "PUE 10% better than assumed": _scale_pue(0.9),
++    "Per-position air capacity at 20 kW": _set_air(20.0),
++    "Liquid capture fraction 5% lower": _scale_liquid(0.95),
++    "Platform rack power 5% higher": _scale_rack_kW(1.05),
++}
++
++
++@dataclass
++class _Written:
++    paths: list[Path]
++
++    def report(self) -> None:
++        for p in self.paths:
++            print(f"  wrote {p}")
++
++
++def _emit(report, out: Path, stem: str, *, claims=None) -> _Written:
++    out.mkdir(parents=True, exist_ok=True)
++    md = to_markdown(report)
++    try:
++        run_all_gates(report, md, claims=claims, mode=ReportMode.SCREENING)
++    except GateFailure as exc:
++        print(f"REPORT GATE FAILED: {exc}", file=sys.stderr)
++        raise
++    p1 = out / f"{stem}.md"
++    p2 = out / f"{stem}.html"
++    p1.write_text(md)
++    p2.write_text(to_html(report))
++    return _Written([p1, p2])
++
++
++def cmd_init(args) -> int:
++    doc = blank_intake()
++    text = json.dumps(doc, indent=2)
++    if args.out:
++        Path(args.out).write_text(text)
++        print(f"wrote {args.out} — send it to the client; filling it in is milestone one")
++    else:
++        print(text)
++    return 0
++
++
++def cmd_gaps(args) -> int:
++    intake = load(args.intake)
++    rep = intake.report
++    print(f"Intake completeness: {rep.completeness:.0%}  "
++          f"({len(rep.supplied)} supplied, {len(rep.gaps)} assumed, "
++          f"{len(rep.required_gaps)} required inputs missing)")
++    print(f"Issuable as a full study: {'yes' if rep.can_issue else 'no'}")
++    print()
++    if rep.gaps:
++        print("DATA REQUEST — send this list verbatim:")
++        for g in rep.gaps:
++            flag = "REQUIRED" if g.required else "optional"
++            print(f"  [{flag}] {g.label} ({g.unit})")
++            print(f"      assumed for now : {g.fallback_description}")
++            if g.why_it_binds:
++                print(f"      why it matters  : {g.why_it_binds}")
++            if g.how_to_get_it:
++                print(f"      where it comes from: {g.how_to_get_it}")
++    for w in rep.warnings:
++        print(f"  ! {w}")
++    print()
++    print(rep.engagement_recommendation)
++    return 0
++
++
++def _run(intake):
++    return run_all(intake.context, intake.scenarios)
++
++
++def cmd_screen(args) -> int:
++    intake = load(args.intake)
++    results = _run(intake)
++    objective = OBJECTIVES[args.objective]
++    report = build_screen(intake, results, objective=objective)
++    out = Path(args.out)
++    w = _emit(report, out, "density_screen", claims=collect_claims(results))
++    write_model_pack(out / "model_pack.json", intake, results)
++    w.paths.append(out / "model_pack.json")
++    rec = _pick_recommended(results, objective)
++    print(f"Density Screen — {intake.client}: {rec.envelope.max_racks} racks as found, "
++          f"{rec.unlocked_racks} after the ladder, binding on {rec.envelope.binding.name}.")
++    w.report()
++    return 0
++
++
++def cmd_study(args) -> int:
++    intake = load(args.intake)
++    results = _run(intake)
++    objective = OBJECTIVES[args.objective]
++    rec = _pick_recommended(results, objective)
++    sens = sensitivity(rec, SENSITIVITY_KNOBS)
++    report = build_study(intake.context, results, sens, client=intake.client, objective=objective)
++    out = Path(args.out)
++    w = _emit(report, out, "envelope_study", claims=collect_claims(results))
++    write_model_pack(out / "model_pack.json", intake, results, sens)
++    w.paths.append(out / "model_pack.json")
++    print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
++          f"{rec.unlocked_racks} racks after the ladder.")
++    if not intake.report.can_issue:
++        print(f"  NOTE: {len(intake.report.required_gaps)} required inputs are assumed. "
++              f"Screening mode only — see the evidence disclosure in the report.")
++    w.report()
++    return 0
++
++
++def cmd_portfolio(args) -> int:
++    entries = []
++    for p in args.intakes:
++        intake = load(p)
++        entries.append(SiteEntry(intake=intake, results=_run(intake)))
++    objective = OBJECTIVES[args.objective]
++    report = build_portfolio(entries, client=args.client, objective=objective)
++    out = Path(args.out)
++    claims = collect_claims([r for e in entries for r in e.results])
++    w = _emit(report, out, "portfolio_screen", claims=claims)
++    for e in entries:
++        stem = f"{e.intake.context.site.id}_{e.intake.context.hall.id}".replace("/", "-")
++        write_model_pack(out / f"model_pack_{stem}.json", e.intake, e.results)
++        w.paths.append(out / f"model_pack_{stem}.json")
++    print(f"Portfolio Screen — {len(entries)} halls, "
++          f"{sum(e.racks for e in entries)} deployable racks in total.")
++    w.report()
++    return 0
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser("gridforge", description=__doc__.split("\n")[0])
++    sub = p.add_subparsers(dest="cmd", required=True)
++
++    s = sub.add_parser("init", help="print a blank intake document")
++    s.add_argument("-o", "--out")
++    s.set_defaults(func=cmd_init)
++
++    s = sub.add_parser("gaps", help="print the data request for an intake")
++    s.add_argument("intake")
++    s.set_defaults(func=cmd_gaps)
++
++    for name, fn, helptext in (("screen", cmd_screen, "produce a Density Screen"),
++                               ("study", cmd_study, "produce a Capacity & Density Envelope Study")):
++        s = sub.add_parser(name, help=helptext)
++        s.add_argument("intake")
++        s.add_argument("-o", "--out", default="out")
++        s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++        s.set_defaults(func=fn)
++
++    s = sub.add_parser("portfolio", help="rank several halls with one methodology")
++    s.add_argument("intakes", nargs="+")
++    s.add_argument("-o", "--out", default="out")
++    s.add_argument("--client", default="Portfolio")
++    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++    s.set_defaults(func=cmd_portfolio)
++
++    args = p.parse_args(argv)
++    try:
++        return args.func(args)
++    except IntakeError as exc:
++        print(f"intake error: {exc}", file=sys.stderr)
++        return 2
++    except GateFailure:
++        return 3
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/gridforge/intake/loader.py b/gridforge/intake/loader.py
+new file mode 100644
+index 0000000..f0f8f5c
+--- /dev/null
++++ b/gridforge/intake/loader.py
+@@ -0,0 +1,401 @@
++"""Load a customer intake document into an engineering context.
++
++One JSON file in, one study out. Everything the customer did not supply is filled
++from the library, recorded as a gap, and rendered in the report as an assumption
++with the question that would close it.
++"""
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from ..common import ASSUMED, CUSTOMER, ESTIMATED, V
++from ..compute.library import PLATFORMS, get_platform
++from ..compute.schema import ClusterSpec
++from ..constraints import EnvelopeContext
++from ..power.schema import (GenerationOption, GridConnection, LVDistribution, PowerInput,
++                            TransformerBank, UPSBlock)
++from ..scenario.schema import ScenarioSpec
++from ..site.schema import FloorType, HallSpec, SiteSpec
++from ..thermal.library import (CDU_L2L_APPROACH_K, PUE_BY_ARCHITECTURE,
++                               RESIDUAL_AIR_CAPACITY_LEGACY_kW, TCS_SUPPLY_DESIGN_C)
++from ..thermal.schema import Architecture, CDUSpec, PlantSpec, ThermalInput
++from ..validation import EvidenceClass, Quantity, Source
++from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport
++
++_EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
++
++
++class IntakeError(ValueError):
++    """The intake document cannot be turned into a context at all."""
++
++
++def _dig(doc: dict, path: str) -> Any:
++    cur: Any = doc
++    for part in path.split("."):
++        if not isinstance(cur, dict) or part not in cur:
++            return None
++        cur = cur[part]
++    return cur
++
++
++@dataclass
++class _Reader:
++    doc: dict
++    report: IntakeReport
++
++    def q(self, path: str, unit: str, label: str, default: Quantity | None = None,
++          *, evidence: EvidenceClass | None = None, band: Any = None) -> Quantity:
++        raw = _dig(self.doc, path)
++        spec = FIELD_BY_PATH.get(path)
++        if raw is None:
++            if default is None:
++                raise IntakeError(f"required field missing and no library default: {path}")
++            self._gap(path, spec, default)
++            return default
++        note, src, ev = None, None, evidence
++        if isinstance(raw, dict):
++            note = raw.get("note")
++            src = raw.get("source")
++            if raw.get("evidence"):
++                ev = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None) or ev
++            raw = raw["value"]
++        if ev is None:
++            ev = spec.supplied_evidence if spec else CUSTOMER
++        if spec:
++            self.report.supplied.append(path)
++        return V(float(raw), unit, label, ev, band=band,
++                 assumptions=[note] if note else (),
++                 sources=[Source(src)] if src else ())
++
++    def raw(self, path: str, default=None):
++        v = _dig(self.doc, path)
++        if isinstance(v, list) and not v:
++            v = None          # an empty schedule is a missing schedule, not a supplied one
++        if v is None:
++            spec = FIELD_BY_PATH.get(path)
++            if spec:
++                self._gap(path, spec, None, str(default))
++            return default
++        if isinstance(v, dict) and "value" in v:
++            v = v["value"]
++        if FIELD_BY_PATH.get(path):
++            self.report.supplied.append(path)
++        return v
++
++    def _gap(self, path: str, spec, default: Quantity | None, text: str | None = None) -> None:
++        if spec is None:
++            return
++        desc = text if text is not None else (default.render() if default is not None else "—")
++        self.report.gaps.append(DataGap(
++            path=path, label=spec.label, unit=spec.unit, required=spec.required,
++            fallback_description=desc, why_it_binds=spec.why_it_binds,
++            how_to_get_it=spec.how_to_get_it))
++
++
++@dataclass
++class Intake:
++    project: dict
++    context: EnvelopeContext
++    scenarios: list[ScenarioSpec]
++    report: IntakeReport
++    document: dict
++
++    @property
++    def client(self) -> str:
++        return str(self.project.get("client", "Unnamed client"))
++
++    @property
++    def reference(self) -> str:
++        return str(self.project.get("reference", "—"))
++
++
++_ARCH_BY_NAME = {a.value: a for a in Architecture}
++
++
++def _strip_btm(c: EnvelopeContext) -> EnvelopeContext:
++    c = c.copy()
++    c.power.options = []
++    return c
++
++
++def _install_cdus(c: EnvelopeContext) -> EnvelopeContext:
++    if c.thermal.cdus:
++        return c
++    c = c.copy()
++    c.thermal.cdus = [CDUSpec(
++        id="CDU-ROW-assumed",
++        rated_capacity_kW=V(1350, "kW", "assumed row CDU rated capacity", ASSUMED, band=0.1),
++        rated_approach_K=V(5, "K", "assumed CDU rated approach", ASSUMED),
++        rated_flow_l_per_min=V(2000, "l/min", "assumed CDU rated flow", ASSUMED),
++        units=3, redundancy="N+1")]
++    return c
++
++
++def _high_temp_loop(c: EnvelopeContext) -> EnvelopeContext:
++    c = _install_cdus(c)
++    if c.thermal.plant.dry_cooler_approach_K is None:
++        c.thermal.plant.dry_cooler_approach_K = V(
++            10, "K", "assumed dry cooler approach to dry bulb", ASSUMED, band=(8, 12))
++    return c
++
++
++def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
++    """Scenarios are data. This is the standard five; an intake may name a subset."""
++    catalogue = {
++        "retained_air": ScenarioSpec(
++            "retained_air", "Retained air, grid only", Architecture.RETAINED_AIR,
++            "Counterfactual: change nothing about the cooling architecture.",
++            overrides=_strip_btm),
++        "rdhx": ScenarioSpec(
++            "rdhx", "Rear-door heat exchangers, grid only", Architecture.RDHX,
++            "Lowest-disruption path; keeps the legacy plant, lifts per-rack capability.",
++            overrides=_strip_btm),
++        "hybrid_dlc": ScenarioSpec(
++            "hybrid_dlc", "Hybrid DLC on retained plant, grid only", Architecture.HYBRID_DLC,
++            "Direct-to-chip with the existing plant carrying both liquid and residual air load. "
++            "Cheapest route to density, worst energy outcome.",
++            overrides=lambda c: _strip_btm(_install_cdus(c))),
++        "full_dlc": ScenarioSpec(
++            "full_dlc", "Full DLC, grid only", Architecture.FULL_DLC,
++            "Dedicated warm-water loop for the chip load, legacy plant for the residual air. "
++            "Bounded by the grid connection.",
++            overrides=lambda c: _strip_btm(_high_temp_loop(c))),
++        "full_dlc_btm": ScenarioSpec(
++            "full_dlc_btm", "Full DLC plus behind-the-meter supply", Architecture.FULL_DLC,
++            "The same hall with on-site firm supply where the grid connection binds. The only "
++            "scenario whose capacity is set by what can be built rather than by the queue.",
++            overrides=_high_temp_loop),
++    }
++    keys = names or list(catalogue)
++    missing = [k for k in keys if k not in catalogue]
++    if missing:
++        raise IntakeError(f"unknown scenario(s): {', '.join(missing)}. "
++                          f"Available: {', '.join(catalogue)}")
++    return [catalogue[k] for k in keys]
++
++
++def load(path: str | Path) -> Intake:
++    doc = json.loads(Path(path).read_text())
++    return load_document(doc)
++
++
++def load_document(doc: dict) -> Intake:
++    report = IntakeReport()
++    r = _Reader(doc, report)
++
++    platform_id = r.raw("compute.platform", "gb300_nvl72")
++    if platform_id not in PLATFORMS:
++        raise IntakeError(
++            f"unknown platform {platform_id!r}. Available: {', '.join(sorted(PLATFORMS))}. "
++            "Platforms whose rack power the manufacturer has not published are deliberately absent."
++        )
++    platform = get_platform(platform_id)
++
++    hall = HallSpec(
++        id=str(r.raw("hall.id", "HALL-1")),
++        build_year=int(r.raw("hall.build_year", 2015)),
++        floor_type=FloorType(r.raw("hall.floor_type", "raised_floor")),
++        net_white_space_m2=r.q("hall.net_white_space_m2", "m2", "hall net white space",
++                               V(2000, "m2", "assumed hall net white space", ASSUMED, band=0.3)),
++        floor_loading_kPa=r.q("hall.floor_loading_kPa", "kPa", "hall design floor loading",
++                              V(12, "kPa", "assumed floor loading (TIA-942 Rated-3 design value)",
++                                ASSUMED, band=(8, 15))),
++        clear_height_m=r.q("hall.clear_height_m", "m", "clear height",
++                           V(3.0, "m", "assumed clear height", ASSUMED, band=0.15)),
++        aisle_pitch_m=r.q("hall.aisle_pitch_m", "m", "installed aisle pitch",
++                          V(2.4, "m", "assumed aisle pitch", ASSUMED, band=0.15)),
++        rack_positions=int(r.raw("hall.rack_positions", 400)),
++        positions_available=int(r.raw("hall.positions_available", 100)),
++        design_density_kW_per_rack=r.q(
++            "hall.design_density_kW_per_rack", "kW", "hall design density per rack",
++            V(8, "kW", "assumed design density (European colo 2010-2020: 8-20 kW/rack)",
++              ASSUMED, band=(6, 20))),
++        containment=str(r.raw("hall.containment", "cold_aisle")),
++    )
++    site = SiteSpec(
++        id=str(r.raw("site.id", "SITE-1")),
++        name=str(r.raw("site.name", "Unnamed site")),
++        country=str(r.raw("site.country", "—")),
++        metro=str(r.raw("site.metro", "—")),
++        design_drybulb_C=r.q("site.design_drybulb_C", "degC", "summer design dry-bulb",
++                             V(32, "degC", "assumed summer design dry-bulb", ESTIMATED,
++                               band=(30, 36))),
++        design_wetbulb_C=r.q("site.design_wetbulb_C", "degC", "summer design wet-bulb",
++                             V(21, "degC", "assumed summer design wet-bulb", ESTIMATED,
++                               band=(19, 23))),
++        halls=[hall],
++    )
++
++    transformers = []
++    for t in r.raw("transformers", []) or []:
++        transformers.append(TransformerBank(
++            id=str(t.get("id", "TX")),
++            unit_rating_MVA=V(float(t["unit_rating_MVA"]), "MVA", f"{t.get('id','TX')} unit rating",
++                              CUSTOMER),
++            units=int(t.get("units", 2)),
++            redundancy=str(t.get("redundancy", "N+1")),
++            derating_factor=V(float(t.get("derating_factor", 0.9)), "1",
++                              f"{t.get('id','TX')} derating", ESTIMATED, band=(0.85, 0.95)),
++            replacement_lead_time_weeks=V(float(t.get("replacement_lead_time_weeks", 160)),
++                                          "weeks", "power transformer lead time", ASSUMED,
++                                          band=(80, 210)),
++        ))
++    ups = []
++    for u in r.raw("ups", []) or []:
++        ups.append(UPSBlock(
++            id=str(u.get("id", "UPS")),
++            unit_rating_kW=V(float(u["unit_rating_kW"]), "kW", f"{u.get('id','UPS')} module rating",
++                             CUSTOMER),
++            units=int(u.get("units", 2)),
++            redundancy=str(u.get("redundancy", "N+1")),
++            step_load_capability=V(float(u.get("step_load_capability", 0.5)), "1",
++                                   "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
++        ))
++
++    options = []
++    for o in r.raw("btm_options", []) or []:
++        options.append(GenerationOption(
++            id=str(o.get("id", o.get("kind", "BTM"))),
++            kind=str(o.get("kind", "bess")),
++            capacity_MW=V(float(o["capacity_MW"]), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
++            capex_eur_per_kW=V(float(o.get("capex_eur_per_kW", 900)), "EUR/kW",
++                               f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3),
++            lead_time_weeks=V(float(o.get("lead_time_weeks", 36)), "weeks",
++                              f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35),
++            firm=bool(o.get("firm", True)),
++            firm_capacity_factor=(V(float(o["firm_capacity_factor"]), "1",
++                                    f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
++                                  if o.get("firm_capacity_factor") is not None else None),
++            opex_eur_per_MWh=(V(float(o["opex_eur_per_MWh"]), "EUR/MWh",
++                                f"{o.get('id','BTM')} opex", ASSUMED, band=0.4)
++                              if o.get("opex_eur_per_MWh") is not None else None),
++            permitting_note=str(o.get("permitting_note", "")),
++        ))
++
++    power = PowerInput(
++        grid=GridConnection(
++            dso=str(r.raw("grid.dso", "—")),
++            firm_capacity_MVA=r.q("grid.firm_capacity_MVA", "MVA", "firm connection capacity",
++                                  V(10.0, "MVA", "assumed firm connection capacity", ASSUMED,
++                                    band=0.3)),
++            power_factor=r.q("grid.power_factor", "1", "site power factor",
++                             V(0.97, "1", "assumed site power factor", ESTIMATED, band=(0.95, 0.99))),
++            contracted_MW=r.q("grid.contracted_MW", "MW", "contracted capacity",
++                              V(9.0, "MW", "assumed contracted capacity", ASSUMED, band=0.3)),
++            current_site_peak_MW=r.q("grid.current_site_peak_MW", "MW", "current site peak demand",
++                                     V(5.0, "MW", "assumed current site peak", ASSUMED, band=0.4)),
++            queue_note=str(r.raw("grid.queue_note", "")),
++        ),
++        current_it_load_MW=r.q("grid.current_it_load_MW", "MW", "current protected IT load",
++                               V(3.5, "MW", "assumed current IT load", ASSUMED, band=0.4)),
++        transformers=transformers,
++        ups=ups,
++        lv=LVDistribution(
++            voltage_V=r.q("lv.voltage_V", "V", "LV distribution voltage",
++                          V(400, "V", "assumed LV distribution voltage", ASSUMED)),
++            phases=int(r.raw("lv.phases", 3)),
++            busway_ampacity_A=r.q("lv.busway_ampacity_A", "A", "installed busway ampacity",
++                                  V(400, "A", "assumed legacy busway ampacity", ASSUMED,
++                                    band=(250, 630))),
++            busway_runs=int(r.raw("lv.busway_runs", 6)),
++            busway_utilisation_limit=r.q("lv.busway_utilisation_limit", "1",
++                                         "continuous-load derating on busway",
++                                         V(0.8, "1", "assumed continuous-load derating", ESTIMATED)),
++            tapoff_max_A=r.q("lv.tapoff_max_A", "A", "installed tap-off rating",
++                             V(63, "A", "assumed legacy tap-off rating", ASSUMED, band=(32, 125))),
++        ),
++        options=options,
++    )
++
++    cdus = []
++    for c in r.raw("thermal.cdus", []) or []:
++        cdus.append(CDUSpec(
++            id=str(c.get("id", "CDU")),
++            rated_capacity_kW=V(float(c["rated_capacity_kW"]), "kW",
++                                f"{c.get('id','CDU')} rated capacity", CUSTOMER, band=0.1),
++            rated_approach_K=V(float(c.get("rated_approach_K", 5)), "K",
++                               f"{c.get('id','CDU')} rated approach", ASSUMED),
++            rated_flow_l_per_min=V(float(c.get("rated_flow_l_per_min", 2000)), "l/min",
++                                   f"{c.get('id','CDU')} rated flow", ASSUMED),
++            units=int(c.get("units", 1)),
++            redundancy=str(c.get("redundancy", "N+1")),
++        ))
++
++    thermal = ThermalInput(
++        plant=PlantSpec(
++            id=str(r.raw("thermal.plant.id", "PLANT")),
++            chilled_water_capacity_kW=r.q(
++                "thermal.plant.chilled_water_capacity_kW", "kW", "chilled-water plant capacity",
++                V(5000, "kW", "assumed chilled-water plant capacity", ASSUMED, band=0.35)),
++            design_supply_C=r.q("thermal.plant.design_supply_C", "degC",
++                                "plant chilled-water supply temperature",
++                                V(7, "degC", "assumed legacy plant supply temperature", ASSUMED,
++                                  band=(6, 12))),
++            design_return_C=r.q("thermal.plant.design_return_C", "degC",
++                                "plant chilled-water return temperature",
++                                V(13, "degC", "assumed plant return temperature", ASSUMED,
++                                  band=(12, 18))),
++            pump_flow_capacity_l_per_min=r.q(
++                "thermal.plant.pump_flow_capacity_l_per_min", "l/min", "available pumped flow",
++                V(7000, "l/min", "assumed available pumped flow", ASSUMED, band=0.3)),
++            available_head_kPa=r.q("thermal.plant.available_head_kPa", "kPa", "available pump head",
++                                   V(250, "kPa", "assumed available pump head", ASSUMED, band=0.3)),
++            free_cooling_hours_per_year=r.q(
++                "thermal.plant.free_cooling_hours_per_year", "h", "free cooling hours",
++                V(2500, "h", "assumed free cooling hours", ESTIMATED, band=0.3)),
++            dry_cooler_capacity_kW=None,
++            dry_cooler_approach_K=None,
++        ),
++        tcs_target_supply_C=r.q("thermal.tcs_target_supply_C", "degC", "TCS target supply",
++                                TCS_SUPPLY_DESIGN_C),
++        cdu_approach_K=r.q("thermal.cdu_approach_K", "K", "CDU approach", CDU_L2L_APPROACH_K),
++        residual_air_capacity_kW_per_rack=r.q(
++            "thermal.residual_air_capacity_kW_per_rack", "kW", "air removal capacity per position",
++            RESIDUAL_AIR_CAPACITY_LEGACY_kW),
++        flow_l_per_min_per_kW=V(1.45, "l/min/kW", "TCS flow per kW at 10 K delta-T", ASSUMED,
++                                band=(1.4, 1.5)),
++        cdus=cdus,
++    )
++
++    cluster = ClusterSpec(
++        platform=platform,
++        utilisation=r.q("compute.utilisation", "1", "annual average rack utilisation",
++                        V(0.75, "1", "assumed annual average utilisation", ASSUMED, band=(0.6, 0.9))),
++    )
++
++    arch = _ARCH_BY_NAME.get(str(r.raw("compute.default_architecture", "hybrid_dlc")),
++                             Architecture.HYBRID_DLC)
++    ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
++                          architecture=arch, pue=PUE_BY_ARCHITECTURE[arch])
++
++    if not transformers:
++        report.warnings.append("No transformer schedule supplied: transformer capacity is not "
++                               "evaluated and may be the true binding constraint.")
++    if not ups:
++        report.warnings.append("No UPS schedule supplied: the load is treated as unprotected.")
++    if not options:
++        report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
++                               "study can only report that it binds.")
++
++    scenarios = _scenario_set(doc.get("scenarios"))
++    return Intake(project=doc.get("project", {}), context=ctx, scenarios=scenarios,
++                  report=report, document=doc)
++
++
++def blank_intake() -> dict:
++    """A skeleton intake document with every field present and empty.
++
++    Hand this to a customer at the end of the first call. Filling it in IS the
++    engagement's first milestone."""
++    out: dict = {"project": {"client": "", "reference": "", "objective": "max_compute"},
++                 "scenarios": ["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"]}
++    for f in INTAKE_FIELDS:
++        cur = out
++        parts = f.path.split(".")
++        for p in parts[:-1]:
++            cur = cur.setdefault(p, {})
++        cur[parts[-1]] = None if f.path not in ("transformers", "ups") else []
++    return out
+diff --git a/gridforge/intake/schema.py b/gridforge/intake/schema.py
+new file mode 100644
+index 0000000..79d8a87
+--- /dev/null
++++ b/gridforge/intake/schema.py
+@@ -0,0 +1,136 @@
++"""Intake schema: what a customer must hand over, and what we assume when they don't.
++
++Two jobs, and the second one is the commercial one.
++
++1. Turn a filled-in JSON intake into an engineering context.
++2. Record, field by field, what the customer supplied and what we had to assume —
++   because the list of assumptions IS a deliverable. "Here are the eleven numbers
++   that decide your answer, seven of which nobody has measured" is the sentence
++   that sells the next engagement, and it is impossible to produce by hand at speed.
++
++Every field carries the evidence class it gets when supplied. A number a customer
++asserts about their own asset is E5 (customer data). A number we fall back to is
++E0 (assumption), and it lands in the gap ledger.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from ..validation import EvidenceClass
++
++
++@dataclass(frozen=True)
++class FieldSpec:
++    path: str                     # dotted path in the intake document
++    label: str
++    unit: str
++    required: bool                # a study cannot be issued without it
++    supplied_evidence: EvidenceClass = EvidenceClass.E5_CUSTOMER_DATA
++    why_it_binds: str = ""
++    how_to_get_it: str = ""
++
++
++# The intake pack from docs/01 §3, made machine-checkable. Order is the order a
++# founder should ask for things on a first call.
++INTAKE_FIELDS: tuple[FieldSpec, ...] = (
++    FieldSpec("grid.firm_capacity_MVA", "Firm connection capacity", "MVA", True,
++              why_it_binds="Sets the absolute ceiling on everything downstream.",
++              how_to_get_it="Connection agreement with the DSO."),
++    FieldSpec("grid.contracted_MW", "Contracted capacity", "MW", True,
++              why_it_binds="Import is capped here even when the connection is larger.",
++              how_to_get_it="Supply contract."),
++    FieldSpec("grid.current_site_peak_MW", "Current site peak demand", "MW", True,
++              why_it_binds="Headroom is ceiling minus this. Half-hourly data, not a nameplate.",
++              how_to_get_it="12 months of half-hourly metered data."),
++    FieldSpec("grid.current_it_load_MW", "Current protected IT load", "MW", True,
++              why_it_binds="Determines UPS and plant headroom.",
++              how_to_get_it="Branch-circuit monitoring or UPS output trend."),
++    FieldSpec("lv.busway_ampacity_A", "Installed busway ampacity", "A", True,
++              why_it_binds="400 A legacy versus 800-1000 A modern is the most common hard stop.",
++              how_to_get_it="Busway nameplate or the electrical record drawings."),
++    FieldSpec("lv.tapoff_max_A", "Installed tap-off rating", "A", True,
++              why_it_binds="A rack that cannot be fed cannot be placed, whatever else is true.",
++              how_to_get_it="Tap-off unit nameplate."),
++    FieldSpec("hall.floor_loading_kPa", "Hall design floor loading", "kPa", True,
++              why_it_binds="A 1.4 t rack against a 12 kPa design is a gate, not a margin.",
++              how_to_get_it="Structural record drawings; a survey if the building changed hands."),
++    FieldSpec("hall.positions_available", "Rack positions available", "positions", True,
++              why_it_binds="Caps deployment regardless of power and cooling.",
++              how_to_get_it="Floor plan plus the tenancy schedule."),
++    FieldSpec("thermal.plant.chilled_water_capacity_kW", "Chilled-water plant capacity", "kW", True,
++              why_it_binds="Carries the residual air load, and the liquid load in a hybrid scheme.",
++              how_to_get_it="Chiller schedule; derate to the actual condensing conditions."),
++    FieldSpec("thermal.plant.design_supply_C", "Plant supply temperature", "degC", True,
++              why_it_binds="Legacy 6-7 degC plant against a 27-32 degC TCS need governs the scheme.",
++              how_to_get_it="BMS setpoint and 12 months of trend."),
++    FieldSpec("thermal.plant.pump_flow_capacity_l_per_min", "Available pumped flow", "l/min", False,
++              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
++              why_it_binds="Flow, not delta-T, governs a retrofit.",
++              how_to_get_it="Pump curves and pipe schedule; a hydraulic model before design."),
++    FieldSpec("thermal.residual_air_capacity_kW_per_rack", "Air removal per rack position", "kW",
++              False, supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
++              why_it_binds="10-15% of a 135 kW rack is still 13-20 kW of air per position.",
++              how_to_get_it="Measured per-tile airflow, or CFD."),
++    FieldSpec("transformers", "Transformer schedule", "-", True,
++              why_it_binds="Usually the schedule driver: 160+ week lead times in 2026.",
++              how_to_get_it="Single-line diagram and transformer nameplates."),
++    FieldSpec("ups", "UPS schedule", "-", True,
++              why_it_binds="GPU racks present step loads, not just steady load.",
++              how_to_get_it="UPS nameplate, topology and remaining design life."),
++    FieldSpec("site.design_drybulb_C", "Summer design dry bulb", "degC", False,
++              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
++              why_it_binds="Decides whether dry coolers alone can hold the loop.",
++              how_to_get_it="Nearest TMY station."),
++    FieldSpec("compute.platform", "Target platform", "-", True,
++              why_it_binds="Defines rack power, heat split, flow and mass.",
++              how_to_get_it="The tenant's actual order, not a press release."),
++)
++
++REQUIRED_PATHS = tuple(f.path for f in INTAKE_FIELDS if f.required)
++FIELD_BY_PATH = {f.path: f for f in INTAKE_FIELDS}
++
++
++@dataclass
++class DataGap:
++    path: str
++    label: str
++    unit: str
++    required: bool
++    fallback_description: str
++    why_it_binds: str
++    how_to_get_it: str
++    sensitivity_rank: int | None = None   # filled in after the sensitivity run
++
++
++@dataclass
++class IntakeReport:
++    """What we were given, what we assumed, and what that costs the conclusion."""
++    supplied: list[str] = field(default_factory=list)
++    gaps: list[DataGap] = field(default_factory=list)
++    warnings: list[str] = field(default_factory=list)
++
++    @property
++    def required_gaps(self) -> list[DataGap]:
++        return [g for g in self.gaps if g.required]
++
++    @property
++    def completeness(self) -> float:
++        total = len(INTAKE_FIELDS)
++        return (total - len(self.gaps)) / total if total else 1.0
++
++    @property
++    def can_issue(self) -> bool:
++        """An ISSUED deliverable needs every required field from the customer."""
++        return not self.required_gaps
++
++    @property
++    def engagement_recommendation(self) -> str:
++        if self.can_issue:
++            return ("Complete intake. This supports a full Capacity & Density Envelope Study "
++                    "with site-specific conclusions.")
++        if len(self.required_gaps) <= 3:
++            return (f"{len(self.required_gaps)} required inputs missing. Request them before "
++                    "starting; the study can proceed in parallel on everything else.")
++        return ("Intake too thin for a full study. Sell the Density Screen instead: it produces "
++                "the binding constraint and the data-request list, and its fee credits against "
++                "the study when the data arrives.")
+diff --git a/gridforge/reporting/portfolio.py b/gridforge/reporting/portfolio.py
+new file mode 100644
+index 0000000..c26b22e
+--- /dev/null
++++ b/gridforge/reporting/portfolio.py
+@@ -0,0 +1,150 @@
++"""Portfolio Screen — N halls, one methodology, one ranking (docs/00 §5, product #2).
++
++The highest revenue per founder-hour in the ladder, because the engine, the
++libraries and the report are already paid for: only the inputs change. It is also
++the product an operator with a roll-up of older halls, or a tenant hunting for a
++home for GB300 racks, actually needs — nobody sells "rank my twelve buildings by
++deliverable compute" as a single comparable artefact.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++from ..common import ASSUMED, ESTIMATED, V
++from ..envelope.time_to_power import schedule
++from ..intake.loader import Intake
++from ..scenario.run import ScenarioResult
++from .gates import DISCLOSURE_MARKER, claims_below_floor
++from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
++from .study import Objective, _pick_recommended, collect_claims
++
++
++@dataclass
++class SiteEntry:
++    intake: Intake
++    results: list[ScenarioResult]
++
++    @property
++    def best(self) -> ScenarioResult:
++        return _pick_recommended(self.results, Objective.MAX_COMPUTE)
++
++    @property
++    def racks(self) -> int:
++        return self.best.unlocked_racks
++
++    @property
++    def weeks(self) -> float:
++        t = schedule(self.best.ladder)
++        return t.weeks_to_full if t.weeks_to_full is not None else float("inf")
++
++    @property
++    def capex(self) -> float:
++        return self.best.economics.capex_total_eur.value
++
++    @property
++    def capex_per_rack(self) -> float:
++        return self.capex / max(self.racks, 1)
++
++
++def rank(entries: list[SiteEntry], objective: Objective = Objective.MAX_COMPUTE) -> list[SiteEntry]:
++    if objective is Objective.FASTEST_TO_POWER:
++        return sorted(entries, key=lambda e: (e.weeks, -e.racks))
++    if objective is Objective.MIN_COST_PER_RACK:
++        return sorted(entries, key=lambda e: e.capex_per_rack)
++    return sorted(entries, key=lambda e: (-e.racks, e.weeks))
++
++
++def build(entries: list[SiteEntry], *, client: str = "Portfolio",
++          objective: Objective = Objective.MAX_COMPUTE) -> Report:
++    ordered = rank(entries, objective)
++    total_racks = sum(e.racks for e in ordered)
++    deliverable = [e for e in ordered if e.racks > 0]
++    r = Report(
++        title=f"Portfolio Screen — {len(entries)} halls ranked by deliverable compute",
++        subtitle=(f"{client} · one methodology applied to every hall · "
++                  f"ranked by {objective.value.replace('_', ' ')}"),
++        watermark=("SCREENING OPINION — modelled from the inputs supplied for each hall. "
++                   "Not a design package, and not a measurement of any asset."),
++        status="Portfolio Screen",
++        meta=[("Client", client), ("Halls screened", str(len(entries))),
++              ("Halls that can take the platform", str(len(deliverable))),
++              ("Ranking objective", objective.value.replace("_", " "))],
++        footer=("Every hall was screened with the identical model, library and assumptions, so the "
++                "ranking is comparable even where the individual inputs are not equally complete."),
++    )
++
++    s = Section("1. The ranking")
++    s.blocks.append(Statement(
++        "Total deployable racks across the portfolio",
++        V(float(total_racks), "racks", "portfolio deployable racks", ESTIMATED),
++        f"{len(deliverable)} of {len(entries)} halls can take the platform at all"))
++    rows = []
++    for i, e in enumerate(ordered, 1):
++        rows.append([
++            Lit(str(i)),
++            f"{e.intake.context.site.name} / {e.intake.context.hall.id}",
++            e.intake.context.site.metro,
++            V(float(e.racks), "racks", f"{e.intake.context.hall.id}: deployable racks", ESTIMATED),
++            V(e.weeks, "weeks", f"{e.intake.context.hall.id}: time to full capacity", ESTIMATED)
++            if e.weeks != float("inf") else "—",
++            V(e.capex, "EUR", f"{e.intake.context.hall.id}: indicative capex", ASSUMED,
++              band=(e.capex * 0.5, e.capex * 2.0)),
++            V(e.capex_per_rack, "EUR/rack", f"{e.intake.context.hall.id}: capex per rack", ASSUMED,
++              band=(e.capex_per_rack * 0.5, e.capex_per_rack * 2.0)),
++            e.best.envelope.binding.name,
++        ])
++    s.blocks.append(Table(["#", "Hall", "Metro", "Racks", "Time to power", "Capex",
++                           "Capex per rack", "Binds first"], rows,
++                          caption="Ranked portfolio. Capex excludes IT hardware, migration and "
++                                  "lost tenancy revenue."))
++    r.sections.append(s)
++
++    s = Section("2. Where the portfolio is constrained")
++    counts: dict[str, int] = {}
++    for e in ordered:
++        counts[e.best.envelope.binding.name] = counts.get(e.best.envelope.binding.name, 0) + 1
++    rows = [[k, V(float(v), "halls", f"halls bound by {k}", ESTIMATED)]
++            for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
++    s.blocks.append(Table(["Binding constraint", "Halls"], rows,
++                          caption="A constraint that binds across several halls is a portfolio "
++                                  "programme, not a site problem — and it is usually cheaper to "
++                                  "solve once."))
++    r.sections.append(s)
++
++    s = Section("3. Where to start")
++    if deliverable:
++        first = deliverable[0]
++        s.blocks.append(Para(
++            f"Start with {first.intake.context.site.name} / {first.intake.context.hall.id}: "
++            f"{first.racks} racks, "
++            f"{'no schedule available' if first.weeks == float('inf') else f'{first.weeks:.0f} weeks'} "
++            f"to full capacity, binding first on {first.best.envelope.binding.name.lower()}."))
++    else:
++        s.blocks.append(Callout("warning",
++            "No hall in this portfolio can take the target platform on the inputs supplied. That "
++            "is a finding, not a failure of the analysis — the cheapest next step is to close the "
++            "data gaps listed per hall before assuming the answer is no."))
++    s.blocks.append(Bullets([
++        "Rank is by deliverable compute; the same table re-sorts by time to power or by capex per "
++        "rack, and the three orderings rarely agree. Pick the objective before reading the rank.",
++        "Halls with low intake completeness are ranked on assumptions. Close those gaps before "
++        "committing capital to the ordering.",
++        "A constraint shared across halls is worth a single portfolio-level programme.",
++    ]))
++    rows = [[f"{e.intake.context.site.name} / {e.intake.context.hall.id}",
++             V(e.intake.report.completeness * 100, "%", "intake completeness", ESTIMATED),
++             Lit(str(len(e.intake.report.required_gaps))),
++             e.intake.report.engagement_recommendation] for e in ordered]
++    s.blocks.append(Table(["Hall", "Intake completeness", "Required inputs missing",
++                           "Recommended engagement"], rows))
++    below = claims_below_floor(collect_claims([x for e in ordered for x in e.results]))
++    detail = "; ".join(
++        f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
++        f"{f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
++    if detail:
++        s.blocks.append(Callout("warning",
++            f"{DISCLOSURE_MARKER} this portfolio was screened partly on library defaults. {detail}. "
++            "The ranking is robust to this where halls differ by a wide margin and is not where "
++            "they are close; close the per-hall data gaps before committing capital to the order."))
++    r.sections.append(s)
++    return r
+diff --git a/gridforge/reporting/screen.py b/gridforge/reporting/screen.py
+new file mode 100644
+index 0000000..64255ce
+--- /dev/null
++++ b/gridforge/reporting/screen.py
+@@ -0,0 +1,123 @@
++"""Density Screen — the EUR 4,500, five-working-day door-opener (docs/00 §5).
++
++Deliberately short. It answers one question and ends with the data request that
++turns it into a full study. It is not a teaser: it must be worth the fee on its
++own, which means the binding constraint has to be real and the data-gap list has
++to be the one a competent engineer would write.
++"""
++from __future__ import annotations
++
++from ..common import ASSUMED, ESTIMATED, V
++from ..envelope.time_to_power import schedule
++from ..intake.loader import Intake
++from ..scenario.run import ScenarioResult
++from .gates import DISCLOSURE_MARKER, claims_below_floor
++from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
++from .study import Objective, _pick_recommended, collect_claims
++
++WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
++             "and not a measurement of this asset.")
++
++
++def build(intake: Intake, results: list[ScenarioResult],
++          *, objective: Objective = Objective.MAX_COMPUTE) -> Report:
++    rec = _pick_recommended(results, objective)
++    ctx = intake.context
++    plat = ctx.cluster.platform
++    t = schedule(rec.ladder)
++    r = Report(
++        title=f"Density Screen — {ctx.site.name}, hall {ctx.hall.id}",
++        subtitle=(f"{intake.client} · ref {intake.reference} · target platform {plat.name} · "
++                  f"{len(results)} architectures screened"),
++        watermark=WATERMARK,
++        status="Density Screen",
++        meta=[("Client", intake.client), ("Reference", intake.reference),
++              ("Site", ctx.site.name), ("Hall", ctx.hall.id),
++              ("Target platform", plat.name),
++              ("Intake completeness", f"{intake.report.completeness:.0%}")],
++        footer=("Screening opinion supported by a documented model. The fee for this screen "
++                "credits in full against a Capacity & Density Envelope Study."),
++    )
++
++    s = Section("1. The answer")
++    s.blocks.append(Statement(
++        f"Deployable {plat.name} racks as the hall stands",
++        V(float(rec.envelope.max_racks), "racks", "deployable racks as found", ESTIMATED),
++        rec.envelope.binding.basis))
++    s.blocks.append(Statement(
++        "Deployable after the costed ladder",
++        V(float(rec.unlocked_racks), "racks", "deployable racks after relief", ESTIMATED),
++        rec.spec.name))
++    if t.weeks_to_full is not None:
++        s.blocks.append(Statement(
++            "Time to full capacity",
++            V(t.weeks_to_full, "weeks", "elapsed weeks to full energisation", ESTIMATED,
++              band=(t.weeks_to_full * 0.7, t.weeks_to_full * 1.6)),
++            f"set by {t.critical_item.lower()}"))
++    s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
++                              rec.economics.aace_class))
++    s.blocks.append(Callout("answer",
++        f"Binding constraint: {rec.envelope.binding.name} ({rec.envelope.binding.domain}). "
++        f"{rec.envelope.binding.basis}."))
++    r.sections.append(s)
++
++    s = Section("2. What stops this hall, in order")
++    rows = []
++    for st in rec.ladder.steps[:6]:
++        rows.append([Lit(str(st.step)), st.binding_name, st.domain,
++                     V(float(st.racks_after), "racks", f"racks after step {st.step}", ESTIMATED),
++                     (st.relief_description or "no relief available") +
++                     ("" if st.taken else "  — NOT TAKEN"),
++                     st.capex_eur if st.capex_eur is not None else "—",
++                     st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
++    s.blocks.append(Table(["#", "Constraint", "Domain", "Racks after", "Relief", "Capex",
++                           "Lead time"], rows,
++                          caption="First six rungs of the headroom ladder. The full study carries "
++                                  "the complete ladder, the scenario comparison and the "
++                                  "sensitivity analysis."))
++    r.sections.append(s)
++
++    s = Section("3. Architectures screened")
++    rows = [[res.spec.name,
++             V(float(res.envelope.max_racks), "racks", f"{res.spec.id}: as found", ESTIMATED),
++             V(float(res.unlocked_racks), "racks", f"{res.spec.id}: after ladder", ESTIMATED),
++             res.envelope.binding.name] for res in results]
++    s.blocks.append(Table(["Architecture", "As found", "After ladder", "Binds first"], rows))
++    r.sections.append(s)
++
++    s = Section("4. What we had to assume — and what it would take to stop assuming")
++    if intake.report.gaps:
++        s.blocks.append(Para(
++            f"Intake completeness is {intake.report.completeness:.0%}. Each row below is a number "
++            "that moves the answer and that nobody has measured. This list is the deliverable as "
++            "much as the number above it."))
++        rows = [[g.label, Lit("required" if g.required else "optional"), g.fallback_description,
++                 g.why_it_binds, g.how_to_get_it] for g in intake.report.gaps]
++        s.blocks.append(Table(["Input", "Status", "Assumed", "Why it binds", "How to get it"], rows))
++    else:
++        s.blocks.append(Para("Intake complete. Every input below the headline was supplied by the "
++                             "client rather than assumed."))
++    for w in intake.report.warnings:
++        s.blocks.append(Callout("warning", w))
++    below = claims_below_floor(collect_claims(results))
++    detail = "; ".join(
++        f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
++        f"{f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
++    s.blocks.append(Callout("warning",
++        f"{DISCLOSURE_MARKER} this is a screening opinion built partly on library defaults. "
++        + (detail + ". " if detail else "") +
++        "It is sufficient to decide whether to spend money finding out, and not sufficient to "
++        "support procurement, construction or an investment committee decision."))
++    r.sections.append(s)
++
++    s = Section("5. Recommended next step")
++    s.blocks.append(Para(intake.report.engagement_recommendation))
++    s.blocks.append(Bullets([
++        "Capacity & Density Envelope Study — full ladder, all architectures, scenario and "
++        "sensitivity analysis, economics, risk register, machine-readable model pack. 3-5 weeks.",
++        "This screen's fee credits in full against it.",
++        "Before anything else: get the DSO position in writing on firm capacity and any "
++        "flexibility product. It costs nothing but time and it can end the question.",
++    ]))
++    r.sections.append(s)
++    return r
+diff --git a/gridforge/serialize.py b/gridforge/serialize.py
+new file mode 100644
+index 0000000..30e36b1
+--- /dev/null
++++ b/gridforge/serialize.py
+@@ -0,0 +1,111 @@
++"""Machine-readable model pack.
++
++The deliverable a customer keeps, and the artefact that makes project N+1 cheap:
++inputs, scenarios, results, ladder, schedule, economics and the provenance of every
++headline number, as one JSON file. It is also the only honest way to let a customer
++re-run our conclusion when their inputs change.
++"""
++from __future__ import annotations
++
++import json
++from datetime import date
++from typing import Any
++
++from .envelope.time_to_power import schedule
++from .intake.loader import Intake
++from .scenario.run import ScenarioResult
++from .validation import Quantity
++
++SCHEMA_VERSION = "gridforge/model-pack/1"
++
++
++def _q(q: Quantity | None) -> dict | None:
++    if q is None:
++        return None
++    lo, hi = q.band
++    return {"value": q.rounded(), "low": lo, "high": hi, "unit": q.unit,
++            "evidence": q.evidence.name, "label": q.prov.label,
++            "model": f"{q.prov.model_id}@{q.prov.model_version}", "digest": q.prov.digest}
++
++
++def _constraint(c) -> dict:
++    return {"id": c.id, "domain": c.domain, "name": c.name, "gate": c.gate,
++            "racks_permitted": None if c.racks == float("inf") else int(c.racks),
++            "basis": c.basis,
++            "relief": None if c.relief is None else {
++                "description": c.relief.description,
++                "capex_eur": _q(c.relief.capex_eur),
++                "lead_time_weeks": _q(c.relief.lead_time_weeks),
++                "risk": c.relief.risk,
++            }}
++
++
++def scenario_dict(res: ScenarioResult) -> dict:
++    t = schedule(res.ladder)
++    return {
++        "id": res.spec.id,
++        "name": res.spec.name,
++        "architecture": res.envelope.architecture,
++        "rationale": res.spec.rationale,
++        "as_found": {"racks": res.envelope.max_racks,
++                     "binding": res.envelope.binding.id,
++                     "binding_name": res.envelope.binding.name,
++                     "basis": res.envelope.binding.basis},
++        "after_ladder": {"racks": res.unlocked_racks,
++                         "binding": res.ladder.final.binding.id if res.ladder.final else None,
++                         "it_load_kW": _q(res.ladder.final.it_load_kW if res.ladder.final
++                                          else res.envelope.it_load_kW),
++                         "gpus": res.ladder.final.gpus if res.ladder.final else res.envelope.gpus},
++        "ladder": [{"step": s.step, "constraint": s.binding_id, "name": s.binding_name,
++                    "domain": s.domain, "racks_before": s.racks_before,
++                    "racks_after": s.racks_after, "taken": s.taken,
++                    "relief": s.relief_description,
++                    "capex_eur": _q(s.capex_eur), "lead_time_weeks": _q(s.lead_time_weeks),
++                    "risk": s.risk}
++                   for s in res.ladder.steps],
++        "time_to_power": {"weeks_to_first_rack": t.weeks_to_first_rack,
++                          "weeks_to_full": t.weeks_to_full,
++                          "sets_the_date": t.critical_item,
++                          "curve": [{"weeks": p.weeks, "racks": p.racks,
++                                     "unlocked_by": p.unlocked_by} for p in t.points]},
++        "economics": {"capex_total_eur": _q(res.economics.capex_total_eur),
++                      "capex_per_kW_it": _q(res.economics.capex_eur_per_kW_it),
++                      "annual_energy_cost_eur": _q(res.economics.annual_energy_cost_eur),
++                      "energy_cost_per_gpu_hour_eur": _q(res.economics.energy_cost_per_gpu_hour_eur),
++                      "critical_path_weeks": res.economics.critical_path_weeks,
++                      "basis": res.economics.aace_class},
++        "constraints": [_constraint(c) for c in res.envelope.sorted_constraints()],
++    }
++
++
++def model_pack(intake: Intake, results: list[ScenarioResult],
++               sensitivities: list[tuple[str, int]] | None = None) -> dict[str, Any]:
++    return {
++        "schema": SCHEMA_VERSION,
++        "generated": date.today().isoformat(),
++        "project": intake.project,
++        "intake": {
++            "document": intake.document,
++            "completeness": round(intake.report.completeness, 3),
++            "can_issue": intake.report.can_issue,
++            "supplied": sorted(set(intake.report.supplied)),
++            "gaps": [{"path": g.path, "label": g.label, "unit": g.unit, "required": g.required,
++                      "assumed": g.fallback_description, "why_it_binds": g.why_it_binds,
++                      "how_to_get_it": g.how_to_get_it} for g in intake.report.gaps],
++            "warnings": intake.report.warnings,
++            "engagement_recommendation": intake.report.engagement_recommendation,
++        },
++        "scenarios": [scenario_dict(r) for r in results],
++        "sensitivity": [{"input": k, "racks": v} for k, v in (sensitivities or [])],
++        "disclaimer": (
++            "Every quantity carries an evidence class. Nothing in this pack is a measurement of "
++            "a physical asset unless labelled E5 or above. Modelled values are what the stated "
++            "inputs imply, not what the site has been observed to do."
++        ),
++    }
++
++
++def write_model_pack(path, intake: Intake, results: list[ScenarioResult],
++                     sensitivities: list[tuple[str, int]] | None = None) -> None:
++    from pathlib import Path
++    Path(path).write_text(json.dumps(model_pack(intake, results, sensitivities), indent=2))
+diff --git a/tests/test_architecture.py b/tests/test_architecture.py
+index 4bd384e..d1203b1 100644
+--- a/tests/test_architecture.py
++++ b/tests/test_architecture.py
+@@ -16,7 +16,13 @@ ALLOWED: dict[str, set[str]] = {
+     "scenario": {"site", "power", "compute", "thermal", "economics", "envelope"},
+     "economics": {"envelope", "scenario"},
+     "envelope": {"site", "power", "compute", "thermal"},
+-    "reporting": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope"},
++    "reporting": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
++                  "intake"},
++    "intake": {"site", "power", "compute", "thermal", "scenario"},
++    "serialize": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
++                  "intake"},
++    "cli": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
++            "reporting", "intake", "serialize"},
+     "integrations": set(),
+ }
+ DOMAINS = set(ALLOWED) - {"integrations"}
+@@ -81,8 +87,8 @@ def test_no_third_party_dependencies():
+     Adapters under gridforge/integrations/ may import an external package, but only
+     lazily - inside a function body - so importing gridforge never pulls it in.
+     """
+-    stdlib_ok = {"__future__", "ast", "copy", "dataclasses", "datetime", "enum", "hashlib",
+-                 "html", "json", "math", "pathlib", "re", "sys", "typing"}
++    stdlib_ok = {"__future__", "argparse", "ast", "copy", "dataclasses", "datetime", "enum",
++                 "hashlib", "html", "json", "math", "pathlib", "re", "sys", "typing"}
+     bad = []
+     for path in ROOT.rglob("*.py"):
+         tree = ast.parse(path.read_text())
+diff --git a/tests/test_intake_and_cli.py b/tests/test_intake_and_cli.py
+new file mode 100644
+index 0000000..2b862ea
+--- /dev/null
++++ b/tests/test_intake_and_cli.py
+@@ -0,0 +1,171 @@
++"""Intake, the data-gap ledger, the CLI and the model pack.
++
++This is the delivery machine: one JSON file in, a priced engagement out. The tests
++that matter here are the ones that stop it producing something that looks finished
++but is built on numbers nobody measured.
++"""
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from gridforge.intake.loader import IntakeError, blank_intake, load, load_document
++from gridforge.intake.schema import INTAKE_FIELDS, REQUIRED_PATHS
++from gridforge.reporting.portfolio import SiteEntry, rank
++from gridforge.reporting.portfolio import build as build_portfolio
++from gridforge.reporting.screen import build as build_screen
++from gridforge.reporting.study import Objective
++from gridforge.scenario import run_all
++from gridforge.serialize import model_pack
++
++ROOT = Path(__file__).resolve().parents[1]
++INTAKE_DIR = ROOT / "examples" / "intake"
++REFERENCE = INTAKE_DIR / "reference_hall.json"
++
++
++def _cli(*args):
++    return subprocess.run([sys.executable, "-m", "gridforge", *args],
++                          cwd=ROOT, capture_output=True, text=True)
++
++
++def test_reference_intake_is_complete():
++    intake = load(REFERENCE)
++    assert intake.report.completeness == 1.0
++    assert intake.report.can_issue
++
++
++def test_thin_intake_is_flagged_and_priced_as_a_screen():
++    doc = {"project": {"client": "Thin"}, "compute": {"platform": "gb300_nvl72"}}
++    intake = load_document(doc)
++    assert not intake.report.can_issue
++    assert len(intake.report.required_gaps) >= 5
++    assert "Density Screen" in intake.report.engagement_recommendation
++
++
++def test_every_gap_says_why_it_binds_and_where_to_get_it():
++    intake = load_document({"project": {}})
++    for g in intake.report.gaps:
++        assert g.why_it_binds, f"{g.path} has no reason a customer would act on"
++        assert g.how_to_get_it, f"{g.path} has no source a customer could go to"
++
++
++def test_assumed_inputs_are_never_customer_evidence():
++    intake = load_document({"project": {}})
++    q = intake.context.power.grid.firm_capacity_MVA
++    assert q.evidence.short == "E0", "a fallback must never masquerade as customer data"
++
++
++def test_supplied_inputs_carry_customer_evidence():
++    intake = load(REFERENCE)
++    assert intake.context.power.grid.firm_capacity_MVA.evidence.short == "E5"
++
++
++def test_empty_schedule_counts_as_missing():
++    intake = load_document({"project": {}, "ups": [], "transformers": []})
++    paths = {g.path for g in intake.report.gaps}
++    assert "ups" in paths and "transformers" in paths
++    assert any("unprotected" in w for w in intake.report.warnings)
++
++
++def test_unknown_platform_is_refused_with_the_available_list():
++    with pytest.raises(IntakeError, match="unknown platform"):
++        load_document({"compute": {"platform": "vr200_nvl144"}})
++
++
++def test_unknown_scenario_is_refused():
++    with pytest.raises(IntakeError, match="unknown scenario"):
++        load_document({"scenarios": ["teleportation"]})
++
++
++def test_blank_intake_covers_every_declared_field():
++    doc = blank_intake()
++    flat = json.dumps(doc)
++    for f in INTAKE_FIELDS:
++        assert f.path.split(".")[0] in flat
++
++
++def test_required_paths_are_the_ones_that_block_issue():
++    assert set(REQUIRED_PATHS) <= {f.path for f in INTAKE_FIELDS}
++    assert len(REQUIRED_PATHS) >= 10
++
++
++def test_model_pack_carries_provenance_on_every_headline_number():
++    intake = load(REFERENCE)
++    results = run_all(intake.context, intake.scenarios)
++    pack = model_pack(intake, results)
++    for sc in pack["scenarios"]:
++        q = sc["after_ladder"]["it_load_kW"]
++        assert q and q["evidence"] and q["digest"] and q["label"]
++        assert sc["economics"]["capex_total_eur"]["evidence"]
++
++
++def test_model_pack_records_what_was_assumed():
++    intake = load_document({"project": {"client": "Thin"}})
++    pack = model_pack(intake, run_all(intake.context, intake.scenarios))
++    assert pack["intake"]["gaps"]
++    assert pack["intake"]["can_issue"] is False
++
++
++def test_screen_and_study_both_render_and_pass_gates():
++    intake = load(REFERENCE)
++    results = run_all(intake.context, intake.scenarios)
++    from gridforge.reporting import to_html, to_markdown
++    from gridforge.reporting.gates import ReportMode, run_all_gates
++    from gridforge.reporting.study import build as build_study, collect_claims
++    for report in (build_screen(intake, results),
++                   build_study(intake.context, results, client=intake.client)):
++        md = to_markdown(report)
++        run_all_gates(report, md, claims=collect_claims(results), mode=ReportMode.SCREENING)
++        assert "EVIDENCE DISCLOSURE" in md
++        assert "<table" in to_html(report)
++
++
++def test_portfolio_ranks_and_the_orderings_disagree():
++    intakes = [load(p) for p in sorted(INTAKE_DIR.glob("*.json"))]
++    entries = [SiteEntry(intake=i, results=run_all(i.context, i.scenarios)) for i in intakes]
++    by_compute = [e.intake.reference for e in rank(entries, Objective.MAX_COMPUTE)]
++    by_speed = [e.intake.reference for e in rank(entries, Objective.FASTEST_TO_POWER)]
++    assert len(by_compute) == len(intakes)
++    assert by_compute != by_speed, "if every objective gives the same order, the objective is fake"
++    report = build_portfolio(entries, client="test")
++    from gridforge.reporting import to_markdown
++    assert "Ranked portfolio" in to_markdown(report)
++
++
++def test_cli_gaps_prints_a_data_request():
++    r = _cli("gaps", str(REFERENCE))
++    assert r.returncode == 0
++    assert "Intake completeness" in r.stdout
++
++
++def test_cli_study_writes_three_artefacts(tmp_path):
++    r = _cli("study", str(REFERENCE), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr
++    for name in ("envelope_study.md", "envelope_study.html", "model_pack.json"):
++        assert (tmp_path / name).exists()
++    json.loads((tmp_path / "model_pack.json").read_text())
++
++
++def test_cli_screen_writes_artefacts(tmp_path):
++    r = _cli("screen", str(REFERENCE), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr
++    assert (tmp_path / "density_screen.md").exists()
++
++
++def test_cli_portfolio_writes_one_pack_per_hall(tmp_path):
++    files = [str(p) for p in sorted(INTAKE_DIR.glob("*.json"))]
++    r = _cli("portfolio", *files, "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr
++    assert (tmp_path / "portfolio_screen.md").exists()
++    assert len(list(tmp_path.glob("model_pack_*.json"))) == len(files)
++
++
++def test_cli_rejects_a_bad_intake_without_a_traceback(tmp_path):
++    bad = tmp_path / "bad.json"
++    bad.write_text(json.dumps({"compute": {"platform": "not_a_platform"}}))
++    r = _cli("study", str(bad), "-o", str(tmp_path))
++    assert r.returncode == 2
++    assert "intake error" in r.stderr
++    assert "Traceback" not in r.stderr
+-- 
+2.43.0
+
