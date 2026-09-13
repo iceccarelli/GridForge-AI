@@ -5,10 +5,7 @@ name: gridforge
 on:
   push:
     branches: [main]
-    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml',
-            '.github/workflows/gridforge.yml']
   pull_request:
-    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml']
   workflow_dispatch:
 
 jobs:
@@ -58,3 +55,44 @@ jobs:
           path: |
             /tmp/portfolio
             /tmp/blank_out
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Start the engine
+        env:
+          GRIDFORGE_API_KEYS: ci-key
+        run: |
+          python -m gridforge serve --port 8080 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8080/health && break
+            sleep 0.5
+          done
+      - name: Public qualifier answers, and leaks nothing priced
+        run: |
+          curl -sf -X POST http://127.0.0.1:8080/v1/qualify \
+            -H 'content-type: application/json' \
+            -d '{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}' \
+            -o /tmp/q.json
+          python -c "import json; b=json.load(open('/tmp/q.json')); s=json.dumps(b); assert b['as_found']['binding_constraint'], 'no binding constraint'; assert 'EUR' not in s, 'leaked a currency figure'; assert 'capex' not in s, 'leaked capex'; print('qualifier ok:', b['as_found']['binding_constraint'])"
+      - name: Paid endpoints refuse without a key
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')
+          test "$code" = "401" || { echo "expected 401, got $code"; exit 1; }
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx next lint
+      - run: npm run build

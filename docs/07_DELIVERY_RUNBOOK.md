@@ -29,6 +29,31 @@ re-run the conclusion when their inputs change, and it is what makes the next en
 - **Never quote equipment.** The relief options carry indicative capex so the ladder has a shape;
   they are not a bill of materials and we do not take a margin on hardware.
 
+## The engine as a service
+
+```bash
+python3 -m gridforge serve --port 8080          # stdlib only, no dependencies
+docker build -t gridforge . && docker run -p 8080:8080 -e GRIDFORGE_API_KEYS=... gridforge
+```
+
+| Endpoint | Tier | What it is for |
+|---|---|---|
+| `POST /v1/qualify` | public | The website qualifier. Seven fields, real binding constraint, no priced content. |
+| `POST /v1/screen` | key | Screen payload for a client integration. |
+| `POST /v1/study` | key | The full model pack. |
+| `POST /v1/portfolio` | key | Ranked halls. |
+| `GET /v1/platforms`, `/v1/intake/template`, `/v1/version`, `/health` | public | Discovery. |
+
+Set `GRIDFORGE_API_URL` on the website to point at it, and `GRIDFORGE_API_KEY` only if you want the
+site to reach the paid endpoints. **With no `GRIDFORGE_API_KEYS` set on the engine, the paid
+endpoints refuse rather than open** — a misconfigured deployment must fail closed, not serve the
+deliverable for free. With no `GRIDFORGE_API_URL` set on the site, `/qualify` captures the enquiry
+and says plainly that no result was produced; it never invents a number.
+
+**The physics exists once.** There is no TypeScript reimplementation of the constraints, and there
+must never be: two versions of the truth is precisely what a provenance-first product cannot
+survive.
+
 ## What CI guarantees before you send anything
 
 `.github/workflows/gridforge.yml` runs, on every push that touches the engine:
@@ -37,7 +62,10 @@ re-run the conclusion when their inputs change, and it is what makes the next en
 - `init` -> `gaps` -> `screen` -> `study` on a **blank** intake, because that is the worst
   input a real client will ever hand back and it must never crash;
 - `screen` and `study` for every shipped example intake, and a `portfolio` across all of them;
-- the reference project.
+- the reference project;
+- the public qualifier answers and leaks no currency figure, and the paid endpoints refuse
+  without a key;
+- the website typechecks, lints and builds.
 
 A green build means the commands in this runbook work. A red one means do not send anything.
 

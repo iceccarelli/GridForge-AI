@@ -1,0 +1,10 @@
+.git
+node_modules
+out
+app
+components
+lib
+public
+supabase
+*.md
+tests

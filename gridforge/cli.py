@@ -218,6 +218,12 @@ def cmd_study(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from .api.server import serve
+    serve(args.host, args.port)
+    return 0
+
+
 def cmd_portfolio(args) -> int:
     entries = []
     for p in args.intakes:
@@ -257,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.set_defaults(func=fn)
+
+    s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
+    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--port", type=int, default=8080)
+    s.set_defaults(func=cmd_serve)
 
     s = sub.add_parser("portfolio", help="rank several halls with one methodology")
     s.add_argument("intakes", nargs="+")

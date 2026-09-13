@@ -22,6 +22,8 @@ ALLOWED: dict[str, set[str]] = {
     "serialize": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
                   "intake"},
     "cli": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
+            "reporting", "intake", "serialize", "api"},
+    "api": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
             "reporting", "intake", "serialize"},
     "integrations": set(),
 }
@@ -87,8 +89,9 @@ def test_no_third_party_dependencies():
     Adapters under gridforge/integrations/ may import an external package, but only
     lazily - inside a function body - so importing gridforge never pulls it in.
     """
-    stdlib_ok = {"__future__", "argparse", "ast", "copy", "dataclasses", "datetime", "enum",
-                 "hashlib", "html", "json", "math", "pathlib", "re", "sys", "typing"}
+    stdlib_ok = {"__future__", "argparse", "ast", "collections", "copy", "dataclasses",
+                 "datetime", "enum", "hashlib", "html", "http", "json", "math", "os",
+                 "pathlib", "re", "sys", "threading", "time", "typing", "urllib"}
     bad = []
     for path in ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text())
