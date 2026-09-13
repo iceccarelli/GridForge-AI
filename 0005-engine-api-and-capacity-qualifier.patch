@@ -1,0 +1,1854 @@
+From e2ed02e1e41eec73183a6455ca807da6a1f625ba Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 23:53:01 +0000
+Subject: [PATCH] feat(api): HTTP API for the envelope engine, and a capacity
+ qualifier on the site
+
+Patch 0005. The engine gets a second surface. The CLI delivers engagements; the
+API answers the website and any client integration. There is deliberately NO
+TypeScript reimplementation of the constraints - two versions of the truth is
+exactly what a provenance-first product cannot survive.
+
+THE API (gridforge/api/, standard library only)
+
+    python3 -m gridforge serve --port 8080
+    docker build -t gridforge . && docker run -p 8080:8080 -e GRIDFORGE_API_KEYS=... gridforge
+
+    GET  /health  /v1/version  /v1/platforms  /v1/intake/template
+    POST /v1/qualify     seven fields -> binding constraint      (public)
+    POST /v1/screen      full intake  -> screen payload          (key)
+    POST /v1/study       full intake  -> model pack              (key)
+    POST /v1/portfolio   [intakes]    -> ranked halls            (key)
+
+- Zero dependencies, so the image is the interpreter plus the engine and there is
+  nothing to patch. Threading server, per-IP token bucket, CORS allowlist, 512 kB
+  body cap, structured errors, no stack traces to the caller.
+- Fails closed: with GRIDFORGE_API_KEYS unset the paid endpoints refuse with 503
+  rather than serving the deliverable for free.
+- /v1/platforms returns what is deliberately ABSENT alongside what is present, so
+  an integrator cannot quietly use a rack power the manufacturer never published.
+
+THE COMMERCIAL GATE (gridforge/api/tiers.py)
+
+The free tier has to be genuinely useful or nobody fills the form in, and must not
+be the paid product or nobody pays. Public callers get the binding constraint and
+why, racks as found and after relief, which item sets the date, and the list of
+inputs nobody has measured. They never get capex, lead times, economics, the full
+ladder or the scenario comparison - redacted server-side by key, at any depth. A
+test asserts no currency figure can reach a public payload, and CI asserts it again
+against the running binary.
+
+THE SITE
+
+- app/api/qualify/route.ts: validates with zod, calls the engine, persists to
+  Supabase, returns the public payload. When the engine is unreachable it captures
+  the enquiry and says so plainly - it never invents a number.
+- components/CapacityQualifier.tsx + app/qualify: seven fields, then the binding
+  constraint, the rack counts, what has to move in order, and the table of assumed
+  inputs. Every figure comes back from the engine with an evidence class; nothing
+  is computed in the browser.
+- supabase/migrations/0002_qualifications.sql: every row is a real hall with real
+  numbers. Over time that table is the proprietary asset the physics is not - the
+  distribution of busway ratings, plant temperatures and contracted-versus-peak
+  headroom across European halls. Nobody else is collecting it.
+- Navbar gains one link; .env.example documents GRIDFORGE_API_URL / _API_KEY.
+
+CI now also builds the site (tsc, lint, next build) and smoke-tests the running
+API, including that the public payload leaks nothing priced and that a paid
+endpoint refuses without a key.
+
+106 Python tests pass, up from 84. tsc, next lint and next build are clean.
+Also drops a stray intake.json that was committed to the repo root, and gitignores it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .dockerignore                               |  10 +
+ .env.example                                |  11 +
+ .github/workflows/gridforge.yml             |  44 ++-
+ .gitignore                                  |   1 +
+ Dockerfile                                  |  19 ++
+ app/api/qualify/route.ts                    | 114 +++++++
+ app/qualify/page.tsx                        |  53 +++
+ components/CapacityQualifier.tsx            | 350 ++++++++++++++++++++
+ components/Navbar.tsx                       |   1 +
+ docs/07_DELIVERY_RUNBOOK.md                 |  30 +-
+ gridforge/api/__init__.py                   |   4 +
+ gridforge/api/payloads.py                   |  71 ++++
+ gridforge/api/server.py                     | 332 +++++++++++++++++++
+ gridforge/api/tiers.py                      |  50 +++
+ gridforge/cli.py                            |  11 +
+ intake.json                                 |  44 ---
+ lib/qualify.ts                              | 153 +++++++++
+ supabase/migrations/0002_qualifications.sql |  31 ++
+ tests/test_api.py                           | 239 +++++++++++++
+ tests/test_architecture.py                  |   7 +-
+ 20 files changed, 1525 insertions(+), 50 deletions(-)
+ create mode 100644 .dockerignore
+ create mode 100644 Dockerfile
+ create mode 100644 app/api/qualify/route.ts
+ create mode 100644 app/qualify/page.tsx
+ create mode 100644 components/CapacityQualifier.tsx
+ create mode 100644 gridforge/api/__init__.py
+ create mode 100644 gridforge/api/payloads.py
+ create mode 100644 gridforge/api/server.py
+ create mode 100644 gridforge/api/tiers.py
+ delete mode 100644 intake.json
+ create mode 100644 lib/qualify.ts
+ create mode 100644 supabase/migrations/0002_qualifications.sql
+ create mode 100644 tests/test_api.py
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..aa1050f
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,10 @@
++.git
++node_modules
++out
++app
++components
++lib
++public
++supabase
++*.md
++tests
+diff --git a/.env.example b/.env.example
+index 4cb860f..fa994b6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -42,3 +42,14 @@
+ # Password gate for the internal lead pipeline at /admin. Required to view leads.
+ # Reads use SUPABASE_SERVICE_ROLE_KEY above. Pick a long random string.
+ # ADMIN_PASSWORD=change-me-to-something-long
++
++# --- Capacity engine (gridforge) --------------------------------------------
++# The Python envelope engine that backs /qualify and the paid deliverables.
++# Run it with:  python3 -m gridforge serve --port 8080
++# or:           docker build -t gridforge . && docker run -p 8080:8080 gridforge
++# Without GRIDFORGE_API_URL the qualifier captures the enquiry and says plainly
++# that no result was produced — it never invents a number.
++# GRIDFORGE_API_URL=https://engine.internal.example.com
++# Only needed for the paid endpoints (/v1/screen, /v1/study, /v1/portfolio).
++# Set the same value as GRIDFORGE_API_KEYS on the engine.
++# GRIDFORGE_API_KEY=
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 74008ec..8516717 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -5,10 +5,7 @@ name: gridforge
+ on:
+   push:
+     branches: [main]
+-    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml',
+-            '.github/workflows/gridforge.yml']
+   pull_request:
+-    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml']
+   workflow_dispatch:
+ 
+ jobs:
+@@ -58,3 +55,44 @@ jobs:
+           path: |
+             /tmp/portfolio
+             /tmp/blank_out
++
++  api:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.13'
++      - name: Start the engine
++        env:
++          GRIDFORGE_API_KEYS: ci-key
++        run: |
++          python -m gridforge serve --port 8080 &
++          for i in $(seq 1 30); do
++            curl -sf http://127.0.0.1:8080/health && break
++            sleep 0.5
++          done
++      - name: Public qualifier answers, and leaks nothing priced
++        run: |
++          curl -sf -X POST http://127.0.0.1:8080/v1/qualify \
++            -H 'content-type: application/json' \
++            -d '{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}' \
++            -o /tmp/q.json
++          python -c "import json; b=json.load(open('/tmp/q.json')); s=json.dumps(b); assert b['as_found']['binding_constraint'], 'no binding constraint'; assert 'EUR' not in s, 'leaked a currency figure'; assert 'capex' not in s, 'leaked capex'; print('qualifier ok:', b['as_found']['binding_constraint'])"
++      - name: Paid endpoints refuse without a key
++        run: |
++          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')
++          test "$code" = "401" || { echo "expected 401, got $code"; exit 1; }
++
++  site:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with:
++          node-version: '20'
++          cache: npm
++      - run: npm ci
++      - run: npx tsc --noEmit
++      - run: npx next lint
++      - run: npm run build
+diff --git a/.gitignore b/.gitignore
+index f85fc39..20ad713 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -37,3 +37,4 @@ __pycache__/
+ *.pyc
+ .pytest_cache/
+ out/
++intake.json
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..c9f9771
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,19 @@
++# The engine as a service. No dependencies, so the image is the interpreter plus
++# ~4k lines of Python; it starts in milliseconds and has nothing to patch.
++FROM python:3.13-slim
++
++WORKDIR /app
++COPY gridforge/ ./gridforge/
++COPY examples/intake/ ./examples/intake/
++COPY pyproject.toml ./
++
++ENV PYTHONUNBUFFERED=1 \
++    GRIDFORGE_RATE_LIMIT=30
++
++EXPOSE 8080
++# Paid endpoints stay disabled until GRIDFORGE_API_KEYS is set: a misconfigured
++# deployment must fail closed, not serve the deliverable for free.
++HEALTHCHECK --interval=30s --timeout=3s --start-period=3s \
++  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2).status==200 else 1)"
++
++CMD ["python", "-m", "gridforge", "serve", "--host", "0.0.0.0", "--port", "8080"]
+diff --git a/app/api/qualify/route.ts b/app/api/qualify/route.ts
+new file mode 100644
+index 0000000..6476c7d
+--- /dev/null
++++ b/app/api/qualify/route.ts
+@@ -0,0 +1,114 @@
++import { NextResponse } from "next/server";
++import { callEngine, headline, qualifySchema } from "@/lib/qualify";
++
++export const runtime = "nodejs";
++
++// Capacity qualifier. Seven numbers in, a real binding constraint out.
++//
++// What this is NOT: a lead form with a score attached. It runs the same engine
++// that produces the paid deliverable, on the same constraint set, and returns the
++// directional half of it — the binding constraint, the rack counts, and the list
++// of inputs nobody has measured. Capital cost, programme duration and the full
++// ladder stay behind the engagement; the engine enforces that server-side, not
++// this route.
++export async function POST(req: Request) {
++  let raw: unknown;
++  try {
++    raw = await req.json();
++  } catch {
++    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
++  }
++
++  const parsed = qualifySchema.safeParse(raw);
++  if (!parsed.success) {
++    return NextResponse.json(
++      { ok: false, error: "Validation failed", issues: parsed.error.flatten() },
++      { status: 422 }
++    );
++  }
++  const input = parsed.data;
++
++  if (input.currentPeakMW > input.contractedMW) {
++    return NextResponse.json(
++      {
++        ok: false,
++        error:
++          "Peak demand exceeds contracted capacity. Check the figures — if that is genuinely the case, the site is already over its contract and that is the first conversation to have.",
++      },
++      { status: 422 }
++    );
++  }
++
++  const outcome = await callEngine(input);
++
++  if (!outcome.ok) {
++    // Never invent a number when the engine is unavailable. Capture the enquiry
++    // and say plainly what happened.
++    await persist(input, null).catch(() => undefined);
++    const status = outcome.reason === "unconfigured" ? 503 : 502;
++    return NextResponse.json(
++      {
++        ok: false,
++        error:
++          "The capacity engine could not be reached, so no result was produced. Your figures were saved and we will come back with the read.",
++        reason: outcome.reason,
++      },
++      { status }
++    );
++  }
++
++  await persist(input, outcome.result).catch(() => undefined);
++
++  return NextResponse.json({
++    ok: true,
++    headline: headline(outcome.result),
++    result: outcome.result,
++  });
++}
++
++async function persist(
++  input: Record<string, unknown>,
++  result:
++    | {
++        as_found?: { racks?: number; binding_constraint?: string };
++        after_relief?: { racks?: number };
++        intake?: { completeness?: number };
++      }
++    | null
++): Promise<void> {
++  const url = process.env.SUPABASE_URL;
++  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
++  const record = {
++    site_name: input.siteName ?? null,
++    hall_id: input.hallId ?? null,
++    metro: input.metro ?? null,
++    country: input.country ?? null,
++    platform: input.platform ?? null,
++    inputs: input,
++    racks_as_found: result?.as_found?.racks ?? null,
++    racks_after_relief: result?.after_relief?.racks ?? null,
++    binding_constraint: result?.as_found?.binding_constraint ?? null,
++    intake_completeness: result?.intake?.completeness ?? null,
++    name: input.name ?? null,
++    company: input.company ?? null,
++    email: input.email ?? null,
++    source: "gridforge.ai/qualifier",
++    status: result ? "scored" : "engine_unavailable",
++  };
++  if (!url || !key) {
++    console.log(
++      "[GridForge] qualification (not persisted — Supabase unset):",
++      JSON.stringify(record)
++    );
++    return;
++  }
++  const auth: Record<string, string> = key.startsWith("sb_secret_")
++    ? { apikey: key }
++    : { apikey: key, Authorization: `Bearer ${key}` };
++  const res = await fetch(`${url}/rest/v1/qualifications`, {
++    method: "POST",
++    headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
++    body: JSON.stringify(record),
++  });
++  if (!res.ok) console.error("[GridForge] Supabase insert failed:", await res.text());
++}
+diff --git a/app/qualify/page.tsx b/app/qualify/page.tsx
+new file mode 100644
+index 0000000..b449da2
+--- /dev/null
++++ b/app/qualify/page.tsx
+@@ -0,0 +1,53 @@
++import type { Metadata } from "next";
++import { CapacityQualifier } from "@/components/CapacityQualifier";
++
++export const metadata: Metadata = {
++  title: "Capacity qualifier — what actually stops your hall | GridForge AI",
++  description:
++    "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
++};
++
++export default function QualifyPage() {
++  return (
++    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
++      <header className="mb-10 max-w-3xl">
++        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
++          Free · directional · no contact details required
++        </p>
++        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
++          Most halls do not fail on cooling. They fail on a 63 A tap-off.
++        </h1>
++        <p className="mt-4 text-mute">
++          Thirteen constraints across electrical, thermal and physical domains decide how much AI
++          compute an existing hall can carry. One of them binds first, and it is rarely the one
++          people expect. Give the engine seven numbers you already know and it will tell you which —
++          and which of your inputs nobody has actually measured.
++        </p>
++      </header>
++
++      <CapacityQualifier />
++
++      <section className="mt-12 grid gap-6 sm:grid-cols-3">
++        {[
++          {
++            k: "What you get",
++            v: "The binding constraint and why, deployable racks as the hall stands and after relief, the item that sets the date, and the list of inputs still assumed.",
++          },
++          {
++            k: "What you do not",
++            v: "Capital cost, programme duration in weeks, the full constraint ladder and the scenario comparison. Those are the paid engagement, and the engine withholds them server-side.",
++          },
++          {
++            k: "Why it is honest",
++            v: "Every figure carries an evidence class. A value you supply is customer data; a value we fall back to is an assumption, and it is named as one. A model applied to measured data stays a model.",
++          },
++        ].map((c) => (
++          <div key={c.k} className="panel p-5">
++            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">{c.k}</p>
++            <p className="mt-2 text-sm text-mute">{c.v}</p>
++          </div>
++        ))}
++      </section>
++    </main>
++  );
++}
+diff --git a/components/CapacityQualifier.tsx b/components/CapacityQualifier.tsx
+new file mode 100644
+index 0000000..2faf697
+--- /dev/null
++++ b/components/CapacityQualifier.tsx
+@@ -0,0 +1,350 @@
++"use client";
++
++import React, { useState } from "react";
++import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
++import type { QualifyResult } from "@/lib/qualify";
++import { openAudit } from "@/lib/ui";
++
++/**
++ * Capacity qualifier.
++ *
++ * Seven numbers a facilities engineer already knows, answered by the same engine
++ * that produces the paid study. It returns the binding constraint — the thing that
++ * actually stops the hall — and the list of inputs nobody has measured.
++ *
++ * What it deliberately withholds: capital cost, programme duration, the full
++ * constraint ladder. The API enforces that server-side; this component could not
++ * show them if it tried.
++ *
++ * Every figure it displays comes back from the engine with an evidence class
++ * attached. Nothing here is computed in the browser.
++ */
++
++interface FieldDef {
++  key: keyof typeof DEFAULTS;
++  label: string;
++  unit: string;
++  hint: string;
++  step?: string;
++}
++
++const DEFAULTS = {
++  contractedMW: 12,
++  currentPeakMW: 7.4,
++  currentItLoadMW: 4.9,
++  buswayAmpacityA: 400,
++  tapoffMaxA: 63,
++  plantSupplyC: 6,
++  positionsAvailable: 180,
++};
++
++const FIELDS: FieldDef[] = [
++  { key: "contractedMW", label: "Contracted capacity", unit: "MW", step: "0.1",
++    hint: "From the supply contract, not the connection nameplate." },
++  { key: "currentPeakMW", label: "Current site peak", unit: "MW", step: "0.1",
++    hint: "Half-hourly metered peak over 12 months." },
++  { key: "currentItLoadMW", label: "Current IT load", unit: "MW", step: "0.1",
++    hint: "Protected load at the UPS output." },
++  { key: "buswayAmpacityA", label: "Busway ampacity", unit: "A",
++    hint: "400 A legacy or 800–1000 A modern. The most common hard stop." },
++  { key: "tapoffMaxA", label: "Tap-off rating", unit: "A",
++    hint: "A rack that cannot be fed cannot be placed." },
++  { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5",
++    hint: "Chilled water flow setpoint. Legacy plant runs 6–7 °C." },
++  { key: "positionsAvailable", label: "Rack positions available", unit: "",
++    hint: "Positions you could actually release from tenancy." },
++];
++
++const PLATFORMS = [
++  { id: "gb300_nvl72", label: "NVIDIA GB300 NVL72" },
++  { id: "gb200_nvl72", label: "NVIDIA GB200 NVL72" },
++  { id: "generic_dlc_50", label: "Generic DLC rack, 50 kW" },
++];
++
++type Values = typeof DEFAULTS;
++
++export function CapacityQualifier() {
++  const [values, setValues] = useState<Values>(DEFAULTS);
++  const [platform, setPlatform] = useState<string>("gb300_nvl72");
++  const [siteName, setSiteName] = useState("");
++  const [metro, setMetro] = useState("");
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const [result, setResult] = useState<QualifyResult | null>(null);
++  const [headline, setHeadline] = useState<string>("");
++
++  const set = (key: keyof Values, raw: string) =>
++    setValues((v) => ({ ...v, [key]: raw === "" ? 0 : Number(raw) }));
++
++  async function submit(e: React.FormEvent) {
++    e.preventDefault();
++    setBusy(true);
++    setError(null);
++    setResult(null);
++    try {
++      const res = await fetch("/api/qualify", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ ...values, platform, siteName, metro }),
++      });
++      const body = await res.json();
++      if (!res.ok || !body.ok) {
++        setError(body?.error ?? "The engine did not return a result.");
++        return;
++      }
++      setResult(body.result as QualifyResult);
++      setHeadline(String(body.headline ?? ""));
++    } catch {
++      setError("Could not reach the engine. Your figures were not lost — try again.");
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  return (
++    <div className="panel p-6 sm:p-8">
++      <div className="mb-6">
++        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power mb-2">
++          Capacity qualifier
++        </p>
++        <h3 className="text-xl sm:text-2xl font-semibold text-ghost">
++          What actually stops your hall?
++        </h3>
++        <p className="text-mute mt-2 max-w-2xl text-sm">
++          Seven numbers you already know. The same engine that produces our paid study returns the
++          binding constraint, the deployable rack count, and the inputs nobody has measured yet.
++          Capital cost and programme duration are part of the engagement, not of this read.
++        </p>
++      </div>
++
++      <form onSubmit={submit} className="grid gap-5">
++        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
++          {FIELDS.map((f) => (
++            <label key={f.key} className="block">
++              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++                {f.label}
++                {f.unit ? ` · ${f.unit}` : ""}
++              </span>
++              <input
++                id={`qualify-${f.key}`}
++                type="number"
++                inputMode="decimal"
++                step={f.step ?? "1"}
++                min={0}
++                value={values[f.key]}
++                onChange={(e) => set(f.key, e.target.value)}
++                className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
++                           focus:outline-none focus:ring-2 focus:ring-power/60 focus:border-power/60"
++                required
++              />
++              <span className="block mt-1 text-[11px] leading-snug text-faint">{f.hint}</span>
++            </label>
++          ))}
++
++          <label className="block">
++            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++              Target platform
++            </span>
++            <select
++              id="qualify-platform"
++              value={platform}
++              onChange={(e) => setPlatform(e.target.value)}
++              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
++                         focus:outline-none focus:ring-2 focus:ring-power/60"
++            >
++              {PLATFORMS.map((p) => (
++                <option key={p.id} value={p.id}>
++                  {p.label}
++                </option>
++              ))}
++            </select>
++            <span className="block mt-1 text-[11px] leading-snug text-faint">
++              Platforms whose rack power the manufacturer has not published are absent by design.
++            </span>
++          </label>
++
++          <label className="block">
++            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++              Site / hall
++            </span>
++            <input
++              id="qualify-site"
++              type="text"
++              value={siteName}
++              onChange={(e) => setSiteName(e.target.value)}
++              placeholder="optional"
++              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
++                         focus:outline-none focus:ring-2 focus:ring-power/60"
++            />
++          </label>
++
++          <label className="block">
++            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++              Metro
++            </span>
++            <input
++              id="qualify-metro"
++              type="text"
++              value={metro}
++              onChange={(e) => setMetro(e.target.value)}
++              placeholder="optional"
++              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
++                         focus:outline-none focus:ring-2 focus:ring-power/60"
++            />
++          </label>
++        </div>
++
++        <div className="flex flex-wrap items-center gap-3">
++          <button
++            type="submit"
++            disabled={busy}
++            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink
++                       disabled:opacity-60 disabled:cursor-not-allowed"
++          >
++            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
++            {busy ? "Solving" : "Find the binding constraint"}
++          </button>
++          <span className="text-[11px] text-faint font-mono">
++            13 constraints · electrical, thermal and physical · solved server-side
++          </span>
++        </div>
++      </form>
++
++      {error ? (
++        <div className="mt-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
++          <CircleAlert className="h-4 w-4 shrink-0 text-flag mt-0.5" />
++          <p>{error}</p>
++        </div>
++      ) : null}
++
++      {result ? <QualifyReadout result={result} headline={headline} /> : null}
++    </div>
++  );
++}
++
++function QualifyReadout({ result, headline }: { result: QualifyResult; headline: string }) {
++  const { as_found: found, after_relief: after, intake } = result;
++  return (
++    <div className="mt-8 animate-slide-up">
++      <p className="text-lg text-ghost leading-snug max-w-3xl">{headline}</p>
++
++      <div className="mt-5 grid gap-3 sm:grid-cols-3">
++        <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
++        <Readout label="After the ladder" value={String(after.racks)} suffix="racks" tone="power" />
++        <Readout label="Sets the date" value={after.sets_the_date} tone="queue" small />
++      </div>
++
++      <div className="mt-5 rounded border border-line bg-panel-2 p-4">
++        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-queue">
++          Binding constraint · {found.domain}
++        </p>
++        <p className="text-ghost font-semibold mt-1">{found.binding_constraint}</p>
++        <p className="text-mute text-sm mt-1">{found.basis}</p>
++      </div>
++
++      {result.first_three_constraints.length ? (
++        <div className="mt-5">
++          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint mb-2">
++            What has to move, in order
++          </p>
++          <ol className="grid gap-2">
++            {result.first_three_constraints.map((c, i) => (
++              <li
++                key={`${c.name}-${i}`}
++                className="flex gap-3 rounded border border-line bg-panel-2 px-3 py-2 text-sm"
++              >
++                <span className="font-mono text-faint">{i + 1}</span>
++                <span className="text-ghost">{c.name}</span>
++                <span className="text-faint ml-auto text-right">{c.relief ?? "—"}</span>
++              </li>
++            ))}
++          </ol>
++        </div>
++      ) : null}
++
++      {intake.gaps.length ? (
++        <div className="mt-6">
++          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint mb-2">
++            Assumed, because nobody supplied it · intake {Math.round(intake.completeness * 100)}%
++            complete
++          </p>
++          <div className="overflow-x-auto rounded border border-line">
++            <table className="w-full text-sm">
++              <thead>
++                <tr className="bg-panel">
++                  {["Input", "Assumed", "Why it binds"].map((h) => (
++                    <th
++                      key={h}
++                      className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-faint px-3 py-2"
++                    >
++                      {h}
++                    </th>
++                  ))}
++                </tr>
++              </thead>
++              <tbody>
++                {intake.gaps.slice(0, 8).map((g) => (
++                  <tr key={g.input} className="border-t border-line align-top">
++                    <td className="px-3 py-2 text-ghost">
++                      {g.input}
++                      {g.required ? <span className="text-flag"> *</span> : null}
++                    </td>
++                    <td className="px-3 py-2 font-mono text-mute">{g.assumed}</td>
++                    <td className="px-3 py-2 text-faint">{g.why_it_binds}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++          <p className="text-[11px] text-faint mt-2">
++            {intake.required_inputs_missing} required input
++            {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer.
++          </p>
++        </div>
++      ) : null}
++
++      <div className="mt-6 rounded border border-line bg-panel-2 p-4">
++        <p className="text-sm text-ghost">{intake.recommended_engagement}</p>
++        <button
++          type="button"
++          onClick={() =>
++            openAudit("capacity-qualifier", {
++              capacityMW: Math.round((found.it_load_kW?.value ?? 0) / 1000),
++              summary: `${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`,
++            })
++          }
++          className="mt-3 inline-flex items-center gap-2 rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10"
++        >
++          Take this to a screen <ArrowRight className="h-4 w-4" />
++        </button>
++      </div>
++
++      <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
++    </div>
++  );
++}
++
++function Readout({
++  label,
++  value,
++  suffix,
++  tone,
++  small,
++}: {
++  label: string;
++  value: string;
++  suffix?: string;
++  tone: "ghost" | "power" | "queue";
++  small?: boolean;
++}) {
++  const color = tone === "power" ? "text-power" : tone === "queue" ? "text-queue" : "text-ghost";
++  return (
++    <div className="rounded border border-line bg-panel-2 px-4 py-3">
++      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">{label}</p>
++      <p className={`font-mono ${small ? "text-base" : "text-3xl"} font-semibold ${color} mt-1`}>
++        {value}
++        {suffix ? <span className="text-sm text-faint font-normal"> {suffix}</span> : null}
++      </p>
++    </div>
++  );
++}
+diff --git a/components/Navbar.tsx b/components/Navbar.tsx
+index 6aafddc..a7d4ecd 100644
+--- a/components/Navbar.tsx
++++ b/components/Navbar.tsx
+@@ -11,6 +11,7 @@ const navLinks = [
+   { href: "#problem", label: "Problem" },
+   { href: "#services", label: "Services" },
+   { href: "#deploy", label: "Deploy" },
++  { href: "/qualify", label: "Qualifier", route: true },
+   { href: "/infrastructure", label: "Infrastructure", route: true },
+   { href: "/pricing", label: "Pricing", route: true },
+   { href: "#architectures", label: "Architectures" },
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 4cee4eb..97705a1 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -29,6 +29,31 @@ re-run the conclusion when their inputs change, and it is what makes the next en
+ - **Never quote equipment.** The relief options carry indicative capex so the ladder has a shape;
+   they are not a bill of materials and we do not take a margin on hardware.
+ 
++## The engine as a service
++
++```bash
++python3 -m gridforge serve --port 8080          # stdlib only, no dependencies
++docker build -t gridforge . && docker run -p 8080:8080 -e GRIDFORGE_API_KEYS=... gridforge
++```
++
++| Endpoint | Tier | What it is for |
++|---|---|---|
++| `POST /v1/qualify` | public | The website qualifier. Seven fields, real binding constraint, no priced content. |
++| `POST /v1/screen` | key | Screen payload for a client integration. |
++| `POST /v1/study` | key | The full model pack. |
++| `POST /v1/portfolio` | key | Ranked halls. |
++| `GET /v1/platforms`, `/v1/intake/template`, `/v1/version`, `/health` | public | Discovery. |
++
++Set `GRIDFORGE_API_URL` on the website to point at it, and `GRIDFORGE_API_KEY` only if you want the
++site to reach the paid endpoints. **With no `GRIDFORGE_API_KEYS` set on the engine, the paid
++endpoints refuse rather than open** — a misconfigured deployment must fail closed, not serve the
++deliverable for free. With no `GRIDFORGE_API_URL` set on the site, `/qualify` captures the enquiry
++and says plainly that no result was produced; it never invents a number.
++
++**The physics exists once.** There is no TypeScript reimplementation of the constraints, and there
++must never be: two versions of the truth is precisely what a provenance-first product cannot
++survive.
++
+ ## What CI guarantees before you send anything
+ 
+ `.github/workflows/gridforge.yml` runs, on every push that touches the engine:
+@@ -37,7 +62,10 @@ re-run the conclusion when their inputs change, and it is what makes the next en
+ - `init` -> `gaps` -> `screen` -> `study` on a **blank** intake, because that is the worst
+   input a real client will ever hand back and it must never crash;
+ - `screen` and `study` for every shipped example intake, and a `portfolio` across all of them;
+-- the reference project.
++- the reference project;
++- the public qualifier answers and leaks no currency figure, and the paid endpoints refuse
++  without a key;
++- the website typechecks, lints and builds.
+ 
+ A green build means the commands in this runbook work. A red one means do not send anything.
+ 
+diff --git a/gridforge/api/__init__.py b/gridforge/api/__init__.py
+new file mode 100644
+index 0000000..fe2d6c2
+--- /dev/null
++++ b/gridforge/api/__init__.py
+@@ -0,0 +1,4 @@
++from .server import VERSION, make_server, qualify_to_intake, serve
++from .tiers import Tier
++
++__all__ = ["serve", "make_server", "qualify_to_intake", "VERSION", "Tier"]
+diff --git a/gridforge/api/payloads.py b/gridforge/api/payloads.py
+new file mode 100644
+index 0000000..b2b8647
+--- /dev/null
++++ b/gridforge/api/payloads.py
+@@ -0,0 +1,71 @@
++"""Response shapes. One place, so the website and a client integration cannot drift."""
++from __future__ import annotations
++
++from ..envelope.time_to_power import schedule
++from ..intake.loader import Intake
++from ..reporting.study import Objective, _pick_recommended
++from ..scenario.run import ScenarioResult
++from ..serialize import _q, scenario_dict
++from .tiers import PUBLIC_NOTICE, Tier, redact
++
++
++def _gap_list(intake: Intake) -> list[dict]:
++    return [{"input": g.label, "unit": g.unit, "required": g.required,
++             "assumed": g.fallback_description, "why_it_binds": g.why_it_binds,
++             "how_to_get_it": g.how_to_get_it} for g in intake.report.gaps]
++
++
++def qualify_payload(intake: Intake, results: list[ScenarioResult],
++                    objective: Objective = Objective.MAX_COMPUTE) -> dict:
++    """The website qualifier. Real engineering, no priced content."""
++    rec = _pick_recommended(results, objective)
++    t = schedule(rec.ladder)
++    plat = intake.context.cluster.platform
++    return {
++        "platform": {"id": plat.id, "name": plat.name,
++                     "rack_kW": _q(plat.rack_kW), "gpus_per_rack": plat.gpus_per_rack},
++        "as_found": {
++            "racks": rec.envelope.max_racks,
++            "it_load_kW": _q(rec.envelope.it_load_kW),
++            "binding_constraint": rec.envelope.binding.name,
++            "domain": rec.envelope.binding.domain,
++            "basis": rec.envelope.binding.basis,
++        },
++        "after_relief": {
++            "racks": rec.unlocked_racks,
++            "architecture": rec.spec.name,
++            "then_binds_on": rec.ladder.final.binding.name if rec.ladder.final else None,
++            "sets_the_date": t.critical_item,
++        },
++        "first_three_constraints": [
++            {"name": s.binding_name, "domain": s.domain, "relief": s.relief_description}
++            for s in rec.ladder.steps[:3]
++        ],
++        "intake": {
++            "completeness": round(intake.report.completeness, 3),
++            "required_inputs_missing": len(intake.report.required_gaps),
++            "can_issue_a_study": intake.report.can_issue,
++            "gaps": _gap_list(intake),
++            "warnings": intake.report.warnings,
++            "recommended_engagement": intake.report.engagement_recommendation,
++        },
++        "notice": PUBLIC_NOTICE,
++    }
++
++
++def screen_payload(intake: Intake, results: list[ScenarioResult],
++                   objective: Objective = Objective.MAX_COMPUTE, *,
++                   tier: Tier = Tier.CLIENT) -> dict:
++    rec = _pick_recommended(results, objective)
++    body = {
++        "project": intake.project,
++        "objective": objective.value,
++        "recommended": rec.spec.id,
++        "scenarios": [scenario_dict(r) for r in results],
++        "intake": {"completeness": round(intake.report.completeness, 3),
++                   "can_issue_a_study": intake.report.can_issue,
++                   "gaps": _gap_list(intake),
++                   "warnings": intake.report.warnings,
++                   "recommended_engagement": intake.report.engagement_recommendation},
++    }
++    return redact(body, tier)
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+new file mode 100644
+index 0000000..2d4ecef
+--- /dev/null
++++ b/gridforge/api/server.py
+@@ -0,0 +1,332 @@
++"""HTTP API for the envelope engine. Standard library only.
++
++    python3 -m gridforge serve --port 8080
++
++One engine, two surfaces: the CLI delivers engagements, the API answers the
++website's qualifier and any client integration. There is deliberately no second
++implementation of the physics — a TypeScript copy of these constraints would
++drift from the Python one within a month, and a provenance-first product cannot
++survive two versions of the truth.
++
++Endpoints
++    GET  /health                        liveness
++    GET  /v1/version                    engine version and tier configuration
++    GET  /v1/platforms                  the platform library, and what is deliberately absent
++    GET  /v1/intake/template            blank intake document
++    POST /v1/qualify                    seven fields -> binding constraint  (public)
++    POST /v1/screen                     full intake -> screen payload       (key)
++    POST /v1/study                      full intake -> model pack           (key)
++    POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
++
++Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
++(comma separated). With no keys configured the paid endpoints refuse rather than
++open — a misconfigured deployment must fail closed.
++"""
++from __future__ import annotations
++
++import json
++import os
++import threading
++import time
++from collections import defaultdict, deque
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from urllib.parse import urlparse
++
++from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
++from ..intake.loader import IntakeError, blank_intake, load_document
++from ..reporting.portfolio import SiteEntry, rank
++from ..reporting.study import Objective
++from ..scenario import run_all
++from ..serialize import model_pack
++from .payloads import qualify_payload, screen_payload
++from .tiers import Tier
++
++VERSION = "0.3.0"
++MAX_BODY_BYTES = 512 * 1024
++RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
++
++
++# --- the seven-question qualifier -------------------------------------------
++# Chosen because between them they decide the answer for almost every European
++# hall: the supply ceiling, what is already drawn, whether a rack can be fed,
++# whether the water is cold enough, and how many positions exist.
++QUALIFY_FIELDS = {
++    "contracted_MW": "grid.contracted_MW",
++    "current_site_peak_MW": "grid.current_site_peak_MW",
++    "current_it_load_MW": "grid.current_it_load_MW",
++    "busway_ampacity_A": "lv.busway_ampacity_A",
++    "tapoff_max_A": "lv.tapoff_max_A",
++    "plant_supply_C": "thermal.plant.design_supply_C",
++    "positions_available": "hall.positions_available",
++}
++
++
++def qualify_to_intake(body: dict) -> dict:
++    """Expand the short web form into a sparse intake document.
++
++    Everything not asked becomes a library default and a recorded gap, which is
++    exactly the list the prospect is shown at the end. The form is short because
++    the gap list is the product, not because the model is."""
++    doc: dict = {"project": {"client": str(body.get("client") or "Website qualifier"),
++                            "reference": str(body.get("reference") or "web")},
++                 "site": {"name": str(body.get("site_name") or "Unnamed site"),
++                          "metro": str(body.get("metro") or "—"),
++                          "country": str(body.get("country") or "—")},
++                 "hall": {"id": str(body.get("hall_id") or "HALL-1")},
++                 "compute": {"platform": str(body.get("platform") or "gb300_nvl72")},
++                 "scenarios": ["hybrid_dlc", "full_dlc", "full_dlc_btm"]}
++    for key, path in QUALIFY_FIELDS.items():
++        if body.get(key) is None:
++            continue
++        cur = doc
++        parts = path.split(".")
++        for p in parts[:-1]:
++            cur = cur.setdefault(p, {})
++        cur[parts[-1]] = float(body[key])
++    if body.get("firm_capacity_MVA") is not None:
++        doc["grid"]["firm_capacity_MVA"] = float(body["firm_capacity_MVA"])
++    elif doc.get("grid", {}).get("contracted_MW") is not None:
++        # A connection is normally sized at or above the contracted figure; assume
++        # parity rather than inventing headroom the site may not have.
++        doc["grid"]["firm_capacity_MVA"] = float(doc["grid"]["contracted_MW"]) / 0.97
++    return doc
++
++
++class ApiError(Exception):
++    def __init__(self, status: int, message: str, **extra):
++        super().__init__(message)
++        self.status = status
++        self.message = message
++        self.extra = extra
++
++
++class _RateLimiter:
++    def __init__(self, per_minute: int):
++        self.per_minute = per_minute
++        self._hits: dict[str, deque] = defaultdict(deque)
++        self._lock = threading.Lock()
++
++    def allow(self, key: str) -> bool:
++        if self.per_minute <= 0:
++            return True
++        now = time.time()
++        with self._lock:
++            q = self._hits[key]
++            while q and now - q[0] > 60:
++                q.popleft()
++            if len(q) >= self.per_minute:
++                return False
++            q.append(now)
++            return True
++
++
++def _api_keys() -> set[str]:
++    raw = os.environ.get("GRIDFORGE_API_KEYS", "")
++    return {k.strip() for k in raw.split(",") if k.strip()}
++
++
++def _allowed_origins() -> list[str]:
++    raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS", "*")
++    return [o.strip() for o in raw.split(",") if o.strip()]
++
++
++def _run(doc: dict):
++    intake = load_document(doc)
++    return intake, run_all(intake.context, intake.scenarios)
++
++
++def _objective(body: dict) -> Objective:
++    name = str(body.get("objective") or "max_compute")
++    try:
++        return Objective(name)
++    except ValueError:
++        raise ApiError(422, f"unknown objective {name!r}",
++                       allowed=[o.value for o in Objective])
++
++
++# --- handlers ----------------------------------------------------------------
++def handle_qualify(body: dict, tier: Tier) -> dict:
++    missing = [k for k in QUALIFY_FIELDS if body.get(k) is None]
++    if len(missing) > 4:
++        raise ApiError(422, "too little to say anything useful",
++                       required_at_least=list(QUALIFY_FIELDS)[:3], missing=missing)
++    intake, results = _run(qualify_to_intake(body))
++    return qualify_payload(intake, results, _objective(body))
++
++
++def handle_screen(body: dict, tier: Tier) -> dict:
++    intake, results = _run(body.get("intake") or body)
++    return screen_payload(intake, results, _objective(body), tier=tier)
++
++
++def handle_study(body: dict, tier: Tier) -> dict:
++    intake, results = _run(body.get("intake") or body)
++    return model_pack(intake, results)
++
++
++def handle_portfolio(body: dict, tier: Tier) -> dict:
++    docs = body.get("intakes")
++    if not isinstance(docs, list) or not docs:
++        raise ApiError(422, "expected {\"intakes\": [ ... ]} with at least one intake")
++    entries = []
++    for d in docs:
++        intake, results = _run(d)
++        entries.append(SiteEntry(intake=intake, results=results))
++    objective = _objective(body)
++    ordered = rank(entries, objective)
++    return {
++        "objective": objective.value,
++        "halls": [{
++            "rank": i,
++            "site": e.intake.context.site.name,
++            "hall": e.intake.context.hall.id,
++            "metro": e.intake.context.site.metro,
++            "racks": e.racks,
++            "weeks_to_full": None if e.weeks == float("inf") else e.weeks,
++            "capex_eur": e.capex,
++            "capex_per_rack_eur": e.capex_per_rack,
++            "binds_first": e.best.envelope.binding.name,
++            "intake_completeness": round(e.intake.report.completeness, 3),
++        } for i, e in enumerate(ordered, 1)],
++        "total_racks": sum(e.racks for e in entries),
++    }
++
++
++ROUTES = {
++    "/v1/qualify": (handle_qualify, Tier.PUBLIC),
++    "/v1/screen": (handle_screen, Tier.CLIENT),
++    "/v1/study": (handle_study, Tier.CLIENT),
++    "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
++}
++
++
++class Handler(BaseHTTPRequestHandler):
++    server_version = f"gridforge/{VERSION}"
++    limiter = _RateLimiter(RATE_LIMIT_PER_MINUTE)
++
++    def log_message(self, fmt: str, *args) -> None:  # pragma: no cover - noise
++        if os.environ.get("GRIDFORGE_ACCESS_LOG"):
++            super().log_message(fmt, *args)
++
++    # -- plumbing ----------------------------------------------------------
++    def _cors(self) -> None:
++        origins = _allowed_origins()
++        origin = self.headers.get("Origin")
++        allow = "*" if "*" in origins else (origin if origin in origins else "")
++        if allow:
++            self.send_header("Access-Control-Allow-Origin", allow)
++            self.send_header("Vary", "Origin")
++        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
++        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
++
++    def _send(self, status: int, payload: dict) -> None:
++        data = json.dumps(payload).encode()
++        self.send_response(status)
++        self.send_header("Content-Type", "application/json; charset=utf-8")
++        self.send_header("Content-Length", str(len(data)))
++        self.send_header("Cache-Control", "no-store")
++        self.send_header("X-Content-Type-Options", "nosniff")
++        self._cors()
++        self.end_headers()
++        if self.command != "HEAD":
++            self.wfile.write(data)
++
++    def _client_key(self) -> str:
++        return (self.headers.get("X-Forwarded-For") or self.client_address[0] or "?").split(",")[0]
++
++    def _tier(self) -> Tier:
++        supplied = (self.headers.get("X-API-Key")
++                    or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
++        keys = _api_keys()
++        if supplied and supplied in keys:
++            return Tier.CLIENT
++        return Tier.PUBLIC
++
++    def do_OPTIONS(self) -> None:  # noqa: N802
++        self.send_response(204)
++        self._cors()
++        self.end_headers()
++
++    def do_GET(self) -> None:  # noqa: N802
++        path = urlparse(self.path).path.rstrip("/") or "/"
++        if path in ("/health", "/"):
++            return self._send(200, {"ok": True, "service": "gridforge", "version": VERSION})
++        if path == "/v1/version":
++            return self._send(200, {
++                "version": VERSION,
++                "auth_configured": bool(_api_keys()),
++                "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
++                "tier": self._tier().value,
++                "endpoints": sorted(ROUTES) + ["/v1/platforms", "/v1/intake/template"],
++            })
++        if path == "/v1/platforms":
++            return self._send(200, {
++                "platforms": [{"id": p.id, "name": p.name, "status": p.status,
++                               "rack_kW": p.rack_kW.rounded(),
++                               "gpus_per_rack": p.gpus_per_rack} for p in PLATFORMS.values()],
++                "deliberately_absent": UNPUBLISHED_PLATFORMS,
++                "note": ("Platforms whose rack power the manufacturer has not published are "
++                         "absent by design. An invented number in a capacity study is how an "
++                         "engineering reputation ends."),
++            })
++        if path == "/v1/intake/template":
++            return self._send(200, blank_intake())
++        return self._send(404, {"error": "not found", "endpoints": sorted(ROUTES)})
++
++    def do_POST(self) -> None:  # noqa: N802
++        path = urlparse(self.path).path.rstrip("/") or "/"
++        route = ROUTES.get(path)
++        if route is None:
++            return self._send(404, {"error": "not found", "endpoints": sorted(ROUTES)})
++        handler, required = route
++
++        if not self.limiter.allow(self._client_key()):
++            return self._send(429, {"error": "rate limit exceeded",
++                                    "limit_per_minute": RATE_LIMIT_PER_MINUTE})
++        tier = self._tier()
++        if required is Tier.CLIENT and tier is Tier.PUBLIC:
++            if not _api_keys():
++                return self._send(503, {
++                    "error": "paid endpoints are not configured on this deployment",
++                    "fix": "set GRIDFORGE_API_KEYS to enable them"})
++            return self._send(401, {"error": "an API key is required for this endpoint",
++                                    "public_endpoint": "/v1/qualify"})
++
++        length = int(self.headers.get("Content-Length") or 0)
++        if length > MAX_BODY_BYTES:
++            return self._send(413, {"error": "payload too large",
++                                    "max_bytes": MAX_BODY_BYTES})
++        raw = self.rfile.read(length) if length else b"{}"
++        try:
++            body = json.loads(raw or b"{}")
++        except json.JSONDecodeError as exc:
++            return self._send(400, {"error": f"invalid JSON: {exc}"})
++        if not isinstance(body, dict):
++            return self._send(400, {"error": "expected a JSON object"})
++
++        try:
++            return self._send(200, handler(body, tier))
++        except ApiError as exc:
++            return self._send(exc.status, {"error": exc.message, **exc.extra})
++        except IntakeError as exc:
++            return self._send(422, {"error": str(exc)})
++        except Exception as exc:  # pragma: no cover - last resort
++            return self._send(500, {"error": "engine error", "detail": str(exc)[:300]})
++
++
++def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover - entry point
++    httpd = ThreadingHTTPServer((host, port), Handler)
++    keys = _api_keys()
++    print(f"gridforge {VERSION} listening on http://{host}:{port}")
++    print(f"  public : POST /v1/qualify")
++    print(f"  client : POST /v1/screen, /v1/study, /v1/portfolio "
++          f"({'keys configured' if keys else 'DISABLED — set GRIDFORGE_API_KEYS'})")
++    try:
++        httpd.serve_forever()
++    except KeyboardInterrupt:
++        httpd.shutdown()
++
++
++def make_server(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
++    """Used by the tests, and by anyone embedding the engine in their own process."""
++    return ThreadingHTTPServer((host, port), Handler)
+diff --git a/gridforge/api/tiers.py b/gridforge/api/tiers.py
+new file mode 100644
+index 0000000..2b6f1fd
+--- /dev/null
++++ b/gridforge/api/tiers.py
+@@ -0,0 +1,50 @@
++"""What each caller is allowed to see. The commercial gate, written down once.
++
++The free tier has to be genuinely useful or nobody fills the form in; it must not
++be the paid product or nobody pays. The line we draw is the one the site's own AI
++analyst already draws: a real directional read, never a bankable number.
++
++PUBLIC gets: the binding constraint and why, deployable racks as found and after
++relief, which item sets the date, and the list of inputs nobody has measured.
++PUBLIC never gets: capex, lead times in weeks, energy economics, the full ladder,
++or the scenario comparison. Those are the deliverable.
++"""
++from __future__ import annotations
++
++from enum import Enum
++
++
++class Tier(str, Enum):
++    PUBLIC = "public"       # the website qualifier: no key
++    CLIENT = "client"       # a paying engagement: API key
++    INTERNAL = "internal"   # us
++
++
++# Keys stripped from any payload served to a PUBLIC caller, at any depth.
++PUBLIC_REDACTED_KEYS = frozenset({
++    "capex_eur", "capex_total_eur", "capex_per_kW_it", "capex_eur_per_kW",
++    "lead_time_weeks", "critical_path_weeks", "weeks_to_full", "weeks_to_first_rack",
++    "annual_energy_cost_eur", "energy_cost_per_gpu_hour_eur", "economics",
++    "ladder", "curve", "constraints", "sensitivity", "document",
++})
++
++PUBLIC_NOTICE = (
++    "Directional screening read. Modelled from the inputs supplied, against library "
++    "defaults for everything not supplied. It is not a bankable number, not a design, "
++    "and not a measurement of this asset. Capital cost, programme duration, the full "
++    "constraint ladder and the scenario comparison are part of the paid engagement."
++)
++
++
++def redact(value, tier: Tier):
++    """Strip paid content from a payload. Recursive, key-based, and deliberately
++    blunt: a new field is hidden by default only if it is named in the list, so
++    adding a paid figure means adding its key here. The test suite fails if a
++    public payload ever carries a euro figure."""
++    if tier is not Tier.PUBLIC:
++        return value
++    if isinstance(value, dict):
++        return {k: redact(v, tier) for k, v in value.items() if k not in PUBLIC_REDACTED_KEYS}
++    if isinstance(value, list):
++        return [redact(v, tier) for v in value]
++    return value
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index 12c3baf..d09dc60 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -218,6 +218,12 @@ def cmd_study(args) -> int:
+     return 0
+ 
+ 
++def cmd_serve(args) -> int:
++    from .api.server import serve
++    serve(args.host, args.port)
++    return 0
++
++
+ def cmd_portfolio(args) -> int:
+     entries = []
+     for p in args.intakes:
+@@ -258,6 +264,11 @@ def main(argv: list[str] | None = None) -> int:
+         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+         s.set_defaults(func=fn)
+ 
++    s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
++    s.add_argument("--host", default="0.0.0.0")
++    s.add_argument("--port", type=int, default=8080)
++    s.set_defaults(func=cmd_serve)
++
+     s = sub.add_parser("portfolio", help="rank several halls with one methodology")
+     s.add_argument("intakes", nargs="+")
+     s.add_argument("-o", "--out", default="out")
+diff --git a/intake.json b/intake.json
+deleted file mode 100644
+index 3acdff3..0000000
+--- a/intake.json
++++ /dev/null
+@@ -1,44 +0,0 @@
+-{
+-  "project": {
+-    "client": "",
+-    "reference": "",
+-    "objective": "max_compute"
+-  },
+-  "scenarios": [
+-    "retained_air",
+-    "rdhx",
+-    "hybrid_dlc",
+-    "full_dlc",
+-    "full_dlc_btm"
+-  ],
+-  "grid": {
+-    "firm_capacity_MVA": null,
+-    "contracted_MW": null,
+-    "current_site_peak_MW": null,
+-    "current_it_load_MW": null
+-  },
+-  "lv": {
+-    "busway_ampacity_A": null,
+-    "tapoff_max_A": null
+-  },
+-  "hall": {
+-    "floor_loading_kPa": null,
+-    "positions_available": null
+-  },
+-  "thermal": {
+-    "plant": {
+-      "chilled_water_capacity_kW": null,
+-      "design_supply_C": null,
+-      "pump_flow_capacity_l_per_min": null
+-    },
+-    "residual_air_capacity_kW_per_rack": null
+-  },
+-  "transformers": [],
+-  "ups": [],
+-  "site": {
+-    "design_drybulb_C": null
+-  },
+-  "compute": {
+-    "platform": null
+-  }
+-}
+\ No newline at end of file
+diff --git a/lib/qualify.ts b/lib/qualify.ts
+new file mode 100644
+index 0000000..e3b22e6
+--- /dev/null
++++ b/lib/qualify.ts
+@@ -0,0 +1,153 @@
++// Capacity qualifier — the bridge between the website and the engine.
++//
++// The physics lives in ONE place: the Python envelope engine (gridforge/). This
++// module validates the form, calls the engine over HTTP and shapes the answer for
++// the UI. There is deliberately no TypeScript reimplementation of the constraints;
++// two versions of the truth is exactly what a provenance-first product cannot
++// survive.
++//
++// If GRIDFORGE_API_URL is unset the route degrades to lead capture and says so
++// plainly, rather than inventing a number.
++
++import { z } from "zod";
++
++export const qualifySchema = z.object({
++  // --- the seven questions that decide the answer for almost any hall --------
++  contractedMW: z.coerce.number().positive().max(2000),
++  currentPeakMW: z.coerce.number().nonnegative().max(2000),
++  currentItLoadMW: z.coerce.number().nonnegative().max(2000),
++  buswayAmpacityA: z.coerce.number().positive().max(6300),
++  tapoffMaxA: z.coerce.number().positive().max(1600),
++  plantSupplyC: z.coerce.number().min(-5).max(45),
++  positionsAvailable: z.coerce.number().int().positive().max(20000),
++  // --- context --------------------------------------------------------------
++  siteName: z.string().trim().max(120).optional(),
++  hallId: z.string().trim().max(60).optional(),
++  metro: z.string().trim().max(80).optional(),
++  country: z.string().trim().max(80).optional(),
++  platform: z.enum(["gb300_nvl72", "gb200_nvl72", "generic_dlc_50"]).default("gb300_nvl72"),
++  // --- optional contact, so a good read can become a conversation -----------
++  name: z.string().trim().max(120).optional(),
++  company: z.string().trim().max(160).optional(),
++  email: z.string().trim().email().max(200).optional().or(z.literal("")),
++});
++
++export type QualifyInput = z.infer<typeof qualifySchema>;
++
++export interface QuantityDTO {
++  value: number;
++  low: number;
++  high: number;
++  unit: string;
++  evidence: string;
++  label: string;
++}
++
++export interface QualifyResult {
++  platform: { id: string; name: string; rack_kW: QuantityDTO; gpus_per_rack: number };
++  as_found: {
++    racks: number;
++    it_load_kW: QuantityDTO;
++    binding_constraint: string;
++    domain: string;
++    basis: string;
++  };
++  after_relief: {
++    racks: number;
++    architecture: string;
++    then_binds_on: string | null;
++    sets_the_date: string;
++  };
++  first_three_constraints: { name: string; domain: string; relief: string | null }[];
++  intake: {
++    completeness: number;
++    required_inputs_missing: number;
++    can_issue_a_study: boolean;
++    gaps: {
++      input: string;
++      unit: string;
++      required: boolean;
++      assumed: string;
++      why_it_binds: string;
++      how_to_get_it: string;
++    }[];
++    warnings: string[];
++    recommended_engagement: string;
++  };
++  notice: string;
++}
++
++/** Map the form to the engine's /v1/qualify body. */
++export function toEngineBody(input: QualifyInput) {
++  return {
++    client: input.company || "Website qualifier",
++    site_name: input.siteName,
++    hall_id: input.hallId,
++    metro: input.metro,
++    country: input.country,
++    platform: input.platform,
++    contracted_MW: input.contractedMW,
++    current_site_peak_MW: input.currentPeakMW,
++    current_it_load_MW: input.currentItLoadMW,
++    busway_ampacity_A: input.buswayAmpacityA,
++    tapoff_max_A: input.tapoffMaxA,
++    plant_supply_C: input.plantSupplyC,
++    positions_available: input.positionsAvailable,
++  };
++}
++
++export type EngineOutcome =
++  | { ok: true; result: QualifyResult }
++  | { ok: false; reason: "unconfigured" | "unreachable" | "rejected"; detail: string };
++
++/** Server-side only. Never expose GRIDFORGE_API_URL or the key to the browser. */
++export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
++  const base = process.env.GRIDFORGE_API_URL;
++  if (!base) {
++    return {
++      ok: false,
++      reason: "unconfigured",
++      detail: "The capacity engine is not connected to this deployment.",
++    };
++  }
++  const headers: Record<string, string> = { "Content-Type": "application/json" };
++  if (process.env.GRIDFORGE_API_KEY) headers["X-API-Key"] = process.env.GRIDFORGE_API_KEY;
++
++  try {
++    const res = await fetch(`${base.replace(/\/$/, "")}/v1/qualify`, {
++      method: "POST",
++      headers,
++      body: JSON.stringify(toEngineBody(input)),
++      signal: AbortSignal.timeout(20_000),
++      cache: "no-store",
++    });
++    const body = await res.json().catch(() => ({}));
++    if (!res.ok) {
++      return {
++        ok: false,
++        reason: "rejected",
++        detail: typeof body?.error === "string" ? body.error : `engine returned ${res.status}`,
++      };
++    }
++    return { ok: true, result: body as QualifyResult };
++  } catch (err) {
++    return {
++      ok: false,
++      reason: "unreachable",
++      detail: err instanceof Error ? err.message : "engine unreachable",
++    };
++  }
++}
++
++/** One sentence a salesperson can say out loud. Built from the engine's answer,
++ *  never from the form, so it cannot drift from the model. */
++export function headline(r: QualifyResult): string {
++  const { as_found: found, after_relief: after } = r;
++  if (found.racks === 0 && after.racks === 0) {
++    return `This hall cannot host ${r.platform.name} racks on these inputs. ${found.binding_constraint} is what stops it.`;
++  }
++  if (found.racks === 0) {
++    return `Nothing deployable today — ${found.binding_constraint.toLowerCase()} stops it. Clear the ladder and the hall carries about ${after.racks} ${r.platform.name} racks.`;
++  }
++  return `About ${found.racks} ${r.platform.name} racks today, rising to roughly ${after.racks} once ${found.binding_constraint.toLowerCase()} is relieved.`;
++}
+diff --git a/supabase/migrations/0002_qualifications.sql b/supabase/migrations/0002_qualifications.sql
+new file mode 100644
+index 0000000..ac633fb
+--- /dev/null
++++ b/supabase/migrations/0002_qualifications.sql
+@@ -0,0 +1,31 @@
++-- 0002_qualifications.sql — capacity qualifier submissions (idempotent)
++--
++-- Every row is a real hall someone typed real numbers into. Over time this table
++-- is the proprietary asset the physics is not: the distribution of busway
++-- ratings, plant temperatures and contracted-versus-peak headroom across European
++-- halls. Nobody else is collecting it.
++create table if not exists public.qualifications (
++  id uuid primary key default gen_random_uuid(),
++  created_at timestamptz default now(),
++  site_name text,
++  hall_id text,
++  metro text,
++  country text,
++  platform text,
++  inputs jsonb not null,
++  racks_as_found integer,
++  racks_after_relief integer,
++  binding_constraint text,
++  intake_completeness numeric,
++  name text,
++  company text,
++  email text,
++  source text default 'gridforge.ai/qualifier',
++  status text default 'scored'
++);
++
++create index if not exists qualifications_created_at_idx on public.qualifications (created_at desc);
++create index if not exists qualifications_binding_idx on public.qualifications (binding_constraint);
++create index if not exists qualifications_metro_idx on public.qualifications (metro);
++
++alter table public.qualifications enable row level security;
+diff --git a/tests/test_api.py b/tests/test_api.py
+new file mode 100644
+index 0000000..11ac451
+--- /dev/null
++++ b/tests/test_api.py
+@@ -0,0 +1,239 @@
++"""The HTTP API, exercised against a real server on a real socket.
++
++The commercial gate lives here: a public caller must get a genuinely useful
++engineering answer and must never receive a priced figure. A test that only
++checked the happy path would let a refactor quietly give the deliverable away.
++"""
++import json
++import os
++import threading
++import urllib.error
++import urllib.request
++
++import pytest
++
++from gridforge.api.server import Handler, make_server, qualify_to_intake
++from gridforge.api.tiers import PUBLIC_REDACTED_KEYS, Tier, redact
++
++KEY = "test-key-123"
++
++
++@pytest.fixture(scope="module")
++def server():
++    os.environ["GRIDFORGE_API_KEYS"] = KEY
++    os.environ["GRIDFORGE_RATE_LIMIT"] = "0"          # disabled for the suite
++    Handler.limiter.per_minute = 0
++    httpd = make_server("127.0.0.1", 0)
++    t = threading.Thread(target=httpd.serve_forever, daemon=True)
++    t.start()
++    yield f"http://127.0.0.1:{httpd.server_address[1]}"
++    httpd.shutdown()
++    os.environ.pop("GRIDFORGE_API_KEYS", None)
++
++
++def call(base, path, body=None, key=None, method=None):
++    url = f"{base}{path}"
++    data = json.dumps(body).encode() if body is not None else None
++    req = urllib.request.Request(url, data=data, method=method or ("POST" if data else "GET"))
++    if data is not None:
++        req.add_header("Content-Type", "application/json")
++    if key:
++        req.add_header("X-API-Key", key)
++    try:
++        with urllib.request.urlopen(req, timeout=30) as r:
++            return r.status, json.loads(r.read() or b"{}")
++    except urllib.error.HTTPError as e:
++        return e.code, json.loads(e.read() or b"{}")
++
++
++GOOD = {
++    "site_name": "Test DC", "metro": "Frankfurt",
++    "contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW": 4.9,
++    "busway_ampacity_A": 400, "tapoff_max_A": 63, "plant_supply_C": 6,
++    "positions_available": 180,
++}
++
++
++def _walk(obj):
++    if isinstance(obj, dict):
++        for k, v in obj.items():
++            yield k
++            yield from _walk(v)
++    elif isinstance(obj, list):
++        for v in obj:
++            yield from _walk(v)
++
++
++def _strings(obj):
++    if isinstance(obj, dict):
++        for v in obj.values():
++            yield from _strings(v)
++    elif isinstance(obj, list):
++        for v in obj:
++            yield from _strings(v)
++    elif isinstance(obj, str):
++        yield obj
++
++
++# --- liveness and discovery --------------------------------------------------
++def test_health(server):
++    status, body = call(server, "/health")
++    assert status == 200 and body["ok"]
++
++
++def test_version_reports_auth_configuration(server):
++    status, body = call(server, "/v1/version")
++    assert status == 200
++    assert body["auth_configured"] is True
++    assert "/v1/qualify" in body["endpoints"]
++
++
++def test_platform_library_names_what_is_deliberately_absent(server):
++    status, body = call(server, "/v1/platforms")
++    assert status == 200
++    ids = {p["id"] for p in body["platforms"]}
++    assert "gb300_nvl72" in ids
++    assert "vr200_nvl144" in body["deliberately_absent"], (
++        "an unpublished rack power must never appear in the library"
++    )
++    assert "vr200_nvl144" not in ids
++
++
++def test_intake_template_is_valid_json_and_complete(server):
++    status, body = call(server, "/v1/intake/template")
++    assert status == 200
++    assert "grid" in body and "scenarios" in body
++
++
++def test_unknown_path_lists_the_endpoints(server):
++    status, body = call(server, "/v1/nope", {})
++    assert status == 404 and body["endpoints"]
++
++
++# --- the public qualifier ----------------------------------------------------
++def test_qualify_returns_a_real_binding_constraint(server):
++    status, body = call(server, "/v1/qualify", GOOD)
++    assert status == 200, body
++    assert body["as_found"]["binding_constraint"]
++    assert body["as_found"]["basis"]
++    assert body["after_relief"]["racks"] >= body["as_found"]["racks"]
++    assert body["intake"]["gaps"], "the list of assumed inputs is the point of the free tier"
++
++
++def test_qualify_never_leaks_a_priced_figure(server):
++    status, body = call(server, "/v1/qualify", GOOD)
++    assert status == 200
++    keys = set(_walk(body))
++    leaked = keys & PUBLIC_REDACTED_KEYS
++    assert not leaked, f"public payload leaked paid content: {leaked}"
++    blob = json.dumps(body)
++    assert "EUR" not in blob, "no currency figure may reach a public caller"
++
++
++def test_qualify_says_what_it_is_not(server):
++    _, body = call(server, "/v1/qualify", GOOD)
++    assert "not a bankable number" in body["notice"]
++
++
++def test_qualify_refuses_when_there_is_too_little_to_say(server):
++    status, body = call(server, "/v1/qualify", {"contracted_MW": 10})
++    assert status == 422
++    assert "missing" in body
++
++
++def test_qualify_expands_into_a_sparse_intake_not_a_fabricated_one():
++    doc = qualify_to_intake(GOOD)
++    assert doc["grid"]["contracted_MW"] == 12
++    assert "transformers" not in doc, (
++        "the qualifier must not invent a transformer schedule; it must be recorded as missing"
++    )
++
++
++def test_qualify_assumes_connection_parity_rather_than_headroom():
++    doc = qualify_to_intake({"contracted_MW": 12})
++    assert doc["grid"]["firm_capacity_MVA"] == pytest.approx(12 / 0.97)
++
++
++# --- the paid tier -----------------------------------------------------------
++def test_paid_endpoints_require_a_key(server):
++    for path in ("/v1/screen", "/v1/study", "/v1/portfolio"):
++        status, body = call(server, path, {"intake": {}})
++        assert status == 401, path
++        assert body["public_endpoint"] == "/v1/qualify"
++
++
++def test_screen_with_a_key_returns_the_priced_content(server):
++    status, body = call(server, "/v1/screen", {"intake": qualify_to_intake(GOOD)}, key=KEY)
++    assert status == 200, body
++    blob = json.dumps(body)
++    assert "capex_total_eur" in blob
++    assert "lead_time_weeks" in blob
++
++
++def test_study_with_a_key_returns_a_model_pack(server):
++    status, body = call(server, "/v1/study", {"intake": qualify_to_intake(GOOD)}, key=KEY)
++    assert status == 200, body
++    assert body["schema"].startswith("gridforge/model-pack")
++    assert body["scenarios"]
++
++
++def test_portfolio_ranks_several_halls(server):
++    doc = qualify_to_intake(GOOD)
++    other = qualify_to_intake({**GOOD, "contracted_MW": 26, "tapoff_max_A": 400,
++                               "busway_ampacity_A": 1000, "plant_supply_C": 18})
++    status, body = call(server, "/v1/portfolio", {"intakes": [doc, other]}, key=KEY)
++    assert status == 200, body
++    assert [h["rank"] for h in body["halls"]] == [1, 2]
++    assert body["total_racks"] >= 0
++
++
++def test_portfolio_rejects_a_missing_list(server):
++    status, body = call(server, "/v1/portfolio", {"intakes": []}, key=KEY)
++    assert status == 422
++
++
++# --- failure modes -----------------------------------------------------------
++def test_bad_json_is_a_400_not_a_500(server):
++    req = urllib.request.Request(f"{server}/v1/qualify", data=b"{not json",
++                                 headers={"Content-Type": "application/json"}, method="POST")
++    try:
++        urllib.request.urlopen(req, timeout=10)
++        raise AssertionError("expected an error")
++    except urllib.error.HTTPError as e:
++        assert e.code == 400
++
++
++def test_unknown_platform_is_a_422_with_the_available_list(server):
++    status, body = call(server, "/v1/qualify", {**GOOD, "platform": "vr200_nvl144"})
++    assert status == 422
++    assert "unknown platform" in body["error"]
++
++
++def test_unknown_objective_is_rejected(server):
++    status, body = call(server, "/v1/qualify", {**GOOD, "objective": "vibes"})
++    assert status == 422
++    assert body["allowed"]
++
++
++def test_rate_limit_returns_429(server):
++    Handler.limiter.per_minute = 2
++    Handler.limiter._hits.clear()
++    try:
++        codes = [call(server, "/v1/qualify", GOOD)[0] for _ in range(4)]
++        assert 429 in codes
++    finally:
++        Handler.limiter.per_minute = 0
++        Handler.limiter._hits.clear()
++
++
++def test_cors_preflight_is_answered(server):
++    status, _ = call(server, "/v1/qualify", method="OPTIONS")
++    assert status == 204
++
++
++# --- the redactor itself -----------------------------------------------------
++def test_redactor_strips_at_any_depth():
++    payload = {"a": {"b": [{"capex_eur": 1, "keep": 2}]}}
++    out = redact(payload, Tier.PUBLIC)
++    assert out == {"a": {"b": [{"keep": 2}]}}
++    assert redact(payload, Tier.CLIENT) == payload
+diff --git a/tests/test_architecture.py b/tests/test_architecture.py
+index d1203b1..07377c4 100644
+--- a/tests/test_architecture.py
++++ b/tests/test_architecture.py
+@@ -22,6 +22,8 @@ ALLOWED: dict[str, set[str]] = {
+     "serialize": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
+                   "intake"},
+     "cli": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
++            "reporting", "intake", "serialize", "api"},
++    "api": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
+             "reporting", "intake", "serialize"},
+     "integrations": set(),
+ }
+@@ -87,8 +89,9 @@ def test_no_third_party_dependencies():
+     Adapters under gridforge/integrations/ may import an external package, but only
+     lazily - inside a function body - so importing gridforge never pulls it in.
+     """
+-    stdlib_ok = {"__future__", "argparse", "ast", "copy", "dataclasses", "datetime", "enum",
+-                 "hashlib", "html", "json", "math", "pathlib", "re", "sys", "typing"}
++    stdlib_ok = {"__future__", "argparse", "ast", "collections", "copy", "dataclasses",
++                 "datetime", "enum", "hashlib", "html", "http", "json", "math", "os",
++                 "pathlib", "re", "sys", "threading", "time", "typing", "urllib"}
+     bad = []
+     for path in ROOT.rglob("*.py"):
+         tree = ast.parse(path.read_text())
+-- 
+2.43.0
+
