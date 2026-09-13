@@ -91,8 +91,9 @@ def build(intake: Intake, results: list[ScenarioResult],
             f"Intake completeness is {intake.report.completeness:.0%}. Each row below is a number "
             "that moves the answer and that nobody has measured. This list is the deliverable as "
             "much as the number above it."))
-        rows = [[g.label, Lit("required" if g.required else "optional"), g.fallback_description,
-                 g.why_it_binds, g.how_to_get_it] for g in intake.report.gaps]
+        rows = [[g.label, Lit("required" if g.required else "optional"),
+                 Lit(g.fallback_description), Lit(g.why_it_binds), Lit(g.how_to_get_it)]
+                for g in intake.report.gaps]
         s.blocks.append(Table(["Input", "Status", "Assumed", "Why it binds", "How to get it"], rows))
     else:
         s.blocks.append(Para("Intake complete. Every input below the headline was supplied by the "

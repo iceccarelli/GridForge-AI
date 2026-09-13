@@ -10,7 +10,7 @@ One JSON file per hall. Everything else is a command.
 | 2. They send it back part-filled | `python3 -m gridforge gaps intake.json` | the data request, verbatim from the output | — |
 | 3. Screen | `python3 -m gridforge screen intake.json -o out/` | `density_screen.pdf` + the gap list | **€4,500**, credited against step 4 |
 | 4. Study | `python3 -m gridforge study intake.json -o out/` | `envelope_study.*` + `model_pack.json` | **€22k–€45k** |
-| 5. Portfolio | `python3 -m gridforge portfolio halls/*.json -o out/ --client "X"` | ranked table + one model pack per hall | **€60k–€140k** |
+| 5. Portfolio | `python3 -m gridforge portfolio examples/intake/*.json -o out/ --client "X"` | ranked table + one model pack per hall | **€60k–€140k** |
 
 `model_pack.json` is part of the deliverable, not an internal artefact. It is what lets a client
 re-run the conclusion when their inputs change, and it is what makes the next engagement cheap.
@@ -28,6 +28,18 @@ re-run the conclusion when their inputs change, and it is what makes the next en
   power routinely disagree. `--objective` sets it and the report states which one drove the answer.
 - **Never quote equipment.** The relief options carry indicative capex so the ladder has a shape;
   they are not a bill of materials and we do not take a margin on hardware.
+
+## What CI guarantees before you send anything
+
+`.github/workflows/gridforge.yml` runs, on every push that touches the engine:
+
+- the full test suite on Python 3.11 and 3.13;
+- `init` -> `gaps` -> `screen` -> `study` on a **blank** intake, because that is the worst
+  input a real client will ever hand back and it must never crash;
+- `screen` and `study` for every shipped example intake, and a `portfolio` across all of them;
+- the reference project.
+
+A green build means the commands in this runbook work. A red one means do not send anything.
 
 ## Per-project time
 

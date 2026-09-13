@@ -105,11 +105,11 @@ class Intake:
 
     @property
     def client(self) -> str:
-        return str(self.project.get("client", "Unnamed client"))
+        return str(self.project.get("client") or "Unnamed client")
 
     @property
     def reference(self) -> str:
-        return str(self.project.get("reference", "—"))
+        return str(self.project.get("reference") or "—")
 
 
 _ARCH_BY_NAME = {a.value: a for a in Architecture}

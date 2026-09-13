@@ -134,7 +134,7 @@ def build(entries: list[SiteEntry], *, client: str = "Portfolio",
     rows = [[f"{e.intake.context.site.name} / {e.intake.context.hall.id}",
              V(e.intake.report.completeness * 100, "%", "intake completeness", ESTIMATED),
              Lit(str(len(e.intake.report.required_gaps))),
-             e.intake.report.engagement_recommendation] for e in ordered]
+             Lit(e.intake.report.engagement_recommendation)] for e in ordered]
     s.blocks.append(Table(["Hall", "Intake completeness", "Required inputs missing",
                            "Recommended engagement"], rows))
     below = claims_below_floor(collect_claims([x for e in ordered for x in e.results]))

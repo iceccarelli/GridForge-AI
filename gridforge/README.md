@@ -8,7 +8,7 @@ python3 -m gridforge init -o intake.json      # blank intake to send a client
 python3 -m gridforge gaps    intake.json      # the data request
 python3 -m gridforge screen  intake.json -o out   # Density Screen
 python3 -m gridforge study   intake.json -o out   # Capacity & Density Envelope Study
-python3 -m gridforge portfolio halls/*.json -o out  # N halls, one methodology
+python3 -m gridforge portfolio examples/intake/*.json -o out  # N halls, one methodology
 ```
 
 ```python

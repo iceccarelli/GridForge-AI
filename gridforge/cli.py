@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .common import ASSUMED, V
 from .constraints import EnvelopeContext
-from .intake.loader import IntakeError, blank_intake, load
+from .intake.loader import IntakeError, blank_intake, load as _load_intake
 from .reporting import run_all_gates, to_html, to_markdown
 from .reporting.gates import GateFailure, ReportMode
 from .reporting.portfolio import SiteEntry
@@ -33,6 +33,28 @@ from .scenario import run_all, sensitivity
 from .serialize import write_model_pack
 
 OBJECTIVES = {o.value: o for o in Objective}
+
+
+def load(path) -> "object":
+    """Load an intake, turning filesystem and JSON problems into IntakeError.
+
+    An unmatched shell glob arrives here as a literal path like 'halls/*.json';
+    say so instead of raising FileNotFoundError at the user."""
+    p = Path(path)
+    if not p.exists():
+        if any(ch in str(path) for ch in "*?["):
+            raise IntakeError(
+                f"no intake files matched {path!r}. The shell expands the pattern, so run it from "
+                "the directory that holds them, e.g. "
+                "'python3 -m gridforge portfolio examples/intake/*.json -o out'.")
+        raise IntakeError(f"no such intake file: {path}")
+    if p.is_dir():
+        raise IntakeError(f"{path} is a directory. Pass the JSON files themselves, "
+                          f"e.g. '{path}/*.json'.")
+    try:
+        return _load_intake(p)
+    except json.JSONDecodeError as exc:
+        raise IntakeError(f"{path} is not valid JSON: {exc}") from exc
 
 
 # --- generic sensitivity knobs, applicable to any site -----------------------

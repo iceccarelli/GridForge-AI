@@ -1,0 +1,44 @@
+{
+  "project": {
+    "client": "",
+    "reference": "",
+    "objective": "max_compute"
+  },
+  "scenarios": [
+    "retained_air",
+    "rdhx",
+    "hybrid_dlc",
+    "full_dlc",
+    "full_dlc_btm"
+  ],
+  "grid": {
+    "firm_capacity_MVA": null,
+    "contracted_MW": null,
+    "current_site_peak_MW": null,
+    "current_it_load_MW": null
+  },
+  "lv": {
+    "busway_ampacity_A": null,
+    "tapoff_max_A": null
+  },
+  "hall": {
+    "floor_loading_kPa": null,
+    "positions_available": null
+  },
+  "thermal": {
+    "plant": {
+      "chilled_water_capacity_kW": null,
+      "design_supply_C": null,
+      "pump_flow_capacity_l_per_min": null
+    },
+    "residual_air_capacity_kW_per_rack": null
+  },
+  "transformers": [],
+  "ups": [],
+  "site": {
+    "design_drybulb_C": null
+  },
+  "compute": {
+    "platform": null
+  }
+}
