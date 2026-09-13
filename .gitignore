@@ -33,3 +33,7 @@ next-env.d.ts
 # local install scripts
 install-*.sh
 .env*
+__pycache__/
+*.pyc
+.pytest_cache/
+out/

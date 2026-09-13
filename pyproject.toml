@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gridforge"
+version = "0.1.0"
+description = "Power and thermal capacity envelope engine for AI data-centre halls"
+requires-python = ">=3.11"
+dependencies = []          # deliberately none: the engine must run in an air-gapped review
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["gridforge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
