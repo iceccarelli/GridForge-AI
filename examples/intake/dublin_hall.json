@@ -1,0 +1,106 @@
+{
+  "project": {
+    "client": "Reference Project (synthetic)",
+    "reference": "REF-EU-02/DUB-01",
+    "objective": "max_compute",
+    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
+  },
+  "site": {
+    "id": "REF-EU-02",
+    "name": "Reference Dublin Campus",
+    "country": "IE",
+    "metro": "Dublin",
+    "design_drybulb_C": 26,
+    "design_wetbulb_C": 19
+  },
+  "hall": {
+    "id": "DUB-01",
+    "build_year": 2019,
+    "floor_type": "slab",
+    "net_white_space_m2": 2400,
+    "floor_loading_kPa": 20,
+    "clear_height_m": 4.2,
+    "aisle_pitch_m": 2.4,
+    "rack_positions": 420,
+    "positions_available": 260,
+    "design_density_kW_per_rack": 12,
+    "containment": "cold_aisle"
+  },
+  "grid": {
+    "dso": "Reference DSO",
+    "firm_capacity_MVA": 11.0,
+    "power_factor": 0.97,
+    "contracted_MW": 10.0,
+    "current_site_peak_MW": 6.1,
+    "current_it_load_MW": 4.2,
+    "queue_note": "Under the CRU Large Energy User policy the site's load cannot increase until matching dispatchable generation is connected and separately metered. In-hall densification within the existing contracted load is the only fast path."
+  },
+  "transformers": [
+    {
+      "id": "TX-A/B",
+      "unit_rating_MVA": 5.0,
+      "units": 3,
+      "redundancy": "N+1",
+      "derating_factor": 0.9,
+      "replacement_lead_time_weeks": 160
+    }
+  ],
+  "ups": [
+    {
+      "id": "UPS-1",
+      "unit_rating_kW": 1200,
+      "units": 6,
+      "redundancy": "N+1",
+      "step_load_capability": 0.5
+    }
+  ],
+  "lv": {
+    "voltage_V": 400,
+    "phases": 3,
+    "busway_ampacity_A": 800,
+    "busway_runs": 10,
+    "busway_utilisation_limit": 0.8,
+    "tapoff_max_A": 250
+  },
+  "thermal": {
+    "plant": {
+      "id": "CH-PLANT",
+      "chilled_water_capacity_kW": 7600,
+      "design_supply_C": 18,
+      "design_return_C": 26,
+      "pump_flow_capacity_l_per_min": 14000,
+      "available_head_kPa": 250,
+      "free_cooling_hours_per_year": 2600
+    },
+    "residual_air_capacity_kW_per_rack": {
+      "value": 16,
+      "evidence": "E3",
+      "note": "Measured per-tile airflow, 2025 survey"
+    },
+    "cdus": []
+  },
+  "compute": {
+    "platform": "gb300_nvl72",
+    "utilisation": 0.75,
+    "default_architecture": "hybrid_dlc"
+  },
+  "btm_options": [
+    {
+      "id": "GEN-8MW",
+      "kind": "gas_engine",
+      "capacity_MW": 8.0,
+      "capex_eur_per_kW": 820,
+      "lead_time_weeks": 56,
+      "firm": true,
+      "opex_eur_per_MWh": 110,
+      "permitting_note": "CRU policy requires dispatchable generation at 100% of demand, separately connected and metered at 10 MVA or above."
+    }
+  ],
+  "scenarios": [
+    "retained_air",
+    "rdhx",
+    "hybrid_dlc",
+    "full_dlc",
+    "full_dlc_btm"
+  ]
+}

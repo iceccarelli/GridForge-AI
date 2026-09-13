@@ -1,0 +1,95 @@
+{
+  "project": {
+    "client": "Reference Project (synthetic)",
+    "reference": "REF-EU-03/NOR-04",
+    "objective": "max_compute",
+    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
+  },
+  "site": {
+    "id": "REF-EU-03",
+    "name": "Reference Nordic Campus",
+    "country": "NO",
+    "metro": "Oslo",
+    "design_drybulb_C": 24,
+    "design_wetbulb_C": 17
+  },
+  "hall": {
+    "id": "NOR-04",
+    "build_year": 2021,
+    "floor_type": "slab",
+    "net_white_space_m2": 2400,
+    "floor_loading_kPa": 25,
+    "clear_height_m": 4.8,
+    "aisle_pitch_m": 2.7,
+    "rack_positions": 300,
+    "positions_available": 300,
+    "design_density_kW_per_rack": 20,
+    "containment": "cold_aisle"
+  },
+  "grid": {
+    "dso": "Reference DSO",
+    "firm_capacity_MVA": 30.0,
+    "power_factor": 0.97,
+    "contracted_MW": 26.0,
+    "current_site_peak_MW": 8.0,
+    "current_it_load_MW": 5.5,
+    "queue_note": "Firm capacity already contracted and largely unused; the constraint is inside the building, not at the connection."
+  },
+  "transformers": [
+    {
+      "id": "TX-A/B",
+      "unit_rating_MVA": 5.0,
+      "units": 3,
+      "redundancy": "N+1",
+      "derating_factor": 0.9,
+      "replacement_lead_time_weeks": 160
+    }
+  ],
+  "ups": [
+    {
+      "id": "UPS-1",
+      "unit_rating_kW": 1200,
+      "units": 6,
+      "redundancy": "N+1",
+      "step_load_capability": 0.5
+    }
+  ],
+  "lv": {
+    "voltage_V": 400,
+    "phases": 3,
+    "busway_ampacity_A": 1000,
+    "busway_runs": 12,
+    "busway_utilisation_limit": 0.8,
+    "tapoff_max_A": 400
+  },
+  "thermal": {
+    "plant": {
+      "id": "CH-PLANT",
+      "chilled_water_capacity_kW": 9000,
+      "design_supply_C": 20,
+      "design_return_C": 30,
+      "pump_flow_capacity_l_per_min": 22000,
+      "available_head_kPa": 250,
+      "free_cooling_hours_per_year": 7600
+    },
+    "residual_air_capacity_kW_per_rack": {
+      "value": 22,
+      "evidence": "E3",
+      "note": "Measured, 2026 commissioning data"
+    },
+    "cdus": []
+  },
+  "compute": {
+    "platform": "gb300_nvl72",
+    "utilisation": 0.75,
+    "default_architecture": "hybrid_dlc"
+  },
+  "btm_options": [],
+  "scenarios": [
+    "retained_air",
+    "rdhx",
+    "hybrid_dlc",
+    "full_dlc",
+    "full_dlc_btm"
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "project": {
+    "client": "Reference Project (synthetic)",
+    "reference": "REF-EU-04/LON-03",
+    "objective": "max_compute",
+    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
+  },
+  "site": {
+    "id": "REF-EU-04",
+    "name": "Reference London Docklands",
+    "country": "GB",
+    "metro": "London",
+    "design_drybulb_C": 31,
+    "design_wetbulb_C": 21
+  },
+  "hall": {
+    "id": "LON-03",
+    "build_year": 2009,
+    "floor_type": "raised_floor",
+    "floor_loading_kPa": 9,
+    "clear_height_m": 2.7,
+    "rack_positions": 320,
+    "positions_available": 60,
+    "design_density_kW_per_rack": 5,
+    "containment": "cold_aisle"
+  },
+  "grid": {
+    "dso": "Reference DSO",
+    "firm_capacity_MVA": 8.0,
+    "power_factor": 0.97,
+    "contracted_MW": 7.0,
+    "current_site_peak_MW": 5.9,
+    "current_it_load_MW": 3.8,
+    "queue_note": "West London substation reinforcement is not expected before the early 2030s."
+  },
+  "transformers": [
+    {
+      "id": "TX-A/B",
+      "unit_rating_MVA": 5.0,
+      "units": 3,
+      "redundancy": "N+1",
+      "derating_factor": 0.9,
+      "replacement_lead_time_weeks": 160
+    }
+  ],
+  "ups": [],
+  "lv": {
+    "voltage_V": 400,
+    "phases": 3,
+    "busway_ampacity_A": 250,
+    "busway_runs": 6,
+    "busway_utilisation_limit": 0.8,
+    "tapoff_max_A": 32
+  },
+  "thermal": {
+    "plant": {
+      "id": "CH-PLANT",
+      "chilled_water_capacity_kW": 4200,
+      "design_supply_C": 6,
+      "design_return_C": 12,
+      "available_head_kPa": 250,
+      "free_cooling_hours_per_year": 2600
+    },
+    "cdus": []
+  },
+  "compute": {
+    "platform": "gb300_nvl72",
+    "utilisation": 0.75,
+    "default_architecture": "hybrid_dlc"
+  },
+  "btm_options": [],
+  "scenarios": [
+    "retained_air",
+    "rdhx",
+    "hybrid_dlc",
+    "full_dlc",
+    "full_dlc_btm"
+  ]
+}
