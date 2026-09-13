@@ -1,0 +1,414 @@
+From 1c3084f6df2b81caeb69420921ad9ea134543313 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 23:39:10 +0000
+Subject: [PATCH] fix(gridforge): screen crashed on the blank intake; add
+ end-to-end smoke tests and CI
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The suite passed 62 tests while `gridforge screen` crashed on the intake that
+`gridforge init` had just produced. That is a test-design failure, not a bad
+patch: every test exercised library functions, none ran the product.
+
+FIXES
+
+- reporting/screen.py: the data-gap table renders prose about an assumption, not
+  report figures. A fallback like "100" tripped the bare-number guard that exists
+  to stop an unprovenanced figure reaching a customer. Gap cells are now Lit, which
+  is the explicit "this needs no provenance" marker. Same fix in the portfolio
+  recommendation column.
+- intake/loader.py: an empty project.client no longer renders as "Envelope Study — :".
+  Blank client and reference fall back to "Unnamed client" and "—".
+- cli.py: a missing file, a directory, malformed JSON or an unmatched shell glob now
+  exit 2 with one line that says what to do. `portfolio halls/*.json` - which was in
+  the README and does not exist - printed a FileNotFoundError traceback at the user.
+- README and runbook: the portfolio example now points at examples/intake/*.json,
+  the path that actually ships.
+
+TESTS THAT WOULD HAVE CAUGHT IT (tests/test_cli_smoke.py, 22 new)
+
+Every command in the README and the runbook, run through the real entry point, on
+the real files, asserting no traceback:
+
+- init -> gaps -> screen -> study on a BLANK intake, the worst input a client can
+  hand back;
+- screen and study for every shipped example, parametrised;
+- all three ranking objectives;
+- portfolio across every example, one model pack per hall;
+- unmatched glob, missing file, directory-instead-of-file and malformed JSON each
+  exit 2 with an explanation;
+- the Makefile still carries the targets the runbook tells a founder to type.
+
+Verified by reverting the screen fix: the smoke test fails, the other 62 still pass.
+That is the point of it.
+
+CI (.github/workflows/gridforge.yml)
+
+Runs the suite on 3.11 and 3.13, then produces a screen and a study from the blank
+intake, a screen and a study for every example, a portfolio across all of them, and
+the reference project - and uploads the deliverables as build artefacts. A green
+build means the commands in the runbook work.
+
+84 tests pass, up from 62.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml  |  60 ++++++++++++++
+ docs/07_DELIVERY_RUNBOOK.md      |  14 +++-
+ gridforge/README.md              |   2 +-
+ gridforge/cli.py                 |  24 +++++-
+ gridforge/intake/loader.py       |   4 +-
+ gridforge/reporting/portfolio.py |   2 +-
+ gridforge/reporting/screen.py    |   5 +-
+ tests/test_cli_smoke.py          | 136 +++++++++++++++++++++++++++++++
+ 8 files changed, 239 insertions(+), 8 deletions(-)
+ create mode 100644 .github/workflows/gridforge.yml
+ create mode 100644 tests/test_cli_smoke.py
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+new file mode 100644
+index 0000000..74008ec
+--- /dev/null
++++ b/.github/workflows/gridforge.yml
+@@ -0,0 +1,60 @@
++name: gridforge
++
++# The engine is what gets sold. If it cannot produce a Density Screen from the
++# blank intake that `gridforge init` hands a client, nothing else matters.
++on:
++  push:
++    branches: [main]
++    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml',
++            '.github/workflows/gridforge.yml']
++  pull_request:
++    paths: ['gridforge/**', 'tests/**', 'examples/**', 'Makefile', 'pyproject.toml']
++  workflow_dispatch:
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        python-version: ['3.11', '3.13']
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - name: Install test dependency only
++        run: python -m pip install --quiet pytest
++      - name: Unit and architecture tests
++        run: python -m pytest tests -q
++      - name: The engine must import with no third-party package present
++        run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
++
++  deliverables:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.13'
++      - name: Blank intake must survive every command
++        run: |
++          python -m gridforge init -o /tmp/blank.json
++          python -m gridforge gaps /tmp/blank.json
++          python -m gridforge screen /tmp/blank.json -o /tmp/blank_out
++          python -m gridforge study  /tmp/blank.json -o /tmp/blank_out
++      - name: Every shipped example must produce a screen and a study
++        run: |
++          for f in examples/intake/*.json; do
++            python -m gridforge screen "$f" -o "/tmp/out/$(basename "$f" .json)"
++            python -m gridforge study  "$f" -o "/tmp/out/$(basename "$f" .json)"
++          done
++      - name: Portfolio screen over every example
++        run: python -m gridforge portfolio examples/intake/*.json -o /tmp/portfolio
++      - name: Reference project
++        run: python -m examples.reference_site
++      - uses: actions/upload-artifact@v4
++        with:
++          name: sample-deliverables
++          path: |
++            /tmp/portfolio
++            /tmp/blank_out
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 15bc90f..4cee4eb 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -10,7 +10,7 @@ One JSON file per hall. Everything else is a command.
+ | 2. They send it back part-filled | `python3 -m gridforge gaps intake.json` | the data request, verbatim from the output | — |
+ | 3. Screen | `python3 -m gridforge screen intake.json -o out/` | `density_screen.pdf` + the gap list | **€4,500**, credited against step 4 |
+ | 4. Study | `python3 -m gridforge study intake.json -o out/` | `envelope_study.*` + `model_pack.json` | **€22k–€45k** |
+-| 5. Portfolio | `python3 -m gridforge portfolio halls/*.json -o out/ --client "X"` | ranked table + one model pack per hall | **€60k–€140k** |
++| 5. Portfolio | `python3 -m gridforge portfolio examples/intake/*.json -o out/ --client "X"` | ranked table + one model pack per hall | **€60k–€140k** |
+ 
+ `model_pack.json` is part of the deliverable, not an internal artefact. It is what lets a client
+ re-run the conclusion when their inputs change, and it is what makes the next engagement cheap.
+@@ -29,6 +29,18 @@ re-run the conclusion when their inputs change, and it is what makes the next en
+ - **Never quote equipment.** The relief options carry indicative capex so the ladder has a shape;
+   they are not a bill of materials and we do not take a margin on hardware.
+ 
++## What CI guarantees before you send anything
++
++`.github/workflows/gridforge.yml` runs, on every push that touches the engine:
++
++- the full test suite on Python 3.11 and 3.13;
++- `init` -> `gaps` -> `screen` -> `study` on a **blank** intake, because that is the worst
++  input a real client will ever hand back and it must never crash;
++- `screen` and `study` for every shipped example intake, and a `portfolio` across all of them;
++- the reference project.
++
++A green build means the commands in this runbook work. A red one means do not send anything.
++
+ ## Per-project time
+ 
+ Intake assembly and judgement are the only manual work left. Everything the engine does — context
+diff --git a/gridforge/README.md b/gridforge/README.md
+index 9281f20..944837d 100644
+--- a/gridforge/README.md
++++ b/gridforge/README.md
+@@ -8,7 +8,7 @@ python3 -m gridforge init -o intake.json      # blank intake to send a client
+ python3 -m gridforge gaps    intake.json      # the data request
+ python3 -m gridforge screen  intake.json -o out   # Density Screen
+ python3 -m gridforge study   intake.json -o out   # Capacity & Density Envelope Study
+-python3 -m gridforge portfolio halls/*.json -o out  # N halls, one methodology
++python3 -m gridforge portfolio examples/intake/*.json -o out  # N halls, one methodology
+ ```
+ 
+ ```python
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index 5134940..12c3baf 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -21,7 +21,7 @@ from pathlib import Path
+ 
+ from .common import ASSUMED, V
+ from .constraints import EnvelopeContext
+-from .intake.loader import IntakeError, blank_intake, load
++from .intake.loader import IntakeError, blank_intake, load as _load_intake
+ from .reporting import run_all_gates, to_html, to_markdown
+ from .reporting.gates import GateFailure, ReportMode
+ from .reporting.portfolio import SiteEntry
+@@ -35,6 +35,28 @@ from .serialize import write_model_pack
+ OBJECTIVES = {o.value: o for o in Objective}
+ 
+ 
++def load(path) -> "object":
++    """Load an intake, turning filesystem and JSON problems into IntakeError.
++
++    An unmatched shell glob arrives here as a literal path like 'halls/*.json';
++    say so instead of raising FileNotFoundError at the user."""
++    p = Path(path)
++    if not p.exists():
++        if any(ch in str(path) for ch in "*?["):
++            raise IntakeError(
++                f"no intake files matched {path!r}. The shell expands the pattern, so run it from "
++                "the directory that holds them, e.g. "
++                "'python3 -m gridforge portfolio examples/intake/*.json -o out'.")
++        raise IntakeError(f"no such intake file: {path}")
++    if p.is_dir():
++        raise IntakeError(f"{path} is a directory. Pass the JSON files themselves, "
++                          f"e.g. '{path}/*.json'.")
++    try:
++        return _load_intake(p)
++    except json.JSONDecodeError as exc:
++        raise IntakeError(f"{path} is not valid JSON: {exc}") from exc
++
++
+ # --- generic sensitivity knobs, applicable to any site -----------------------
+ def _scale_contract(f: float):
+     def fn(c: EnvelopeContext) -> EnvelopeContext:
+diff --git a/gridforge/intake/loader.py b/gridforge/intake/loader.py
+index f0f8f5c..0988a2a 100644
+--- a/gridforge/intake/loader.py
++++ b/gridforge/intake/loader.py
+@@ -105,11 +105,11 @@ class Intake:
+ 
+     @property
+     def client(self) -> str:
+-        return str(self.project.get("client", "Unnamed client"))
++        return str(self.project.get("client") or "Unnamed client")
+ 
+     @property
+     def reference(self) -> str:
+-        return str(self.project.get("reference", "—"))
++        return str(self.project.get("reference") or "—")
+ 
+ 
+ _ARCH_BY_NAME = {a.value: a for a in Architecture}
+diff --git a/gridforge/reporting/portfolio.py b/gridforge/reporting/portfolio.py
+index c26b22e..9c6dda9 100644
+--- a/gridforge/reporting/portfolio.py
++++ b/gridforge/reporting/portfolio.py
+@@ -134,7 +134,7 @@ def build(entries: list[SiteEntry], *, client: str = "Portfolio",
+     rows = [[f"{e.intake.context.site.name} / {e.intake.context.hall.id}",
+              V(e.intake.report.completeness * 100, "%", "intake completeness", ESTIMATED),
+              Lit(str(len(e.intake.report.required_gaps))),
+-             e.intake.report.engagement_recommendation] for e in ordered]
++             Lit(e.intake.report.engagement_recommendation)] for e in ordered]
+     s.blocks.append(Table(["Hall", "Intake completeness", "Required inputs missing",
+                            "Recommended engagement"], rows))
+     below = claims_below_floor(collect_claims([x for e in ordered for x in e.results]))
+diff --git a/gridforge/reporting/screen.py b/gridforge/reporting/screen.py
+index 64255ce..e870db1 100644
+--- a/gridforge/reporting/screen.py
++++ b/gridforge/reporting/screen.py
+@@ -91,8 +91,9 @@ def build(intake: Intake, results: list[ScenarioResult],
+             f"Intake completeness is {intake.report.completeness:.0%}. Each row below is a number "
+             "that moves the answer and that nobody has measured. This list is the deliverable as "
+             "much as the number above it."))
+-        rows = [[g.label, Lit("required" if g.required else "optional"), g.fallback_description,
+-                 g.why_it_binds, g.how_to_get_it] for g in intake.report.gaps]
++        rows = [[g.label, Lit("required" if g.required else "optional"),
++                 Lit(g.fallback_description), Lit(g.why_it_binds), Lit(g.how_to_get_it)]
++                for g in intake.report.gaps]
+         s.blocks.append(Table(["Input", "Status", "Assumed", "Why it binds", "How to get it"], rows))
+     else:
+         s.blocks.append(Para("Intake complete. Every input below the headline was supplied by the "
+diff --git a/tests/test_cli_smoke.py b/tests/test_cli_smoke.py
+new file mode 100644
+index 0000000..3068b1c
+--- /dev/null
++++ b/tests/test_cli_smoke.py
+@@ -0,0 +1,136 @@
++"""Smoke tests: every command in the README and the runbook, run exactly as documented.
++
++This file exists because the suite once passed 62 tests while `gridforge screen`
++crashed on the blank intake that `gridforge init` had just produced. Unit tests on
++library functions do not prove the product works. These do: they run the real
++entry point, on the real files, and fail on a traceback.
++
++Rule for this file: if a command appears in the README, the runbook or a reply to
++the founder, it is exercised here.
++"""
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++ROOT = Path(__file__).resolve().parents[1]
++INTAKE_DIR = ROOT / "examples" / "intake"
++EXAMPLES = sorted(INTAKE_DIR.glob("*.json"))
++
++
++def run(*args, cwd=ROOT):
++    r = subprocess.run([sys.executable, "-m", "gridforge", *args],
++                       cwd=cwd, capture_output=True, text=True)
++    assert "Traceback" not in r.stderr, (
++        f"gridforge {' '.join(map(str, args))} raised instead of failing cleanly:\n{r.stderr}")
++    return r
++
++
++def test_examples_exist():
++    assert EXAMPLES, "the shipped example intakes are part of the product"
++
++
++@pytest.fixture(scope="module")
++def blank(tmp_path_factory):
++    """The worst realistic input: what `init` hands a client before they fill it in."""
++    d = tmp_path_factory.mktemp("blank")
++    out = d / "intake.json"
++    r = run("init", "-o", str(out))
++    assert r.returncode == 0, r.stderr
++    assert out.exists()
++    json.loads(out.read_text())
++    return out
++
++
++def test_init_then_gaps_on_a_blank_intake(blank):
++    r = run("gaps", str(blank))
++    assert r.returncode == 0, r.stderr
++    assert "Intake completeness: 0%" in r.stdout
++    assert "Density Screen" in r.stdout, "a blank intake must route to the screen, not the study"
++
++
++def test_screen_survives_a_blank_intake(blank, tmp_path):
++    r = run("screen", str(blank), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr + r.stdout
++    for name in ("density_screen.md", "density_screen.html", "model_pack.json"):
++        p = tmp_path / name
++        assert p.exists() and p.stat().st_size > 0
++
++
++def test_study_survives_a_blank_intake(blank, tmp_path):
++    r = run("study", str(blank), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr + r.stdout
++    assert (tmp_path / "envelope_study.md").stat().st_size > 0
++    assert "required inputs are assumed" in r.stdout, (
++        "a study built on assumptions must say so on the console, not only in the report")
++
++
++def test_blank_intake_report_never_claims_a_client(blank, tmp_path):
++    run("study", str(blank), "-o", str(tmp_path))
++    md = (tmp_path / "envelope_study.md").read_text()
++    assert "Unnamed client" in md
++    assert "— :" not in md, "an empty client name must not render as a dangling separator"
++
++
++@pytest.mark.parametrize("intake", EXAMPLES, ids=lambda p: p.stem)
++def test_screen_runs_for_every_shipped_example(intake, tmp_path):
++    r = run("screen", str(intake), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr + r.stdout
++    assert (tmp_path / "density_screen.md").stat().st_size > 0
++
++
++@pytest.mark.parametrize("intake", EXAMPLES, ids=lambda p: p.stem)
++def test_study_runs_for_every_shipped_example(intake, tmp_path):
++    r = run("study", str(intake), "-o", str(tmp_path))
++    assert r.returncode == 0, r.stderr + r.stdout
++    pack = json.loads((tmp_path / "model_pack.json").read_text())
++    assert pack["scenarios"], "a study with no scenarios is not a study"
++
++
++@pytest.mark.parametrize("objective", ["max_compute", "min_cost", "fastest"])
++def test_every_objective_runs(objective, tmp_path):
++    r = run("study", str(EXAMPLES[0]), "-o", str(tmp_path), "--objective", objective)
++    assert r.returncode == 0, r.stderr
++
++
++def test_portfolio_runs_over_the_shipped_examples(tmp_path):
++    r = run("portfolio", *[str(p) for p in EXAMPLES], "-o", str(tmp_path),
++            "--client", "Smoke test")
++    assert r.returncode == 0, r.stderr + r.stdout
++    assert (tmp_path / "portfolio_screen.md").stat().st_size > 0
++    assert len(list(tmp_path.glob("model_pack_*.json"))) == len(EXAMPLES)
++
++
++def test_unmatched_glob_explains_itself(tmp_path):
++    r = run("portfolio", "halls/*.json", "-o", str(tmp_path))
++    assert r.returncode == 2
++    assert "no intake files matched" in r.stderr
++
++
++def test_missing_file_explains_itself(tmp_path):
++    r = run("study", str(tmp_path / "nope.json"), "-o", str(tmp_path))
++    assert r.returncode == 2
++    assert "no such intake file" in r.stderr
++
++
++def test_directory_instead_of_file_explains_itself(tmp_path):
++    r = run("study", str(INTAKE_DIR), "-o", str(tmp_path))
++    assert r.returncode == 2
++    assert "is a directory" in r.stderr
++
++
++def test_malformed_json_explains_itself(tmp_path):
++    bad = tmp_path / "bad.json"
++    bad.write_text("{ this is not json")
++    r = run("screen", str(bad), "-o", str(tmp_path))
++    assert r.returncode == 2
++    assert "not valid JSON" in r.stderr
++
++
++def test_makefile_targets_match_the_cli():
++    """The runbook tells a founder to type `make screen`. It has to work."""
++    mk = (ROOT / "Makefile").read_text()
++    for target in ("screen:", "study:", "portfolio:", "gaps:", "intake:"):
++        assert target in mk, f"Makefile is missing the documented target {target!r}"
+-- 
+2.43.0
+
