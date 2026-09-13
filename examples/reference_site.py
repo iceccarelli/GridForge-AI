@@ -20,8 +20,8 @@ from gridforge.common import ASSUMED, CUSTOMER, ESTIMATED, V  # noqa: E402
 from gridforge.compute.library import get_platform  # noqa: E402
 from gridforge.compute.schema import ClusterSpec  # noqa: E402
 from gridforge.constraints import EnvelopeContext  # noqa: E402
-from gridforge.power.schema import (GridConnection, LVDistribution, PowerInput,  # noqa: E402
-                                    TransformerBank, UPSBlock)
+from gridforge.power.schema import (GenerationOption, GridConnection, LVDistribution,  # noqa: E402
+                                    PowerInput, TransformerBank, UPSBlock)
 from gridforge.reporting import GateFailure, run_all_gates, to_html, to_markdown  # noqa: E402
 from gridforge.reporting.study import build as build_study, collect_claims  # noqa: E402
 from gridforge.scenario import ScenarioSpec, run_all, sensitivity  # noqa: E402
@@ -92,6 +92,36 @@ def build_context() -> EnvelopeContext:
             busway_utilisation_limit=V(0.8, "1", "continuous-load derating on busway", ESTIMATED),
             tapoff_max_A=V(63, "A", "installed tap-off rating", CUSTOMER, assumptions=[SYNTH]),
         ),
+        # Behind-the-meter options available to this site. They appear in the
+        # ladder only if firm supply is what binds.
+        options=[
+            GenerationOption(
+                id="BESS-2MW-8MWh", kind="bess",
+                capacity_MW=V(2.0, "MW", "battery inverter rating", ASSUMED),
+                capex_eur_per_kW=V(900, "EUR/kW", "4-hour BESS installed capex", ASSUMED, band=0.3),
+                lead_time_weeks=V(30, "weeks", "BESS delivery and commissioning", ASSUMED,
+                                  band=(20, 48)),
+                firm=True,
+                firm_capacity_factor=V(0.50, "1", "BESS firm factor over the required window",
+                                       ASSUMED, band=(0.3, 0.6),
+                                       assumptions=["8 MWh over an 8 h ride-through window gives "
+                                                    "1 MW sustained against a 2 MW inverter"]),
+                permitting_note="No combustion consent required; grid-code compliance and fire "
+                                "separation govern the programme.",
+            ),
+            GenerationOption(
+                id="GEN-5MW", kind="gas_engine",
+                capacity_MW=V(5.0, "MW", "gas engine plant rating", ASSUMED),
+                capex_eur_per_kW=V(800, "EUR/kW", "reciprocating engine installed capex", ASSUMED,
+                                   band=0.35),
+                lead_time_weeks=V(44, "weeks", "engine delivery, civils and commissioning", ASSUMED,
+                                  band=(32, 70)),
+                firm=True,
+                opex_eur_per_MWh=V(95, "EUR/MWh", "fuel and maintenance", ASSUMED, band=0.4),
+                permitting_note="Emissions consent and fuel supply are the schedule risk, not the "
+                                "equipment. Confirm the permitting route before quoting this date.",
+            ),
+        ],
     )
     thermal = ThermalInput(
         plant=PlantSpec(
@@ -130,6 +160,14 @@ def build_context() -> EnvelopeContext:
                            pue=PUE_BY_ARCHITECTURE[Architecture.HYBRID_DLC])
 
 
+def _no_btm(c: EnvelopeContext) -> EnvelopeContext:
+    """Grid-only counterfactual: the site as it would be assessed by anyone who
+    does not sell behind-the-meter supply."""
+    c = c.copy()
+    c.power.options = []
+    return c
+
+
 def _with_cdus(c: EnvelopeContext) -> EnvelopeContext:
     c = c.copy()
     c.thermal.cdus = [CDUSpec(
@@ -138,6 +176,11 @@ def _with_cdus(c: EnvelopeContext) -> EnvelopeContext:
         rated_flow_l_per_min=V(2000, "l/min", "CDU rated flow", ASSUMED),
         units=3, redundancy="N+1")]
     return c
+
+
+def _full_dlc_btm(c: EnvelopeContext) -> EnvelopeContext:
+    """Full DLC with the behind-the-meter options left available."""
+    return _full_dlc(c)
 
 
 def _full_dlc(c: EnvelopeContext) -> EnvelopeContext:
@@ -150,19 +193,26 @@ def _full_dlc(c: EnvelopeContext) -> EnvelopeContext:
 
 
 SCENARIOS = [
-    ScenarioSpec("s1_air", "S1 — retained air, no liquid", Architecture.RETAINED_AIR,
-                 "Do nothing to the cooling architecture. Establishes the counterfactual."),
-    ScenarioSpec("s2_rdhx", "S2 — rear-door heat exchangers", Architecture.RDHX,
-                 "Lowest disruption path; keeps the legacy plant but lifts per-rack capability."),
-    ScenarioSpec("s3_hybrid", "S3 — hybrid DLC on retained plant", Architecture.HYBRID_DLC,
+    ScenarioSpec("s1_air", "S1 — retained air, grid only", Architecture.RETAINED_AIR,
+                 "Do nothing to the cooling architecture. Establishes the counterfactual.",
+                 overrides=_no_btm),
+    ScenarioSpec("s2_rdhx", "S2 — rear-door heat exchangers, grid only", Architecture.RDHX,
+                 "Lowest disruption path; keeps the legacy plant but lifts per-rack capability.",
+                 overrides=_no_btm),
+    ScenarioSpec("s3_hybrid", "S3 — hybrid DLC on retained plant, grid only", Architecture.HYBRID_DLC,
                  "Direct-to-chip for the chip load with the existing plant carrying both the liquid "
                  "and the residual air load. Cheapest route to high density, worst energy outcome.",
-                 overrides=_with_cdus),
-    ScenarioSpec("s4_full", "S4 — full DLC with dedicated high-temperature loop", Architecture.FULL_DLC,
+                 overrides=lambda c: _no_btm(_with_cdus(c))),
+    ScenarioSpec("s4_full", "S4 — full DLC, grid only", Architecture.FULL_DLC,
                  "Dedicated warm-water loop and dry coolers for the chip load, legacy plant retained "
-                 "only for the residual air load. Highest capex, releases the most grid capacity "
-                 "back to compute.",
-                 overrides=_full_dlc),
+                 "only for the residual air load. Bounded by the grid connection, because no "
+                 "additional firm supply is available in this metro this decade.",
+                 overrides=lambda c: _no_btm(_full_dlc(c))),
+    ScenarioSpec("s5_full_btm", "S5 — full DLC plus behind-the-meter supply", Architecture.FULL_DLC,
+                 "The same hall, with on-site firm supply added where the grid connection binds. "
+                 "This is the only scenario in which the site's capacity is set by what can be "
+                 "built rather than by the interconnection queue.",
+                 overrides=_full_dlc_btm),
 ]
 
 def _sens_rack_kW(c):
@@ -224,7 +274,8 @@ def _sens_pue(c, f):
 def main() -> int:
     ctx = build_context()
     results = run_all(ctx, SCENARIOS)
-    rec = max(results, key=lambda r: r.unlocked_racks / max(r.economics.capex_total_eur.value, 1.0))
+    from gridforge.reporting.study import Objective, _pick_recommended
+    rec = _pick_recommended(results, Objective.MAX_COMPUTE)
     sens = sensitivity(rec, SENSITIVITIES)
     report = build_study(ctx, results, sens, client="Reference Project (synthetic)")
 

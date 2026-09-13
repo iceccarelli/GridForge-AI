@@ -172,7 +172,7 @@ export const TECH = [
 export const FAQ = [
   {
     q: "Are these systems already deployed?",
-    a: "GridForge is pilot-stage and founder-led. The reference architectures shown are validated engineering designs, not delivered customer projects — and we say so plainly. We're actively seeking the first reference deployment, which is exactly why early partners get direct founder engagement.",
+    a: "GridForge is pilot-stage and founder-led. The reference architectures shown are engineering designs — modelled and internally reviewed, not validated against a delivered project — and we say so plainly. We're actively seeking the first reference deployment, which is exactly why early partners get direct founder engagement.",
   },
   {
     q: "What can I actually buy today?",

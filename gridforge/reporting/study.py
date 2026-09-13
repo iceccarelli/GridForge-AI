@@ -5,8 +5,11 @@ that does not have to be spent on project N+1 (docs/01 §7).
 """
 from __future__ import annotations
 
+from enum import Enum
+
 from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import EnvelopeContext
+from ..envelope.time_to_power import TimeToPower, schedule
 from ..scenario.run import ScenarioResult
 from ..validation import Quantity
 from .gates import DISCLOSURE_MARKER, claims_below_floor
@@ -39,19 +42,52 @@ SCOPE_OUT = [
 ]
 
 
-def _pick_recommended(results: list[ScenarioResult]) -> ScenarioResult:
-    """Recommend on unlocked compute per euro of capex, not on raw density."""
-    def score(r: ScenarioResult) -> float:
-        capex = max(r.economics.capex_total_eur.value, 1.0)
-        return r.unlocked_racks / capex
-    return max(results, key=score)
+class Objective(str, Enum):
+    """What the customer is actually optimising.
+
+    There is no universally correct recommendation, and a study that pretends
+    otherwise is hiding a judgement call inside a formula. State the objective,
+    show the others, let the buyer overrule.
+    """
+    MAX_COMPUTE = "max_compute"          # most racks; capex is secondary
+    MIN_COST_PER_RACK = "min_cost"       # cheapest capacity
+    FASTEST_TO_POWER = "fastest"         # earliest full energisation
+
+
+OBJECTIVE_RATIONALE = {
+    Objective.MAX_COMPUTE:
+        "Maximum deployable compute. On an AI site the revenue attached to a rack "
+        "dominates the capital cost of enabling it, so capacity is ranked first and "
+        "capex is the tie-break.",
+    Objective.MIN_COST_PER_RACK:
+        "Lowest capital cost per rack enabled. Appropriate where capital, not "
+        "demand, is the binding constraint.",
+    Objective.FASTEST_TO_POWER:
+        "Earliest full energisation. Appropriate where a tenant commitment has a "
+        "date attached and capacity delivered late is worth nothing.",
+}
+
+
+def _pick_recommended(results: list[ScenarioResult],
+                      objective: Objective = Objective.MAX_COMPUTE) -> ScenarioResult:
+    viable = [r for r in results if r.unlocked_racks > 0] or list(results)
+    if objective is Objective.MIN_COST_PER_RACK:
+        return min(viable, key=lambda r: r.economics.capex_total_eur.value /
+                   max(r.unlocked_racks, 1))
+    if objective is Objective.FASTEST_TO_POWER:
+        def weeks(r: ScenarioResult) -> float:
+            t = schedule(r.ladder)
+            return t.weeks_to_full if t.weeks_to_full is not None else float("inf")
+        return min(viable, key=lambda r: (weeks(r), -r.unlocked_racks))
+    return max(viable, key=lambda r: (r.unlocked_racks, -r.economics.capex_total_eur.value))
 
 
 def build(ctx: EnvelopeContext, results: list[ScenarioResult],
           sensitivities: list[tuple[str, int]] | None = None,
           *, title: str | None = None, watermark: str = WATERMARK,
-          client: str = "Reference Project") -> Report:
-    rec = _pick_recommended(results)
+          client: str = "Reference Project",
+          objective: Objective = Objective.MAX_COMPUTE) -> Report:
+    rec = _pick_recommended(results, objective)
     hall = ctx.hall
     plat = ctx.cluster.platform
     r = Report(
@@ -89,12 +125,22 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         "IT load unlocked",
         rec.ladder.final.it_load_kW if rec.ladder.final else rec.envelope.it_load_kW,
         "at the recommended architecture"))
+    ttp = schedule(rec.ladder)
+    if ttp.weeks_to_full is not None:
+        s.blocks.append(Statement(
+            "Time to full capacity",
+            V(ttp.weeks_to_full, "weeks", "elapsed weeks to energise the full envelope", ESTIMATED,
+              band=(ttp.weeks_to_full * 0.7, ttp.weeks_to_full * 1.6)),
+            f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel"))
     s.blocks.append(Statement(
         "Indicative capex to reach it",
         rec.economics.capex_total_eur,
         rec.economics.aace_class))
     s.blocks.append(Callout("answer",
         f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
+    s.blocks.append(Para(
+        f"Selection objective: {OBJECTIVE_RATIONALE[objective]} Section 9 shows every architecture "
+        "against all three objectives so the ranking can be overruled with the evidence in view."))
     if rec.envelope.max_racks == 0:
         s.blocks.append(Callout("warning",
             "As found, this hall cannot host a single rack of the target platform. The value of "
@@ -141,8 +187,38 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                               "Lead time, not construction, is usually the schedule driver."))
     r.sections.append(s)
 
-    # 3 ------------------------------------------------------------- the baseline
-    s = Section("3. Site and baseline")
+    # 3 --------------------------------------------------------- time to power
+    s = Section("3. Time to power")
+    s.blocks.append(Para(
+        "Capacity without a date is not a decision. Each relief on the ladder carries a lead time; "
+        "reliefs are assumed to run in parallel, so the racks unlocked by the first N steps become "
+        "available at the longest lead time among those N. One item sets the date, and it is almost "
+        "never the construction work."))
+    rows = [[V(p.weeks, "weeks", f"elapsed at {p.racks} racks", ESTIMATED),
+             V(float(p.racks), "racks", f"racks energised at week {p.weeks:g}", ESTIMATED),
+             p.unlocked_by, p.domain] for p in ttp.points]
+    if rows:
+        s.blocks.append(Table(["Elapsed", "Racks energised", "Unlocked by", "Domain"], rows,
+                              caption="Energisation curve for the recommended architecture."))
+    s.blocks.append(Callout("note",
+        f"The date is set by {ttp.critical_item.lower()}. Every week of that lead time is a week "
+        "of the site's contracted power earning nothing, so it is the first thing to attack — "
+        "before any further engineering optimisation."))
+    rows = []
+    for res in results:
+        t = schedule(res.ladder)
+        rows.append([res.spec.name,
+                     V(float(res.unlocked_racks), "racks", f"{res.spec.id}: racks after ladder",
+                       ESTIMATED),
+                     V(t.weeks_to_full, "weeks", f"{res.spec.id}: weeks to full capacity", ESTIMATED)
+                     if t.weeks_to_full is not None else "—",
+                     t.critical_item])
+    s.blocks.append(Table(["Scenario", "Racks", "Time to full capacity", "Item that sets the date"],
+                          rows, caption="Time to power across the architectures compared."))
+    r.sections.append(s)
+
+    # 4 ------------------------------------------------------------- the baseline
+    s = Section("4. Site and baseline")
     s.blocks.append(Table(
         ["Item", "Value"],
         [["Site", ctx.site.name], ["Metro", ctx.site.metro], ["Country", ctx.site.country],
@@ -172,9 +248,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     r.sections.append(s)
 
     # 4/5 ------------------------------------------------------- constraint detail
-    for domain, heading in (("electrical", "4. Electrical capacity analysis"),
-                            ("thermal", "5. Thermal and cooling analysis"),
-                            ("physical", "6. Physical constraints")):
+    for domain, heading in (("electrical", "5. Electrical capacity analysis"),
+                            ("thermal", "6. Thermal and cooling analysis"),
+                            ("physical", "7. Physical constraints")):
         s = Section(heading)
         rows = []
         for c in rec.envelope.sorted_constraints():
@@ -194,7 +270,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         r.sections.append(s)
 
     # 7 --------------------------------------------------- power/thermal coupling
-    s = Section("7. Power and thermal interaction")
+    s = Section("8. Power and thermal interaction")
     s.blocks.append(Para(
         "Power and thermal are not independent budgets. Every kilowatt the cooling architecture "
         "consumes is a kilowatt of grid capacity that cannot be sold as compute, so the choice of "
@@ -214,15 +290,21 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     r.sections.append(s)
 
     # 8 --------------------------------------------------------------- economics
-    s = Section("8. Economics")
+    s = Section("9. Economics")
     rows = []
     for res in results:
         e = res.economics
-        rows.append([res.spec.name, e.capex_total_eur, e.capex_eur_per_kW_it,
+        per_rack = e.capex_total_eur.value / max(res.unlocked_racks, 1)
+        rows.append([res.spec.name,
+                     V(float(res.unlocked_racks), "racks", f"{res.spec.id}: racks unlocked",
+                       ESTIMATED),
+                     e.capex_total_eur,
+                     V(per_rack, "EUR/rack", f"{res.spec.id}: capex per rack enabled", ASSUMED,
+                       band=(per_rack * 0.5, per_rack * 2.0)),
                      e.annual_energy_cost_eur, e.energy_cost_per_gpu_hour_eur,
                      V(e.critical_path_weeks, "weeks", f"{res.spec.id}: critical path", ASSUMED)])
-    s.blocks.append(Table(["Scenario", "Total capex", "Capex per kW IT", "Annual energy cost",
-                           "Energy cost per GPU-hour", "Critical path"], rows,
+    s.blocks.append(Table(["Scenario", "Racks", "Total capex", "Capex per rack enabled",
+                           "Annual energy cost", "Energy cost per GPU-hour", "Critical path"], rows,
                           caption=f"Cost basis: {rec.economics.aace_class}. Excludes IT hardware, "
                                   f"migration and lost tenancy revenue."))
     s.blocks.append(Callout("warning",
@@ -233,7 +315,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
 
     # 9 ------------------------------------------------------------- sensitivity
     if sensitivities:
-        s = Section("9. Sensitivity")
+        s = Section("10. Sensitivity")
         s.blocks.append(Para(
             "One-at-a-time sensitivity on the recommended architecture, evaluated against the "
             "relieved case rather than the hall as found. Inputs are ranked by how far each moves "
@@ -247,7 +329,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         r.sections.append(s)
 
     # 10 ------------------------------------------------------------------ risks
-    s = Section("10. Risk register")
+    s = Section("11. Risk register")
     risks = []
     for st in rec.ladder.steps:
         if st.risk:
@@ -268,7 +350,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     r.sections.append(s)
 
     # 11 -------------------------------------------------------- recommendation
-    s = Section("11. Recommendation and decision gates")
+    s = Section("12. Recommendation and decision gates")
     s.blocks.append(Para(
         f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
         f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
@@ -287,7 +369,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     r.sections.append(s)
 
     # 12 --------------------------------------------------------------- scope
-    s = Section("12. Scope, basis and limitations")
+    s = Section("13. Scope, basis and limitations")
     s.blocks.append(Para(
         "This study is an engineering opinion supported by a documented model. It is not a design "
         "package and confers no design liability. The following are outside scope:"))

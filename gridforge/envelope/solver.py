@@ -118,7 +118,7 @@ def _absolute_capex(relief, racks_after: int) -> "Quantity":
         relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=ESTIMATED)
 
 
-def ladder(ctx: EnvelopeContext, max_steps: int = 12) -> HeadroomLadder:
+def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
     out = HeadroomLadder()
     cur = ctx
     res = solve(cur)

@@ -52,6 +52,20 @@ class DERDispatchModel(Protocol):
 
 
 @runtime_checkable
+class EnergyValueModel(Protocol):
+    """Value of operating behind-the-meter assets against a real tariff.
+
+    A capacity study says a battery CAN be installed. A buyer also wants to know
+    what it earns once it is: arbitrage, demand-charge reduction, and what the
+    throughput costs. GridOS already solves exactly this.
+    """
+
+    def annual_net_value_eur(self, scenario_id: str) -> Quantity: ...
+
+    def payback_years(self, scenario_id: str) -> Quantity: ...
+
+
+@runtime_checkable
 class TelemetrySource(Protocol):
     """Candidate GridOS extraction. DORMANT. Implement only when a customer-facing
     workflow requires live site state — not before."""

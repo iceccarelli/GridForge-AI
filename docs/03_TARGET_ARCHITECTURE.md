@@ -76,6 +76,10 @@ This is the cheapest defensible moat available: **auditable numbers**. It is als
 
 ## 6. Integration policy
 
+> **SUPERSEDED BY THE AUDIT — see `docs/06_AUDIT_FINDINGS.md`.** ThermalForge contains no
+> calculations to extract (marketing site only); GridOS is the real asset and is now the only
+> wired integration. The policy below stands; the ThermalForge candidate list does not.
+
 **ThermalForge-Liquid-Cooling — extract, do not import.** Candidate extractions, each to be confirmed against the audit and each landing as its own reviewed patch with tests: liquid-cooling calculations · thermal network / heat-split model · rack-density analysis · thermal constraint expressions · hydraulic calculations (flow, pressure drop, pump head) · cooling architecture comparison · scenario modelling · thermal report generation. **Do not bring across:** UI, auth, portal, demo/fixture code, anything not exercised by a test, dependencies not needed by the extracted calculation. Each extraction must arrive with its validation status recorded — a ThermalForge calculation is E1 until we can point at the check that makes it E3.
 
 **DERIM — adapter only.** Wanted: power-system modelling, energy-flow models, DER models, forecasting, optimisation, protocol ingestion where a customer needs it, scenario analysis. Consumed through `integrations/derim/` behind a port defined by `power/`. **Kill switch: if `power/` ever imports DERIM types directly, the product is becoming another DER platform — revert.**

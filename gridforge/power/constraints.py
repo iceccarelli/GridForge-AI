@@ -11,6 +11,7 @@ import math
 from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from ..validation import Quantity
+from .btm import installed_firm_kW, next_option, option_capex
 
 SQRT3 = math.sqrt(3.0)
 
@@ -38,27 +39,66 @@ def _it_headroom_to_racks(headroom_kW: Quantity, ctx: EnvelopeContext, label: st
 
 @constraint
 def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+    """The terminal constraint in every European metro we target.
+
+    Relief is NOT grid reinforcement where no reinforcement is obtainable. It is
+    behind-the-meter supply, which is why a speed-to-power practice exists.
+    """
     g = ctx.power.grid
     firm_kW = (g.firm_capacity_MVA * g.power_factor).convert(1000.0, "kW", "firm grid capacity")
     contracted_kW = g.contracted_MW.convert(1000.0, "kW", "contracted capacity")
     ceiling = firm_kW if firm_kW.value <= contracted_kW.value else contracted_kW
+    btm = installed_firm_kW(ctx.power)
+    if btm.value > 0:
+        ceiling = (ceiling + btm).relabel(
+            "firm supply: grid import plus behind-the-meter", "power.total_firm_supply",
+            step_evidence=ESTIMATED)
     headroom = (ceiling - g.current_site_peak_MW.convert(1000.0, "kW", "current site peak")).relabel(
-        "grid capacity headroom", "power.grid_headroom", step_evidence=ESTIMATED)
-    racks = _it_headroom_to_racks(headroom, ctx, "grid headroom")
-    relief = ReliefOption(
-        description="Grid reinforcement / new connection capacity from the DSO",
-        capex_eur=V(2_500_000, "EUR", "indicative grid reinforcement capex", ASSUMED, band=(1_000_000, 8_000_000),
-                    assumptions=["Placeholder until a DSO connection offer is obtained. "
-                                 "In most FLAP-D metros this option is unavailable at any price before 2030."]),
-        lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
-                          assumptions=["Frankfurt: no new large connections before 2030; Amsterdam queue ~10 years"]),
-        apply=lambda c: c,   # deliberately a no-op: we do not model a capacity we cannot obtain
-        risk="In most target metros this relief does not exist inside the decision horizon.",
-    )
+        "firm supply headroom", "power.grid_headroom", step_evidence=ESTIMATED)
+    racks = _it_headroom_to_racks(headroom, ctx, "firm supply headroom")
+
+    opt = next_option(ctx.power)
+    if opt is not None:
+        def _apply(c: EnvelopeContext, oid: str = opt.id) -> EnvelopeContext:
+            c = c.copy()
+            for o in c.power.options:
+                if o.id == oid:
+                    o.installed = True
+            return c
+
+        relief = ReliefOption(
+            description=f"Behind-the-meter supply: {opt.id} ({opt.kind}, "
+                        f"{opt.capacity_MW.render(with_class=False)})",
+            capex_eur=option_capex(opt),
+            lead_time_weeks=opt.lead_time_weeks,
+            apply=_apply,
+            risk=(opt.permitting_note or
+                  "Permitting, fuel supply and emissions consent govern the schedule; "
+                  "confirm before relying on the lead time."),
+        )
+    else:
+        relief = ReliefOption(
+            description="Grid reinforcement / new connection capacity from the DSO",
+            capex_eur=V(2_500_000, "EUR", "indicative grid reinforcement capex", ASSUMED,
+                        band=(1_000_000, 8_000_000),
+                        assumptions=["Placeholder until a DSO connection offer is obtained. "
+                                     "In most FLAP-D metros this option is unavailable at any "
+                                     "price before 2030."]),
+            lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
+                              assumptions=["Frankfurt: no new large connections before 2030; "
+                                           "Amsterdam queue ~10 years"]),
+            apply=lambda c: c,   # deliberately a no-op: we do not model capacity we cannot obtain
+            risk="In most target metros this relief does not exist inside the decision horizon. "
+                 "Behind-the-meter supply is the only lever that moves this constraint.",
+        )
+
+    basis = f"{headroom.render()} of firm-supply headroom at PUE {ctx.pue.render(with_class=False)}"
+    if btm.value > 0:
+        basis += f", including {btm.render()} of behind-the-meter firm capacity"
     return ConstraintResult(
-        "grid_firm_capacity", "electrical", "Firm grid capacity / contracted power",
+        "grid_firm_capacity", "electrical", "Firm supply (grid import + behind-the-meter)",
         floor_racks(racks),
-        basis=f"{headroom.render()} of facility-power headroom at PUE {ctx.pue.render(with_class=False)}",
+        basis=basis,
         relief=relief,
         notes=(g.queue_note,) if g.queue_note else (),
     )
@@ -154,9 +194,15 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.power.lv.busway_ampacity_A = V(1000, "A", "replacement busway ampacity", ASSUMED,
-                                         assumptions=["Modern AI halls use 800-1000 A busway vs 400 A legacy"])
-        c.power.lv.tapoff_max_A = V(400, "A", "replacement tap-off rating", ASSUMED)
+        if c.power.lv.busway_ampacity_A.value < 1000:
+            c.power.lv.busway_ampacity_A = V(
+                1000, "A", "replacement busway ampacity", ASSUMED,
+                assumptions=["Modern AI halls use 800-1000 A busway vs 400 A legacy"])
+            c.power.lv.tapoff_max_A = V(400, "A", "replacement tap-off rating", ASSUMED)
+        else:
+            # already at modern ampacity: the next increment is more runs, which
+            # needs riser and routing space, not a bigger busway
+            c.power.lv.busway_runs += 2
         return c
 
     return ConstraintResult(
@@ -165,7 +211,9 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=(f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
                f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}"),
         relief=ReliefOption(
-            description="Replace busway with 800-1000 A and new tap-off units",
+            description=("Replace busway with 800-1000 A and new tap-off units"
+                         if lv.busway_ampacity_A.value < 1000 else
+                         "Add two further busway runs (needs riser and routing space)"),
             capex_eur=V(450_000, "EUR", "busway replacement capex for one hall", ASSUMED, band=0.4),
             lead_time_weeks=V(36, "weeks", "busway and tap-off lead time", ASSUMED, band=(24, 52),
                               assumptions=["Tap-off units are a reported shortage item"]),

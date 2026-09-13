@@ -76,15 +76,36 @@ def test_integrations_have_no_implementations_yet():
 
 
 def test_no_third_party_dependencies():
-    """The engine must run anywhere, including inside a customer's air-gapped review."""
+    """The engine must run anywhere, including inside a customer's air-gapped review.
+
+    Adapters under gridforge/integrations/ may import an external package, but only
+    lazily - inside a function body - so importing gridforge never pulls it in.
+    """
     stdlib_ok = {"__future__", "ast", "copy", "dataclasses", "datetime", "enum", "hashlib",
                  "html", "json", "math", "pathlib", "re", "sys", "typing"}
     bad = []
     for path in ROOT.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.Import):
-                for a in node.names:
-                    head = a.name.split(".")[0]
-                    if head not in stdlib_ok:
-                        bad.append(f"{path.name}: {a.name}")
-    assert not bad, "unexpected third-party import: " + ", ".join(bad)
+        tree = ast.parse(path.read_text())
+        in_integrations = _package_of(path) == "integrations"
+        module_level = {id(n) for n in ast.walk(tree)
+                        if isinstance(n, (ast.Module,))}
+        lazy: set[int] = set()
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for n in ast.walk(fn):
+                    lazy.add(id(n))
+        del module_level
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                         else [node.module or ""])
+                for name in names:
+                    head = name.split(".")[0]
+                    if not head or head in stdlib_ok:
+                        continue
+                    if isinstance(node, ast.ImportFrom) and node.level:
+                        continue          # relative import inside gridforge
+                    if in_integrations and id(node) in lazy:
+                        continue          # guarded lazy import in an adapter
+                    bad.append(f"{path.relative_to(ROOT)}: {name}")
+    assert not bad, "unexpected module-level third-party import: " + ", ".join(bad)

@@ -48,12 +48,23 @@ class LVDistribution:
 
 @dataclass
 class GenerationOption:
+    """A behind-the-meter supply option.
+
+    This is the commercial heart of a speed-to-power practice: where the grid
+    cannot deliver capacity inside the decision horizon, on-site supply can. The
+    engine treats it as a relief for the grid constraint, not as a product push -
+    it only appears in the ladder when the grid is what binds.
+    """
     id: str
-    kind: str                 # "bess", "gas_engine", "pv", "grid_reinforcement"
+    kind: str                 # "bess", "gas_engine", "chp", "pv", "fuel_cell", "grid_reinforcement"
     capacity_MW: Quantity
     capex_eur_per_kW: Quantity
     lead_time_weeks: Quantity
-    firm: bool = False        # may it count toward firm capacity?
+    firm: bool = False        # may it count toward firm capacity at all?
+    firm_capacity_factor: Quantity | None = None   # what fraction of nameplate is firm
+    opex_eur_per_MWh: Quantity | None = None
+    installed: bool = False   # set True by the ladder when the option is taken
+    permitting_note: str = ""
 
 
 @dataclass

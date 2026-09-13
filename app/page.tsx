@@ -435,8 +435,8 @@ export default function Home() {
               </h2>
             </div>
             <p className="max-w-sm text-mute">
-              Validated engineering reference designs — the depth behind the
-              services.
+              Modelled engineering reference designs, open to review — the depth
+              behind the services.
             </p>
           </div>
 
