@@ -1,0 +1,3227 @@
+From f6d12b6362b26dd405c028fad8e60c48182f2e34 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 15:11:59 +0000
+Subject: [PATCH] feat(api): sell metered access self-serve, and fix two live
+ deployment bugs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0014. Patch 0013 built a machine interface nobody could buy: /developers
+documented it and then routed the reader to a free qualifier. A product that
+cannot be purchased at 2am by a stranger is not a product, it is a brochure.
+
+SELF-SERVE METERED ACCESS
+
+Three monthly plans on /developers#plans — Triage €900/600 units, Scale
+€2,900/2,500, Platform €7,500/10,000. Checkout runs in subscription mode; the
+webhook opens an account and emails a link where the key is minted and shown
+once. No human in the path. A key that arrives tomorrow is a lost customer.
+
+No overage billing. Over the allowance the engine returns 402 and they upgrade or
+wait for the reset — an invoice a customer did not expect costs more than the
+units would have earned.
+
+KEYS THAT VERIFY OFFLINE
+
+gfk1.<payload>.<signature>: account, key id, quota, scope, issue and expiry dates,
+HMAC-SHA256 with GRIDFORGE_KEY_SECRET. The engine verifies arithmetic it can do
+itself — no database, no network call, no latency floor, and a stateless container
+stays stateless. The cost of statelessness is revocation, paid two ways: 35-day
+expiry (not 30, so a renewal on the 1st never leaves a customer's agents dark
+while a webhook lands) and GRIDFORGE_REVOKED_KEYS for what cannot wait, which is
+why the payload carries a short id rather than needing the whole key pasted into a
+deny list.
+
+We never store a key. The database holds the id of the live one and the ids we
+have revoked. A database that can hand somebody a working credential is a database
+worth stealing, and there is no reason for this one to be.
+
+The website mints (lib/api-access.ts) and the engine verifies
+(gridforge/api/keys.py) with no shared runtime between them, so the test mints a
+key in Node, verifies it in Python, and asserts both produce the identical string.
+A divergence would not fail loudly — it would issue keys that quietly do not work,
+to customers who have just paid.
+
+Usage aggregates under the account, not the key: rotating mid-month must not hand
+out a second free allowance.
+
+Static GRIDFORGE_API_KEYS still authenticate and still win over signed keys. An
+operator pasting a key into the environment at 2am to get a customer working again
+must not be overridden by anything cleverer.
+
+TWO BUGS THAT WERE LIVE
+
+1. deploy-engine.sh rotated the production API key on EVERY run. Each deploy
+   invalidated the key in Vercel, and paid deliverable generation returned 401
+   until somebody noticed and re-pasted it. It also re-created the app each time,
+   because it grepped `fly apps list` output whose format has changed — which is
+   the error visible in the last deploy log. The script now asks the app about
+   itself, adds only missing secrets, and prints <unchanged> rather than a new
+   key. A deploy script that breaks production on success is worse than one that
+   fails, because nothing tells you.
+
+2. GRIDFORGE_USAGE_FILE=/data/usage.json with no volume mounted discarded every
+   usage record — with min_machines_running = 0, every few minutes — and looked
+   identical to a working configuration until the first invoice. fly.toml now
+   declares the mount, the deploy script creates the volume, and the meter probes
+   the path at startup: if it cannot write, /v1/usage says so instead of
+   reporting durable:true on a path that silently throws everything away.
+
+ALSO
+
+  * tests/test_catalogue_parity.py — commercial.py has claimed since patch 0001
+    that this test existed. It did not. It parses lib/products.ts and fails when
+    the engine's prices and the checkout page's disagree.
+  * /admin/pipeline shows API accounts, units sold, combined ARR, and prints the
+    exact fly secrets command for the revocation list.
+  * 401 now distinguishes expired, revoked and forged. "Invalid key" sends an
+    integrator hunting a typo when their subscription lapsed three days ago.
+  * auth_configured is true when GRIDFORGE_KEY_SECRET alone is set, so a
+    self-serve deployment holding none of its customers' keys does not report
+    itself broken.
+  * robots.txt disallows every token-addressed path. A crawler indexing one
+    publishes a customer's deliverable to anyone who searches for it.
+  * The cross-language test was written against literal dates and would have
+    started failing on expiry next month, looking exactly like the divergence it
+    exists to catch. Fixed to relative dates before it shipped.
+
+TESTS
+
+27 new (249 total). A tampered payload, a wrong secret, an expired key, a revoked
+key and six kinds of junk are all refused; pinning GRIDFORGE_REPORT_DATE cannot
+extend a key's life; a key the engine has never seen works over HTTP; rotation
+does not reset the allowance; and the price lists cannot drift.
+
+tsc clean, next lint clean, next build clean with /developers, /api-access/[token]
+and /admin/pipeline in the route table. Reference artefacts unchanged.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml           |  84 +++++++
+ app/admin/pipeline/page.tsx               |   7 +-
+ app/api-access/[token]/page.tsx           | 130 +++++++++++
+ app/api/keys/route.ts                     |  97 ++++++++
+ app/api/stripe/webhook/route.ts           | 135 +++++++++++-
+ app/developers/page.tsx                   |  29 ++-
+ app/robots.ts                             |  17 +-
+ components/ApiKeyPanel.tsx                | 162 ++++++++++++++
+ components/ApiPlans.tsx                   | 110 ++++++++++
+ components/EngagementPipeline.tsx         | 105 ++++++++-
+ docs/07_DELIVERY_RUNBOOK.md               |  96 ++++++++
+ fly.toml                                  |  24 +-
+ gridforge/api/keys.py                     | 183 ++++++++++++++++
+ gridforge/api/metering.py                 | 119 ++++++++--
+ gridforge/api/server.py                   |  56 +++--
+ gridforge/cli.py                          |  64 ++++++
+ gridforge/commercial.py                   |  88 ++++++++
+ lib/admin.ts                              |  56 +++++
+ lib/api-access.ts                         | 256 ++++++++++++++++++++++
+ lib/products.ts                           |  77 ++++++-
+ scripts/deploy-engine.sh                  | 146 ++++++++++--
+ supabase/migrations/0007_api_accounts.sql |  35 +++
+ tests/test_api_keys.py                    | 233 ++++++++++++++++++++
+ tests/test_architecture.py                |   7 +-
+ tests/test_catalogue_parity.py            | 122 +++++++++++
+ tests/test_machine_interface.py           |  82 ++++++-
+ 26 files changed, 2443 insertions(+), 77 deletions(-)
+ create mode 100644 app/api-access/[token]/page.tsx
+ create mode 100644 app/api/keys/route.ts
+ create mode 100644 components/ApiKeyPanel.tsx
+ create mode 100644 components/ApiPlans.tsx
+ create mode 100644 gridforge/api/keys.py
+ create mode 100644 lib/api-access.ts
+ create mode 100644 supabase/migrations/0007_api_accounts.sql
+ create mode 100644 tests/test_api_keys.py
+ create mode 100644 tests/test_catalogue_parity.py
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 7c328bf..7fee457 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -104,6 +104,30 @@ jobs:
+                --ledger gridforge/data/calibration.json; then
+             echo "client site data was written into the published ledger"; exit 1
+           fi
++      - name: Signed keys mint here and verify here
++        env:
++          GRIDFORGE_KEY_SECRET: ci-signing-secret
++        run: |
++          python -m gridforge key plans
++          KEY=$(python -m gridforge key issue --account ci-acme --plan api_scale | head -1)
++          python -m gridforge key inspect "$KEY"
++          python -c "
++          import os, sys
++          from gridforge.api.keys import verify, KeyError_
++          k = verify(sys.argv[1])
++          assert k.account == 'ci-acme' and k.quota == 2500, k
++          os.environ['GRIDFORGE_REVOKED_KEYS'] = k.key_id
++          try:
++              verify(sys.argv[1]); print('a revoked key still verified'); raise SystemExit(1)
++          except KeyError_ as exc:
++              assert 'revoked' in str(exc), exc
++          print('signed keys ok:', k.key_id)
++          " "$KEY"
++      - name: Refuse to mint an unsigned key
++        run: |
++          if python -m gridforge key issue --account x --plan api_triage; then
++            echo "a key was minted with no signing secret"; exit 1
++          fi
+       - name: The machine-callable surface must be printable
+         run: |
+           python -m gridforge tools
+@@ -251,6 +275,31 @@ jobs:
+           assert 'EUR' not in blob and 'capex' not in blob, 'the free tool leaked priced content'
+           print('mcp ok:', r['content'][0]['text'])
+           "
++      - name: A self-serve key the engine has never seen works
++        env:
++          GRIDFORGE_KEY_SECRET: ci-selfserve-secret
++        run: |
++          # No GRIDFORGE_API_KEYS at all: every key was issued elsewhere.
++          python -m gridforge serve --port 8082 &
++          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8082/health && break; sleep 0.5; done
++          KEY=$(python -m gridforge key issue --account ci-selfserve --plan api_triage | head -1)
++          curl -sf http://127.0.0.1:8082/v1/version -o /tmp/v.json
++          python -c "
++          import json; d=json.load(open('/tmp/v.json'))
++          assert d['auth_configured'] is True, 'a self-serve engine reported itself unconfigured'
++          assert d['signed_keys'] is True
++          "
++          code=$(curl -s -o /tmp/s.json -w '%{http_code}' -X POST http://127.0.0.1:8082/v1/screen \
++            -H 'content-type: application/json' -H "x-api-key: $KEY" \
++            -d '{"intake":{"grid":{"contracted_MW":12},"lv":{"busway_ampacity_A":400}}}')
++          test "$code" = "200" || { echo "self-serve key rejected: $code"; cat /tmp/s.json; exit 1; }
++          curl -sf http://127.0.0.1:8082/v1/usage -H "x-api-key: $KEY" -o /tmp/u.json
++          python -c "
++          import json; u=json.load(open('/tmp/u.json'))
++          assert u['account'] == 'ci-selfserve', u
++          assert u['units'] == 1, u
++          print('self-serve ok:', u['account'], u['units'], 'unit(s)')
++          "
+       - name: An exhausted quota returns 402, not 429
+         env:
+           GRIDFORGE_API_KEYS: tiny-key:ci:1
+@@ -277,3 +326,38 @@ jobs:
+       - run: npx tsc --noEmit
+       - run: npx next lint
+       - run: npm run build
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.13'
++      - name: A key minted by the website must verify on the engine
++        env:
++          GRIDFORGE_KEY_SECRET: ci-cross-language-secret
++        run: |
++          python -m pip install --quiet pytest
++          python -m pytest tests/test_api_keys.py -q
++          # Dates relative to today. A fixture pinned to a calendar date passes
++          # until the date passes, and then fails on expiry — which looks exactly
++          # like the divergence this step exists to catch.
++          node -e "
++          const crypto = require('node:crypto');
++          const iso = (d) => d.toISOString().slice(0, 10);
++          const start = new Date();
++          const end = new Date(start.getTime());
++          end.setUTCDate(end.getUTCDate() + 35);
++          const payload = {a:'ci',k:'aabbccdd',q:600,s:'machine',i:iso(start),e:iso(end)};
++          const canonical = JSON.stringify(payload, Object.keys(payload).sort());
++          const body = 'gfk1.' + Buffer.from(canonical).toString('base64url');
++          const sig = crypto.createHmac('sha256', process.env.GRIDFORGE_KEY_SECRET)
++                            .update(body).digest().toString('base64url');
++          require('node:fs').writeFileSync('/tmp/node.key', body + '.' + sig);
++          "
++          python -c "
++          from datetime import date
++          from gridforge.api.keys import issue, verify
++          node = open('/tmp/node.key').read().strip()
++          k = verify(node)
++          assert (k.account, k.quota) == ('ci', 600), k
++          mine = issue('ci', quota=600, key_id='aabbccdd', issued_on=date.today(), days=35)
++          assert mine == node, ('the two implementations diverged', mine, node)
++          print('cross-language key agreement ok')
++          "
+diff --git a/app/admin/pipeline/page.tsx b/app/admin/pipeline/page.tsx
+index c5135b3..a43b212 100644
+--- a/app/admin/pipeline/page.tsx
++++ b/app/admin/pipeline/page.tsx
+@@ -4,9 +4,11 @@ import Link from "next/link";
+ import {
+   ADMIN_COOKIE,
+   adminConfigured,
++  fetchApiAccounts,
+   fetchDeliverables,
+   fetchQualifications,
+   fetchWatches,
++  revocationList,
+   summariseQualifications,
+   supabaseConfigured,
+   verifyAdminCookie,
+@@ -43,10 +45,11 @@ export default async function PipelinePage() {
+     redirect("/admin/login");
+   }
+ 
+-  const [deliverables, qualifications, watches] = await Promise.all([
++  const [deliverables, qualifications, watches, apiAccounts] = await Promise.all([
+     fetchDeliverables(),
+     fetchQualifications(),
+     fetchWatches(),
++    fetchApiAccounts(),
+   ]);
+ 
+   return (
+@@ -54,6 +57,8 @@ export default async function PipelinePage() {
+       deliverables={deliverables}
+       qualifications={qualifications}
+       watches={watches}
++      apiAccounts={apiAccounts}
++      revoked={revocationList(apiAccounts)}
+       insights={summariseQualifications(qualifications)}
+       supabaseReady={supabaseConfigured()}
+     />
+diff --git a/app/api-access/[token]/page.tsx b/app/api-access/[token]/page.tsx
+new file mode 100644
+index 0000000..d1bee78
+--- /dev/null
++++ b/app/api-access/[token]/page.tsx
+@@ -0,0 +1,130 @@
++import type { Metadata } from "next";
++import { notFound } from "next/navigation";
++import { getApiAccount, signingConfigured } from "@/lib/api-access";
++import { PRODUCTS, type ProductId } from "@/lib/products";
++import ApiKeyPanel from "@/components/ApiKeyPanel";
++
++export const dynamic = "force-dynamic";
++export const metadata: Metadata = {
++  title: "Your API access | GridForge AI",
++  robots: { index: false, follow: false },
++};
++
++/**
++ * The customer's API account.
++ *
++ * Token in the URL, same as /deliverable and /watch. No password, nothing to
++ * reset, and no key stored anywhere we could read back — the key is shown once,
++ * at the moment it is minted, and after that this page can only tell you which id
++ * is live and when it expires.
++ */
++export default async function ApiAccessPage({
++  params,
++}: {
++  params: Promise<{ token: string }>;
++}) {
++  const { token } = await params;
++  const row = await getApiAccount(token);
++  if (!row) notFound();
++
++  const product = PRODUCTS[row.plan as ProductId];
++  const engine = process.env.GRIDFORGE_API_URL || "https://gridforge-engine.fly.dev";
++
++  return (
++    <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
++      <header>
++        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
++          API access · {row.account}
++        </p>
++        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
++          {product?.name ?? row.plan}
++        </h1>
++        <p className="mt-3 text-mute">
++          {row.monthly_units.toLocaleString("en-IE")} units a month. A constraint screen is 1
++          unit, a full solve is 5, a portfolio run is 1 per hall. The free qualifier stays free
++          and never touches your allowance.
++        </p>
++      </header>
++
++      {row.status !== "active" ? (
++        <div className="mt-6 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
++          <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-flag">
++            {row.status === "past_due" ? "Payment failed" : "Subscription cancelled"}
++          </span>
++          <p className="mt-1 text-mute">
++            {row.status === "past_due"
++              ? "Your last invoice did not clear. The current key keeps working until it expires; update the card to keep it renewing."
++              : "This subscription has ended. The live key has been revoked and no new one will be issued."}
++          </p>
++        </div>
++      ) : null}
++
++      <ApiKeyPanel
++        token={token}
++        engine={engine}
++        hasKey={Boolean(row.key_id)}
++        keyId={row.key_id}
++        expires={row.key_expires_at}
++        cancelled={row.status === "cancelled"}
++        signingConfigured={signingConfigured()}
++      />
++
++      <section className="mt-10 grid gap-4 sm:grid-cols-2">
++        <Box title="What you are billed for">
++          <ul className="mt-2 space-y-1 text-sm text-mute">
++            <li>/v1/qualify — 0 units (free, no key needed)</li>
++            <li>/v1/screen — 1 unit</li>
++            <li>/v1/portfolio — 1 unit per hall in the request</li>
++            <li>/v1/diff — 2 units</li>
++            <li>/v1/proposal — 2 units</li>
++            <li>/v1/deck — 3 units</li>
++            <li>/v1/study — 5 units</li>
++          </ul>
++          <p className="mt-3 text-[11px] text-faint">
++            Live usage:{" "}
++            <span className="font-mono text-ghost">GET {engine}/v1/usage</span> with your key.
++            Over the allowance the engine returns 402, not 429 — buy more rather than retry.
++          </p>
++        </Box>
++        <Box title="What this is not">
++          <p className="mt-2 text-sm text-mute">
++            API responses are screening-mode output. There is no named signatory, no issued
++            status and no professional indemnity behind them — those belong to an engagement,
++            and the difference is stated on every response you get back.
++          </p>
++          <p className="mt-3 text-sm text-mute">
++            Every number carries an evidence class E0–E7 and a provenance digest, and every
++            response carries our calibration state. Inside an agent loop that matters more than
++            it does in a board pack: nobody downstream reads the footnote.
++          </p>
++        </Box>
++      </section>
++
++      <section className="mt-8 rounded border border-line bg-panel-2 p-6">
++        <h2 className="text-lg font-semibold text-ghost">Point something at it</h2>
++        <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
++{`# schemas, in OpenAI function shape and MCP shape
++curl -s ${engine}/v1/tools
++
++# a full solve — 5 units
++curl -s -X POST ${engine}/v1/study \\
++  -H "x-api-key: $GRIDFORGE_KEY" \\
++  -H 'content-type: application/json' \\
++  -d '{"intake": { ... }}'
++
++# what you have spent this month
++curl -s ${engine}/v1/usage -H "x-api-key: $GRIDFORGE_KEY"`}
++        </pre>
++      </section>
++    </main>
++  );
++}
++
++function Box({ title, children }: { title: string; children: React.ReactNode }) {
++  return (
++    <div className="rounded border border-line bg-panel-2 p-5">
++      <h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">{title}</h3>
++      {children}
++    </div>
++  );
++}
+diff --git a/app/api/keys/route.ts b/app/api/keys/route.ts
+new file mode 100644
+index 0000000..e0f5a2f
+--- /dev/null
++++ b/app/api/keys/route.ts
+@@ -0,0 +1,97 @@
++import { NextResponse } from "next/server";
++import { getApiAccount, mintForAccount, signingConfigured } from "@/lib/api-access";
++
++export const runtime = "nodejs";
++
++/**
++ * The customer's key, and rotation.
++ *
++ * Authenticated by the account's portal token — the same pattern as /deliverable
++ * and /watch. The token is the credential; there is no password to forget and
++ * nothing to reset.
++ *
++ * GET  returns the account and the state of its key, never the key itself. A key
++ *      is shown exactly once, at the moment it is minted. Anything else means
++ *      storing a working credential somewhere it can be read back, which is the
++ *      thing this design exists to avoid.
++ * POST mints one: on first visit, when the current one is near expiry, or on an
++ *      explicit rotation. Rotating revokes the previous id — a leaked key that
++ *      keeps working until it expires is not rotated, it is duplicated.
++ */
++export async function GET(req: Request) {
++  const token = new URL(req.url).searchParams.get("token") || "";
++  const row = token ? await getApiAccount(token) : null;
++  if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
++  return NextResponse.json({
++    ok: true,
++    account: {
++      account: row.account,
++      plan: row.plan,
++      monthly_units: row.monthly_units,
++      status: row.status,
++      key_id: row.key_id,
++      key_expires_at: row.key_expires_at,
++      has_key: Boolean(row.key_id),
++      revoked: (row.revoked_key_ids ?? []).length,
++      company: row.company,
++      email: row.email,
++    },
++    signing_configured: signingConfigured(),
++  });
++}
++
++export async function POST(req: Request) {
++  if (!signingConfigured()) {
++    return NextResponse.json(
++      {
++        ok: false,
++        error:
++          "Key signing is not configured on this deployment. GRIDFORGE_KEY_SECRET must be " +
++          "set here and on the engine, to the same value.",
++      },
++      { status: 503 }
++    );
++  }
++  let body: Record<string, unknown> = {};
++  try {
++    body = await req.json();
++  } catch {
++    /* empty body means "issue if I have none" */
++  }
++  const token = typeof body.token === "string" ? body.token : "";
++  const rotate = body.rotate === true;
++
++  const row = token ? await getApiAccount(token) : null;
++  if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
++  if (row.status === "cancelled") {
++    return NextResponse.json(
++      { ok: false, error: "This subscription has been cancelled. Restart it to issue a key." },
++      { status: 402 }
++    );
++  }
++  if (row.key_id && !rotate) {
++    return NextResponse.json({
++      ok: true,
++      issued: false,
++      key_id: row.key_id,
++      expires: row.key_expires_at,
++      note:
++        "A key is already live for this account. We do not store it, so it cannot be " +
++        "shown again — rotate to replace it, which revokes the current one.",
++    });
++  }
++
++  const minted = await mintForAccount(row, { rotate });
++  if (!minted) {
++    return NextResponse.json({ ok: false, error: "Could not issue a key" }, { status: 500 });
++  }
++  return NextResponse.json({
++    ok: true,
++    issued: true,
++    key: minted.token,
++    expires: minted.expires,
++    revoked_previous: rotate && Boolean(row.key_id),
++    warning:
++      "Copy this now. It is shown once and is not stored anywhere we can read it back.",
++  });
++}
+diff --git a/app/api/stripe/webhook/route.ts b/app/api/stripe/webhook/route.ts
+index 8222b8a..086a7ad 100644
+--- a/app/api/stripe/webhook/route.ts
++++ b/app/api/stripe/webhook/route.ts
+@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
+ import Stripe from "stripe";
+ import { createDeliverable } from "@/lib/deliverables";
+ import { createWatch } from "@/lib/watches";
+-import { PRODUCT_BY_KIND } from "@/lib/products";
++import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
++import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
+ 
+ export const runtime = "nodejs";
+ 
+@@ -35,7 +36,21 @@ export async function POST(req: Request) {
+ 
+     const kind = (session.metadata?.kind as string) || "engagement_deposit";
+     const product = PRODUCT_BY_KIND[kind];
+-    if (kind === "hall_watch") {
++    if (isApiProduct(kind)) {
++      // Metered API access. No intake, no engineering work, no human: the
++      // subscription becomes a signed key the engine can verify offline, and the
++      // customer is on their own machine-callable endpoint within seconds. That
++      // immediacy is the product; a key that arrives tomorrow is a lost customer.
++      await openApiAccount({
++        kind,
++        email,
++        company,
++        units: product?.apiUnits ?? 0,
++        customerId: typeof session.customer === "string" ? session.customer : null,
++        subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
++      });
++      await notifyFounder({ email, company, amount });
++    } else if (kind === "hall_watch") {
+       await openWatch({
+         email,
+         company,
+@@ -69,9 +84,125 @@ export async function POST(req: Request) {
+     }
+   }
+ 
++  // A lapsed subscription must stop working, and a renewed one must not go dark.
++  // Keys expire on their own within days, so these two events are the difference
++  // between "it renewed and nobody noticed" and "my agents stopped at 3am".
++  if (event.type === "invoice.paid") {
++    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
++    if (subId) {
++      const row = await findBySubscription(subId);
++      // Reissue silently. The customer's existing key keeps working until it
++      // expires; this simply makes sure a fresh one is available to rotate to.
++      if (row && row.status !== "cancelled") {
++        await updateApiAccount(row.token, { status: "active" });
++      }
++    }
++  }
++
++  if (event.type === "customer.subscription.deleted") {
++    const sub = event.data.object as Stripe.Subscription;
++    const row = await findBySubscription(sub.id);
++    if (row) {
++      // Revoke the live key id and mark the account cancelled. The engine reads
++      // revoked ids from GRIDFORGE_REVOKED_KEYS; until that is synced, the key
++      // dies on its own at expiry, which is inside the period they paid for.
++      await updateApiAccount(row.token, {
++        status: "cancelled",
++        revoked_key_ids: [...(row.revoked_key_ids ?? []), ...(row.key_id ? [row.key_id] : [])],
++      });
++      console.log(
++        `[GridForge] api account ${row.account} cancelled; revoke key id ${row.key_id ?? "-"}`
++      );
++    }
++  }
++
++  if (event.type === "invoice.payment_failed") {
++    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
++    if (subId) {
++      const row = await findBySubscription(subId);
++      if (row) await updateApiAccount(row.token, { status: "past_due" });
++    }
++  }
++
+   return NextResponse.json({ ok: true, received: true });
+ }
+ 
++/**
++ * The subscription id on an invoice.
++ *
++ * Stripe moved this off the top level of Invoice in a recent API version, and the
++ * typings follow the newest one. Read it structurally so the handler works whether
++ * the account is pinned to an older version or the current one — a webhook that
++ * throws on an unexpected shape silently stops renewing everybody's keys.
++ */
++function subscriptionIdOf(inv: Stripe.Invoice): string {
++  const raw = inv as unknown as {
++    subscription?: string | { id?: string };
++    parent?: { subscription_details?: { subscription?: string | { id?: string } } };
++  };
++  const candidate = raw.subscription ?? raw.parent?.subscription_details?.subscription;
++  if (typeof candidate === "string") return candidate;
++  return candidate?.id ?? "";
++}
++
++async function openApiAccount(p: {
++  kind: string;
++  email: string;
++  company: string;
++  units: number;
++  customerId: string | null;
++  subscriptionId: string | null;
++}): Promise<void> {
++  const created = await createApiAccount({
++    email: p.email || null,
++    company: p.company || null,
++    plan: p.kind,
++    monthly_units: p.units,
++    stripe_customer_id: p.customerId,
++    stripe_subscription_id: p.subscriptionId,
++  });
++  if (!created) {
++    console.error("[GridForge] could not open an api account for", p.email || "unknown");
++    return;
++  }
++  const base = process.env.SITE_URL || "https://timetopower.ai";
++  const url = `${base}/api-access/${created.token}`;
++  console.log(`[GridForge] api account opened for ${p.email || "unknown"} — ${url}`);
++
++  const key = process.env.RESEND_API_KEY;
++  const from = process.env.RESEND_FROM;
++  if (!key || !from || !p.email) return;
++  try {
++    await fetch("https://api.resend.com/emails", {
++      method: "POST",
++      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
++      body: JSON.stringify({
++        from,
++        to: p.email,
++        subject: "Your GridForge API access is live",
++        text:
++          "Your key is waiting here:\n\n" +
++          url +
++          "\n\nIt is shown once. We do not store it — the engine verifies it by its " +
++          "signature, so there is no copy anywhere for anyone to take.\n\n" +
++          `Your allowance is ${p.units.toLocaleString("en-IE")} units a month. A constraint ` +
++          "screen is 1 unit, a full solve is 5, and a portfolio run is 1 per hall. The free " +
++          "qualifier stays free and never touches the allowance. Rates are published at " +
++          "/v1/version so you can price a job before you run it.\n\n" +
++          "One thing worth reading before you integrate: every number we return carries an " +
++          "evidence class and a provenance digest, and every response carries our calibration " +
++          "state. Screening-mode output is not an issued engineering opinion — it has no named " +
++          "signatory and no indemnity behind it. That distinction matters more inside an agent " +
++          "loop than it does in a board pack, because nobody downstream reads the footnote.\n\n" +
++          "Schemas: https://gridforge-engine.fly.dev/v1/tools\n" +
++          "MCP:     https://gridforge-engine.fly.dev/mcp",
++      }),
++    });
++  } catch (err) {
++    console.error("[GridForge] api key email failed:", err);
++  }
++}
++
+ async function openWatch(p: {
+   email: string;
+   company: string;
+diff --git a/app/developers/page.tsx b/app/developers/page.tsx
+index 0c88bfc..9a737a8 100644
+--- a/app/developers/page.tsx
++++ b/app/developers/page.tsx
+@@ -3,6 +3,7 @@ import path from "node:path";
+ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
++import ApiPlans from "@/components/ApiPlans";
+ 
+ export const metadata: Metadata = {
+   title: "Machine interface — call the engine | GridForge AI",
+@@ -87,10 +88,16 @@ export default async function DevelopersPage() {
+             href={`${API}/v1/tools`}
+             target="_blank"
+             rel="noreferrer"
+-            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
++            className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+           >
+             Tool schemas <ArrowRight className="h-4 w-4" />
+           </a>
++          <a
++            href="#plans"
++            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
++          >
++            Get a key <ArrowRight className="h-4 w-4" />
++          </a>
+           <a
+             href="/reference/tools.json"
+             className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+@@ -241,17 +248,29 @@ export default async function DevelopersPage() {
+         </section>
+       ) : null}
+ 
++      <section id="plans" className="mt-12 scroll-mt-24">
++        <h2 className="text-xl font-semibold text-ghost">Metered access</h2>
++        <p className="mt-2 max-w-3xl text-sm text-mute">
++          Run the free qualifier first — if it answers your question you do not need a key. If
++          you have two hundred halls and a model that needs re-running every time a tariff or a
++          platform spec moves, this is what that costs.
++        </p>
++        <div className="mt-6">
++          <ApiPlans />
++        </div>
++      </section>
++
+       <section className="mt-10 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">
+         <div className="min-w-64 flex-1">
+-          <h2 className="text-lg font-semibold text-ghost">Need a key?</h2>
++          <h2 className="text-lg font-semibold text-ghost">Not sure yet?</h2>
+           <p className="mt-1 text-sm text-mute">
+-            Metered access is sold per account with a monthly unit allowance. Run the free
+-            qualifier first — if it answers your question, you may not need one.
++            The qualifier is free and needs no key, and the full deliverable is published in
++            full — document, deck, proposal and the tables behind every number.
+           </p>
+         </div>
+         <Link
+           href="/qualify"
+-          className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
++          className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+         >
+           Run the free qualifier <ArrowRight className="h-4 w-4" />
+         </Link>
+diff --git a/app/robots.ts b/app/robots.ts
+index a55a35e..986b91f 100644
+--- a/app/robots.ts
++++ b/app/robots.ts
+@@ -3,7 +3,22 @@ import type { MetadataRoute } from "next";
+ export default function robots(): MetadataRoute.Robots {
+   const base = "https://gridforge-ai.vercel.app";
+   return {
+-    rules: { userAgent: "*", allow: "/", disallow: ["/dashboard", "/admin", "/api/"] },
++    // Token-addressed pages are private by their URL alone. A crawler that indexes
++    // one has published a customer's deliverable, watch or API account to anyone
++    // who searches for it.
++    rules: {
++      userAgent: "*",
++      allow: "/",
++      disallow: [
++        "/dashboard",
++        "/admin",
++        "/api/",
++        "/api-access/",
++        "/deliverable/",
++        "/watch/",
++        "/intake/",
++      ],
++    },
+     sitemap: `${base}/sitemap.xml`,
+   };
+ }
+diff --git a/components/ApiKeyPanel.tsx b/components/ApiKeyPanel.tsx
+new file mode 100644
+index 0000000..c072674
+--- /dev/null
++++ b/components/ApiKeyPanel.tsx
+@@ -0,0 +1,162 @@
++"use client";
++
++import { useState } from "react";
++import { AlertTriangle, Check, Copy, KeyRound, RefreshCw } from "lucide-react";
++
++/**
++ * Issue and rotate. The key is rendered exactly once, in this component, from the
++ * response that minted it — it is never fetched, never stored and never shown
++ * again. Rotation revokes the previous id, because a leaked key that keeps working
++ * until it expires has been duplicated, not rotated.
++ */
++export default function ApiKeyPanel({
++  token,
++  engine,
++  hasKey,
++  keyId,
++  expires,
++  cancelled,
++  signingConfigured,
++}: {
++  token: string;
++  engine: string;
++  hasKey: boolean;
++  keyId: string | null;
++  expires: string | null;
++  cancelled: boolean;
++  signingConfigured: boolean;
++}) {
++  const [key, setKey] = useState<string | null>(null);
++  const [liveId, setLiveId] = useState(keyId);
++  const [liveExpires, setLiveExpires] = useState(expires);
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const [copied, setCopied] = useState(false);
++
++  async function mint(rotate: boolean) {
++    setBusy(true);
++    setError(null);
++    try {
++      const res = await fetch("/api/keys", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ token, rotate }),
++      });
++      const data = await res.json();
++      if (!data.ok) {
++        setError(data.error || "Could not issue a key");
++        return;
++      }
++      if (data.issued) {
++        setKey(data.key);
++        setLiveId(null);
++        setLiveExpires(data.expires);
++      } else {
++        setError(data.note || "A key is already live for this account.");
++      }
++    } catch {
++      setError("Network error — try again.");
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  async function copy() {
++    if (!key) return;
++    try {
++      await navigator.clipboard.writeText(key);
++      setCopied(true);
++      setTimeout(() => setCopied(false), 2000);
++    } catch {
++      setError("Could not reach the clipboard — select the key and copy it manually.");
++    }
++  }
++
++  if (!signingConfigured) {
++    return (
++      <div className="mt-8 rounded border border-flag/40 bg-flag/10 p-5 text-sm text-ghost">
++        <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-flag">
++          <AlertTriangle className="h-3.5 w-3.5" /> Key signing is not configured
++        </span>
++        <p className="mt-2 text-mute">
++          GRIDFORGE_KEY_SECRET must be set here and on the engine, to the same value. Until then
++          no key can be issued. This is our problem, not yours — we have been told.
++        </p>
++      </div>
++    );
++  }
++
++  return (
++    <section className="mt-8 rounded border border-line bg-panel-2 p-6">
++      <h2 className="flex items-center gap-2 text-lg font-semibold text-ghost">
++        <KeyRound className="h-4 w-4 text-power" /> Your key
++      </h2>
++
++      {key ? (
++        <div className="mt-4">
++          <div className="rounded border border-power/40 bg-power/10 p-4">
++            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-power">
++              Copy this now — it is shown once
++            </p>
++            <p className="mt-2 break-all font-mono text-xs text-ghost">{key}</p>
++            <button
++              onClick={copy}
++              className="mt-3 inline-flex items-center gap-2 rounded bg-power px-4 py-2 text-sm font-semibold text-ink"
++            >
++              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
++              {copied ? "Copied" : "Copy key"}
++            </button>
++          </div>
++          <p className="mt-3 text-xs text-faint">
++            We do not store it. The engine verifies it by its signature, so there is no copy
++            anywhere for anyone to take — including us. Valid until {liveExpires}; it renews
++            automatically while the subscription is active.
++          </p>
++        </div>
++      ) : (
++        <div className="mt-4">
++          {hasKey || liveId ? (
++            <p className="text-sm text-mute">
++              A key is live for this account (
++              <span className="font-mono text-ghost">{liveId ?? keyId}</span>), valid until{" "}
++              <span className="font-mono text-ghost">{liveExpires ?? expires}</span>. It cannot
++              be shown again. If you have lost it, rotate — that issues a new one and revokes
++              the current one.
++            </p>
++          ) : (
++            <p className="text-sm text-mute">
++              No key has been issued yet. Issue one and copy it — you will not see it twice.
++            </p>
++          )}
++          <div className="mt-4 flex flex-wrap gap-3">
++            {!hasKey && !liveId ? (
++              <button
++                onClick={() => mint(false)}
++                disabled={busy || cancelled}
++                className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:opacity-50"
++              >
++                <KeyRound className="h-4 w-4" /> {busy ? "Issuing…" : "Issue my key"}
++              </button>
++            ) : (
++              <button
++                onClick={() => mint(true)}
++                disabled={busy || cancelled}
++                className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50 disabled:opacity-50"
++              >
++                <RefreshCw className="h-4 w-4" /> {busy ? "Rotating…" : "Rotate key"}
++              </button>
++            )}
++          </div>
++        </div>
++      )}
++
++      {error ? <p className="mt-4 text-sm text-queue">{error}</p> : null}
++
++      <p className="mt-5 border-t border-line pt-4 text-[11px] text-faint">
++        Send it as <span className="font-mono text-mute">x-api-key</span>, or as{" "}
++        <span className="font-mono text-mute">Authorization: Bearer</span>, to{" "}
++        <span className="font-mono text-mute">{engine}</span>.
++      </p>
++    </section>
++  );
++}
+diff --git a/components/ApiPlans.tsx b/components/ApiPlans.tsx
+new file mode 100644
+index 0000000..166fce6
+--- /dev/null
++++ b/components/ApiPlans.tsx
+@@ -0,0 +1,110 @@
++"use client";
++
++import { useState } from "react";
++import { ArrowRight } from "lucide-react";
++import { API_PRODUCTS, eurFromCents } from "@/lib/products";
++
++/**
++ * Buy metered access. Checkout runs in subscription mode; the webhook opens an
++ * account and emails a link where the key is minted and shown once.
++ *
++ * The email field is not decoration: it is the only way the key reaches them, and
++ * Stripe's receipt email is not guaranteed to be the one their engineers read.
++ */
++export default function ApiPlans() {
++  const [email, setEmail] = useState("");
++  const [company, setCompany] = useState("");
++  const [busy, setBusy] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  async function buy(product: string) {
++    setBusy(product);
++    setError(null);
++    try {
++      const res = await fetch("/api/checkout", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ product, email: email || undefined, company }),
++      });
++      const data = await res.json();
++      if (data.ok && data.url) {
++        window.location.href = data.url as string;
++        return;
++      }
++      setError(data.error || "Could not start checkout.");
++    } catch {
++      setError("Network error — try again.");
++    } finally {
++      setBusy(null);
++    }
++  }
++
++  return (
++    <div>
++      <div className="grid gap-3 sm:grid-cols-2">
++        <label className="block">
++          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++            Work email
++          </span>
++          <input
++            type="email"
++            value={email}
++            onChange={(e) => setEmail(e.target.value)}
++            placeholder="you@operator.com"
++            className="mt-1 w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint focus:border-power focus:outline-none"
++          />
++        </label>
++        <label className="block">
++          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++            Company
++          </span>
++          <input
++            value={company}
++            onChange={(e) => setCompany(e.target.value)}
++            placeholder="Operator BV"
++            className="mt-1 w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint focus:border-power focus:outline-none"
++          />
++        </label>
++      </div>
++      <p className="mt-2 text-[11px] text-faint">
++        The key link goes to this address. Use the one your engineers actually read.
++      </p>
++
++      <div className="mt-6 grid gap-4 md:grid-cols-3">
++        {API_PRODUCTS.map((p) => (
++          <div key={p.id} className="panel flex flex-col p-5">
++            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
++              {p.name}
++            </span>
++            <p className="mt-3 font-mono text-3xl font-semibold text-ghost">
++              {eurFromCents(p.amountCents)}
++              <span className="text-sm font-normal text-faint"> /month</span>
++            </p>
++            <p className="mt-1 text-xs text-faint">
++              {(p.apiUnits ?? 0).toLocaleString("en-IE")} units ·{" "}
++              {Math.floor((p.apiUnits ?? 0) / 5).toLocaleString("en-IE")} full solves, or{" "}
++              {(p.apiUnits ?? 0).toLocaleString("en-IE")} screens
++            </p>
++            <p className="mt-3 flex-1 text-sm text-mute">{p.description}</p>
++            <button
++              onClick={() => buy(p.id)}
++              disabled={busy !== null}
++              className="mt-5 inline-flex items-center justify-center gap-2 rounded bg-power px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
++            >
++              {busy === p.id ? "Opening checkout…" : "Start"}{" "}
++              <ArrowRight className="h-3.5 w-3.5" />
++            </button>
++          </div>
++        ))}
++      </div>
++
++      {error ? <p className="mt-4 text-sm text-queue">{error}</p> : null}
++
++      <p className="mt-5 text-xs text-faint">
++        Monthly, cancel any time. No overage billing: over the allowance the engine returns 402
++        and you upgrade or wait for the reset — we would rather you saw a refusal than an
++        invoice you did not expect.
++      </p>
++    </div>
++  );
++}
+diff --git a/components/EngagementPipeline.tsx b/components/EngagementPipeline.tsx
+index 9c04fc6..44777ae 100644
+--- a/components/EngagementPipeline.tsx
++++ b/components/EngagementPipeline.tsx
+@@ -7,10 +7,11 @@ import type {
+   AdminDeliverable,
+   AdminQualification,
+   AdminWatch,
++  AdminApiAccount,
+   QualificationInsights,
+ } from "@/lib/admin";
+ import { eur } from "@/lib/commerce";
+-import { PRODUCT_BY_KIND, PRODUCTS } from "@/lib/products";
++import { PRODUCT_BY_KIND, PRODUCTS, type ProductId } from "@/lib/products";
+ 
+ /**
+  * The pipeline: what came in, what was bought, and what is waiting on you.
+@@ -31,12 +32,16 @@ export function EngagementPipeline({
+   deliverables,
+   qualifications,
+   watches,
++  apiAccounts = [],
++  revoked = [],
+   insights,
+   supabaseReady,
+ }: {
+   deliverables: AdminDeliverable[];
+   qualifications: AdminQualification[];
+   watches: AdminWatch[];
++  apiAccounts?: AdminApiAccount[];
++  revoked?: string[];
+   insights: QualificationInsights;
+   supabaseReady: boolean;
+ }) {
+@@ -52,7 +57,28 @@ export function EngagementPipeline({
+   );
+   const activeWatches = useMemo(() => watches.filter((w) => w.status === "active"), [watches]);
+   // Quarterly engagements, so annualised recurring revenue is four times the fee.
+-  const arrCents = activeWatches.length * PRODUCTS.hall_watch.amountCents * 4;
++  const watchArrCents = activeWatches.length * PRODUCTS.hall_watch.amountCents * 4;
++
++  // Metered API access is the recurring line that scales without our time in it.
++  // Worth watching separately from Hall Watch: one is engineering capacity sold on
++  // a cadence, the other is software nobody has to staff.
++  const activeApi = useMemo(
++    () => apiAccounts.filter((a) => a.status === "active"),
++    [apiAccounts]
++  );
++  const apiArrCents = useMemo(
++    () =>
++      activeApi.reduce(
++        (sum, a) => sum + (PRODUCTS[a.plan as ProductId]?.amountCents ?? 0) * 12,
++        0
++      ),
++    [activeApi]
++  );
++  const arrCents = watchArrCents + apiArrCents;
++  const apiUnitsSold = useMemo(
++    () => activeApi.reduce((sum, a) => sum + a.monthly_units, 0),
++    [activeApi]
++  );
+ 
+   async function act(token: string, action: "release" | "unrelease") {
+     setBusy(token);
+@@ -145,8 +171,15 @@ export function EngagementPipeline({
+         <Stat label="Halls qualified" value={String(insights.halls)} tone="power" />
+       </div>
+ 
+-      <div className="mb-8 grid gap-3 sm:grid-cols-2">
++      <div className="mb-8 grid gap-3 sm:grid-cols-4">
+         <Stat label="Halls watched" value={String(activeWatches.length)} tone="power" small />
++        <Stat label="API accounts" value={String(activeApi.length)} tone="power" small />
++        <Stat
++          label="Units sold / month"
++          value={apiUnitsSold.toLocaleString("en-IE")}
++          tone="ghost"
++          small
++        />
+         <Stat label="Annualised recurring" value={eur(arrCents)} tone="verified" small />
+       </div>
+ 
+@@ -236,6 +269,72 @@ export function EngagementPipeline({
+         </p>
+       </section>
+ 
++      <section className="mb-12">
++        <h2 className="mb-3 text-sm font-semibold text-ghost">Metered API accounts</h2>
++        {apiAccounts.length === 0 ? (
++          <Empty>
++            Nobody is on metered access yet. The plans are on /developers, and the key is
++            issued by the subscription webhook without anyone touching it.
++          </Empty>
++        ) : (
++          <div className="overflow-x-auto rounded border border-line">
++            <table className="w-full text-sm">
++              <Head
++                cols={["Opened", "Account", "Plan", "Units/mo", "Key", "Expires", "State"]}
++              />
++              <tbody>
++                {apiAccounts.map((a) => (
++                  <tr key={a.id} className="border-t border-line align-middle">
++                    <Td>{new Date(a.created_at).toLocaleDateString("en-IE")}</Td>
++                    <Td>
++                      <span className="font-mono text-xs text-ghost">{a.account}</span>
++                      <span className="block text-[11px] text-faint">
++                        {a.company || a.email || "—"}
++                      </span>
++                    </Td>
++                    <Td>{PRODUCTS[a.plan as ProductId]?.name ?? a.plan}</Td>
++                    <Td>{a.monthly_units.toLocaleString("en-IE")}</Td>
++                    <Td>
++                      <span className="font-mono text-[11px] text-mute">
++                        {a.key_id ?? "not issued"}
++                      </span>
++                    </Td>
++                    <Td>{a.key_expires_at ?? "—"}</Td>
++                    <Td>
++                      <span
++                        className={
++                          a.status === "active"
++                            ? "text-verified"
++                            : a.status === "past_due"
++                              ? "text-queue"
++                              : "text-flag"
++                        }
++                      >
++                        {a.status}
++                      </span>
++                    </Td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        )}
++        {revoked.length > 0 ? (
++          <div className="mt-3 rounded border border-queue/40 bg-queue/10 p-4">
++            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-queue">
++              Revocation list — set this on the engine
++            </p>
++            <p className="mt-1 text-xs text-mute">
++              Cancelled and rotated key ids. Keys expire on their own within days, so this is
++              only needed when a key must stop sooner than that.
++            </p>
++            <pre className="mt-2 overflow-x-auto rounded bg-ink p-3 font-mono text-[11px] text-mute">
++{`fly secrets set GRIDFORGE_REVOKED_KEYS="${revoked.join(",")}" -a gridforge-engine`}
++            </pre>
++          </div>
++        ) : null}
++      </section>
++
+       <section className="mb-12">
+         <h2 className="mb-3 text-sm font-semibold text-ghost">Watched halls</h2>
+         {watches.length === 0 ? (
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index aaab27c..f9a568f 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -357,3 +357,99 @@ carries evidence classes, provenance digests and the calibration block, and the
+ handshake instructs the model not to present an E0 or E1 figure as a property of a
+ physical asset. A modelled number loose inside an agent loop is more dangerous than one
+ in a board pack, because nobody reads the footnote and nothing catches it downstream.
++
++## Selling the machine interface without a salesperson
++
++`/developers#plans` takes a card and, within seconds, the buyer has a working key.
++Nobody touches it. Three plans, monthly, cancel any time:
++
++| Plan | €/month | Units | Per unit |
++| --- | --- | --- | --- |
++| API — Triage | 900 | 600 | €1.50 |
++| API — Scale | 2,900 | 2,500 | €1.16 |
++| API — Platform | 7,500 | 10,000 | €0.75 |
++
++A constraint screen is 1 unit, a full solve 5, a portfolio run 1 per hall. **No
++overage billing**: over the allowance the engine returns 402 and they upgrade or wait
++for the reset. An invoice a customer did not expect costs more than the units.
++
++Prices live in two files — `gridforge/commercial.py` (what proposals quote) and
++`lib/products.ts` (what checkout charges). `tests/test_catalogue_parity.py` parses
++the TypeScript and fails if they disagree. That test is new; `commercial.py` had
++claimed it existed since patch 0001 and it did not.
++
++### Keys are signed, not stored
++
++A key is `gfk1.<payload>.<signature>`: account, key id, monthly quota, scope, issue
++and expiry dates, HMAC-SHA256 with `GRIDFORGE_KEY_SECRET`. The engine verifies
++arithmetic it can do itself — no database, no network call, no latency floor, and a
++stateless container stays stateless.
++
++**The same secret must be set on the engine and on the website.** The website mints
++with it (`lib/api-access.ts`), the engine verifies with it
++(`gridforge/api/keys.py`), and the two implementations must agree byte for byte on
++what gets signed — sorted keys, tight separators. `tests/test_api_keys.py` mints one
++in Node and verifies it in Python, and asserts both produce the identical string. A
++divergence would not fail loudly; it would issue keys that quietly do not work, to
++customers who have just paid.
++
++**We never store a key.** The database holds the id of the live key and the ids we
++have revoked. The key is shown once, at the moment it is minted. A database that can
++hand somebody a working credential is a database worth stealing, and there is no
++reason for this one to be.
++
++**Revocation.** Keys are minted for 35 days, not 30 — a subscription renewing on the
++1st must not leave a customer's agents dark while a webhook lands. A cancelled
++subscription simply stops being renewed and the key dies inside the period they paid
++for. For anything that cannot wait, `/admin/pipeline` prints the exact command:
++
++```bash
++fly secrets set GRIDFORGE_REVOKED_KEYS="<ids>" -a gridforge-engine
++```
++
++### Operating it
++
++```bash
++python3 -m gridforge key plans                       # the rate card
++python3 -m gridforge key issue --account acme --plan api_scale
++python3 -m gridforge key issue --account prospect --quota 100 --scope trial --days 14
++python3 -m gridforge key inspect gfk1....            # why did this stop working?
++```
++
++`key inspect` reads a key it cannot trust, which is the question support actually
++gets: not "is this valid" but "what does this say and why was it refused". Expired,
++revoked and forged are reported as three different things, because "invalid key"
++sends an integrator hunting a typo when their subscription lapsed three days ago.
++
++Usage aggregates under the **account**, not the key. A customer who rotates a key
++mid-month has not started a new month, and a meter that thinks otherwise hands out a
++fresh allowance on every rotation.
++
++## Two deployment bugs that were live, and are now fixed
++
++**`deploy-engine.sh` rotated the production API key on every run.** It generated a
++fresh `GRIDFORGE_API_KEYS` unconditionally, so every deploy invalidated the key in
++Vercel and paid deliverable generation started returning 401 until somebody noticed
++and re-pasted it. It also failed to detect the existing app, because it grepped
++`fly apps list` output whose format has changed. The script now asks the app about
++itself, adds only missing secrets, and prints `<unchanged>` rather than a new key.
++
++A deploy script that breaks production on success is worse than one that fails,
++because nothing tells you.
++
++**`GRIDFORGE_USAGE_FILE=/data/usage.json` with no volume mounted discarded every
++usage record.** With `min_machines_running = 0` that is every few minutes, and it
++looks identical to a working configuration until the first invoice. Three changes:
++`fly.toml` now declares the mount and the path, the deploy script creates the volume,
++and the meter **probes the path at startup** — if it cannot write, it says so at
++`/v1/usage` instead of reporting `durable: true` on a path that silently throws
++everything away.
++
++Check after any deploy:
++
++```bash
++curl -s https://gridforge-engine.fly.dev/v1/version | python3 -m json.tool | head -30
++```
++
++`auth_configured`, `signed_keys` and `metering.durable` are the three that matter.
++The deploy script now calls out each one that is false.
+diff --git a/fly.toml b/fly.toml
+index c2a492a..bb1f7e4 100644
+--- a/fly.toml
++++ b/fly.toml
+@@ -1,14 +1,21 @@
+ # fly.toml — the capacity engine as a service.
+ #
++#   bash scripts/deploy-engine.sh          <- does all of the below, idempotently
++#
++# Or by hand:
+ #   fly launch --no-deploy --copy-config
+ #   fly secrets set GRIDFORGE_API_KEYS=$(openssl rand -hex 24)
++#   fly secrets set GRIDFORGE_KEY_SECRET=$(openssl rand -hex 32)
++#   fly volumes create gridforge_data --size 1 --region ams
+ #   fly deploy
+ #
+-# Then on the website: GRIDFORGE_API_URL=https://<app>.fly.dev and, only if the
+-# site should reach the paid endpoints, GRIDFORGE_API_KEY set to the same value.
++# Then on the website: GRIDFORGE_API_URL=https://<app>.fly.dev, GRIDFORGE_API_KEY
++# for the paid endpoints, and GRIDFORGE_KEY_SECRET set to the SAME value as here —
++# the site signs self-serve API keys with it and the engine verifies them offline.
+ #
+ # The engine has no database and no dependencies, so it scales to zero and starts
+-# in well under a second. Running it costs single-digit euros a month.
++# in well under a second. Running it costs single-digit euros a month. The one
++# piece of state it keeps is the usage meter, which is why there is a volume.
+ app = "gridforge-engine"
+ primary_region = "ams"
+ 
+@@ -19,6 +26,11 @@ primary_region = "ams"
+   GRIDFORGE_RATE_LIMIT = "60"
+   # Comma-separated origins, or "*" while you are still wiring it up.
+   GRIDFORGE_ALLOWED_ORIGINS = "*"
++  # Metered usage. This path must be on the mounted volume below, or every usage
++  # record is discarded on restart — and with min_machines_running = 0 that is
++  # every few minutes. The engine probes the path at startup and reports the truth
++  # at /v1/usage rather than claiming durability it does not have.
++  GRIDFORGE_USAGE_FILE = "/data/usage.json"
+ 
+ [http_service]
+   internal_port = 8080
+@@ -34,6 +46,12 @@ primary_region = "ams"
+     timeout = "5s"
+     path = "/health"
+ 
++# Usage survives a suspend, a restart and a deploy. Without this, nothing you bill
++# from is real.
++[mounts]
++  source = "gridforge_data"
++  destination = "/data"
++
+ [[vm]]
+   size = "shared-cpu-1x"
+   memory = "512mb"
+diff --git a/gridforge/api/keys.py b/gridforge/api/keys.py
+new file mode 100644
+index 0000000..ba1ea33
+--- /dev/null
++++ b/gridforge/api/keys.py
+@@ -0,0 +1,183 @@
++"""Self-serve API keys, verifiable offline.
++
++To sell metered access without a salesperson, a stranger's payment has to become a
++working key in seconds, and the engine has to be able to check that key without
++asking anything else. Those two requirements fight: the usual answer is a database
++the engine queries on every call, which couples the engine to a service that can be
++slow, down, or in the wrong jurisdiction, and which turns a stateless container into
++something with an operational dependency and a latency floor.
++
++So the key carries its own plan and its own signature:
++
++    gfk1.<payload>.<signature>
++
++`payload` is compact JSON — account, key id, monthly unit quota, scope, issue and
++expiry dates — base64url encoded. `signature` is HMAC-SHA256 over the prefixed
++payload with GRIDFORGE_KEY_SECRET, the same secret the website signs with. The
++engine verifies arithmetic it can do itself. No database, no network call, no
++shared state, and a key that cannot be forged without the secret.
++
++The cost of statelessness is revocation, and it is paid two ways. Keys expire —
++the subscription webhook reissues monthly, so a cancelled subscription stops
++being renewed and the key dies on its own within the period the customer paid
++for. And GRIDFORGE_REVOKED_KEYS holds key ids for the cases that cannot wait,
++which is why the payload carries a short id rather than requiring the whole key
++to be pasted into a deny list.
++
++Static keys in GRIDFORGE_API_KEYS keep working exactly as before. A deployment
++with no GRIDFORGE_KEY_SECRET simply has no signed keys — it fails closed rather
++than accepting anything unsigned, because the alternative failure is silent and
++total.
++"""
++from __future__ import annotations
++
++import base64
++import hashlib
++import hmac
++import json
++import os
++import secrets
++from dataclasses import dataclass
++from datetime import date, datetime, timedelta, timezone
++
++PREFIX = "gfk1"
++SCOPES = ("machine", "client", "trial")
++
++
++class KeyError_(ValueError):
++    """Raised with a message safe to return to the caller."""
++
++
++def _b64e(raw: bytes) -> str:
++    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
++
++
++def _b64d(s: str) -> bytes:
++    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
++
++
++def secret() -> bytes:
++    s = os.environ.get("GRIDFORGE_KEY_SECRET") or ""
++    return s.encode()
++
++
++def today() -> date:
++    """Wall clock, deliberately not the pinnable report date.
++
++    GRIDFORGE_REPORT_DATE exists so documents regenerate identically. If it also
++    moved this clock, pinning a build date would extend or kill live credentials,
++    and a date used for reproducibility would quietly become a security control.
++    """
++    return datetime.now(timezone.utc).date()
++
++
++@dataclass(frozen=True)
++class ApiKey:
++    account: str
++    key_id: str
++    quota: int              # monthly units; 0 -> unlimited
++    scope: str
++    issued: str             # ISO date
++    expires: str            # ISO date
++
++    @property
++    def days_left(self) -> int:
++        return (date.fromisoformat(self.expires) - today()).days
++
++    def to_payload(self) -> dict:
++        return {"a": self.account, "k": self.key_id, "q": self.quota,
++                "s": self.scope, "i": self.issued, "e": self.expires}
++
++    def describe(self) -> dict:
++        return {"account": self.account, "key_id": self.key_id,
++                "monthly_quota": self.quota or None, "scope": self.scope,
++                "issued": self.issued, "expires": self.expires,
++                "days_left": self.days_left}
++
++
++def issue(account: str, *, quota: int = 0, scope: str = "machine",
++          days: int = 35, key_id: str | None = None,
++          issued_on: date | None = None) -> str:
++    """Mint a signed key. Only the website and the CLI do this; the engine never does.
++
++    35 days by default, not 30: a subscription renewing on the 1st must not leave a
++    customer's agents dark for a few hours while a webhook lands. The overlap is the
++    difference between a renewal nobody notices and a support ticket.
++    """
++    if not secret():
++        raise KeyError_("GRIDFORGE_KEY_SECRET is not set; refusing to mint an unsigned key")
++    if scope not in SCOPES:
++        raise KeyError_(f"unknown scope {scope!r}; one of {', '.join(SCOPES)}")
++    if not account.strip():
++        raise KeyError_("a key must name the account it bills to")
++    start = issued_on or today()
++    k = ApiKey(account=account.strip(), key_id=key_id or secrets.token_hex(4),
++               quota=max(0, int(quota)), scope=scope,
++               issued=start.isoformat(), expires=(start + timedelta(days=days)).isoformat())
++    payload = _b64e(json.dumps(k.to_payload(), separators=(",", ":"), sort_keys=True).encode())
++    body = f"{PREFIX}.{payload}"
++    sig = _b64e(hmac.new(secret(), body.encode(), hashlib.sha256).digest())
++    return f"{body}.{sig}"
++
++
++def revoked_ids() -> set[str]:
++    raw = os.environ.get("GRIDFORGE_REVOKED_KEYS", "")
++    return {x.strip() for x in raw.split(",") if x.strip()}
++
++
++def looks_signed(token: str) -> bool:
++    return token.startswith(PREFIX + ".")
++
++
++def verify(token: str) -> ApiKey:
++    """Check a signed key. Raises KeyError_ with a message the caller may see.
++
++    The messages distinguish forged, expired and revoked on purpose. A machine
++    cannot ask what went wrong, and 'invalid key' sends an integrator hunting a
++    typo when their subscription lapsed three days ago.
++    """
++    if not secret():
++        raise KeyError_("signed keys are not enabled on this deployment")
++    try:
++        prefix, payload, sig = token.split(".")
++    except ValueError:
++        raise KeyError_("malformed key")
++    if prefix != PREFIX:
++        raise KeyError_(f"unsupported key version {prefix!r}")
++    expected = _b64e(hmac.new(secret(), f"{prefix}.{payload}".encode(),
++                              hashlib.sha256).digest())
++    if not hmac.compare_digest(expected, sig):
++        raise KeyError_("signature does not verify")
++    try:
++        d = json.loads(_b64d(payload))
++        k = ApiKey(account=str(d["a"]), key_id=str(d["k"]), quota=int(d["q"]),
++                   scope=str(d["s"]), issued=str(d["i"]), expires=str(d["e"]))
++        date.fromisoformat(k.expires)
++    except Exception:
++        raise KeyError_("malformed key payload")
++    if k.key_id in revoked_ids():
++        raise KeyError_("this key has been revoked")
++    if k.days_left < 0:
++        raise KeyError_(f"this key expired on {k.expires}; renew the subscription "
++                        f"or reissue from your account page")
++    if k.scope not in SCOPES:
++        raise KeyError_(f"unknown scope {k.scope!r}")
++    return k
++
++
++def inspect(token: str) -> dict:
++    """Read a key without trusting it — for support, and for the CLI."""
++    try:
++        _, payload, _ = token.split(".")
++        d = json.loads(_b64d(payload))
++    except Exception:
++        return {"valid": False, "error": "not a signed GridForge key"}
++    out = {"account": d.get("a"), "key_id": d.get("k"), "monthly_quota": d.get("q") or None,
++           "scope": d.get("s"), "issued": d.get("i"), "expires": d.get("e")}
++    try:
++        verify(token)
++        out["valid"] = True
++    except KeyError_ as exc:
++        out["valid"] = False
++        out["error"] = str(exc)
++    return out
+diff --git a/gridforge/api/metering.py b/gridforge/api/metering.py
+index dd8655c..299d8ba 100644
+--- a/gridforge/api/metering.py
++++ b/gridforge/api/metering.py
+@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
++from .keys import ApiKey, KeyError_, looks_signed, verify
++
+ #: Billable units per call. One unit is one engine solve of one hall.
+ UNIT_COST: dict[str, int] = {
+     "/v1/qualify": 0,        # free tier: the demo
+@@ -65,7 +67,11 @@ def _month() -> str:
+ 
+ @dataclass
+ class KeyPlan:
+-    """One API key, its label and its monthly allowance.
++    """One API key, its account and its monthly allowance.
++
++    `account` is what usage aggregates under, not the key. A customer who rotates a
++    key mid-month has not started a new month, and a meter that thinks otherwise
++    hands them a second free allowance every time they rotate.
+ 
+     GRIDFORGE_API_KEYS accepts three forms, oldest first, so no existing
+     deployment breaks when this lands:
+@@ -77,6 +83,14 @@ class KeyPlan:
+     key: str
+     label: str = ""
+     monthly_quota: int = 0          # 0 -> unlimited
++    account: str = ""               # billing identity; defaults to the label
++    key_id: str = ""
++    scope: str = "client"
++    expires: str = ""
++
++    def __post_init__(self) -> None:
++        if not self.account:
++            self.account = self.label or self.key[:6]
+ 
+     @property
+     def masked(self) -> str:
+@@ -103,6 +117,7 @@ class KeyPlan:
+ 
+ 
+ def key_plans() -> dict[str, KeyPlan]:
++    """Static keys only: the ones an operator pasted into the environment."""
+     out: dict[str, KeyPlan] = {}
+     for spec in (os.environ.get("GRIDFORGE_API_KEYS") or "").split(","):
+         plan = KeyPlan.parse(spec)
+@@ -111,6 +126,47 @@ def key_plans() -> dict[str, KeyPlan]:
+     return out
+ 
+ 
++def from_signed(k: ApiKey, token: str) -> KeyPlan:
++    return KeyPlan(key=token, label=k.account, monthly_quota=k.quota,
++                   account=k.account, key_id=k.key_id, scope=k.scope,
++                   expires=k.expires)
++
++
++def plan_for(token: str) -> KeyPlan | None:
++    """The plan behind a presented key, static or signed. None means not ours.
++
++    Static first: an operator who has pasted a key into the environment to get a
++    customer working again at 2am must not be overridden by anything cleverer.
++    """
++    if not token:
++        return None
++    static = key_plans().get(token)
++    if static:
++        return static
++    if looks_signed(token):
++        try:
++            return from_signed(verify(token), token)
++        except KeyError_:
++            return None
++    return None
++
++
++def refusal(token: str) -> dict:
++    """Why a key was refused, in terms a machine's operator can act on.
++
++    'Invalid key' sends an integrator hunting a typo when their subscription
++    lapsed three days ago. Expired, revoked and forged are different problems with
++    different fixes, and saying which is not a security leak — the holder of a key
++    already knows what it says.
++    """
++    if looks_signed(token):
++        try:
++            verify(token)
++        except KeyError_ as exc:
++            return {"error": str(exc), "key": "signed"}
++    return {"error": "an API key is required for this endpoint"}
++
++
+ @dataclass
+ class Usage:
+     month: str
+@@ -128,13 +184,47 @@ class Meter:
+         self._lock = threading.Lock()
+         self._usage: dict[tuple[str, str], Usage] = {}
+         self._path = Path(path) if path else None
++        self._problem = ""
++        self._probe()
+         self._load()
+ 
+     # -- persistence -------------------------------------------------------
++    def _probe(self) -> None:
++        """Prove the usage file is actually writable, now, before anything is billed.
++
++        GRIDFORGE_USAGE_FILE=/data/usage.json on a machine with no volume mounted
++        looks identical to a working configuration until the first invoice, at
++        which point a month of usage does not exist. So the meter writes a byte at
++        startup and, if it cannot, says so at /v1/usage instead of reporting
++        durable:true on a path that silently discards everything.
++        """
++        if self._path is None:
++            return
++        try:
++            self._path.parent.mkdir(parents=True, exist_ok=True)
++            probe = self._path.parent / (self._path.name + ".probe")
++            probe.write_text("ok")
++            probe.unlink()
++        except Exception as exc:
++            self._problem = (f"{self._path} is not writable ({type(exc).__name__}). "
++                             f"On Fly.io this usually means no volume is mounted at "
++                             f"{self._path.parent}. Usage is being held in memory only.")
++            self._path = None
++
+     @property
+     def durable(self) -> bool:
+         return self._path is not None
+ 
++    @property
++    def durability_note(self) -> str:
++        if self._problem:
++            return self._problem
++        if not self.durable:
++            return ("Usage is held in memory on this instance and is not durable. "
++                    "Set GRIDFORGE_USAGE_FILE, backed by a mounted volume, before "
++                    "billing against it.")
++        return "Usage is written through to durable storage on every call."
++
+     def _load(self) -> None:
+         if not self._path or not self._path.exists():
+             return
+@@ -169,16 +259,15 @@ class Meter:
+             pass
+ 
+     # -- accounting --------------------------------------------------------
+-    def current(self, key: str) -> Usage:
++    def current(self, account: str) -> Usage:
+         m = _month()
+         with self._lock:
+-            return self._usage.get((key, m)) or Usage(month=m)
++            return self._usage.get((account, m)) or Usage(month=m)
+ 
+-    def would_exceed(self, key: str, units: int) -> bool:
+-        plan = key_plans().get(key)
+-        if not plan or not plan.monthly_quota:
++    def would_exceed(self, account: str, units: int, quota: int = 0) -> bool:
++        if not quota:
+             return False
+-        return self.current(key).units + units > plan.monthly_quota
++        return self.current(account).units + units > quota
+ 
+     def record(self, key: str, path: str, units: int) -> Usage:
+         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+@@ -195,13 +284,16 @@ class Meter:
+         self._flush()
+         return snapshot
+ 
+-    def statement(self, key: str) -> dict:
+-        plan = key_plans().get(key)
+-        u = self.current(key)
++    def statement(self, plan: "KeyPlan | None", account: str = "") -> dict:
++        account = account or (plan.account if plan else "unknown")
++        u = self.current(account)
+         quota = plan.monthly_quota if plan else 0
+         return {
+-            "account": plan.label if plan else "unknown",
++            "account": account,
+             "key": plan.masked if plan else "…",
++            "key_id": plan.key_id if plan else "",
++            "scope": plan.scope if plan else "",
++            "expires": (plan.expires or None) if plan else None,
+             "month": u.month,
+             "units": u.units,
+             "calls": u.calls,
+@@ -210,10 +302,7 @@ class Meter:
+             "units_remaining": (quota - u.units) if quota else None,
+             "unit_rates": dict(sorted(UNIT_COST.items())),
+             "durable": self.durable,
+-            "note": ("Usage is held in memory on this instance and is not durable. "
+-                     "Set GRIDFORGE_USAGE_FILE before billing against it."
+-                     if not self.durable else
+-                     "Usage is written through to durable storage on every call."),
++            "note": self.durability_note,
+         }
+ 
+ 
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+index 263f14b..27870a6 100644
+--- a/gridforge/api/server.py
++++ b/gridforge/api/server.py
+@@ -62,7 +62,7 @@ from ..reporting.study import Objective
+ from ..scenario import run_all
+ from ..scenario.knobs import SENSITIVITY_KNOBS
+ from ..serialize import csv_bundle, model_pack
+-from .metering import METER, UNIT_COST, key_plans, units_for
++from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
+ from .payloads import qualify_payload, screen_payload
+ from .tiers import Tier
+ from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
+@@ -154,6 +154,13 @@ def _api_keys() -> set[str]:
+     return set(key_plans())
+ 
+ 
++def _auth_configured() -> bool:
++    """Either an operator has pasted keys in, or the deployment can verify signed
++    ones. Both count: a self-serve deployment issues every key from the website and
++    may hold none of them in its own environment."""
++    return bool(key_plans()) or bool(os.environ.get("GRIDFORGE_KEY_SECRET"))
++
++
+ def _allowed_origins() -> list[str]:
+     raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS", "*")
+     return [o.strip() for o in raw.split(",") if o.strip()]
+@@ -492,11 +499,11 @@ class Handler(BaseHTTPRequestHandler):
+         return (self.headers.get("X-API-Key")
+                 or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
+ 
++    def _plan(self):
++        return plan_for(self._supplied_key())
++
+     def _tier(self) -> Tier:
+-        supplied = self._supplied_key()
+-        if supplied and supplied in _api_keys():
+-            return Tier.CLIENT
+-        return Tier.PUBLIC
++        return Tier.CLIENT if self._plan() else Tier.PUBLIC
+ 
+     def do_OPTIONS(self) -> None:  # noqa: N802
+         self.send_response(204)
+@@ -510,7 +517,8 @@ class Handler(BaseHTTPRequestHandler):
+         if path == "/v1/version":
+             return self._send(200, {
+                 "version": VERSION,
+-                "auth_configured": bool(_api_keys()),
++                "auth_configured": _auth_configured(),
++                "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
+                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+                 "tier": self._tier().value,
+                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
+@@ -552,9 +560,11 @@ class Handler(BaseHTTPRequestHandler):
+         if path == "/v1/tools":
+             return self._send(200, catalogue())
+         if path == "/v1/usage":
+-            if self._tier() is not Tier.CLIENT:
+-                return self._send(401, {"error": "an API key is required to read its usage"})
+-            return self._send(200, METER.statement(self._supplied_key()))
++            plan = self._plan()
++            if plan is None:
++                return self._send(401, dict(refusal(self._supplied_key()),
++                                            hint="GET /v1/tools is free and needs no key"))
++            return self._send(200, METER.statement(plan))
+         return self._send(404, {"error": "not found",
+                                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES)})
+ 
+@@ -567,19 +577,20 @@ class Handler(BaseHTTPRequestHandler):
+         work: an agent in a loop can otherwise run a month's quota of solves
+         while the first response is still being rendered.
+         """
+-        key = self._supplied_key()
+-        if self._tier() is not Tier.CLIENT or not key:
++        plan = self._plan()
++        if plan is None:
+             return None
+         units = units_for(endpoint, body)
+         if units <= 0:
+             return None
+-        if METER.would_exceed(key, units):
+-            u = METER.statement(key)
++        if METER.would_exceed(plan.account, units, plan.monthly_quota):
++            u = METER.statement(plan)
+             return {"error": "monthly unit quota exhausted",
+                     "units_required": units, "units_used": u["units"],
+                     "monthly_quota": u["monthly_quota"], "month": u["month"],
+-                    "fix": "raise the quota on this key, or issue a second key"}
+-        self._last_usage = METER.record(key, endpoint, units)
++                    "fix": "upgrade the plan on your account page, or wait for the "
++                           "allowance to reset at the start of next month"}
++        self._last_usage = METER.record(plan.account, endpoint, units)
+         self._last_units = units
+         return None
+ 
+@@ -590,10 +601,12 @@ class Handler(BaseHTTPRequestHandler):
+             return
+         self.send_header("X-GridForge-Units", str(units))
+         self.send_header("X-GridForge-Units-Month", str(usage.units))
+-        plan = key_plans().get(self._supplied_key())
++        plan = self._plan()
+         if plan and plan.monthly_quota:
+             self.send_header("X-GridForge-Units-Remaining",
+                              str(max(0, plan.monthly_quota - usage.units)))
++        if plan and plan.expires:
++            self.send_header("X-GridForge-Key-Expires", plan.expires)
+ 
+     def do_POST(self) -> None:  # noqa: N802
+         path = urlparse(self.path).path.rstrip("/") or "/"
+@@ -607,13 +620,14 @@ class Handler(BaseHTTPRequestHandler):
+         tier = self._tier()
+         required = Tier.CLIENT if path == "/mcp" else ROUTES[path][1]
+         if required is Tier.CLIENT and tier is Tier.PUBLIC:
+-            if not _api_keys():
++            if not _auth_configured():
+                 return self._send(503, {
+                     "error": "paid endpoints are not configured on this deployment",
+-                    "fix": "set GRIDFORGE_API_KEYS to enable them"})
+-            return self._send(401, {"error": "an API key is required for this endpoint",
+-                                    "public_endpoint": "/v1/qualify",
+-                                    "tool_schemas": "/v1/tools"})
++                    "fix": "set GRIDFORGE_API_KEYS, or GRIDFORGE_KEY_SECRET for "
++                           "self-serve signed keys"})
++            return self._send(401, dict(refusal(self._supplied_key()),
++                                        public_endpoint="/v1/qualify",
++                                        tool_schemas="/v1/tools"))
+ 
+         length = int(self.headers.get("Content-Length") or 0)
+         if length > MAX_BODY_BYTES:
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index 4c0f218..be3c560 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -451,6 +451,58 @@ def cmd_tools(args) -> int:
+     return 0
+ 
+ 
++def cmd_key(args) -> int:
++    """Mint and inspect signed API keys.
++
++    Self-serve issuance happens on the website when a subscription starts; this is
++    for the cases a webhook cannot cover — a trial for a prospect on a call, a
++    replacement after a leak, or working out why a customer's key stopped.
++    """
++    from .api.keys import KeyError_, inspect, issue
++    from .commercial import API_PLANS
++
++    if args.key_cmd == "plans":
++        print(f"{'plan':16s} {'EUR/month':>10s} {'units':>8s} {'EUR/unit':>9s}  audience")
++        for pl in sorted(API_PLANS.values(), key=lambda x: x.price_eur_month):
++            print(f"{pl.id:16s} {pl.price_eur_month:10,} {pl.monthly_units:8,} "
++                  f"{pl.eur_per_unit:9.2f}  {pl.audience}")
++        return 0
++
++    if args.key_cmd == "inspect":
++        d = inspect(args.token)
++        for k, v in d.items():
++            print(f"  {k:14s} {v}")
++        return 0 if d.get("valid") else 1
++
++    # issue
++    quota = args.quota
++    if args.plan:
++        if args.plan not in API_PLANS:
++            print(f"unknown plan {args.plan!r}. One of: {', '.join(sorted(API_PLANS))}",
++                  file=sys.stderr)
++            return 2
++        quota = API_PLANS[args.plan].monthly_units
++    try:
++        token = issue(args.account, quota=int(quota), scope=args.scope, days=int(args.days))
++    except KeyError_ as exc:
++        print(f"refused: {exc}", file=sys.stderr)
++        if "SECRET" in str(exc):
++            print("\nGenerate one, and set the SAME value on the engine and the website:",
++                  file=sys.stderr)
++            print("  python3 -c \"import secrets; print(secrets.token_hex(32))\"",
++                  file=sys.stderr)
++        return 2
++    d = inspect(token)
++    print(token)
++    print(f"\n  account   {d['account']}")
++    print(f"  key id    {d['key_id']}   (put this in GRIDFORGE_REVOKED_KEYS to kill it)")
++    print(f"  quota     {d['monthly_quota'] or 'unlimited'} units/month")
++    print(f"  expires   {d['expires']}")
++    print("\nThe engine verifies this offline — it needs no database and no record of it. "
++          "Show it to the customer once; we do not store it either.")
++    return 0
++
++
+ def cmd_serve(args) -> int:
+     from .api.server import serve
+     serve(args.host, args.port)
+@@ -575,6 +627,18 @@ def main(argv: list[str] | None = None) -> int:
+     s.add_argument("-o", "--out", help="write the JSON catalogue to this path")
+     s.set_defaults(func=cmd_tools)
+ 
++    s = sub.add_parser("key", help="signed API keys: mint, inspect, and the plan list")
++    s.add_argument("key_cmd", choices=["issue", "inspect", "plans"])
++    s.add_argument("token", nargs="?", default="", help="the key, for `inspect`")
++    s.add_argument("--account", default="", help="who this bills to; usage aggregates here")
++    s.add_argument("--plan", default="", help="api_triage | api_scale | api_platform")
++    s.add_argument("--quota", default="0", help="monthly units; 0 is unlimited")
++    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial"])
++    s.add_argument("--days", default="35",
++                   help="validity. 35 by default so a monthly renewal never leaves a "
++                        "customer's agents dark while the webhook lands.")
++    s.set_defaults(func=cmd_key)
++
+     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
+     s.add_argument("--host", default="0.0.0.0")
+     s.add_argument("--port", type=int, default=8080)
+diff --git a/gridforge/commercial.py b/gridforge/commercial.py
+index e581f07..88cc5d6 100644
+--- a/gridforge/commercial.py
++++ b/gridforge/commercial.py
+@@ -95,6 +95,94 @@ ENGAGEMENTS: dict[str, Engagement] = {
+ }
+ 
+ 
++@dataclass(frozen=True)
++class ApiPlan:
++    """Metered access to the engine, sold to software rather than to people.
++
++    Deliberately priced well under the engagements, and deliberately not the same
++    product. An engagement is an engineering opinion with a named signatory, an
++    issued status and professional indemnity behind it. The API returns modelled
++    output in screening mode with none of those things — it is for triage, ranking
++    and monitoring at a scale no human deliverable can reach. Anyone who confuses
++    the two will find the distinction printed on every response they get back.
++    """
++    id: str
++    name: str
++    price_eur_month: int
++    monthly_units: int
++    audience: str
++    includes: tuple[str, ...] = ()
++
++    @property
++    def eur_per_unit(self) -> float:
++        return round(self.price_eur_month / self.monthly_units, 3)
++
++    @property
++    def studies_per_month(self) -> int:
++        return self.monthly_units // 5
++
++    @property
++    def screens_per_month(self) -> int:
++        return self.monthly_units
++
++
++API_SCOPE_OUT = (
++    "No issued engineering opinion, no named signatory and no professional indemnity. "
++    "Every API response is screening-mode output and says so.",
++    "No design, no procurement and no equipment selection.",
++    "No SLA on availability beyond best effort at the Triage tier.",
++)
++
++API_PLANS: dict[str, ApiPlan] = {
++    "api_triage": ApiPlan(
++        id="api_triage",
++        name="API — Triage",
++        price_eur_month=900,
++        monthly_units=600,
++        audience="One team screening a portfolio it already owns.",
++        includes=(
++            "600 units a month: 600 constraint screens, or 120 full solves, or any mix.",
++            "The free qualifier stays free and never touches the allowance.",
++            "MCP endpoint, so an agent can call the engine directly.",
++            "The calibration block on every response, including when it says uncalibrated.",
++        ),
++    ),
++    "api_scale": ApiPlan(
++        id="api_scale",
++        name="API — Scale",
++        price_eur_month=2_900,
++        monthly_units=2_500,
++        audience="A platform or fund pricing halls continuously rather than in batches.",
++        includes=(
++            "2,500 units a month.",
++            "Portfolio endpoint billed per hall, so a 200-hall sweep is 200 units.",
++            "Change notes via /v1/diff: what moved and which input moved it.",
++            "Priority on new platform library entries.",
++        ),
++    ),
++    "api_platform": ApiPlan(
++        id="api_platform",
++        name="API — Platform",
++        price_eur_month=7_500,
++        monthly_units=10_000,
++        audience="Embedding the engine in a product your own customers use.",
++        includes=(
++            "10,000 units a month.",
++            "A named engineer on call for model questions.",
++            "Input on the constraint roadmap and the platform library.",
++            "Redistribution terms for output shown to your own customers.",
++        ),
++    ),
++}
++
++
++def api_plan(plan_id: str) -> ApiPlan:
++    if plan_id not in API_PLANS:
++        raise KeyError(f"unknown API plan {plan_id!r}. "
++                       f"One of: {', '.join(sorted(API_PLANS))}")
++    return API_PLANS[plan_id]
++
++
+ def engagement(engagement_id: str) -> Engagement:
+     if engagement_id not in ENGAGEMENTS:
+         raise KeyError(f"unknown engagement {engagement_id!r}. "
+diff --git a/lib/admin.ts b/lib/admin.ts
+index 38edcec..77dd933 100644
+--- a/lib/admin.ts
++++ b/lib/admin.ts
+@@ -352,3 +352,59 @@ export async function fetchWatches(limit = 200): Promise<AdminWatch[]> {
+     return [];
+   }
+ }
++
++
++export interface AdminApiAccount {
++  id: string;
++  created_at: string;
++  account: string;
++  email: string | null;
++  company: string | null;
++  plan: string;
++  monthly_units: number;
++  status: string;
++  key_id: string | null;
++  key_expires_at: string | null;
++  revoked_key_ids: string[] | null;
++}
++
++/**
++ * Metered API accounts, for the pipeline view.
++ *
++ * Deliberately selects no key material, because there is none to select: the table
++ * stores the id of the live key and the ids we have revoked, never a key. An admin
++ * screen that could display a working credential is one screenshot away from
++ * leaking it.
++ */
++export async function fetchApiAccounts(limit = 200): Promise<AdminApiAccount[]> {
++  const c = sb();
++  if (!c) return [];
++  try {
++    const cols =
++      "id,created_at,account,email,company,plan,monthly_units,status,key_id," +
++      "key_expires_at,revoked_key_ids";
++    const res = await fetch(
++      `${c.url}/rest/v1/api_accounts?select=${cols}&order=created_at.desc&limit=${limit}`,
++      { headers: c.headers, cache: "no-store" }
++    );
++    if (!res.ok) {
++      // The table may simply not exist yet — migration 0007. Not worth an error page.
++      console.error("[GridForge] fetchApiAccounts failed:", await res.text());
++      return [];
++    }
++    return (await res.json()) as AdminApiAccount[];
++  } catch (err) {
++    console.error("[GridForge] fetchApiAccounts error:", err);
++    return [];
++  }
++}
++
++/** Keys that should be in GRIDFORGE_REVOKED_KEYS on the engine. */
++export function revocationList(rows: AdminApiAccount[]): string[] {
++  const out = new Set<string>();
++  for (const r of rows) {
++    for (const id of r.revoked_key_ids ?? []) out.add(id);
++    if (r.status === "cancelled" && r.key_id) out.add(r.key_id);
++  }
++  return [...out].sort();
++}
+diff --git a/lib/api-access.ts b/lib/api-access.ts
+new file mode 100644
+index 0000000..f3b70dd
+--- /dev/null
++++ b/lib/api-access.ts
+@@ -0,0 +1,256 @@
++import crypto from "node:crypto";
++
++/**
++ * Self-serve API accounts.
++ *
++ * A stranger's subscription has to become a working API key in seconds, without a
++ * human and without the engine needing a database. The engine verifies keys
++ * offline by their signature (see gridforge/api/keys.py), so this file's job is
++ * the mirror image of that one: mint the same format, with the same secret.
++ *
++ * The two implementations must agree byte for byte on what gets signed. They are
++ * tested against each other — a key minted here must verify there and vice versa —
++ * because a divergence would not fail loudly, it would issue keys that quietly do
++ * not work, to customers who have just paid.
++ *
++ * We keep a row per account so a customer can see what they bought and rotate a
++ * leaked key. We store the key's ID, never the key: a database that can hand
++ * somebody a working credential is a database worth stealing, and there is no
++ * reason for this one to be.
++ */
++
++const PREFIX = "gfk1";
++
++export type ApiScope = "machine" | "client" | "trial";
++
++export interface ApiKeyPayload {
++  a: string; // account
++  k: string; // key id
++  q: number; // monthly unit quota, 0 = unlimited
++  s: ApiScope;
++  i: string; // issued, ISO date
++  e: string; // expires, ISO date
++}
++
++function b64url(buf: Buffer): string {
++  return buf.toString("base64url");
++}
++
++function secret(): string {
++  return process.env.GRIDFORGE_KEY_SECRET || "";
++}
++
++export function signingConfigured(): boolean {
++  return secret().length > 0;
++}
++
++function isoDate(d: Date): string {
++  return d.toISOString().slice(0, 10);
++}
++
++/**
++ * Mint a signed key. 35 days, not 30: a subscription renewing on the 1st must not
++ * leave a customer's agents dark for the hours between the renewal and the webhook.
++ * The overlap is the difference between a renewal nobody notices and a support ticket.
++ */
++export function issueKey(opts: {
++  account: string;
++  quota: number;
++  scope?: ApiScope;
++  days?: number;
++  keyId?: string;
++  issuedOn?: Date;
++}): { token: string; payload: ApiKeyPayload } {
++  if (!signingConfigured()) {
++    throw new Error("GRIDFORGE_KEY_SECRET is not set; refusing to mint an unsigned key");
++  }
++  const account = opts.account.trim();
++  if (!account) throw new Error("a key must name the account it bills to");
++
++  const start = opts.issuedOn ?? new Date();
++  const end = new Date(start.getTime());
++  end.setUTCDate(end.getUTCDate() + (opts.days ?? 35));
++
++  const payload: ApiKeyPayload = {
++    a: account,
++    k: opts.keyId ?? crypto.randomBytes(4).toString("hex"),
++    q: Math.max(0, Math.trunc(opts.quota)),
++    s: opts.scope ?? "machine",
++    i: isoDate(start),
++    e: isoDate(end),
++  };
++
++  // Keys are sorted and separators are tight, matching json.dumps(..., sort_keys=True,
++  // separators=(",", ":")) on the Python side. This is the byte-for-byte agreement
++  // the cross-language test exists to protect.
++  const canonical = JSON.stringify(payload, Object.keys(payload).sort() as (keyof ApiKeyPayload)[]);
++  const body = `${PREFIX}.${b64url(Buffer.from(canonical))}`;
++  const sig = b64url(crypto.createHmac("sha256", secret()).update(body).digest());
++  return { token: `${body}.${sig}`, payload };
++}
++
++export function inspectKey(token: string): (ApiKeyPayload & { valid: boolean }) | null {
++  const parts = token.split(".");
++  if (parts.length !== 3 || parts[0] !== PREFIX) return null;
++  let payload: ApiKeyPayload;
++  try {
++    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString()) as ApiKeyPayload;
++  } catch {
++    return null;
++  }
++  const expected = b64url(
++    crypto.createHmac("sha256", secret()).update(`${parts[0]}.${parts[1]}`).digest()
++  );
++  const valid =
++    secret().length > 0 &&
++    expected.length === parts[2].length &&
++    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(parts[2]));
++  return { ...payload, valid };
++}
++
++// --- storage ---------------------------------------------------------------
++
++export interface ApiAccount {
++  id: string;
++  created_at: string;
++  token: string; // the account's own portal token, not the API key
++  account: string;
++  email: string | null;
++  company: string | null;
++  plan: string;
++  monthly_units: number;
++  status: "active" | "past_due" | "cancelled";
++  key_id: string | null;
++  key_issued_at: string | null;
++  key_expires_at: string | null;
++  revoked_key_ids: string[] | null;
++  stripe_customer_id: string | null;
++  stripe_subscription_id: string | null;
++}
++
++function rest(pathAndQuery: string): { url: string; headers: Record<string, string> } | null {
++  const base = process.env.SUPABASE_URL;
++  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
++  if (!base || !key) return null;
++  return {
++    url: `${base}/rest/v1/${pathAndQuery}`,
++    headers: {
++      apikey: key,
++      Authorization: `Bearer ${key}`,
++      "Content-Type": "application/json",
++    },
++  };
++}
++
++export function newToken(): string {
++  return crypto.randomBytes(24).toString("base64url");
++}
++
++/** A stable, readable billing identity. Usage aggregates under this, not the key. */
++export function accountIdFor(email: string, company: string): string {
++  const stem = (company || email.split("@")[0] || "account")
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, "-")
++    .replace(/^-|-$/g, "")
++    .slice(0, 24);
++  const salt = crypto.createHash("sha256").update(email.toLowerCase()).digest("hex").slice(0, 6);
++  return `${stem || "account"}-${salt}`;
++}
++
++export async function createApiAccount(input: {
++  email: string | null;
++  company: string | null;
++  plan: string;
++  monthly_units: number;
++  stripe_customer_id: string | null;
++  stripe_subscription_id: string | null;
++}): Promise<{ row: ApiAccount; token: string } | null> {
++  const r = rest("api_accounts");
++  if (!r) return null;
++  const account = accountIdFor(input.email || "", input.company || "");
++  const token = newToken();
++  const res = await fetch(r.url, {
++    method: "POST",
++    headers: { ...r.headers, Prefer: "return=representation" },
++    body: JSON.stringify({
++      token,
++      account,
++      email: input.email,
++      company: input.company,
++      plan: input.plan,
++      monthly_units: input.monthly_units,
++      status: "active",
++      stripe_customer_id: input.stripe_customer_id,
++      stripe_subscription_id: input.stripe_subscription_id,
++    }),
++  });
++  if (!res.ok) {
++    console.error("[GridForge] could not create api account:", await res.text());
++    return null;
++  }
++  const rows = (await res.json()) as ApiAccount[];
++  return rows[0] ? { row: rows[0], token } : null;
++}
++
++export async function getApiAccount(token: string): Promise<ApiAccount | null> {
++  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}&limit=1`);
++  if (!r) return null;
++  const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
++  if (!res.ok) return null;
++  const rows = (await res.json()) as ApiAccount[];
++  return rows[0] ?? null;
++}
++
++export async function updateApiAccount(
++  token: string,
++  patch: Partial<ApiAccount>
++): Promise<ApiAccount | null> {
++  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}`);
++  if (!r) return null;
++  const res = await fetch(r.url, {
++    method: "PATCH",
++    headers: { ...r.headers, Prefer: "return=representation" },
++    body: JSON.stringify(patch),
++  });
++  if (!res.ok) return null;
++  const rows = (await res.json()) as ApiAccount[];
++  return rows[0] ?? null;
++}
++
++export async function findBySubscription(subscriptionId: string): Promise<ApiAccount | null> {
++  const r = rest(
++    `api_accounts?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}&limit=1`
++  );
++  if (!r) return null;
++  const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
++  if (!res.ok) return null;
++  const rows = (await res.json()) as ApiAccount[];
++  return rows[0] ?? null;
++}
++
++/**
++ * Issue (or reissue) the account's key and record which id is now live.
++ *
++ * Reissuing revokes the previous id. That is the whole point of rotation: a leaked
++ * key that keeps working until it expires is not rotated, it is duplicated. The
++ * revoked ids go into GRIDFORGE_REVOKED_KEYS on the engine.
++ */
++export async function mintForAccount(
++  row: ApiAccount,
++  opts: { rotate?: boolean } = {}
++): Promise<{ token: string; expires: string; revoked: string[] } | null> {
++  const { token, payload } = issueKey({
++    account: row.account,
++    quota: row.monthly_units,
++    scope: "machine",
++  });
++  const revoked = [...(row.revoked_key_ids ?? [])];
++  if (opts.rotate && row.key_id) revoked.push(row.key_id);
++  await updateApiAccount(row.token, {
++    key_id: payload.k,
++    key_issued_at: payload.i,
++    key_expires_at: payload.e,
++    revoked_key_ids: revoked,
++  });
++  return { token, expires: payload.e, revoked };
++}
+diff --git a/lib/products.ts b/lib/products.ts
+index 8489568..1faca4a 100644
+--- a/lib/products.ts
++++ b/lib/products.ts
+@@ -10,7 +10,10 @@ export type ProductId =
+   | "density_screen"
+   | "envelope_study_deposit"
+   | "portfolio_screen_deposit"
+-  | "hall_watch";
++  | "hall_watch"
++  | "api_triage"
++  | "api_scale"
++  | "api_platform";
+ 
+ export interface Product {
+   id: ProductId;
+@@ -28,6 +31,12 @@ export interface Product {
+   creditsAgainst?: ProductId;
+   /** A recurring engagement. Checkout runs in subscription mode. */
+   recurring?: { interval: "month" | "year"; intervalCount: number };
++  /**
++   * Metered API access. Buying one of these issues a signed key rather than
++   * starting an engagement — see lib/api-access.ts. Mirrors API_PLANS in
++   * gridforge/commercial.py; tests/test_catalogue_parity.py fails if they drift.
++   */
++  apiUnits?: number;
+ }
+ 
+ export const PRODUCTS: Record<ProductId, Product> = {
+@@ -92,8 +101,74 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     turnaroundDays: 45,
+     producesDeliverable: false,
+   },
++  api_triage: {
++    id: "api_triage",
++    kind: "api_triage",
++    name: "API — Triage",
++    amountCents: 90_000, // €900 / month
++    description:
++      "Metered access to the engine for one team screening a portfolio it already owns. " +
++      "600 units a month: 600 constraint screens, or 120 full solves, or any mix. The free " +
++      "qualifier stays free and never touches the allowance.",
++    deliverable:
++      "A signed API key, the MCP endpoint for agents, and 600 units a month. Screening-mode " +
++      "output only: no issued opinion, no named signatory, no professional indemnity.",
++    turnaroundDays: 0,
++    producesDeliverable: false,
++    recurring: { interval: "month", intervalCount: 1 },
++    apiUnits: 600,
++  },
++  api_scale: {
++    id: "api_scale",
++    kind: "api_scale",
++    name: "API — Scale",
++    amountCents: 290_000, // €2,900 / month
++    description:
++      "For a platform or fund pricing halls continuously rather than in batches. 2,500 units " +
++      "a month, the portfolio endpoint billed per hall, and change notes naming the input that " +
++      "moved the answer.",
++    deliverable:
++      "A signed API key and 2,500 units a month, with priority on new platform library entries.",
++    turnaroundDays: 0,
++    producesDeliverable: false,
++    recurring: { interval: "month", intervalCount: 1 },
++    apiUnits: 2_500,
++  },
++  api_platform: {
++    id: "api_platform",
++    kind: "api_platform",
++    name: "API — Platform",
++    amountCents: 750_000, // €7,500 / month
++    description:
++      "For embedding the engine in a product your own customers use. 10,000 units a month, a " +
++      "named engineer on call for model questions, and redistribution terms for output you " +
++      "show to your own customers.",
++    deliverable:
++      "A signed API key, 10,000 units a month, a named engineer, and input on the constraint " +
++      "roadmap.",
++    turnaroundDays: 0,
++    producesDeliverable: false,
++    recurring: { interval: "month", intervalCount: 1 },
++    apiUnits: 10_000,
++  },
+ };
+ 
++export const API_PRODUCTS: Product[] = Object.values(PRODUCTS).filter(
++  (p) => p.apiUnits !== undefined
++);
++
++export function isApiProduct(id: string): boolean {
++  return Boolean(PRODUCTS[id as ProductId]?.apiUnits);
++}
++
++export function eurFromCents(cents: number): string {
++  return new Intl.NumberFormat("en-IE", {
++    style: "currency",
++    currency: "EUR",
++    maximumFractionDigits: 0,
++  }).format(cents / 100);
++}
++
+ export const PRODUCT_BY_KIND: Record<string, Product> = Object.fromEntries(
+   Object.values(PRODUCTS).map((p) => [p.kind, p])
+ );
+diff --git a/scripts/deploy-engine.sh b/scripts/deploy-engine.sh
+index 6346ccc..db4a77a 100755
+--- a/scripts/deploy-engine.sh
++++ b/scripts/deploy-engine.sh
+@@ -3,24 +3,33 @@
+ #
+ #   bash scripts/deploy-engine.sh
+ #
+-# Installs flyctl if it is missing, creates the app, generates an API key, deploys,
+-# and prints the two environment variables the website needs. The engine has no
+-# database and no dependencies: it scales to zero and costs single-digit euros a
+-# month.
++# Idempotent by design. Run it as often as you like: it will not create an app that
++# exists, and — this is the one that mattered — it will NOT rotate a key that is
++# already working.
++#
++# The previous version generated a fresh GRIDFORGE_API_KEYS on every run. Every
++# deploy therefore invalidated the key sitting in Vercel, and the website's paid
++# deliverable generation started returning 401 until someone noticed and re-pasted
++# it. A deploy script that breaks production on success is worse than one that
++# fails, because nothing tells you.
+ set -euo pipefail
+ 
+ APP="${FLY_APP:-gridforge-engine}"
+ REGION="${FLY_REGION:-ams}"
++VOLUME="${FLY_VOLUME:-gridforge_data}"
+ 
+-say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
++say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
++warn() { printf '\n\033[33m%s\033[0m\n' "$*"; }
+ 
+ if ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
+   say "Installing flyctl"
+   curl -L https://fly.io/install.sh | sh
+   export FLYCTL_INSTALL="${FLYCTL_INSTALL:-$HOME/.fly}"
+   export PATH="$FLYCTL_INSTALL/bin:$PATH"
+-  echo 'export FLYCTL_INSTALL="$HOME/.fly"' >> "$HOME/.bashrc"
+-  echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> "$HOME/.bashrc"
++  grep -q 'FLYCTL_INSTALL' "$HOME/.bashrc" 2>/dev/null || {
++    echo 'export FLYCTL_INSTALL="$HOME/.fly"' >> "$HOME/.bashrc"
++    echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> "$HOME/.bashrc"
++  }
+ fi
+ FLY="$(command -v flyctl || command -v fly)"
+ 
+@@ -29,14 +38,67 @@ if ! "$FLY" auth whoami >/dev/null 2>&1; then
+   "$FLY" auth login
+ fi
+ 
+-if ! "$FLY" apps list 2>/dev/null | grep -q "^$APP"; then
++# `fly apps list` has shipped several table formats. Asking the app about itself is
++# the only check that does not depend on the shape of a table.
++if "$FLY" status --app "$APP" >/dev/null 2>&1; then
++  say "App $APP already exists — leaving it alone"
++else
+   say "Creating app $APP"
+-  "$FLY" apps create "$APP" || true
++  "$FLY" apps create "$APP"
++fi
++
++# --- secrets: add what is missing, rotate nothing -----------------------------
++EXISTING="$("$FLY" secrets list --app "$APP" 2>/dev/null || true)"
++has_secret() { grep -q "^$1[[:space:]]" <<<"$EXISTING"; }
++
++STAGED=()
++
++if has_secret GRIDFORGE_API_KEYS; then
++  say "GRIDFORGE_API_KEYS is already set — not touching it"
++  echo "  To rotate deliberately:"
++  echo "    $FLY secrets set GRIDFORGE_API_KEYS=\"\$(openssl rand -hex 24)\" --app $APP"
++  echo "  and paste the same value into Vercel as GRIDFORGE_API_KEY."
++else
++  KEY="${GRIDFORGE_API_KEY_VALUE:-$(openssl rand -hex 24)}"
++  STAGED+=("GRIDFORGE_API_KEYS=$KEY")
++  NEW_KEY="$KEY"
++fi
++
++# The signing secret for self-serve keys. The SAME value must be set on the website,
++# or every key it issues will be rejected here — so it is generated once and printed
++# once, and never regenerated.
++if has_secret GRIDFORGE_KEY_SECRET; then
++  say "GRIDFORGE_KEY_SECRET is already set — not touching it"
++else
++  SECRET="${GRIDFORGE_KEY_SECRET_VALUE:-$(openssl rand -hex 32)}"
++  STAGED+=("GRIDFORGE_KEY_SECRET=$SECRET")
++  NEW_SECRET="$SECRET"
++fi
++
++if [ ${#STAGED[@]} -gt 0 ]; then
++  say "Staging ${#STAGED[@]} new secret(s)"
++  "$FLY" secrets set "${STAGED[@]}" --app "$APP" --stage
+ fi
+ 
+-KEY="${GRIDFORGE_API_KEY_VALUE:-$(openssl rand -hex 24)}"
+-say "Setting the API key"
+-"$FLY" secrets set GRIDFORGE_API_KEYS="$KEY" --app "$APP" --stage
++# --- usage volume -------------------------------------------------------------
++# GRIDFORGE_USAGE_FILE on a path with no volume behind it silently discards every
++# usage record, and looks identical to a working configuration until the first
++# invoice. The engine now probes the path at startup and reports the truth at
++# /v1/usage; this makes the path real so it has something true to report.
++if "$FLY" volumes list --app "$APP" 2>/dev/null | grep -q "$VOLUME"; then
++  say "Usage volume $VOLUME exists"
++else
++  warn "No usage volume — metered usage would not survive a restart."
++  echo "  Creating a 1GB volume in $REGION (a few cents a month)."
++  "$FLY" volumes create "$VOLUME" --app "$APP" --region "$REGION" --size 1 --yes || {
++    warn "Volume creation failed. The engine will still serve; usage will be in-memory"
++    warn "only, and /v1/usage will say so rather than pretending otherwise."
++  }
++fi
++if ! grep -q "\[mounts\]" fly.toml; then
++  warn "fly.toml has no [mounts] section, so the volume will not be attached."
++  warn "Add:  [mounts]\n        source = \"$VOLUME\"\n        destination = \"/data\""
++fi
+ 
+ say "Deploying"
+ "$FLY" deploy --app "$APP" --regions "$REGION" --ha=false
+@@ -44,26 +106,68 @@ say "Deploying"
+ URL="https://$APP.fly.dev"
+ say "Checking health"
+ for _ in $(seq 1 30); do
+-  if curl -sf "$URL/health" >/dev/null; then break; fi
++  curl -sf "$URL/health" >/dev/null && break
+   sleep 2
+ done
+-curl -s "$URL/v1/version" || true
++VERSION_JSON="$(curl -s "$URL/v1/version" || true)"
++echo "$VERSION_JSON"
++
++python3 - "$VERSION_JSON" <<'PY' || true
++import json, sys
++try:
++    d = json.loads(sys.argv[1] or "{}")
++except Exception:
++    sys.exit(0)
++if not d.get("auth_configured"):
++    print("\n  ! paid endpoints are DISABLED: neither GRIDFORGE_API_KEYS nor "
++          "GRIDFORGE_KEY_SECRET is set on this app.")
++if not d.get("signed_keys"):
++    print("\n  ! self-serve keys are DISABLED: GRIDFORGE_KEY_SECRET is not set, so "
++          "keys issued by the website will be rejected.")
++if not (d.get("metering") or {}).get("durable"):
++    print("\n  ! metered usage is NOT durable on this instance. Check the volume is "
++          "mounted at /data, then GET /v1/usage — it names the exact problem.")
++PY
+ 
+ cat <<EOF
+ 
+ ────────────────────────────────────────────────────────────────────────
+ The engine is live at $URL
+ 
+-Set these on the website (Vercel → Settings → Environment Variables):
++Website environment (Vercel → Settings → Environment Variables):
+ 
+   GRIDFORGE_API_URL=$URL
+-  GRIDFORGE_API_KEY=$KEY
++EOF
++
++if [ -n "${NEW_KEY:-}" ]; then
++  cat <<EOF
++  GRIDFORGE_API_KEY=$NEW_KEY        <- NEW, set this now
++EOF
++else
++  cat <<EOF
++  GRIDFORGE_API_KEY=<unchanged>     <- the existing key still works
++EOF
++fi
++
++if [ -n "${NEW_SECRET:-}" ]; then
++  cat <<EOF
++  GRIDFORGE_KEY_SECRET=$NEW_SECRET
++      ^ NEW. The website signs self-serve API keys with this and the engine
++        verifies them. Both sides must hold the SAME value. Printed once.
++EOF
++else
++  cat <<EOF
++  GRIDFORGE_KEY_SECRET=<unchanged>  <- must match what the website already has
++EOF
++fi
++
++cat <<EOF
+ 
+-GRIDFORGE_API_URL alone powers the free qualifier at /qualify.
+-GRIDFORGE_API_KEY is additionally required to generate a purchased deliverable.
++Verify:
++  curl -s $URL/v1/version | python3 -m json.tool | head -20
++  curl -s $URL/v1/tools   | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["tools"]), "tools")'
+ 
+-Then run the Supabase migrations:
+-  supabase/migrations/0002_qualifications.sql
+-  supabase/migrations/0003_deliverables.sql
++Migrations still to run in Supabase:
++  supabase/migrations/0002_qualifications.sql … 0007_api_accounts.sql
+ ────────────────────────────────────────────────────────────────────────
+ EOF
+diff --git a/supabase/migrations/0007_api_accounts.sql b/supabase/migrations/0007_api_accounts.sql
+new file mode 100644
+index 0000000..8314fa5
+--- /dev/null
++++ b/supabase/migrations/0007_api_accounts.sql
+@@ -0,0 +1,35 @@
++-- 0007_api_accounts.sql — self-serve metered API accounts
++--
++-- One row per paying account. Deliberately NOT a key store: we record the id of
++-- the key that is currently live and the ids we have revoked, never the key
++-- itself. The engine verifies keys offline by their signature, so nothing here
++-- needs to hold a working credential — and a database that can hand somebody a
++-- working credential is a database worth stealing.
++--
++-- `account` is the billing identity. Usage on the engine aggregates under it, so
++-- rotating a key does not reset a customer's monthly allowance.
++create table if not exists public.api_accounts (
++  id uuid primary key default gen_random_uuid(),
++  created_at timestamptz default now(),
++  token text not null unique,              -- the customer's portal link
++  account text not null unique,            -- billing identity, mirrored in every key
++  email text,
++  company text,
++  plan text not null,
++  monthly_units integer not null default 0,
++  status text not null default 'active',   -- active | past_due | cancelled
++  key_id text,
++  key_issued_at date,
++  key_expires_at date,
++  revoked_key_ids text[] default '{}',
++  stripe_customer_id text,
++  stripe_subscription_id text
++);
++
++create index if not exists api_accounts_token_idx on public.api_accounts (token);
++create index if not exists api_accounts_account_idx on public.api_accounts (account);
++create index if not exists api_accounts_sub_idx on public.api_accounts (stripe_subscription_id);
++
++alter table public.api_accounts enable row level security;
++-- No policies: the service role reaches it, nothing else. The portal token is the
++-- only way a customer touches this table, and that goes through our own route.
+diff --git a/tests/test_api_keys.py b/tests/test_api_keys.py
+new file mode 100644
+index 0000000..7de09f1
+--- /dev/null
++++ b/tests/test_api_keys.py
+@@ -0,0 +1,233 @@
++"""Signed keys, and the two things that must never be true about them.
++
++A self-serve key is a bearer credential minted by one language and verified by
++another, with no shared runtime and no database between them. Two failure modes
++matter more than any feature:
++
++  1. A key that verifies when it should not — forged, expired, revoked, or signed
++     with the wrong secret. That one loses money quietly.
++  2. A key the website mints that the engine rejects. That one is worse: it fails
++     at the moment a stranger has just paid, and nothing in either codebase notices
++     because both halves work perfectly on their own.
++
++The second is why the cross-language test exists.
++"""
++import json
++import os
++import shutil
++import subprocess
++import sys
++from datetime import date, timedelta
++from pathlib import Path
++
++import pytest
++
++from gridforge.api import keys as K
++from gridforge.api.metering import Meter, plan_for, refusal
++
++ROOT = Path(__file__).resolve().parents[1]
++SECRET = "test-secret-do-not-use"
++
++
++@pytest.fixture(autouse=True)
++def secret(monkeypatch):
++    monkeypatch.setenv("GRIDFORGE_KEY_SECRET", SECRET)
++    monkeypatch.delenv("GRIDFORGE_REVOKED_KEYS", raising=False)
++    monkeypatch.delenv("GRIDFORGE_API_KEYS", raising=False)
++
++
++# --- minting ---------------------------------------------------------------
++
++def test_a_key_round_trips_with_its_plan_intact():
++    tok = K.issue("acme-ops", quota=2500, scope="machine")
++    k = K.verify(tok)
++    assert k.account == "acme-ops"
++    assert k.quota == 2500
++    assert k.scope == "machine"
++    assert k.days_left > 30
++
++
++def test_no_secret_means_no_key_rather_than_an_unsigned_one(monkeypatch):
++    monkeypatch.delenv("GRIDFORGE_KEY_SECRET")
++    with pytest.raises(K.KeyError_, match="not set"):
++        K.issue("acme", quota=10)
++    with pytest.raises(K.KeyError_, match="not enabled"):
++        K.verify("gfk1.aaa.bbb")
++
++
++def test_a_key_must_name_an_account():
++    with pytest.raises(K.KeyError_, match="account"):
++        K.issue("   ", quota=10)
++
++
++def test_validity_overlaps_the_billing_period():
++    """35 days, not 30. A subscription renewing on the 1st must not leave a
++    customer's agents dark for the hours between the renewal and the webhook."""
++    k = K.verify(K.issue("acme", quota=10))
++    assert 30 < k.days_left <= 40
++
++
++# --- rejection -------------------------------------------------------------
++
++def test_a_tampered_payload_does_not_verify():
++    tok = K.issue("acme", quota=10)
++    prefix, payload, sig = tok.split(".")
++    forged = K.issue("acme", quota=1_000_000)
++    bad = f"{prefix}.{forged.split('.')[1]}.{sig}"
++    with pytest.raises(K.KeyError_, match="signature"):
++        K.verify(bad)
++
++
++def test_a_key_signed_with_another_secret_does_not_verify(monkeypatch):
++    tok = K.issue("acme", quota=10)
++    monkeypatch.setenv("GRIDFORGE_KEY_SECRET", "a-different-secret")
++    with pytest.raises(K.KeyError_, match="signature"):
++        K.verify(tok)
++
++
++def test_an_expired_key_says_so_rather_than_saying_invalid():
++    """'Invalid key' sends an integrator hunting a typo when their subscription
++    lapsed three days ago."""
++    old = K.issue("acme", quota=10, days=1, issued_on=date.today() - timedelta(days=10))
++    with pytest.raises(K.KeyError_, match="expired on"):
++        K.verify(old)
++
++
++def test_a_revoked_key_stops_immediately(monkeypatch):
++    tok = K.issue("acme", quota=10)
++    monkeypatch.setenv("GRIDFORGE_REVOKED_KEYS", K.verify(tok).key_id + ",someone-else")
++    with pytest.raises(K.KeyError_, match="revoked"):
++        K.verify(tok)
++
++
++@pytest.mark.parametrize("junk", ["", "nonsense", "gfk1.only-two", "gfk9.a.b", "gfk1..",
++                                  "gfk1.!!!.###"])
++def test_junk_is_refused_without_raising_anything_unexpected(junk):
++    with pytest.raises(K.KeyError_):
++        K.verify(junk)
++
++
++def test_pinning_the_report_date_cannot_extend_a_key(monkeypatch):
++    """GRIDFORGE_REPORT_DATE exists so documents regenerate identically. If it also
++    moved this clock, a build flag would quietly become a security control."""
++    expired = K.issue("acme", quota=10, days=1, issued_on=date.today() - timedelta(days=30))
++    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2000-01-01")
++    with pytest.raises(K.KeyError_, match="expired"):
++        K.verify(expired)
++
++
++# --- what the caller is told ----------------------------------------------
++
++def test_refusal_distinguishes_the_three_reasons(monkeypatch):
++    assert "API key is required" in refusal("")["error"]
++    expired = K.issue("acme", quota=1, days=1, issued_on=date.today() - timedelta(days=9))
++    assert "expired" in refusal(expired)["error"]
++    live = K.issue("acme", quota=1)
++    monkeypatch.setenv("GRIDFORGE_REVOKED_KEYS", K.verify(live).key_id)
++    assert "revoked" in refusal(live)["error"]
++
++
++def test_inspect_reads_a_key_without_trusting_it(monkeypatch):
++    tok = K.issue("acme", quota=99)
++    assert K.inspect(tok)["valid"] is True
++    monkeypatch.setenv("GRIDFORGE_KEY_SECRET", "other")
++    d = K.inspect(tok)
++    assert d["valid"] is False
++    assert d["account"] == "acme", "inspect must still read a key it cannot trust"
++    assert d["monthly_quota"] == 99
++
++
++# --- metering integration --------------------------------------------------
++
++def test_a_signed_key_carries_its_plan_into_the_meter():
++    tok = K.issue("bigco", quota=2500)
++    plan = plan_for(tok)
++    assert plan is not None
++    assert plan.account == "bigco"
++    assert plan.monthly_quota == 2500
++    assert plan.scope == "machine"
++
++
++def test_static_keys_win_over_signed_ones(monkeypatch):
++    """An operator pasting a key into the environment at 2am to get a customer
++    working again must not be overridden by anything cleverer."""
++    tok = K.issue("bigco", quota=10)
++    monkeypatch.setenv("GRIDFORGE_API_KEYS", f"{tok}:rescue:999999")
++    assert plan_for(tok).monthly_quota == 999999
++
++
++def test_usage_follows_the_account_not_the_key():
++    """A customer who rotates a key mid-month has not started a new month."""
++    m = Meter(None)
++    first = K.issue("acme", quota=100)
++    second = K.issue("acme", quota=100)
++    assert first != second
++    m.record(plan_for(first).account, "/v1/study", 5)
++    m.record(plan_for(second).account, "/v1/study", 5)
++    assert m.current("acme").units == 10, "rotation handed out a second free allowance"
++
++
++def test_quota_is_enforced_against_the_account():
++    m = Meter(None)
++    tok = K.issue("acme", quota=10)
++    plan = plan_for(tok)
++    m.record(plan.account, "/v1/study", 5)
++    assert m.would_exceed(plan.account, 5, plan.monthly_quota) is False
++    assert m.would_exceed(plan.account, 6, plan.monthly_quota) is True
++
++
++# --- the cross-language contract -------------------------------------------
++
++NODE_MINT = r"""
++const crypto = require('node:crypto');
++const PREFIX = 'gfk1';
++const secret = process.env.GRIDFORGE_KEY_SECRET;
++const payload = JSON.parse(process.argv[1]);
++const canonical = JSON.stringify(payload, Object.keys(payload).sort());
++const body = PREFIX + '.' + Buffer.from(canonical).toString('base64url');
++const sig = crypto.createHmac('sha256', secret).update(body).digest().toString('base64url');
++process.stdout.write(body + '.' + sig);
++"""
++
++
++@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
++def test_a_key_minted_by_the_website_verifies_here():
++    """lib/api-access.ts and gridforge/api/keys.py must agree byte for byte.
++
++    They have no shared runtime, so a divergence would not fail loudly — it would
++    issue keys that quietly do not work, to customers who have just paid.
++    """
++    # Dates relative to today, not literals. A fixture pinned to a calendar date
++    # is a test that passes until the date passes — and this one would then fail
++    # on expiry, which looks exactly like the divergence it exists to catch.
++    issued = date.today()
++    expires = issued + timedelta(days=35)
++    payload = {"a": "acme", "k": "deadbeef", "q": 2500, "s": "machine",
++               "i": issued.isoformat(), "e": expires.isoformat()}
++    r = subprocess.run(["node", "-e", NODE_MINT, json.dumps(payload)],
++                       capture_output=True, text=True,
++                       env={**os.environ, "GRIDFORGE_KEY_SECRET": SECRET})
++    assert r.returncode == 0, r.stderr
++    from_node = r.stdout.strip()
++
++    k = K.verify(from_node)
++    assert (k.account, k.quota, k.scope) == ("acme", 2500, "machine")
++
++    from_python = K.issue("acme", quota=2500, scope="machine", key_id="deadbeef",
++                          issued_on=issued, days=35)
++    assert from_python == from_node, (
++        "the two implementations no longer produce the same bytes:\n"
++        f"  python: {from_python}\n  node:   {from_node}")
++
++
++@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
++def test_the_website_and_the_engine_use_the_same_canonical_form():
++    """Key order and separators, specifically. Both sides sort keys and use tight
++    separators; if either changes, every key the site issues stops verifying."""
++    src = (ROOT / "lib" / "api-access.ts").read_text()
++    assert "Object.keys(payload).sort()" in src, (
++        "the website no longer sorts payload keys before signing")
++    assert 'PREFIX = "gfk1"' in src
++    py = (ROOT / "gridforge" / "api" / "keys.py").read_text()
++    assert 'sort_keys=True' in py
++    assert 'separators=(",", ":")' in py
+diff --git a/tests/test_architecture.py b/tests/test_architecture.py
+index d3a463b..c6ed2a2 100644
+--- a/tests/test_architecture.py
++++ b/tests/test_architecture.py
+@@ -91,9 +91,10 @@ def test_no_third_party_dependencies():
+     Adapters under gridforge/integrations/ may import an external package, but only
+     lazily - inside a function body - so importing gridforge never pulls it in.
+     """
+-    stdlib_ok = {"__future__", "argparse", "ast", "collections", "copy", "csv", "dataclasses",
+-                 "datetime", "enum", "hashlib", "html", "http", "io", "json", "math", "os",
+-                 "pathlib", "re", "sys", "threading", "time", "typing", "urllib"}
++    stdlib_ok = {"__future__", "argparse", "ast", "base64", "collections", "copy", "csv",
++                 "dataclasses", "datetime", "enum", "hashlib", "hmac", "html", "http", "io",
++                 "json", "math", "os", "pathlib", "re", "secrets", "sys", "threading",
++                 "time", "typing", "urllib", "zipfile"}
+     bad = []
+     for path in ROOT.rglob("*.py"):
+         tree = ast.parse(path.read_text())
+diff --git a/tests/test_catalogue_parity.py b/tests/test_catalogue_parity.py
+new file mode 100644
+index 0000000..6b95f05
+--- /dev/null
++++ b/tests/test_catalogue_parity.py
+@@ -0,0 +1,122 @@
++"""One price list, two languages.
++
++gridforge/commercial.py prices the proposals the engine generates. lib/products.ts
++prices the checkout page. They are written in different languages by different
++halves of the system and there is no shared runtime between them, so the only thing
++stopping them drifting is this file.
++
++A proposal that quotes a different number from the checkout page is worse than no
++proposal: it is the moment a buyer stops believing the rest of the document. The
++commercial.py docstring has claimed this test existed since patch 0001. It did not.
++"""
++import re
++from pathlib import Path
++
++import pytest
++
++from gridforge.commercial import API_PLANS, ENGAGEMENTS
++
++ROOT = Path(__file__).resolve().parents[1]
++PRODUCTS_TS = ROOT / "lib" / "products.ts"
++
++
++def ts_products() -> dict[str, dict]:
++    """Parse the product table out of the TypeScript.
++
++    A real parser would be overkill and a JSON export would be one more thing to
++    keep in sync. The fields we care about are simple literals; if the file is
++    restructured so this cannot read it, the test fails loudly, which is the
++    correct outcome for a change that moves the price list.
++    """
++    src = PRODUCTS_TS.read_text()
++    body = src.split("export const PRODUCTS", 1)[1]
++    body = body.split("export const API_PRODUCTS", 1)[0]
++    out: dict[str, dict] = {}
++    for m in re.finditer(r"^  (\w+): \{(.*?)^  \},", body, re.S | re.M):
++        pid, chunk = m.group(1), m.group(2)
++        rec: dict = {"id": pid}
++        name = re.search(r'name:\s*"([^"]+)"', chunk)
++        amount = re.search(r"amountCents:\s*([\d_]+)", chunk)
++        units = re.search(r"apiUnits:\s*([\d_]+)", chunk)
++        recurring = re.search(r'interval:\s*"(\w+)",\s*intervalCount:\s*(\d+)', chunk)
++        if name:
++            rec["name"] = name.group(1)
++        if amount:
++            rec["amountCents"] = int(amount.group(1).replace("_", ""))
++        if units:
++            rec["apiUnits"] = int(units.group(1).replace("_", ""))
++        if recurring:
++            rec["recurring"] = (recurring.group(1), int(recurring.group(2)))
++        out[pid] = rec
++    return out
++
++
++@pytest.fixture(scope="module")
++def ts():
++    p = ts_products()
++    assert p, "could not parse lib/products.ts — the price list moved"
++    return p
++
++
++def test_every_api_plan_is_purchasable(ts):
++    for plan_id, plan in API_PLANS.items():
++        assert plan_id in ts, (
++            f"{plan_id} is quoted by the engine but cannot be bought on the site")
++        prod = ts[plan_id]
++        assert prod["amountCents"] == plan.price_eur_month * 100, (
++            f"{plan_id}: engine says EUR {plan.price_eur_month}/mo, "
++            f"checkout says EUR {prod['amountCents'] / 100:.0f}")
++        assert prod["apiUnits"] == plan.monthly_units, (
++            f"{plan_id}: engine sells {plan.monthly_units} units, "
++            f"checkout sells {prod['apiUnits']}")
++        assert prod["name"] == plan.name
++        assert prod.get("recurring") == ("month", 1), (
++            f"{plan_id} is a monthly plan and must check out in subscription mode")
++
++
++def test_the_density_screen_price_agrees(ts):
++    """The one engagement bought directly on the site, rather than by deposit."""
++    assert ts["density_screen"]["amountCents"] == ENGAGEMENTS["density_screen"].price_eur * 100
++
++
++def test_deposits_are_smaller_than_the_engagements_they_open(ts):
++    assert ts["envelope_study_deposit"]["amountCents"] < \
++        ENGAGEMENTS["envelope_study"].price_eur * 100
++    assert ts["portfolio_screen_deposit"]["amountCents"] < \
++        ENGAGEMENTS["portfolio_screen"].price_eur * 100
++
++
++def test_api_access_never_looks_like_a_substitute_for_the_study():
++    """Price cannot protect the engagement business — the screening-mode disclosure
++    on every response does that. What price can do is keep the API from *reading*
++    as a substitute: a month of it must stay clearly under the flagship study, or a
++    buyer comparing the two is comparing an opinion with a signature against a JSON
++    endpoint and finding them similarly priced."""
++    study = ENGAGEMENTS["envelope_study"].price_eur
++    for plan in API_PLANS.values():
++        assert plan.price_eur_month < study / 2, (
++            f"{plan.id} at EUR {plan.price_eur_month}/mo is within reach of the "
++            f"EUR {study} study, which carries a named signatory and an indemnity")
++
++
++def test_the_cheapest_plan_is_a_credible_first_purchase():
++    """A first API purchase has to be a decision somebody can take without a
++    procurement cycle. Above roughly a thousand euros a month it stops being one."""
++    cheapest = min(API_PLANS.values(), key=lambda p: p.price_eur_month)
++    assert cheapest.price_eur_month <= 1_000
++    assert cheapest.monthly_units >= 500, (
++        "an allowance too small to screen a portfolio is not a product, it is a trial")
++
++
++def test_larger_plans_cost_less_per_unit():
++    ordered = sorted(API_PLANS.values(), key=lambda p: p.monthly_units)
++    rates = [p.eur_per_unit for p in ordered]
++    assert rates == sorted(rates, reverse=True), (
++        f"volume must get cheaper per unit, not dearer: {rates}")
++
++
++def test_the_api_scope_names_what_it_is_not():
++    from gridforge.commercial import API_SCOPE_OUT
++    joined = " ".join(API_SCOPE_OUT).lower()
++    assert "no issued engineering opinion" in joined
++    assert "indemnity" in joined
+diff --git a/tests/test_machine_interface.py b/tests/test_machine_interface.py
+index aee2614..3764e8d 100644
+--- a/tests/test_machine_interface.py
++++ b/tests/test_machine_interface.py
+@@ -163,11 +163,21 @@ def test_usage_is_durable_when_a_file_is_configured(tmp_path):
+ 
+ 
+ def test_an_in_memory_meter_says_it_is_not_billable():
+-    s = Meter(None).statement("k")
++    s = Meter(None).statement(None)
+     assert s["durable"] is False
+     assert "not durable" in s["note"]
+ 
+ 
++def test_a_usage_path_that_cannot_be_written_is_reported_not_assumed():
++    """GRIDFORGE_USAGE_FILE=/data/usage.json on a machine with no volume mounted
++    looks identical to a working configuration until the first invoice."""
++    m = Meter("/proc/definitely/not/writable/usage.json")
++    assert m.durable is False
++    note = m.statement(None)["note"]
++    assert "not writable" in note
++    assert "volume" in note
++
++
+ def test_calls_are_metered_and_reported(server):
+     status, body, headers = call(server, "/v1/qualify", QUALIFY_ARGS)
+     assert status == 200
+@@ -288,3 +298,73 @@ def test_mcp_malformed_params_do_not_500(server):
+     status, body, _ = rpc(server, "tools/call", {"name": "gridforge_study", "arguments": "oops"})
+     assert status == 200
+     assert body["error"]["code"] == -32602
++
++
++# --- self-serve keys, end to end -------------------------------------------
++
++@pytest.fixture(scope="module")
++def selfserve():
++    """A deployment that holds no keys at all, only the secret to verify them.
++
++    This is what a self-serve deployment actually looks like: every key was issued
++    by the website and the engine has never seen any of them.
++    """
++    import threading as _t
++    from gridforge.api.server import make_server as _mk
++    old_keys = os.environ.pop("GRIDFORGE_API_KEYS", None)
++    os.environ["GRIDFORGE_KEY_SECRET"] = "selfserve-test-secret"
++    os.environ["GRIDFORGE_RATE_LIMIT"] = "0"
++    Handler.limiter.per_minute = 0
++    httpd = _mk("127.0.0.1", 0)
++    _t.Thread(target=httpd.serve_forever, daemon=True).start()
++    yield f"http://127.0.0.1:{httpd.server_address[1]}"
++    httpd.shutdown()
++    os.environ.pop("GRIDFORGE_KEY_SECRET", None)
++    if old_keys is not None:
++        os.environ["GRIDFORGE_API_KEYS"] = old_keys
++
++
++def test_a_key_the_engine_has_never_seen_works(selfserve):
++    from gridforge.api.keys import issue
++    token = issue("selfserve-acme", quota=50)
++    status, body, headers = call(selfserve, "/v1/screen",
++                                 {"intake": {"grid": {"contracted_MW": 12}}}, key=token)
++    assert status == 200, body
++    assert headers["X-GridForge-Units"] == "1"
++    assert "X-GridForge-Key-Expires" in headers
++    status, usage, _ = call(selfserve, "/v1/usage", key=token)
++    assert usage["account"] == "selfserve-acme"
++    assert usage["monthly_quota"] == 50
++    assert usage["scope"] == "machine"
++
++
++def test_an_expired_key_is_told_why(selfserve):
++    from datetime import date, timedelta
++    from gridforge.api.keys import issue
++    dead = issue("lapsed", quota=50, days=1,
++                 issued_on=date.today() - timedelta(days=30))
++    status, body, _ = call(selfserve, "/v1/screen", {"intake": {}}, key=dead)
++    assert status == 401
++    assert "expired" in body["error"]
++    assert body["public_endpoint"] == "/v1/qualify"
++
++
++def test_paid_endpoints_are_enabled_by_the_secret_alone(selfserve):
++    """With no GRIDFORGE_API_KEYS at all, the deployment must still be configured —
++    otherwise a self-serve engine reports itself broken and returns 503."""
++    status, body, _ = call(selfserve, "/v1/version")
++    assert body["auth_configured"] is True
++    assert body["signed_keys"] is True
++    status, body, _ = call(selfserve, "/v1/screen", {"intake": {}})
++    assert status == 401, "an unconfigured 503 would be wrong here"
++
++
++def test_rotating_a_key_does_not_reset_the_allowance(selfserve):
++    from gridforge.api.keys import issue
++    a = issue("rotator", quota=4)
++    b = issue("rotator", quota=4)
++    assert a != b
++    assert call(selfserve, "/v1/screen", {"intake": {}}, key=a)[0] == 200
++    assert call(selfserve, "/v1/screen", {"intake": {}}, key=b)[0] == 200
++    status, body, _ = call(selfserve, "/v1/usage", key=b)
++    assert body["units"] == 2, "usage did not follow the account across a rotation"
+-- 
+2.43.0
+
