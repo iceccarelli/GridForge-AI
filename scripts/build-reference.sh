@@ -39,6 +39,14 @@ d["notice"] = ("SYNTHETIC REFERENCE DATA — not a customer asset. Every figure 
 json.dump(d, open(p, "w"), indent=2)
 PY
 
+# The public constraint reference and the platform library. These are the most-read
+# pages on the site and they must not depend on the engine being up, so they are
+# built to disk and covered by the same drift guard as everything else here.
+GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference constraints \
+  -o "$OUT/constraints.json" >/dev/null
+GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference platforms \
+  -o "$OUT/platforms.json" >/dev/null
+
 # The machine-callable surface, committed so /developers renders the same schema the
 # server validates against, and so CI notices when a tool, a unit rate or a schema
 # changes without the published contract changing with it.

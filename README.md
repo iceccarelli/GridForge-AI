@@ -71,6 +71,8 @@ python3 -m gridforge bids intake.json a.json b.json --ingest
 python3 -m gridforge cost list                    # the cost library and its evidence
 python3 -m gridforge calibrate show               # the accuracy record, honest either way
 python3 -m gridforge key issue --account acme --plan api_scale
+python3 -m gridforge reference                    # the thirteen constraints, published
+python3 -m gridforge reference platforms          # the platform library and its absences
 python3 -m gridforge tools                        # the machine-callable surface
 python3 -m gridforge serve --port 8080            # the HTTP API
 ```
@@ -90,6 +92,7 @@ gridforge/
   economics/       capex, energy, AACE accuracy class
   calibration/     what the model said vs what sites turned out to be
   procurement/     specifications, bid evaluation, cost-library ingest
+  reference/       the public constraint reference: authored prose, engine numbers
   reporting/       documents, report gates, deck, proposal, change note, specification
   api/             HTTP, metering, signed keys, tool schemas, MCP
   integrations/    ports for GridOS / ThermalForge / DERIM, each raising NotWired
@@ -128,6 +131,11 @@ Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
 ```
 /                      the argument, and the free qualifier
 /qualify               seven numbers in, the binding constraint out
+/constraints           all thirteen, each with the governing relation, a worked example
+                       you can check by hand, what relieves it and how many weeks
+/constraints/<slug>    one constraint in full
+/platforms             rack power, liquid fraction, residual air, flow, floor loading —
+                       and what is deliberately absent, because nobody published it
 /reference             the complete deliverable, published — study, deck, proposal,
                        specification, model pack, and the CSVs behind every number
 /developers            the machine interface, and metered plans you can buy

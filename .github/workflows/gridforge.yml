@@ -219,6 +219,37 @@ jobs:
           assert derived, 'nothing derived — the chain is flat'
           print('provenance ok:', len(rows), 'quantities,', len(derived), 'derived')
           "
+      - name: The constraint reference must cover the engine, both directions
+        run: |
+          python -m gridforge reference
+          python -m gridforge reference platforms
+          python -c "
+          import json
+          from gridforge.calibration.keys import CONSTRAINT_IDS
+          from gridforge.reference import reference_payload, platform_payload
+          r = reference_payload()
+          ids = {c['id'] for c in r['constraints']}
+          assert ids == set(CONSTRAINT_IDS), (
+              'reference and engine disagree:',
+              sorted(set(CONSTRAINT_IDS) - ids), sorted(ids - set(CONSTRAINT_IDS)))
+          for c in r['constraints']:
+              assert c['lead_time_weeks'], c['id']
+              assert c['binds_when'].strip(), c['id']
+          lib = platform_payload()
+          assert lib['deliberately_absent'], 'the absences are the point'
+          for p in lib['platforms']:
+              assert p['sources'] or p['generic'], p['id']
+          print('reference ok:', len(ids), 'constraints,', len(lib['platforms']), 'platforms')
+          "
+          # Published prose may not claim a track record we do not have.
+          python -c "
+          import json, re
+          from gridforge.reference import reference_payload
+          blob = json.dumps(reference_payload()).lower()
+          for bad in ['proven', 'guaranteed', 'case study', 'we have achieved', 'certified']:
+              assert bad not in blob, f'the public reference claims {bad!r}'
+          print('language ok')
+          "
       - name: The published specification must be part of the worked example
         run: |
           test -f public/reference/specification.html

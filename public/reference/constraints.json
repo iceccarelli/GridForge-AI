@@ -1,0 +1,428 @@
+{
+  "schema": "gridforge/constraint-reference/1",
+  "count": 13,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand.",
+  "constraints": [
+    {
+      "id": "rack_feed_tapoff",
+      "slug": "rack-feed-tapoff-rating",
+      "name": "Rack feed / tap-off rating",
+      "domain": "electrical",
+      "headline": "The commonest hard stop in a legacy hall is the last two metres of copper.",
+      "limits": "The continuous current a single rack position can be fed at, set by the tap-off unit on the busway and the flexible cord to the rack PDU.",
+      "relation": "I = P / (\u221a3 \u00b7 V \u00b7 pf). A 132 kW rack at 400 V three-phase and pf 0.95 draws on the order of 200 A per feed. A hall built for 8 kW racks is typically fitted with 32\u201363 A tap-offs.",
+      "binds_when": "Divide your target rack power by (1.73 \u00d7 your busway voltage \u00d7 0.95). If the answer exceeds the rating stamped on your installed tap-off units, this binds before anything else does \u2014 and it binds at rack one, not at scale.",
+      "relief": "Higher-rated tap-off units, and the busway itself where its ampacity does not allow them. Usually the cheapest rung on the ladder in euros and one of the faster ones in weeks.",
+      "relief_risk": "Tap-off units have been a reported shortage item. Installation onto an energised busway is possible with some systems and not others; where it is not, the outage per run is a commercial cost in an occupied hall.",
+      "misconception": "Operators quote the hall's total kW and conclude they have headroom. Total capacity says nothing about whether one position can be fed.",
+      "sources": [
+        "Uptime Intelligence \u2014 at high density, power distribution creates issues more often than cooling."
+      ],
+      "see_also": [
+        "busway_ampacity",
+        "transformer_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 12,
+        "high": 40
+      },
+      "worked_example": {
+        "question": "What current does one NVIDIA GB300 NVL72 rack draw at 400 V?",
+        "working": "135 kW / (1.73 \u00d7 400 V \u00d7 0.95)",
+        "answer": "205 A per rack",
+        "consequence": "A 63 A tap-off feeds a third of one rack."
+      },
+      "cost_basis": {
+        "key": "tapoff.unit",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "busway_ampacity",
+      "slug": "busway-ampacity",
+      "name": "Busway ampacity",
+      "domain": "electrical",
+      "headline": "A 400 A busway run cannot feed three 130 kW racks, whatever the hall total says.",
+      "limits": "The continuous current a busway run carries, derated for ambient, grouping and the site's own continuous-load policy.",
+      "relation": "Racks per run = (ampacity \u00d7 utilisation limit \u00d7 \u221a3 \u00d7 V \u00d7 pf) / rack power. At 400 A, 0.8 continuous limit, 400 V and pf 0.95, a run supports roughly 210 kW \u2014 about 1.6 racks of a 132 kW platform.",
+      "binds_when": "Take your installed ampacity per run, multiply by your continuous-load derating (often 0.8), and convert to kW. Divide by your target rack power. If that number is smaller than the racks you want per run, this binds. Legacy halls commonly run 400 A; modern AI halls specify 800\u20131000 A.",
+      "relief": "Replace the busway with a higher ampacity, or add further runs where riser and routing space exists. Adding runs is usually cheaper and slower than it sounds, because the constraint moves upstream to the panel.",
+      "relief_risk": "Replacement is invasive in an occupied hall and is normally phased run by run. Adding runs needs riser space that a 2014 building may not have.",
+      "misconception": "Ampacity is often read as a nameplate rather than a continuous rating. The derated figure is the one that decides.",
+      "sources": [
+        "IEC 61439-6 busbar trunking systems; site continuous-load policy."
+      ],
+      "see_also": [
+        "rack_feed_tapoff",
+        "transformer_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 16,
+        "high": 44
+      },
+      "worked_example": {
+        "question": "How many racks does a 400 A busway run carry?",
+        "working": "400 A \u00d7 0.8 \u00d7 1.73 \u00d7 400 V \u00d7 0.95 = 211 kW; 211 / 135",
+        "answer": "1.6 racks per run",
+        "consequence": "Modern AI halls specify 800\u20131000 A for this reason."
+      },
+      "cost_basis": {
+        "key": "busway.replacement",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "transformer_capacity",
+      "slug": "transformer-capacity",
+      "name": "Transformer capacity",
+      "domain": "electrical",
+      "headline": "The transformer is rarely the tightest constraint and is usually the one that sets the date.",
+      "limits": "Usable secondary capacity after the site's derating policy and at the redundancy the hall is sold on.",
+      "relation": "Required MVA \u2248 (racks \u00d7 rack kW \u00d7 PUE) / 1000 / pf, at N+1 or 2N as the hall is contracted. Harmonic content from GPU rectifier loads derates a standard unit further.",
+      "binds_when": "Sum your existing IT load and the new load at your expected PUE, divide by 0.95, and compare against installed capacity with one unit out of service. If the margin is thin, check lead time before you check price.",
+      "relief": "Additional or replacement transformer capacity, and the switchgear that comes with it.",
+      "relief_risk": "Lead times of 120\u2013160+ weeks have been reported for power transformers. This is the item most likely to set the energisation date for the whole retrofit, and every week of it is a week of contracted power earning nothing.",
+      "misconception": "Treated as a capex line when it is a schedule line. A cheaper transformer eighteen months later is the expensive one.",
+      "sources": [
+        "Reported European transformer lead times, 2025\u20132026."
+      ],
+      "see_also": [
+        "grid_firm_capacity",
+        "ups_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 52,
+        "high": 160
+      },
+      "worked_example": {
+        "question": "What transformer capacity do 20 NVIDIA GB300 NVL72 racks need?",
+        "working": "20 \u00d7 135 kW \u00d7 PUE 1.20 / 1000 / 0.95",
+        "answer": "3.41 MVA before redundancy",
+        "consequence": "At N+1 the installed capacity has to carry that with one unit out of service."
+      },
+      "cost_basis": {
+        "key": "transformer.replacement",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "ups_capacity",
+      "slug": "ups-capacity",
+      "name": "UPS capacity (protected load)",
+      "domain": "electrical",
+      "headline": "AI training loads step harder than anything a 2014 UPS was specified for.",
+      "limits": "Protected capacity available for new IT load, and the instantaneous step the installed blocks will accept without transferring to bypass.",
+      "relation": "Headroom = installed protected capacity \u00d7 redundancy factor \u2212 existing protected load. Separately, a synchronised training job can present a step of a large fraction of its own rating in milliseconds.",
+      "binds_when": "Compare protected headroom against the new IT load. Then ask a second question most people skip: what step load are the installed blocks rated for, and what step will a synchronised job actually present?",
+      "relief": "Additional modules where the installed system parallels, or a new block with its own switchgear where it does not.",
+      "relief_risk": "Mixed-vintage parallel operation is a common and expensive surprise. Whether new modules will parallel with the installed system is a question to settle before it is priced, not after.",
+      "misconception": "Capacity is checked and step-load capability is not. The second is what causes the incident.",
+      "sources": [
+        "Site UPS schedules; manufacturer step-load ratings."
+      ],
+      "see_also": [
+        "transformer_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 20,
+        "high": 52
+      },
+      "worked_example": null,
+      "cost_basis": {
+        "key": "ups.per_kW",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "grid_firm_capacity",
+      "slug": "firm-supply-capacity",
+      "name": "Firm supply (grid import and behind-the-meter)",
+      "domain": "electrical",
+      "headline": "In core European metros the grid connection is the asset, and it is not growing before the 2030s.",
+      "limits": "Firm capacity available for new load: contracted grid import, less current site peak, plus any behind-the-meter supply that genuinely counts as firm.",
+      "relation": "Headroom = (contracted MW \u2212 current site peak MW) + \u03a3(BTM capacity \u00d7 firm capacity factor). A battery contributes its firm fraction, not its nameplate.",
+      "binds_when": "Subtract your current site peak from your contracted capacity. If the remainder is smaller than your intended new IT load at your expected PUE, this binds \u2014 and unlike every other constraint on this list, you cannot buy your way out of it inside the decision horizon in most European metros.",
+      "relief": "Behind-the-meter supply, where it is firm and consentable. Otherwise, getting more compute out of the capacity already contracted \u2014 which is the whole premise of a density retrofit.",
+      "relief_risk": "Consent, not equipment, is the schedule risk for combustion plant. Grid-code compliance and fire separation govern battery programmes. A capacity factor applied to a nameplate is an assumption, and should be labelled as one.",
+      "misconception": "Nameplate BTM capacity counted as firm. A 2 MW battery is not 2 MW of firm capacity, and the fraction that is depends on the duty.",
+      "sources": [
+        "Mainova on Frankfurt connection availability; TenneT queue positions; CRU Large Energy User policy, Ireland."
+      ],
+      "see_also": [
+        "transformer_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 30,
+        "high": 260
+      },
+      "worked_example": null,
+      "cost_basis": null
+    },
+    {
+      "id": "plant_capacity",
+      "slug": "chilled-water-plant-capacity",
+      "name": "Chilled-water plant capacity",
+      "domain": "thermal",
+      "headline": "Direct liquid cooling does not remove the air load \u2014 it shrinks it, and the remainder still needs the plant you already have.",
+      "limits": "Chilled-water capacity available for the residual air load that liquid cooling does not capture.",
+      "relation": "Residual air load per rack = rack kW \u00d7 (1 \u2212 liquid capture fraction). At a 0.85 capture fraction a 132 kW rack still rejects about 20 kW to air \u2014 more than a whole rack in the hall's original design.",
+      "binds_when": "Multiply your target rack count by rack power by (1 \u2212 capture fraction) and compare against plant headroom at your site's summer design dry bulb, not at a standard rating condition.",
+      "relief": "Additional plant, adiabatic assist, or a trim chiller on a high-temperature loop. Raising the loop temperature is often worth more than raising duty.",
+      "relief_risk": "Retaining low-temperature plant for the residual air load forgoes most of the free-cooling benefit the liquid loop was supposed to deliver.",
+      "misconception": "\"We are going liquid, so cooling is solved.\" The residual air load of a dense hall frequently exceeds the hall's entire original design load.",
+      "sources": [
+        "Platform liquid capture fractions from published vendor architectures, corroborated where possible."
+      ],
+      "see_also": [
+        "residual_air_removal",
+        "cdu_capacity",
+        "tcs_supply_achievable"
+      ],
+      "lead_time_weeks": {
+        "low": 24,
+        "high": 60
+      },
+      "worked_example": {
+        "question": "How much air load remains after direct liquid cooling?",
+        "working": "135 kW \u00d7 (1 \u2212 0.90)",
+        "answer": "13 kW per rack, still to air",
+        "consequence": "More than two racks' worth in a hall designed for 8 kW."
+      },
+      "cost_basis": {
+        "key": "trim_chiller.adiabatic",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "cdu_capacity",
+      "slug": "cdu-capacity-site-conditions",
+      "name": "CDU capacity at site conditions",
+      "domain": "thermal",
+      "headline": "A CDU rated at a 5 K approach, installed on a site running 24 K, is not the CDU you bought.",
+      "limits": "Heat rejected from the technology cooling loop to facility water, at the approach temperature the site actually offers.",
+      "relation": "Usable duty falls as the approach between facility water and the platform's maximum inlet temperature widens. A unit quoted at a 5 K approach delivers materially less at the 20\u201325 K approach a legacy 6 \u00b0C loop presents.",
+      "binds_when": "Take your facility water supply temperature and your platform's maximum technology-loop inlet temperature. The difference is your available approach. Ask for the selection output at THAT approach \u2014 not the datasheet figure.",
+      "relief": "Additional CDU capacity, or raising the facility water temperature so the approach widens in your favour.",
+      "relief_risk": "A linear derate against approach is a screening approximation. Confirm against the manufacturer's performance curve before committing capital. Technology-loop water chemistry is a warranty question before it is a capacity question.",
+      "misconception": "The single most common way a liquid retrofit under-delivers: rated duty taken from a datasheet at a reference condition the site does not have.",
+      "sources": [
+        "OCP Water-Based Transfer Fluids Guidelines; manufacturer performance data at stated approach."
+      ],
+      "see_also": [
+        "tcs_supply_achievable",
+        "hydraulic_flow",
+        "plant_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 16,
+        "high": 40
+      },
+      "worked_example": {
+        "question": "What approach does a 6 \u00b0C loop offer a platform accepting 45 \u00b0C?",
+        "working": "45 \u00b0C \u2212 6 \u00b0C",
+        "answer": "39 K approach",
+        "consequence": "A unit selected at a 5 K approach is being asked to work at four to five times that."
+      },
+      "cost_basis": {
+        "key": "cdu.addition",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "hydraulic_flow",
+      "slug": "hydraulic-flow-capacity",
+      "name": "Hydraulic flow capacity",
+      "domain": "thermal",
+      "headline": "A flow figure without a head figure is not a duty point.",
+      "limits": "Pumped flow available to the technology cooling loop at the system's actual resistance.",
+      "relation": "Required flow \u2248 rack count \u00d7 platform flow per rack. Around 1.45 l/min per kW at a 10 K delta-T is a reasonable screening figure; the platform's own published flow per rack is better.",
+      "binds_when": "Multiply target racks by the platform's flow per rack and compare against installed pumped capacity \u2014 then check available head against the resistance the new loop adds. Halls pass the first test and fail the second.",
+      "relief": "Pump replacement or addition, and pipework where the resistance is in the distribution rather than the pumps.",
+      "relief_risk": "Head is where retrofits are caught out. Adding flow to a loop whose resistance has risen gives a duty point nobody modelled.",
+      "misconception": "Flow capacity quoted from the pump nameplate rather than from the duty point of the system as it will be built.",
+      "sources": [
+        "OCP fluid guidelines; site hydraulic records."
+      ],
+      "see_also": [
+        "cdu_capacity",
+        "tcs_supply_achievable"
+      ],
+      "lead_time_weeks": {
+        "low": 12,
+        "high": 36
+      },
+      "worked_example": {
+        "question": "What flow do 20 racks need?",
+        "working": "20 \u00d7 130 l/min",
+        "answer": "2600 l/min",
+        "consequence": "Check it against available head, not only against pump capacity."
+      },
+      "cost_basis": null
+    },
+    {
+      "id": "tcs_supply_achievable",
+      "slug": "achievable-facility-water-temperature",
+      "name": "Achievable facility water temperature",
+      "domain": "thermal",
+      "headline": "Legacy plant makes 6 \u00b0C water beautifully. Liquid cooling would rather have 30 \u00b0C.",
+      "limits": "The facility water temperature the site can actually deliver to the CDUs, which sets the approach and therefore the usable duty.",
+      "relation": "A high-temperature loop at around 30 \u00b0C supply unlocks free cooling for most of a European year and widens nothing \u2014 the approach to a platform accepting 45 \u00b0C inlet stays comfortable. A 6 \u00b0C loop wastes that twice.",
+      "binds_when": "If your plant is designed around 6\u201310 \u00b0C supply and you are adding liquid cooling, the question is not whether the plant is big enough but whether it should be making water that cold at all.",
+      "relief": "A separate high-temperature loop, adiabatic assist, or a trim chiller sized for the hours the free cooling does not cover.",
+      "relief_risk": "Two loops means two sets of controls and a commissioning problem. Retaining the low-temperature loop for residual air load is usually unavoidable and is what caps the efficiency gain.",
+      "misconception": "Treating water temperature as a plant setting rather than as the variable that decides both CDU duty and annual energy.",
+      "sources": [
+        "OCP Water-Based Transfer Fluids Guidelines, 2025."
+      ],
+      "see_also": [
+        "cdu_capacity",
+        "plant_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 20,
+        "high": 52
+      },
+      "worked_example": null,
+      "cost_basis": {
+        "key": "trim_chiller.adiabatic",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "residual_air_removal",
+      "slug": "residual-air-load-removal",
+      "name": "Residual air load removal per rack",
+      "domain": "thermal",
+      "headline": "Twenty kilowatts of air load in a rack position designed for eight is still an air problem.",
+      "limits": "Heat removable from a single rack position by air, at the hall's containment and airflow.",
+      "relation": "Residual air per rack = rack kW \u00d7 (1 \u2212 liquid capture). The hall's per-position air capability \u2014 commonly 10\u201320 kW with good containment \u2014 is what it must fit inside.",
+      "binds_when": "Compare the residual air load of one target rack against what one position in your hall can actually remove today. Containment quality decides this more than plant capacity does.",
+      "relief": "In-row cooling or rear-door heat exchangers at the affected positions.",
+      "relief_risk": "Rear doors need water at the position, which is a pipework and leak-detection question in a live hall.",
+      "misconception": "Per-position capability inferred from hall-average density. The average is not the limit; the position is.",
+      "sources": [
+        "Uptime Intelligence on practical retrofit density ceilings."
+      ],
+      "see_also": [
+        "plant_capacity",
+        "architecture_capability"
+      ],
+      "lead_time_weeks": {
+        "low": 10,
+        "high": 30
+      },
+      "worked_example": {
+        "question": "What must one rack position remove by air?",
+        "working": "135 kW \u00d7 (1 \u2212 0.90)",
+        "answer": "13 kW at one position",
+        "consequence": "Good containment gets a position to roughly 10\u201320 kW."
+      },
+      "cost_basis": {
+        "key": "inrow_rdhx.per_rack",
+        "basis": "library_default",
+        "evidence": "E0_ASSUMPTION",
+        "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+      }
+    },
+    {
+      "id": "architecture_capability",
+      "slug": "cooling-architecture-capability",
+      "name": "Cooling architecture per-rack capability",
+      "domain": "thermal",
+      "headline": "Air-cooled halls stop somewhere between 20 and 40 kW a rack, and no amount of plant changes that.",
+      "limits": "The maximum per-rack power the chosen cooling architecture can support at all, before any question of capacity.",
+      "relation": "A gate rather than a capacity: retained air, rear-door, hybrid DLC and full DLC each have a per-rack ceiling. Exceeding it is not a shortfall, it is an architecture that does not apply.",
+      "binds_when": "If your target rack power is above roughly 40 kW and the hall is air cooled with containment, this gate closes before any capacity constraint is reached. The honest answer at that point is an architecture change, not more plant.",
+      "relief": "Change the architecture: rear-door, hybrid direct liquid cooling, or full DLC with a high-temperature loop.",
+      "relief_risk": "Each step up is a larger programme and a different skill set in the hall. The decision is rarely reversible within a tenancy.",
+      "misconception": "Believing a hall can be pushed to 100 kW+ a rack with better airflow. Fewer than 4% of facilities can host 100 kW racks today.",
+      "sources": [
+        "Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is below 30 kW; practical retrofit ceiling 20\u201340 kW."
+      ],
+      "see_also": [
+        "residual_air_removal",
+        "cdu_capacity"
+      ],
+      "lead_time_weeks": {
+        "low": 12,
+        "high": 36
+      },
+      "worked_example": null,
+      "cost_basis": null
+    },
+    {
+      "id": "floor_space",
+      "slug": "available-rack-positions",
+      "name": "Available rack positions",
+      "domain": "physical",
+      "headline": "The cheapest constraint to discover and the most awkward to relieve, because it is somebody's tenancy.",
+      "limits": "Rack positions that can actually be released for the new deployment.",
+      "relation": "Positions available, not positions installed. A hall with 560 positions and 380 under contract has 180.",
+      "binds_when": "Count what you can genuinely empty inside the programme. If that is fewer than the racks the power and cooling would allow, this binds \u2014 and it binds on commercial terms, not engineering ones.",
+      "relief": "Release positions from existing tenancy, or consolidate.",
+      "relief_risk": "Commercial and contractual, not capital. The lead time is a negotiation, which makes it the hardest item on the ladder to programme honestly.",
+      "misconception": "Counting installed positions rather than releasable ones, which overstates the envelope before any physics is done.",
+      "sources": [
+        "Site tenancy records."
+      ],
+      "see_also": [
+        "floor_loading"
+      ],
+      "lead_time_weeks": {
+        "low": 4,
+        "high": 20
+      },
+      "worked_example": null,
+      "cost_basis": null
+    },
+    {
+      "id": "floor_loading",
+      "slug": "floor-loading",
+      "name": "Floor loading",
+      "domain": "physical",
+      "headline": "A fully populated AI rack weighs around 1.4 tonnes and a Rated-3 raised floor was designed for about 1,220 kg/m\u00b2.",
+      "limits": "Distributed and point load the hall floor can carry, including the raised floor system where one is present.",
+      "relation": "Rack mass divided by footprint, against the design distributed load \u2014 and separately against point loads at the castors, which is usually the harder test.",
+      "binds_when": "Divide your platform's rack mass by its footprint and compare against your hall's design floor loading. If it is close, treat the number in the building record as a screening value and commission a structural assessment before committing.",
+      "relief": "Structural strengthening, load spreading, or relocating the deployment to slab.",
+      "relief_risk": "Structural work in a live hall is disruptive and the assessment itself can invalidate the plan. It is cheap relative to the decision and should be done early for that reason.",
+      "misconception": "Treating the design value in the building record as a measurement. It is a design value, and a 2014 record may not reflect what was built.",
+      "sources": [
+        "TIA-942 Rated-3 floor loading design values; platform rack masses from published vendor data."
+      ],
+      "see_also": [
+        "floor_space"
+      ],
+      "lead_time_weeks": {
+        "low": 12,
+        "high": 40
+      },
+      "worked_example": {
+        "question": "What does one NVIDIA GB300 NVL72 rack impose on the floor?",
+        "working": "1400 kg / 0.72 m\u00b2",
+        "answer": "1,944 kg/m\u00b2 distributed",
+        "consequence": "Against a TIA-942 Rated-3 design value of about 1,220 kg/m\u00b2."
+      },
+      "cost_basis": null
+    }
+  ],
+  "domains": [
+    "electrical",
+    "physical",
+    "thermal"
+  ]
+}

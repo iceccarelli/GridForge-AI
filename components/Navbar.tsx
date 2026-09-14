@@ -12,6 +12,7 @@ const navLinks = [
   { href: "#services", label: "Services" },
   { href: "#deploy", label: "Deploy" },
   { href: "/qualify", label: "Qualifier", route: true },
+  { href: "/constraints", label: "Constraints", route: true },
   { href: "/reference", label: "Example", route: true },
   { href: "/developers", label: "API", route: true },
   { href: "/infrastructure", label: "Infrastructure", route: true },

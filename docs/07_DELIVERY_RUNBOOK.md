@@ -604,3 +604,51 @@ job that silently downloads a real flyctl is one step from a test that uses it.
 ```bash
 fly apps destroy test-engine
 ```
+
+
+## The public constraint reference — why we give the physics away
+
+`/constraints` publishes all thirteen in full: what physically runs out, the relation
+that governs it, a worked example reproducible by hand, how to tell whether it binds in
+your own hall, what relieves it, what that relief costs beyond money, and the indicative
+lead time. `/platforms` publishes the platform library, including the platforms that are
+**deliberately absent** because no manufacturer has published a rack power.
+
+The commercial argument is not content marketing. Anyone deciding whether to pay for a
+capacity study first wants to understand the problem, and what they read today is vendor
+reference designs written by companies whose every document ends in their own bill of
+materials. There is no independent, quantitative, public account of what actually stops a
+hall. Being that account is worth more than the information is worth withholding — and
+every page ends at a free tool that answers the question for the reader's own hall.
+
+Two properties make it defensible rather than merely generous:
+
+- **The prose is authored; every number is not.** Worked examples, residual air loads,
+  floor loadings, approach temperatures and cost evidence classes are computed from the
+  same libraries the engine solves with. A competitor can copy thirteen good pages in a
+  week. Keeping them consistent with a working solver for two years, while the libraries
+  move and quotations replace placeholders, is a different undertaking.
+  `tests/test_reference_layer.py` doubles a platform's rack power and asserts at least
+  four pages move.
+- **The absences are the most credible thing we publish.** Every competitor's platform
+  table carries a row for the parts nobody has published, filled with somebody's estimate.
+  Ours names them and says why they are not there.
+
+```bash
+python3 -m gridforge reference             # the thirteen, with lead times
+python3 -m gridforge reference platforms   # the library and its absences
+```
+
+Both are built into `public/reference/` by `scripts/build-reference.sh` and covered by
+the same drift guard as the worked example. The site reads them from disk rather than
+calling the engine: these are the most-read pages we have and they must not depend on a
+service being up.
+
+What the tests refuse to let a page do: claim a track record (`proven`, `guaranteed`,
+`case study`, `we have achieved`), name any manufacturer of relief equipment, publish a
+constraint the engine does not evaluate, or omit one it does. Coverage is asserted in
+both directions, so a constraint added to the engine without a page fails the build — and
+so does a page for a constraint that does not exist.
+
+`app/sitemap.ts` generates the constraint URLs from the same file, so a new constraint is
+indexed without anyone remembering to add it.

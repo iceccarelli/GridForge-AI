@@ -1,0 +1,73 @@
+{
+  "schema": "gridforge/platform-library/1",
+  "platforms": [
+    {
+      "id": "gb200_nvl72",
+      "name": "NVIDIA GB200 NVL72",
+      "status": "shipping",
+      "rack_kW": 132,
+      "peak_rack_kW": 132,
+      "liquid_fraction": 0.87,
+      "residual_air_kW": 17.2,
+      "max_inlet_liquid_C": 45,
+      "flow_l_per_min_per_rack": 125,
+      "rack_mass_kg": 1360,
+      "rack_footprint_m2": 0.72,
+      "floor_loading_kg_per_m2": 1889,
+      "gpus_per_rack": 72,
+      "voltage_domain": "415/480 VAC -> 48 VDC busbar",
+      "rack_feed_current_A": 200,
+      "sources": [
+        "QCT QoolRack GB200 NVL72 technical brief, 2025 [V]"
+      ],
+      "generic": false
+    },
+    {
+      "id": "gb300_nvl72",
+      "name": "NVIDIA GB300 NVL72",
+      "status": "shipping",
+      "rack_kW": 135,
+      "peak_rack_kW": 155,
+      "liquid_fraction": 0.9,
+      "residual_air_kW": 13.5,
+      "max_inlet_liquid_C": 45,
+      "flow_l_per_min_per_rack": 130,
+      "rack_mass_kg": 1400,
+      "rack_footprint_m2": 0.72,
+      "floor_loading_kg_per_m2": 1944,
+      "gpus_per_rack": 72,
+      "voltage_domain": "200-277 VAC in, 50 VDC out, 6-8 x 33 kW shelves",
+      "rack_feed_current_A": 205,
+      "sources": [
+        "Lenovo Press LP2357, GB300 NVL72, 2026 [V]",
+        "NVIDIA NVL72 AI Factory Reference Architecture, 2026 [V]"
+      ],
+      "generic": false
+    },
+    {
+      "id": "generic_dlc_50",
+      "name": "Generic DLC server rack, 50 kW",
+      "status": "shipping",
+      "rack_kW": 50,
+      "peak_rack_kW": 55,
+      "liquid_fraction": 0.75,
+      "residual_air_kW": 12.5,
+      "max_inlet_liquid_C": 40,
+      "flow_l_per_min_per_rack": 72,
+      "rack_mass_kg": 900,
+      "rack_footprint_m2": 0.72,
+      "floor_loading_kg_per_m2": 1250,
+      "gpus_per_rack": 32,
+      "voltage_domain": "400 VAC 3ph",
+      "rack_feed_current_A": 76,
+      "sources": [],
+      "generic": true
+    }
+  ],
+  "deliberately_absent": {
+    "vr200_nvl144": "NVIDIA has not published rack power. Third-party estimates 190-230 kW are unverified.",
+    "rubin_ultra_nvl576": "~600 kW is a stated target from GTC reporting, not a specification.",
+    "amd_helios_mi450": "AMD has not published rack-level power for MI450/MI455X."
+  },
+  "notice": "Platforms whose rack power the manufacturer has not published are absent by design rather than pending. An invented number in a capacity study is how an engineering reputation ends."
+}

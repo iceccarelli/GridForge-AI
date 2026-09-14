@@ -651,6 +651,50 @@ def cmd_bids(args) -> int:
     return 0
 
 
+def cmd_reference(args) -> int:
+    """The public constraint reference, as data the website renders.
+
+    Emitting it as a file rather than serving it live is deliberate: the pages are
+    the most-read thing we publish and they must not depend on the engine being up.
+    The drift guard in CI keeps the committed copy honest.
+    """
+    from .reference import platform_payload, reference_payload
+
+    if args.ref_cmd == "platforms":
+        payload = platform_payload()
+    else:
+        payload = reference_payload()
+
+    out = json.dumps(payload, indent=2) + "\n"
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(out)
+        print(f"wrote {args.out}")
+        return 0
+    if args.json:
+        print(out)
+        return 0
+
+    if args.ref_cmd == "platforms":
+        print(f"{'platform':22s} {'rack kW':>8s} {'liquid':>7s} {'air kW':>7s} "
+              f"{'inlet C':>8s} {'kg/m2':>7s} status")
+        for pl in payload["platforms"]:
+            print(f"{pl['name']:22s} {pl['rack_kW']:8} {pl['liquid_fraction']:7} "
+                  f"{pl['residual_air_kW']:7} {pl['max_inlet_liquid_C']:8} "
+                  f"{pl['floor_loading_kg_per_m2']:7} {pl['status']}")
+        print("\nDeliberately absent:")
+        for k, why in payload["deliberately_absent"].items():
+            print(f"  {k}: {why}")
+        return 0
+
+    print(f"{payload['count']} constraints published\n")
+    for c in payload["constraints"]:
+        lead = c["lead_time_weeks"]
+        weeks = f"{lead['low']}-{lead['high']}w" if lead else "—"
+        print(f"  {c['domain']:10s} {c['id']:24s} {weeks:>9s}  {c['headline'][:70]}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api.server import serve
     serve(args.host, args.port)
@@ -814,6 +858,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--region", default="")
     s.add_argument("--library", default="")
     s.set_defaults(func=cmd_bids)
+
+    s = sub.add_parser("reference",
+                       help="the public constraint reference and platform library")
+    s.add_argument("ref_cmd", nargs="?", default="constraints",
+                   choices=["constraints", "platforms"])
+    s.add_argument("--json", action="store_true")
+    s.add_argument("-o", "--out", help="write the JSON payload here")
+    s.set_defaults(func=cmd_reference)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
     s.add_argument("--host", default="0.0.0.0")
