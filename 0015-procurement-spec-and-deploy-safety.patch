@@ -1,0 +1,3675 @@
+From 89e64234ea31a7d5002852a9d2316b525e469a98 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 15:51:52 +0000
+Subject: [PATCH] feat(procurement): the specification the study implies, and a
+ deploy script that cannot rotate a key
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0015.
+
+THE DEPLOY SCRIPT ROTATED THE PRODUCTION KEY AGAIN
+
+Patch 0014 claimed to fix this. It did not. The new version grepped
+`fly secrets list` to decide whether a secret existed; the grep did not match
+flyctl's actual output, detection silently returned false, and the next deploy
+minted a fresh GRIDFORGE_API_KEYS over a key set ninety seconds earlier. Same bug,
+one extra step.
+
+Detection is no longer load-bearing. Minting is opt-in (--bootstrap), and when the
+secret list cannot be read the script REFUSES to write rather than guessing —
+uncertainty must never resolve to overwriting a credential. Detection itself now
+prefers `--json` and falls back to a whitespace-tolerant parse.
+
+And tests/test_deploy_script.py runs the script against a fake `fly` that records
+every argv, asserting it never calls `secrets set` on a secret that exists —
+including from the exact indented table that defeated the previous version. A
+shell script with no test is how a bug survives the patch that claims to fix it.
+
+THE PROCUREMENT SPECIFICATION (EUR 18,000)
+
+A study ends with "the transformer sets the date at 52 weeks". The client then has
+to buy a transformer, and between the finding and the purchase order sits three
+weeks of an engineer writing a specification and comparing four quotations that
+answer four different questions. That gap is the product.
+
+  * Every numeric requirement is derived from the capacity model and names the
+    constraint it came from. validate() refuses a mandatory numeric requirement
+    with nothing behind it: a number nobody can trace is a number somebody
+    invented, and those are how a tender specifies equipment the hall does not
+    need.
+  * Duties are sized for the hall's END STATE, not the rung's delta. A rung often
+    unlocks three racks; nobody buys a transformer for three racks. Sizing to the
+    delta gives a specification that is traceable and absurd.
+  * Duties are quoted at the SITE's conditions. A CDU rated at a 5 K approach and
+    installed on a 24 K site is the commonest way a liquid retrofit
+    under-delivers, so the clause says so in capitals and asks for the selection
+    output at our conditions.
+  * No make, no model, no supplier named. We state duty and interfaces and take no
+    margin on hardware — which is why a client can hand this to their own
+    procurement without a conflict to declare. A test asserts no manufacturer name
+    appears anywhere in the document.
+  * Bids are compared in racks and weeks. 35 compliance / 30 programme / 20 price
+    / 15 judged. The bid 12% cheaper and 14 weeks slower is the expensive one, and
+    a non-compliant bid never outranks a compliant one whatever its price.
+  * The 15 judged points are DECLARED UNSCORED rather than computed. A tool that
+    filled that column would be inventing the part that needs an engineer.
+
+THE FLYWHEEL — WHY IT IS WORTH SELLING UNDER THE STUDY
+
+A study rests on library defaults: E0, a -50%/+100% band, AACE Class 5. A returned
+bid is a dated, attributable, project-specific price. `bids --ingest` prints the
+exact `cost add` commands it implies, and the moment that line lands, every future
+study touching it gets stronger and its accuracy class improves. Procurement work
+pays twice.
+
+The conversion is the dangerous part and is tested hardest. A supplier quotes one
+delivered number; the library holds tapoff.unit per rack, ups.per_kW per kW and
+busway.replacement as a lump sum. A lump sum entered on a per-rack line is wrong by
+the rack count, carries a QUOTATION's evidence class, and every future study
+inherits it with a straight face — worse than no flywheel at all. The basis comes
+from costs.declared_unit(), a registry populated by the constraint that prices each
+key, not guessed from a step's already-multiplied total.
+
+ALSO
+
+  * `gridforge spec --list|--constraint` and `gridforge bids --ingest`, with a
+    machine-readable response schedule the two commands round-trip through.
+  * /v1/spec (3 units), /v1/bids (2 units), gridforge_spec and gridforge_bids over
+    MCP. API version 0.9.0.
+  * /reference now publishes a complete specification and its response schedule —
+    the document a prospect would actually send to suppliers, before paying.
+  * The parity test now checks EVERY engagement sold on the site against the
+    engine, not the two that were checked by hand.
+  * SupplierResponse refuses an undated price (it cannot become a dated library
+    entry) and names the field when a value is not a number, because "failed to
+    load" is useless to whoever has to go back to the supplier.
+
+TESTS
+
+39 new (289 total). Traceability is enforced, not intended; an untraceable
+requirement is refused; weights must total 100; the transformer rating is checked
+against the IT load it serves; the document passes the report gates and warns
+against raising a purchase order on it; a lump-sum bid converts correctly onto all
+three library bases; and the deploy script is proven unable to rotate a live key.
+
+tsc clean, next lint clean, next build clean. Reference artefacts regenerate byte
+for byte.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml         |  42 ++
+ app/reference/page.tsx                  |  39 +-
+ docs/07_DELIVERY_RUNBOOK.md             |  92 +++++
+ gridforge/api/metering.py               |   2 +
+ gridforge/api/server.py                 |  95 ++++-
+ gridforge/api/tools.py                  |  46 +++
+ gridforge/cli.py                        | 176 +++++++++
+ gridforge/commercial.py                 |  33 ++
+ gridforge/costs.py                      |  14 +
+ gridforge/procurement/__init__.py       |  27 ++
+ gridforge/procurement/build.py          | 506 ++++++++++++++++++++++++
+ gridforge/procurement/evaluate.py       | 167 ++++++++
+ gridforge/procurement/ingest.py         | 114 ++++++
+ gridforge/procurement/schema.py         | 192 +++++++++
+ gridforge/reporting/spec.py             | 166 ++++++++
+ lib/products.ts                         |  18 +
+ public/reference/response_template.json |  33 ++
+ public/reference/specification.html     |  95 +++++
+ public/reference/specification.md       | 172 ++++++++
+ public/reference/tools.json             | 356 +++++++++++++++++
+ scripts/build-reference.sh              |   6 +
+ scripts/deploy-engine.sh                | 234 ++++++-----
+ tests/test_catalogue_parity.py          |  14 +
+ tests/test_deploy_script.py             | 179 +++++++++
+ tests/test_procurement.py               | 376 ++++++++++++++++++
+ 25 files changed, 3099 insertions(+), 95 deletions(-)
+ create mode 100644 gridforge/procurement/__init__.py
+ create mode 100644 gridforge/procurement/build.py
+ create mode 100644 gridforge/procurement/evaluate.py
+ create mode 100644 gridforge/procurement/ingest.py
+ create mode 100644 gridforge/procurement/schema.py
+ create mode 100644 gridforge/reporting/spec.py
+ create mode 100644 public/reference/response_template.json
+ create mode 100644 public/reference/specification.html
+ create mode 100644 public/reference/specification.md
+ create mode 100644 tests/test_deploy_script.py
+ create mode 100644 tests/test_procurement.py
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 7fee457..cfc2fd0 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -104,6 +104,37 @@ jobs:
+                --ledger gridforge/data/calibration.json; then
+             echo "client site data was written into the published ledger"; exit 1
+           fi
++      - name: A specification is traceable, and a bid round-trips
++        run: |
++          python -m gridforge spec examples/intake/reference_hall.json --list
++          python -m gridforge spec examples/intake/reference_hall.json \
++            --constraint busway_ampacity --reference CI-01 -o /tmp/spec
++          python - <<'PY'
++          import json, pathlib
++          t = json.load(open("/tmp/spec/response_template.json"))
++          assert t["compliance"], "the template lists no mandatory requirements"
++          assert t["specification"]["sized_for_racks"] > 0
++          for name, capex, lead in [("Alpha", 480000, 20), ("Beta", 392000, 44)]:
++              d = json.loads(json.dumps(t))
++              d.update(supplier=name, received_on="2026-10-01", valid_until="2026-12-31")
++              d["values"].update(capex_eur=capex, lead_time_weeks=lead, install_weeks=6)
++              d["compliance"] = {k: "C" for k in d["compliance"]}
++              pathlib.Path(f"/tmp/spec/{name}.json").write_text(json.dumps(d))
++          PY
++          python -m gridforge bids examples/intake/reference_hall.json \
++            /tmp/spec/Alpha.json /tmp/spec/Beta.json \
++            --constraint busway_ampacity --ingest --basis firm_quote | tee /tmp/bids.txt
++          grep -q "cost add" /tmp/bids.txt
++          grep -q "Review before you run it" /tmp/bids.txt
++          # A specification that names a manufacturer is one we take a margin on.
++          python - <<'PY'
++          md = open("/tmp/spec/specification.md").read().lower()
++          for brand in ("vertiv", "schneider", "eaton", "abb", "siemens", "motivair"):
++              assert brand not in md, f"the specification named {brand}"
++          assert "take no margin on hardware" in md
++          assert "not sufficient on their own to raise a purchase order" in md
++          print("specification ok")
++          PY
+       - name: Signed keys mint here and verify here
+         env:
+           GRIDFORGE_KEY_SECRET: ci-signing-secret
+@@ -186,6 +217,17 @@ jobs:
+           assert derived, 'nothing derived — the chain is flat'
+           print('provenance ok:', len(rows), 'quantities,', len(derived), 'derived')
+           "
++      - name: The published specification must be part of the worked example
++        run: |
++          test -f public/reference/specification.html
++          test -f public/reference/response_template.json
++          python -c "
++          import json
++          t = json.load(open('public/reference/response_template.json'))
++          assert t['compliance'], 'no mandatory requirements in the published template'
++          assert t['values'], 'no response fields in the published template'
++          print('published specification ok')
++          "
+       - name: The published pack must declare itself synthetic
+         run: |
+           python -c "
+diff --git a/app/reference/page.tsx b/app/reference/page.tsx
+index c6e7c8c..d86cc22 100644
+--- a/app/reference/page.tsx
++++ b/app/reference/page.tsx
+@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
+ import path from "node:path";
+ import type { Metadata } from "next";
+ import Link from "next/link";
+-import { ArrowRight, FileText, Presentation, Table2 } from "lucide-react";
++import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
+ 
+ export const metadata: Metadata = {
+   title: "The deliverable, in full — worked example | GridForge AI",
+@@ -110,7 +110,7 @@ export default async function ReferencePage() {
+         </section>
+       ) : null}
+ 
+-      <section className="mt-10 grid gap-4 md:grid-cols-3">
++      <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+         <Card
+           href="/reference/envelope_study.html"
+           icon={<FileText className="h-4 w-4" />}
+@@ -129,6 +129,41 @@ export default async function ReferencePage() {
+           title="The proposal"
+           body="What a proposal looks like when the engine has already run: the binding constraint and the rack counts before the fee, and the data request in section three."
+         />
++        <Card
++          href="/reference/specification.html"
++          icon={<ClipboardList className="h-4 w-4" />}
++          title="The tender specification"
++          body="What you send to suppliers once the study says what binds. Every duty derived from the model and naming the constraint it came from, quoted at this site's own water temperature rather than a manufacturer's reference condition."
++        />
++      </section>
++
++      <section className="mt-6 rounded border border-line bg-panel-2 p-6">
++        <div className="flex items-start gap-3">
++          <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-power" />
++          <div>
++            <h2 className="text-lg font-semibold text-ghost">
++              And the schedule that makes bids comparable
++            </h2>
++            <p className="mt-2 max-w-3xl text-sm text-mute">
++              Four quotations normally answer four different questions. The specification
++              ships with a machine-readable response schedule: the supplier returns these
++              fields in these units, and the bids are then compared in racks and weeks rather
++              than only in euros — because the item exists to unlock compute on a date, and
++              the cheaper, slower bid is the expensive one.
++            </p>
++            <div className="mt-4 flex flex-wrap gap-2">
++              {["specification.md", "response_template.json"].map((f) => (
++                <a
++                  key={f}
++                  href={`/reference/${f}`}
++                  className="rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
++                >
++                  {f}
++                </a>
++              ))}
++            </div>
++          </div>
++        </div>
+       </section>
+ 
+       <section className="mt-10 rounded border border-line bg-panel-2 p-6">
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index f9a568f..807a8e4 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -453,3 +453,95 @@ curl -s https://gridforge-engine.fly.dev/v1/version | python3 -m json.tool | hea
+ 
+ `auth_configured`, `signed_keys` and `metering.durable` are the three that matter.
+ The deploy script now calls out each one that is false.
++
++## The Procurement Specification — €18,000, and the flywheel under it
++
++A study ends with "the transformer sets the date at 52 weeks". The client then has to
++go and buy a transformer, and between the finding and the purchase order sits three
++weeks of an engineer writing a specification, arguing about what to ask for, and
++comparing four quotations that answer four different questions.
++
++That gap is the product.
++
++```bash
++python3 -m gridforge spec intake.json --list        # what on this ladder can be tendered
++python3 -m gridforge spec intake.json --constraint busway_ampacity \
++    --reference TND-2026-001 --return-by 2026-11-15 -o out
++python3 -m gridforge bids intake.json out/Alpha.json out/Beta.json \
++    --constraint busway_ampacity --ingest --basis firm_quote --region DE
++```
++
++**Every numeric requirement names the constraint it came from.** That is the whole
++argument for buying this rather than writing it in Word: a requirement nobody can
++trace back to a physical limit is one somebody invented, and those are how a tender
++specifies equipment the hall does not need. `SpecPackage.validate()` refuses a
++mandatory numeric requirement with no constraint behind it.
++
++**Duties are sized for the end state, not the rung.** A ladder rung often unlocks
++three racks. Nobody buys a transformer for three racks — they buy it for the hall
++they intend to end up with. Sizing to the rung's own delta produces a specification
++that is technically traceable and commercially absurd, which is worse than one that
++is neither.
++
++**Duties are quoted at the site's own conditions.** A CDU rated at a 5 K approach,
++installed on a site running a 24 K approach, is the commonest way a liquid retrofit
++under-delivers. The specification puts that in capitals where a supplier cannot miss
++it, and asks for the selection output at our conditions rather than a datasheet.
++
++**We name no make, no model and no supplier.** We state duty and interfaces; the
++supplier proposes the equipment; we take no margin on hardware. That is the same line
++the engagement scope draws, and it is why a client can hand this to their own
++procurement without a conflict to declare. A test asserts no manufacturer name
++appears in the document.
++
++**Bids are compared in racks and weeks.** The item exists to unlock compute on a
++date: the bid that is 12% cheaper and 14 weeks slower is the expensive one, and the
++evaluation weighting says so (35 compliance, 30 programme, 20 price, 15 judged). A
++non-compliant bid is never ranked above a compliant one, whatever its price — that
++ordering is the entire point of a "shall".
++
++Installation method and evidence quality are **15 points the tool does not score**.
++It says so rather than filling the column with a computed number, because those two
++need an engineer and a tool that pretended otherwise would be inventing the part that
++needs judgement.
++
++### The flywheel
++
++This is why the engagement is worth selling at a price that looks low next to the
++study. A study rests on library defaults with a −50%/+100% band and an AACE Class 5.
++A returned bid is a **dated, attributable, project-specific price** — and
++`--ingest` prints the exact `gridforge cost add` commands it implies:
++
++```
++library_default      E0   a placeholder with a band
++budgetary_quote      E3   a supplier's indicative number
++firm_quote           E5   a written quotation with a validity date
++contracted           E7   what was actually paid
++```
++
++The moment that line lands in the library, every future study touching it gets
++stronger and its accuracy class improves. **Procurement work pays twice.**
++
++The commands are printed for review, never run. A price that enters the library
++unreviewed is one nobody can defend when a client asks where it came from.
++
++**The conversion is the dangerous part and is tested hardest.** A supplier quotes one
++delivered number. The library holds `tapoff.unit` per rack, `ups.per_kW` per kW and
++`busway.replacement` as a lump sum. Entering a lump sum on a per-rack line is wrong by
++the rack count, it carries a *quotation's* evidence class, and every future study
++inherits it with a straight face — worse than having no flywheel at all. The basis
++comes from `costs.declared_unit()`, a registry populated by the constraint that prices
++each key, not guessed from a step's already-multiplied total.
++
++### Machine interface
++
++`/v1/spec` (3 units) and `/v1/bids` (2 units), and `gridforge_spec` / `gridforge_bids`
++over MCP. A portfolio tool can generate a specification and rank the responses without
++a person in the loop; the screening-mode disclosure rides on the document either way.
++
++### On the reference page
++
++`/reference` publishes a complete specification and its response schedule alongside
++the study. A prospect can read the document they would actually send to suppliers
++before paying for anything — same argument as publishing the study, one step further
++down the sales cycle.
+diff --git a/gridforge/api/metering.py b/gridforge/api/metering.py
+index 299d8ba..1232d95 100644
+--- a/gridforge/api/metering.py
++++ b/gridforge/api/metering.py
+@@ -44,6 +44,8 @@ UNIT_COST: dict[str, int] = {
+     "/v1/deck": 3,
+     "/v1/diff": 2,           # two solves plus one per attributed driver
+     "/v1/portfolio": 1,      # per hall in the request; see units_for()
++    "/v1/spec": 3,           # a solve plus a derived, tender-ready document
++    "/v1/bids": 2,           # a solve plus the comparison against it
+     "/v1/calibration": 0,
+     "/v1/tools": 0,
+     "/v1/usage": 0,
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+index 27870a6..31ad564 100644
+--- a/gridforge/api/server.py
++++ b/gridforge/api/server.py
+@@ -20,6 +20,8 @@ Endpoints
+     POST /v1/proposal                   intake     -> priced proposal       (key)
+     POST /v1/deck                       intake     -> walkthrough deck      (key)
+     POST /v1/diff                       two intakes-> change note           (key)
++    POST /v1/spec                       intake     -> tender specification  (key)
++    POST /v1/bids                       intake+bids-> ranked comparison     (key)
+     GET  /v1/calibration                how far the model is reconciled      (public)
+     GET  /v1/tools                      machine-callable tool schemas        (public)
+     GET  /v1/usage                      this key's metered usage             (key)
+@@ -67,7 +69,7 @@ from .payloads import qualify_payload, screen_payload
+ from .tiers import Tier
+ from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
+ 
+-VERSION = "0.8.0"
++VERSION = "0.9.0"
+ MAX_BODY_BYTES = 512 * 1024
+ RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
+ 
+@@ -302,6 +304,95 @@ def handle_proposal(body: dict, tier: Tier) -> dict:
+     return out
+ 
+ 
++def handle_spec(body: dict, tier: Tier) -> dict:
++    from ..procurement import ProcurementError, build_spec, relief_steps
++    from ..reporting.spec import build as build_spec_report
++    intake, results = _run(body.get("intake") or body)
++    objective = _objective(body)
++    from ..reporting.study import _pick_recommended
++    rec = _pick_recommended(results, objective)
++    result = next((r for r in results if r.spec.id == body.get("scenario")), rec)
++
++    if body.get("list"):
++        return {"reliefs": [
++            {"constraint_id": st.binding_id, "constraint": st.binding_name,
++             "racks_unlocked": st.racks_unlocked, "cost_key": st.cost_key,
++             "relief": st.relief_description}
++            for st in relief_steps(result)]}
++    try:
++        pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
++    except ProcurementError as exc:
++        raise ApiError(422, str(exc))
++
++    report = build_spec_report(pkg, reference=str(body.get("reference") or ""),
++                               return_by=str(body.get("return_by") or ""),
++                               contact=str(body.get("contact") or ""),
++                               claims=collect_claims(results))
++    out = _rendered(report, results, str(body.get("format") or "html").lower())
++    out["specification"] = {
++        "constraint_id": pkg.constraint_id, "constraint": pkg.constraint_name,
++        "relief": pkg.relief_title, "sized_for_racks": pkg.sized_for_racks,
++        "requirements": len(pkg.requirements), "mandatory": len(pkg.mandatory()),
++    }
++    out["response_template"] = {
++        "supplier": "", "received_on": "", "valid_until": "",
++        "values": {f.key: None for f in pkg.response_fields},
++        "compliance": {q.id: "" for q in pkg.mandatory()},
++    }
++    return out
++
++
++def handle_bids(body: dict, tier: Tier) -> dict:
++    from ..procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
++    from ..procurement.evaluate import schedule_impact
++    from ..procurement.ingest import cost_entries_from
++
++    raw = body.get("responses")
++    if not isinstance(raw, list) or not raw:
++        raise ApiError(422, 'expected {"intake": {...}, "responses": [ ... ]}')
++    intake, results = _run(body.get("intake") or {})
++    objective = _objective(body)
++    from ..reporting.study import _pick_recommended
++    result = next((r for r in results if r.spec.id == body.get("scenario")),
++                  _pick_recommended(results, objective))
++    try:
++        pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
++        responses = [SupplierResponse.from_dict(d) for d in raw]
++        ranked = rank_bids(pkg, responses)
++    except ProcurementError as exc:
++        raise ApiError(422, str(exc))
++
++    best = next((a for a in ranked if not a.disqualified and a.compliant), None)
++    payload = {
++        "relief": pkg.relief_title,
++        "constraint_id": pkg.constraint_id,
++        "sized_for_racks": pkg.sized_for_racks,
++        "ranked": [{
++            "rank": i, "supplier": a.supplier, "headline": a.headline(),
++            "capex_eur": a.capex_eur, "weeks_to_energised": a.weeks_to_energised,
++            "eur_per_rack": a.eur_per_rack, "compliant": a.compliant,
++            "disqualified": a.disqualified, "score": round(a.total_score, 1),
++            "scores": {k: round(v, 1) for k, v in a.scores.items()},
++            "mandatory_failed": a.mandatory_failed, "notes": a.notes,
++            "schedule_impact": schedule_impact(pkg, a),
++        } for i, a in enumerate(ranked, 1)],
++        "leading": best.supplier if best else None,
++        "note": ("Installation method and evidence quality carry 15 of the 100 points and "
++                 "are scored by an engineer, not by this endpoint. A ranking that claimed "
++                 "to have judged them would be inventing the part that needs judgement."),
++    }
++    if body.get("ingest") and best is not None:
++        winner = next(r for r in responses if r.supplier == best.supplier)
++        try:
++            payload["cost_library_entries"] = cost_entries_from(
++                pkg, winner, basis=str(body.get("basis") or "budgetary_quote"),
++                region=str(body.get("region") or ""))
++        except ProcurementError as exc:
++            payload["cost_library_entries"] = []
++            payload["ingest_error"] = str(exc)
++    return payload
++
++
+ def handle_portfolio(body: dict, tier: Tier) -> dict:
+     docs = body.get("intakes")
+     if not isinstance(docs, list) or not docs:
+@@ -338,6 +429,8 @@ ROUTES = {
+     "/v1/proposal": (handle_proposal, Tier.CLIENT),
+     "/v1/deck": (handle_deck, Tier.CLIENT),
+     "/v1/diff": (handle_diff, Tier.CLIENT),
++    "/v1/spec": (handle_spec, Tier.CLIENT),
++    "/v1/bids": (handle_bids, Tier.CLIENT),
+ }
+ 
+ GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
+diff --git a/gridforge/api/tools.py b/gridforge/api/tools.py
+index f28adb6..8410302 100644
+--- a/gridforge/api/tools.py
++++ b/gridforge/api/tools.py
+@@ -139,6 +139,52 @@ TOOLS: list[dict] = [
+          "additionalProperties": False},
+         returns="headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
+     ),
++    _tool(
++        "gridforge_spec",
++        ("Turn a binding constraint into a tender-ready technical specification: every "
++         "numeric requirement derived from the capacity model and naming the constraint it "
++         "came from, quoted at the site's own conditions rather than a manufacturer's "
++         "reference condition, plus a machine-readable response schedule. Pass list=true to "
++         "see which reliefs on the ladder can be tendered."),
++        "/v1/spec",
++        {"type": "object", "required": ["intake"],
++         "properties": {"intake": _INTAKE_SCHEMA,
++                        "constraint": {"type": "string",
++                                       "description": "constraint id to tender for"},
++                        "scenario": {"type": "string"},
++                        "list": {"type": "boolean", "default": False},
++                        "reference": {"type": "string"},
++                        "objective": _OBJECTIVE,
++                        "format": {"type": "string", "enum": ["html", "md"],
++                                   "default": "html"}},
++         "additionalProperties": False},
++        returns=("the specification document, what it is sized for, and the response "
++                 "template a supplier fills in."),
++    ),
++    _tool(
++        "gridforge_bids",
++        ("Compare supplier responses against the capacity model: what each bid does to the "
++         "energisation date and to deployable rack count, not only what it costs. A "
++         "non-compliant bid is never ranked above a compliant one."),
++        "/v1/bids",
++        {"type": "object", "required": ["intake", "responses"],
++         "properties": {"intake": _INTAKE_SCHEMA,
++                        "responses": {"type": "array", "minItems": 1,
++                                      "items": {"type": "object",
++                                                "additionalProperties": True}},
++                        "constraint": {"type": "string"},
++                        "scenario": {"type": "string"},
++                        "ingest": {"type": "boolean", "default": False,
++                                   "description": "also return the cost-library lines the "
++                                                  "winning response implies"},
++                        "basis": {"type": "string",
++                                  "enum": ["budgetary_quote", "firm_quote", "contracted"],
++                                  "default": "budgetary_quote"},
++                        "region": {"type": "string"},
++                        "objective": _OBJECTIVE},
++         "additionalProperties": False},
++        returns="ranked bids with scores, schedule impact, and optional cost-library lines.",
++    ),
+     _tool(
+         "gridforge_proposal",
+         "A priced proposal for a named engagement, built from what the engine already found.",
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index be3c560..5ded0b1 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -503,6 +503,154 @@ def cmd_key(args) -> int:
+     return 0
+ 
+ 
++def cmd_spec(args) -> int:
++    """A tender-ready specification for one relief, and the template for responses."""
++    from .procurement import ProcurementError, build_spec, relief_steps
++    from .reporting.spec import build as build_spec_report
++
++    intake = load(args.intake)
++    results = _run(intake)
++    objective = OBJECTIVES[args.objective]
++    rec = _pick_recommended(results, objective)
++    result = next((r for r in results if r.spec.id == args.scenario), rec) \
++        if args.scenario else rec
++
++    if args.list:
++        steps = relief_steps(result)
++        if not steps:
++            print(f"{result.spec.name}: no relief on this ladder is a purchase.")
++            return 0
++        # Aggregated by constraint, not one line per rung. The same constraint
++        # binds several times as the ladder climbs, and you tender for the
++        # constraint once — for the hall's end state — not once per rung.
++        agg: dict[str, dict] = {}
++        for st in steps:
++            a = agg.setdefault(st.binding_id, {
++                "racks": 0, "rungs": 0, "key": st.cost_key or "—",
++                "relief": st.relief_description or "", "capex": 0.0})
++            a["racks"] += st.racks_unlocked
++            a["rungs"] += 1
++            if st.capex_eur is not None:
++                a["capex"] += st.capex_eur.value
++        print(f"{result.spec.name} — reliefs that can be tendered:")
++        print(f"  {'constraint':26s} {'unlocks':>8s} {'rungs':>6s}  {'cost key':24s} relief")
++        for cid, a in sorted(agg.items(), key=lambda kv: -kv[1]["racks"]):
++            print(f"  {cid:26s} {a['racks']:8d} {a['rungs']:6d}  "
++                  f"{a['key']:24s} {a['relief']}")
++        print(f"\n  gridforge spec {args.intake} --constraint <id> -o out")
++        return 0
++
++    try:
++        pkg = build_spec(intake, result, constraint_id=args.constraint)
++    except ProcurementError as exc:
++        print(f"refused: {exc}", file=sys.stderr)
++        return 2
++
++    out = Path(args.out)
++    report = build_spec_report(pkg, reference=args.reference, return_by=args.return_by,
++                               contact=args.contact, claims=collect_claims(results))
++    w = _emit(report, out, "specification", claims=collect_claims(results))
++
++    # The machine-readable response template. A supplier fills this in and
++    # `gridforge bids` reads it back — which is how a quotation becomes a dated,
++    # attributable cost-library line instead of a PDF in somebody's inbox.
++    template = {
++        "specification": {"project": pkg.project, "hall": pkg.hall,
++                          "constraint": pkg.constraint_id,
++                          "sized_for_racks": pkg.sized_for_racks,
++                          "reference": args.reference},
++        "supplier": "",
++        "received_on": "",
++        "reference": "",
++        "valid_until": "",
++        "values": {f.key: None for f in pkg.response_fields},
++        "compliance": {q.id: "" for q in pkg.mandatory()},
++        "text": {"exclusions": "", "long_lead_item": ""},
++    }
++    tpath = out / "response_template.json"
++    tpath.write_text(json.dumps(template, indent=2) + "\n")
++    w.paths.append(tpath)
++
++    print(f"Specification — {pkg.relief_title}: {len(pkg.requirements)} requirements "
++          f"({len(pkg.mandatory())} mandatory), sized for {pkg.sized_for_racks} racks.")
++    if pkg.budget_eur is not None:
++        print(f"  modelled budget {pkg.budget_eur.render()}; a response far from this is "
++              f"answering a different question.")
++    w.report()
++    return 0
++
++
++def cmd_bids(args) -> int:
++    """Compare responses in racks and weeks, and turn them into cost-library lines."""
++    from .procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
++    from .procurement.evaluate import schedule_impact
++    from .procurement.ingest import command_lines, cost_entries_from
++
++    intake = load(args.intake)
++    results = _run(intake)
++    objective = OBJECTIVES[args.objective]
++    result = next((r for r in results if r.spec.id == args.scenario),
++                  _pick_recommended(results, objective)) if args.scenario \
++        else _pick_recommended(results, objective)
++    try:
++        pkg = build_spec(intake, result, constraint_id=args.constraint)
++    except ProcurementError as exc:
++        print(f"refused: {exc}", file=sys.stderr)
++        return 2
++
++    responses = []
++    for path in args.responses:
++        p = Path(path)
++        if not p.exists():
++            print(f"no such response file: {path}", file=sys.stderr)
++            return 2
++        try:
++            responses.append(SupplierResponse.from_dict(json.loads(p.read_text())))
++        except json.JSONDecodeError as exc:
++            print(f"{path}: not valid JSON ({exc})", file=sys.stderr)
++            return 2
++        except ProcurementError as exc:
++            print(f"{path}: {exc}", file=sys.stderr)
++            return 2
++
++    ranked = rank_bids(pkg, responses)
++    print(f"{pkg.relief_title} — {len(ranked)} response(s), sized for "
++          f"{pkg.sized_for_racks} racks\n")
++    for i, a in enumerate(ranked, 1):
++        print(f"{i}. {a.headline()}")
++        print(f"     {schedule_impact(pkg, a)}")
++        if a.eur_per_rack:
++            print(f"     EUR {a.eur_per_rack:,.0f} per rack enabled")
++        for n in a.notes:
++            print(f"     - {n}")
++        print()
++
++    best = next((a for a in ranked if not a.disqualified and a.compliant), None)
++    if best is None:
++        print("No compliant response. Nothing here can be recommended.")
++        return 0
++
++    print(f"On the numbers this tool can judge, {best.supplier} leads. Installation "
++          f"method and evidence quality are 15 points that an engineer scores, not this.")
++
++    if args.ingest:
++        try:
++            entries = cost_entries_from(pkg, next(r for r in responses
++                                                  if r.supplier == best.supplier),
++                                        basis=args.basis, region=args.region)
++        except ProcurementError as exc:
++            print(f"\ncannot make a cost-library line from it: {exc}", file=sys.stderr)
++            return 2
++        print("\nThis response is a dated, attributable price. Putting it in the library "
++              "raises the evidence class of every study that touches this line:\n")
++        for line in command_lines(entries, library=args.library or ""):
++            print(line)
++            print()
++        print("Review before you run it. A price that enters the library unreviewed is "
++              "one nobody can defend when a client asks where it came from.")
++    return 0
++
++
+ def cmd_serve(args) -> int:
+     from .api.server import serve
+     serve(args.host, args.port)
+@@ -639,6 +787,34 @@ def main(argv: list[str] | None = None) -> int:
+                         "customer's agents dark while the webhook lands.")
+     s.set_defaults(func=cmd_key)
+ 
++    s = sub.add_parser("spec", help="a tender-ready specification for one relief")
++    s.add_argument("intake")
++    s.add_argument("-o", "--out", default="out")
++    s.add_argument("--constraint", default="",
++                   help="which constraint to tender for (default: the first purchasable rung)")
++    s.add_argument("--scenario", default="", help="scenario id (default: the recommended one)")
++    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++    s.add_argument("--reference", default="", help="your tender reference")
++    s.add_argument("--return-by", dest="return_by", default="")
++    s.add_argument("--contact", default="")
++    s.add_argument("--list", action="store_true",
++                   help="list the reliefs on this ladder that can be tendered, and stop")
++    s.set_defaults(func=cmd_spec)
++
++    s = sub.add_parser("bids", help="compare supplier responses in racks, weeks and euros")
++    s.add_argument("intake")
++    s.add_argument("responses", nargs="+", help="completed response_template.json files")
++    s.add_argument("--constraint", default="")
++    s.add_argument("--scenario", default="")
++    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++    s.add_argument("--ingest", action="store_true",
++                   help="print the cost-library commands the winning response implies")
++    s.add_argument("--basis", default="budgetary_quote",
++                   help="budgetary_quote | firm_quote | contracted")
++    s.add_argument("--region", default="")
++    s.add_argument("--library", default="")
++    s.set_defaults(func=cmd_bids)
++
+     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
+     s.add_argument("--host", default="0.0.0.0")
+     s.add_argument("--port", type=int, default=8080)
+diff --git a/gridforge/commercial.py b/gridforge/commercial.py
+index 88cc5d6..f89dfdc 100644
+--- a/gridforge/commercial.py
++++ b/gridforge/commercial.py
+@@ -75,6 +75,39 @@ ENGAGEMENTS: dict[str, Engagement] = {
+         ),
+         scope_out=SCOPE_OUT_COMMON,
+     ),
++    "procurement_spec": Engagement(
++        id="procurement_spec",
++        name="Procurement Specification",
++        price_eur=18_000,
++        turnaround_days=12,
++        question="What exactly do we buy, and which bid actually moves the date?",
++        deliverable=(
++            "A tender-ready technical specification for one relief, a machine-readable "
++            "response schedule, and a bid comparison in racks and weeks rather than only in "
++            "euros."),
++        scope_in=(
++            "Every numeric requirement derived from the capacity model, naming the constraint "
++            "it came from — so a supplier who meets the specification provably relieves the "
++            "limit, rather than supplying equipment somebody liked the look of.",
++            "Duties quoted at YOUR site conditions, not at a manufacturer's reference "
++            "condition. A CDU rated at a 5 K approach and installed on a 24 K site is the "
++            "commonest way a liquid retrofit under-delivers.",
++            "An evaluation matrix weighted for programme as well as price: the item exists to "
++            "unlock compute on a date, and the cheaper, slower bid is the expensive one.",
++            "Bid comparison against the capacity model — what each response does to the "
++            "energisation date and to deployable rack count.",
++            "The response schedule returned to you as structured data you keep.",
++        ),
++        scope_out=SCOPE_OUT_COMMON + (
++            "Running the tender, contracting, or any commercial relationship with the "
++            "suppliers. We specify duty and interfaces; we name no make or model, quote no "
++            "equipment and take no margin on hardware.",
++        ),
++        credits_against=None,
++        payment_terms=("100% on commissioning. One specification per engagement: a combined "
++                       "tender for four unrelated reliefs gets four suppliers quoting the "
++                       "parts they are comfortable with and nobody owning the constraint."),
++    ),
+     "portfolio_screen": Engagement(
+         id="portfolio_screen",
+         name="Portfolio Screen",
+diff --git a/gridforge/costs.py b/gridforge/costs.py
+index 35fa0c9..7a71d54 100644
+--- a/gridforge/costs.py
++++ b/gridforge/costs.py
+@@ -195,6 +195,11 @@ class CostLibrary:
+                note: str | None = None) -> Quantity:
+         """The price for a relief. Falls back to the caller's placeholder, recorded
+         as a library default so the report can count how many of them it rests on."""
++        # Record the basis the constraint prices this key on. A supplier quotes one
++        # delivered number; the library holds EUR, EUR/rack or EUR/kW depending on
++        # the line, and procurement ingest needs to know which without guessing from
++        # a step's already-multiplied total.
++        DECLARED_UNITS.setdefault(key, unit)
+         entry = self.entries.get(key)
+         if entry is None:
+             entry = CostEntry(key=key, label=label, unit=unit, value=fallback_value,
+@@ -238,6 +243,15 @@ def reload_library(path: str | Path | None = None) -> CostLibrary:
+     return _LIBRARY
+ 
+ 
++#: key -> the unit the constraint that prices it declared. Populated on first
++#: lookup, which always happens during a solve, before anything procures.
++DECLARED_UNITS: dict[str, str] = {}
++
++
++def declared_unit(key: str, fallback: str = "EUR") -> str:
++    return DECLARED_UNITS.get(key, fallback)
++
++
+ def cost(key: str, fallback_value: float, unit: str, label: str,
+          note: str | None = None) -> Quantity:
+     return library().lookup(key, fallback_value, unit, label, note)
+diff --git a/gridforge/procurement/__init__.py b/gridforge/procurement/__init__.py
+new file mode 100644
+index 0000000..84b64ab
+--- /dev/null
++++ b/gridforge/procurement/__init__.py
+@@ -0,0 +1,27 @@
++"""Turning a binding constraint into a thing a supplier can quote against.
++
++A study ends with "the transformer sets the date at 52 weeks". The client then has
++to go and buy a transformer, and between the finding and the purchase order sits
++three weeks of an engineer writing a specification, arguing about what to ask for,
++and comparing four quotations that answer four different questions.
++
++That gap is the product. Every requirement in the specification is derived from a
++number the engine already computed, with the constraint it came from named beside
++it — so the specification cannot drift from the study, and a supplier who meets it
++provably relieves the constraint.
++
++And the responses come back. A returned bid is a dated, attributable price for a
++specific relief on a specific project, which is exactly what the cost library is
++short of. Every procurement engagement upgrades the evidence class of the figures
++that every future study rests on. That is the flywheel: the work that pays for
++itself twice.
++"""
++from .schema import (EvaluationCriterion, Requirement, ResponseField, ScopeItem,
++                     SpecPackage, SupplierResponse, ProcurementError)
++from .build import build_spec, relief_steps
++from .evaluate import BidAssessment, assess, rank_bids
++from .ingest import cost_entries_from
++
++__all__ = ["EvaluationCriterion", "Requirement", "ResponseField", "ScopeItem",
++           "SpecPackage", "SupplierResponse", "ProcurementError", "build_spec",
++           "relief_steps", "BidAssessment", "assess", "rank_bids", "cost_entries_from"]
+diff --git a/gridforge/procurement/build.py b/gridforge/procurement/build.py
+new file mode 100644
+index 0000000..8fac19e
+--- /dev/null
++++ b/gridforge/procurement/build.py
+@@ -0,0 +1,506 @@
++"""Deriving a specification from the constraint that actually binds.
++
++One generator per constraint. Each returns requirements whose numbers come out of
++the solved model — the tap-off rating a rack genuinely needs, the transformer
++capacity the target load genuinely implies, the CDU duty at THIS site's water
++temperature rather than at the manufacturer's 5 K approach.
++
++What is deliberately absent: any equipment selection, any make, any model, any
++supplier. We specify the duty and the interfaces; the supplier proposes the
++equipment and we do not take a margin on it. That is the same line the engagement
++scope draws, and it is the reason a client can hand this document to their own
++procurement without a conflict to declare.
++"""
++from __future__ import annotations
++
++import math
++
++from ..common import V
++from ..constraints import EnvelopeContext
++from ..envelope.solver import LadderStep
++from ..scenario.run import ScenarioResult
++from ..validation import EvidenceClass, Quantity
++from .schema import (INFORMATIVE, MANDATORY, PREFERRED, EvaluationCriterion,
++                     ProcurementError, Requirement, ResponseField, ScopeItem,
++                     SpecPackage)
++
++
++def relief_steps(result: ScenarioResult) -> list[LadderStep]:
++    """Rungs that are actually a purchase. A commercial relief has nothing to tender."""
++    return [s for s in result.ladder.steps
++            if s.taken and s.cost_key not in (None, "", "not-capital")]
++
++
++def _q(value: float, unit: str, label: str, ev: EvidenceClass, model: str) -> Quantity:
++    return Quantity.given(value, unit, label, ev).relabel(label, model)
++
++
++# --- per-constraint requirement generators ----------------------------------
++
++def _tapoff(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    lv = ctx.power.lv
++    need_A = plat.rack_feed_current_A
++    reqs = [
++        Requirement(
++            id="E-01", clause="Tap-off continuous rating",
++            statement=(f"Each rack tap-off unit shall be rated for continuous operation at "
++                       f"not less than the rack feed current stated in the response "
++                       f"schedule, at the busway voltage and the hall's design ambient."),
++            value=need_A, unit="A", derived_from="rack_feed_tapoff",
++            basis=(f"{plat.name} draws {need_A.render() if need_A else 'the stated current'} "
++                   f"per rack; the installed tap-offs are rated "
++                   f"{lv.tapoff_max_A.render()}."),
++            verification="Type test certificate and manufacturer's rating curve at design ambient."),
++        Requirement(
++            id="E-02", clause="Quantity",
++            statement=f"The supply shall cover {racks} rack positions.",
++            value=_q(float(racks), "racks", "tap-off units required",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.quantity"),
++            unit="racks", derived_from="rack_feed_tapoff",
++            basis="Racks unlocked by this relief in the capacity model.",
++            verification="Bill of quantities in the response."),
++        Requirement(
++            id="E-03", clause="Busway compatibility",
++            statement=("Tap-off units shall be mechanically and electrically compatible with "
++                       "the installed busway system, or the response shall state the busway "
++                       "replacement it requires as a separate priced item."),
++            obligation=MANDATORY, derived_from="rack_feed_tapoff",
++            basis=(f"Installed busway ampacity {lv.busway_ampacity_A.render()} at "
++                   f"{lv.voltage_V.render()}, {lv.busway_runs} runs."),
++            verification="Compatibility statement naming the installed system."),
++        Requirement(
++            id="E-04", clause="Live working",
++            statement=("Tap-off units should be capable of installation onto an energised "
++                       "busway, or the response shall state the outage duration required "
++                       "per run."),
++            obligation=PREFERRED, derived_from="rack_feed_tapoff",
++            basis=("An occupied hall cannot take an unplanned outage; outage duration is a "
++                   "commercial cost to the client, not only a programme item."),
++            verification="Method statement."),
++    ]
++    return reqs
++
++
++def _busway(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    lv = ctx.power.lv
++    plat = ctx.cluster.platform
++    # Required ampacity per run for the target rack count, at the site's own
++    # utilisation limit. This is the number a supplier can actually quote against.
++    per_run = max(1, lv.busway_runs)
++    load_kW = plat.rack_kW.value * racks
++    amps = (load_kW * 1000.0) / (lv.voltage_V.value * math.sqrt(3) * 0.95)
++    required = amps / per_run / max(0.1, lv.busway_utilisation_limit.value)
++    return [
++        Requirement(
++            id="E-10", clause="Busway continuous ampacity",
++            statement=("Each busway run shall have a continuous ampacity not less than the "
++                       "figure stated, at the hall's design ambient and installed "
++                       "configuration."),
++            value=_q(required, "A", "required busway ampacity per run",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.busway_ampacity"),
++            unit="A", derived_from="busway_ampacity",
++            basis=(f"{racks} racks at {plat.rack_kW.render()} over {per_run} run(s) at "
++                   f"{lv.voltage_V.render()}, three phase, power factor 0.95, derated to "
++                   f"the site's {lv.busway_utilisation_limit.render()} continuous limit. "
++                   f"Installed: {lv.busway_ampacity_A.render()}."),
++            verification="Type test certificate to the applicable standard, with derating basis stated."),
++        Requirement(
++            id="E-11", clause="Phasing and outage",
++            statement=("The programme shall allow replacement run by run with the hall in "
++                       "service. The response shall state the outage window per run."),
++            derived_from="busway_ampacity",
++            basis="Live tenancy in the hall during the works.",
++            verification="Method statement and programme."),
++        Requirement(
++            id="E-12", clause="Tap-off provision",
++            statement=("Busway shall accept tap-off units at the density required by the "
++                       "rack pitch stated in the response schedule."),
++            obligation=MANDATORY, derived_from="busway_ampacity",
++            basis=f"Hall aisle configuration; {racks} positions to be fed.",
++            verification="Layout drawing."),
++    ]
++
++
++def _transformer(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    pue = ctx.pue
++    facility_kW = plat.rack_kW.value * racks * pue.value
++    mva = facility_kW / 1000.0 / 0.95
++    banks = ctx.power.transformers
++    derate = banks[0].derating_factor.render() if banks else "the site's derating policy"
++    return [
++        Requirement(
++            id="E-20", clause="Transformer rating",
++            statement=("Transformer capacity shall be not less than the figure stated, after "
++                       "the site's derating policy and at the specified redundancy."),
++            value=_q(mva, "MVA", "required transformer capacity",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.transformer_rating"),
++            unit="MVA", derived_from="transformer_capacity",
++            basis=(f"{racks} racks at {plat.rack_kW.render()}, PUE {pue.render()}, power "
++                   f"factor 0.95. Site derating {derate}."),
++            verification="Rating plate and factory test certificate."),
++        Requirement(
++            id="E-21", clause="Redundancy",
++            statement=(f"The configuration shall maintain "
++                       f"{banks[0].redundancy if banks else 'N+1'} with any one unit out of "
++                       f"service."),
++            derived_from="transformer_capacity",
++            basis="Existing site redundancy policy; a retrofit may not reduce it.",
++            verification="Single line diagram."),
++        Requirement(
++            id="E-22", clause="Harmonic performance",
++            statement=("The response shall state the K-factor or harmonic derating basis for "
++                       "an IT load of this class, and the resulting continuous rating."),
++            derived_from="transformer_capacity",
++            basis=("GPU rectifier loads are harmonic-rich; a nameplate rating without a "
++                   "stated harmonic basis is not a usable number."),
++            verification="Calculation and, where available, measured data from a comparable installation."),
++        Requirement(
++            id="E-23", clause="Delivery programme",
++            statement=("The response shall state ex-works and delivered-to-site dates, and "
++                       "identify which long-lead component governs them."),
++            obligation=MANDATORY, derived_from="transformer_capacity",
++            basis=("Transformer lead time frequently sets the energisation date for the "
++                   "whole retrofit; which component governs is the thing worth managing."),
++            verification="Programme with named long-lead items."),
++    ]
++
++
++def _ups(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    kW = plat.rack_kW.value * racks
++    blocks = ctx.power.ups
++    step = blocks[0].step_load_capability.render() if blocks else "the stated fraction"
++    return [
++        Requirement(
++            id="E-30", clause="Protected capacity",
++            statement="Additional protected capacity shall be not less than the figure stated.",
++            value=_q(kW, "kW", "additional protected load",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.ups_capacity"),
++            unit="kW", derived_from="ups_capacity",
++            basis=f"{racks} racks at {plat.rack_kW.render()}.",
++            verification="Rating and factory test certificate."),
++        Requirement(
++            id="E-31", clause="Step load",
++            statement=("The system shall accept the step load stated in the response schedule "
++                       "without transfer to bypass."),
++            derived_from="ups_capacity",
++            basis=(f"AI training loads step far harder than general IT. Installed blocks are "
++                   f"rated for {step} of nameplate as a step."),
++            verification="Witnessed step-load test at the stated fraction."),
++        Requirement(
++            id="E-32", clause="Compatibility",
++            statement=("New modules shall parallel with the installed system, or the response "
++                       "shall price a standalone block and its switchgear separately."),
++            obligation=MANDATORY, derived_from="ups_capacity",
++            basis="Mixed-vintage parallel operation is a common and expensive surprise.",
++            verification="Manufacturer's compatibility statement."),
++    ]
++
++
++def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    plant = ctx.thermal.plant
++    duty = plat.liquid_kW().value * racks
++    flow = plat.flow_l_per_min_per_rack.value * racks
++    approach = max(1.0, plat.max_inlet_liquid_C.value - plant.design_supply_C.value)
++    return [
++        Requirement(
++            id="T-01", clause="Rated duty at site conditions",
++            statement=("CDU duty shall be not less than the figure stated WHEN RATED AT THE "
++                       "SITE FACILITY WATER TEMPERATURE below, not at the manufacturer's "
++                       "reference approach."),
++            value=_q(duty, "kW", "required CDU duty at site conditions",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.cdu_duty"),
++            unit="kW", derived_from="cdu_capacity",
++            basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load. Facility water "
++                   f"{plant.design_supply_C.render()}; platform accepts up to "
++                   f"{plat.max_inlet_liquid_C.render()} at the technology cooling loop."),
++            verification="Performance curve or selection output at the stated facility water temperature."),
++        Requirement(
++            id="T-02", clause="Facility water conditions",
++            statement=(f"Equipment shall achieve the rated duty with facility water supplied "
++                       f"at {plant.design_supply_C.render()}, return "
++                       f"{plant.design_return_C.render()}."),
++            value=plant.design_supply_C, unit="degC", derived_from="cdu_capacity",
++            basis=("Rating a CDU at a 5 K approach and installing it on a site with a far "
++                   "wider approach is the single most common way a liquid retrofit "
++                   "under-delivers."),
++            verification="Selection output at these exact conditions."),
++        Requirement(
++            id="T-03", clause="Technology loop flow",
++            statement="Technology-side flow shall be not less than the figure stated.",
++            value=_q(flow, "l/min", "required technology loop flow",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.tcs_flow"),
++            unit="l/min", derived_from="cdu_capacity",
++            basis=f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}.",
++            verification="Pump curve and duty point."),
++        Requirement(
++            id="T-04", clause="Approach temperature",
++            statement=("The response shall state the approach temperature achieved at the "
++                       "duty point above."),
++            value=_q(approach, "K", "available approach at site conditions",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.cdu_approach"),
++            unit="K", derived_from="cdu_capacity",
++            basis="Approach at site conditions is what determines usable duty.",
++            verification="Selection output."),
++        Requirement(
++            id="T-05", clause="Redundancy and water quality",
++            statement=("Configuration shall be N+1 at the stated duty. The response shall "
++                       "state technology-loop water chemistry and filtration requirements."),
++            derived_from="cdu_capacity",
++            basis="Cold-plate fouling is a warranty question before it is a capacity question.",
++            verification="Manufacturer's water quality specification."),
++    ]
++
++
++def _plant(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    plant = ctx.thermal.plant
++    duty = plat.residual_air_kW().value * racks
++    return [
++        Requirement(
++            id="T-20", clause="Additional cooling capacity",
++            statement="Additional plant capacity shall be not less than the figure stated.",
++            value=_q(duty, "kW", "required additional plant capacity",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.plant_duty"),
++            unit="kW", derived_from="plant_capacity",
++            basis=(f"{racks} racks at {plat.residual_air_kW().render()} residual air load. "
++                   f"Installed plant {plant.chilled_water_capacity_kW.render()}."),
++            verification="Selection output at site design ambient."),
++        Requirement(
++            id="T-21", clause="Design ambient",
++            statement=("Capacity shall be achieved at the site summer design dry bulb stated "
++                       "in the response schedule, not at a standard rating condition."),
++            derived_from="plant_capacity",
++            basis="A rating at 35 degC on a site that sees 38 degC is a shortfall by design.",
++            verification="Performance data at the stated ambient."),
++        Requirement(
++            id="T-22", clause="Free cooling",
++            statement=("The response should state annual free-cooling hours at the site's "
++                       "weather file and the resulting annual energy."),
++            obligation=PREFERRED, derived_from="plant_capacity",
++            basis=(f"Existing plant achieves {plant.free_cooling_hours_per_year.render()}; "
++                   f"raising the loop temperature is usually worth more than raising duty."),
++            verification="Annual simulation against the site weather file."),
++    ]
++
++
++def _hydraulic(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
++    plat = ctx.cluster.platform
++    plant = ctx.thermal.plant
++    flow = plat.flow_l_per_min_per_rack.value * racks
++    return [
++        Requirement(
++            id="T-40", clause="Pumped flow",
++            statement="Available pumped flow shall be not less than the figure stated.",
++            value=_q(flow, "l/min", "required pumped flow",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.pumped_flow"),
++            unit="l/min", derived_from="hydraulic_flow",
++            basis=(f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}. Installed "
++                   f"capacity {plant.pump_flow_capacity_l_per_min.render()} at "
++                   f"{plant.available_head_kPa.render()}."),
++            verification="Pump curve at the system duty point."),
++        Requirement(
++            id="T-41", clause="Head",
++            statement=("The response shall state available head at the duty point and the "
++                       "assumed system resistance."),
++            value=plant.available_head_kPa, unit="kPa", derived_from="hydraulic_flow",
++            basis="A flow figure without a head figure is not a duty point.",
++            verification="Hydraulic calculation."),
++    ]
++
++
++def _generic(ctx: EnvelopeContext, racks: int, step: LadderStep) -> list[Requirement]:
++    """A constraint with no specialist generator yet.
++
++    Produces an honest skeleton rather than an invented specification: the duty is
++    stated in racks and the supplier is asked what they would propose. Inventing
++    technical clauses for a constraint nobody has written a generator for is how a
++    tender ends up specifying equipment the hall does not need.
++    """
++    return [
++        Requirement(
++            id="G-01", clause="Duty",
++            statement=(f"The works shall relieve the following constraint: "
++                       f"{step.binding_name}. {step.relief_description or ''}".strip()),
++            value=_q(float(racks), "racks", "rack positions to be unlocked",
++                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.quantity"),
++            unit="racks", derived_from=step.binding_id,
++            basis=step.basis,
++            verification="Method statement demonstrating how the constraint is relieved."),
++        Requirement(
++            id="G-02", clause="Technical proposal",
++            statement=("The response shall state the equipment proposed, the duty achieved, "
++                       "and the site conditions the duty is quoted at."),
++            obligation=MANDATORY, derived_from=step.binding_id,
++            basis="No specialist clause set exists for this constraint yet; the proposal is "
++                  "assessed against the capacity model rather than against a clause list.",
++            verification="Technical submittal."),
++    ]
++
++
++GENERATORS = {
++    "rack_feed_tapoff": _tapoff,
++    "busway_ampacity": _busway,
++    "transformer_capacity": _transformer,
++    "ups_capacity": _ups,
++    "cdu_capacity": _cdu,
++    "plant_capacity": _plant,
++    "hydraulic_flow": _hydraulic,
++}
++
++
++# --- the package -------------------------------------------------------------
++
++COMMON_SCOPE_OUT = (
++    ScopeItem("X-1", "Structural sign-off",
++              "Any structural strengthening arising from the works is by others.", False),
++    ScopeItem("X-2", "Protection and arc-flash studies",
++              "Provided by the client's electrical engineer.", False),
++    ScopeItem("X-3", "Migration and tenancy",
++              "Moving or decanting existing tenants is outside this package.", False),
++)
++
++CRITERIA = (
++    EvaluationCriterion("C1", "Compliance with the mandatory duty", 35,
++                        "Every 'shall' requirement met, at the site conditions stated. "
++                        "A duty quoted at a reference condition rather than at ours scores nothing."),
++    EvaluationCriterion("C2", "Delivered programme", 30,
++                        "Weeks to site and to energisation, and which long-lead item governs. "
++                        "Assessed against what the item does to the energisation date."),
++    EvaluationCriterion("C3", "Price", 20,
++                        "Delivered capex, and price per kW actually unlocked rather than "
++                        "price per unit of equipment."),
++    EvaluationCriterion("C4", "Installation in a live hall", 10,
++                        "Outage duration per run or per unit, and the method statement."),
++    EvaluationCriterion("C5", "Evidence quality", 5,
++                        "Test certificates and selection outputs at our conditions, rather "
++                        "than datasheets at reference conditions."),
++)
++
++
++def _response_fields(step: LadderStep) -> list[ResponseField]:
++    # The library holds this relief on whatever basis the constraint priced it —
++    # EUR, EUR/rack or EUR/kW. Ask the library, not the step: a step's capex is the
++    # already-multiplied total, so a EUR/kW line arrives here reading "EUR" and a
++    # lump-sum bid would enter the library a thousand times too large.
++    from ..costs import declared_unit
++    fallback = step.capex_eur.unit if step.capex_eur is not None else "EUR"
++    cost_unit = declared_unit(step.cost_key or "", fallback)
++    return [
++        ResponseField("capex_eur", "Delivered price, excluding VAT", "EUR",
++                      cost_key=step.cost_key or "", cost_unit=cost_unit,
++                      note="Delivered and installed. State exclusions separately."),
++        ResponseField("lead_time_weeks", "Weeks from order to delivered on site", "weeks"),
++        ResponseField("install_weeks", "Weeks from delivery to energised", "weeks",
++                      required=False),
++        ResponseField("outage_hours_per_unit", "Outage required per unit or per run", "hours",
++                      required=False),
++        ResponseField("duty_at_site_conditions", "Duty achieved at the site conditions stated",
++                      "kW or A", required=False,
++                      note="At OUR conditions. A figure at a reference condition is not a bid."),
++        ResponseField("validity_days", "Price validity", "days", required=False),
++    ]
++
++
++def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None,
++               constraint_id: str = "") -> SpecPackage:
++    """One specification, for one relief on one hall.
++
++    Deliberately one at a time. A combined tender for four unrelated reliefs gets
++    four suppliers quoting the parts they are comfortable with and nobody owning
++    the constraint, which is how the date slips without anyone being late.
++    """
++    steps = relief_steps(result)
++    if not steps:
++        raise ProcurementError(
++            "this scenario has no relief that is a purchase — nothing to tender")
++    if step is None:
++        if constraint_id:
++            matches = [s for s in steps if s.binding_id == constraint_id]
++            if not matches:
++                raise ProcurementError(
++                    f"no purchasable relief for {constraint_id!r}. Available: "
++                    f"{', '.join(sorted({s.binding_id for s in steps}))}")
++            step = matches[0]
++        else:
++            step = steps[0]
++
++    ctx = result.envelope.context if hasattr(result.envelope, "context") else intake.context
++
++    # Size against the END STATE, not the marginal racks this rung unlocks.
++    #
++    # A ladder rung often unlocks three racks, or none at all — it moves a
++    # constraint that was not the tightest. Nobody buys a transformer for three
++    # racks: they buy it for the hall the client intends to end up with. Sizing to
++    # the rung's own delta produces a specification that is technically traceable
++    # and commercially absurd, which is worse than one that is neither.
++    racks = max(result.unlocked_racks, step.racks_after, 1)
++    gen = GENERATORS.get(step.binding_id)
++    reqs = gen(ctx, racks) if gen else _generic(ctx, racks, step)
++
++    pkg = SpecPackage(
++        project=intake.client,
++        hall=ctx.hall.id,
++        relief_title=step.relief_description or step.binding_name,
++        constraint_id=step.binding_id,
++        constraint_name=step.binding_name,
++        racks_before=step.racks_before,
++        racks_after=step.racks_after,
++        scope=[
++            ScopeItem("S-1", "Supply", "Equipment meeting the duty specified in section 3."),
++            ScopeItem("S-2", "Delivery", "Delivered to site, offloaded, positioned."),
++            ScopeItem("S-3", "Installation and commissioning",
++                      "Installation in a live hall, commissioning and witnessed testing."),
++            ScopeItem("S-4", "Documentation",
++                      "Test certificates, selection outputs at site conditions, O&M."),
++            *COMMON_SCOPE_OUT,
++        ],
++        requirements=reqs + [
++            Requirement(
++                id="C-01", clause="Price basis",
++                statement=("Prices shall be delivered and installed, excluding VAT, in EUR, "
++                           "with exclusions listed separately."),
++                basis="Comparability. Four quotations on four bases cannot be evaluated.",
++                verification="Completed response schedule."),
++            Requirement(
++                id="C-02", clause="Validity",
++                statement="Prices shall remain valid for not less than 60 days.",
++                basis="The evaluation and approval cycle on a capital item of this size.",
++                verification="Stated on the quotation."),
++            Requirement(
++                id="C-03", clause="Response schedule",
++                statement=("The response schedule in section 6 shall be returned completed. "
++                           "An incomplete schedule will not be evaluated."),
++                basis=("Every figure in it feeds a comparison the client can check. A bid "
++                       "that answers a different question cannot be compared with one that "
++                       "answers this one."),
++                verification="Returned document."),
++        ],
++        criteria=list(CRITERIA),
++        response_fields=_response_fields(step),
++        lead_time_weeks=step.lead_time_weeks,
++        budget_eur=step.capex_eur,
++        sized_for_racks=racks,
++        sized_for_kW=ctx.cluster.platform.rack_kW.value * racks,
++        notes=[
++            (f"Duties in section 3 are sized for the end state of {racks} racks of "
++             f"{ctx.cluster.platform.name} — the hall this relief is part of delivering — "
++             f"not for the {step.racks_unlocked} rack(s) this single step unlocks on its "
++             f"own. Nobody buys plant for a marginal rack."),
++            (f"In the capacity model this step moves the hall from {step.racks_before} to "
++             f"{step.racks_after} racks; the full ladder reaches "
++             f"{result.unlocked_racks}."),
++            ("Every numeric requirement is derived from the capacity model and names the "
++             "constraint it came from. Nothing here specifies a make or a model: we state "
++             "the duty and the interfaces, the supplier proposes the equipment, and we take "
++             "no margin on it."),
++            ("The budget figure is our modelled estimate, not a price. It is stated so the "
++             "client can see whether a response is in the right universe, and it carries its "
++             "own evidence class."),
++        ],
++    )
++    pkg.validate()
++    return pkg
+diff --git a/gridforge/procurement/evaluate.py b/gridforge/procurement/evaluate.py
+new file mode 100644
+index 0000000..759d61e
+--- /dev/null
++++ b/gridforge/procurement/evaluate.py
+@@ -0,0 +1,167 @@
++"""Comparing bids in racks and weeks, not only in euros.
++
++Procurement compares price. That is the wrong axis for this purchase: the item
++being bought exists to unlock compute on a date, and the bid that is 12% cheaper
++and 14 weeks slower is the expensive one. So every bid is scored against what it
++does to the capacity model — racks unlocked, and the week the envelope energises —
++alongside its price.
++
++Scoring is transparent on purpose. Each criterion's contribution is reported, not
++just the total, because an evaluation a losing bidder cannot follow is one they can
++challenge, and that challenge lands on the client.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from .schema import (MANDATORY, EvaluationCriterion, ProcurementError, Requirement,
++                     SpecPackage, SupplierResponse)
++
++#: Compliance codes, as used in every tender response schedule in the industry.
++COMPLIANT = "C"
++COMPLIES_WITH_DEVIATION = "CD"
++NON_COMPLIANT = "N"
++
++
++@dataclass
++class BidAssessment:
++    supplier: str
++    received_on: str
++    capex_eur: float | None
++    lead_time_weeks: float | None
++    install_weeks: float | None
++    weeks_to_energised: float | None
++    racks_unlocked: int
++    eur_per_rack: float | None
++    mandatory_total: int
++    mandatory_met: int
++    mandatory_failed: list[str] = field(default_factory=list)
++    unanswered: list[str] = field(default_factory=list)
++    scores: dict[str, float] = field(default_factory=dict)
++    total_score: float = 0.0
++    disqualified: bool = False
++    notes: list[str] = field(default_factory=list)
++
++    @property
++    def compliant(self) -> bool:
++        return not self.mandatory_failed
++
++    def headline(self) -> str:
++        if self.disqualified:
++            return (f"{self.supplier}: not evaluated — "
++                    f"{'; '.join(self.notes[:2]) or 'incomplete response'}")
++        price = f"EUR {self.capex_eur:,.0f}" if self.capex_eur is not None else "no price"
++        weeks = (f"{self.weeks_to_energised:.0f} weeks to energised"
++                 if self.weeks_to_energised is not None else "no programme")
++        flag = "" if self.compliant else f" — {len(self.mandatory_failed)} mandatory not met"
++        return f"{self.supplier}: {price}, {weeks}, score {self.total_score:.0f}/100{flag}"
++
++
++def _score_lower_is_better(values: list[float], v: float) -> float:
++    """Linear, best gets 1.0, worst gets 0.0. With one bid, everything scores 1.0.
++
++    Deliberately not a ratio of the cheapest to each bid: that quietly rewards an
++    outlier low price far out of proportion to the difference it makes, which is
++    how a tender gets won by an exclusion nobody read.
++    """
++    lo, hi = min(values), max(values)
++    if hi == lo:
++        return 1.0
++    return (hi - v) / (hi - lo)
++
++
++def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAssessment]:
++    if not responses:
++        raise ProcurementError("no responses to assess")
++    mandatory = pkg.mandatory()
++    required_fields = [f for f in pkg.response_fields if f.required]
++
++    out: list[BidAssessment] = []
++    for r in responses:
++        failed = [q.id for q in mandatory
++                  if r.compliance.get(q.id, "").upper() == NON_COMPLIANT]
++        unanswered = [q.id for q in mandatory if q.id not in r.compliance]
++        missing_fields = [f.label for f in required_fields if r.get(f.key) is None]
++
++        capex = r.get("capex_eur")
++        lead = r.get("lead_time_weeks")
++        install = r.get("install_weeks")
++        weeks = None if lead is None else lead + (install or 0.0)
++
++        a = BidAssessment(
++            supplier=r.supplier, received_on=r.received_on,
++            capex_eur=capex, lead_time_weeks=lead, install_weeks=install,
++            # Against what the package was SIZED for, not the rung's own delta.
++            # The supplier priced the end state; dividing by the marginal racks
++            # produces a per-rack figure several times too large and makes every
++            # bid look absurd next to the study's own economics.
++            weeks_to_energised=weeks, racks_unlocked=pkg.sized_for_racks,
++            eur_per_rack=(None if capex is None or pkg.sized_for_racks == 0
++                          else capex / pkg.sized_for_racks),
++            mandatory_total=len(mandatory),
++            mandatory_met=len(mandatory) - len(failed) - len(unanswered),
++            mandatory_failed=failed, unanswered=unanswered)
++
++        if missing_fields:
++            a.disqualified = True
++            a.notes.append(
++                "required response fields left blank: " + ", ".join(missing_fields))
++        if failed:
++            a.notes.append(
++                f"mandatory requirements marked non-compliant: {', '.join(failed)}")
++        if unanswered:
++            a.notes.append(
++                f"mandatory requirements with no compliance statement: "
++                f"{', '.join(unanswered)}")
++        out.append(a)
++
++    live = [a for a in out if not a.disqualified]
++    prices = [a.capex_eur for a in live if a.capex_eur is not None]
++    programmes = [a.weeks_to_energised for a in live if a.weeks_to_energised is not None]
++
++    for a in live:
++        by_id = {c.id: c for c in pkg.criteria}
++        compliance_fraction = (a.mandatory_met / a.mandatory_total) if a.mandatory_total else 1.0
++        a.scores["C1"] = compliance_fraction * by_id["C1"].weight if "C1" in by_id else 0.0
++        a.scores["C2"] = (
++            _score_lower_is_better(programmes, a.weeks_to_energised) * by_id["C2"].weight
++            if "C2" in by_id and a.weeks_to_energised is not None and programmes else 0.0)
++        a.scores["C3"] = (
++            _score_lower_is_better(prices, a.capex_eur) * by_id["C3"].weight
++            if "C3" in by_id and a.capex_eur is not None and prices else 0.0)
++        # Outage and evidence are judged, not computed. They are scored zero here
++        # and the report says so, rather than inventing a number to fill the column.
++        a.scores["C4"] = 0.0
++        a.scores["C5"] = 0.0
++        a.total_score = sum(a.scores.values())
++        if a.scores.get("C4") == 0.0 and "C4" in by_id:
++            a.notes.append(
++                "Installation method and evidence quality are scored by the engineer, "
++                "not by this tool — 15 points are unallocated until they are.")
++
++    return out
++
++
++def rank_bids(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAssessment]:
++    """Compliant bids first, then by score. A non-compliant bid is never ranked above
++    a compliant one however cheap it is — that ordering is the point of a mandatory
++    requirement."""
++    assessed = assess(pkg, responses)
++    return sorted(
++        assessed,
++        key=lambda a: (a.disqualified, not a.compliant, -a.total_score,
++                       a.capex_eur if a.capex_eur is not None else float("inf")))
++
++
++def schedule_impact(pkg: SpecPackage, a: BidAssessment) -> str:
++    """What this bid does to the date, against the modelled lead time."""
++    if a.weeks_to_energised is None or pkg.lead_time_weeks is None:
++        return "No programme stated; the effect on the energisation date is unknown."
++    modelled = pkg.lead_time_weeks.value
++    delta = a.weeks_to_energised - modelled
++    if abs(delta) < 1:
++        return f"In line with the modelled {modelled:.0f} weeks."
++    direction = "later" if delta > 0 else "earlier"
++    return (f"{abs(delta):.0f} weeks {direction} than the modelled {modelled:.0f}. "
++            f"Re-run the study with this figure before committing: if this relief sets "
++            f"the date, the whole envelope moves with it.")
+diff --git a/gridforge/procurement/ingest.py b/gridforge/procurement/ingest.py
+new file mode 100644
+index 0000000..ae1d376
+--- /dev/null
++++ b/gridforge/procurement/ingest.py
+@@ -0,0 +1,114 @@
++"""A returned bid becomes a cost-library entry.
++
++This is the flywheel, and it is the reason the procurement engagement is worth
++selling at a price that looks low next to the study. A study rests on library
++defaults with a -50%/+100% band. A returned quotation is a dated, attributable,
++project-specific price — E3 or E5 evidence — and the moment it lands in the
++library every future study touching that line gets stronger and its AACE class
++improves.
++
++Nothing here writes to the committed seed. Quotations are confidential and
++frequently NDA'd; they go to the private library, same rule as everywhere else.
++"""
++from __future__ import annotations
++
++from ..costs import COST_EVIDENCE
++from .schema import ProcurementError, SpecPackage, SupplierResponse
++
++
++def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float) -> tuple[str, float]:
++    """Convert a supplier's delivered price onto the basis the library holds.
++
++    A supplier quotes one number for the job. The library holds `tapoff.unit` per
++    rack, `ups.per_kW` per kW and `cdu.addition` as a lump sum, and the conversion
++    is against what the package was SIZED for — the hall's end state — because that
++    is what the supplier priced.
++
++    Getting this wrong is the one way this flywheel does damage rather than good: a
++    per-rack line entered as a lump sum is off by the rack count, it carries a
++    quotation's evidence class, and every future study inherits it with a straight
++    face.
++    """
++    u = (unit or "EUR").strip()
++    if u.endswith("/rack"):
++        if pkg.sized_for_racks <= 0:
++            raise ProcurementError(
++                f"cannot convert to {u}: the package is sized for no racks")
++        return u, round(lump_sum / pkg.sized_for_racks, 2)
++    if u.endswith("/kW"):
++        if pkg.sized_for_kW <= 0:
++            raise ProcurementError(
++                f"cannot convert to {u}: the package is sized for no load")
++        return u, round(lump_sum / pkg.sized_for_kW, 2)
++    return u, round(lump_sum, 2)
++
++
++def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
++                      basis: str = "budgetary_quote",
++                      region: str = "", project: str = "") -> list[dict]:
++    """The `gridforge cost add` arguments implied by a response.
++
++    Returned as data rather than written, so the engineer sees what is about to
++    enter the library before it does. A price that lands in the library unreviewed
++    is a price nobody can defend when a client asks where it came from.
++    """
++    if basis not in COST_EVIDENCE:
++        raise ProcurementError(
++            f"unknown basis {basis!r}. One of: {', '.join(sorted(COST_EVIDENCE))}")
++    if basis in ("library_default", "published_benchmark"):
++        raise ProcurementError(
++            "a supplier response is a quotation, not a benchmark. Use budgetary_quote, "
++            "firm_quote or contracted.")
++
++    out: list[dict] = []
++    for f in pkg.response_fields:
++        if not f.cost_key:
++            continue
++        value = response.get(f.key)
++        if value is None:
++            continue
++        unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value)
++        out.append({
++            "key": f.cost_key,
++            "label": f"{pkg.relief_title} ({response.supplier})",
++            "unit": unit,
++            "value": converted,
++            "basis": basis,
++            "supplier": response.supplier,
++            "quoted_on": response.received_on,
++            "valid_until": response.valid_until,
++            "region": region,
++            "project": project or pkg.project,
++            "note": (f"From the response to the {pkg.relief_title} specification for hall "
++                     f"{pkg.hall}. Relieves {pkg.constraint_name}."
++                     + (f" Reference {response.reference}." if response.reference else "")),
++        })
++    if not out:
++        raise ProcurementError(
++            "nothing in this response maps to a cost-library key — the specification's "
++            "response schedule has no priced field with a cost_key")
++    return out
++
++
++def command_lines(entries: list[dict], library: str = "") -> list[str]:
++    """The exact `gridforge cost add` invocations, for an engineer to review and run."""
++    lines = []
++    for e in entries:
++        parts = ["python3 -m gridforge cost add",
++                 f"--key {e['key']}",
++                 f"--label {e['label']!r}",
++                 f"--unit {e['unit']}",
++                 f"--value {e['value']}",
++                 f"--basis {e['basis']}",
++                 f"--supplier {e['supplier']!r}",
++                 f"--quoted-on {e['quoted_on']}"]
++        if e.get("valid_until"):
++            parts.append(f"--valid-until {e['valid_until']}")
++        if e.get("region"):
++            parts.append(f"--region {e['region']}")
++        if e.get("project"):
++            parts.append(f"--project {e['project']!r}")
++        if library:
++            parts.append(f"--library {library}")
++        lines.append(" \\\n    ".join(parts))
++    return lines
+diff --git a/gridforge/procurement/schema.py b/gridforge/procurement/schema.py
+new file mode 100644
+index 0000000..f2642a6
+--- /dev/null
++++ b/gridforge/procurement/schema.py
+@@ -0,0 +1,192 @@
++"""What a specification is made of.
++
++Every requirement carries the constraint it came from. That link is the whole
++argument for buying this from us rather than writing it in Word: a requirement
++nobody can trace back to a physical limit is a requirement somebody invented, and
++those are how a tender ends up specifying equipment the hall does not need.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from ..validation import EvidenceClass, Quantity
++
++
++class ProcurementError(ValueError):
++    pass
++
++
++#: Requirement classes, in the order a tender document uses them.
++MANDATORY = "shall"      # non-compliance disqualifies
++PREFERRED = "should"     # scored, not disqualifying
++INFORMATIVE = "may"      # stated for context
++
++
++@dataclass(frozen=True)
++class Requirement:
++    id: str                       # "E-03"
++    clause: str                   # "Secondary rating"
++    statement: str                # the sentence a supplier reads
++    obligation: str = MANDATORY
++    value: Quantity | None = None
++    unit: str = ""
++    #: The constraint id this came from. Empty only for commercial/interface clauses.
++    derived_from: str = ""
++    basis: str = ""               # why this number, in engineering terms
++    verification: str = ""        # how compliance will be demonstrated
++
++    def __post_init__(self) -> None:
++        if self.obligation not in (MANDATORY, PREFERRED, INFORMATIVE):
++            raise ProcurementError(f"unknown obligation {self.obligation!r}")
++        if not self.statement.strip():
++            raise ProcurementError(f"{self.id}: a requirement with no statement")
++
++    @property
++    def evidence(self) -> EvidenceClass | None:
++        return self.value.evidence if self.value else None
++
++
++@dataclass(frozen=True)
++class ScopeItem:
++    id: str
++    title: str
++    detail: str
++    by_supplier: bool = True      # False -> explicitly by others, stated to stop a gap
++
++
++@dataclass(frozen=True)
++class EvaluationCriterion:
++    """How a bid is scored.
++
++    Weights must total 100. Not a formality: an evaluation matrix that does not sum
++    is one a losing bidder can challenge, and in a regulated operator's procurement
++    that challenge lands on the client, not on us.
++    """
++    id: str
++    name: str
++    weight: int
++    how: str                      # what evidence moves this score
++
++
++@dataclass(frozen=True)
++class ResponseField:
++    """A number the supplier must return, in the unit we will read it in.
++
++    This is the half of the document that pays us back. A free-text quotation is a
++    price; a completed response schedule is a dated, attributable, structured
++    figure that goes straight into the cost library and lifts the evidence class of
++    every study that touches it.
++    """
++    key: str                      # "capex_eur" | "lead_time_weeks" | "secondary_rating_A"
++    label: str
++    unit: str
++    required: bool = True
++    #: Cost-library key this field feeds, if any.
++    cost_key: str = ""
++    #: The unit that library key is held in — EUR, EUR/rack or EUR/kW. A supplier
++    #: quotes a lump sum; the library holds whichever basis the relief uses, and
++    #: converting between them wrongly poisons every future study on that line.
++    cost_unit: str = ""
++    note: str = ""
++
++
++@dataclass
++class SpecPackage:
++    project: str
++    hall: str
++    relief_title: str
++    constraint_id: str
++    constraint_name: str
++    racks_before: int
++    racks_after: int
++    #: What the duties are sized for — the hall's end state, not this rung's delta.
++    sized_for_racks: int = 0
++    #: The IT load those racks represent, for converting a lump-sum bid into a
++    #: EUR/kW library line.
++    sized_for_kW: float = 0.0
++    scope: list[ScopeItem] = field(default_factory=list)
++    requirements: list[Requirement] = field(default_factory=list)
++    criteria: list[EvaluationCriterion] = field(default_factory=list)
++    response_fields: list[ResponseField] = field(default_factory=list)
++    lead_time_weeks: Quantity | None = None
++    budget_eur: Quantity | None = None
++    notes: list[str] = field(default_factory=list)
++
++    @property
++    def racks_unlocked(self) -> int:
++        return max(self.racks_after - self.racks_before, 0)
++
++    def validate(self) -> None:
++        if not self.requirements:
++            raise ProcurementError("a specification with no requirements is a letter")
++        total = sum(c.weight for c in self.criteria)
++        if self.criteria and total != 100:
++            raise ProcurementError(
++                f"evaluation weights total {total}, not 100 — a matrix that does not "
++                f"sum is one a losing bidder can challenge")
++        ids = [r.id for r in self.requirements]
++        if len(set(ids)) != len(ids):
++            raise ProcurementError("duplicate requirement ids")
++        orphans = [r.id for r in self.requirements
++                   if r.obligation == MANDATORY and r.value is not None
++                   and not r.derived_from]
++        if orphans:
++            raise ProcurementError(
++                f"mandatory numeric requirements with no constraint behind them: "
++                f"{', '.join(orphans)}. A number nobody can trace is a number somebody "
++                f"invented.")
++
++    def mandatory(self) -> list[Requirement]:
++        return [r for r in self.requirements if r.obligation == MANDATORY]
++
++
++def _numeric(raw: dict) -> dict[str, float]:
++    out: dict[str, float] = {}
++    for k, v in raw.items():
++        if v is None or (isinstance(v, str) and not v.strip()):
++            continue
++        try:
++            out[str(k)] = float(v)
++        except (TypeError, ValueError):
++            raise ProcurementError(
++                f"response field {k!r} is {v!r}, which is not a number. If the supplier "
++                f"gave a range or a caveat, put the figure here and the caveat in 'text'.")
++    return out
++
++
++@dataclass
++class SupplierResponse:
++    """A completed response schedule. Deliberately dumb: values keyed by field."""
++    supplier: str
++    received_on: str              # ISO date
++    values: dict[str, float] = field(default_factory=dict)
++    text: dict[str, str] = field(default_factory=dict)
++    compliance: dict[str, str] = field(default_factory=dict)   # requirement id -> C/CD/N
++    reference: str = ""
++    valid_until: str = ""
++
++    def get(self, key: str) -> float | None:
++        v = self.values.get(key)
++        return None if v is None else float(v)
++
++    @staticmethod
++    def from_dict(d: dict) -> "SupplierResponse":
++        if not d.get("supplier"):
++            raise ProcurementError("a response must name the supplier")
++        if not d.get("received_on"):
++            raise ProcurementError(
++                "a response must carry the date it was received — an undated price "
++                "cannot become a dated cost-library entry")
++        return SupplierResponse(
++            supplier=str(d["supplier"]), received_on=str(d["received_on"]),
++            # Nulls are the template's own placeholders — an unanswered optional
++            # field, not an error. A value that is present but not a number IS an
++            # error, and it is named, because "this response failed to load" is
++            # useless to whoever has to go back to the supplier.
++            values=_numeric(d.get("values") or {}),
++            text={str(k): str(v) for k, v in (d.get("text") or {}).items()},
++            compliance={str(k): str(v).upper()
++                        for k, v in (d.get("compliance") or {}).items()
++                        if str(v).strip()},
++            reference=str(d.get("reference") or ""),
++            valid_until=str(d.get("valid_until") or ""))
+diff --git a/gridforge/reporting/spec.py b/gridforge/reporting/spec.py
+new file mode 100644
+index 0000000..01ee401
+--- /dev/null
++++ b/gridforge/reporting/spec.py
+@@ -0,0 +1,166 @@
++"""The procurement specification, as a document a supplier can quote against.
++
++Deliberately shaped like a tender, not like a consultancy report: scope, technical
++requirements with obligation words, evaluation criteria with weights, and a
++response schedule. A client's procurement team can issue it without rewriting it,
++which is the only test that matters.
++
++Every numeric requirement prints the constraint it came from. That is not a
++formality — it is the difference between a specification that provably relieves a
++limit and one that specifies equipment somebody liked the look of.
++"""
++from __future__ import annotations
++
++from ..clock import report_date_iso
++from ..procurement.schema import (INFORMATIVE, MANDATORY, PREFERRED, SpecPackage)
++from .gates import DISCLOSURE_MARKER, claims_below_floor
++from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
++
++OBLIGATION_NOTE = {
++    MANDATORY: "shall — non-compliance disqualifies the response",
++    PREFERRED: "should — scored, not disqualifying",
++    INFORMATIVE: "may — stated for context",
++}
++
++
++def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
++          contact: str = "", claims: dict | None = None) -> Report:
++    r = Report(
++        title=f"Technical Specification — {pkg.relief_title}",
++        subtitle=(f"{pkg.project} · hall {pkg.hall} · issued {report_date_iso()}"
++                  + (f" · ref {reference}" if reference else "")),
++        watermark=("Duties in this document are derived from a capacity model of this hall. "
++                   "They are modelled values, not measurements of installed plant, and each "
++                   "one names the constraint it came from."),
++        status="Specification for quotation",
++        meta=[("Project", pkg.project), ("Hall", pkg.hall),
++              ("Constraint relieved", pkg.constraint_name),
++              ("Sized for", f"{pkg.sized_for_racks} racks"),
++              ("Responses due", return_by or "as agreed"),
++              ("Contact", contact or "—")],
++        footer=("Issued by GridForge AI on behalf of the client. We specify duty and "
++                "interfaces only. We name no make or model, quote no equipment and take no "
++                "margin on hardware."),
++    )
++
++    # 1 — why this package exists
++    s = Section("1. Purpose")
++    s.blocks.append(Para(
++        f"This package procures the works required to relieve {pkg.constraint_name} in hall "
++        f"{pkg.hall}. In the capacity model for this hall that constraint is what limits "
++        f"deployable rack count; relieving it moves the hall from {pkg.racks_before} to "
++        f"{pkg.racks_after} racks, and it is part of a programme that reaches "
++        f"{pkg.sized_for_racks} racks in total."))
++    for n in pkg.notes:
++        s.blocks.append(Para(n))
++    if pkg.budget_eur is not None:
++        s.blocks.append(Statement("Modelled budget for this relief", pkg.budget_eur,
++                                  basis="Our estimate, not a price. Stated so a response "
++                                        "that is in the wrong universe is visible immediately."))
++    if pkg.lead_time_weeks is not None:
++        s.blocks.append(Statement("Modelled lead time", pkg.lead_time_weeks,
++                                  basis="What the capacity model assumed. A response that "
++                                        "differs materially moves the energisation date."))
++    # Unconditional, because it is unconditionally true. The duties below are
++    # derived from a screening model of this hall; some rest on inputs nobody has
++    # measured. A supplier is entitled to know which figures they are being asked
++    # to guarantee against, and a client is entitled to know before a purchase
++    # order is raised against them.
++    below = claims_below_floor(claims or {})
++    named = ", ".join(sorted(k.replace("_", " ") for k in below)) or \
++        "electrical capacity, cooling performance, capex"
++    s.blocks.append(Callout("warning",
++        f"{DISCLOSURE_MARKER} the duties in section 3 are derived from a capacity model "
++        f"built partly on library defaults and assumed inputs, not on a measured survey of "
++        f"this hall. The claim kinds still below the evidence required for an issued "
++        f"deliverable are: {named}. These duties are sufficient to obtain comparable, "
++        f"competent quotations and to see which supplier moves the energisation date. They "
++        f"are NOT sufficient on their own to raise a purchase order for long-lead plant: "
++        f"confirm the governing figures against site measurement first. The study's "
++        f"evidence appendix names exactly which ones those are."))
++    r.sections.append(s)
++
++    # 2 — scope
++    s = Section("2. Scope of supply")
++    by_supplier = [i for i in pkg.scope if i.by_supplier]
++    by_others = [i for i in pkg.scope if not i.by_supplier]
++    s.blocks.append(Para("Included in this package:"))
++    s.blocks.append(Bullets([f"{i.title} — {i.detail}" for i in by_supplier]))
++    if by_others:
++        s.blocks.append(Para(
++            "Explicitly excluded. Listed rather than omitted, because an unstated exclusion "
++            "is a gap somebody discovers on site:"))
++        s.blocks.append(Bullets([f"{i.title} — {i.detail}" for i in by_others]))
++    r.sections.append(s)
++
++    # 3 — the requirements
++    s = Section("3. Technical requirements")
++    s.blocks.append(Para(
++        "Obligation words carry their usual tender meaning: " +
++        "; ".join(OBLIGATION_NOTE.values()) + "."))
++    s.blocks.append(Table(
++        headers=["Ref", "Clause", "Obl.", "Value", "From constraint"],
++        rows=[[q.id, q.clause, Lit(q.obligation),
++               q.value if q.value is not None else Lit("—"),
++               Lit(q.derived_from or "commercial")]
++              for q in pkg.requirements],
++        caption=("Every numeric requirement names the constraint it was derived from. A "
++                 "requirement nobody can trace back to a physical limit is one somebody "
++                 "invented.")))
++    # The clauses themselves, in full, after the summary table. Kept in one section
++    # rather than one section per clause: a tender document with forty headings is
++    # harder to read than a numbered list, and procurement teams read these as a list.
++    for q in pkg.requirements:
++        s.blocks.append(Para(f"**{q.id} — {q.clause}** ({q.obligation}). {q.statement}"))
++        if q.value is not None:
++            s.blocks.append(Statement("Required", q.value, basis=q.basis or None))
++        elif q.basis:
++            s.blocks.append(Para(f"*Basis:* {q.basis}"))
++        if q.verification:
++            s.blocks.append(Para(f"*Verification:* {q.verification}"))
++    r.sections.append(s)
++
++    # 4 — evaluation
++    s = Section("4. How responses will be evaluated")
++    s.blocks.append(Para(
++        "Price is one criterion of five. The item being bought exists to unlock compute on a "
++        "date: a response that is cheaper and materially slower is the expensive one, and the "
++        "weighting says so."))
++    s.blocks.append(Table(
++        headers=["Ref", "Criterion", "Weight", "What moves it"],
++        rows=[[c.id, c.name, Lit(f"{c.weight}%"), c.how] for c in pkg.criteria],
++        caption="Weights total 100."))
++    s.blocks.append(Callout("note",
++        "A response that does not meet every 'shall' requirement is not ranked above one that "
++        "does, whatever its price. That ordering is the entire point of a mandatory "
++        "requirement."))
++    r.sections.append(s)
++
++    # 5 — instructions
++    s = Section("5. Instructions to responders")
++    s.blocks.append(Bullets([
++        "Return the response schedule in section 6, completed. An incomplete schedule is not "
++        "evaluated.",
++        "State compliance against every requirement in section 3 as C (compliant), CD "
++        "(complies with deviation, deviation described) or N (non-compliant).",
++        "Quote duties at the site conditions stated, not at a reference condition. A duty at "
++        "a reference condition is not a response to this document.",
++        "List exclusions explicitly and price them separately where you can.",
++        "State which long-lead component governs your delivery date.",
++    ]))
++    r.sections.append(s)
++
++    # 6 — response schedule
++    s = Section("6. Response schedule")
++    s.blocks.append(Para(
++        "Return these figures in these units. They feed a comparison the client can check "
++        "line by line, which is only possible if every response answers the same question."))
++    s.blocks.append(Table(
++        headers=["Field", "Unit", "Required", "Note"],
++        rows=[[f.label, f.unit, Lit("yes" if f.required else "no"), f.note or ""]
++              for f in pkg.response_fields],
++        caption=("Machine-readable template: `gridforge spec … --template` writes a JSON "
++                 "file with these keys, which `gridforge bids` reads back.")))
++    r.sections.append(s)
++
++    return r
+diff --git a/lib/products.ts b/lib/products.ts
+index 1faca4a..bfc069c 100644
+--- a/lib/products.ts
++++ b/lib/products.ts
+@@ -11,6 +11,7 @@ export type ProductId =
+   | "envelope_study_deposit"
+   | "portfolio_screen_deposit"
+   | "hall_watch"
++  | "procurement_spec"
+   | "api_triage"
+   | "api_scale"
+   | "api_platform";
+@@ -101,6 +102,23 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     turnaroundDays: 45,
+     producesDeliverable: false,
+   },
++  procurement_spec: {
++    id: "procurement_spec",
++    kind: "procurement_spec",
++    name: "Procurement Specification",
++    amountCents: 1_800_000, // €18,000
++    description:
++      "The study says what binds and what relieves it. This is what you send to suppliers: " +
++      "a tender-ready technical specification for one relief, with every duty derived from " +
++      "the capacity model and quoted at your site conditions — then your bids compared in " +
++      "racks and weeks, not only in euros.",
++    deliverable:
++      "Technical specification (HTML + Markdown), a machine-readable response schedule, and " +
++      "a bid comparison against the capacity model showing what each response does to the " +
++      "energisation date.",
++    turnaroundDays: 12,
++    producesDeliverable: true,
++  },
+   api_triage: {
+     id: "api_triage",
+     kind: "api_triage",
+diff --git a/public/reference/response_template.json b/public/reference/response_template.json
+new file mode 100644
+index 0000000..8e7a3e0
+--- /dev/null
++++ b/public/reference/response_template.json
+@@ -0,0 +1,33 @@
++{
++  "specification": {
++    "project": "Reference Project (synthetic)",
++    "hall": "DH-02",
++    "constraint": "busway_ampacity",
++    "sized_for_racks": 62,
++    "reference": "REF-TND-01"
++  },
++  "supplier": "",
++  "received_on": "",
++  "reference": "",
++  "valid_until": "",
++  "values": {
++    "capex_eur": null,
++    "lead_time_weeks": null,
++    "install_weeks": null,
++    "outage_hours_per_unit": null,
++    "duty_at_site_conditions": null,
++    "validity_days": null
++  },
++  "compliance": {
++    "E-10": "",
++    "E-11": "",
++    "E-12": "",
++    "C-01": "",
++    "C-02": "",
++    "C-03": ""
++  },
++  "text": {
++    "exclusions": "",
++    "long_lead_item": ""
++  }
++}
+diff --git a/public/reference/specification.html b/public/reference/specification.html
+new file mode 100644
+index 0000000..5eab6e3
+--- /dev/null
++++ b/public/reference/specification.html
+@@ -0,0 +1,95 @@
++<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><link rel='preconnect' href='https://fonts.gstatic.com' crossorigin><link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap'><title>Technical Specification — Replace busway with 800-1000 A and new tap-off units</title><style>
++:root{
++  --paper:#eef1f3; --surface:#ffffff; --ink:#15191d; --muted:#5b636b;
++  --line:#d3dadf; --rule:#b9c3ca;
++  --accent:#14606f; --accent-soft:#e2edef;
++  --critical:#8f2d2d; --critical-soft:#f7e9e8;
++  --caution:#7d6111; --caution-soft:#f7f0dc;
++  --ok:#2b6144; --ok-soft:#e5f0e9;
++  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
++  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
++  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
++}
++@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
++  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
++  --line:#2c343a; --rule:#3c464e;
++  --accent:#5fb3c4; --accent-soft:#17313a;
++  --critical:#e08b8b; --critical-soft:#2e1e1e;
++  --caution:#d6b45e; --caution-soft:#2c2617;
++  --ok:#7dc3a0; --ok-soft:#1a2b23;
++}}
++:root[data-theme="dark"]{
++  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
++  --line:#2c343a; --rule:#3c464e;
++  --accent:#5fb3c4; --accent-soft:#17313a;
++  --critical:#e08b8b; --critical-soft:#2e1e1e;
++  --caution:#d6b45e; --caution-soft:#2c2617;
++  --ok:#7dc3a0; --ok-soft:#1a2b23;
++}
++*{box-sizing:border-box}
++body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
++  font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
++.wrap{max-width:68rem;margin:0 auto;padding-block:2rem 5rem;padding-left:1.25rem;
++  padding-right:1.25rem;display:flex;flex-direction:column;gap:0}
++/* title block - the convention a drawing uses to identify itself */
++.titleblock{background:var(--surface);border:1px solid var(--rule);margin-bottom:2.25rem}
++.titleblock h1{margin:0;padding:1.25rem 1.4rem .5rem;font-size:1.65rem;line-height:1.18;
++  font-weight:600;letter-spacing:-.015em;text-wrap:balance}
++.titleblock .sub{margin:0;padding:0 1.4rem 1.1rem;color:var(--muted);font-size:.9rem}
++.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
++  border-top:1px solid var(--line)}
++.meta div{padding:.6rem 1.4rem;border-right:1px solid var(--line)}
++.meta div:last-child{border-right:none}
++.meta dt{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;
++  letter-spacing:.09em;color:var(--muted);margin:0 0 .15rem}
++.meta dd{margin:0;font-size:.86rem;font-weight:500}
++.status{display:inline-block;font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
++  text-transform:uppercase;padding:.22rem .5rem;border:1px solid var(--caution);
++  color:var(--caution);background:var(--caution-soft)}
++h2{font-size:1.08rem;font-weight:600;letter-spacing:.005em;margin:2.6rem 0 .9rem;
++  padding-bottom:.4rem;border-bottom:2px solid var(--rule);text-wrap:balance}
++h3{font-size:.95rem;font-weight:600;margin:1.6rem 0 .5rem}
++p{margin:0 0 .9rem;max-width:66ch}
++ul{margin:0 0 1rem;padding-left:1.15rem;max-width:66ch}
++li{margin-bottom:.3rem}
++/* instrument readout */
++.stmt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.35rem 1.5rem;
++  align-items:baseline;background:var(--surface);border:1px solid var(--line);
++  border-left:3px solid var(--accent);padding:.75rem 1rem;margin:0 0 .5rem}
++.stmt b{grid-column:1;font-size:.72rem;font-weight:600;text-transform:uppercase;
++  letter-spacing:.07em;color:var(--muted);font-family:var(--mono)}
++.stmt .v{grid-column:2;grid-row:1/3;font-family:var(--mono);font-size:1.3rem;
++  font-weight:500;font-variant-numeric:tabular-nums;text-align:right;color:var(--accent)}
++.stmt .basis{grid-column:1;font-size:.84rem;color:var(--muted);font-family:var(--serif);
++  font-style:italic}
++.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface);
++  margin:.4rem 0 .6rem}
++table{border-collapse:collapse;width:100%;font-size:.84rem;font-variant-numeric:tabular-nums}
++th,td{padding:.48rem .7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
++th{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;
++  font-weight:600;color:var(--muted);border-bottom:2px solid var(--rule);white-space:nowrap}
++tbody tr:last-child td{border-bottom:none}
++td:first-child{font-weight:500}
++caption,.cap{caption-side:bottom;text-align:left;color:var(--muted);font-size:.82rem;
++  font-family:var(--serif);font-style:italic;margin:0 0 1.2rem}
++.callout{padding:.75rem .95rem;margin:.5rem 0 1rem;border:1px solid var(--line);
++  background:var(--surface);font-size:.9rem;max-width:70ch}
++.callout::before{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.09em;
++  text-transform:uppercase;margin-bottom:.3rem}
++.callout.answer{border-left:3px solid var(--ok);background:var(--ok-soft);color:var(--ink)}
++.callout.answer::before{content:"Recommendation";color:var(--ok)}
++.callout.warning{border-left:3px solid var(--critical);background:var(--critical-soft)}
++.callout.warning::before{content:"Caution";color:var(--critical)}
++.callout.note{border-left:3px solid var(--accent);background:var(--accent-soft)}
++.callout.note::before{content:"Note";color:var(--accent)}
++code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:.05rem .3rem}
++.foot{color:var(--muted);font-size:.82rem;margin-top:3rem;border-top:1px solid var(--rule);
++  padding-top:.9rem;font-family:var(--mono)}
++@media (max-width:560px){
++  .titleblock h1{font-size:1.3rem}
++  .stmt{grid-template-columns:1fr}
++  .stmt .v{grid-column:1;grid-row:auto;text-align:left}
++  .meta div{border-right:none;border-bottom:1px solid var(--line)}
++}
++@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
++</style></head><body><div class='wrap'><header class='titleblock'><h1>Technical Specification — Replace busway with 800-1000 A and new tap-off units</h1><p class='sub'>Reference Project (synthetic) · hall DH-02 · issued 2026-09-14 · ref REF-TND-01</p><dl class='meta'><div><dt>Project</dt><dd>Reference Project (synthetic)</dd></div><div><dt>Hall</dt><dd>DH-02</dd></div><div><dt>Constraint relieved</dt><dd>Busway ampacity</dd></div><div><dt>Sized for</dt><dd>62 racks</dd></div><div><dt>Responses due</dt><dd>as agreed</dd></div><div><dt>Contact</dt><dd>—</dd></div></dl></header><div class='callout warning'>Duties in this document are derived from a capacity model of this hall. They are modelled values, not measurements of installed plant, and each one names the constraint it came from.</div><h2>1. Purpose</h2><p>This package procures the works required to relieve Busway ampacity in hall DH-02. In the capacity model for this hall that constraint is what limits deployable rack count; relieving it moves the hall from 12 to 22 racks, and it is part of a programme that reaches 62 racks in total.</p><p>Duties in section 3 are sized for the end state of 62 racks of NVIDIA GB300 NVL72 — the hall this relief is part of delivering — not for the 10 rack(s) this single step unlocks on its own. Nobody buys plant for a marginal rack.</p><p>In the capacity model this step moves the hall from 12 to 22 racks; the full ladder reaches 62.</p><p>Every numeric requirement is derived from the capacity model and names the constraint it came from. Nothing here specifies a make or a model: we state the duty and the interfaces, the supplier proposes the equipment, and we take no margin on it.</p><p>The budget figure is our modelled estimate, not a price. It is stated so the client can see whether a response is in the right universe, and it carries its own evidence class.</p><div class='stmt'><b>Modelled budget for this relief</b><div class='v'>450,000 [225,000–900,000] EUR (E0)</div><div class='basis'>Limited by: Our estimate, not a price. Stated so a response that is in the wrong universe is visible immediately.</div></div><div class='stmt'><b>Modelled lead time</b><div class='v'>36 [24–52] weeks (E0)</div><div class='basis'>Limited by: What the capacity model assumed. A response that differs materially moves the energisation date.</div></div><div class='callout warning'>EVIDENCE DISCLOSURE: the duties in section 3 are derived from a capacity model built partly on library defaults and assumed inputs, not on a measured survey of this hall. The claim kinds still below the evidence required for an issued deliverable are: capex, cooling performance, electrical capacity. These duties are sufficient to obtain comparable, competent quotations and to see which supplier moves the energisation date. They are NOT sufficient on their own to raise a purchase order for long-lead plant: confirm the governing figures against site measurement first. The study&#x27;s evidence appendix names exactly which ones those are.</div><h2>2. Scope of supply</h2><p>Included in this package:</p><ul><li>Supply — Equipment meeting the duty specified in section 3.</li><li>Delivery — Delivered to site, offloaded, positioned.</li><li>Installation and commissioning — Installation in a live hall, commissioning and witnessed testing.</li><li>Documentation — Test certificates, selection outputs at site conditions, O&amp;M.</li></ul><p>Explicitly excluded. Listed rather than omitted, because an unstated exclusion is a gap somebody discovers on site:</p><ul><li>Structural sign-off — Any structural strengthening arising from the works is by others.</li><li>Protection and arc-flash studies — Provided by the client&#x27;s electrical engineer.</li><li>Migration and tenancy — Moving or decanting existing tenants is outside this package.</li></ul><h2>3. Technical requirements</h2><p>Obligation words carry their usual tender meaning: shall — non-compliance disqualifies the response; should — scored, not disqualifying; may — stated for context.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Ref</th><th scope='col'>Clause</th><th scope='col'>Obl.</th><th scope='col'>Value</th><th scope='col'>From constraint</th></tr></thead><tbody><tr><td>E-10</td><td>Busway continuous ampacity</td><td>shall</td><td>1,990 A (E3)</td><td>busway_ampacity</td></tr><tr><td>E-11</td><td>Phasing and outage</td><td>shall</td><td>—</td><td>busway_ampacity</td></tr><tr><td>E-12</td><td>Tap-off provision</td><td>shall</td><td>—</td><td>busway_ampacity</td></tr><tr><td>C-01</td><td>Price basis</td><td>shall</td><td>—</td><td>commercial</td></tr><tr><td>C-02</td><td>Validity</td><td>shall</td><td>—</td><td>commercial</td></tr><tr><td>C-03</td><td>Response schedule</td><td>shall</td><td>—</td><td>commercial</td></tr></tbody></table></div><p class='cap'>Every numeric requirement names the constraint it was derived from. A requirement nobody can trace back to a physical limit is one somebody invented.</p><p>**E-10 — Busway continuous ampacity** (shall). Each busway run shall have a continuous ampacity not less than the figure stated, at the hall&#x27;s design ambient and installed configuration.</p><div class='stmt'><b>Required</b><div class='v'>1,990 A (E3)</div><div class='basis'>Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site&#x27;s 0.8 (E5) continuous limit. Installed: 400 A (E5).</div></div><p>*Verification:* Type test certificate to the applicable standard, with derating basis stated.</p><p>**E-11 — Phasing and outage** (shall). The programme shall allow replacement run by run with the hall in service. The response shall state the outage window per run.</p><p>*Basis:* Live tenancy in the hall during the works.</p><p>*Verification:* Method statement and programme.</p><p>**E-12 — Tap-off provision** (shall). Busway shall accept tap-off units at the density required by the rack pitch stated in the response schedule.</p><p>*Basis:* Hall aisle configuration; 62 positions to be fed.</p><p>*Verification:* Layout drawing.</p><p>**C-01 — Price basis** (shall). Prices shall be delivered and installed, excluding VAT, in EUR, with exclusions listed separately.</p><p>*Basis:* Comparability. Four quotations on four bases cannot be evaluated.</p><p>*Verification:* Completed response schedule.</p><p>**C-02 — Validity** (shall). Prices shall remain valid for not less than 60 days.</p><p>*Basis:* The evaluation and approval cycle on a capital item of this size.</p><p>*Verification:* Stated on the quotation.</p><p>**C-03 — Response schedule** (shall). The response schedule in section 6 shall be returned completed. An incomplete schedule will not be evaluated.</p><p>*Basis:* Every figure in it feeds a comparison the client can check. A bid that answers a different question cannot be compared with one that answers this one.</p><p>*Verification:* Returned document.</p><h2>4. How responses will be evaluated</h2><p>Price is one criterion of five. The item being bought exists to unlock compute on a date: a response that is cheaper and materially slower is the expensive one, and the weighting says so.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Ref</th><th scope='col'>Criterion</th><th scope='col'>Weight</th><th scope='col'>What moves it</th></tr></thead><tbody><tr><td>C1</td><td>Compliance with the mandatory duty</td><td>35%</td><td>Every &#x27;shall&#x27; requirement met, at the site conditions stated. A duty quoted at a reference condition rather than at ours scores nothing.</td></tr><tr><td>C2</td><td>Delivered programme</td><td>30%</td><td>Weeks to site and to energisation, and which long-lead item governs. Assessed against what the item does to the energisation date.</td></tr><tr><td>C3</td><td>Price</td><td>20%</td><td>Delivered capex, and price per kW actually unlocked rather than price per unit of equipment.</td></tr><tr><td>C4</td><td>Installation in a live hall</td><td>10%</td><td>Outage duration per run or per unit, and the method statement.</td></tr><tr><td>C5</td><td>Evidence quality</td><td>5%</td><td>Test certificates and selection outputs at our conditions, rather than datasheets at reference conditions.</td></tr></tbody></table></div><p class='cap'>Weights total 100.</p><div class='callout note'>A response that does not meet every &#x27;shall&#x27; requirement is not ranked above one that does, whatever its price. That ordering is the entire point of a mandatory requirement.</div><h2>5. Instructions to responders</h2><ul><li>Return the response schedule in section 6, completed. An incomplete schedule is not evaluated.</li><li>State compliance against every requirement in section 3 as C (compliant), CD (complies with deviation, deviation described) or N (non-compliant).</li><li>Quote duties at the site conditions stated, not at a reference condition. A duty at a reference condition is not a response to this document.</li><li>List exclusions explicitly and price them separately where you can.</li><li>State which long-lead component governs your delivery date.</li></ul><h2>6. Response schedule</h2><p>Return these figures in these units. They feed a comparison the client can check line by line, which is only possible if every response answers the same question.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Field</th><th scope='col'>Unit</th><th scope='col'>Required</th><th scope='col'>Note</th></tr></thead><tbody><tr><td>Delivered price, excluding VAT</td><td>EUR</td><td>yes</td><td>Delivered and installed. State exclusions separately.</td></tr><tr><td>Weeks from order to delivered on site</td><td>weeks</td><td>yes</td><td></td></tr><tr><td>Weeks from delivery to energised</td><td>weeks</td><td>no</td><td></td></tr><tr><td>Outage required per unit or per run</td><td>hours</td><td>no</td><td></td></tr><tr><td>Duty achieved at the site conditions stated</td><td>kW or A</td><td>no</td><td>At OUR conditions. A figure at a reference condition is not a bid.</td></tr><tr><td>Price validity</td><td>days</td><td>no</td><td></td></tr></tbody></table></div><p class='cap'>Machine-readable template: `gridforge spec … --template` writes a JSON file with these keys, which `gridforge bids` reads back.</p><h2>Appendix A — Assumptions, provenance and validation status</h2><p>Every number in this report carries an evidence class. The class of a computed number is never higher than the weakest of its inputs, so a model applied to measured data yields a modelled number and never a measurement.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Class</th><th scope='col'>Meaning</th></tr></thead><tbody><tr><td>E0</td><td>assumed</td></tr><tr><td>E1</td><td>modelled</td></tr><tr><td>E2</td><td>simulated</td></tr><tr><td>E3</td><td>estimated</td></tr><tr><td>E4</td><td>validated against test data</td></tr><tr><td>E5</td><td>measured at site (customer data)</td></tr><tr><td>E6</td><td>field-validated</td></tr><tr><td>E7</td><td>observed in operation</td></tr></tbody></table></div><h3>A.1 Assumptions relied upon</h3><ul><li>Library default, not a price. Replace with a quotation before this figure supports a capital decision.</li><li>Tap-off units are a reported shortage item</li></ul><h3>A.2 Sources</h3><ul></ul><h3>A.3 Provenance of headline quantities</h3><div class='tablewrap'><table><thead><tr><th scope='col'>Quantity</th><th scope='col'>Evidence</th><th scope='col'>Model</th><th scope='col'>Digest</th></tr></thead><tbody><tr><td>busway replacement for one hall</td><td>E0</td><td>input</td><td><code>74129e356449</code></td></tr><tr><td>busway and tap-off lead time</td><td>E0</td><td>input</td><td><code>74ff17170551</code></td></tr><tr><td>required busway ampacity per run</td><td>E3</td><td>spec.busway_ampacity</td><td><code>584d4571c5b5</code></td></tr><tr><td>required busway ampacity per run</td><td>E3</td><td>spec.busway_ampacity</td><td><code>584d4571c5b5</code></td></tr></tbody></table></div><div class='foot'>Issued by GridForge AI on behalf of the client. We specify duty and interfaces only. We name no make or model, quote no equipment and take no margin on hardware.<br>Generated 2026-09-14 by the GridForge-AI envelope engine.</div></div></body></html>
+\ No newline at end of file
+diff --git a/public/reference/specification.md b/public/reference/specification.md
+new file mode 100644
+index 0000000..e5abc20
+--- /dev/null
++++ b/public/reference/specification.md
+@@ -0,0 +1,172 @@
++# Technical Specification — Replace busway with 800-1000 A and new tap-off units
++
++*Reference Project (synthetic) · hall DH-02 · issued 2026-09-14 · ref REF-TND-01*
++
++> **Duties in this document are derived from a capacity model of this hall. They are modelled values, not measurements of installed plant, and each one names the constraint it came from.**
++
++## 1. Purpose
++
++This package procures the works required to relieve Busway ampacity in hall DH-02. In the capacity model for this hall that constraint is what limits deployable rack count; relieving it moves the hall from 12 to 22 racks, and it is part of a programme that reaches 62 racks in total.
++
++Duties in section 3 are sized for the end state of 62 racks of NVIDIA GB300 NVL72 — the hall this relief is part of delivering — not for the 10 rack(s) this single step unlocks on its own. Nobody buys plant for a marginal rack.
++
++In the capacity model this step moves the hall from 12 to 22 racks; the full ladder reaches 62.
++
++Every numeric requirement is derived from the capacity model and names the constraint it came from. Nothing here specifies a make or a model: we state the duty and the interfaces, the supplier proposes the equipment, and we take no margin on it.
++
++The budget figure is our modelled estimate, not a price. It is stated so the client can see whether a response is in the right universe, and it carries its own evidence class.
++
++**Modelled budget for this relief:** 450,000 [225,000–900,000] EUR (E0)
++
++*Limited by: Our estimate, not a price. Stated so a response that is in the wrong universe is visible immediately.*
++
++**Modelled lead time:** 36 [24–52] weeks (E0)
++
++*Limited by: What the capacity model assumed. A response that differs materially moves the energisation date.*
++
++> ⚠️ EVIDENCE DISCLOSURE: the duties in section 3 are derived from a capacity model built partly on library defaults and assumed inputs, not on a measured survey of this hall. The claim kinds still below the evidence required for an issued deliverable are: capex, cooling performance, electrical capacity. These duties are sufficient to obtain comparable, competent quotations and to see which supplier moves the energisation date. They are NOT sufficient on their own to raise a purchase order for long-lead plant: confirm the governing figures against site measurement first. The study's evidence appendix names exactly which ones those are.
++
++## 2. Scope of supply
++
++Included in this package:
++
++- Supply — Equipment meeting the duty specified in section 3.
++- Delivery — Delivered to site, offloaded, positioned.
++- Installation and commissioning — Installation in a live hall, commissioning and witnessed testing.
++- Documentation — Test certificates, selection outputs at site conditions, O&M.
++
++Explicitly excluded. Listed rather than omitted, because an unstated exclusion is a gap somebody discovers on site:
++
++- Structural sign-off — Any structural strengthening arising from the works is by others.
++- Protection and arc-flash studies — Provided by the client's electrical engineer.
++- Migration and tenancy — Moving or decanting existing tenants is outside this package.
++
++## 3. Technical requirements
++
++Obligation words carry their usual tender meaning: shall — non-compliance disqualifies the response; should — scored, not disqualifying; may — stated for context.
++
++| Ref | Clause | Obl. | Value | From constraint |
++| --- | --- | --- | --- | --- |
++| E-10 | Busway continuous ampacity | shall | 1,990 A (E3) | busway_ampacity |
++| E-11 | Phasing and outage | shall | — | busway_ampacity |
++| E-12 | Tap-off provision | shall | — | busway_ampacity |
++| C-01 | Price basis | shall | — | commercial |
++| C-02 | Validity | shall | — | commercial |
++| C-03 | Response schedule | shall | — | commercial |
++
++*Every numeric requirement names the constraint it was derived from. A requirement nobody can trace back to a physical limit is one somebody invented.*
++
++**E-10 — Busway continuous ampacity** (shall). Each busway run shall have a continuous ampacity not less than the figure stated, at the hall's design ambient and installed configuration.
++
++**Required:** 1,990 A (E3)
++
++*Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E5) continuous limit. Installed: 400 A (E5).*
++
++*Verification:* Type test certificate to the applicable standard, with derating basis stated.
++
++**E-11 — Phasing and outage** (shall). The programme shall allow replacement run by run with the hall in service. The response shall state the outage window per run.
++
++*Basis:* Live tenancy in the hall during the works.
++
++*Verification:* Method statement and programme.
++
++**E-12 — Tap-off provision** (shall). Busway shall accept tap-off units at the density required by the rack pitch stated in the response schedule.
++
++*Basis:* Hall aisle configuration; 62 positions to be fed.
++
++*Verification:* Layout drawing.
++
++**C-01 — Price basis** (shall). Prices shall be delivered and installed, excluding VAT, in EUR, with exclusions listed separately.
++
++*Basis:* Comparability. Four quotations on four bases cannot be evaluated.
++
++*Verification:* Completed response schedule.
++
++**C-02 — Validity** (shall). Prices shall remain valid for not less than 60 days.
++
++*Basis:* The evaluation and approval cycle on a capital item of this size.
++
++*Verification:* Stated on the quotation.
++
++**C-03 — Response schedule** (shall). The response schedule in section 6 shall be returned completed. An incomplete schedule will not be evaluated.
++
++*Basis:* Every figure in it feeds a comparison the client can check. A bid that answers a different question cannot be compared with one that answers this one.
++
++*Verification:* Returned document.
++
++## 4. How responses will be evaluated
++
++Price is one criterion of five. The item being bought exists to unlock compute on a date: a response that is cheaper and materially slower is the expensive one, and the weighting says so.
++
++| Ref | Criterion | Weight | What moves it |
++| --- | --- | --- | --- |
++| C1 | Compliance with the mandatory duty | 35% | Every 'shall' requirement met, at the site conditions stated. A duty quoted at a reference condition rather than at ours scores nothing. |
++| C2 | Delivered programme | 30% | Weeks to site and to energisation, and which long-lead item governs. Assessed against what the item does to the energisation date. |
++| C3 | Price | 20% | Delivered capex, and price per kW actually unlocked rather than price per unit of equipment. |
++| C4 | Installation in a live hall | 10% | Outage duration per run or per unit, and the method statement. |
++| C5 | Evidence quality | 5% | Test certificates and selection outputs at our conditions, rather than datasheets at reference conditions. |
++
++*Weights total 100.*
++
++> ℹ️ A response that does not meet every 'shall' requirement is not ranked above one that does, whatever its price. That ordering is the entire point of a mandatory requirement.
++
++## 5. Instructions to responders
++
++- Return the response schedule in section 6, completed. An incomplete schedule is not evaluated.
++- State compliance against every requirement in section 3 as C (compliant), CD (complies with deviation, deviation described) or N (non-compliant).
++- Quote duties at the site conditions stated, not at a reference condition. A duty at a reference condition is not a response to this document.
++- List exclusions explicitly and price them separately where you can.
++- State which long-lead component governs your delivery date.
++
++## 6. Response schedule
++
++Return these figures in these units. They feed a comparison the client can check line by line, which is only possible if every response answers the same question.
++
++| Field | Unit | Required | Note |
++| --- | --- | --- | --- |
++| Delivered price, excluding VAT | EUR | yes | Delivered and installed. State exclusions separately. |
++| Weeks from order to delivered on site | weeks | yes |  |
++| Weeks from delivery to energised | weeks | no |  |
++| Outage required per unit or per run | hours | no |  |
++| Duty achieved at the site conditions stated | kW or A | no | At OUR conditions. A figure at a reference condition is not a bid. |
++| Price validity | days | no |  |
++
++*Machine-readable template: `gridforge spec … --template` writes a JSON file with these keys, which `gridforge bids` reads back.*
++
++## Appendix A — Assumptions, provenance and validation status
++
++Every number in this report carries an evidence class. The class of a computed number is never higher than the weakest of its inputs.
++
++| Class | Meaning |
++| --- | --- |
++| E0 | assumed |
++| E1 | modelled |
++| E2 | simulated |
++| E3 | estimated |
++| E4 | validated against test data |
++| E5 | measured at site (customer data) |
++| E6 | field-validated |
++| E7 | observed in operation |
++
++### A.1 Assumptions relied upon
++
++- Library default, not a price. Replace with a quotation before this figure supports a capital decision.
++- Tap-off units are a reported shortage item
++
++### A.2 Sources
++
++
++### A.3 Provenance of headline quantities
++
++| Quantity | Evidence | Model | Digest |
++| --- | --- | --- | --- |
++| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
++| busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
++| required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
++| required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
++
++---
++
++Issued by GridForge AI on behalf of the client. We specify duty and interfaces only. We name no make or model, quote no equipment and take no margin on hardware.
++
++Generated 2026-09-14 by the GridForge-AI envelope engine.
+diff --git a/public/reference/tools.json b/public/reference/tools.json
+index db25727..fc8418e 100644
+--- a/public/reference/tools.json
++++ b/public/reference/tools.json
+@@ -237,6 +237,126 @@
+         "additionalProperties": false
+       }
+     },
++    {
++      "name": "gridforge_spec",
++      "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
++      "endpoint": "/v1/spec",
++      "method": "POST",
++      "tier": "client",
++      "units": 3,
++      "returns": "the specification document, what it is sized for, and the response template a supplier fills in.",
++      "inputSchema": {
++        "type": "object",
++        "required": [
++          "intake"
++        ],
++        "properties": {
++          "intake": {
++            "type": "object",
++            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++            "additionalProperties": true
++          },
++          "constraint": {
++            "type": "string",
++            "description": "constraint id to tender for"
++          },
++          "scenario": {
++            "type": "string"
++          },
++          "list": {
++            "type": "boolean",
++            "default": false
++          },
++          "reference": {
++            "type": "string"
++          },
++          "objective": {
++            "type": "string",
++            "enum": [
++              "max_compute",
++              "min_capex_per_rack",
++              "fastest_to_power"
++            ],
++            "default": "max_compute",
++            "description": "What the recommendation optimises for."
++          },
++          "format": {
++            "type": "string",
++            "enum": [
++              "html",
++              "md"
++            ],
++            "default": "html"
++          }
++        },
++        "additionalProperties": false
++      }
++    },
++    {
++      "name": "gridforge_bids",
++      "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
++      "endpoint": "/v1/bids",
++      "method": "POST",
++      "tier": "client",
++      "units": 2,
++      "returns": "ranked bids with scores, schedule impact, and optional cost-library lines.",
++      "inputSchema": {
++        "type": "object",
++        "required": [
++          "intake",
++          "responses"
++        ],
++        "properties": {
++          "intake": {
++            "type": "object",
++            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++            "additionalProperties": true
++          },
++          "responses": {
++            "type": "array",
++            "minItems": 1,
++            "items": {
++              "type": "object",
++              "additionalProperties": true
++            }
++          },
++          "constraint": {
++            "type": "string"
++          },
++          "scenario": {
++            "type": "string"
++          },
++          "ingest": {
++            "type": "boolean",
++            "default": false,
++            "description": "also return the cost-library lines the winning response implies"
++          },
++          "basis": {
++            "type": "string",
++            "enum": [
++              "budgetary_quote",
++              "firm_quote",
++              "contracted"
++            ],
++            "default": "budgetary_quote"
++          },
++          "region": {
++            "type": "string"
++          },
++          "objective": {
++            "type": "string",
++            "enum": [
++              "max_compute",
++              "min_capex_per_rack",
++              "fastest_to_power"
++            ],
++            "default": "max_compute",
++            "description": "What the recommendation optimises for."
++          }
++        },
++        "additionalProperties": false
++      }
++    },
+     {
+       "name": "gridforge_proposal",
+       "description": "A priced proposal for a named engagement, built from what the engine already found.",
+@@ -515,6 +635,122 @@
+         }
+       }
+     },
++    {
++      "type": "function",
++      "function": {
++        "name": "gridforge_spec",
++        "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
++        "parameters": {
++          "type": "object",
++          "required": [
++            "intake"
++          ],
++          "properties": {
++            "intake": {
++              "type": "object",
++              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++              "additionalProperties": true
++            },
++            "constraint": {
++              "type": "string",
++              "description": "constraint id to tender for"
++            },
++            "scenario": {
++              "type": "string"
++            },
++            "list": {
++              "type": "boolean",
++              "default": false
++            },
++            "reference": {
++              "type": "string"
++            },
++            "objective": {
++              "type": "string",
++              "enum": [
++                "max_compute",
++                "min_capex_per_rack",
++                "fastest_to_power"
++              ],
++              "default": "max_compute",
++              "description": "What the recommendation optimises for."
++            },
++            "format": {
++              "type": "string",
++              "enum": [
++                "html",
++                "md"
++              ],
++              "default": "html"
++            }
++          },
++          "additionalProperties": false
++        }
++      }
++    },
++    {
++      "type": "function",
++      "function": {
++        "name": "gridforge_bids",
++        "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
++        "parameters": {
++          "type": "object",
++          "required": [
++            "intake",
++            "responses"
++          ],
++          "properties": {
++            "intake": {
++              "type": "object",
++              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++              "additionalProperties": true
++            },
++            "responses": {
++              "type": "array",
++              "minItems": 1,
++              "items": {
++                "type": "object",
++                "additionalProperties": true
++              }
++            },
++            "constraint": {
++              "type": "string"
++            },
++            "scenario": {
++              "type": "string"
++            },
++            "ingest": {
++              "type": "boolean",
++              "default": false,
++              "description": "also return the cost-library lines the winning response implies"
++            },
++            "basis": {
++              "type": "string",
++              "enum": [
++                "budgetary_quote",
++                "firm_quote",
++                "contracted"
++              ],
++              "default": "budgetary_quote"
++            },
++            "region": {
++              "type": "string"
++            },
++            "objective": {
++              "type": "string",
++              "enum": [
++                "max_compute",
++                "min_capex_per_rack",
++                "fastest_to_power"
++              ],
++              "default": "max_compute",
++              "description": "What the recommendation optimises for."
++            }
++          },
++          "additionalProperties": false
++        }
++      }
++    },
+     {
+       "type": "function",
+       "function": {
+@@ -805,6 +1041,126 @@
+           "gridforge/endpoint": "/v1/diff"
+         }
+       },
++      {
++        "name": "gridforge_spec",
++        "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
++        "inputSchema": {
++          "type": "object",
++          "required": [
++            "intake"
++          ],
++          "properties": {
++            "intake": {
++              "type": "object",
++              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++              "additionalProperties": true
++            },
++            "constraint": {
++              "type": "string",
++              "description": "constraint id to tender for"
++            },
++            "scenario": {
++              "type": "string"
++            },
++            "list": {
++              "type": "boolean",
++              "default": false
++            },
++            "reference": {
++              "type": "string"
++            },
++            "objective": {
++              "type": "string",
++              "enum": [
++                "max_compute",
++                "min_capex_per_rack",
++                "fastest_to_power"
++              ],
++              "default": "max_compute",
++              "description": "What the recommendation optimises for."
++            },
++            "format": {
++              "type": "string",
++              "enum": [
++                "html",
++                "md"
++              ],
++              "default": "html"
++            }
++          },
++          "additionalProperties": false
++        },
++        "_meta": {
++          "gridforge/units": 3,
++          "gridforge/tier": "client",
++          "gridforge/endpoint": "/v1/spec"
++        }
++      },
++      {
++        "name": "gridforge_bids",
++        "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
++        "inputSchema": {
++          "type": "object",
++          "required": [
++            "intake",
++            "responses"
++          ],
++          "properties": {
++            "intake": {
++              "type": "object",
++              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
++              "additionalProperties": true
++            },
++            "responses": {
++              "type": "array",
++              "minItems": 1,
++              "items": {
++                "type": "object",
++                "additionalProperties": true
++              }
++            },
++            "constraint": {
++              "type": "string"
++            },
++            "scenario": {
++              "type": "string"
++            },
++            "ingest": {
++              "type": "boolean",
++              "default": false,
++              "description": "also return the cost-library lines the winning response implies"
++            },
++            "basis": {
++              "type": "string",
++              "enum": [
++                "budgetary_quote",
++                "firm_quote",
++                "contracted"
++              ],
++              "default": "budgetary_quote"
++            },
++            "region": {
++              "type": "string"
++            },
++            "objective": {
++              "type": "string",
++              "enum": [
++                "max_compute",
++                "min_capex_per_rack",
++                "fastest_to_power"
++              ],
++              "default": "max_compute",
++              "description": "What the recommendation optimises for."
++            }
++          },
++          "additionalProperties": false
++        },
++        "_meta": {
++          "gridforge/units": 2,
++          "gridforge/tier": "client",
++          "gridforge/endpoint": "/v1/bids"
++        }
++      },
+       {
+         "name": "gridforge_proposal",
+         "description": "A priced proposal for a named engagement, built from what the engine already found.",
+diff --git a/scripts/build-reference.sh b/scripts/build-reference.sh
+index dca3fd7..a6828ba 100755
+--- a/scripts/build-reference.sh
++++ b/scripts/build-reference.sh
+@@ -20,6 +20,12 @@ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge study "$INTAKE" -o "$OUT" --c
+ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge deck "$INTAKE" -o "$OUT" >/dev/null
+ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge proposal "$INTAKE" -o "$OUT" >/dev/null
+ 
++# The procurement specification for the relief that unlocks the most racks. A
++# prospect can read the document they would actually send to suppliers, including
++# the response schedule — which is the half that makes the bids comparable.
++GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge spec "$INTAKE" \
++  --constraint busway_ampacity --reference "REF-TND-01" -o "$OUT" >/dev/null
++
+ # The model pack carries the whole intake; that is the point, and this intake is
+ # synthetic. Say so in the file itself so a copy of it can never be mistaken for
+ # a real asset once it is separated from the page it came from.
+diff --git a/scripts/deploy-engine.sh b/scripts/deploy-engine.sh
+index db4a77a..6e064b5 100755
+--- a/scripts/deploy-engine.sh
++++ b/scripts/deploy-engine.sh
+@@ -1,22 +1,39 @@
+ #!/usr/bin/env bash
+-# Deploy the capacity engine to Fly.io from a Codespace or any Linux shell.
++# Deploy the capacity engine to Fly.io.
+ #
+-#   bash scripts/deploy-engine.sh
++#   bash scripts/deploy-engine.sh              # deploy; never touches a credential
++#   bash scripts/deploy-engine.sh --bootstrap  # first run: also mint missing secrets
+ #
+-# Idempotent by design. Run it as often as you like: it will not create an app that
+-# exists, and — this is the one that mattered — it will NOT rotate a key that is
+-# already working.
++# THE RULE THIS SCRIPT EXISTS TO OBEY: a deploy must never change a credential.
+ #
+-# The previous version generated a fresh GRIDFORGE_API_KEYS on every run. Every
+-# deploy therefore invalidated the key sitting in Vercel, and the website's paid
+-# deliverable generation started returning 401 until someone noticed and re-pasted
+-# it. A deploy script that breaks production on success is worse than one that
+-# fails, because nothing tells you.
++# Two earlier versions broke that. The first generated GRIDFORGE_API_KEYS on every
++# run, so every deploy invalidated the key in Vercel. The second tried to detect an
++# existing secret by grepping `fly secrets list`, the grep did not match the output
++# format, and it rotated the key anyway — the same failure with an extra step.
++#
++# So detection is no longer load-bearing. Minting is opt-in (--bootstrap), and when
++# detection is uncertain the script refuses to write rather than guessing. A deploy
++# script that breaks production on success is worse than one that fails, because
++# nothing tells you.
++#
++# tests/test_deploy_script.py runs this against a fake `fly` and asserts it never
++# calls `secrets set` on a secret that already exists. That test is the actual fix.
+ set -euo pipefail
+ 
+ APP="${FLY_APP:-gridforge-engine}"
+ REGION="${FLY_REGION:-ams}"
+ VOLUME="${FLY_VOLUME:-gridforge_data}"
++BOOTSTRAP="${GRIDFORGE_BOOTSTRAP:-0}"
++SKIP_DEPLOY="${GRIDFORGE_SKIP_DEPLOY:-0}"
++
++for arg in "$@"; do
++  case "$arg" in
++    --bootstrap) BOOTSTRAP=1 ;;
++    --check)     SKIP_DEPLOY=1 ;;
++    -h|--help)   sed -n '2,20p' "$0"; exit 0 ;;
++    *) echo "unknown option: $arg" >&2; exit 2 ;;
++  esac
++done
+ 
+ say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
+ warn() { printf '\n\033[33m%s\033[0m\n' "$*"; }
+@@ -47,43 +64,79 @@ else
+   "$FLY" apps create "$APP"
+ fi
+ 
+-# --- secrets: add what is missing, rotate nothing -----------------------------
+-EXISTING="$("$FLY" secrets list --app "$APP" 2>/dev/null || true)"
+-has_secret() { grep -q "^$1[[:space:]]" <<<"$EXISTING"; }
++# --- which secrets exist ------------------------------------------------------
++# --json first, because a machine-readable list cannot be broken by a column
++# realignment. The text fallback is whitespace-tolerant and anchored on a word
++# boundary rather than the start of a line, since flyctl has indented rows before.
++SECRET_NAMES=""
++DETECTED=0
++if RAW_JSON="$("$FLY" secrets list --app "$APP" --json 2>/dev/null)" && [ -n "$RAW_JSON" ]; then
++  if SECRET_NAMES="$(printf '%s' "$RAW_JSON" | python3 -c '
++import json, sys
++try:
++    rows = json.load(sys.stdin)
++except Exception:
++    raise SystemExit(1)
++if isinstance(rows, dict):
++    rows = rows.get("secrets") or rows.get("Secrets") or []
++names = [r.get("Name") or r.get("name") for r in rows if isinstance(r, dict)]
++print("\n".join(n for n in names if n))
++' 2>/dev/null)"; then
++    DETECTED=1
++  fi
++fi
++if [ "$DETECTED" -eq 0 ]; then
++  if RAW_TXT="$("$FLY" secrets list --app "$APP" 2>/dev/null)" && [ -n "$RAW_TXT" ]; then
++    SECRET_NAMES="$(printf '%s' "$RAW_TXT" | awk 'NR>1 {print $1}')"
++    DETECTED=1
++  fi
++fi
+ 
++has_secret() { printf '%s\n' "$SECRET_NAMES" | grep -qx -- "$1"; }
++
++# --- secrets: opt-in minting, and never a rotation ----------------------------
+ STAGED=()
+ 
+-if has_secret GRIDFORGE_API_KEYS; then
+-  say "GRIDFORGE_API_KEYS is already set — not touching it"
+-  echo "  To rotate deliberately:"
+-  echo "    $FLY secrets set GRIDFORGE_API_KEYS=\"\$(openssl rand -hex 24)\" --app $APP"
+-  echo "  and paste the same value into Vercel as GRIDFORGE_API_KEY."
+-else
+-  KEY="${GRIDFORGE_API_KEY_VALUE:-$(openssl rand -hex 24)}"
+-  STAGED+=("GRIDFORGE_API_KEYS=$KEY")
+-  NEW_KEY="$KEY"
+-fi
+-
+-# The signing secret for self-serve keys. The SAME value must be set on the website,
+-# or every key it issues will be rejected here — so it is generated once and printed
+-# once, and never regenerated.
+-if has_secret GRIDFORGE_KEY_SECRET; then
+-  say "GRIDFORGE_KEY_SECRET is already set — not touching it"
+-else
+-  SECRET="${GRIDFORGE_KEY_SECRET_VALUE:-$(openssl rand -hex 32)}"
+-  STAGED+=("GRIDFORGE_KEY_SECRET=$SECRET")
+-  NEW_SECRET="$SECRET"
+-fi
++consider() {           # consider NAME GENERATOR_COMMAND DESCRIPTION
++  local name="$1" gen="$2" what="$3"
++  if [ "$DETECTED" -eq 0 ]; then
++    warn "Could not read the secret list for $APP."
++    echo "  Not writing $name. Uncertainty must never resolve to overwriting a credential."
++    echo "  Set it yourself if it is missing:"
++    echo "    $FLY secrets set $name=\"\$($gen)\" --app $APP"
++    return
++  fi
++  if has_secret "$name"; then
++    echo "  $name — already set, untouched"
++    return
++  fi
++  if [ "$BOOTSTRAP" != "1" ]; then
++    warn "$name is NOT set on $APP ($what)."
++    echo "  This script will not mint it without --bootstrap. Either:"
++    echo "    bash scripts/deploy-engine.sh --bootstrap"
++    echo "  or set it yourself:"
++    echo "    $FLY secrets set $name=\"\$($gen)\" --app $APP"
++    return
++  fi
++  local value
++  value="$(eval "$gen")"
++  STAGED+=("$name=$value")
++  eval "NEW_${name}=\$value"
++}
++
++say "Secrets"
++consider GRIDFORGE_API_KEYS   "openssl rand -hex 24" "the website's key for paid endpoints"
++consider GRIDFORGE_KEY_SECRET "openssl rand -hex 32" "signs self-serve API keys; the website needs the same value"
+ 
+ if [ ${#STAGED[@]} -gt 0 ]; then
+-  say "Staging ${#STAGED[@]} new secret(s)"
++  say "Staging ${#STAGED[@]} NEW secret(s) — nothing existing is being replaced"
+   "$FLY" secrets set "${STAGED[@]}" --app "$APP" --stage
+ fi
+ 
+ # --- usage volume -------------------------------------------------------------
+ # GRIDFORGE_USAGE_FILE on a path with no volume behind it silently discards every
+ # usage record, and looks identical to a working configuration until the first
+-# invoice. The engine now probes the path at startup and reports the truth at
++# invoice. The engine probes the path at startup and reports the truth at
+ # /v1/usage; this makes the path real so it has something true to report.
+ if "$FLY" volumes list --app "$APP" 2>/dev/null | grep -q "$VOLUME"; then
+   say "Usage volume $VOLUME exists"
+@@ -95,9 +148,45 @@ else
+     warn "only, and /v1/usage will say so rather than pretending otherwise."
+   }
+ fi
+-if ! grep -q "\[mounts\]" fly.toml; then
+-  warn "fly.toml has no [mounts] section, so the volume will not be attached."
+-  warn "Add:  [mounts]\n        source = \"$VOLUME\"\n        destination = \"/data\""
++grep -q "\[mounts\]" fly.toml || warn "fly.toml has no [mounts] section — the volume will not attach."
++
++summary() {
++  cat <<EOF
++
++────────────────────────────────────────────────────────────────────────
++Website environment (Vercel → Settings → Environment Variables):
++
++  GRIDFORGE_API_URL=https://$APP.fly.dev
++EOF
++  if [ -n "${NEW_GRIDFORGE_API_KEYS:-}" ]; then
++    echo "  GRIDFORGE_API_KEY=$NEW_GRIDFORGE_API_KEYS        <- NEW, set this now"
++  else
++    echo "  GRIDFORGE_API_KEY=<unchanged>     <- this run did not touch it"
++  fi
++  if [ -n "${NEW_GRIDFORGE_KEY_SECRET:-}" ]; then
++    cat <<EOF
++  GRIDFORGE_KEY_SECRET=$NEW_GRIDFORGE_KEY_SECRET
++      ^ NEW, set this now. Both sides must hold the SAME value. Printed once.
++EOF
++  else
++    echo "  GRIDFORGE_KEY_SECRET=<unchanged>  <- this run did not touch it"
++  fi
++  cat <<EOF
++
++To rotate deliberately (this script never will):
++  $FLY secrets set GRIDFORGE_API_KEYS="\$(openssl rand -hex 24):gridforge-site" --app $APP
++  …then paste the same value into Vercel as GRIDFORGE_API_KEY.
++
++Migrations still to run in Supabase:
++  supabase/migrations/0002_qualifications.sql … 0007_api_accounts.sql
++────────────────────────────────────────────────────────────────────────
++EOF
++}
++
++if [ "$SKIP_DEPLOY" = "1" ]; then
++  say "--check: stopping before deploy"
++  summary
++  exit 0
+ fi
+ 
+ say "Deploying"
+@@ -110,64 +199,25 @@ for _ in $(seq 1 30); do
+   sleep 2
+ done
+ VERSION_JSON="$(curl -s "$URL/v1/version" || true)"
+-echo "$VERSION_JSON"
+ 
+ python3 - "$VERSION_JSON" <<'PY' || true
+ import json, sys
+ try:
+     d = json.loads(sys.argv[1] or "{}")
+ except Exception:
+-    sys.exit(0)
+-if not d.get("auth_configured"):
+-    print("\n  ! paid endpoints are DISABLED: neither GRIDFORGE_API_KEYS nor "
+-          "GRIDFORGE_KEY_SECRET is set on this app.")
+-if not d.get("signed_keys"):
+-    print("\n  ! self-serve keys are DISABLED: GRIDFORGE_KEY_SECRET is not set, so "
+-          "keys issued by the website will be rejected.")
+-if not (d.get("metering") or {}).get("durable"):
+-    print("\n  ! metered usage is NOT durable on this instance. Check the volume is "
+-          "mounted at /data, then GET /v1/usage — it names the exact problem.")
++    print("  ! could not read /v1/version"); raise SystemExit(0)
++rows = [
++    ("paid endpoints", d.get("auth_configured"),
++     "set GRIDFORGE_API_KEYS or GRIDFORGE_KEY_SECRET"),
++    ("self-serve keys", d.get("signed_keys"),
++     "set GRIDFORGE_KEY_SECRET to the same value as the website"),
++    ("durable metering", (d.get("metering") or {}).get("durable"),
++     "check the volume is mounted at /data, then GET /v1/usage for the exact problem"),
++]
++print(f"\n  engine {d.get('version', '?')}")
++for label, ok, fix in rows:
++    print(f"  {'OK ' if ok else '!! '} {label:18s}" + ("" if ok else f"  -> {fix}"))
+ PY
+ 
+-cat <<EOF
+-
+-────────────────────────────────────────────────────────────────────────
+-The engine is live at $URL
+-
+-Website environment (Vercel → Settings → Environment Variables):
+-
+-  GRIDFORGE_API_URL=$URL
+-EOF
+-
+-if [ -n "${NEW_KEY:-}" ]; then
+-  cat <<EOF
+-  GRIDFORGE_API_KEY=$NEW_KEY        <- NEW, set this now
+-EOF
+-else
+-  cat <<EOF
+-  GRIDFORGE_API_KEY=<unchanged>     <- the existing key still works
+-EOF
+-fi
+-
+-if [ -n "${NEW_SECRET:-}" ]; then
+-  cat <<EOF
+-  GRIDFORGE_KEY_SECRET=$NEW_SECRET
+-      ^ NEW. The website signs self-serve API keys with this and the engine
+-        verifies them. Both sides must hold the SAME value. Printed once.
+-EOF
+-else
+-  cat <<EOF
+-  GRIDFORGE_KEY_SECRET=<unchanged>  <- must match what the website already has
+-EOF
+-fi
+-
+-cat <<EOF
+-
+-Verify:
+-  curl -s $URL/v1/version | python3 -m json.tool | head -20
+-  curl -s $URL/v1/tools   | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["tools"]), "tools")'
+-
+-Migrations still to run in Supabase:
+-  supabase/migrations/0002_qualifications.sql … 0007_api_accounts.sql
+-────────────────────────────────────────────────────────────────────────
+-EOF
++say "The engine is live at $URL"
++summary
+diff --git a/tests/test_catalogue_parity.py b/tests/test_catalogue_parity.py
+index 6b95f05..6ea51fd 100644
+--- a/tests/test_catalogue_parity.py
++++ b/tests/test_catalogue_parity.py
+@@ -74,6 +74,20 @@ def test_every_api_plan_is_purchasable(ts):
+             f"{plan_id} is a monthly plan and must check out in subscription mode")
+ 
+ 
++def test_every_engagement_sold_on_the_site_agrees_with_the_engine(ts):
++    """Not only the two that were checked by hand. A new engagement added to one
++    side and not the other is exactly the drift this file exists to catch."""
++    for pid, prod in ts.items():
++        if prod.get("apiUnits") is not None or pid.endswith("_deposit"):
++            continue
++        if pid not in ENGAGEMENTS:
++            continue
++        assert prod["amountCents"] == ENGAGEMENTS[pid].price_eur * 100, (
++            f"{pid}: engine EUR {ENGAGEMENTS[pid].price_eur}, "
++            f"checkout EUR {prod['amountCents'] / 100:.0f}")
++        assert prod["name"] == ENGAGEMENTS[pid].name
++
++
+ def test_the_density_screen_price_agrees(ts):
+     """The one engagement bought directly on the site, rather than by deposit."""
+     assert ts["density_screen"]["amountCents"] == ENGAGEMENTS["density_screen"].price_eur * 100
+diff --git a/tests/test_deploy_script.py b/tests/test_deploy_script.py
+new file mode 100644
+index 0000000..9a31d81
+--- /dev/null
++++ b/tests/test_deploy_script.py
+@@ -0,0 +1,179 @@
++"""The deploy script, run against a fake `fly`.
++
++This file exists because the same bug shipped twice. deploy-engine.sh generated a
++fresh GRIDFORGE_API_KEYS on every run, so every deploy invalidated the key the
++website was using. Patch 0014 "fixed" it by grepping `fly secrets list` — the grep
++did not match flyctl's actual output, the detection silently returned false, and
++the next deploy rotated the key again.
++
++A shell script with no test is how a bug survives the patch that claims to fix it.
++So: a fake `fly` on PATH that records every argv it is called with, and assertions
++about what the script did and did not do. The invariant is one line — a deploy must
++never write a secret that already exists — and it is now enforced rather than
++intended.
++"""
++import json
++import os
++import shutil
++import stat
++import subprocess
++from pathlib import Path
++
++import pytest
++
++ROOT = Path(__file__).resolve().parents[1]
++SCRIPT = ROOT / "scripts" / "deploy-engine.sh"
++
++# Every flyctl invocation is appended to $FLY_LOG as one JSON array per line, so a
++# test can assert on exactly what was asked of the platform.
++FAKE_FLY = r"""#!/usr/bin/env bash
++python3 - "$FLY_LOG" "$@" <<'PY'
++import json, sys
++open(sys.argv[1], "a").write(json.dumps(sys.argv[2:]) + "\n")
++PY
++case "$1 $2" in
++  "auth whoami")   echo "tester@example.com" ;;
++  "status --app")  exit "${FAKE_STATUS_RC:-0}" ;;
++  "secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"; exit "${FAKE_SECRETS_RC:-0}" ;;
++  "volumes list")  echo "${FAKE_VOLUMES:-}" ;;
++  *) : ;;
++esac
++exit 0
++"""
++
++JSON_LIST = json.dumps(
++    [{"Name": "GRIDFORGE_API_KEYS", "Digest": "abc", "CreatedAt": "2026-01-01"},
++     {"Name": "GRIDFORGE_KEY_SECRET", "Digest": "def", "CreatedAt": "2026-01-01"}]
++)
++
++# flyctl has shipped this with a header row and varying indentation. The second
++# form is what defeated the previous implementation's `grep "^NAME"`.
++TEXT_LIST_INDENTED = (
++    "NAME                  DIGEST          CREATED AT\n"
++    "  GRIDFORGE_API_KEYS    abc123          1h30m ago\n"
++    "  GRIDFORGE_KEY_SECRET  def456          1h30m ago\n"
++)
++
++
++def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
++        args=(), env_extra=None, json_ok=True):
++    bin_dir = tmp_path / "bin"
++    bin_dir.mkdir(exist_ok=True)
++    fly = bin_dir / "fly"
++    # When json_ok is False the fake returns the same text for --json too, which is
++    # exactly what an older flyctl does: it ignores the flag and prints a table.
++    body = FAKE_FLY
++    if not json_ok:
++        body = body.replace('"secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"',
++                            '"secrets list")  cat "${FAKE_SECRETS_TXT:-/dev/null}"')
++    fly.write_text(body)
++    fly.chmod(fly.stat().st_mode | stat.S_IEXEC)
++
++    log = tmp_path / "fly.log"
++    out_file = tmp_path / "secrets.out"
++    out_file.write_text(secrets_out or "")
++
++    env = {
++        **os.environ,
++        "PATH": f"{bin_dir}:{os.environ['PATH']}",
++        "FLY_LOG": str(log),
++        "FAKE_SECRETS_OUT": str(out_file) if secrets_out is not None else "/dev/null",
++        "FAKE_SECRETS_TXT": str(out_file),
++        "FAKE_SECRETS_RC": str(secrets_rc),
++        "FAKE_VOLUMES": "gridforge_data",
++        "GRIDFORGE_SKIP_DEPLOY": "1",
++        "FLY_APP": "test-engine",
++        **(env_extra or {}),
++    }
++    proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, env=env,
++                          capture_output=True, text=True)
++    calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
++    return proc, calls
++
++
++def secret_sets(calls):
++    return [c for c in calls if c[:2] == ["secrets", "set"]]
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
++class TestNeverRotates:
++    """The one invariant. Everything else in this file is detail."""
++
++    def test_existing_secrets_are_never_rewritten_json(self, tmp_path):
++        proc, calls = run(tmp_path, secrets_out=JSON_LIST)
++        assert proc.returncode == 0, proc.stderr
++        assert secret_sets(calls) == [], (
++            "a deploy wrote a secret that already existed:\n" + proc.stdout)
++        assert "already set, untouched" in proc.stdout
++
++    def test_existing_secrets_are_never_rewritten_from_an_indented_table(self, tmp_path):
++        """The exact shape that defeated the previous implementation."""
++        proc, calls = run(tmp_path, secrets_out=TEXT_LIST_INDENTED, json_ok=False)
++        assert proc.returncode == 0, proc.stderr
++        assert secret_sets(calls) == [], (
++            "the text fallback failed to see an existing secret:\n" + proc.stdout)
++
++    def test_existing_secrets_are_not_rewritten_even_with_bootstrap(self, tmp_path):
++        """--bootstrap means 'mint what is missing', never 'replace what is there'."""
++        proc, calls = run(tmp_path, secrets_out=JSON_LIST, args=("--bootstrap",))
++        assert proc.returncode == 0, proc.stderr
++        assert secret_sets(calls) == []
++
++    def test_a_missing_secret_is_not_minted_without_bootstrap(self, tmp_path):
++        """The default cannot create a credential, so it cannot surprise anyone."""
++        proc, calls = run(tmp_path, secrets_out="[]")
++        assert proc.returncode == 0, proc.stderr
++        assert secret_sets(calls) == []
++        assert "--bootstrap" in proc.stdout
++        assert "GRIDFORGE_API_KEYS is NOT set" in proc.stdout
++
++    def test_uncertain_detection_refuses_to_write(self, tmp_path):
++        """If the secret list cannot be read at all, the script must not guess.
++        Guessing is what rotated a live key twice."""
++        proc, calls = run(tmp_path, secrets_out=None, secrets_rc=1,
++                          args=("--bootstrap",))
++        assert proc.returncode == 0, proc.stderr
++        assert secret_sets(calls) == []
++        assert "Uncertainty must never resolve to overwriting a credential" in proc.stdout
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
++class TestBootstrap:
++    def test_bootstrap_mints_only_what_is_missing(self, tmp_path):
++        partial = json.dumps([{"Name": "GRIDFORGE_API_KEYS"}])
++        proc, calls = run(tmp_path, secrets_out=partial, args=("--bootstrap",))
++        assert proc.returncode == 0, proc.stderr
++        sets = secret_sets(calls)
++        assert len(sets) == 1, sets
++        assigned = [a for a in sets[0] if "=" in a]
++        assert len(assigned) == 1
++        name, value = assigned[0].split("=", 1)
++        assert name == "GRIDFORGE_KEY_SECRET"
++        assert len(value) >= 32, "a signing secret must not be short"
++        assert "--stage" in sets[0], "secrets must be staged, not applied mid-deploy"
++
++    def test_a_minted_secret_is_printed_once(self, tmp_path):
++        proc, _ = run(tmp_path, secrets_out="[]", args=("--bootstrap",))
++        assert "NEW, set this now" in proc.stdout
++        assert "Both sides must hold the SAME value" in proc.stdout
++
++    def test_nothing_minted_says_unchanged_rather_than_printing_a_key(self, tmp_path):
++        proc, _ = run(tmp_path, secrets_out=JSON_LIST)
++        assert "<unchanged>" in proc.stdout
++        assert "NEW, set this now" not in proc.stdout
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
++class TestApp:
++    def test_an_existing_app_is_not_recreated(self, tmp_path):
++        proc, calls = run(tmp_path, secrets_out=JSON_LIST)
++        assert not [c for c in calls if c[:2] == ["apps", "create"]]
++        assert "already exists" in proc.stdout
++
++    def test_a_missing_app_is_created(self, tmp_path):
++        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_STATUS_RC": "1"})
++        assert [c for c in calls if c[:2] == ["apps", "create"]], proc.stdout
++
++    def test_the_script_tells_you_how_to_rotate_deliberately(self, tmp_path):
++        proc, _ = run(tmp_path, secrets_out=JSON_LIST)
++        assert "To rotate deliberately (this script never will)" in proc.stdout
+diff --git a/tests/test_procurement.py b/tests/test_procurement.py
+new file mode 100644
+index 0000000..ec1c4a8
+--- /dev/null
++++ b/tests/test_procurement.py
+@@ -0,0 +1,376 @@
++"""The procurement specification, and the flywheel underneath it.
++
++Two claims are being sold here, and each one fails in a specific, expensive way:
++
++  1. "Every requirement is derived from a limit in your hall." If a numeric
++     requirement can appear with no constraint behind it, the document is a
++     consultancy's wish list with a traceability story bolted on.
++  2. "A returned bid makes the next study stronger." If the ingest puts a lump-sum
++     price into a per-rack library line, the error is off by the rack count, it
++     carries a QUOTATION's evidence class, and every future study inherits it with
++     a straight face. That is worse than having no flywheel at all.
++
++The second is the one tested hardest.
++"""
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from gridforge.costs import COST_EVIDENCE, declared_unit
++from gridforge.intake.loader import load
++from gridforge.procurement import (ProcurementError, SupplierResponse, build_spec,
++                                   cost_entries_from, rank_bids, relief_steps)
++from gridforge.procurement.evaluate import assess, schedule_impact
++from gridforge.procurement.ingest import command_lines
++from gridforge.procurement.schema import MANDATORY, EvaluationCriterion, SpecPackage
++from gridforge.reporting import to_markdown
++from gridforge.reporting.gates import ReportMode, run_all_gates
++from gridforge.reporting.spec import build as build_spec_report
++from gridforge.reporting.study import collect_claims
++from gridforge.scenario.run import run_all
++
++ROOT = Path(__file__).resolve().parents[1]
++INTAKE = ROOT / "examples" / "intake" / "reference_hall.json"
++
++
++@pytest.fixture(scope="module")
++def solved():
++    intake = load(INTAKE)
++    results = run_all(intake.context, intake.scenarios)
++    best = max(results, key=lambda r: r.unlocked_racks)
++    return intake, results, best
++
++
++def spec_for(solved, constraint_id):
++    intake, _, best = solved
++    return build_spec(intake, best, constraint_id=constraint_id)
++
++
++def bid(supplier, capex, lead, install=4, pkg=None, non_compliant=None):
++    compliance = {}
++    if pkg:
++        compliance = {q.id: "C" for q in pkg.mandatory()}
++        if non_compliant:
++            compliance[non_compliant] = "N"
++    return SupplierResponse.from_dict({
++        "supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31",
++        "values": {"capex_eur": capex, "lead_time_weeks": lead, "install_weeks": install},
++        "compliance": compliance,
++    })
++
++
++# --- traceability ----------------------------------------------------------
++
++def test_every_numeric_requirement_names_a_constraint(solved):
++    """The claim the whole product rests on. A number nobody can trace is a number
++    somebody invented, and those are how a tender specifies equipment the hall does
++    not need."""
++    intake, _, best = solved
++    for step in relief_steps(best):
++        pkg = build_spec(intake, best, constraint_id=step.binding_id)
++        for q in pkg.requirements:
++            if q.value is not None and q.obligation == MANDATORY:
++                assert q.derived_from, f"{pkg.constraint_id}/{q.id} has no constraint behind it"
++
++
++def test_a_specification_with_an_untraceable_requirement_is_refused():
++    from gridforge.procurement.schema import Requirement
++    from gridforge.validation import EvidenceClass, Quantity
++    pkg = SpecPackage(project="P", hall="H", relief_title="R", constraint_id="c",
++                      constraint_name="C", racks_before=0, racks_after=1)
++    pkg.requirements = [Requirement(
++        id="X-1", clause="Invented", statement="Shall be 400 A.",
++        value=Quantity.given(400, "A", "invented", EvidenceClass.E0_ASSUMPTION))]
++    with pytest.raises(ProcurementError, match="invented"):
++        pkg.validate()
++
++
++def test_evaluation_weights_must_total_one_hundred(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    assert sum(c.weight for c in pkg.criteria) == 100
++    pkg.criteria = list(pkg.criteria) + [EvaluationCriterion("C9", "Extra", 5, "x")]
++    with pytest.raises(ProcurementError, match="total 105"):
++        pkg.validate()
++
++
++def test_every_constraint_with_a_purchasable_relief_produces_a_specification(solved):
++    intake, _, best = solved
++    ids = sorted({s.binding_id for s in relief_steps(best)})
++    assert len(ids) >= 5
++    for cid in ids:
++        pkg = build_spec(intake, best, constraint_id=cid)
++        pkg.validate()
++        assert pkg.requirements
++        assert pkg.mandatory()
++
++
++def test_an_unknown_constraint_says_what_is_available(solved):
++    intake, _, best = solved
++    with pytest.raises(ProcurementError, match="Available"):
++        build_spec(intake, best, constraint_id="not_a_constraint")
++
++
++# --- sizing ----------------------------------------------------------------
++
++def test_duties_are_sized_for_the_end_state_not_the_rung(solved):
++    """A rung often unlocks three racks. Nobody buys a transformer for three racks,
++    and a specification that asks them to is traceable and absurd."""
++    intake, _, best = solved
++    for step in relief_steps(best):
++        pkg = build_spec(intake, best, constraint_id=step.binding_id)
++        assert pkg.sized_for_racks >= best.unlocked_racks
++        assert pkg.sized_for_racks > step.racks_unlocked or step.racks_unlocked == 0
++        assert pkg.sized_for_kW > 0
++
++
++def test_the_duty_figures_are_physically_sensible(solved):
++    """A spot check with real arithmetic behind it: a transformer for N racks must
++    be larger than the raw IT load and smaller than ten times it."""
++    intake, _, best = solved
++    pkg = spec_for(solved, "transformer_capacity")
++    it_mw = intake.context.cluster.platform.rack_kW.value * pkg.sized_for_racks / 1000.0
++    rating = next(q for q in pkg.requirements if q.id == "E-20")
++    assert rating.value is not None
++    assert it_mw < rating.value.value < it_mw * 3, (
++        f"{rating.value.value} MVA for {it_mw:.1f} MW of IT load is not a credible rating")
++
++
++def test_the_cdu_duty_is_quoted_at_site_water_temperature(solved):
++    """The commonest way a liquid retrofit under-delivers is a CDU rated at a 5 K
++    approach installed on a site with a far wider one. The specification has to say
++    so where a supplier cannot miss it."""
++    pkg = spec_for(solved, "cdu_capacity")
++    duty = next(q for q in pkg.requirements if q.id == "T-01")
++    assert "SITE FACILITY WATER TEMPERATURE" in duty.statement
++    conditions = next(q for q in pkg.requirements if q.id == "T-02")
++    assert conditions.value is not None
++
++
++# --- the document ----------------------------------------------------------
++
++def test_the_specification_passes_the_report_gates(solved):
++    _, results, _ = solved
++    pkg = spec_for(solved, "busway_ampacity")
++    report = build_spec_report(pkg, claims=collect_claims(results))
++    md = to_markdown(report)
++    run_all_gates(report, md, claims=collect_claims(results), mode=ReportMode.SCREENING)
++
++
++def test_the_document_warns_against_raising_a_purchase_order_on_it(solved):
++    """These duties are good enough to get comparable quotations. They are not good
++    enough to commit capital against without site measurement, and a document that
++    does not say so will eventually be used as though they were."""
++    _, results, _ = solved
++    pkg = spec_for(solved, "transformer_capacity")
++    md = to_markdown(build_spec_report(pkg, claims=collect_claims(results))).lower()
++    assert "not sufficient on their own to raise a purchase order" in md
++    assert "confirm the governing figures against site measurement" in md
++
++
++def test_the_document_names_no_make_or_model(solved):
++    _, results, _ = solved
++    for cid in ("cdu_capacity", "transformer_capacity", "ups_capacity"):
++        pkg = spec_for(solved, cid)
++        md = to_markdown(build_spec_report(pkg, claims=collect_claims(results))).lower()
++        assert "take no margin on hardware" in md
++        for brand in ("vertiv", "schneider", "eaton", "abb", "siemens", "motivair"):
++            assert brand not in md, f"{cid}: the specification named {brand}"
++
++
++# --- bid evaluation --------------------------------------------------------
++
++def test_a_non_compliant_bid_never_outranks_a_compliant_one(solved):
++    """Whatever its price. That ordering is the entire point of a 'shall'."""
++    pkg = spec_for(solved, "busway_ampacity")
++    first = pkg.mandatory()[0].id
++    ranked = rank_bids(pkg, [
++        bid("Cheap", 200_000, 10, pkg=pkg, non_compliant=first),
++        bid("Proper", 600_000, 40, pkg=pkg),
++    ])
++    assert ranked[0].supplier == "Proper"
++    assert ranked[1].mandatory_failed == [first]
++
++
++def test_a_cheaper_slower_bid_is_visible_as_the_expensive_one(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    ranked = rank_bids(pkg, [bid("Fast", 500_000, 12, pkg=pkg),
++                             bid("Slow", 400_000, 48, pkg=pkg)])
++    fast = next(a for a in ranked if a.supplier == "Fast")
++    slow = next(a for a in ranked if a.supplier == "Slow")
++    assert fast.scores["C2"] > slow.scores["C2"]
++    assert fast.total_score > slow.total_score, (
++        "a bid 36 weeks slower and 20% cheaper scored higher — the weighting is wrong")
++
++
++def test_an_incomplete_response_is_not_evaluated(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    blank = SupplierResponse.from_dict({
++        "supplier": "Vague", "received_on": "2026-10-01",
++        "values": {"capex_eur": 100_000}})       # no lead time
++    a = assess(pkg, [blank])[0]
++    assert a.disqualified
++    assert "left blank" in " ".join(a.notes)
++
++
++def test_the_unscored_points_are_declared_rather_than_invented(solved):
++    """Installation method and evidence quality need judgement. Filling those columns
++    with a computed number would be the tool pretending to have made a judgement."""
++    pkg = spec_for(solved, "busway_ampacity")
++    a = assess(pkg, [bid("Alpha", 400_000, 20, pkg=pkg)])[0]
++    assert a.scores["C4"] == 0.0 and a.scores["C5"] == 0.0
++    assert a.total_score <= 85
++    assert any("scored by the engineer" in n for n in a.notes)
++
++
++def test_schedule_impact_is_stated_against_the_model(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    late = assess(pkg, [bid("Late", 400_000, 90, pkg=pkg)])[0]
++    assert "later than the modelled" in schedule_impact(pkg, late)
++    assert "whole envelope moves with it" in schedule_impact(pkg, late)
++
++
++def test_per_rack_price_uses_what_the_bid_was_sized_for(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    a = assess(pkg, [bid("Alpha", 620_000, 20, pkg=pkg)])[0]
++    assert a.eur_per_rack == pytest.approx(620_000 / pkg.sized_for_racks)
++
++
++def test_a_response_with_a_non_numeric_value_names_the_field():
++    with pytest.raises(ProcurementError, match="lead_time_weeks"):
++        SupplierResponse.from_dict({
++            "supplier": "X", "received_on": "2026-01-01",
++            "values": {"lead_time_weeks": "about 20 weeks"}})
++
++
++def test_an_undated_response_is_refused():
++    """An undated price cannot become a dated cost-library entry, and a cost library
++    of undated prices is a list of numbers."""
++    with pytest.raises(ProcurementError, match="date"):
++        SupplierResponse.from_dict({"supplier": "X", "values": {"capex_eur": 1}})
++
++
++# --- the flywheel ----------------------------------------------------------
++
++def test_a_lump_sum_bid_converts_onto_the_librarys_own_basis(solved):
++    """The failure that would do real damage. tapoff.unit is held per rack,
++    ups.per_kW per kW and busway.replacement as a lump sum. A supplier quotes one
++    number for the job; entering it on the wrong basis is off by the rack count,
++    carries a quotation's evidence class, and poisons every future study."""
++    intake, _, best = solved
++    price = 620_000.0
++    cases = {
++        "rack_feed_tapoff": "EUR/rack",
++        "ups_capacity": "EUR/kW",
++        "busway_ampacity": "EUR",
++        "cdu_capacity": "EUR",
++    }
++    for cid, expected_unit in cases.items():
++        pkg = build_spec(intake, best, constraint_id=cid)
++        entry = cost_entries_from(pkg, bid("Alpha", price, 20, pkg=pkg))[0]
++        assert entry["unit"] == expected_unit, f"{cid}: {entry['unit']}"
++        assert entry["unit"] == declared_unit(entry["key"], entry["unit"])
++        if expected_unit == "EUR/rack":
++            assert entry["value"] == pytest.approx(price / pkg.sized_for_racks, rel=1e-3)
++        elif expected_unit == "EUR/kW":
++            assert entry["value"] == pytest.approx(price / pkg.sized_for_kW, rel=1e-3)
++        else:
++            assert entry["value"] == pytest.approx(price)
++
++
++def test_the_ingest_raises_the_evidence_class(solved):
++    """This is what the engagement pays for twice. A library default is E0 with a
++    -50%/+100% band; a returned firm quotation is E5."""
++    pkg = spec_for(solved, "busway_ampacity")
++    default = COST_EVIDENCE["library_default"]
++    for basis in ("budgetary_quote", "firm_quote", "contracted"):
++        entry = cost_entries_from(pkg, bid("Alpha", 400_000, 20, pkg=pkg), basis=basis)[0]
++        assert COST_EVIDENCE[entry["basis"]] > default
++
++
++def test_a_benchmark_basis_is_refused_for_a_supplier_response(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    for basis in ("library_default", "published_benchmark"):
++        with pytest.raises(ProcurementError, match="quotation, not a benchmark"):
++            cost_entries_from(pkg, bid("Alpha", 1, 1, pkg=pkg), basis=basis)
++
++
++def test_the_entry_carries_who_quoted_it_and_when(solved):
++    pkg = spec_for(solved, "busway_ampacity")
++    e = cost_entries_from(pkg, bid("Alpha", 400_000, 20, pkg=pkg), region="DE")[0]
++    assert e["supplier"] == "Alpha"
++    assert e["quoted_on"] == "2026-10-01"
++    assert e["valid_until"] == "2026-12-31"
++    assert e["region"] == "DE"
++    assert pkg.constraint_name in e["note"]
++
++
++def test_the_commands_are_printed_for_review_not_run(solved):
++    """A price that enters the library unreviewed is one nobody can defend when a
++    client asks where it came from."""
++    pkg = spec_for(solved, "busway_ampacity")
++    lines = command_lines(cost_entries_from(pkg, bid("Alpha", 400_000, 20, pkg=pkg)))
++    assert lines and all(l.startswith("python3 -m gridforge cost add") for l in lines)
++    assert "--supplier 'Alpha'" in lines[0]
++    assert "--quoted-on 2026-10-01" in lines[0]
++
++
++# --- the command line ------------------------------------------------------
++
++def run_cli(*args):
++    r = subprocess.run([sys.executable, "-m", "gridforge", *args], cwd=ROOT,
++                       capture_output=True, text=True)
++    assert "Traceback" not in r.stderr, r.stderr
++    return r
++
++
++def test_spec_lists_what_can_be_tendered():
++    r = run_cli("spec", str(INTAKE), "--list")
++    assert r.returncode == 0, r.stderr
++    assert "busway_ampacity" in r.stdout
++    assert "--constraint" in r.stdout
++
++
++def test_spec_writes_a_document_and_a_response_template(tmp_path):
++    out = tmp_path / "spec"
++    r = run_cli("spec", str(INTAKE), "--constraint", "cdu_capacity", "-o", str(out))
++    assert r.returncode == 0, r.stderr
++    assert (out / "specification.md").exists()
++    assert (out / "specification.html").exists()
++    t = json.loads((out / "response_template.json").read_text())
++    assert t["values"]["capex_eur"] is None
++    assert t["compliance"], "the template must list the mandatory requirements"
++    assert t["specification"]["sized_for_racks"] > 0
++
++
++def test_bids_reads_back_the_template_it_wrote(tmp_path):
++    """The round trip is the product. If the template this tool writes cannot be
++    read by the tool that reads templates, the engagement does not work."""
++    out = tmp_path / "spec"
++    assert run_cli("spec", str(INTAKE), "--constraint", "busway_ampacity",
++                   "-o", str(out)).returncode == 0
++    template = json.loads((out / "response_template.json").read_text())
++    paths = []
++    for name, capex, lead in [("Alpha", 480_000, 20), ("Beta", 392_000, 44)]:
++        d = json.loads(json.dumps(template))
++        d.update(supplier=name, received_on="2026-10-01", valid_until="2026-12-31")
++        d["values"].update(capex_eur=capex, lead_time_weeks=lead, install_weeks=6)
++        d["compliance"] = {k: "C" for k in d["compliance"]}
++        p = out / f"{name}.json"
++        p.write_text(json.dumps(d))
++        paths.append(str(p))
++    r = run_cli("bids", str(INTAKE), *paths, "--constraint", "busway_ampacity",
++                "--ingest", "--basis", "firm_quote")
++    assert r.returncode == 0, r.stderr
++    assert "Alpha" in r.stdout and "Beta" in r.stdout
++    assert "cost add" in r.stdout
++    assert "--basis firm_quote" in r.stdout
++    assert "Review before you run it" in r.stdout
++
++
++def test_bids_refuses_a_missing_file(tmp_path):
++    r = run_cli("bids", str(INTAKE), str(tmp_path / "nope.json"))
++    assert r.returncode == 2
++    assert "no such response file" in r.stderr
+-- 
+2.43.0
+
