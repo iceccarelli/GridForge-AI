@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { SERVICES, PACKAGES, SITE } from "@/lib/site";
 import { openAudit } from "@/lib/ui";
 import { startDeposit } from "@/lib/checkout";
+import { EngagementLadder } from "@/components/EngagementLadder";
 import { COMMERCE, foundingSlotsRemaining, eur } from "@/lib/commerce";
 
 const TIERS = PACKAGES.map((pkg) => {
@@ -155,6 +156,8 @@ export default function PricingPage() {
               Request a scoped quote <ArrowRight size={15} />
             </button>
           </div>
+
+          <EngagementLadder />
 
           <div className="mt-12">
             <Link

@@ -13,6 +13,7 @@ const SECTIONS = [
   { id: "intelligence", label: "Live data" },
   { id: "comparator", label: "Comparator" },
   { id: "simulator", label: "Simulator" },
+  { id: "qualify", label: "Qualifier" },
   { id: "services", label: "Services" },
   { id: "how", label: "How it works" },
   { id: "architectures", label: "Architectures" },

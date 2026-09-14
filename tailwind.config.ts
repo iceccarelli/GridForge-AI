@@ -19,6 +19,11 @@ const config: Config = {
         queue: "#FFB020", // grid queue / delay / warning
         verified: "#34D399", // genuinely operational / confirmed
         flag: "#F87171", // cost / risk
+        // Chart marks — dimmed steps of power/queue. The interface accents sit
+        // outside the usable lightness band as data marks on the panel surface;
+        // these pass lightness, chroma, colour-vision separation and contrast.
+        chart: "#1193A8",
+        "chart-alt": "#BD8318",
         // Text
         ghost: "#F5F7FA",
         mute: "#8A94A6",

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
 
 export const metadata: Metadata = {
@@ -26,6 +27,10 @@ export default function QualifyPage() {
       </header>
 
       <CapacityQualifier />
+
+      <section className="mt-12 panel p-6 sm:p-8">
+        <BindingConstraintInsights />
+      </section>
 
       <section className="mt-12 grid gap-6 sm:grid-cols-3">
         {[

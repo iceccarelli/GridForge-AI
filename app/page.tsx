@@ -22,6 +22,9 @@ const LoadSimulator = dynamic(() => import("@/components/LoadSimulator").then(m 
 const TimeToPowerComparator = dynamic(() => import("@/components/TimeToPowerComparator").then(m => m.TimeToPowerComparator));
 const ConfigStudio = dynamic(() => import("@/components/ConfigStudio").then(m => m.ConfigStudio));
 const SingleLineDiagram = dynamic(() => import("@/components/SingleLineDiagram").then(m => m.SingleLineDiagram));
+const BindingConstraintInsights = dynamic(() =>
+  import("@/components/BindingConstraintInsights").then((m) => m.BindingConstraintInsights)
+);
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
@@ -288,6 +291,42 @@ export default function Home() {
       </section>
 
       {/* ============== SERVICES ============== */}
+      {/* The qualifier. Everything above this is argument; this is the engine
+          answering a question about the reader's own hall, for nothing. It is also
+          where the binding-constraint dataset comes from. */}
+      <section id="qualify" className="max-w-5xl mx-auto px-6 py-20">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+          <div className="max-w-xl">
+            <div className="eyebrow mb-3 text-power">RUN IT ON YOUR OWN HALL</div>
+            <h2 className="section-title">
+              Most halls don&rsquo;t fail on cooling.
+              <br />
+              They fail on a 63&nbsp;A tap-off.
+            </h2>
+          </div>
+          <p className="max-w-sm text-mute">
+            Thirteen constraints decide how much AI compute an existing hall can carry. One binds
+            first, and it is rarely the one people expect. Seven numbers you already know, and the
+            engine tells you which — free, no contact details.
+          </p>
+        </div>
+
+        <div className="panel p-6 sm:p-8">
+          <BindingConstraintInsights compact />
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Link
+              href="/qualify"
+              className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+            >
+              Find the binding constraint <ArrowRight className="h-4 w-4" />
+            </Link>
+            <span className="text-[11px] text-faint font-mono">
+              solved server-side · capital cost and programme duration are the paid engagement
+            </span>
+          </div>
+        </div>
+      </section>
+
       <section id="services" className="max-w-7xl mx-auto px-6 py-20">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div className="max-w-xl">
