@@ -75,11 +75,12 @@ curl -X PATCH https://<site>/api/admin/deliverables \
   -d '{"token":"<token>","action":"release"}'
 ```
 
-Deploy the engine first, or none of this runs:
+Deploy the engine first, or none of this runs. One command, from a Codespace or any
+Linux shell — it installs flyctl if it is missing, creates the app, generates the key,
+deploys, and prints the two variables the website needs:
 
 ```bash
-fly launch --no-deploy --copy-config && fly secrets set GRIDFORGE_API_KEYS=$(openssl rand -hex 24) && fly deploy
-# then on the site: GRIDFORGE_API_URL=https://<app>.fly.dev  GRIDFORGE_API_KEY=<same key>
+bash scripts/deploy-engine.sh
 ```
 
 `render.yaml` is there if you prefer Render. Either way the engine has no database and
@@ -99,6 +100,19 @@ no dependencies, so it scales to zero and costs single-digit euros a month.
 - the website typechecks, lints and builds.
 
 A green build means the commands in this runbook work. A red one means do not send anything.
+
+## Working the pipeline
+
+`/admin/pipeline` is where the money is. It shows every purchased engagement with its
+state, what is sitting in **draft waiting on your review**, and every hall anyone has
+run through the qualifier — as found, after the ladder, and what bound it.
+
+The section titled *What actually binds* is the one to watch. It is the distribution of
+binding constraints across every hall that has been through the engine, with the median
+tap-off rating, busway ampacity, plant supply temperature and contracted headroom
+behind it. Anyone competent can rebuild the physics. Nobody else is accumulating that.
+At a few dozen halls it is a sales argument; at a few hundred it is a paper nobody can
+write without you.
 
 ## Per-project time
 

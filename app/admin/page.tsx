@@ -44,5 +44,14 @@ export default async function AdminPage() {
   }
 
   const leads = await fetchLeads();
-  return <AdminDashboard initial={leads} supabaseReady={supabaseConfigured()} />;
+  return (
+    <>
+      <div className="mx-auto w-full max-w-7xl px-5 pt-24 sm:px-8">
+        <Link href="/admin/pipeline" className="text-sm text-mute underline hover:text-ghost">
+          Engagements and qualified halls →
+        </Link>
+      </div>
+      <AdminDashboard initial={leads} supabaseReady={supabaseConfigured()} />
+    </>
+  );
 }

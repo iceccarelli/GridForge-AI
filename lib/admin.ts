@@ -132,3 +132,173 @@ export async function updateLeadStatus(
     return false;
   }
 }
+
+// --- Qualifications and purchased deliverables -------------------------------
+//
+// The qualifications table is the asset the physics is not. Anyone competent can
+// rebuild a constraint model; nobody else is accumulating what actually binds in
+// real European halls, hall by hall, with the numbers behind it.
+
+export interface AdminQualification {
+  id: string;
+  created_at: string;
+  site_name: string | null;
+  hall_id: string | null;
+  metro: string | null;
+  country: string | null;
+  platform: string | null;
+  inputs: Record<string, number | string | null>;
+  racks_as_found: number | null;
+  racks_after_relief: number | null;
+  binding_constraint: string | null;
+  intake_completeness: number | null;
+  name: string | null;
+  company: string | null;
+  email: string | null;
+  source: string;
+  status: string;
+}
+
+export interface AdminDeliverable {
+  id: string;
+  created_at: string;
+  token: string;
+  kind: string;
+  status: string;
+  email: string | null;
+  company: string | null;
+  amount_cents: number | null;
+  title: string | null;
+  released_at: string | null;
+  has_document: boolean;
+}
+
+export async function fetchQualifications(limit = 500): Promise<AdminQualification[]> {
+  const c = sb();
+  if (!c) return [];
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/qualifications?select=*&order=created_at.desc&limit=${limit}`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] fetchQualifications failed:", await res.text());
+      return [];
+    }
+    return (await res.json()) as AdminQualification[];
+  } catch (err) {
+    console.error("[GridForge] fetchQualifications error:", err);
+    return [];
+  }
+}
+
+export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]> {
+  const c = sb();
+  if (!c) return [];
+  try {
+    // Deliberately does not select the document bodies: the pipeline view lists
+    // engagements, it does not need to ship two megabytes of HTML to render a row.
+    const cols =
+      "id,created_at,token,kind,status,email,company,amount_cents,title,released_at,document_html";
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] fetchDeliverables failed:", await res.text());
+      return [];
+    }
+    const rows = (await res.json()) as (AdminDeliverable & { document_html: string | null })[];
+    return rows.map(({ document_html, ...r }) => ({ ...r, has_document: Boolean(document_html) }));
+  } catch (err) {
+    console.error("[GridForge] fetchDeliverables error:", err);
+    return [];
+  }
+}
+
+export interface ConstraintStat {
+  constraint: string;
+  halls: number;
+  share: number;
+}
+
+export interface QualificationInsights {
+  halls: number;
+  withResult: number;
+  constraints: ConstraintStat[];
+  medianHeadroomPct: number | null;
+  medianTapoffA: number | null;
+  medianBuswayA: number | null;
+  medianPlantSupplyC: number | null;
+  blockedAsFound: number;
+  metros: { metro: string; halls: number }[];
+}
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function num(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/** What actually binds, across every hall anyone has typed numbers into.
+ *  This is the only figure in the business that gets better simply by existing. */
+export function summariseQualifications(rows: AdminQualification[]): QualificationInsights {
+  const scored = rows.filter((r) => r.binding_constraint);
+  const counts = new Map<string, number>();
+  for (const r of scored) {
+    const k = r.binding_constraint as string;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const constraints: ConstraintStat[] = [...counts.entries()]
+    .map(([constraint, halls]) => ({
+      constraint,
+      halls,
+      share: scored.length ? halls / scored.length : 0,
+    }))
+    .sort((a, b) => b.halls - a.halls);
+
+  const headroom: number[] = [];
+  const tapoff: number[] = [];
+  const busway: number[] = [];
+  const plant: number[] = [];
+  for (const r of rows) {
+    const contracted = num(r.inputs?.contractedMW);
+    const peak = num(r.inputs?.currentPeakMW);
+    if (contracted && peak !== null && contracted > 0) {
+      headroom.push(((contracted - peak) / contracted) * 100);
+    }
+    const t = num(r.inputs?.tapoffMaxA);
+    if (t) tapoff.push(t);
+    const b = num(r.inputs?.buswayAmpacityA);
+    if (b) busway.push(b);
+    const p = num(r.inputs?.plantSupplyC);
+    if (p !== null) plant.push(p);
+  }
+
+  const metroCounts = new Map<string, number>();
+  for (const r of rows) {
+    const m = (r.metro || "").trim();
+    if (m) metroCounts.set(m, (metroCounts.get(m) ?? 0) + 1);
+  }
+
+  return {
+    halls: rows.length,
+    withResult: scored.length,
+    constraints,
+    medianHeadroomPct: median(headroom),
+    medianTapoffA: median(tapoff),
+    medianBuswayA: median(busway),
+    medianPlantSupplyC: median(plant),
+    blockedAsFound: scored.filter((r) => (r.racks_as_found ?? 0) === 0).length,
+    metros: [...metroCounts.entries()]
+      .map(([metro, halls]) => ({ metro, halls }))
+      .sort((a, b) => b.halls - a.halls)
+      .slice(0, 8),
+  };
+}
