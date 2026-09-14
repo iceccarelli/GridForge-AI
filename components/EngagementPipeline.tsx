@@ -7,10 +7,11 @@ import type {
   AdminDeliverable,
   AdminQualification,
   AdminWatch,
+  AdminApiAccount,
   QualificationInsights,
 } from "@/lib/admin";
 import { eur } from "@/lib/commerce";
-import { PRODUCT_BY_KIND, PRODUCTS } from "@/lib/products";
+import { PRODUCT_BY_KIND, PRODUCTS, type ProductId } from "@/lib/products";
 
 /**
  * The pipeline: what came in, what was bought, and what is waiting on you.
@@ -31,12 +32,16 @@ export function EngagementPipeline({
   deliverables,
   qualifications,
   watches,
+  apiAccounts = [],
+  revoked = [],
   insights,
   supabaseReady,
 }: {
   deliverables: AdminDeliverable[];
   qualifications: AdminQualification[];
   watches: AdminWatch[];
+  apiAccounts?: AdminApiAccount[];
+  revoked?: string[];
   insights: QualificationInsights;
   supabaseReady: boolean;
 }) {
@@ -52,7 +57,28 @@ export function EngagementPipeline({
   );
   const activeWatches = useMemo(() => watches.filter((w) => w.status === "active"), [watches]);
   // Quarterly engagements, so annualised recurring revenue is four times the fee.
-  const arrCents = activeWatches.length * PRODUCTS.hall_watch.amountCents * 4;
+  const watchArrCents = activeWatches.length * PRODUCTS.hall_watch.amountCents * 4;
+
+  // Metered API access is the recurring line that scales without our time in it.
+  // Worth watching separately from Hall Watch: one is engineering capacity sold on
+  // a cadence, the other is software nobody has to staff.
+  const activeApi = useMemo(
+    () => apiAccounts.filter((a) => a.status === "active"),
+    [apiAccounts]
+  );
+  const apiArrCents = useMemo(
+    () =>
+      activeApi.reduce(
+        (sum, a) => sum + (PRODUCTS[a.plan as ProductId]?.amountCents ?? 0) * 12,
+        0
+      ),
+    [activeApi]
+  );
+  const arrCents = watchArrCents + apiArrCents;
+  const apiUnitsSold = useMemo(
+    () => activeApi.reduce((sum, a) => sum + a.monthly_units, 0),
+    [activeApi]
+  );
 
   async function act(token: string, action: "release" | "unrelease") {
     setBusy(token);
@@ -145,8 +171,15 @@ export function EngagementPipeline({
         <Stat label="Halls qualified" value={String(insights.halls)} tone="power" />
       </div>
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-2">
+      <div className="mb-8 grid gap-3 sm:grid-cols-4">
         <Stat label="Halls watched" value={String(activeWatches.length)} tone="power" small />
+        <Stat label="API accounts" value={String(activeApi.length)} tone="power" small />
+        <Stat
+          label="Units sold / month"
+          value={apiUnitsSold.toLocaleString("en-IE")}
+          tone="ghost"
+          small
+        />
         <Stat label="Annualised recurring" value={eur(arrCents)} tone="verified" small />
       </div>
 
@@ -234,6 +267,72 @@ export function EngagementPipeline({
         <p className="mt-2 text-[11px] text-faint">
           Generation is automatic; release is not. Read the draft before you put your name on it.
         </p>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="mb-3 text-sm font-semibold text-ghost">Metered API accounts</h2>
+        {apiAccounts.length === 0 ? (
+          <Empty>
+            Nobody is on metered access yet. The plans are on /developers, and the key is
+            issued by the subscription webhook without anyone touching it.
+          </Empty>
+        ) : (
+          <div className="overflow-x-auto rounded border border-line">
+            <table className="w-full text-sm">
+              <Head
+                cols={["Opened", "Account", "Plan", "Units/mo", "Key", "Expires", "State"]}
+              />
+              <tbody>
+                {apiAccounts.map((a) => (
+                  <tr key={a.id} className="border-t border-line align-middle">
+                    <Td>{new Date(a.created_at).toLocaleDateString("en-IE")}</Td>
+                    <Td>
+                      <span className="font-mono text-xs text-ghost">{a.account}</span>
+                      <span className="block text-[11px] text-faint">
+                        {a.company || a.email || "—"}
+                      </span>
+                    </Td>
+                    <Td>{PRODUCTS[a.plan as ProductId]?.name ?? a.plan}</Td>
+                    <Td>{a.monthly_units.toLocaleString("en-IE")}</Td>
+                    <Td>
+                      <span className="font-mono text-[11px] text-mute">
+                        {a.key_id ?? "not issued"}
+                      </span>
+                    </Td>
+                    <Td>{a.key_expires_at ?? "—"}</Td>
+                    <Td>
+                      <span
+                        className={
+                          a.status === "active"
+                            ? "text-verified"
+                            : a.status === "past_due"
+                              ? "text-queue"
+                              : "text-flag"
+                        }
+                      >
+                        {a.status}
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {revoked.length > 0 ? (
+          <div className="mt-3 rounded border border-queue/40 bg-queue/10 p-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-queue">
+              Revocation list — set this on the engine
+            </p>
+            <p className="mt-1 text-xs text-mute">
+              Cancelled and rotated key ids. Keys expire on their own within days, so this is
+              only needed when a key must stop sooner than that.
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded bg-ink p-3 font-mono text-[11px] text-mute">
+{`fly secrets set GRIDFORGE_REVOKED_KEYS="${revoked.join(",")}" -a gridforge-engine`}
+            </pre>
+          </div>
+        ) : null}
       </section>
 
       <section className="mb-12">

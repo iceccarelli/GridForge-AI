@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createDeliverable } from "@/lib/deliverables";
 import { createWatch } from "@/lib/watches";
-import { PRODUCT_BY_KIND } from "@/lib/products";
+import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
+import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,21 @@ export async function POST(req: Request) {
 
     const kind = (session.metadata?.kind as string) || "engagement_deposit";
     const product = PRODUCT_BY_KIND[kind];
-    if (kind === "hall_watch") {
+    if (isApiProduct(kind)) {
+      // Metered API access. No intake, no engineering work, no human: the
+      // subscription becomes a signed key the engine can verify offline, and the
+      // customer is on their own machine-callable endpoint within seconds. That
+      // immediacy is the product; a key that arrives tomorrow is a lost customer.
+      await openApiAccount({
+        kind,
+        email,
+        company,
+        units: product?.apiUnits ?? 0,
+        customerId: typeof session.customer === "string" ? session.customer : null,
+        subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
+      });
+      await notifyFounder({ email, company, amount });
+    } else if (kind === "hall_watch") {
       await openWatch({
         email,
         company,
@@ -69,7 +84,123 @@ export async function POST(req: Request) {
     }
   }
 
+  // A lapsed subscription must stop working, and a renewed one must not go dark.
+  // Keys expire on their own within days, so these two events are the difference
+  // between "it renewed and nobody noticed" and "my agents stopped at 3am".
+  if (event.type === "invoice.paid") {
+    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
+    if (subId) {
+      const row = await findBySubscription(subId);
+      // Reissue silently. The customer's existing key keeps working until it
+      // expires; this simply makes sure a fresh one is available to rotate to.
+      if (row && row.status !== "cancelled") {
+        await updateApiAccount(row.token, { status: "active" });
+      }
+    }
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const sub = event.data.object as Stripe.Subscription;
+    const row = await findBySubscription(sub.id);
+    if (row) {
+      // Revoke the live key id and mark the account cancelled. The engine reads
+      // revoked ids from GRIDFORGE_REVOKED_KEYS; until that is synced, the key
+      // dies on its own at expiry, which is inside the period they paid for.
+      await updateApiAccount(row.token, {
+        status: "cancelled",
+        revoked_key_ids: [...(row.revoked_key_ids ?? []), ...(row.key_id ? [row.key_id] : [])],
+      });
+      console.log(
+        `[GridForge] api account ${row.account} cancelled; revoke key id ${row.key_id ?? "-"}`
+      );
+    }
+  }
+
+  if (event.type === "invoice.payment_failed") {
+    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
+    if (subId) {
+      const row = await findBySubscription(subId);
+      if (row) await updateApiAccount(row.token, { status: "past_due" });
+    }
+  }
+
   return NextResponse.json({ ok: true, received: true });
+}
+
+/**
+ * The subscription id on an invoice.
+ *
+ * Stripe moved this off the top level of Invoice in a recent API version, and the
+ * typings follow the newest one. Read it structurally so the handler works whether
+ * the account is pinned to an older version or the current one — a webhook that
+ * throws on an unexpected shape silently stops renewing everybody's keys.
+ */
+function subscriptionIdOf(inv: Stripe.Invoice): string {
+  const raw = inv as unknown as {
+    subscription?: string | { id?: string };
+    parent?: { subscription_details?: { subscription?: string | { id?: string } } };
+  };
+  const candidate = raw.subscription ?? raw.parent?.subscription_details?.subscription;
+  if (typeof candidate === "string") return candidate;
+  return candidate?.id ?? "";
+}
+
+async function openApiAccount(p: {
+  kind: string;
+  email: string;
+  company: string;
+  units: number;
+  customerId: string | null;
+  subscriptionId: string | null;
+}): Promise<void> {
+  const created = await createApiAccount({
+    email: p.email || null,
+    company: p.company || null,
+    plan: p.kind,
+    monthly_units: p.units,
+    stripe_customer_id: p.customerId,
+    stripe_subscription_id: p.subscriptionId,
+  });
+  if (!created) {
+    console.error("[GridForge] could not open an api account for", p.email || "unknown");
+    return;
+  }
+  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const url = `${base}/api-access/${created.token}`;
+  console.log(`[GridForge] api account opened for ${p.email || "unknown"} — ${url}`);
+
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from || !p.email) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: p.email,
+        subject: "Your GridForge API access is live",
+        text:
+          "Your key is waiting here:\n\n" +
+          url +
+          "\n\nIt is shown once. We do not store it — the engine verifies it by its " +
+          "signature, so there is no copy anywhere for anyone to take.\n\n" +
+          `Your allowance is ${p.units.toLocaleString("en-IE")} units a month. A constraint ` +
+          "screen is 1 unit, a full solve is 5, and a portfolio run is 1 per hall. The free " +
+          "qualifier stays free and never touches the allowance. Rates are published at " +
+          "/v1/version so you can price a job before you run it.\n\n" +
+          "One thing worth reading before you integrate: every number we return carries an " +
+          "evidence class and a provenance digest, and every response carries our calibration " +
+          "state. Screening-mode output is not an issued engineering opinion — it has no named " +
+          "signatory and no indemnity behind it. That distinction matters more inside an agent " +
+          "loop than it does in a board pack, because nobody downstream reads the footnote.\n\n" +
+          "Schemas: https://gridforge-engine.fly.dev/v1/tools\n" +
+          "MCP:     https://gridforge-engine.fly.dev/mcp",
+      }),
+    });
+  } catch (err) {
+    console.error("[GridForge] api key email failed:", err);
+  }
 }
 
 async function openWatch(p: {

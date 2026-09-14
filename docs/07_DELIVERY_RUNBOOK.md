@@ -357,3 +357,99 @@ carries evidence classes, provenance digests and the calibration block, and the 
 handshake instructs the model not to present an E0 or E1 figure as a property of a
 physical asset. A modelled number loose inside an agent loop is more dangerous than one
 in a board pack, because nobody reads the footnote and nothing catches it downstream.
+
+## Selling the machine interface without a salesperson
+
+`/developers#plans` takes a card and, within seconds, the buyer has a working key.
+Nobody touches it. Three plans, monthly, cancel any time:
+
+| Plan | €/month | Units | Per unit |
+| --- | --- | --- | --- |
+| API — Triage | 900 | 600 | €1.50 |
+| API — Scale | 2,900 | 2,500 | €1.16 |
+| API — Platform | 7,500 | 10,000 | €0.75 |
+
+A constraint screen is 1 unit, a full solve 5, a portfolio run 1 per hall. **No
+overage billing**: over the allowance the engine returns 402 and they upgrade or wait
+for the reset. An invoice a customer did not expect costs more than the units.
+
+Prices live in two files — `gridforge/commercial.py` (what proposals quote) and
+`lib/products.ts` (what checkout charges). `tests/test_catalogue_parity.py` parses
+the TypeScript and fails if they disagree. That test is new; `commercial.py` had
+claimed it existed since patch 0001 and it did not.
+
+### Keys are signed, not stored
+
+A key is `gfk1.<payload>.<signature>`: account, key id, monthly quota, scope, issue
+and expiry dates, HMAC-SHA256 with `GRIDFORGE_KEY_SECRET`. The engine verifies
+arithmetic it can do itself — no database, no network call, no latency floor, and a
+stateless container stays stateless.
+
+**The same secret must be set on the engine and on the website.** The website mints
+with it (`lib/api-access.ts`), the engine verifies with it
+(`gridforge/api/keys.py`), and the two implementations must agree byte for byte on
+what gets signed — sorted keys, tight separators. `tests/test_api_keys.py` mints one
+in Node and verifies it in Python, and asserts both produce the identical string. A
+divergence would not fail loudly; it would issue keys that quietly do not work, to
+customers who have just paid.
+
+**We never store a key.** The database holds the id of the live key and the ids we
+have revoked. The key is shown once, at the moment it is minted. A database that can
+hand somebody a working credential is a database worth stealing, and there is no
+reason for this one to be.
+
+**Revocation.** Keys are minted for 35 days, not 30 — a subscription renewing on the
+1st must not leave a customer's agents dark while a webhook lands. A cancelled
+subscription simply stops being renewed and the key dies inside the period they paid
+for. For anything that cannot wait, `/admin/pipeline` prints the exact command:
+
+```bash
+fly secrets set GRIDFORGE_REVOKED_KEYS="<ids>" -a gridforge-engine
+```
+
+### Operating it
+
+```bash
+python3 -m gridforge key plans                       # the rate card
+python3 -m gridforge key issue --account acme --plan api_scale
+python3 -m gridforge key issue --account prospect --quota 100 --scope trial --days 14
+python3 -m gridforge key inspect gfk1....            # why did this stop working?
+```
+
+`key inspect` reads a key it cannot trust, which is the question support actually
+gets: not "is this valid" but "what does this say and why was it refused". Expired,
+revoked and forged are reported as three different things, because "invalid key"
+sends an integrator hunting a typo when their subscription lapsed three days ago.
+
+Usage aggregates under the **account**, not the key. A customer who rotates a key
+mid-month has not started a new month, and a meter that thinks otherwise hands out a
+fresh allowance on every rotation.
+
+## Two deployment bugs that were live, and are now fixed
+
+**`deploy-engine.sh` rotated the production API key on every run.** It generated a
+fresh `GRIDFORGE_API_KEYS` unconditionally, so every deploy invalidated the key in
+Vercel and paid deliverable generation started returning 401 until somebody noticed
+and re-pasted it. It also failed to detect the existing app, because it grepped
+`fly apps list` output whose format has changed. The script now asks the app about
+itself, adds only missing secrets, and prints `<unchanged>` rather than a new key.
+
+A deploy script that breaks production on success is worse than one that fails,
+because nothing tells you.
+
+**`GRIDFORGE_USAGE_FILE=/data/usage.json` with no volume mounted discarded every
+usage record.** With `min_machines_running = 0` that is every few minutes, and it
+looks identical to a working configuration until the first invoice. Three changes:
+`fly.toml` now declares the mount and the path, the deploy script creates the volume,
+and the meter **probes the path at startup** — if it cannot write, it says so at
+`/v1/usage` instead of reporting `durable: true` on a path that silently throws
+everything away.
+
+Check after any deploy:
+
+```bash
+curl -s https://gridforge-engine.fly.dev/v1/version | python3 -m json.tool | head -30
+```
+
+`auth_configured`, `signed_keys` and `metering.durable` are the three that matter.
+The deploy script now calls out each one that is false.

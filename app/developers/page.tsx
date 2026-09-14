@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
+import ApiPlans from "@/components/ApiPlans";
 
 export const metadata: Metadata = {
   title: "Machine interface — call the engine | GridForge AI",
@@ -87,9 +88,15 @@ export default async function DevelopersPage() {
             href={`${API}/v1/tools`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+            className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
           >
             Tool schemas <ArrowRight className="h-4 w-4" />
+          </a>
+          <a
+            href="#plans"
+            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+          >
+            Get a key <ArrowRight className="h-4 w-4" />
           </a>
           <a
             href="/reference/tools.json"
@@ -241,17 +248,29 @@ export default async function DevelopersPage() {
         </section>
       ) : null}
 
+      <section id="plans" className="mt-12 scroll-mt-24">
+        <h2 className="text-xl font-semibold text-ghost">Metered access</h2>
+        <p className="mt-2 max-w-3xl text-sm text-mute">
+          Run the free qualifier first — if it answers your question you do not need a key. If
+          you have two hundred halls and a model that needs re-running every time a tariff or a
+          platform spec moves, this is what that costs.
+        </p>
+        <div className="mt-6">
+          <ApiPlans />
+        </div>
+      </section>
+
       <section className="mt-10 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">
         <div className="min-w-64 flex-1">
-          <h2 className="text-lg font-semibold text-ghost">Need a key?</h2>
+          <h2 className="text-lg font-semibold text-ghost">Not sure yet?</h2>
           <p className="mt-1 text-sm text-mute">
-            Metered access is sold per account with a monthly unit allowance. Run the free
-            qualifier first — if it answers your question, you may not need one.
+            The qualifier is free and needs no key, and the full deliverable is published in
+            full — document, deck, proposal and the tables behind every number.
           </p>
         </div>
         <Link
           href="/qualify"
-          className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+          className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
         >
           Run the free qualifier <ArrowRight className="h-4 w-4" />
         </Link>

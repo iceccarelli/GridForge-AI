@@ -352,3 +352,59 @@ export async function fetchWatches(limit = 200): Promise<AdminWatch[]> {
     return [];
   }
 }
+
+
+export interface AdminApiAccount {
+  id: string;
+  created_at: string;
+  account: string;
+  email: string | null;
+  company: string | null;
+  plan: string;
+  monthly_units: number;
+  status: string;
+  key_id: string | null;
+  key_expires_at: string | null;
+  revoked_key_ids: string[] | null;
+}
+
+/**
+ * Metered API accounts, for the pipeline view.
+ *
+ * Deliberately selects no key material, because there is none to select: the table
+ * stores the id of the live key and the ids we have revoked, never a key. An admin
+ * screen that could display a working credential is one screenshot away from
+ * leaking it.
+ */
+export async function fetchApiAccounts(limit = 200): Promise<AdminApiAccount[]> {
+  const c = sb();
+  if (!c) return [];
+  try {
+    const cols =
+      "id,created_at,account,email,company,plan,monthly_units,status,key_id," +
+      "key_expires_at,revoked_key_ids";
+    const res = await fetch(
+      `${c.url}/rest/v1/api_accounts?select=${cols}&order=created_at.desc&limit=${limit}`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      // The table may simply not exist yet — migration 0007. Not worth an error page.
+      console.error("[GridForge] fetchApiAccounts failed:", await res.text());
+      return [];
+    }
+    return (await res.json()) as AdminApiAccount[];
+  } catch (err) {
+    console.error("[GridForge] fetchApiAccounts error:", err);
+    return [];
+  }
+}
+
+/** Keys that should be in GRIDFORGE_REVOKED_KEYS on the engine. */
+export function revocationList(rows: AdminApiAccount[]): string[] {
+  const out = new Set<string>();
+  for (const r of rows) {
+    for (const id of r.revoked_key_ids ?? []) out.add(id);
+    if (r.status === "cancelled" && r.key_id) out.add(r.key_id);
+  }
+  return [...out].sort();
+}

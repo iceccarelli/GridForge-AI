@@ -1,14 +1,21 @@
 # fly.toml — the capacity engine as a service.
 #
+#   bash scripts/deploy-engine.sh          <- does all of the below, idempotently
+#
+# Or by hand:
 #   fly launch --no-deploy --copy-config
 #   fly secrets set GRIDFORGE_API_KEYS=$(openssl rand -hex 24)
+#   fly secrets set GRIDFORGE_KEY_SECRET=$(openssl rand -hex 32)
+#   fly volumes create gridforge_data --size 1 --region ams
 #   fly deploy
 #
-# Then on the website: GRIDFORGE_API_URL=https://<app>.fly.dev and, only if the
-# site should reach the paid endpoints, GRIDFORGE_API_KEY set to the same value.
+# Then on the website: GRIDFORGE_API_URL=https://<app>.fly.dev, GRIDFORGE_API_KEY
+# for the paid endpoints, and GRIDFORGE_KEY_SECRET set to the SAME value as here —
+# the site signs self-serve API keys with it and the engine verifies them offline.
 #
 # The engine has no database and no dependencies, so it scales to zero and starts
-# in well under a second. Running it costs single-digit euros a month.
+# in well under a second. Running it costs single-digit euros a month. The one
+# piece of state it keeps is the usage meter, which is why there is a volume.
 app = "gridforge-engine"
 primary_region = "ams"
 
@@ -19,6 +26,11 @@ primary_region = "ams"
   GRIDFORGE_RATE_LIMIT = "60"
   # Comma-separated origins, or "*" while you are still wiring it up.
   GRIDFORGE_ALLOWED_ORIGINS = "*"
+  # Metered usage. This path must be on the mounted volume below, or every usage
+  # record is discarded on restart — and with min_machines_running = 0 that is
+  # every few minutes. The engine probes the path at startup and reports the truth
+  # at /v1/usage rather than claiming durability it does not have.
+  GRIDFORGE_USAGE_FILE = "/data/usage.json"
 
 [http_service]
   internal_port = 8080
@@ -33,6 +45,12 @@ primary_region = "ams"
     method = "GET"
     timeout = "5s"
     path = "/health"
+
+# Usage survives a suspend, a restart and a deploy. Without this, nothing you bill
+# from is real.
+[mounts]
+  source = "gridforge_data"
+  destination = "/data"
 
 [[vm]]
   size = "shared-cpu-1x"

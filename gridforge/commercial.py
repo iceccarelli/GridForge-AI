@@ -95,6 +95,94 @@ ENGAGEMENTS: dict[str, Engagement] = {
 }
 
 
+@dataclass(frozen=True)
+class ApiPlan:
+    """Metered access to the engine, sold to software rather than to people.
+
+    Deliberately priced well under the engagements, and deliberately not the same
+    product. An engagement is an engineering opinion with a named signatory, an
+    issued status and professional indemnity behind it. The API returns modelled
+    output in screening mode with none of those things — it is for triage, ranking
+    and monitoring at a scale no human deliverable can reach. Anyone who confuses
+    the two will find the distinction printed on every response they get back.
+    """
+    id: str
+    name: str
+    price_eur_month: int
+    monthly_units: int
+    audience: str
+    includes: tuple[str, ...] = ()
+
+    @property
+    def eur_per_unit(self) -> float:
+        return round(self.price_eur_month / self.monthly_units, 3)
+
+    @property
+    def studies_per_month(self) -> int:
+        return self.monthly_units // 5
+
+    @property
+    def screens_per_month(self) -> int:
+        return self.monthly_units
+
+
+API_SCOPE_OUT = (
+    "No issued engineering opinion, no named signatory and no professional indemnity. "
+    "Every API response is screening-mode output and says so.",
+    "No design, no procurement and no equipment selection.",
+    "No SLA on availability beyond best effort at the Triage tier.",
+)
+
+API_PLANS: dict[str, ApiPlan] = {
+    "api_triage": ApiPlan(
+        id="api_triage",
+        name="API — Triage",
+        price_eur_month=900,
+        monthly_units=600,
+        audience="One team screening a portfolio it already owns.",
+        includes=(
+            "600 units a month: 600 constraint screens, or 120 full solves, or any mix.",
+            "The free qualifier stays free and never touches the allowance.",
+            "MCP endpoint, so an agent can call the engine directly.",
+            "The calibration block on every response, including when it says uncalibrated.",
+        ),
+    ),
+    "api_scale": ApiPlan(
+        id="api_scale",
+        name="API — Scale",
+        price_eur_month=2_900,
+        monthly_units=2_500,
+        audience="A platform or fund pricing halls continuously rather than in batches.",
+        includes=(
+            "2,500 units a month.",
+            "Portfolio endpoint billed per hall, so a 200-hall sweep is 200 units.",
+            "Change notes via /v1/diff: what moved and which input moved it.",
+            "Priority on new platform library entries.",
+        ),
+    ),
+    "api_platform": ApiPlan(
+        id="api_platform",
+        name="API — Platform",
+        price_eur_month=7_500,
+        monthly_units=10_000,
+        audience="Embedding the engine in a product your own customers use.",
+        includes=(
+            "10,000 units a month.",
+            "A named engineer on call for model questions.",
+            "Input on the constraint roadmap and the platform library.",
+            "Redistribution terms for output shown to your own customers.",
+        ),
+    ),
+}
+
+
+def api_plan(plan_id: str) -> ApiPlan:
+    if plan_id not in API_PLANS:
+        raise KeyError(f"unknown API plan {plan_id!r}. "
+                       f"One of: {', '.join(sorted(API_PLANS))}")
+    return API_PLANS[plan_id]
+
+
 def engagement(engagement_id: str) -> Engagement:
     if engagement_id not in ENGAGEMENTS:
         raise KeyError(f"unknown engagement {engagement_id!r}. "

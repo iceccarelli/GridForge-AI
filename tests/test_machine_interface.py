@@ -163,9 +163,19 @@ def test_usage_is_durable_when_a_file_is_configured(tmp_path):
 
 
 def test_an_in_memory_meter_says_it_is_not_billable():
-    s = Meter(None).statement("k")
+    s = Meter(None).statement(None)
     assert s["durable"] is False
     assert "not durable" in s["note"]
+
+
+def test_a_usage_path_that_cannot_be_written_is_reported_not_assumed():
+    """GRIDFORGE_USAGE_FILE=/data/usage.json on a machine with no volume mounted
+    looks identical to a working configuration until the first invoice."""
+    m = Meter("/proc/definitely/not/writable/usage.json")
+    assert m.durable is False
+    note = m.statement(None)["note"]
+    assert "not writable" in note
+    assert "volume" in note
 
 
 def test_calls_are_metered_and_reported(server):
@@ -288,3 +298,73 @@ def test_mcp_malformed_params_do_not_500(server):
     status, body, _ = rpc(server, "tools/call", {"name": "gridforge_study", "arguments": "oops"})
     assert status == 200
     assert body["error"]["code"] == -32602
+
+
+# --- self-serve keys, end to end -------------------------------------------
+
+@pytest.fixture(scope="module")
+def selfserve():
+    """A deployment that holds no keys at all, only the secret to verify them.
+
+    This is what a self-serve deployment actually looks like: every key was issued
+    by the website and the engine has never seen any of them.
+    """
+    import threading as _t
+    from gridforge.api.server import make_server as _mk
+    old_keys = os.environ.pop("GRIDFORGE_API_KEYS", None)
+    os.environ["GRIDFORGE_KEY_SECRET"] = "selfserve-test-secret"
+    os.environ["GRIDFORGE_RATE_LIMIT"] = "0"
+    Handler.limiter.per_minute = 0
+    httpd = _mk("127.0.0.1", 0)
+    _t.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    os.environ.pop("GRIDFORGE_KEY_SECRET", None)
+    if old_keys is not None:
+        os.environ["GRIDFORGE_API_KEYS"] = old_keys
+
+
+def test_a_key_the_engine_has_never_seen_works(selfserve):
+    from gridforge.api.keys import issue
+    token = issue("selfserve-acme", quota=50)
+    status, body, headers = call(selfserve, "/v1/screen",
+                                 {"intake": {"grid": {"contracted_MW": 12}}}, key=token)
+    assert status == 200, body
+    assert headers["X-GridForge-Units"] == "1"
+    assert "X-GridForge-Key-Expires" in headers
+    status, usage, _ = call(selfserve, "/v1/usage", key=token)
+    assert usage["account"] == "selfserve-acme"
+    assert usage["monthly_quota"] == 50
+    assert usage["scope"] == "machine"
+
+
+def test_an_expired_key_is_told_why(selfserve):
+    from datetime import date, timedelta
+    from gridforge.api.keys import issue
+    dead = issue("lapsed", quota=50, days=1,
+                 issued_on=date.today() - timedelta(days=30))
+    status, body, _ = call(selfserve, "/v1/screen", {"intake": {}}, key=dead)
+    assert status == 401
+    assert "expired" in body["error"]
+    assert body["public_endpoint"] == "/v1/qualify"
+
+
+def test_paid_endpoints_are_enabled_by_the_secret_alone(selfserve):
+    """With no GRIDFORGE_API_KEYS at all, the deployment must still be configured —
+    otherwise a self-serve engine reports itself broken and returns 503."""
+    status, body, _ = call(selfserve, "/v1/version")
+    assert body["auth_configured"] is True
+    assert body["signed_keys"] is True
+    status, body, _ = call(selfserve, "/v1/screen", {"intake": {}})
+    assert status == 401, "an unconfigured 503 would be wrong here"
+
+
+def test_rotating_a_key_does_not_reset_the_allowance(selfserve):
+    from gridforge.api.keys import issue
+    a = issue("rotator", quota=4)
+    b = issue("rotator", quota=4)
+    assert a != b
+    assert call(selfserve, "/v1/screen", {"intake": {}}, key=a)[0] == 200
+    assert call(selfserve, "/v1/screen", {"intake": {}}, key=b)[0] == 200
+    status, body, _ = call(selfserve, "/v1/usage", key=b)
+    assert body["units"] == 2, "usage did not follow the account across a rotation"

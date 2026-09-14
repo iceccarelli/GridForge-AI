@@ -104,6 +104,30 @@ jobs:
                --ledger gridforge/data/calibration.json; then
             echo "client site data was written into the published ledger"; exit 1
           fi
+      - name: Signed keys mint here and verify here
+        env:
+          GRIDFORGE_KEY_SECRET: ci-signing-secret
+        run: |
+          python -m gridforge key plans
+          KEY=$(python -m gridforge key issue --account ci-acme --plan api_scale | head -1)
+          python -m gridforge key inspect "$KEY"
+          python -c "
+          import os, sys
+          from gridforge.api.keys import verify, KeyError_
+          k = verify(sys.argv[1])
+          assert k.account == 'ci-acme' and k.quota == 2500, k
+          os.environ['GRIDFORGE_REVOKED_KEYS'] = k.key_id
+          try:
+              verify(sys.argv[1]); print('a revoked key still verified'); raise SystemExit(1)
+          except KeyError_ as exc:
+              assert 'revoked' in str(exc), exc
+          print('signed keys ok:', k.key_id)
+          " "$KEY"
+      - name: Refuse to mint an unsigned key
+        run: |
+          if python -m gridforge key issue --account x --plan api_triage; then
+            echo "a key was minted with no signing secret"; exit 1
+          fi
       - name: The machine-callable surface must be printable
         run: |
           python -m gridforge tools
@@ -251,6 +275,31 @@ jobs:
           assert 'EUR' not in blob and 'capex' not in blob, 'the free tool leaked priced content'
           print('mcp ok:', r['content'][0]['text'])
           "
+      - name: A self-serve key the engine has never seen works
+        env:
+          GRIDFORGE_KEY_SECRET: ci-selfserve-secret
+        run: |
+          # No GRIDFORGE_API_KEYS at all: every key was issued elsewhere.
+          python -m gridforge serve --port 8082 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8082/health && break; sleep 0.5; done
+          KEY=$(python -m gridforge key issue --account ci-selfserve --plan api_triage | head -1)
+          curl -sf http://127.0.0.1:8082/v1/version -o /tmp/v.json
+          python -c "
+          import json; d=json.load(open('/tmp/v.json'))
+          assert d['auth_configured'] is True, 'a self-serve engine reported itself unconfigured'
+          assert d['signed_keys'] is True
+          "
+          code=$(curl -s -o /tmp/s.json -w '%{http_code}' -X POST http://127.0.0.1:8082/v1/screen \
+            -H 'content-type: application/json' -H "x-api-key: $KEY" \
+            -d '{"intake":{"grid":{"contracted_MW":12},"lv":{"busway_ampacity_A":400}}}')
+          test "$code" = "200" || { echo "self-serve key rejected: $code"; cat /tmp/s.json; exit 1; }
+          curl -sf http://127.0.0.1:8082/v1/usage -H "x-api-key: $KEY" -o /tmp/u.json
+          python -c "
+          import json; u=json.load(open('/tmp/u.json'))
+          assert u['account'] == 'ci-selfserve', u
+          assert u['units'] == 1, u
+          print('self-serve ok:', u['account'], u['units'], 'unit(s)')
+          "
       - name: An exhausted quota returns 402, not 429
         env:
           GRIDFORGE_API_KEYS: tiny-key:ci:1
@@ -277,3 +326,38 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx next lint
       - run: npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: A key minted by the website must verify on the engine
+        env:
+          GRIDFORGE_KEY_SECRET: ci-cross-language-secret
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tests/test_api_keys.py -q
+          # Dates relative to today. A fixture pinned to a calendar date passes
+          # until the date passes, and then fails on expiry — which looks exactly
+          # like the divergence this step exists to catch.
+          node -e "
+          const crypto = require('node:crypto');
+          const iso = (d) => d.toISOString().slice(0, 10);
+          const start = new Date();
+          const end = new Date(start.getTime());
+          end.setUTCDate(end.getUTCDate() + 35);
+          const payload = {a:'ci',k:'aabbccdd',q:600,s:'machine',i:iso(start),e:iso(end)};
+          const canonical = JSON.stringify(payload, Object.keys(payload).sort());
+          const body = 'gfk1.' + Buffer.from(canonical).toString('base64url');
+          const sig = crypto.createHmac('sha256', process.env.GRIDFORGE_KEY_SECRET)
+                            .update(body).digest().toString('base64url');
+          require('node:fs').writeFileSync('/tmp/node.key', body + '.' + sig);
+          "
+          python -c "
+          from datetime import date
+          from gridforge.api.keys import issue, verify
+          node = open('/tmp/node.key').read().strip()
+          k = verify(node)
+          assert (k.account, k.quota) == ('ci', 600), k
+          mine = issue('ci', quota=600, key_id='aabbccdd', issued_on=date.today(), days=35)
+          assert mine == node, ('the two implementations diverged', mine, node)
+          print('cross-language key agreement ok')
+          "

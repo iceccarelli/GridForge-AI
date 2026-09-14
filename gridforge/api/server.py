@@ -62,7 +62,7 @@ from ..reporting.study import Objective
 from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
-from .metering import METER, UNIT_COST, key_plans, units_for
+from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
@@ -152,6 +152,13 @@ def _api_keys() -> set[str]:
     working unchanged, which is the only acceptable way to add billing to a
     running deployment."""
     return set(key_plans())
+
+
+def _auth_configured() -> bool:
+    """Either an operator has pasted keys in, or the deployment can verify signed
+    ones. Both count: a self-serve deployment issues every key from the website and
+    may hold none of them in its own environment."""
+    return bool(key_plans()) or bool(os.environ.get("GRIDFORGE_KEY_SECRET"))
 
 
 def _allowed_origins() -> list[str]:
@@ -492,11 +499,11 @@ class Handler(BaseHTTPRequestHandler):
         return (self.headers.get("X-API-Key")
                 or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
 
+    def _plan(self):
+        return plan_for(self._supplied_key())
+
     def _tier(self) -> Tier:
-        supplied = self._supplied_key()
-        if supplied and supplied in _api_keys():
-            return Tier.CLIENT
-        return Tier.PUBLIC
+        return Tier.CLIENT if self._plan() else Tier.PUBLIC
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
@@ -510,7 +517,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1/version":
             return self._send(200, {
                 "version": VERSION,
-                "auth_configured": bool(_api_keys()),
+                "auth_configured": _auth_configured(),
+                "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
@@ -552,9 +560,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1/tools":
             return self._send(200, catalogue())
         if path == "/v1/usage":
-            if self._tier() is not Tier.CLIENT:
-                return self._send(401, {"error": "an API key is required to read its usage"})
-            return self._send(200, METER.statement(self._supplied_key()))
+            plan = self._plan()
+            if plan is None:
+                return self._send(401, dict(refusal(self._supplied_key()),
+                                            hint="GET /v1/tools is free and needs no key"))
+            return self._send(200, METER.statement(plan))
         return self._send(404, {"error": "not found",
                                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES)})
 
@@ -567,19 +577,20 @@ class Handler(BaseHTTPRequestHandler):
         work: an agent in a loop can otherwise run a month's quota of solves
         while the first response is still being rendered.
         """
-        key = self._supplied_key()
-        if self._tier() is not Tier.CLIENT or not key:
+        plan = self._plan()
+        if plan is None:
             return None
         units = units_for(endpoint, body)
         if units <= 0:
             return None
-        if METER.would_exceed(key, units):
-            u = METER.statement(key)
+        if METER.would_exceed(plan.account, units, plan.monthly_quota):
+            u = METER.statement(plan)
             return {"error": "monthly unit quota exhausted",
                     "units_required": units, "units_used": u["units"],
                     "monthly_quota": u["monthly_quota"], "month": u["month"],
-                    "fix": "raise the quota on this key, or issue a second key"}
-        self._last_usage = METER.record(key, endpoint, units)
+                    "fix": "upgrade the plan on your account page, or wait for the "
+                           "allowance to reset at the start of next month"}
+        self._last_usage = METER.record(plan.account, endpoint, units)
         self._last_units = units
         return None
 
@@ -590,10 +601,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_header("X-GridForge-Units", str(units))
         self.send_header("X-GridForge-Units-Month", str(usage.units))
-        plan = key_plans().get(self._supplied_key())
+        plan = self._plan()
         if plan and plan.monthly_quota:
             self.send_header("X-GridForge-Units-Remaining",
                              str(max(0, plan.monthly_quota - usage.units)))
+        if plan and plan.expires:
+            self.send_header("X-GridForge-Key-Expires", plan.expires)
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/") or "/"
@@ -607,13 +620,14 @@ class Handler(BaseHTTPRequestHandler):
         tier = self._tier()
         required = Tier.CLIENT if path == "/mcp" else ROUTES[path][1]
         if required is Tier.CLIENT and tier is Tier.PUBLIC:
-            if not _api_keys():
+            if not _auth_configured():
                 return self._send(503, {
                     "error": "paid endpoints are not configured on this deployment",
-                    "fix": "set GRIDFORGE_API_KEYS to enable them"})
-            return self._send(401, {"error": "an API key is required for this endpoint",
-                                    "public_endpoint": "/v1/qualify",
-                                    "tool_schemas": "/v1/tools"})
+                    "fix": "set GRIDFORGE_API_KEYS, or GRIDFORGE_KEY_SECRET for "
+                           "self-serve signed keys"})
+            return self._send(401, dict(refusal(self._supplied_key()),
+                                        public_endpoint="/v1/qualify",
+                                        tool_schemas="/v1/tools"))
 
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY_BYTES:

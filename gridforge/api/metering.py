@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .keys import ApiKey, KeyError_, looks_signed, verify
+
 #: Billable units per call. One unit is one engine solve of one hall.
 UNIT_COST: dict[str, int] = {
     "/v1/qualify": 0,        # free tier: the demo
@@ -65,7 +67,11 @@ def _month() -> str:
 
 @dataclass
 class KeyPlan:
-    """One API key, its label and its monthly allowance.
+    """One API key, its account and its monthly allowance.
+
+    `account` is what usage aggregates under, not the key. A customer who rotates a
+    key mid-month has not started a new month, and a meter that thinks otherwise
+    hands them a second free allowance every time they rotate.
 
     GRIDFORGE_API_KEYS accepts three forms, oldest first, so no existing
     deployment breaks when this lands:
@@ -77,6 +83,14 @@ class KeyPlan:
     key: str
     label: str = ""
     monthly_quota: int = 0          # 0 -> unlimited
+    account: str = ""               # billing identity; defaults to the label
+    key_id: str = ""
+    scope: str = "client"
+    expires: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.account:
+            self.account = self.label or self.key[:6]
 
     @property
     def masked(self) -> str:
@@ -103,12 +117,54 @@ class KeyPlan:
 
 
 def key_plans() -> dict[str, KeyPlan]:
+    """Static keys only: the ones an operator pasted into the environment."""
     out: dict[str, KeyPlan] = {}
     for spec in (os.environ.get("GRIDFORGE_API_KEYS") or "").split(","):
         plan = KeyPlan.parse(spec)
         if plan:
             out[plan.key] = plan
     return out
+
+
+def from_signed(k: ApiKey, token: str) -> KeyPlan:
+    return KeyPlan(key=token, label=k.account, monthly_quota=k.quota,
+                   account=k.account, key_id=k.key_id, scope=k.scope,
+                   expires=k.expires)
+
+
+def plan_for(token: str) -> KeyPlan | None:
+    """The plan behind a presented key, static or signed. None means not ours.
+
+    Static first: an operator who has pasted a key into the environment to get a
+    customer working again at 2am must not be overridden by anything cleverer.
+    """
+    if not token:
+        return None
+    static = key_plans().get(token)
+    if static:
+        return static
+    if looks_signed(token):
+        try:
+            return from_signed(verify(token), token)
+        except KeyError_:
+            return None
+    return None
+
+
+def refusal(token: str) -> dict:
+    """Why a key was refused, in terms a machine's operator can act on.
+
+    'Invalid key' sends an integrator hunting a typo when their subscription
+    lapsed three days ago. Expired, revoked and forged are different problems with
+    different fixes, and saying which is not a security leak — the holder of a key
+    already knows what it says.
+    """
+    if looks_signed(token):
+        try:
+            verify(token)
+        except KeyError_ as exc:
+            return {"error": str(exc), "key": "signed"}
+    return {"error": "an API key is required for this endpoint"}
 
 
 @dataclass
@@ -128,12 +184,46 @@ class Meter:
         self._lock = threading.Lock()
         self._usage: dict[tuple[str, str], Usage] = {}
         self._path = Path(path) if path else None
+        self._problem = ""
+        self._probe()
         self._load()
 
     # -- persistence -------------------------------------------------------
+    def _probe(self) -> None:
+        """Prove the usage file is actually writable, now, before anything is billed.
+
+        GRIDFORGE_USAGE_FILE=/data/usage.json on a machine with no volume mounted
+        looks identical to a working configuration until the first invoice, at
+        which point a month of usage does not exist. So the meter writes a byte at
+        startup and, if it cannot, says so at /v1/usage instead of reporting
+        durable:true on a path that silently discards everything.
+        """
+        if self._path is None:
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            probe = self._path.parent / (self._path.name + ".probe")
+            probe.write_text("ok")
+            probe.unlink()
+        except Exception as exc:
+            self._problem = (f"{self._path} is not writable ({type(exc).__name__}). "
+                             f"On Fly.io this usually means no volume is mounted at "
+                             f"{self._path.parent}. Usage is being held in memory only.")
+            self._path = None
+
     @property
     def durable(self) -> bool:
         return self._path is not None
+
+    @property
+    def durability_note(self) -> str:
+        if self._problem:
+            return self._problem
+        if not self.durable:
+            return ("Usage is held in memory on this instance and is not durable. "
+                    "Set GRIDFORGE_USAGE_FILE, backed by a mounted volume, before "
+                    "billing against it.")
+        return "Usage is written through to durable storage on every call."
 
     def _load(self) -> None:
         if not self._path or not self._path.exists():
@@ -169,16 +259,15 @@ class Meter:
             pass
 
     # -- accounting --------------------------------------------------------
-    def current(self, key: str) -> Usage:
+    def current(self, account: str) -> Usage:
         m = _month()
         with self._lock:
-            return self._usage.get((key, m)) or Usage(month=m)
+            return self._usage.get((account, m)) or Usage(month=m)
 
-    def would_exceed(self, key: str, units: int) -> bool:
-        plan = key_plans().get(key)
-        if not plan or not plan.monthly_quota:
+    def would_exceed(self, account: str, units: int, quota: int = 0) -> bool:
+        if not quota:
             return False
-        return self.current(key).units + units > plan.monthly_quota
+        return self.current(account).units + units > quota
 
     def record(self, key: str, path: str, units: int) -> Usage:
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -195,13 +284,16 @@ class Meter:
         self._flush()
         return snapshot
 
-    def statement(self, key: str) -> dict:
-        plan = key_plans().get(key)
-        u = self.current(key)
+    def statement(self, plan: "KeyPlan | None", account: str = "") -> dict:
+        account = account or (plan.account if plan else "unknown")
+        u = self.current(account)
         quota = plan.monthly_quota if plan else 0
         return {
-            "account": plan.label if plan else "unknown",
+            "account": account,
             "key": plan.masked if plan else "…",
+            "key_id": plan.key_id if plan else "",
+            "scope": plan.scope if plan else "",
+            "expires": (plan.expires or None) if plan else None,
             "month": u.month,
             "units": u.units,
             "calls": u.calls,
@@ -210,10 +302,7 @@ class Meter:
             "units_remaining": (quota - u.units) if quota else None,
             "unit_rates": dict(sorted(UNIT_COST.items())),
             "durable": self.durable,
-            "note": ("Usage is held in memory on this instance and is not durable. "
-                     "Set GRIDFORGE_USAGE_FILE before billing against it."
-                     if not self.durable else
-                     "Usage is written through to durable storage on every call."),
+            "note": self.durability_note,
         }
 
 

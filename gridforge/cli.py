@@ -451,6 +451,58 @@ def cmd_tools(args) -> int:
     return 0
 
 
+def cmd_key(args) -> int:
+    """Mint and inspect signed API keys.
+
+    Self-serve issuance happens on the website when a subscription starts; this is
+    for the cases a webhook cannot cover — a trial for a prospect on a call, a
+    replacement after a leak, or working out why a customer's key stopped.
+    """
+    from .api.keys import KeyError_, inspect, issue
+    from .commercial import API_PLANS
+
+    if args.key_cmd == "plans":
+        print(f"{'plan':16s} {'EUR/month':>10s} {'units':>8s} {'EUR/unit':>9s}  audience")
+        for pl in sorted(API_PLANS.values(), key=lambda x: x.price_eur_month):
+            print(f"{pl.id:16s} {pl.price_eur_month:10,} {pl.monthly_units:8,} "
+                  f"{pl.eur_per_unit:9.2f}  {pl.audience}")
+        return 0
+
+    if args.key_cmd == "inspect":
+        d = inspect(args.token)
+        for k, v in d.items():
+            print(f"  {k:14s} {v}")
+        return 0 if d.get("valid") else 1
+
+    # issue
+    quota = args.quota
+    if args.plan:
+        if args.plan not in API_PLANS:
+            print(f"unknown plan {args.plan!r}. One of: {', '.join(sorted(API_PLANS))}",
+                  file=sys.stderr)
+            return 2
+        quota = API_PLANS[args.plan].monthly_units
+    try:
+        token = issue(args.account, quota=int(quota), scope=args.scope, days=int(args.days))
+    except KeyError_ as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        if "SECRET" in str(exc):
+            print("\nGenerate one, and set the SAME value on the engine and the website:",
+                  file=sys.stderr)
+            print("  python3 -c \"import secrets; print(secrets.token_hex(32))\"",
+                  file=sys.stderr)
+        return 2
+    d = inspect(token)
+    print(token)
+    print(f"\n  account   {d['account']}")
+    print(f"  key id    {d['key_id']}   (put this in GRIDFORGE_REVOKED_KEYS to kill it)")
+    print(f"  quota     {d['monthly_quota'] or 'unlimited'} units/month")
+    print(f"  expires   {d['expires']}")
+    print("\nThe engine verifies this offline — it needs no database and no record of it. "
+          "Show it to the customer once; we do not store it either.")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api.server import serve
     serve(args.host, args.port)
@@ -574,6 +626,18 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true", help="print the full catalogue as JSON")
     s.add_argument("-o", "--out", help="write the JSON catalogue to this path")
     s.set_defaults(func=cmd_tools)
+
+    s = sub.add_parser("key", help="signed API keys: mint, inspect, and the plan list")
+    s.add_argument("key_cmd", choices=["issue", "inspect", "plans"])
+    s.add_argument("token", nargs="?", default="", help="the key, for `inspect`")
+    s.add_argument("--account", default="", help="who this bills to; usage aggregates here")
+    s.add_argument("--plan", default="", help="api_triage | api_scale | api_platform")
+    s.add_argument("--quota", default="0", help="monthly units; 0 is unlimited")
+    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial"])
+    s.add_argument("--days", default="35",
+                   help="validity. 35 by default so a monthly renewal never leaves a "
+                        "customer's agents dark while the webhook lands.")
+    s.set_defaults(func=cmd_key)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
     s.add_argument("--host", default="0.0.0.0")

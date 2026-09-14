@@ -4,9 +4,11 @@ import Link from "next/link";
 import {
   ADMIN_COOKIE,
   adminConfigured,
+  fetchApiAccounts,
   fetchDeliverables,
   fetchQualifications,
   fetchWatches,
+  revocationList,
   summariseQualifications,
   supabaseConfigured,
   verifyAdminCookie,
@@ -43,10 +45,11 @@ export default async function PipelinePage() {
     redirect("/admin/login");
   }
 
-  const [deliverables, qualifications, watches] = await Promise.all([
+  const [deliverables, qualifications, watches, apiAccounts] = await Promise.all([
     fetchDeliverables(),
     fetchQualifications(),
     fetchWatches(),
+    fetchApiAccounts(),
   ]);
 
   return (
@@ -54,6 +57,8 @@ export default async function PipelinePage() {
       deliverables={deliverables}
       qualifications={qualifications}
       watches={watches}
+      apiAccounts={apiAccounts}
+      revoked={revocationList(apiAccounts)}
       insights={summariseQualifications(qualifications)}
       supabaseReady={supabaseConfigured()}
     />
