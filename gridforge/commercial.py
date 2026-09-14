@@ -75,6 +75,39 @@ ENGAGEMENTS: dict[str, Engagement] = {
         ),
         scope_out=SCOPE_OUT_COMMON,
     ),
+    "procurement_spec": Engagement(
+        id="procurement_spec",
+        name="Procurement Specification",
+        price_eur=18_000,
+        turnaround_days=12,
+        question="What exactly do we buy, and which bid actually moves the date?",
+        deliverable=(
+            "A tender-ready technical specification for one relief, a machine-readable "
+            "response schedule, and a bid comparison in racks and weeks rather than only in "
+            "euros."),
+        scope_in=(
+            "Every numeric requirement derived from the capacity model, naming the constraint "
+            "it came from — so a supplier who meets the specification provably relieves the "
+            "limit, rather than supplying equipment somebody liked the look of.",
+            "Duties quoted at YOUR site conditions, not at a manufacturer's reference "
+            "condition. A CDU rated at a 5 K approach and installed on a 24 K site is the "
+            "commonest way a liquid retrofit under-delivers.",
+            "An evaluation matrix weighted for programme as well as price: the item exists to "
+            "unlock compute on a date, and the cheaper, slower bid is the expensive one.",
+            "Bid comparison against the capacity model — what each response does to the "
+            "energisation date and to deployable rack count.",
+            "The response schedule returned to you as structured data you keep.",
+        ),
+        scope_out=SCOPE_OUT_COMMON + (
+            "Running the tender, contracting, or any commercial relationship with the "
+            "suppliers. We specify duty and interfaces; we name no make or model, quote no "
+            "equipment and take no margin on hardware.",
+        ),
+        credits_against=None,
+        payment_terms=("100% on commissioning. One specification per engagement: a combined "
+                       "tender for four unrelated reliefs gets four suppliers quoting the "
+                       "parts they are comfortable with and nobody owning the constraint."),
+    ),
     "portfolio_screen": Engagement(
         id="portfolio_screen",
         name="Portfolio Screen",

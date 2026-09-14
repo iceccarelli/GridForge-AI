@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><link rel='preconnect' href='https://fonts.gstatic.com' crossorigin><link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap'><title>Technical Specification — Replace busway with 800-1000 A and new tap-off units</title><style>
+:root{
+  --paper:#eef1f3; --surface:#ffffff; --ink:#15191d; --muted:#5b636b;
+  --line:#d3dadf; --rule:#b9c3ca;
+  --accent:#14606f; --accent-soft:#e2edef;
+  --critical:#8f2d2d; --critical-soft:#f7e9e8;
+  --caution:#7d6111; --caution-soft:#f7f0dc;
+  --ok:#2b6144; --ok-soft:#e5f0e9;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
+  --line:#2c343a; --rule:#3c464e;
+  --accent:#5fb3c4; --accent-soft:#17313a;
+  --critical:#e08b8b; --critical-soft:#2e1e1e;
+  --caution:#d6b45e; --caution-soft:#2c2617;
+  --ok:#7dc3a0; --ok-soft:#1a2b23;
+}}
+:root[data-theme="dark"]{
+  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
+  --line:#2c343a; --rule:#3c464e;
+  --accent:#5fb3c4; --accent-soft:#17313a;
+  --critical:#e08b8b; --critical-soft:#2e1e1e;
+  --caution:#d6b45e; --caution-soft:#2c2617;
+  --ok:#7dc3a0; --ok-soft:#1a2b23;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:68rem;margin:0 auto;padding-block:2rem 5rem;padding-left:1.25rem;
+  padding-right:1.25rem;display:flex;flex-direction:column;gap:0}
+/* title block - the convention a drawing uses to identify itself */
+.titleblock{background:var(--surface);border:1px solid var(--rule);margin-bottom:2.25rem}
+.titleblock h1{margin:0;padding:1.25rem 1.4rem .5rem;font-size:1.65rem;line-height:1.18;
+  font-weight:600;letter-spacing:-.015em;text-wrap:balance}
+.titleblock .sub{margin:0;padding:0 1.4rem 1.1rem;color:var(--muted);font-size:.9rem}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
+  border-top:1px solid var(--line)}
+.meta div{padding:.6rem 1.4rem;border-right:1px solid var(--line)}
+.meta div:last-child{border-right:none}
+.meta dt{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--muted);margin:0 0 .15rem}
+.meta dd{margin:0;font-size:.86rem;font-weight:500}
+.status{display:inline-block;font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
+  text-transform:uppercase;padding:.22rem .5rem;border:1px solid var(--caution);
+  color:var(--caution);background:var(--caution-soft)}
+h2{font-size:1.08rem;font-weight:600;letter-spacing:.005em;margin:2.6rem 0 .9rem;
+  padding-bottom:.4rem;border-bottom:2px solid var(--rule);text-wrap:balance}
+h3{font-size:.95rem;font-weight:600;margin:1.6rem 0 .5rem}
+p{margin:0 0 .9rem;max-width:66ch}
+ul{margin:0 0 1rem;padding-left:1.15rem;max-width:66ch}
+li{margin-bottom:.3rem}
+/* instrument readout */
+.stmt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.35rem 1.5rem;
+  align-items:baseline;background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--accent);padding:.75rem 1rem;margin:0 0 .5rem}
+.stmt b{grid-column:1;font-size:.72rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted);font-family:var(--mono)}
+.stmt .v{grid-column:2;grid-row:1/3;font-family:var(--mono);font-size:1.3rem;
+  font-weight:500;font-variant-numeric:tabular-nums;text-align:right;color:var(--accent)}
+.stmt .basis{grid-column:1;font-size:.84rem;color:var(--muted);font-family:var(--serif);
+  font-style:italic}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface);
+  margin:.4rem 0 .6rem}
+table{border-collapse:collapse;width:100%;font-size:.84rem;font-variant-numeric:tabular-nums}
+th,td{padding:.48rem .7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;
+  font-weight:600;color:var(--muted);border-bottom:2px solid var(--rule);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{font-weight:500}
+caption,.cap{caption-side:bottom;text-align:left;color:var(--muted);font-size:.82rem;
+  font-family:var(--serif);font-style:italic;margin:0 0 1.2rem}
+.callout{padding:.75rem .95rem;margin:.5rem 0 1rem;border:1px solid var(--line);
+  background:var(--surface);font-size:.9rem;max-width:70ch}
+.callout::before{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.09em;
+  text-transform:uppercase;margin-bottom:.3rem}
+.callout.answer{border-left:3px solid var(--ok);background:var(--ok-soft);color:var(--ink)}
+.callout.answer::before{content:"Recommendation";color:var(--ok)}
+.callout.warning{border-left:3px solid var(--critical);background:var(--critical-soft)}
+.callout.warning::before{content:"Caution";color:var(--critical)}
+.callout.note{border-left:3px solid var(--accent);background:var(--accent-soft)}
+.callout.note::before{content:"Note";color:var(--accent)}
+code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:.05rem .3rem}
+.foot{color:var(--muted);font-size:.82rem;margin-top:3rem;border-top:1px solid var(--rule);
+  padding-top:.9rem;font-family:var(--mono)}
+@media (max-width:560px){
+  .titleblock h1{font-size:1.3rem}
+  .stmt{grid-template-columns:1fr}
+  .stmt .v{grid-column:1;grid-row:auto;text-align:left}
+  .meta div{border-right:none;border-bottom:1px solid var(--line)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><div class='wrap'><header class='titleblock'><h1>Technical Specification — Replace busway with 800-1000 A and new tap-off units</h1><p class='sub'>Reference Project (synthetic) · hall DH-02 · issued 2026-09-14 · ref REF-TND-01</p><dl class='meta'><div><dt>Project</dt><dd>Reference Project (synthetic)</dd></div><div><dt>Hall</dt><dd>DH-02</dd></div><div><dt>Constraint relieved</dt><dd>Busway ampacity</dd></div><div><dt>Sized for</dt><dd>62 racks</dd></div><div><dt>Responses due</dt><dd>as agreed</dd></div><div><dt>Contact</dt><dd>—</dd></div></dl></header><div class='callout warning'>Duties in this document are derived from a capacity model of this hall. They are modelled values, not measurements of installed plant, and each one names the constraint it came from.</div><h2>1. Purpose</h2><p>This package procures the works required to relieve Busway ampacity in hall DH-02. In the capacity model for this hall that constraint is what limits deployable rack count; relieving it moves the hall from 12 to 22 racks, and it is part of a programme that reaches 62 racks in total.</p><p>Duties in section 3 are sized for the end state of 62 racks of NVIDIA GB300 NVL72 — the hall this relief is part of delivering — not for the 10 rack(s) this single step unlocks on its own. Nobody buys plant for a marginal rack.</p><p>In the capacity model this step moves the hall from 12 to 22 racks; the full ladder reaches 62.</p><p>Every numeric requirement is derived from the capacity model and names the constraint it came from. Nothing here specifies a make or a model: we state the duty and the interfaces, the supplier proposes the equipment, and we take no margin on it.</p><p>The budget figure is our modelled estimate, not a price. It is stated so the client can see whether a response is in the right universe, and it carries its own evidence class.</p><div class='stmt'><b>Modelled budget for this relief</b><div class='v'>450,000 [225,000–900,000] EUR (E0)</div><div class='basis'>Limited by: Our estimate, not a price. Stated so a response that is in the wrong universe is visible immediately.</div></div><div class='stmt'><b>Modelled lead time</b><div class='v'>36 [24–52] weeks (E0)</div><div class='basis'>Limited by: What the capacity model assumed. A response that differs materially moves the energisation date.</div></div><div class='callout warning'>EVIDENCE DISCLOSURE: the duties in section 3 are derived from a capacity model built partly on library defaults and assumed inputs, not on a measured survey of this hall. The claim kinds still below the evidence required for an issued deliverable are: capex, cooling performance, electrical capacity. These duties are sufficient to obtain comparable, competent quotations and to see which supplier moves the energisation date. They are NOT sufficient on their own to raise a purchase order for long-lead plant: confirm the governing figures against site measurement first. The study&#x27;s evidence appendix names exactly which ones those are.</div><h2>2. Scope of supply</h2><p>Included in this package:</p><ul><li>Supply — Equipment meeting the duty specified in section 3.</li><li>Delivery — Delivered to site, offloaded, positioned.</li><li>Installation and commissioning — Installation in a live hall, commissioning and witnessed testing.</li><li>Documentation — Test certificates, selection outputs at site conditions, O&amp;M.</li></ul><p>Explicitly excluded. Listed rather than omitted, because an unstated exclusion is a gap somebody discovers on site:</p><ul><li>Structural sign-off — Any structural strengthening arising from the works is by others.</li><li>Protection and arc-flash studies — Provided by the client&#x27;s electrical engineer.</li><li>Migration and tenancy — Moving or decanting existing tenants is outside this package.</li></ul><h2>3. Technical requirements</h2><p>Obligation words carry their usual tender meaning: shall — non-compliance disqualifies the response; should — scored, not disqualifying; may — stated for context.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Ref</th><th scope='col'>Clause</th><th scope='col'>Obl.</th><th scope='col'>Value</th><th scope='col'>From constraint</th></tr></thead><tbody><tr><td>E-10</td><td>Busway continuous ampacity</td><td>shall</td><td>1,990 A (E3)</td><td>busway_ampacity</td></tr><tr><td>E-11</td><td>Phasing and outage</td><td>shall</td><td>—</td><td>busway_ampacity</td></tr><tr><td>E-12</td><td>Tap-off provision</td><td>shall</td><td>—</td><td>busway_ampacity</td></tr><tr><td>C-01</td><td>Price basis</td><td>shall</td><td>—</td><td>commercial</td></tr><tr><td>C-02</td><td>Validity</td><td>shall</td><td>—</td><td>commercial</td></tr><tr><td>C-03</td><td>Response schedule</td><td>shall</td><td>—</td><td>commercial</td></tr></tbody></table></div><p class='cap'>Every numeric requirement names the constraint it was derived from. A requirement nobody can trace back to a physical limit is one somebody invented.</p><p>**E-10 — Busway continuous ampacity** (shall). Each busway run shall have a continuous ampacity not less than the figure stated, at the hall&#x27;s design ambient and installed configuration.</p><div class='stmt'><b>Required</b><div class='v'>1,990 A (E3)</div><div class='basis'>Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site&#x27;s 0.8 (E5) continuous limit. Installed: 400 A (E5).</div></div><p>*Verification:* Type test certificate to the applicable standard, with derating basis stated.</p><p>**E-11 — Phasing and outage** (shall). The programme shall allow replacement run by run with the hall in service. The response shall state the outage window per run.</p><p>*Basis:* Live tenancy in the hall during the works.</p><p>*Verification:* Method statement and programme.</p><p>**E-12 — Tap-off provision** (shall). Busway shall accept tap-off units at the density required by the rack pitch stated in the response schedule.</p><p>*Basis:* Hall aisle configuration; 62 positions to be fed.</p><p>*Verification:* Layout drawing.</p><p>**C-01 — Price basis** (shall). Prices shall be delivered and installed, excluding VAT, in EUR, with exclusions listed separately.</p><p>*Basis:* Comparability. Four quotations on four bases cannot be evaluated.</p><p>*Verification:* Completed response schedule.</p><p>**C-02 — Validity** (shall). Prices shall remain valid for not less than 60 days.</p><p>*Basis:* The evaluation and approval cycle on a capital item of this size.</p><p>*Verification:* Stated on the quotation.</p><p>**C-03 — Response schedule** (shall). The response schedule in section 6 shall be returned completed. An incomplete schedule will not be evaluated.</p><p>*Basis:* Every figure in it feeds a comparison the client can check. A bid that answers a different question cannot be compared with one that answers this one.</p><p>*Verification:* Returned document.</p><h2>4. How responses will be evaluated</h2><p>Price is one criterion of five. The item being bought exists to unlock compute on a date: a response that is cheaper and materially slower is the expensive one, and the weighting says so.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Ref</th><th scope='col'>Criterion</th><th scope='col'>Weight</th><th scope='col'>What moves it</th></tr></thead><tbody><tr><td>C1</td><td>Compliance with the mandatory duty</td><td>35%</td><td>Every &#x27;shall&#x27; requirement met, at the site conditions stated. A duty quoted at a reference condition rather than at ours scores nothing.</td></tr><tr><td>C2</td><td>Delivered programme</td><td>30%</td><td>Weeks to site and to energisation, and which long-lead item governs. Assessed against what the item does to the energisation date.</td></tr><tr><td>C3</td><td>Price</td><td>20%</td><td>Delivered capex, and price per kW actually unlocked rather than price per unit of equipment.</td></tr><tr><td>C4</td><td>Installation in a live hall</td><td>10%</td><td>Outage duration per run or per unit, and the method statement.</td></tr><tr><td>C5</td><td>Evidence quality</td><td>5%</td><td>Test certificates and selection outputs at our conditions, rather than datasheets at reference conditions.</td></tr></tbody></table></div><p class='cap'>Weights total 100.</p><div class='callout note'>A response that does not meet every &#x27;shall&#x27; requirement is not ranked above one that does, whatever its price. That ordering is the entire point of a mandatory requirement.</div><h2>5. Instructions to responders</h2><ul><li>Return the response schedule in section 6, completed. An incomplete schedule is not evaluated.</li><li>State compliance against every requirement in section 3 as C (compliant), CD (complies with deviation, deviation described) or N (non-compliant).</li><li>Quote duties at the site conditions stated, not at a reference condition. A duty at a reference condition is not a response to this document.</li><li>List exclusions explicitly and price them separately where you can.</li><li>State which long-lead component governs your delivery date.</li></ul><h2>6. Response schedule</h2><p>Return these figures in these units. They feed a comparison the client can check line by line, which is only possible if every response answers the same question.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Field</th><th scope='col'>Unit</th><th scope='col'>Required</th><th scope='col'>Note</th></tr></thead><tbody><tr><td>Delivered price, excluding VAT</td><td>EUR</td><td>yes</td><td>Delivered and installed. State exclusions separately.</td></tr><tr><td>Weeks from order to delivered on site</td><td>weeks</td><td>yes</td><td></td></tr><tr><td>Weeks from delivery to energised</td><td>weeks</td><td>no</td><td></td></tr><tr><td>Outage required per unit or per run</td><td>hours</td><td>no</td><td></td></tr><tr><td>Duty achieved at the site conditions stated</td><td>kW or A</td><td>no</td><td>At OUR conditions. A figure at a reference condition is not a bid.</td></tr><tr><td>Price validity</td><td>days</td><td>no</td><td></td></tr></tbody></table></div><p class='cap'>Machine-readable template: `gridforge spec … --template` writes a JSON file with these keys, which `gridforge bids` reads back.</p><h2>Appendix A — Assumptions, provenance and validation status</h2><p>Every number in this report carries an evidence class. The class of a computed number is never higher than the weakest of its inputs, so a model applied to measured data yields a modelled number and never a measurement.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Class</th><th scope='col'>Meaning</th></tr></thead><tbody><tr><td>E0</td><td>assumed</td></tr><tr><td>E1</td><td>modelled</td></tr><tr><td>E2</td><td>simulated</td></tr><tr><td>E3</td><td>estimated</td></tr><tr><td>E4</td><td>validated against test data</td></tr><tr><td>E5</td><td>measured at site (customer data)</td></tr><tr><td>E6</td><td>field-validated</td></tr><tr><td>E7</td><td>observed in operation</td></tr></tbody></table></div><h3>A.1 Assumptions relied upon</h3><ul><li>Library default, not a price. Replace with a quotation before this figure supports a capital decision.</li><li>Tap-off units are a reported shortage item</li></ul><h3>A.2 Sources</h3><ul></ul><h3>A.3 Provenance of headline quantities</h3><div class='tablewrap'><table><thead><tr><th scope='col'>Quantity</th><th scope='col'>Evidence</th><th scope='col'>Model</th><th scope='col'>Digest</th></tr></thead><tbody><tr><td>busway replacement for one hall</td><td>E0</td><td>input</td><td><code>74129e356449</code></td></tr><tr><td>busway and tap-off lead time</td><td>E0</td><td>input</td><td><code>74ff17170551</code></td></tr><tr><td>required busway ampacity per run</td><td>E3</td><td>spec.busway_ampacity</td><td><code>584d4571c5b5</code></td></tr><tr><td>required busway ampacity per run</td><td>E3</td><td>spec.busway_ampacity</td><td><code>584d4571c5b5</code></td></tr></tbody></table></div><div class='foot'>Issued by GridForge AI on behalf of the client. We specify duty and interfaces only. We name no make or model, quote no equipment and take no margin on hardware.<br>Generated 2026-09-14 by the GridForge-AI envelope engine.</div></div></body></html>

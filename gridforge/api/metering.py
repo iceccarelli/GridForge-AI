@@ -44,6 +44,8 @@ UNIT_COST: dict[str, int] = {
     "/v1/deck": 3,
     "/v1/diff": 2,           # two solves plus one per attributed driver
     "/v1/portfolio": 1,      # per hall in the request; see units_for()
+    "/v1/spec": 3,           # a solve plus a derived, tender-ready document
+    "/v1/bids": 2,           # a solve plus the comparison against it
     "/v1/calibration": 0,
     "/v1/tools": 0,
     "/v1/usage": 0,

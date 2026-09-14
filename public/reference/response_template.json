@@ -1,0 +1,33 @@
+{
+  "specification": {
+    "project": "Reference Project (synthetic)",
+    "hall": "DH-02",
+    "constraint": "busway_ampacity",
+    "sized_for_racks": 62,
+    "reference": "REF-TND-01"
+  },
+  "supplier": "",
+  "received_on": "",
+  "reference": "",
+  "valid_until": "",
+  "values": {
+    "capex_eur": null,
+    "lead_time_weeks": null,
+    "install_weeks": null,
+    "outage_hours_per_unit": null,
+    "duty_at_site_conditions": null,
+    "validity_days": null
+  },
+  "compliance": {
+    "E-10": "",
+    "E-11": "",
+    "E-12": "",
+    "C-01": "",
+    "C-02": "",
+    "C-03": ""
+  },
+  "text": {
+    "exclusions": "",
+    "long_lead_item": ""
+  }
+}

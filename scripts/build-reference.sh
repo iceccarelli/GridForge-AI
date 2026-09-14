@@ -20,6 +20,12 @@ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge study "$INTAKE" -o "$OUT" --c
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge deck "$INTAKE" -o "$OUT" >/dev/null
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge proposal "$INTAKE" -o "$OUT" >/dev/null
 
+# The procurement specification for the relief that unlocks the most racks. A
+# prospect can read the document they would actually send to suppliers, including
+# the response schedule — which is the half that makes the bids comparable.
+GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge spec "$INTAKE" \
+  --constraint busway_ampacity --reference "REF-TND-01" -o "$OUT" >/dev/null
+
 # The model pack carries the whole intake; that is the point, and this intake is
 # synthetic. Say so in the file itself so a copy of it can never be mistaken for
 # a real asset once it is separated from the page it came from.

@@ -195,6 +195,11 @@ class CostLibrary:
                note: str | None = None) -> Quantity:
         """The price for a relief. Falls back to the caller's placeholder, recorded
         as a library default so the report can count how many of them it rests on."""
+        # Record the basis the constraint prices this key on. A supplier quotes one
+        # delivered number; the library holds EUR, EUR/rack or EUR/kW depending on
+        # the line, and procurement ingest needs to know which without guessing from
+        # a step's already-multiplied total.
+        DECLARED_UNITS.setdefault(key, unit)
         entry = self.entries.get(key)
         if entry is None:
             entry = CostEntry(key=key, label=label, unit=unit, value=fallback_value,
@@ -236,6 +241,15 @@ def reload_library(path: str | Path | None = None) -> CostLibrary:
     global _LIBRARY
     _LIBRARY = CostLibrary.resolved(path)
     return _LIBRARY
+
+
+#: key -> the unit the constraint that prices it declared. Populated on first
+#: lookup, which always happens during a solve, before anything procures.
+DECLARED_UNITS: dict[str, str] = {}
+
+
+def declared_unit(key: str, fallback: str = "EUR") -> str:
+    return DECLARED_UNITS.get(key, fallback)
 
 
 def cost(key: str, fallback_value: float, unit: str, label: str,

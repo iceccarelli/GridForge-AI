@@ -74,6 +74,20 @@ def test_every_api_plan_is_purchasable(ts):
             f"{plan_id} is a monthly plan and must check out in subscription mode")
 
 
+def test_every_engagement_sold_on_the_site_agrees_with_the_engine(ts):
+    """Not only the two that were checked by hand. A new engagement added to one
+    side and not the other is exactly the drift this file exists to catch."""
+    for pid, prod in ts.items():
+        if prod.get("apiUnits") is not None or pid.endswith("_deposit"):
+            continue
+        if pid not in ENGAGEMENTS:
+            continue
+        assert prod["amountCents"] == ENGAGEMENTS[pid].price_eur * 100, (
+            f"{pid}: engine EUR {ENGAGEMENTS[pid].price_eur}, "
+            f"checkout EUR {prod['amountCents'] / 100:.0f}")
+        assert prod["name"] == ENGAGEMENTS[pid].name
+
+
 def test_the_density_screen_price_agrees(ts):
     """The one engagement bought directly on the site, rather than by deposit."""
     assert ts["density_screen"]["amountCents"] == ENGAGEMENTS["density_screen"].price_eur * 100

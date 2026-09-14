@@ -238,6 +238,126 @@
       }
     },
     {
+      "name": "gridforge_spec",
+      "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
+      "endpoint": "/v1/spec",
+      "method": "POST",
+      "tier": "client",
+      "units": 3,
+      "returns": "the specification document, what it is sized for, and the response template a supplier fills in.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "constraint": {
+            "type": "string",
+            "description": "constraint id to tender for"
+          },
+          "scenario": {
+            "type": "string"
+          },
+          "list": {
+            "type": "boolean",
+            "default": false
+          },
+          "reference": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "html",
+              "md"
+            ],
+            "default": "html"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_bids",
+      "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
+      "endpoint": "/v1/bids",
+      "method": "POST",
+      "tier": "client",
+      "units": 2,
+      "returns": "ranked bids with scores, schedule impact, and optional cost-library lines.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake",
+          "responses"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "responses": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "constraint": {
+            "type": "string"
+          },
+          "scenario": {
+            "type": "string"
+          },
+          "ingest": {
+            "type": "boolean",
+            "default": false,
+            "description": "also return the cost-library lines the winning response implies"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "budgetary_quote",
+              "firm_quote",
+              "contracted"
+            ],
+            "default": "budgetary_quote"
+          },
+          "region": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "gridforge_proposal",
       "description": "A priced proposal for a named engagement, built from what the engine already found.",
       "endpoint": "/v1/proposal",
@@ -509,6 +629,122 @@
                 "html"
               ],
               "default": "json"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_spec",
+        "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "constraint": {
+              "type": "string",
+              "description": "constraint id to tender for"
+            },
+            "scenario": {
+              "type": "string"
+            },
+            "list": {
+              "type": "boolean",
+              "default": false
+            },
+            "reference": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "html",
+                "md"
+              ],
+              "default": "html"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_bids",
+        "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake",
+            "responses"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "responses": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "constraint": {
+              "type": "string"
+            },
+            "scenario": {
+              "type": "string"
+            },
+            "ingest": {
+              "type": "boolean",
+              "default": false,
+              "description": "also return the cost-library lines the winning response implies"
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "budgetary_quote",
+                "firm_quote",
+                "contracted"
+              ],
+              "default": "budgetary_quote"
+            },
+            "region": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
             }
           },
           "additionalProperties": false
@@ -803,6 +1039,126 @@
           "gridforge/units": 2,
           "gridforge/tier": "client",
           "gridforge/endpoint": "/v1/diff"
+        }
+      },
+      {
+        "name": "gridforge_spec",
+        "description": "Turn a binding constraint into a tender-ready technical specification: every numeric requirement derived from the capacity model and naming the constraint it came from, quoted at the site's own conditions rather than a manufacturer's reference condition, plus a machine-readable response schedule. Pass list=true to see which reliefs on the ladder can be tendered.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "constraint": {
+              "type": "string",
+              "description": "constraint id to tender for"
+            },
+            "scenario": {
+              "type": "string"
+            },
+            "list": {
+              "type": "boolean",
+              "default": false
+            },
+            "reference": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "html",
+                "md"
+              ],
+              "default": "html"
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 3,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/spec"
+        }
+      },
+      {
+        "name": "gridforge_bids",
+        "description": "Compare supplier responses against the capacity model: what each bid does to the energisation date and to deployable rack count, not only what it costs. A non-compliant bid is never ranked above a compliant one.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake",
+            "responses"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "responses": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "constraint": {
+              "type": "string"
+            },
+            "scenario": {
+              "type": "string"
+            },
+            "ingest": {
+              "type": "boolean",
+              "default": false,
+              "description": "also return the cost-library lines the winning response implies"
+            },
+            "basis": {
+              "type": "string",
+              "enum": [
+                "budgetary_quote",
+                "firm_quote",
+                "contracted"
+              ],
+              "default": "budgetary_quote"
+            },
+            "region": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 2,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/bids"
         }
       },
       {

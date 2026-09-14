@@ -104,6 +104,37 @@ jobs:
                --ledger gridforge/data/calibration.json; then
             echo "client site data was written into the published ledger"; exit 1
           fi
+      - name: A specification is traceable, and a bid round-trips
+        run: |
+          python -m gridforge spec examples/intake/reference_hall.json --list
+          python -m gridforge spec examples/intake/reference_hall.json \
+            --constraint busway_ampacity --reference CI-01 -o /tmp/spec
+          python - <<'PY'
+          import json, pathlib
+          t = json.load(open("/tmp/spec/response_template.json"))
+          assert t["compliance"], "the template lists no mandatory requirements"
+          assert t["specification"]["sized_for_racks"] > 0
+          for name, capex, lead in [("Alpha", 480000, 20), ("Beta", 392000, 44)]:
+              d = json.loads(json.dumps(t))
+              d.update(supplier=name, received_on="2026-10-01", valid_until="2026-12-31")
+              d["values"].update(capex_eur=capex, lead_time_weeks=lead, install_weeks=6)
+              d["compliance"] = {k: "C" for k in d["compliance"]}
+              pathlib.Path(f"/tmp/spec/{name}.json").write_text(json.dumps(d))
+          PY
+          python -m gridforge bids examples/intake/reference_hall.json \
+            /tmp/spec/Alpha.json /tmp/spec/Beta.json \
+            --constraint busway_ampacity --ingest --basis firm_quote | tee /tmp/bids.txt
+          grep -q "cost add" /tmp/bids.txt
+          grep -q "Review before you run it" /tmp/bids.txt
+          # A specification that names a manufacturer is one we take a margin on.
+          python - <<'PY'
+          md = open("/tmp/spec/specification.md").read().lower()
+          for brand in ("vertiv", "schneider", "eaton", "abb", "siemens", "motivair"):
+              assert brand not in md, f"the specification named {brand}"
+          assert "take no margin on hardware" in md
+          assert "not sufficient on their own to raise a purchase order" in md
+          print("specification ok")
+          PY
       - name: Signed keys mint here and verify here
         env:
           GRIDFORGE_KEY_SECRET: ci-signing-secret
@@ -185,6 +216,17 @@ jobs:
           derived = [r for r in rows if r['derived_from']]
           assert derived, 'nothing derived — the chain is flat'
           print('provenance ok:', len(rows), 'quantities,', len(derived), 'derived')
+          "
+      - name: The published specification must be part of the worked example
+        run: |
+          test -f public/reference/specification.html
+          test -f public/reference/response_template.json
+          python -c "
+          import json
+          t = json.load(open('public/reference/response_template.json'))
+          assert t['compliance'], 'no mandatory requirements in the published template'
+          assert t['values'], 'no response fields in the published template'
+          print('published specification ok')
           "
       - name: The published pack must declare itself synthetic
         run: |

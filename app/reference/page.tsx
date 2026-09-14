@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, FileText, Presentation, Table2 } from "lucide-react";
+import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "The deliverable, in full — worked example | GridForge AI",
@@ -110,7 +110,7 @@ export default async function ReferencePage() {
         </section>
       ) : null}
 
-      <section className="mt-10 grid gap-4 md:grid-cols-3">
+      <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card
           href="/reference/envelope_study.html"
           icon={<FileText className="h-4 w-4" />}
@@ -129,6 +129,41 @@ export default async function ReferencePage() {
           title="The proposal"
           body="What a proposal looks like when the engine has already run: the binding constraint and the rack counts before the fee, and the data request in section three."
         />
+        <Card
+          href="/reference/specification.html"
+          icon={<ClipboardList className="h-4 w-4" />}
+          title="The tender specification"
+          body="What you send to suppliers once the study says what binds. Every duty derived from the model and naming the constraint it came from, quoted at this site's own water temperature rather than a manufacturer's reference condition."
+        />
+      </section>
+
+      <section className="mt-6 rounded border border-line bg-panel-2 p-6">
+        <div className="flex items-start gap-3">
+          <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-power" />
+          <div>
+            <h2 className="text-lg font-semibold text-ghost">
+              And the schedule that makes bids comparable
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-mute">
+              Four quotations normally answer four different questions. The specification
+              ships with a machine-readable response schedule: the supplier returns these
+              fields in these units, and the bids are then compared in racks and weeks rather
+              than only in euros — because the item exists to unlock compute on a date, and
+              the cheaper, slower bid is the expensive one.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {["specification.md", "response_template.json"].map((f) => (
+                <a
+                  key={f}
+                  href={`/reference/${f}`}
+                  className="rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
+                >
+                  {f}
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="mt-10 rounded border border-line bg-panel-2 p-6">

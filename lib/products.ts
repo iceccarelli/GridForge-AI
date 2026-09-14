@@ -11,6 +11,7 @@ export type ProductId =
   | "envelope_study_deposit"
   | "portfolio_screen_deposit"
   | "hall_watch"
+  | "procurement_spec"
   | "api_triage"
   | "api_scale"
   | "api_platform";
@@ -100,6 +101,23 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "Portfolio Screen document and one model pack per hall.",
     turnaroundDays: 45,
     producesDeliverable: false,
+  },
+  procurement_spec: {
+    id: "procurement_spec",
+    kind: "procurement_spec",
+    name: "Procurement Specification",
+    amountCents: 1_800_000, // €18,000
+    description:
+      "The study says what binds and what relieves it. This is what you send to suppliers: " +
+      "a tender-ready technical specification for one relief, with every duty derived from " +
+      "the capacity model and quoted at your site conditions — then your bids compared in " +
+      "racks and weeks, not only in euros.",
+    deliverable:
+      "Technical specification (HTML + Markdown), a machine-readable response schedule, and " +
+      "a bid comparison against the capacity model showing what each response does to the " +
+      "energisation date.",
+    turnaroundDays: 12,
+    producesDeliverable: true,
   },
   api_triage: {
     id: "api_triage",

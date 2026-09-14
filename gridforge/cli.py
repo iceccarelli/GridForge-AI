@@ -503,6 +503,154 @@ def cmd_key(args) -> int:
     return 0
 
 
+def cmd_spec(args) -> int:
+    """A tender-ready specification for one relief, and the template for responses."""
+    from .procurement import ProcurementError, build_spec, relief_steps
+    from .reporting.spec import build as build_spec_report
+
+    intake = load(args.intake)
+    results = _run(intake)
+    objective = OBJECTIVES[args.objective]
+    rec = _pick_recommended(results, objective)
+    result = next((r for r in results if r.spec.id == args.scenario), rec) \
+        if args.scenario else rec
+
+    if args.list:
+        steps = relief_steps(result)
+        if not steps:
+            print(f"{result.spec.name}: no relief on this ladder is a purchase.")
+            return 0
+        # Aggregated by constraint, not one line per rung. The same constraint
+        # binds several times as the ladder climbs, and you tender for the
+        # constraint once — for the hall's end state — not once per rung.
+        agg: dict[str, dict] = {}
+        for st in steps:
+            a = agg.setdefault(st.binding_id, {
+                "racks": 0, "rungs": 0, "key": st.cost_key or "—",
+                "relief": st.relief_description or "", "capex": 0.0})
+            a["racks"] += st.racks_unlocked
+            a["rungs"] += 1
+            if st.capex_eur is not None:
+                a["capex"] += st.capex_eur.value
+        print(f"{result.spec.name} — reliefs that can be tendered:")
+        print(f"  {'constraint':26s} {'unlocks':>8s} {'rungs':>6s}  {'cost key':24s} relief")
+        for cid, a in sorted(agg.items(), key=lambda kv: -kv[1]["racks"]):
+            print(f"  {cid:26s} {a['racks']:8d} {a['rungs']:6d}  "
+                  f"{a['key']:24s} {a['relief']}")
+        print(f"\n  gridforge spec {args.intake} --constraint <id> -o out")
+        return 0
+
+    try:
+        pkg = build_spec(intake, result, constraint_id=args.constraint)
+    except ProcurementError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+
+    out = Path(args.out)
+    report = build_spec_report(pkg, reference=args.reference, return_by=args.return_by,
+                               contact=args.contact, claims=collect_claims(results))
+    w = _emit(report, out, "specification", claims=collect_claims(results))
+
+    # The machine-readable response template. A supplier fills this in and
+    # `gridforge bids` reads it back — which is how a quotation becomes a dated,
+    # attributable cost-library line instead of a PDF in somebody's inbox.
+    template = {
+        "specification": {"project": pkg.project, "hall": pkg.hall,
+                          "constraint": pkg.constraint_id,
+                          "sized_for_racks": pkg.sized_for_racks,
+                          "reference": args.reference},
+        "supplier": "",
+        "received_on": "",
+        "reference": "",
+        "valid_until": "",
+        "values": {f.key: None for f in pkg.response_fields},
+        "compliance": {q.id: "" for q in pkg.mandatory()},
+        "text": {"exclusions": "", "long_lead_item": ""},
+    }
+    tpath = out / "response_template.json"
+    tpath.write_text(json.dumps(template, indent=2) + "\n")
+    w.paths.append(tpath)
+
+    print(f"Specification — {pkg.relief_title}: {len(pkg.requirements)} requirements "
+          f"({len(pkg.mandatory())} mandatory), sized for {pkg.sized_for_racks} racks.")
+    if pkg.budget_eur is not None:
+        print(f"  modelled budget {pkg.budget_eur.render()}; a response far from this is "
+              f"answering a different question.")
+    w.report()
+    return 0
+
+
+def cmd_bids(args) -> int:
+    """Compare responses in racks and weeks, and turn them into cost-library lines."""
+    from .procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
+    from .procurement.evaluate import schedule_impact
+    from .procurement.ingest import command_lines, cost_entries_from
+
+    intake = load(args.intake)
+    results = _run(intake)
+    objective = OBJECTIVES[args.objective]
+    result = next((r for r in results if r.spec.id == args.scenario),
+                  _pick_recommended(results, objective)) if args.scenario \
+        else _pick_recommended(results, objective)
+    try:
+        pkg = build_spec(intake, result, constraint_id=args.constraint)
+    except ProcurementError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+
+    responses = []
+    for path in args.responses:
+        p = Path(path)
+        if not p.exists():
+            print(f"no such response file: {path}", file=sys.stderr)
+            return 2
+        try:
+            responses.append(SupplierResponse.from_dict(json.loads(p.read_text())))
+        except json.JSONDecodeError as exc:
+            print(f"{path}: not valid JSON ({exc})", file=sys.stderr)
+            return 2
+        except ProcurementError as exc:
+            print(f"{path}: {exc}", file=sys.stderr)
+            return 2
+
+    ranked = rank_bids(pkg, responses)
+    print(f"{pkg.relief_title} — {len(ranked)} response(s), sized for "
+          f"{pkg.sized_for_racks} racks\n")
+    for i, a in enumerate(ranked, 1):
+        print(f"{i}. {a.headline()}")
+        print(f"     {schedule_impact(pkg, a)}")
+        if a.eur_per_rack:
+            print(f"     EUR {a.eur_per_rack:,.0f} per rack enabled")
+        for n in a.notes:
+            print(f"     - {n}")
+        print()
+
+    best = next((a for a in ranked if not a.disqualified and a.compliant), None)
+    if best is None:
+        print("No compliant response. Nothing here can be recommended.")
+        return 0
+
+    print(f"On the numbers this tool can judge, {best.supplier} leads. Installation "
+          f"method and evidence quality are 15 points that an engineer scores, not this.")
+
+    if args.ingest:
+        try:
+            entries = cost_entries_from(pkg, next(r for r in responses
+                                                  if r.supplier == best.supplier),
+                                        basis=args.basis, region=args.region)
+        except ProcurementError as exc:
+            print(f"\ncannot make a cost-library line from it: {exc}", file=sys.stderr)
+            return 2
+        print("\nThis response is a dated, attributable price. Putting it in the library "
+              "raises the evidence class of every study that touches this line:\n")
+        for line in command_lines(entries, library=args.library or ""):
+            print(line)
+            print()
+        print("Review before you run it. A price that enters the library unreviewed is "
+              "one nobody can defend when a client asks where it came from.")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api.server import serve
     serve(args.host, args.port)
@@ -638,6 +786,34 @@ def main(argv: list[str] | None = None) -> int:
                    help="validity. 35 by default so a monthly renewal never leaves a "
                         "customer's agents dark while the webhook lands.")
     s.set_defaults(func=cmd_key)
+
+    s = sub.add_parser("spec", help="a tender-ready specification for one relief")
+    s.add_argument("intake")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--constraint", default="",
+                   help="which constraint to tender for (default: the first purchasable rung)")
+    s.add_argument("--scenario", default="", help="scenario id (default: the recommended one)")
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--reference", default="", help="your tender reference")
+    s.add_argument("--return-by", dest="return_by", default="")
+    s.add_argument("--contact", default="")
+    s.add_argument("--list", action="store_true",
+                   help="list the reliefs on this ladder that can be tendered, and stop")
+    s.set_defaults(func=cmd_spec)
+
+    s = sub.add_parser("bids", help="compare supplier responses in racks, weeks and euros")
+    s.add_argument("intake")
+    s.add_argument("responses", nargs="+", help="completed response_template.json files")
+    s.add_argument("--constraint", default="")
+    s.add_argument("--scenario", default="")
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--ingest", action="store_true",
+                   help="print the cost-library commands the winning response implies")
+    s.add_argument("--basis", default="budgetary_quote",
+                   help="budgetary_quote | firm_quote | contracted")
+    s.add_argument("--region", default="")
+    s.add_argument("--library", default="")
+    s.set_defaults(func=cmd_bids)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
     s.add_argument("--host", default="0.0.0.0")

@@ -20,6 +20,8 @@ Endpoints
     POST /v1/proposal                   intake     -> priced proposal       (key)
     POST /v1/deck                       intake     -> walkthrough deck      (key)
     POST /v1/diff                       two intakes-> change note           (key)
+    POST /v1/spec                       intake     -> tender specification  (key)
+    POST /v1/bids                       intake+bids-> ranked comparison     (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
@@ -67,7 +69,7 @@ from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 
@@ -302,6 +304,95 @@ def handle_proposal(body: dict, tier: Tier) -> dict:
     return out
 
 
+def handle_spec(body: dict, tier: Tier) -> dict:
+    from ..procurement import ProcurementError, build_spec, relief_steps
+    from ..reporting.spec import build as build_spec_report
+    intake, results = _run(body.get("intake") or body)
+    objective = _objective(body)
+    from ..reporting.study import _pick_recommended
+    rec = _pick_recommended(results, objective)
+    result = next((r for r in results if r.spec.id == body.get("scenario")), rec)
+
+    if body.get("list"):
+        return {"reliefs": [
+            {"constraint_id": st.binding_id, "constraint": st.binding_name,
+             "racks_unlocked": st.racks_unlocked, "cost_key": st.cost_key,
+             "relief": st.relief_description}
+            for st in relief_steps(result)]}
+    try:
+        pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
+    except ProcurementError as exc:
+        raise ApiError(422, str(exc))
+
+    report = build_spec_report(pkg, reference=str(body.get("reference") or ""),
+                               return_by=str(body.get("return_by") or ""),
+                               contact=str(body.get("contact") or ""),
+                               claims=collect_claims(results))
+    out = _rendered(report, results, str(body.get("format") or "html").lower())
+    out["specification"] = {
+        "constraint_id": pkg.constraint_id, "constraint": pkg.constraint_name,
+        "relief": pkg.relief_title, "sized_for_racks": pkg.sized_for_racks,
+        "requirements": len(pkg.requirements), "mandatory": len(pkg.mandatory()),
+    }
+    out["response_template"] = {
+        "supplier": "", "received_on": "", "valid_until": "",
+        "values": {f.key: None for f in pkg.response_fields},
+        "compliance": {q.id: "" for q in pkg.mandatory()},
+    }
+    return out
+
+
+def handle_bids(body: dict, tier: Tier) -> dict:
+    from ..procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
+    from ..procurement.evaluate import schedule_impact
+    from ..procurement.ingest import cost_entries_from
+
+    raw = body.get("responses")
+    if not isinstance(raw, list) or not raw:
+        raise ApiError(422, 'expected {"intake": {...}, "responses": [ ... ]}')
+    intake, results = _run(body.get("intake") or {})
+    objective = _objective(body)
+    from ..reporting.study import _pick_recommended
+    result = next((r for r in results if r.spec.id == body.get("scenario")),
+                  _pick_recommended(results, objective))
+    try:
+        pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
+        responses = [SupplierResponse.from_dict(d) for d in raw]
+        ranked = rank_bids(pkg, responses)
+    except ProcurementError as exc:
+        raise ApiError(422, str(exc))
+
+    best = next((a for a in ranked if not a.disqualified and a.compliant), None)
+    payload = {
+        "relief": pkg.relief_title,
+        "constraint_id": pkg.constraint_id,
+        "sized_for_racks": pkg.sized_for_racks,
+        "ranked": [{
+            "rank": i, "supplier": a.supplier, "headline": a.headline(),
+            "capex_eur": a.capex_eur, "weeks_to_energised": a.weeks_to_energised,
+            "eur_per_rack": a.eur_per_rack, "compliant": a.compliant,
+            "disqualified": a.disqualified, "score": round(a.total_score, 1),
+            "scores": {k: round(v, 1) for k, v in a.scores.items()},
+            "mandatory_failed": a.mandatory_failed, "notes": a.notes,
+            "schedule_impact": schedule_impact(pkg, a),
+        } for i, a in enumerate(ranked, 1)],
+        "leading": best.supplier if best else None,
+        "note": ("Installation method and evidence quality carry 15 of the 100 points and "
+                 "are scored by an engineer, not by this endpoint. A ranking that claimed "
+                 "to have judged them would be inventing the part that needs judgement."),
+    }
+    if body.get("ingest") and best is not None:
+        winner = next(r for r in responses if r.supplier == best.supplier)
+        try:
+            payload["cost_library_entries"] = cost_entries_from(
+                pkg, winner, basis=str(body.get("basis") or "budgetary_quote"),
+                region=str(body.get("region") or ""))
+        except ProcurementError as exc:
+            payload["cost_library_entries"] = []
+            payload["ingest_error"] = str(exc)
+    return payload
+
+
 def handle_portfolio(body: dict, tier: Tier) -> dict:
     docs = body.get("intakes")
     if not isinstance(docs, list) or not docs:
@@ -338,6 +429,8 @@ ROUTES = {
     "/v1/proposal": (handle_proposal, Tier.CLIENT),
     "/v1/deck": (handle_deck, Tier.CLIENT),
     "/v1/diff": (handle_diff, Tier.CLIENT),
+    "/v1/spec": (handle_spec, Tier.CLIENT),
+    "/v1/bids": (handle_bids, Tier.CLIENT),
 }
 
 GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",

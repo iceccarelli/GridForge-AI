@@ -140,6 +140,52 @@ TOOLS: list[dict] = [
         returns="headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
     ),
     _tool(
+        "gridforge_spec",
+        ("Turn a binding constraint into a tender-ready technical specification: every "
+         "numeric requirement derived from the capacity model and naming the constraint it "
+         "came from, quoted at the site's own conditions rather than a manufacturer's "
+         "reference condition, plus a machine-readable response schedule. Pass list=true to "
+         "see which reliefs on the ladder can be tendered."),
+        "/v1/spec",
+        {"type": "object", "required": ["intake"],
+         "properties": {"intake": _INTAKE_SCHEMA,
+                        "constraint": {"type": "string",
+                                       "description": "constraint id to tender for"},
+                        "scenario": {"type": "string"},
+                        "list": {"type": "boolean", "default": False},
+                        "reference": {"type": "string"},
+                        "objective": _OBJECTIVE,
+                        "format": {"type": "string", "enum": ["html", "md"],
+                                   "default": "html"}},
+         "additionalProperties": False},
+        returns=("the specification document, what it is sized for, and the response "
+                 "template a supplier fills in."),
+    ),
+    _tool(
+        "gridforge_bids",
+        ("Compare supplier responses against the capacity model: what each bid does to the "
+         "energisation date and to deployable rack count, not only what it costs. A "
+         "non-compliant bid is never ranked above a compliant one."),
+        "/v1/bids",
+        {"type": "object", "required": ["intake", "responses"],
+         "properties": {"intake": _INTAKE_SCHEMA,
+                        "responses": {"type": "array", "minItems": 1,
+                                      "items": {"type": "object",
+                                                "additionalProperties": True}},
+                        "constraint": {"type": "string"},
+                        "scenario": {"type": "string"},
+                        "ingest": {"type": "boolean", "default": False,
+                                   "description": "also return the cost-library lines the "
+                                                  "winning response implies"},
+                        "basis": {"type": "string",
+                                  "enum": ["budgetary_quote", "firm_quote", "contracted"],
+                                  "default": "budgetary_quote"},
+                        "region": {"type": "string"},
+                        "objective": _OBJECTIVE},
+         "additionalProperties": False},
+        returns="ranked bids with scores, schedule impact, and optional cost-library lines.",
+    ),
+    _tool(
         "gridforge_proposal",
         "A priced proposal for a named engagement, built from what the engine already found.",
         "/v1/proposal",

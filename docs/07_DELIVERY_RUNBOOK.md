@@ -453,3 +453,95 @@ curl -s https://gridforge-engine.fly.dev/v1/version | python3 -m json.tool | hea
 
 `auth_configured`, `signed_keys` and `metering.durable` are the three that matter.
 The deploy script now calls out each one that is false.
+
+## The Procurement Specification — €18,000, and the flywheel under it
+
+A study ends with "the transformer sets the date at 52 weeks". The client then has to
+go and buy a transformer, and between the finding and the purchase order sits three
+weeks of an engineer writing a specification, arguing about what to ask for, and
+comparing four quotations that answer four different questions.
+
+That gap is the product.
+
+```bash
+python3 -m gridforge spec intake.json --list        # what on this ladder can be tendered
+python3 -m gridforge spec intake.json --constraint busway_ampacity \
+    --reference TND-2026-001 --return-by 2026-11-15 -o out
+python3 -m gridforge bids intake.json out/Alpha.json out/Beta.json \
+    --constraint busway_ampacity --ingest --basis firm_quote --region DE
+```
+
+**Every numeric requirement names the constraint it came from.** That is the whole
+argument for buying this rather than writing it in Word: a requirement nobody can
+trace back to a physical limit is one somebody invented, and those are how a tender
+specifies equipment the hall does not need. `SpecPackage.validate()` refuses a
+mandatory numeric requirement with no constraint behind it.
+
+**Duties are sized for the end state, not the rung.** A ladder rung often unlocks
+three racks. Nobody buys a transformer for three racks — they buy it for the hall
+they intend to end up with. Sizing to the rung's own delta produces a specification
+that is technically traceable and commercially absurd, which is worse than one that
+is neither.
+
+**Duties are quoted at the site's own conditions.** A CDU rated at a 5 K approach,
+installed on a site running a 24 K approach, is the commonest way a liquid retrofit
+under-delivers. The specification puts that in capitals where a supplier cannot miss
+it, and asks for the selection output at our conditions rather than a datasheet.
+
+**We name no make, no model and no supplier.** We state duty and interfaces; the
+supplier proposes the equipment; we take no margin on hardware. That is the same line
+the engagement scope draws, and it is why a client can hand this to their own
+procurement without a conflict to declare. A test asserts no manufacturer name
+appears in the document.
+
+**Bids are compared in racks and weeks.** The item exists to unlock compute on a
+date: the bid that is 12% cheaper and 14 weeks slower is the expensive one, and the
+evaluation weighting says so (35 compliance, 30 programme, 20 price, 15 judged). A
+non-compliant bid is never ranked above a compliant one, whatever its price — that
+ordering is the entire point of a "shall".
+
+Installation method and evidence quality are **15 points the tool does not score**.
+It says so rather than filling the column with a computed number, because those two
+need an engineer and a tool that pretended otherwise would be inventing the part that
+needs judgement.
+
+### The flywheel
+
+This is why the engagement is worth selling at a price that looks low next to the
+study. A study rests on library defaults with a −50%/+100% band and an AACE Class 5.
+A returned bid is a **dated, attributable, project-specific price** — and
+`--ingest` prints the exact `gridforge cost add` commands it implies:
+
+```
+library_default      E0   a placeholder with a band
+budgetary_quote      E3   a supplier's indicative number
+firm_quote           E5   a written quotation with a validity date
+contracted           E7   what was actually paid
+```
+
+The moment that line lands in the library, every future study touching it gets
+stronger and its accuracy class improves. **Procurement work pays twice.**
+
+The commands are printed for review, never run. A price that enters the library
+unreviewed is one nobody can defend when a client asks where it came from.
+
+**The conversion is the dangerous part and is tested hardest.** A supplier quotes one
+delivered number. The library holds `tapoff.unit` per rack, `ups.per_kW` per kW and
+`busway.replacement` as a lump sum. Entering a lump sum on a per-rack line is wrong by
+the rack count, it carries a *quotation's* evidence class, and every future study
+inherits it with a straight face — worse than having no flywheel at all. The basis
+comes from `costs.declared_unit()`, a registry populated by the constraint that prices
+each key, not guessed from a step's already-multiplied total.
+
+### Machine interface
+
+`/v1/spec` (3 units) and `/v1/bids` (2 units), and `gridforge_spec` / `gridforge_bids`
+over MCP. A portfolio tool can generate a specification and rank the responses without
+a person in the loop; the screening-mode disclosure rides on the document either way.
+
+### On the reference page
+
+`/reference` publishes a complete specification and its response schedule alongside
+the study. A prospect can read the document they would actually send to suppliers
+before paying for anything — same argument as publishing the study, one step further
+down the sales cycle.
