@@ -1,0 +1,1587 @@
+From 9451f39bdf21b263a50172c0f7a58691f8573631 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 18:01:04 +0000
+Subject: [PATCH] feat(distribution): open the free tier to agents, and make
+ the reference the thing a model cites
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0018. The choke point was not the product. It was that the best channel to
+it was bolted shut.
+
+THE MCP TRANSPORT WAS KEY-GATED END TO END
+
+Every paid tool inside it already checked its own tier. So the gate protected
+nothing — and closed the single best distribution channel this product has: a
+stranger adding GridForge to their AI client and getting a real engineering answer
+about their own hall in thirty seconds, with the binding constraint named.
+
+The transport is public now; each tool keeps its own tier. gridforge_qualify needs
+no key and no account. Every paid tool still refuses without one, and names the free
+tool when it does, so an agent always knows what it CAN call. tools/list shows
+everything whatever the caller holds: an agent that cannot see a paid tool cannot
+tell its user the answer exists, which costs us more than it costs them.
+
+The paid tiers sell because the free one already answered something true.
+
+One paste, on /developers, for Claude Code, Claude Desktop, with or without a key,
+and as raw curl:
+
+  claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
+
+The handshake instructions are load-bearing and were rewritten to earn it: the free
+tool and what it needs, an instruction not to present an E0 or E1 figure as a
+property of a physical asset, and the fact that the calibration record currently
+reads uncalibrated. A modelled number loose inside an agent loop is more dangerous
+than one in a board pack — nobody downstream reads the footnote.
+
+BEING THE SOURCE A MODEL CITES
+
+/llms.txt — the machine index. What the site contains, where the canonical JSON
+lives, how to read an evidence class, how to call the free tool, and the caveat to
+carry with any figure quoted. Generated from the same catalogue the pages render,
+so it cannot go stale.
+
+/reference/constraints/<slug>.json — a machine-readable twin per constraint, each
+carrying the notice. A crawler scraping rendered HTML gets the prose and loses the
+evidence class, the lead time and the arithmetic. A twin travelling without its
+notice would be a naked number, so CI checks for it.
+
+/api/cite — the citation, the BibTeX, and the required caveat in one call. The
+friction that stops a niche citing you is clerical: nobody knows what to put in the
+footnote. So we write it, and the footnote carries the caveat.
+
+/api/constraints — the same data behind a query parameter, for anything that would
+rather call an endpoint than fetch a file.
+
+robots.txt now welcomes AI crawlers EXPLICITLY — GPTBot, OAI-SearchBot, ClaudeBot,
+PerplexityBot, Google-Extended, Applebot-Extended, CCBot and the rest — while every
+token-addressed path stays closed to all of them. Most of this niche is blocking
+them. We want the opposite: when an operator asks a model what stops their hall
+taking AI racks, better that the answer comes from a constraint reference that names
+its evidence class than from a vendor reference design that ends in a bill of
+materials. That is not altruism and the runbook does not describe it as such.
+
+TESTS
+
+15 new (346 total). The free tool answers with no key and leaks nothing priced;
+every paid tool refuses with the free one named; the handshake says what a model
+must not do; llms.txt teaches the evidence ladder and is generated rather than
+typed; every constraint has a twin carrying its notice; no crawler may reach a
+token-addressed path.
+
+One existing test asserted the opposite of the new contract — that /mcp required a
+key — and is replaced rather than deleted, with the reasoning written down.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml               |  44 ++++
+ README.md                                     |  12 ++
+ app/api/cite/route.ts                         |  47 ++++
+ app/api/constraints/route.ts                  |  35 +++
+ app/developers/page.tsx                       |  11 +-
+ app/llms.txt/route.ts                         | 141 ++++++++++++
+ app/robots.ts                                 |  63 ++++--
+ components/McpInstall.tsx                     | 110 ++++++++++
+ docs/07_DELIVERY_RUNBOOK.md                   |  54 +++++
+ gridforge/api/server.py                       |  34 ++-
+ ...achievable-facility-water-temperature.json |  32 +++
+ .../constraints/available-rack-positions.json |  26 +++
+ .../constraints/busway-ampacity.json          |  37 ++++
+ .../cdu-capacity-site-conditions.json         |  38 ++++
+ .../chilled-water-plant-capacity.json         |  38 ++++
+ .../cooling-architecture-capability.json      |  27 +++
+ .../constraints/firm-supply-capacity.json     |  26 +++
+ .../reference/constraints/floor-loading.json  |  31 +++
+ .../constraints/hydraulic-flow-capacity.json  |  32 +++
+ .../constraints/rack-feed-tapoff-rating.json  |  37 ++++
+ .../residual-air-load-removal.json            |  37 ++++
+ .../constraints/transformer-capacity.json     |  37 ++++
+ .../reference/constraints/ups-capacity.json   |  31 +++
+ scripts/build-reference.sh                    |  12 ++
+ tests/test_agent_distribution.py              | 203 ++++++++++++++++++
+ tests/test_machine_interface.py               |  17 +-
+ 26 files changed, 1186 insertions(+), 26 deletions(-)
+ create mode 100644 app/api/cite/route.ts
+ create mode 100644 app/api/constraints/route.ts
+ create mode 100644 app/llms.txt/route.ts
+ create mode 100644 components/McpInstall.tsx
+ create mode 100644 public/reference/constraints/achievable-facility-water-temperature.json
+ create mode 100644 public/reference/constraints/available-rack-positions.json
+ create mode 100644 public/reference/constraints/busway-ampacity.json
+ create mode 100644 public/reference/constraints/cdu-capacity-site-conditions.json
+ create mode 100644 public/reference/constraints/chilled-water-plant-capacity.json
+ create mode 100644 public/reference/constraints/cooling-architecture-capability.json
+ create mode 100644 public/reference/constraints/firm-supply-capacity.json
+ create mode 100644 public/reference/constraints/floor-loading.json
+ create mode 100644 public/reference/constraints/hydraulic-flow-capacity.json
+ create mode 100644 public/reference/constraints/rack-feed-tapoff-rating.json
+ create mode 100644 public/reference/constraints/residual-air-load-removal.json
+ create mode 100644 public/reference/constraints/transformer-capacity.json
+ create mode 100644 public/reference/constraints/ups-capacity.json
+ create mode 100644 tests/test_agent_distribution.py
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 4219255..a6fb388 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -250,6 +250,20 @@ jobs:
+               assert bad not in blob, f'the public reference claims {bad!r}'
+           print('language ok')
+           "
++      - name: Every constraint has a machine-readable twin
++        run: |
++          python -c "
++          import json, pathlib
++          ref = pathlib.Path('public/reference')
++          doc = json.loads((ref / 'constraints.json').read_text())
++          for c in doc['constraints']:
++              f = ref / 'constraints' / (c['slug'] + '.json')
++              assert f.exists(), f'no JSON twin for {c[\"slug\"]}'
++              twin = json.loads(f.read_text())
++              assert twin['worked_example'] == c['worked_example']
++              assert twin['notice'], 'a twin that travels without the notice is a naked number'
++          print('twins ok:', len(doc['constraints']))
++          "
+       - name: The published specification must be part of the worked example
+         run: |
+           test -f public/reference/specification.html
+@@ -329,6 +343,36 @@ jobs:
+           assert 'has not been established' in c['statement']
+           print('discovery ok')
+           "
++      - name: The free tier is reachable by an agent with no key at all
++        run: |
++          # The single best distribution channel this product has: a stranger adding
++          # GridForge to their AI client and getting a real answer in thirty seconds.
++          # It was closed by a transport-level gate that protected nothing.
++          curl -sf -X POST http://127.0.0.1:8080/mcp \
++            -H 'content-type: application/json' \
++            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"gridforge_qualify","arguments":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}}}' \
++            -o /tmp/free.json
++          python -c "
++          import json
++          r = json.load(open('/tmp/free.json'))['result']
++          assert r['isError'] is False
++          assert r['structuredContent']['as_found']['binding_constraint']
++          blob = json.dumps(r)
++          assert 'EUR' not in blob and 'capex' not in blob, 'the free tool leaked priced content'
++          print('free tier ok:', r['content'][0]['text'])
++          "
++          # And every paid tool still refuses, with the free one named.
++          curl -sf -X POST http://127.0.0.1:8080/mcp \
++            -H 'content-type: application/json' \
++            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gridforge_study","arguments":{}}}' \
++            -o /tmp/paid.json
++          python -c "
++          import json
++          e = json.load(open('/tmp/paid.json'))['error']
++          assert e['code'] == -32001, e
++          assert e['data']['free_tool'] == 'gridforge_qualify'
++          print('paid tools still gated')
++          "
+       - name: MCP answers a handshake and a tool call
+         run: |
+           curl -sf -X POST http://127.0.0.1:8080/mcp \
+diff --git a/README.md b/README.md
+index 40b4230..213974a 100644
+--- a/README.md
++++ b/README.md
+@@ -112,6 +112,16 @@ GET  /v1/usage        this key's metered usage and remaining allowance
+ GET  /v1/version      the rate card
+ ```
+ 
++**The transport is open; each tool keeps its own tier.** `gridforge_qualify` works
++over MCP with no key and no account — one paste into an AI client and an operator has
++the binding constraint for their own hall. Every paid tool refuses without a key and
++names the free one when it does. The paid tiers sell because the free one already
++answered something true.
++
++```bash
++claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
++```
++
+ Metered in **units, not calls** — a qualify and a forty-hall portfolio run are not the
+ same work. Rates are published, because a meter whose rate is secret is a meter nobody
+ integrates against. Over quota returns **402, not 429**: to a machine those are different
+@@ -131,6 +141,8 @@ Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
+ ```
+ /                      the argument, and the free qualifier
+ /qualify               seven numbers in, the binding constraint out
++/llms.txt              the machine index: what this site contains, where the
++                       canonical JSON lives, and how to read an evidence class
+ /constraints           all thirteen, each with the governing relation, a worked example
+                        you can check by hand, what relieves it and how many weeks
+ /constraints/<slug>    one constraint in full
+diff --git a/app/api/cite/route.ts b/app/api/cite/route.ts
+new file mode 100644
+index 0000000..4561c75
+--- /dev/null
++++ b/app/api/cite/route.ts
+@@ -0,0 +1,47 @@
++import { NextResponse } from "next/server";
++import { constraintReference } from "@/lib/constraints";
++
++export const dynamic = "force-static";
++
++/**
++ * Citation metadata, so quoting us is easy and attributed.
++ *
++ * Becoming the reference a niche cites is worth more than any single engagement,
++ * and the friction that stops it is usually clerical: nobody knows what to write in
++ * the footnote. So we write it for them — and the citation carries the caveat, so a
++ * modelled figure cannot travel without its label.
++ */
++export async function GET() {
++  const ref = await constraintReference();
++  const year = new Date().getUTCFullYear();
++  return NextResponse.json(
++    {
++      title: "GridForge AI — capacity and density constraint reference",
++      author: "GridForge AI",
++      year,
++      url: "https://gridforge-ai.vercel.app/constraints",
++      machine_readable: "https://gridforge-ai.vercel.app/reference/constraints.json",
++      constraints: ref?.count ?? 0,
++      how_to_cite:
++        `GridForge AI (${year}). Capacity and density constraint reference for existing ` +
++        `data halls. https://gridforge-ai.vercel.app/constraints`,
++      bibtex:
++        `@misc{gridforge_constraints_${year},\n` +
++        `  author = {{GridForge AI}},\n` +
++        `  title  = {Capacity and density constraint reference for existing data halls},\n` +
++        `  year   = {${year}},\n` +
++        `  url    = {https://gridforge-ai.vercel.app/constraints}\n}`,
++      required_caveat:
++        "Figures are modelled from published design values and vendor specifications. " +
++        "No figure here is a measurement of any customer's asset. Each carries an " +
++        "evidence class " +
++        "E0-E7; a computed value is never stronger than its weakest input. The model has " +
++        "not yet been reconciled against instrumented sites, and the engine reports that " +
++        "on every response.",
++      licence:
++        "Quote freely with attribution. The numbers are published so they can be checked, " +
++        "not so they can be repackaged without their evidence class.",
++    },
++    { headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" } }
++  );
++}
+diff --git a/app/api/constraints/route.ts b/app/api/constraints/route.ts
+new file mode 100644
+index 0000000..f70099a
+--- /dev/null
++++ b/app/api/constraints/route.ts
+@@ -0,0 +1,35 @@
++import { NextResponse } from "next/server";
++import { constraintBySlug, constraintReference } from "@/lib/constraints";
++
++export const dynamic = "force-static";
++
++/**
++ * The constraint reference as data.
++ *
++ * A crawler scraping rendered HTML gets our prose and loses the evidence class, the
++ * lead time and the arithmetic. This hands over the structure instead. Same file
++ * the pages render from, so the two cannot disagree.
++ *
++ * ?slug= returns one constraint; without it, all of them.
++ */
++export async function GET(req: Request) {
++  const slug = new URL(req.url).searchParams.get("slug");
++  if (slug) {
++    const c = await constraintBySlug(slug);
++    if (!c) {
++      const ref = await constraintReference();
++      return NextResponse.json(
++        { error: "unknown constraint", available: (ref?.constraints ?? []).map((x) => x.slug) },
++        { status: 404 }
++      );
++    }
++    return NextResponse.json(c, {
++      headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" },
++    });
++  }
++  const ref = await constraintReference();
++  if (!ref) return NextResponse.json({ error: "not built" }, { status: 503 });
++  return NextResponse.json(ref, {
++    headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" },
++  });
++}
+diff --git a/app/developers/page.tsx b/app/developers/page.tsx
+index 9a737a8..719682d 100644
+--- a/app/developers/page.tsx
++++ b/app/developers/page.tsx
+@@ -4,6 +4,7 @@ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
+ import ApiPlans from "@/components/ApiPlans";
++import McpInstall from "@/components/McpInstall";
+ 
+ export const metadata: Metadata = {
+   title: "Machine interface — call the engine | GridForge AI",
+@@ -162,7 +163,11 @@ export default async function DevelopersPage() {
+         </div>
+       </section>
+ 
+-      <section className="mt-12 grid gap-4 lg:grid-cols-2">
++      <section className="mt-12">
++        <McpInstall engine={API} />
++      </section>
++
++      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+         <div className="rounded border border-line bg-panel-2 p-6">
+           <h3 className="text-lg font-semibold text-ghost">Try it without a key</h3>
+           <p className="mt-2 text-sm text-mute">
+@@ -189,8 +194,8 @@ export default async function DevelopersPage() {
+             <span className="font-mono text-ghost">
+               {cat?.mcp.protocolVersion ?? "2025-06-18"}
+             </span>
+-            . The handshake returns instructions telling the model not to present a modelled figure
+-            as a property of a physical asset.
++            . The transport is open; each tool keeps its own tier, so the free qualifier works
++            without a key and everything else asks for one.
+           </p>
+           <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
+ {`curl -s -X POST ${API}/mcp \\
+diff --git a/app/llms.txt/route.ts b/app/llms.txt/route.ts
+new file mode 100644
+index 0000000..52ce837
+--- /dev/null
++++ b/app/llms.txt/route.ts
+@@ -0,0 +1,141 @@
++import { constraintReference, platformLibrary } from "@/lib/constraints";
++import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
++
++export const dynamic = "force-static";
++
++const SITE = "https://gridforge-ai.vercel.app";
++const ENGINE = "https://gridforge-engine.fly.dev";
++
++/**
++ * /llms.txt — the machine index of this site.
++ *
++ * When an operator asks a language model "what stops my hall taking GB300 racks",
++ * the answer is assembled from whatever the model crawled. Most sites make that
++ * hard: the facts are in rendered HTML, undated, unsourced and mixed with
++ * marketing. Ours are in JSON, generated by the engine, and this file says exactly
++ * where.
++ *
++ * The self-interest is plain and worth stating plainly: we would rather be the
++ * source a model cites than a page it skims. The public good is the same thing —
++ * a model answering from our constraint reference gives a better answer than one
++ * answering from a vendor reference design, because ours names what it does not
++ * know.
++ *
++ * Generated from the same catalogue the pages render, so it cannot go stale.
++ * Format follows the llms.txt convention: H1, a blockquote summary, then sections
++ * of annotated links.
++ */
++export async function GET() {
++  const ref = await constraintReference();
++  const lib = await platformLibrary();
++
++  const constraintLines = (ref?.constraints ?? [])
++    .map(
++      (c) =>
++        `- [${c.name}](${SITE}/constraints/${c.slug}) — data: ${SITE}/reference/constraints/${c.slug}.json — ${c.headline}`
++    )
++    .join("\n");
++
++  const platformLines = (lib?.platforms ?? [])
++    .map(
++      (p) =>
++        `- ${p.name} — ${p.rack_kW} kW/rack, ${(p.liquid_fraction * 100).toFixed(0)}% liquid, ` +
++        `${p.residual_air_kW} kW residual air, ${p.max_inlet_liquid_C} °C max inlet, ` +
++        `${p.floor_loading_kg_per_m2} kg/m² floor loading` +
++        (p.generic ? " (generic archetype, no manufacturer)" : "")
++    )
++    .join("\n");
++
++  const absent = Object.entries(lib?.deliberately_absent ?? {})
++    .map(([id, why]) => `- ${id}: ${why}`)
++    .join("\n");
++
++  const engagements = LADDER_PRODUCTS.map(
++    (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}${p.recurring ? " recurring" : ""}: ${p.deliverable}`
++  ).join("\n");
++
++  const api = API_PRODUCTS.map(
++    (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}/month, ${p.apiUnits?.toLocaleString("en-IE")} units`
++  ).join("\n");
++
++  const body = `# GridForge AI
++
++> Independent power and thermal engineering for AI data centers. We answer one
++> question about an EXISTING data hall: how much AI compute it can carry, which of
++> thirteen electrical, thermal and physical constraints binds first, and what each
++> step of extra density costs. We quote no equipment and take no margin on hardware.
++
++## How to use this site as a tool
++
++The engine is callable directly. \`gridforge_qualify\` is free and needs no API key:
++seven numbers about a hall in, the binding constraint out.
++
++- MCP endpoint (JSON-RPC 2.0): ${ENGINE}/mcp
++- Tool schemas, OpenAI and MCP shape: ${ENGINE}/v1/tools
++- Free qualifier: POST ${ENGINE}/v1/qualify
++- Published unit rates: ${ENGINE}/v1/version
++- Model accuracy record: ${ENGINE}/v1/calibration
++
++## How to read our numbers
++
++Every numeric field carries an evidence class and a provenance digest:
++
++E0 assumed · E1 modelled · E2 simulated · E3 estimated · E4 validated against test
++data · E5 measured at site · E6 field-validated · E7 observed in operation.
++
++A computed value is never stronger than the weakest input it came from. **Do not
++present an E0 or E1 figure as a property of a physical asset** — it is modelled, not
++measured. Our calibration record currently reports zero reconciled site
++observations — we have not yet checked this engine against an instrumented hall —
++and every response says so. If you quote our figures, say that too.
++
++## The thirteen constraints
++
++Machine-readable index: ${SITE}/reference/constraints.json
++
++${constraintLines}
++
++## Platform library
++
++Machine-readable: ${SITE}/reference/platforms.json
++
++${platformLines}
++
++Deliberately absent, because no manufacturer has published a rack power:
++
++${absent}
++
++## The complete worked deliverable, published
++
++- [Envelope Study](${SITE}/reference/envelope_study.md): the full document, on a synthetic hall
++- [Procurement Specification](${SITE}/reference/specification.md): the tender document the study implies
++- [Proposal](${SITE}/reference/proposal.md)
++- [Model pack](${SITE}/reference/model_pack.json): every scenario, solved
++- [Working files](${SITE}/reference/working_files.zip): the CSVs behind every number, including a provenance chain
++
++## What can be bought
++
++${engagements}
++
++Metered API access:
++
++${api}
++
++## Citing us
++
++Cite the page and its generation date, and carry the evidence class with the
++number. Figures are modelled from published design values; none is a measurement of
++any customer's asset. Citation metadata: ${SITE}/api/cite
++
++## Contact
++
++${SITE}/qualify — the free qualifier, seven numbers, no account.
++`;
++
++  return new Response(body, {
++    headers: {
++      "Content-Type": "text/plain; charset=utf-8",
++      "Cache-Control": "public, max-age=3600, s-maxage=86400",
++    },
++  });
++}
+diff --git a/app/robots.ts b/app/robots.ts
+index 986b91f..ade1d25 100644
+--- a/app/robots.ts
++++ b/app/robots.ts
+@@ -1,24 +1,61 @@
+ import type { MetadataRoute } from "next";
+ 
++/**
++ * AI crawlers are welcome, deliberately.
++ *
++ * Most sites in this niche are now blocking them. We want the opposite: when an
++ * operator asks a language model what stops their hall taking AI racks, we would
++ * rather the answer came from a constraint reference that names its evidence class
++ * than from a vendor reference design that ends in a bill of materials. Being the
++ * source a model cites is worth more than any single engagement.
++ *
++ * The token-addressed paths stay closed to everyone. A crawler indexing one would
++ * publish a customer's deliverable to anyone who searches for it.
++ */
++const AI_CRAWLERS = [
++  "GPTBot",
++  "OAI-SearchBot",
++  "ChatGPT-User",
++  "ClaudeBot",
++  "Claude-User",
++  "Claude-SearchBot",
++  "anthropic-ai",
++  "PerplexityBot",
++  "Perplexity-User",
++  "Google-Extended",
++  "Applebot-Extended",
++  "CCBot",
++  "Bytespider",
++  "meta-externalagent",
++  "cohere-ai",
++];
++
++const PRIVATE_PATHS = [
++  "/dashboard",
++  "/admin",
++  "/api/",
++  "/api-access/",
++  "/deliverable/",
++  "/watch/",
++  "/intake/",
++];
++
+ export default function robots(): MetadataRoute.Robots {
+   const base = "https://gridforge-ai.vercel.app";
+   return {
+     // Token-addressed pages are private by their URL alone. A crawler that indexes
+     // one has published a customer's deliverable, watch or API account to anyone
+     // who searches for it.
+-    rules: {
+-      userAgent: "*",
+-      allow: "/",
+-      disallow: [
+-        "/dashboard",
+-        "/admin",
+-        "/api/",
+-        "/api-access/",
+-        "/deliverable/",
+-        "/watch/",
+-        "/intake/",
+-      ],
+-    },
++    rules: [
++      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
++      // Explicit, so there is no ambiguity about whether the reference layer may be
++      // used for training and retrieval. It may. That is why we published it.
++      ...AI_CRAWLERS.map((userAgent) => ({
++        userAgent,
++        allow: ["/", "/constraints/", "/platforms", "/reference/", "/llms.txt"],
++        disallow: PRIVATE_PATHS,
++      })),
++    ],
+     sitemap: `${base}/sitemap.xml`,
+   };
+ }
+diff --git a/components/McpInstall.tsx b/components/McpInstall.tsx
+new file mode 100644
+index 0000000..8919530
+--- /dev/null
++++ b/components/McpInstall.tsx
+@@ -0,0 +1,110 @@
++"use client";
++
++import { useState } from "react";
++import { Check, Copy, Plug } from "lucide-react";
++
++/**
++ * Adding the engine to an AI client, in one paste.
++ *
++ * gridforge_qualify is free and needs no key, so the distance between "an operator
++ * has a question about their hall" and "an operator has a real engineering answer
++ * with the binding constraint named" is one config block. That is the whole
++ * distribution argument: the paid tiers sell because the free one already answered
++ * something true.
++ */
++const TABS = {
++  "Claude Code": `claude mcp add --transport http gridforge {ENGINE}/mcp`,
++  "Claude Desktop": `{
++  "mcpServers": {
++    "gridforge": {
++      "type": "http",
++      "url": "{ENGINE}/mcp"
++    }
++  }
++}`,
++  "With a key": `{
++  "mcpServers": {
++    "gridforge": {
++      "type": "http",
++      "url": "{ENGINE}/mcp",
++      "headers": { "x-api-key": "YOUR_KEY" }
++    }
++  }
++}`,
++  curl: `curl -s -X POST {ENGINE}/mcp \\
++  -H 'content-type: application/json' \\
++  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
++       "params":{"name":"gridforge_qualify","arguments":{
++         "contracted_MW":12,"current_site_peak_MW":7.4,
++         "current_it_load_MW":4.9,"busway_ampacity_A":400,
++         "tapoff_max_A":63,"plant_supply_C":6,
++         "positions_available":180}}}'`,
++} as const;
++
++type Tab = keyof typeof TABS;
++
++export default function McpInstall({ engine }: { engine: string }) {
++  const [tab, setTab] = useState<Tab>("Claude Code");
++  const [copied, setCopied] = useState(false);
++  const snippet = TABS[tab].replaceAll("{ENGINE}", engine);
++
++  async function copy() {
++    try {
++      await navigator.clipboard.writeText(snippet);
++      setCopied(true);
++      setTimeout(() => setCopied(false), 2000);
++    } catch {
++      /* selection and manual copy still works */
++    }
++  }
++
++  return (
++    <div className="rounded border border-line bg-panel-2 p-6">
++      <h2 className="flex items-center gap-2 text-lg font-semibold text-ghost">
++        <Plug className="h-4 w-4 text-power" /> Add it to your AI client
++      </h2>
++      <p className="mt-2 max-w-3xl text-sm text-mute">
++        The free qualifier works over MCP with no key and no account. Paste one of these
++        and ask your assistant whether a hall can take GB300 racks — it will come back with
++        the constraint that binds first, the rack count as found, and which item sets the
++        energisation date.
++      </p>
++
++      <div className="mt-4 flex flex-wrap gap-2">
++        {(Object.keys(TABS) as Tab[]).map((t) => (
++          <button
++            key={t}
++            onClick={() => setTab(t)}
++            className={`rounded border px-3 py-1.5 font-mono text-xs transition-colors ${
++              t === tab
++                ? "border-power/60 bg-power/10 text-power"
++                : "border-line text-mute hover:text-ghost"
++            }`}
++          >
++            {t}
++          </button>
++        ))}
++      </div>
++
++      <div className="relative mt-3">
++        <pre className="overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
++          {snippet}
++        </pre>
++        <button
++          onClick={copy}
++          className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded border border-line bg-panel px-2.5 py-1 text-xs text-mute hover:text-ghost"
++        >
++          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
++          {copied ? "Copied" : "Copy"}
++        </button>
++      </div>
++
++      <p className="mt-3 text-[11px] text-faint">
++        The handshake tells the model not to present a modelled figure as a property of a
++        physical asset, and every result carries our calibration state. An E0 number loose
++        in an agent loop is more dangerous than one in a board pack — nobody downstream
++        reads the footnote.
++      </p>
++    </div>
++  );
++}
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 8f762fc..9fb7d8c 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -652,3 +652,57 @@ so does a page for a constraint that does not exist.
+ 
+ `app/sitemap.ts` generates the constraint URLs from the same file, so a new constraint is
+ indexed without anyone remembering to add it.
++
++
++## Distribution: the free tier had to be reachable by a machine
++
++The MCP transport was key-gated end to end. Every paid tool inside it already checked
++its own tier, so the only thing that gate protected was the free tier from being used —
++and with it the single best distribution channel this product has: a stranger adding
++GridForge to their AI client and getting a real answer about their own hall in thirty
++seconds.
++
++It is open now. `gridforge_qualify` needs no key and no account; every paid tool refuses
++without one and names the free tool when it does, so an agent always knows what it can
++call. `tools/list` shows everything whatever the caller holds — an agent that cannot see
++a paid tool cannot tell its user the answer exists, which costs us more than it costs
++them.
++
++One paste, on `/developers`:
++
++```bash
++claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
++```
++
++The handshake instructions are load-bearing. They tell the model that the free tool
++exists and what it needs, that an E0 or E1 figure is modelled rather than measured and
++must not be presented as a property of a physical asset, and that the calibration record
++currently says uncalibrated. A modelled number loose inside an agent loop is more
++dangerous than one in a board pack: nobody downstream reads the footnote.
++
++## Being the source a model cites
++
++`/llms.txt` is the machine index — what the site contains, where the canonical JSON
++lives, how to read an evidence class, and how to call the free tool. Generated from the
++same catalogue the pages render, so it cannot go stale.
++
++Every constraint also has a JSON twin at `/reference/constraints/<slug>.json`, carrying
++the notice with it. A crawler scraping rendered HTML gets our prose and loses the
++evidence class, the lead time and the arithmetic; the twin hands over the structure. A
++twin that travelled without the notice would be a naked number, so CI checks for it.
++
++`/api/cite` gives the citation, the BibTeX and the **required caveat** in one call. The
++friction that stops a niche citing you is usually clerical — nobody knows what to put in
++the footnote — so we write it, and the footnote carries the caveat so a modelled figure
++cannot travel without its label.
++
++**robots.txt welcomes AI crawlers explicitly** — GPTBot, ClaudeBot, PerplexityBot,
++Google-Extended, CCBot and the rest — while keeping every token-addressed path closed to
++everyone. Most of this niche is now blocking them. We want the opposite: when an operator
++asks a model what stops their hall taking AI racks, we would rather the answer came from
++a constraint reference that names its evidence class than from a vendor reference design
++that ends in a bill of materials.
++
++That is not altruism and should not be described as such. Being the source is worth more
++than any single engagement, and the reference is how somebody arrives already believing
++the tool.
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+index 31ad564..2028c40 100644
+--- a/gridforge/api/server.py
++++ b/gridforge/api/server.py
+@@ -25,7 +25,8 @@ Endpoints
+     GET  /v1/calibration                how far the model is reconciled      (public)
+     GET  /v1/tools                      machine-callable tool schemas        (public)
+     GET  /v1/usage                      this key's metered usage             (key)
+-    POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (key)
++    POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (public
++                                        transport; each tool keeps its own tier)
+ 
+ Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
+ (comma separated, `key[:label[:monthly_units]]`). With no keys configured the paid
+@@ -529,17 +530,28 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
+                 "capabilities": {"tools": {"listChanged": False}},
+                 "serverInfo": {"name": "gridforge", "version": VERSION},
+                 "instructions": (
+-                    "Capacity and thermal envelope engine for AI data-center halls. Every "
+-                    "numeric field carries an evidence class E0-E7 and a provenance digest. "
+-                    "Do not present an E0 or E1 figure as a property of a physical asset: "
+-                    "it is modelled. The calibration block on each result states how far "
+-                    "this engine has been reconciled against site data."),
++                    "Capacity and thermal envelope engine for AI data-center halls. It "
++                    "answers one question: how much AI compute an EXISTING hall can carry, "
++                    "which of thirteen electrical, thermal and physical constraints binds "
++                    "first, and what each step of extra density costs.\n\n"
++                    "gridforge_qualify is free and needs no API key — call it whenever a "
++                    "user asks whether a data hall can take high-density or AI racks. It "
++                    "needs only contracted MW, current site peak, busway ampacity and "
++                    "tap-off rating; ask the user for those rather than guessing them.\n\n"
++                    "Every numeric field carries an evidence class E0-E7 and a provenance "
++                    "digest. Do not present an E0 or E1 figure as a property of a physical "
++                    "asset: it is modelled, not measured. The calibration block on each "
++                    "result states how far this engine has been reconciled against site "
++                    "data; where it says uncalibrated, say so too."),
+             })
+         if method in ("notifications/initialized", "initialized"):
+             return None
+         if method == "ping":
+             return ok({})
+         if method == "tools/list":
++            # Everything is listed whatever the caller holds. An agent that cannot
++            # see a paid tool cannot tell its user the answer exists, which is worse
++            # for us than for them.
+             return ok({"tools": mcp_tools()})
+         if method == "tools/call":
+             return ok(_mcp_call_tool(params, tier, charge))
+@@ -711,7 +723,15 @@ class Handler(BaseHTTPRequestHandler):
+             return self._send(429, {"error": "rate limit exceeded",
+                                     "limit_per_minute": RATE_LIMIT_PER_MINUTE})
+         tier = self._tier()
+-        required = Tier.CLIENT if path == "/mcp" else ROUTES[path][1]
++        # The MCP transport is PUBLIC and the tools inside it are not.
++        #
++        # It was key-gated end to end, which closed the single best distribution
++        # channel this product has: a stranger adding GridForge to their AI client
++        # and getting a real answer about their own hall in thirty seconds. Every
++        # paid tool still refuses without a key — _mcp_call_tool checks the tier per
++        # tool — so the only thing the gate was protecting was the free tier from
++        # being used.
++        required = Tier.PUBLIC if path == "/mcp" else ROUTES[path][1]
+         if required is Tier.CLIENT and tier is Tier.PUBLIC:
+             if not _auth_configured():
+                 return self._send(503, {
+diff --git a/public/reference/constraints/achievable-facility-water-temperature.json b/public/reference/constraints/achievable-facility-water-temperature.json
+new file mode 100644
+index 0000000..2ee048d
+--- /dev/null
++++ b/public/reference/constraints/achievable-facility-water-temperature.json
+@@ -0,0 +1,32 @@
++{
++  "id": "tcs_supply_achievable",
++  "slug": "achievable-facility-water-temperature",
++  "name": "Achievable facility water temperature",
++  "domain": "thermal",
++  "headline": "Legacy plant makes 6 \u00b0C water beautifully. Liquid cooling would rather have 30 \u00b0C.",
++  "limits": "The facility water temperature the site can actually deliver to the CDUs, which sets the approach and therefore the usable duty.",
++  "relation": "A high-temperature loop at around 30 \u00b0C supply unlocks free cooling for most of a European year and widens nothing \u2014 the approach to a platform accepting 45 \u00b0C inlet stays comfortable. A 6 \u00b0C loop wastes that twice.",
++  "binds_when": "If your plant is designed around 6\u201310 \u00b0C supply and you are adding liquid cooling, the question is not whether the plant is big enough but whether it should be making water that cold at all.",
++  "relief": "A separate high-temperature loop, adiabatic assist, or a trim chiller sized for the hours the free cooling does not cover.",
++  "relief_risk": "Two loops means two sets of controls and a commissioning problem. Retaining the low-temperature loop for residual air load is usually unavoidable and is what caps the efficiency gain.",
++  "misconception": "Treating water temperature as a plant setting rather than as the variable that decides both CDU duty and annual energy.",
++  "sources": [
++    "OCP Water-Based Transfer Fluids Guidelines, 2025."
++  ],
++  "see_also": [
++    "cdu_capacity",
++    "plant_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 20,
++    "high": 52
++  },
++  "worked_example": null,
++  "cost_basis": {
++    "key": "trim_chiller.adiabatic",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/available-rack-positions.json b/public/reference/constraints/available-rack-positions.json
+new file mode 100644
+index 0000000..88b5383
+--- /dev/null
++++ b/public/reference/constraints/available-rack-positions.json
+@@ -0,0 +1,26 @@
++{
++  "id": "floor_space",
++  "slug": "available-rack-positions",
++  "name": "Available rack positions",
++  "domain": "physical",
++  "headline": "The cheapest constraint to discover and the most awkward to relieve, because it is somebody's tenancy.",
++  "limits": "Rack positions that can actually be released for the new deployment.",
++  "relation": "Positions available, not positions installed. A hall with 560 positions and 380 under contract has 180.",
++  "binds_when": "Count what you can genuinely empty inside the programme. If that is fewer than the racks the power and cooling would allow, this binds \u2014 and it binds on commercial terms, not engineering ones.",
++  "relief": "Release positions from existing tenancy, or consolidate.",
++  "relief_risk": "Commercial and contractual, not capital. The lead time is a negotiation, which makes it the hardest item on the ladder to programme honestly.",
++  "misconception": "Counting installed positions rather than releasable ones, which overstates the envelope before any physics is done.",
++  "sources": [
++    "Site tenancy records."
++  ],
++  "see_also": [
++    "floor_loading"
++  ],
++  "lead_time_weeks": {
++    "low": 4,
++    "high": 20
++  },
++  "worked_example": null,
++  "cost_basis": null,
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/busway-ampacity.json b/public/reference/constraints/busway-ampacity.json
+new file mode 100644
+index 0000000..6c76520
+--- /dev/null
++++ b/public/reference/constraints/busway-ampacity.json
+@@ -0,0 +1,37 @@
++{
++  "id": "busway_ampacity",
++  "slug": "busway-ampacity",
++  "name": "Busway ampacity",
++  "domain": "electrical",
++  "headline": "A 400 A busway run cannot feed three 130 kW racks, whatever the hall total says.",
++  "limits": "The continuous current a busway run carries, derated for ambient, grouping and the site's own continuous-load policy.",
++  "relation": "Racks per run = (ampacity \u00d7 utilisation limit \u00d7 \u221a3 \u00d7 V \u00d7 pf) / rack power. At 400 A, 0.8 continuous limit, 400 V and pf 0.95, a run supports roughly 210 kW \u2014 about 1.6 racks of a 132 kW platform.",
++  "binds_when": "Take your installed ampacity per run, multiply by your continuous-load derating (often 0.8), and convert to kW. Divide by your target rack power. If that number is smaller than the racks you want per run, this binds. Legacy halls commonly run 400 A; modern AI halls specify 800\u20131000 A.",
++  "relief": "Replace the busway with a higher ampacity, or add further runs where riser and routing space exists. Adding runs is usually cheaper and slower than it sounds, because the constraint moves upstream to the panel.",
++  "relief_risk": "Replacement is invasive in an occupied hall and is normally phased run by run. Adding runs needs riser space that a 2014 building may not have.",
++  "misconception": "Ampacity is often read as a nameplate rather than a continuous rating. The derated figure is the one that decides.",
++  "sources": [
++    "IEC 61439-6 busbar trunking systems; site continuous-load policy."
++  ],
++  "see_also": [
++    "rack_feed_tapoff",
++    "transformer_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 16,
++    "high": 44
++  },
++  "worked_example": {
++    "question": "How many racks does a 400 A busway run carry?",
++    "working": "400 A \u00d7 0.8 \u00d7 1.73 \u00d7 400 V \u00d7 0.95 = 211 kW; 211 / 135",
++    "answer": "1.6 racks per run",
++    "consequence": "Modern AI halls specify 800\u20131000 A for this reason."
++  },
++  "cost_basis": {
++    "key": "busway.replacement",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/cdu-capacity-site-conditions.json b/public/reference/constraints/cdu-capacity-site-conditions.json
+new file mode 100644
+index 0000000..49bb812
+--- /dev/null
++++ b/public/reference/constraints/cdu-capacity-site-conditions.json
+@@ -0,0 +1,38 @@
++{
++  "id": "cdu_capacity",
++  "slug": "cdu-capacity-site-conditions",
++  "name": "CDU capacity at site conditions",
++  "domain": "thermal",
++  "headline": "A CDU rated at a 5 K approach, installed on a site running 24 K, is not the CDU you bought.",
++  "limits": "Heat rejected from the technology cooling loop to facility water, at the approach temperature the site actually offers.",
++  "relation": "Usable duty falls as the approach between facility water and the platform's maximum inlet temperature widens. A unit quoted at a 5 K approach delivers materially less at the 20\u201325 K approach a legacy 6 \u00b0C loop presents.",
++  "binds_when": "Take your facility water supply temperature and your platform's maximum technology-loop inlet temperature. The difference is your available approach. Ask for the selection output at THAT approach \u2014 not the datasheet figure.",
++  "relief": "Additional CDU capacity, or raising the facility water temperature so the approach widens in your favour.",
++  "relief_risk": "A linear derate against approach is a screening approximation. Confirm against the manufacturer's performance curve before committing capital. Technology-loop water chemistry is a warranty question before it is a capacity question.",
++  "misconception": "The single most common way a liquid retrofit under-delivers: rated duty taken from a datasheet at a reference condition the site does not have.",
++  "sources": [
++    "OCP Water-Based Transfer Fluids Guidelines; manufacturer performance data at stated approach."
++  ],
++  "see_also": [
++    "tcs_supply_achievable",
++    "hydraulic_flow",
++    "plant_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 16,
++    "high": 40
++  },
++  "worked_example": {
++    "question": "What approach does a 6 \u00b0C loop offer a platform accepting 45 \u00b0C?",
++    "working": "45 \u00b0C \u2212 6 \u00b0C",
++    "answer": "39 K approach",
++    "consequence": "A unit selected at a 5 K approach is being asked to work at four to five times that."
++  },
++  "cost_basis": {
++    "key": "cdu.addition",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/chilled-water-plant-capacity.json b/public/reference/constraints/chilled-water-plant-capacity.json
+new file mode 100644
+index 0000000..25404af
+--- /dev/null
++++ b/public/reference/constraints/chilled-water-plant-capacity.json
+@@ -0,0 +1,38 @@
++{
++  "id": "plant_capacity",
++  "slug": "chilled-water-plant-capacity",
++  "name": "Chilled-water plant capacity",
++  "domain": "thermal",
++  "headline": "Direct liquid cooling does not remove the air load \u2014 it shrinks it, and the remainder still needs the plant you already have.",
++  "limits": "Chilled-water capacity available for the residual air load that liquid cooling does not capture.",
++  "relation": "Residual air load per rack = rack kW \u00d7 (1 \u2212 liquid capture fraction). At a 0.85 capture fraction a 132 kW rack still rejects about 20 kW to air \u2014 more than a whole rack in the hall's original design.",
++  "binds_when": "Multiply your target rack count by rack power by (1 \u2212 capture fraction) and compare against plant headroom at your site's summer design dry bulb, not at a standard rating condition.",
++  "relief": "Additional plant, adiabatic assist, or a trim chiller on a high-temperature loop. Raising the loop temperature is often worth more than raising duty.",
++  "relief_risk": "Retaining low-temperature plant for the residual air load forgoes most of the free-cooling benefit the liquid loop was supposed to deliver.",
++  "misconception": "\"We are going liquid, so cooling is solved.\" The residual air load of a dense hall frequently exceeds the hall's entire original design load.",
++  "sources": [
++    "Platform liquid capture fractions from published vendor architectures, corroborated where possible."
++  ],
++  "see_also": [
++    "residual_air_removal",
++    "cdu_capacity",
++    "tcs_supply_achievable"
++  ],
++  "lead_time_weeks": {
++    "low": 24,
++    "high": 60
++  },
++  "worked_example": {
++    "question": "How much air load remains after direct liquid cooling?",
++    "working": "135 kW \u00d7 (1 \u2212 0.90)",
++    "answer": "13 kW per rack, still to air",
++    "consequence": "More than two racks' worth in a hall designed for 8 kW."
++  },
++  "cost_basis": {
++    "key": "trim_chiller.adiabatic",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/cooling-architecture-capability.json b/public/reference/constraints/cooling-architecture-capability.json
+new file mode 100644
+index 0000000..37baef1
+--- /dev/null
++++ b/public/reference/constraints/cooling-architecture-capability.json
+@@ -0,0 +1,27 @@
++{
++  "id": "architecture_capability",
++  "slug": "cooling-architecture-capability",
++  "name": "Cooling architecture per-rack capability",
++  "domain": "thermal",
++  "headline": "Air-cooled halls stop somewhere between 20 and 40 kW a rack, and no amount of plant changes that.",
++  "limits": "The maximum per-rack power the chosen cooling architecture can support at all, before any question of capacity.",
++  "relation": "A gate rather than a capacity: retained air, rear-door, hybrid DLC and full DLC each have a per-rack ceiling. Exceeding it is not a shortfall, it is an architecture that does not apply.",
++  "binds_when": "If your target rack power is above roughly 40 kW and the hall is air cooled with containment, this gate closes before any capacity constraint is reached. The honest answer at that point is an architecture change, not more plant.",
++  "relief": "Change the architecture: rear-door, hybrid direct liquid cooling, or full DLC with a high-temperature loop.",
++  "relief_risk": "Each step up is a larger programme and a different skill set in the hall. The decision is rarely reversible within a tenancy.",
++  "misconception": "Believing a hall can be pushed to 100 kW+ a rack with better airflow. Fewer than 4% of facilities can host 100 kW racks today.",
++  "sources": [
++    "Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is below 30 kW; practical retrofit ceiling 20\u201340 kW."
++  ],
++  "see_also": [
++    "residual_air_removal",
++    "cdu_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 12,
++    "high": 36
++  },
++  "worked_example": null,
++  "cost_basis": null,
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/firm-supply-capacity.json b/public/reference/constraints/firm-supply-capacity.json
+new file mode 100644
+index 0000000..91bd0d7
+--- /dev/null
++++ b/public/reference/constraints/firm-supply-capacity.json
+@@ -0,0 +1,26 @@
++{
++  "id": "grid_firm_capacity",
++  "slug": "firm-supply-capacity",
++  "name": "Firm supply (grid import and behind-the-meter)",
++  "domain": "electrical",
++  "headline": "In core European metros the grid connection is the asset, and it is not growing before the 2030s.",
++  "limits": "Firm capacity available for new load: contracted grid import, less current site peak, plus any behind-the-meter supply that genuinely counts as firm.",
++  "relation": "Headroom = (contracted MW \u2212 current site peak MW) + \u03a3(BTM capacity \u00d7 firm capacity factor). A battery contributes its firm fraction, not its nameplate.",
++  "binds_when": "Subtract your current site peak from your contracted capacity. If the remainder is smaller than your intended new IT load at your expected PUE, this binds \u2014 and unlike every other constraint on this list, you cannot buy your way out of it inside the decision horizon in most European metros.",
++  "relief": "Behind-the-meter supply, where it is firm and consentable. Otherwise, getting more compute out of the capacity already contracted \u2014 which is the whole premise of a density retrofit.",
++  "relief_risk": "Consent, not equipment, is the schedule risk for combustion plant. Grid-code compliance and fire separation govern battery programmes. A capacity factor applied to a nameplate is an assumption, and should be labelled as one.",
++  "misconception": "Nameplate BTM capacity counted as firm. A 2 MW battery is not 2 MW of firm capacity, and the fraction that is depends on the duty.",
++  "sources": [
++    "Mainova on Frankfurt connection availability; TenneT queue positions; CRU Large Energy User policy, Ireland."
++  ],
++  "see_also": [
++    "transformer_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 30,
++    "high": 260
++  },
++  "worked_example": null,
++  "cost_basis": null,
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/floor-loading.json b/public/reference/constraints/floor-loading.json
+new file mode 100644
+index 0000000..bc28531
+--- /dev/null
++++ b/public/reference/constraints/floor-loading.json
+@@ -0,0 +1,31 @@
++{
++  "id": "floor_loading",
++  "slug": "floor-loading",
++  "name": "Floor loading",
++  "domain": "physical",
++  "headline": "A fully populated AI rack weighs around 1.4 tonnes and a Rated-3 raised floor was designed for about 1,220 kg/m\u00b2.",
++  "limits": "Distributed and point load the hall floor can carry, including the raised floor system where one is present.",
++  "relation": "Rack mass divided by footprint, against the design distributed load \u2014 and separately against point loads at the castors, which is usually the harder test.",
++  "binds_when": "Divide your platform's rack mass by its footprint and compare against your hall's design floor loading. If it is close, treat the number in the building record as a screening value and commission a structural assessment before committing.",
++  "relief": "Structural strengthening, load spreading, or relocating the deployment to slab.",
++  "relief_risk": "Structural work in a live hall is disruptive and the assessment itself can invalidate the plan. It is cheap relative to the decision and should be done early for that reason.",
++  "misconception": "Treating the design value in the building record as a measurement. It is a design value, and a 2014 record may not reflect what was built.",
++  "sources": [
++    "TIA-942 Rated-3 floor loading design values; platform rack masses from published vendor data."
++  ],
++  "see_also": [
++    "floor_space"
++  ],
++  "lead_time_weeks": {
++    "low": 12,
++    "high": 40
++  },
++  "worked_example": {
++    "question": "What does one NVIDIA GB300 NVL72 rack impose on the floor?",
++    "working": "1400 kg / 0.72 m\u00b2",
++    "answer": "1,944 kg/m\u00b2 distributed",
++    "consequence": "Against a TIA-942 Rated-3 design value of about 1,220 kg/m\u00b2."
++  },
++  "cost_basis": null,
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/hydraulic-flow-capacity.json b/public/reference/constraints/hydraulic-flow-capacity.json
+new file mode 100644
+index 0000000..dc3179d
+--- /dev/null
++++ b/public/reference/constraints/hydraulic-flow-capacity.json
+@@ -0,0 +1,32 @@
++{
++  "id": "hydraulic_flow",
++  "slug": "hydraulic-flow-capacity",
++  "name": "Hydraulic flow capacity",
++  "domain": "thermal",
++  "headline": "A flow figure without a head figure is not a duty point.",
++  "limits": "Pumped flow available to the technology cooling loop at the system's actual resistance.",
++  "relation": "Required flow \u2248 rack count \u00d7 platform flow per rack. Around 1.45 l/min per kW at a 10 K delta-T is a reasonable screening figure; the platform's own published flow per rack is better.",
++  "binds_when": "Multiply target racks by the platform's flow per rack and compare against installed pumped capacity \u2014 then check available head against the resistance the new loop adds. Halls pass the first test and fail the second.",
++  "relief": "Pump replacement or addition, and pipework where the resistance is in the distribution rather than the pumps.",
++  "relief_risk": "Head is where retrofits are caught out. Adding flow to a loop whose resistance has risen gives a duty point nobody modelled.",
++  "misconception": "Flow capacity quoted from the pump nameplate rather than from the duty point of the system as it will be built.",
++  "sources": [
++    "OCP fluid guidelines; site hydraulic records."
++  ],
++  "see_also": [
++    "cdu_capacity",
++    "tcs_supply_achievable"
++  ],
++  "lead_time_weeks": {
++    "low": 12,
++    "high": 36
++  },
++  "worked_example": {
++    "question": "What flow do 20 racks need?",
++    "working": "20 \u00d7 130 l/min",
++    "answer": "2600 l/min",
++    "consequence": "Check it against available head, not only against pump capacity."
++  },
++  "cost_basis": null,
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/rack-feed-tapoff-rating.json b/public/reference/constraints/rack-feed-tapoff-rating.json
+new file mode 100644
+index 0000000..8dc2702
+--- /dev/null
++++ b/public/reference/constraints/rack-feed-tapoff-rating.json
+@@ -0,0 +1,37 @@
++{
++  "id": "rack_feed_tapoff",
++  "slug": "rack-feed-tapoff-rating",
++  "name": "Rack feed / tap-off rating",
++  "domain": "electrical",
++  "headline": "The commonest hard stop in a legacy hall is the last two metres of copper.",
++  "limits": "The continuous current a single rack position can be fed at, set by the tap-off unit on the busway and the flexible cord to the rack PDU.",
++  "relation": "I = P / (\u221a3 \u00b7 V \u00b7 pf). A 132 kW rack at 400 V three-phase and pf 0.95 draws on the order of 200 A per feed. A hall built for 8 kW racks is typically fitted with 32\u201363 A tap-offs.",
++  "binds_when": "Divide your target rack power by (1.73 \u00d7 your busway voltage \u00d7 0.95). If the answer exceeds the rating stamped on your installed tap-off units, this binds before anything else does \u2014 and it binds at rack one, not at scale.",
++  "relief": "Higher-rated tap-off units, and the busway itself where its ampacity does not allow them. Usually the cheapest rung on the ladder in euros and one of the faster ones in weeks.",
++  "relief_risk": "Tap-off units have been a reported shortage item. Installation onto an energised busway is possible with some systems and not others; where it is not, the outage per run is a commercial cost in an occupied hall.",
++  "misconception": "Operators quote the hall's total kW and conclude they have headroom. Total capacity says nothing about whether one position can be fed.",
++  "sources": [
++    "Uptime Intelligence \u2014 at high density, power distribution creates issues more often than cooling."
++  ],
++  "see_also": [
++    "busway_ampacity",
++    "transformer_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 12,
++    "high": 40
++  },
++  "worked_example": {
++    "question": "What current does one NVIDIA GB300 NVL72 rack draw at 400 V?",
++    "working": "135 kW / (1.73 \u00d7 400 V \u00d7 0.95)",
++    "answer": "205 A per rack",
++    "consequence": "A 63 A tap-off feeds a third of one rack."
++  },
++  "cost_basis": {
++    "key": "tapoff.unit",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/residual-air-load-removal.json b/public/reference/constraints/residual-air-load-removal.json
+new file mode 100644
+index 0000000..287e021
+--- /dev/null
++++ b/public/reference/constraints/residual-air-load-removal.json
+@@ -0,0 +1,37 @@
++{
++  "id": "residual_air_removal",
++  "slug": "residual-air-load-removal",
++  "name": "Residual air load removal per rack",
++  "domain": "thermal",
++  "headline": "Twenty kilowatts of air load in a rack position designed for eight is still an air problem.",
++  "limits": "Heat removable from a single rack position by air, at the hall's containment and airflow.",
++  "relation": "Residual air per rack = rack kW \u00d7 (1 \u2212 liquid capture). The hall's per-position air capability \u2014 commonly 10\u201320 kW with good containment \u2014 is what it must fit inside.",
++  "binds_when": "Compare the residual air load of one target rack against what one position in your hall can actually remove today. Containment quality decides this more than plant capacity does.",
++  "relief": "In-row cooling or rear-door heat exchangers at the affected positions.",
++  "relief_risk": "Rear doors need water at the position, which is a pipework and leak-detection question in a live hall.",
++  "misconception": "Per-position capability inferred from hall-average density. The average is not the limit; the position is.",
++  "sources": [
++    "Uptime Intelligence on practical retrofit density ceilings."
++  ],
++  "see_also": [
++    "plant_capacity",
++    "architecture_capability"
++  ],
++  "lead_time_weeks": {
++    "low": 10,
++    "high": 30
++  },
++  "worked_example": {
++    "question": "What must one rack position remove by air?",
++    "working": "135 kW \u00d7 (1 \u2212 0.90)",
++    "answer": "13 kW at one position",
++    "consequence": "Good containment gets a position to roughly 10\u201320 kW."
++  },
++  "cost_basis": {
++    "key": "inrow_rdhx.per_rack",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/transformer-capacity.json b/public/reference/constraints/transformer-capacity.json
+new file mode 100644
+index 0000000..cd61fc4
+--- /dev/null
++++ b/public/reference/constraints/transformer-capacity.json
+@@ -0,0 +1,37 @@
++{
++  "id": "transformer_capacity",
++  "slug": "transformer-capacity",
++  "name": "Transformer capacity",
++  "domain": "electrical",
++  "headline": "The transformer is rarely the tightest constraint and is usually the one that sets the date.",
++  "limits": "Usable secondary capacity after the site's derating policy and at the redundancy the hall is sold on.",
++  "relation": "Required MVA \u2248 (racks \u00d7 rack kW \u00d7 PUE) / 1000 / pf, at N+1 or 2N as the hall is contracted. Harmonic content from GPU rectifier loads derates a standard unit further.",
++  "binds_when": "Sum your existing IT load and the new load at your expected PUE, divide by 0.95, and compare against installed capacity with one unit out of service. If the margin is thin, check lead time before you check price.",
++  "relief": "Additional or replacement transformer capacity, and the switchgear that comes with it.",
++  "relief_risk": "Lead times of 120\u2013160+ weeks have been reported for power transformers. This is the item most likely to set the energisation date for the whole retrofit, and every week of it is a week of contracted power earning nothing.",
++  "misconception": "Treated as a capex line when it is a schedule line. A cheaper transformer eighteen months later is the expensive one.",
++  "sources": [
++    "Reported European transformer lead times, 2025\u20132026."
++  ],
++  "see_also": [
++    "grid_firm_capacity",
++    "ups_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 52,
++    "high": 160
++  },
++  "worked_example": {
++    "question": "What transformer capacity do 20 NVIDIA GB300 NVL72 racks need?",
++    "working": "20 \u00d7 135 kW \u00d7 PUE 1.20 / 1000 / 0.95",
++    "answer": "3.41 MVA before redundancy",
++    "consequence": "At N+1 the installed capacity has to carry that with one unit out of service."
++  },
++  "cost_basis": {
++    "key": "transformer.replacement",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/public/reference/constraints/ups-capacity.json b/public/reference/constraints/ups-capacity.json
+new file mode 100644
+index 0000000..2067bd6
+--- /dev/null
++++ b/public/reference/constraints/ups-capacity.json
+@@ -0,0 +1,31 @@
++{
++  "id": "ups_capacity",
++  "slug": "ups-capacity",
++  "name": "UPS capacity (protected load)",
++  "domain": "electrical",
++  "headline": "AI training loads step harder than anything a 2014 UPS was specified for.",
++  "limits": "Protected capacity available for new IT load, and the instantaneous step the installed blocks will accept without transferring to bypass.",
++  "relation": "Headroom = installed protected capacity \u00d7 redundancy factor \u2212 existing protected load. Separately, a synchronised training job can present a step of a large fraction of its own rating in milliseconds.",
++  "binds_when": "Compare protected headroom against the new IT load. Then ask a second question most people skip: what step load are the installed blocks rated for, and what step will a synchronised job actually present?",
++  "relief": "Additional modules where the installed system parallels, or a new block with its own switchgear where it does not.",
++  "relief_risk": "Mixed-vintage parallel operation is a common and expensive surprise. Whether new modules will parallel with the installed system is a question to settle before it is priced, not after.",
++  "misconception": "Capacity is checked and step-load capability is not. The second is what causes the incident.",
++  "sources": [
++    "Site UPS schedules; manufacturer step-load ratings."
++  ],
++  "see_also": [
++    "transformer_capacity"
++  ],
++  "lead_time_weeks": {
++    "low": 20,
++    "high": 52
++  },
++  "worked_example": null,
++  "cost_basis": {
++    "key": "ups.per_kW",
++    "basis": "library_default",
++    "evidence": "E0_ASSUMPTION",
++    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
++  },
++  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
++}
+diff --git a/scripts/build-reference.sh b/scripts/build-reference.sh
+index 5e0099c..c2f0cba 100755
+--- a/scripts/build-reference.sh
++++ b/scripts/build-reference.sh
+@@ -47,6 +47,18 @@ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference constraints \
+ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference platforms \
+   -o "$OUT/platforms.json" >/dev/null
+ 
++# One file per constraint, so a crawler or an agent can fetch exactly the page it
++# wants at a clean, cacheable URL instead of scraping rendered HTML.
++python3 - "$OUT" <<'PY'
++import json, pathlib, sys
++out = pathlib.Path(sys.argv[1]) / "constraints"
++out.mkdir(parents=True, exist_ok=True)
++doc = json.loads((pathlib.Path(sys.argv[1]) / "constraints.json").read_text())
++for c in doc["constraints"]:
++    (out / f"{c['slug']}.json").write_text(
++        json.dumps({**c, "notice": doc["notice"]}, indent=2) + "\n")
++PY
++
+ # The machine-callable surface, committed so /developers renders the same schema the
+ # server validates against, and so CI notices when a tool, a unit rate or a schema
+ # changes without the published contract changing with it.
+diff --git a/tests/test_agent_distribution.py b/tests/test_agent_distribution.py
+new file mode 100644
+index 0000000..9812f8c
+--- /dev/null
++++ b/tests/test_agent_distribution.py
+@@ -0,0 +1,203 @@
++"""The free tier has to be reachable by a machine, or the paid tiers never sell.
++
++The MCP transport was key-gated end to end. Every paid tool inside it already
++checked its own tier, so the only thing that gate protected was the free tier from
++being used — and with it the single best distribution channel this product has: a
++stranger adding GridForge to their AI client and getting a real answer about their
++own hall in thirty seconds.
++
++This file holds that open, and holds the paid tools closed, which are the same test
++from two directions.
++"""
++import json
++import os
++import re
++import threading
++import urllib.error
++import urllib.request
++from pathlib import Path
++
++import pytest
++
++from gridforge.api.server import Handler, make_server
++from gridforge.api.tools import TOOLS_BY_NAME
++from gridforge.api.tiers import Tier
++
++ROOT = Path(__file__).resolve().parents[1]
++KEY = "agent-dist-key"
++
++QUALIFY = {
++    "contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW": 4.9,
++    "busway_ampacity_A": 400, "tapoff_max_A": 63, "plant_supply_C": 6,
++    "positions_available": 180,
++}
++
++
++@pytest.fixture(scope="module")
++def server():
++    os.environ["GRIDFORGE_API_KEYS"] = KEY
++    os.environ["GRIDFORGE_RATE_LIMIT"] = "0"
++    Handler.limiter.per_minute = 0
++    httpd = make_server("127.0.0.1", 0)
++    threading.Thread(target=httpd.serve_forever, daemon=True).start()
++    yield f"http://127.0.0.1:{httpd.server_address[1]}"
++    httpd.shutdown()
++    os.environ.pop("GRIDFORGE_API_KEYS", None)
++
++
++def rpc(base, method, params=None, key=None, rpc_id=1):
++    body = {"jsonrpc": "2.0", "method": method}
++    if rpc_id is not None:
++        body["id"] = rpc_id
++    if params is not None:
++        body["params"] = params
++    req = urllib.request.Request(f"{base}/mcp", data=json.dumps(body).encode(),
++                                 method="POST")
++    req.add_header("Content-Type", "application/json")
++    if key:
++        req.add_header("X-API-Key", key)
++    try:
++        with urllib.request.urlopen(req, timeout=60) as r:
++            return r.status, json.loads(r.read() or b"{}")
++    except urllib.error.HTTPError as e:
++        return e.code, json.loads(e.read() or b"{}")
++
++
++# --- the transport is open -------------------------------------------------
++
++def test_an_agent_with_no_key_can_complete_the_handshake(server):
++    status, body = rpc(server, "initialize", {})
++    assert status == 200, body
++    assert body["result"]["serverInfo"]["name"] == "gridforge"
++
++
++def test_an_agent_with_no_key_can_list_every_tool(server):
++    """Including the paid ones. An agent that cannot see a paid tool cannot tell its
++    user the answer exists, which costs us more than it costs them."""
++    status, body = rpc(server, "tools/list")
++    assert status == 200
++    listed = {t["name"] for t in body["result"]["tools"]}
++    assert listed == set(TOOLS_BY_NAME)
++    tiers = {t["name"]: t["_meta"]["gridforge/tier"] for t in body["result"]["tools"]}
++    assert tiers["gridforge_qualify"] == Tier.PUBLIC.value
++    assert any(v == Tier.CLIENT.value for v in tiers.values())
++
++
++def test_the_free_tool_answers_with_no_key_at_all(server):
++    status, body = rpc(server, "tools/call",
++                       {"name": "gridforge_qualify", "arguments": QUALIFY})
++    assert status == 200, body
++    r = body["result"]
++    assert r["isError"] is False
++    assert r["structuredContent"]["as_found"]["binding_constraint"]
++    assert "binds first on" in r["content"][0]["text"].lower()
++
++
++def test_the_free_tool_still_leaks_nothing_priced(server):
++    status, body = rpc(server, "tools/call",
++                       {"name": "gridforge_qualify", "arguments": QUALIFY})
++    blob = json.dumps(body)
++    assert "EUR" not in blob and "capex" not in blob and "lead_time" not in blob
++
++
++def test_every_paid_tool_still_refuses_without_a_key(server):
++    paid = [n for n, t in TOOLS_BY_NAME.items() if t["tier"] == Tier.CLIENT.value]
++    assert len(paid) >= 5
++    for name in paid:
++        status, body = rpc(server, "tools/call", {"name": name, "arguments": {}})
++        assert status == 200, f"{name}: transport error instead of a JSON-RPC refusal"
++        assert "error" in body, f"{name} answered without a key"
++        assert body["error"]["code"] == -32001
++        assert body["error"]["data"]["free_tool"] == "gridforge_qualify", (
++            f"{name} refuses without telling the agent what it CAN call")
++
++
++def test_a_paid_tool_works_with_a_key(server):
++    status, body = rpc(server, "tools/call",
++                       {"name": "gridforge_screen",
++                        "arguments": {"intake": {"grid": {"contracted_MW": 12}}}},
++                       key=KEY)
++    assert status == 200 and "result" in body, body
++
++
++def test_the_handshake_tells_a_model_what_not_to_do(server):
++    """A modelled figure loose inside an agent loop is more dangerous than one in a
++    board pack: nobody downstream reads the footnote."""
++    _, body = rpc(server, "initialize", {})
++    instructions = body["result"]["instructions"].lower()
++    assert "free and needs no api key" in instructions
++    assert "do not present" in instructions
++    assert "modelled, not measured" in instructions
++    assert "uncalibrated" in instructions
++    assert "gridforge_qualify" in instructions
++
++
++# --- the crawler surface ---------------------------------------------------
++
++LLMS = (ROOT / "app" / "llms.txt" / "route.ts").read_text()
++#: The same text with line wrapping removed. The assertions below are about what the
++#: file SAYS, and a phrase that happens to straddle a line break says the same thing.
++LLMS_FLAT = re.sub(r"\s+", " ", LLMS)
++ROBOTS = (ROOT / "app" / "robots.ts").read_text()
++REFERENCE = ROOT / "public" / "reference"
++
++
++def test_llms_txt_is_generated_from_the_catalogue_not_typed_out():
++    assert "constraintReference()" in LLMS
++    assert "platformLibrary()" in LLMS
++    assert "LADDER_PRODUCTS" in LLMS
++    assert "API_PRODUCTS" in LLMS
++
++
++def test_llms_txt_teaches_the_evidence_ladder():
++    """If a model is going to answer from our numbers, it has to carry the caveat
++    with them. That is the whole reason to publish the file."""
++    for needed in ["E0 assumed", "E7 observed in operation",
++                   "Do not present an E0 or E1 figure",
++                   "zero reconciled site", "never stronger than the weakest input"]:
++        assert needed in LLMS_FLAT, f"llms.txt does not say {needed!r}"
++
++
++def test_llms_txt_points_at_the_free_tool_first():
++    assert "/mcp" in LLMS_FLAT
++    assert "gridforge_qualify" in LLMS_FLAT
++    assert "free and needs no API key" in LLMS_FLAT
++
++
++def test_ai_crawlers_are_allowed_deliberately():
++    for bot in ["GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended", "CCBot"]:
++        assert bot in ROBOTS, f"{bot} has no explicit rule"
++    assert "PRIVATE_PATHS" in ROBOTS
++
++
++def test_no_crawler_may_reach_a_token_addressed_path():
++    """A crawler indexing one would publish a customer's deliverable to anyone who
++    searches for it."""
++    for path in ["/deliverable/", "/watch/", "/intake/", "/api-access/", "/admin"]:
++        assert f'"{path}"' in ROBOTS, f"{path} is not disallowed"
++
++
++def test_every_constraint_has_a_machine_readable_twin():
++    published = json.loads((REFERENCE / "constraints.json").read_text())
++    for c in published["constraints"]:
++        f = REFERENCE / "constraints" / f"{c['slug']}.json"
++        assert f.exists(), f"no JSON twin for {c['slug']}"
++        twin = json.loads(f.read_text())
++        assert twin["id"] == c["id"]
++        assert twin["worked_example"] == c["worked_example"]
++        assert twin["notice"], "a twin that travels without the notice is a naked number"
++
++
++def test_the_citation_carries_the_caveat():
++    src = (ROOT / "app" / "api" / "cite" / "route.ts").read_text()
++    assert "required_caveat" in src
++    assert "measurement of any customer's asset" in src
++    assert "bibtex" in src
++
++
++def test_the_developers_page_offers_a_one_paste_install():
++    src = (ROOT / "components" / "McpInstall.tsx").read_text()
++    assert "claude mcp add" in src
++    assert "mcpServers" in src
++    page = (ROOT / "app" / "developers" / "page.tsx").read_text()
++    assert "McpInstall" in page
+diff --git a/tests/test_machine_interface.py b/tests/test_machine_interface.py
+index 3764e8d..44e0ab0 100644
+--- a/tests/test_machine_interface.py
++++ b/tests/test_machine_interface.py
+@@ -220,10 +220,21 @@ def test_over_quota_is_402_not_429(server):
+ 
+ # --- MCP -------------------------------------------------------------------
+ 
+-def test_mcp_requires_a_key(server):
++def test_mcp_is_open_at_the_transport_and_gated_at_the_tool(server):
++    """This assertion was the other way round until the free tier could not be
++    reached by an agent at all. The gate protected nothing — every paid tool checks
++    its own tier inside — while closing the best distribution channel we have.
++    tests/test_agent_distribution.py holds both halves of this open."""
+     status, body, _ = call(server, "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+-    assert status == 401
+-    assert body["tool_schemas"] == "/v1/tools"
++    assert status == 200
++    assert body["result"]["serverInfo"]["name"] == "gridforge"
++
++    status, body, _ = call(server, "/mcp", {
++        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
++        "params": {"name": "gridforge_study", "arguments": {}}})
++    assert status == 200
++    assert body["error"]["code"] == -32001
++    assert "requires an API key" in body["error"]["message"]
+ 
+ 
+ def test_mcp_handshake(server):
+-- 
+2.43.0
+
