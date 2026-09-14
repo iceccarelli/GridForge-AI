@@ -18,6 +18,7 @@ Endpoints
     POST /v1/study                      full intake -> model pack           (key)
     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
     POST /v1/proposal                   intake     -> priced proposal       (key)
+    POST /v1/deck                       intake     -> walkthrough deck      (key)
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated). With no keys configured the paid endpoints refuse rather than
@@ -39,6 +40,8 @@ from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, rank
 from ..commercial import ENGAGEMENTS, engagement
+from ..reporting.deck import build as build_deck_report
+from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
 from ..reporting.study import build as build_study_report
@@ -50,7 +53,7 @@ from ..serialize import model_pack
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 
@@ -200,6 +203,14 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return model_pack(intake, results)
 
 
+def handle_deck(body: dict, tier: Tier) -> dict:
+    intake, results = _run(body.get("intake") or body)
+    deck = build_deck_report(intake, results, objective=_objective(body))
+    return {"format": "html", "title": deck.title, "slides": len(deck.slides),
+            "document": deck_to_html(deck, full_document=False),
+            "document_full": deck_to_html(deck, full_document=True)}
+
+
 def handle_proposal(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     try:
@@ -249,6 +260,7 @@ ROUTES = {
     "/v1/study": (handle_study, Tier.CLIENT),
     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
     "/v1/proposal": (handle_proposal, Tier.CLIENT),
+    "/v1/deck": (handle_deck, Tier.CLIENT),
 }
 
 

@@ -126,6 +126,27 @@ or the transformer, and one quotation there moves the headline number more than 
 elsewhere. Two real quote sets turn this library into something no competitor can
 reconstruct from public sources, and it is worth more with every engagement.
 
+## The walkthrough deck
+
+```bash
+python3 -m gridforge deck intake.json -o out     # out/walkthrough.html
+```
+
+Nine slides generated from the same solved model as the written study, so the slide
+and the report can never disagree. Arrow keys to advance; `Print to PDF` gives a
+landscape deck you can send. No network, no fonts to fetch, no script from anywhere —
+a client can open it on a plane.
+
+It ships automatically with a purchased Envelope Study and appears on the client's
+deliverable page next to the document. The Screen does not include one: the
+walkthrough is part of the Study engagement.
+
+**The chart colours are not the brand accents.** `#00E5FF` and `#FFB020` are interface
+colours; as data marks on the panel surface they fall outside the usable lightness
+band. The deck uses dimmed steps of the same hues that pass the lightness, chroma,
+colour-vision-separation and contrast checks — and every value a mark encodes is also
+printed, so nothing is knowable by colour alone.
+
 ## Proposals that open with a finding
 
 ```bash

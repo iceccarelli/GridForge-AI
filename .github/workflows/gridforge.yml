@@ -59,6 +59,12 @@ jobs:
           grep -q "firm quote" /tmp/quoted/envelope_study.md
       - name: Proposal from the CLI
         run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
+      - name: Walkthrough deck from the CLI
+        run: |
+          python -m gridforge deck examples/intake/reference_hall.json -o /tmp/deck
+          python -c "h=open('/tmp/deck/walkthrough.html').read(); assert 'http' not in h.replace('http-equiv',''), 'the deck must render offline'; assert '<svg' in h; print('deck ok', len(h), 'bytes')"
+      - name: The committed cost library must hold no quotations
+        run: python -m gridforge cost where
       - uses: actions/upload-artifact@v4
         with:
           name: sample-deliverables

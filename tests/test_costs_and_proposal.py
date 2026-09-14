@@ -181,3 +181,96 @@ def test_every_engagement_declares_what_it_does_not_do():
     for eng in ENGAGEMENTS.values():
         assert eng.scope_out, f"{eng.id} has no scope boundary"
         assert any("no margin on hardware" in x for x in eng.scope_out)
+
+
+# --- the cost library must never leak a quotation into the repository --------
+def test_the_committed_seed_holds_no_quotations():
+    """A supplier quotation is confidential and frequently under NDA. It must not
+    be committed to a repository or shipped in an image."""
+    from gridforge.costs import BUNDLED_PATH, CostLibrary
+    bad = CostLibrary.load(BUNDLED_PATH).publishable_violations()
+    assert not bad, (
+        f"the committed cost library holds quotations: {bad}. Move them to the private "
+        "library (drop --bundled) and remove them from version control."
+    )
+
+
+def test_the_private_library_is_gitignored():
+    from gridforge.costs import PRIVATE_FILENAME
+    assert PRIVATE_FILENAME in (ROOT / ".gitignore").read_text()
+
+
+def test_cli_refuses_a_quotation_in_the_committed_seed():
+    r = subprocess.run(
+        [sys.executable, "-m", "gridforge", "cost", "add", "--bundled", "--key", "x",
+         "--unit", "EUR", "--value", "1", "--basis", "firm_quote", "--supplier", "A",
+         "--quoted-on", "2026-01-01"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "confidential" in r.stderr
+
+
+def test_cli_refuses_a_quotation_with_no_supplier(tmp_path):
+    r = subprocess.run(
+        [sys.executable, "-m", "gridforge", "cost", "add", "--key", "x", "--unit", "EUR",
+         "--value", "1", "--basis", "firm_quote", "--library", str(tmp_path / "c.json")],
+        cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "not a quotation" in r.stderr
+
+
+def test_cost_where_reports_both_files():
+    r = subprocess.run([sys.executable, "-m", "gridforge", "cost", "where"],
+                       cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "seed" in r.stdout and "yours" in r.stdout
+
+
+# --- the walkthrough deck ----------------------------------------------------
+def test_deck_has_the_slides_that_win_the_room(solved):
+    from gridforge.reporting.deck import build as build_deck
+    intake, results = solved
+    kickers = [s.kicker for s in build_deck(intake, results).slides]
+    for expected in ("The answer", "What stops it", "When", "Cost", "Evidence",
+                     "Recommendation", "Boundary"):
+        assert expected in kickers
+
+
+def test_deck_charts_label_every_value_they_encode(solved):
+    """Nothing may be knowable only by colour or only by hovering."""
+    from gridforge.reporting.deck import build as build_deck, to_html
+    intake, results = solved
+    html = to_html(build_deck(intake, results))
+    for res in results:
+        assert f">{res.unlocked_racks}<" in html, (
+            f"{res.spec.id}'s value is not printed beside its bar"
+        )
+
+
+def test_deck_energisation_curve_has_one_point_per_week(solved):
+    from gridforge.envelope.time_to_power import schedule
+    from gridforge.reporting.deck import _energisation_svg
+    from gridforge.reporting.study import _pick_recommended
+    intake, results = solved
+    svg = _energisation_svg(schedule(_pick_recommended(results).ladder))
+    assert svg.count("<circle") <= 6, (
+        "several ladder steps land in the same week; stacking a column of dots on one x "
+        "position reads as noise and implies events the client never experiences"
+    )
+
+
+def test_deck_declares_what_it_is_not(solved):
+    from gridforge.reporting.deck import build as build_deck, to_html
+    intake, results = solved
+    html = to_html(build_deck(intake, results))
+    assert "no margin on hardware" in html
+    assert "not a design package" in html.lower() or "Not a design package" in html
+
+
+def test_deck_is_self_contained(solved):
+    from gridforge.reporting.deck import build as build_deck, to_html
+    intake, results = solved
+    html = to_html(build_deck(intake, results))
+    assert "http://" not in html and "https://" not in html, (
+        "the deck must render with no network at all — a client may open it offline"
+    )

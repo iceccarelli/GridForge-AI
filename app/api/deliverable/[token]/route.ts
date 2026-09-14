@@ -25,6 +25,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   }
 
   const format = new URL(req.url).searchParams.get("format");
+  if (format === "deck") {
+    if (!row.deck_html) {
+      return NextResponse.json(
+        { ok: false, error: "No walkthrough deck was produced for this engagement." },
+        { status: 404 }
+      );
+    }
+    return new NextResponse(row.deck_html, {
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
   if (format === "md") {
     return new NextResponse(row.document_md ?? "", {
       headers: {

@@ -28,6 +28,8 @@ from .reporting.portfolio import SiteEntry
 from .reporting.portfolio import build as build_portfolio
 from .reporting.screen import build as build_screen
 from .commercial import ENGAGEMENTS, engagement
+from .reporting.deck import build as build_deck
+from .reporting.deck import to_html as deck_to_html
 from .reporting.proposal import build as build_proposal
 from .reporting.study import Objective, _pick_recommended, collect_claims
 from .reporting.study import build as build_study
@@ -160,6 +162,20 @@ def cmd_study(args) -> int:
     return 0
 
 
+def cmd_deck(args) -> int:
+    intake = load(args.intake)
+    results = _run(intake)
+    deck = build_deck(intake, results, objective=OBJECTIVES[args.objective])
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "walkthrough.html"
+    path.write_text(deck_to_html(deck))
+    print(f"Walkthrough deck — {deck.title}: {len(deck.slides)} slides. "
+          "Arrow keys to advance; Print to PDF for a sendable copy.")
+    print(f"  wrote {path}")
+    return 0
+
+
 def cmd_proposal(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
@@ -180,9 +196,26 @@ def cmd_proposal(args) -> int:
 
 
 def cmd_cost(args) -> int:
-    from .costs import COST_EVIDENCE, CostEntry, CostLibrary
+    from .costs import (BUNDLED_PATH, COST_EVIDENCE, PUBLISHABLE_BASES, CostEntry,
+                        CostLibrary, private_path)
 
-    lib = CostLibrary.load(args.library)
+    target = Path(args.library) if args.library else (BUNDLED_PATH if args.bundled
+                                                      else private_path())
+
+    if args.cost_cmd == "where":
+        print(f"  seed (committed, published figures only) : {BUNDLED_PATH}")
+        print(f"  yours (gitignored, quotations)           : {private_path()}"
+              f"{'' if private_path().exists() else '   [not created yet]'}")
+        merged = CostLibrary.resolved()
+        print(f"  lines in effect                          : {len(merged.entries)}")
+        bad = CostLibrary.load(BUNDLED_PATH).publishable_violations()
+        if bad:
+            print(f"  ! the committed seed holds quotations: {', '.join(bad)}")
+            return 1
+        return 0
+
+    lib = CostLibrary.resolved(args.library) if args.cost_cmd in ("list", "show") \
+        else CostLibrary.load(target)
     if args.cost_cmd == "list":
         if not lib.entries:
             print("The cost library is empty: every relief price is a placeholder with a "
@@ -224,6 +257,17 @@ def cmd_cost(args) -> int:
     if args.basis not in COST_EVIDENCE:
         print(f"unknown basis {args.basis!r}. One of: {', '.join(COST_EVIDENCE)}", file=sys.stderr)
         return 2
+    if target == BUNDLED_PATH and args.basis not in PUBLISHABLE_BASES:
+        print(f"refusing to write a {args.basis} into the committed seed at {BUNDLED_PATH}.\n"
+              "A supplier quotation is confidential and frequently under NDA; it must not be "
+              "committed to a repository or shipped in an image.\n"
+              f"Drop --bundled and it goes to {private_path()}, which is gitignored.",
+              file=sys.stderr)
+        return 2
+    if args.basis != "library_default" and not (args.supplier and args.quoted_on):
+        print(f"a {args.basis} needs --supplier and --quoted-on. Without them it is not a "
+              "quotation, it is a number someone remembered.", file=sys.stderr)
+        return 2
     entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
                       value=float(args.value), basis=args.basis, supplier=args.supplier,
                       quoted_on=args.quoted_on, valid_until=args.valid_until,
@@ -237,6 +281,9 @@ def cmd_cost(args) -> int:
     if entry.basis == "library_default":
         print("NOTE: recorded as a library default, so it stays a placeholder. Use "
               "--basis firm_quote once you have a written quotation.")
+    elif target != BUNDLED_PATH:
+        print("This file is gitignored and is not shipped in the image. Keep it that way: "
+              "quotations are confidential.")
     return 0
 
 
@@ -286,6 +333,12 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.set_defaults(func=fn)
 
+    s = sub.add_parser("deck", help="the walkthrough deck for the client session")
+    s.add_argument("intake")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.set_defaults(func=cmd_deck)
+
     s = sub.add_parser("proposal", help="a priced proposal that opens with a real finding")
     s.add_argument("intake")
     s.add_argument("-o", "--out", default="out")
@@ -296,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(func=cmd_proposal)
 
     s = sub.add_parser("cost", help="the cost library: what a relief actually costs")
-    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove"])
+    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove", "where"])
     s.add_argument("--key", default="")
     s.add_argument("--label", default="")
     s.add_argument("--unit", default="EUR")
@@ -311,7 +364,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--project")
     s.add_argument("--note")
     s.add_argument("--source")
-    s.add_argument("--library", help="path to a cost library JSON (default: the bundled one)")
+    s.add_argument("--library",
+                   help="path to a cost library JSON (default: your private, gitignored one)")
+    s.add_argument("--bundled", action="store_true",
+                   help="write to the committed seed instead. Refuses quotations: the seed may "
+                        "hold only placeholders and published benchmarks.")
     s.set_defaults(func=cmd_cost)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")

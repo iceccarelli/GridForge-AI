@@ -78,6 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     title: rendered.title,
     document_html: rendered.html,
     document_md: rendered.md,
+    ...(rendered.deck ? { deck_html: rendered.deck } : {}),
   });
 
   return NextResponse.json({

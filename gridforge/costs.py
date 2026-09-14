@@ -31,7 +31,25 @@ from pathlib import Path
 from .common import V
 from .validation import EvidenceClass, Quantity, Source
 
-LIBRARY_PATH = Path(__file__).resolve().parent / "data" / "cost_library.json"
+# Two files, and the distinction matters commercially and legally.
+#
+# BUNDLED is shipped in the repository and the Docker image. It may hold only
+# placeholders and published benchmarks — figures anyone may read. A supplier's
+# quotation is confidential, frequently NDA'd, and must never be committed.
+#
+# PRIVATE is where your own quotations live: gitignored, never in the image,
+# overlaid on top of the seed at runtime. Point GRIDFORGE_COST_LIBRARY at a shared
+# location if more than one person needs it.
+BUNDLED_PATH = Path(__file__).resolve().parent / "data" / "cost_library.json"
+PRIVATE_FILENAME = "cost_library.local.json"
+
+#: Bases that may appear in the bundled, version-controlled seed.
+PUBLISHABLE_BASES = frozenset({"library_default", "published_benchmark"})
+
+
+def private_path() -> Path:
+    env = os.environ.get("GRIDFORGE_COST_LIBRARY")
+    return Path(env) if env else Path.cwd() / PRIVATE_FILENAME
 
 COST_EVIDENCE: dict[str, EvidenceClass] = {
     "library_default": EvidenceClass.E0_ASSUMPTION,
@@ -127,7 +145,7 @@ class CostLibrary:
 
     @staticmethod
     def load(path: str | Path | None = None) -> "CostLibrary":
-        p = Path(path or os.environ.get("GRIDFORGE_COST_LIBRARY") or LIBRARY_PATH)
+        p = Path(path) if path else private_path()
         if not p.exists():
             return CostLibrary(entries={}, path=p)
         raw = json.loads(p.read_text())
@@ -138,8 +156,22 @@ class CostLibrary:
             entries[e.key] = e
         return CostLibrary(entries=entries, path=p)
 
+    @staticmethod
+    def resolved(private: str | Path | None = None) -> "CostLibrary":
+        """The seed, overlaid by your own quotations. This is what a study uses."""
+        lib = CostLibrary.load(BUNDLED_PATH)
+        lib.entries = dict(lib.entries)
+        priv = CostLibrary.load(private)
+        lib.entries.update(priv.entries)
+        lib.path = priv.path
+        return lib
+
+    def publishable_violations(self) -> list[str]:
+        """Entries that must not be committed. A quotation is confidential."""
+        return [e.key for e in self.entries.values() if e.basis not in PUBLISHABLE_BASES]
+
     def save(self, path: str | Path | None = None) -> Path:
-        p = Path(path or self.path or LIBRARY_PATH)
+        p = Path(path) if path else (self.path or private_path())
         p.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema": "gridforge/cost-library/1",
@@ -195,13 +227,13 @@ _LIBRARY: CostLibrary | None = None
 def library() -> CostLibrary:
     global _LIBRARY
     if _LIBRARY is None:
-        _LIBRARY = CostLibrary.load()
+        _LIBRARY = CostLibrary.resolved()
     return _LIBRARY
 
 
 def reload_library(path: str | Path | None = None) -> CostLibrary:
     global _LIBRARY
-    _LIBRARY = CostLibrary.load(path)
+    _LIBRARY = CostLibrary.resolved(path)
     return _LIBRARY
 
 

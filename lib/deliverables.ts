@@ -38,6 +38,7 @@ export interface DeliverableRecord {
   intake: Record<string, unknown> | null;
   document_html: string | null;
   document_md: string | null;
+  deck_html: string | null;
   title: string | null;
   created_at?: string;
   released_at?: string | null;
@@ -110,7 +111,10 @@ export async function updateByToken(
 export async function renderDeliverable(
   intake: Record<string, unknown>,
   endpoint: "screen" | "study"
-): Promise<{ ok: true; title: string; html: string; md: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; title: string; html: string; md: string; deck: string | null }
+  | { ok: false; error: string }
+> {
   const base = process.env.GRIDFORGE_API_URL;
   const key = process.env.GRIDFORGE_API_KEY;
   if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
@@ -129,9 +133,29 @@ export async function renderDeliverable(
     return body as { title: string; document: string; document_full?: string };
   };
 
+  const deck = async (): Promise<string | null> => {
+    // The walkthrough is part of the Study engagement, not the Screen. A failed
+    // deck must never fail the document: the document is what was bought.
+    if (endpoint !== "study") return null;
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/deck`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": key },
+        body: JSON.stringify({ intake }),
+        signal: AbortSignal.timeout(120_000),
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { document_full?: string };
+      return body.document_full ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   try {
-    const [html, md] = await Promise.all([call("html"), call("md")]);
-    return { ok: true, title: html.title, html: html.document, md: md.document };
+    const [html, md, deckHtml] = await Promise.all([call("html"), call("md"), deck()]);
+    return { ok: true, title: html.title, html: html.document, md: md.document, deck: deckHtml };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
   }

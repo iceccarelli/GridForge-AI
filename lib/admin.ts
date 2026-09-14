@@ -171,6 +171,7 @@ export interface AdminDeliverable {
   title: string | null;
   released_at: string | null;
   has_document: boolean;
+  has_deck: boolean;
 }
 
 export async function fetchQualifications(limit = 500): Promise<AdminQualification[]> {
@@ -199,7 +200,8 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     // Deliberately does not select the document bodies: the pipeline view lists
     // engagements, it does not need to ship two megabytes of HTML to render a row.
     const cols =
-      "id,created_at,token,kind,status,email,company,amount_cents,title,released_at,document_html";
+      "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
+      "document_html,deck_html";
     const res = await fetch(
       `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
       { headers: c.headers, cache: "no-store" }
@@ -208,8 +210,15 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
       console.error("[GridForge] fetchDeliverables failed:", await res.text());
       return [];
     }
-    const rows = (await res.json()) as (AdminDeliverable & { document_html: string | null })[];
-    return rows.map(({ document_html, ...r }) => ({ ...r, has_document: Boolean(document_html) }));
+    const rows = (await res.json()) as (AdminDeliverable & {
+      document_html: string | null;
+      deck_html: string | null;
+    })[];
+    return rows.map(({ document_html, deck_html, ...r }) => ({
+      ...r,
+      has_document: Boolean(document_html),
+      has_deck: Boolean(deck_html),
+    }));
   } catch (err) {
     console.error("[GridForge] fetchDeliverables error:", err);
     return [];
