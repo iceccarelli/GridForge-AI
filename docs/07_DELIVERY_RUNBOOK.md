@@ -545,3 +545,62 @@ a person in the loop; the screening-mode disclosure rides on the document either
 the study. A prospect can read the document they would actually send to suppliers
 before paying for anything — same argument as publishing the study, one step further
 down the sales cycle.
+
+## Consistency is enforced, not intended
+
+Three things shipped broken in a row, and each was the same shape: a fact stated in two
+places, one of them updated.
+
+- The Procurement Specification shipped priced, documented and **absent from the
+  engagement ladder** — because the ladder was a hand-written array of ids inside a
+  component and nobody edited it.
+- That same product, once bought, would have generated a **Density Screen**, because the
+  intake route branched on the kind inline: `kind === "envelope_study_deposit" ? "study"
+  : "screen"`. A client pays €18,000 and receives a different document; nothing objects.
+- `commercial.py` claimed for fourteen patches that a parity test existed. It did not.
+
+`tests/test_stack_consistency.py` now asserts the **joins** rather than the parts:
+
+- every product declares a `surface` (no default — something unsellable has to be
+  declared unsellable on purpose);
+- the ladder is derived from the catalogue, and the test fails if a literal `ORDER` array
+  reappears in the component;
+- every product with `producesDeliverable: true` names an `endpoint`, and every endpoint
+  the site names exists on the engine;
+- the intake route reads `deliverableEndpoint()` rather than branching, and an unmapped
+  kind fails loudly instead of generating the wrong document;
+- every engagement the engine quotes can be paid for on the site;
+- every paid route is metered and reachable by a machine (`/v1/deck` is the one
+  deliberate exception, and the test names it as deliberate);
+- `public/reference/tools.json` matches the engine's live schemas and unit rates;
+- the README names every product and every package, and does not still describe a
+  behind-the-meter EMS practice;
+- the commercial spine lists what is actually purchasable;
+- every CLI command appears in this runbook.
+
+That last one means adding a command to `cli.py` without writing it down here fails the
+build. It is meant to.
+
+## A test that created a real Fly app
+
+`tests/test_deploy_script.py` put a fake binary named `fly` on `PATH` and trusted the
+script to find it. The script resolved `command -v flyctl` first, found the **real**
+flyctl installed in the Codespace, and ran `fly apps create test-engine` against a live
+Fly.io account. A test that touches production is a worse bug than the one it was written
+to catch.
+
+Fixed three ways, because one was clearly not enough:
+
+1. `FLY_BIN` names the binary explicitly, and the script honours it.
+2. The fake is installed under **both** `fly` and `flyctl`.
+3. `_assert_fake()` refuses to run the script at all unless the binary it will use is the
+   one the test wrote, and asserts afterwards that no real account was reached.
+
+And when `FLY_BIN` is set the script no longer offers to install flyctl. A test or a CI
+job that silently downloads a real flyctl is one step from a test that uses it.
+
+**If you still have a stray `test-engine` app on your Fly account, delete it:**
+
+```bash
+fly apps destroy test-engine
+```

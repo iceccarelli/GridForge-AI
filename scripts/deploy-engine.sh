@@ -38,7 +38,11 @@ done
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\n\033[33m%s\033[0m\n' "$*"; }
 
-if ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
+# FLY_BIN means the caller named a binary. Honour it or fail — never reach out and
+# install something. A test or a CI job that silently downloads a real flyctl is
+# one step from a test that uses it.
+if [ -z "${FLY_BIN:-}" ] \
+   && ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
   say "Installing flyctl"
   curl -L https://fly.io/install.sh | sh
   export FLYCTL_INSTALL="${FLYCTL_INSTALL:-$HOME/.fly}"
@@ -48,7 +52,15 @@ if ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
     echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> "$HOME/.bashrc"
   }
 fi
-FLY="$(command -v flyctl || command -v fly)"
+# FLY_BIN lets a caller name the binary explicitly. Tests set it, because
+# resolving by name alone picked up a REAL flyctl installed elsewhere on PATH and
+# ran `apps create` against a live account — a test that touches production is a
+# worse bug than the one it was written to catch.
+FLY="${FLY_BIN:-$(command -v flyctl || command -v fly)}"
+if [ ! -x "$FLY" ]; then
+  echo "flyctl not found (looked for FLY_BIN, flyctl, fly)" >&2
+  exit 2
+fi
 
 if ! "$FLY" auth whoami >/dev/null 2>&1; then
   say "Sign in to Fly (a browser window or a device code will follow)"

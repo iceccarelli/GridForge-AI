@@ -111,7 +111,7 @@ export async function updateByToken(
 /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */
 export async function renderDeliverable(
   intake: Record<string, unknown>,
-  endpoint: "screen" | "study"
+  endpoint: "screen" | "study" | "spec"
 ): Promise<
   | {
       ok: true;
@@ -142,8 +142,9 @@ export async function renderDeliverable(
   };
 
   const deck = async (): Promise<string | null> => {
-    // The walkthrough is part of the Study engagement, not the Screen. A failed
-    // deck must never fail the document: the document is what was bought.
+    // The walkthrough is part of the Study engagement, not the Screen and not a
+    // Specification. A failed deck must never fail the document: the document is
+    // what was bought.
     if (endpoint !== "study") return null;
     try {
       const res = await fetch(`${base.replace(/\/$/, "")}/v1/deck`, {
@@ -164,7 +165,26 @@ export async function renderDeliverable(
   const working = async (): Promise<Record<string, string> | null> => {
     // The tables behind the document, so the client's own engineers can check the
     // arithmetic. A failed bundle never fails the document.
+    //
+    // For a Specification the equivalent artefact is the response schedule: the
+    // machine-readable template a supplier fills in, which is the half that makes
+    // four quotations comparable. Same slot, same delivery route.
     try {
+      if (endpoint === "spec") {
+        const res = await fetch(`${base.replace(/\/$/, "")}/v1/spec`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-API-Key": key },
+          body: JSON.stringify({ intake, format: "md" }),
+          signal: AbortSignal.timeout(120_000),
+          cache: "no-store",
+        });
+        if (!res.ok) return null;
+        const body = (await res.json()) as { response_template?: unknown };
+        if (!body.response_template) return null;
+        return {
+          "response_template.json": JSON.stringify(body.response_template, null, 2),
+        };
+      }
       const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },

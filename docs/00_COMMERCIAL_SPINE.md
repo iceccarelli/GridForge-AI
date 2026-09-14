@@ -1,6 +1,12 @@
-# GridForge-AI — Commercial Spine v0.1
-**Status:** decision document, pre-audit. Written 2026-09-13.
+# GridForge-AI — Commercial Spine v0.2
+**Status:** decision document. Written 2026-09-13, revised 2026-09-14 after patches 0001–0016.
 **Owner:** founder. **Review cadence:** weekly against the metrics in §8.
+
+**What changed in v0.2:** the ladder in §5 now reflects what is actually built and
+purchasable — the Procurement Specification, Hall Watch and metered API access have all
+shipped, and §7's service→software trigger has fired. The two durable assets are named
+explicitly: the cost library and the accuracy record. Everything else in this document
+stands as written, including the steelman in §4, which has not got any weaker.
 
 ---
 
@@ -61,10 +67,53 @@ Highest-fit sub-segment: **regional/edge roll-ups and independent operators** �
 | 0 | **Density Screen** (1 hall, desk-based, 8-page envelope + binding constraint) | **€4,500** fixed, credited in full against #1 | 5 working days | 10–14 | Door-opener. Converts a conversation into a paid relationship. Not a loss-leader — it must be profitable on its own. |
 | 1 | **Capacity & Density Envelope Study** (the core product) | **€22k–€45k** | 3–5 weeks | 45–70 → 30 once templated | The €20–50k product in the brief. See `01_PRODUCT_SPEC`. |
 | 2 | **Portfolio Screen** (5–15 halls, ranked, one methodology) | **€60k–€140k** | 6–10 weeks | 120–200 | ICP-A roll-ups and ICP-B site hunts. Highest €/hour once #1 is templated — same engine, N sites. |
+| 2b | **Procurement Specification** (one relief, tender-ready, bids ranked) | **€18,000** | 12 working days | 12–18 | The step the study creates and nobody else fills. Pays twice: see below. |
 | 3 | **Owner's-engineer support through concept design** | €80k–€150k+, or day rate | 3–6 months | — | Only when pulled. Do not chase. |
-| 4 | **Re-run / monitoring subscription** | Deferred | — | — | Only after the trigger in §7 fires. |
+| 4 | **Hall Watch** — the model stays live, quarterly change notes | **€6,000/quarter** | continuous | 1–2 | Shipped. The trigger in §7 fired. |
+| 5 | **API — Triage** (600 units/month) | **€900/month** | continuous | ~0 | Shipped. One team screening a portfolio it owns. |
+| 5b | **API — Scale** (2,500 units/month) | **€2,900/month** | continuous | ~0 | A platform or fund pricing halls continuously. |
+| 5c | **API — Platform** (10,000 units/month, named engineer) | **€7,500/month** | continuous | low | Embedding the engine in someone else's product. |
 
 Rule: **#0 and #1 must stand alone commercially.** If they only make sense as a route to #3, we are a design firm with a marketing gimmick.
+
+### Why the Procurement Specification sits where it does
+
+It is priced below the Study on purpose, and it is the most strategically valuable
+engagement on the ladder for a reason that has nothing to do with its fee.
+
+A Study ends with "the transformer sets the date at 52 weeks". The client then has to go
+and buy a transformer. Between that finding and a purchase order sits three weeks of an
+engineer writing a specification, arguing about what to ask for, and comparing four
+quotations that answer four different questions. Nobody sells that step. The vendors
+cannot — every specification they write ends in their own BOM. The consultancies price it
+as a design engagement. We generate it from the model that produced the finding, in
+twelve days, naming no make and no model.
+
+**And the responses come back.** A returned bid is a dated, attributable,
+project-specific price — exactly what the cost library is short of. Every procurement
+engagement moves library lines from E0 placeholder to E5 firm quote, which raises the
+AACE accuracy class of every future study that touches them. The work pays once as a fee
+and once as a moat, and the moat compounds with each engagement rather than with each
+month of effort.
+
+That is the answer to the steelman in §4. We will not out-brand Arup and we should not
+try. What we can own is a priced, dated, regional library of what these interventions
+actually cost, and a record of where our predictions landed against instrumented sites —
+neither of which can be bought, scraped or inferred, and both of which accrue one hall at
+a time.
+
+### §5b — the accuracy record (`gridforge/calibration/`)
+
+The second asset nobody can copy. A ledger of what the model predicted next to what
+instrumented sites turned out to be, with rules enforced in code: an observation must be
+E5 or above (site data, never another run of our own model), client names are hashed
+before storage, and the committed ledger refuses client data outright.
+
+**It currently reads zero, and every deliverable says so.** Section 14 of every study,
+`/v1/calibration` in public, and a block on every API response. Competitors do not print
+their own error record because they cannot survive printing it. The day it reads
+*n=17, the tap-off model runs 4% conservative* is the day answering back takes a
+competitor seventeen halls and two years.
 
 ## 6. Pricing logic and the price objection
 

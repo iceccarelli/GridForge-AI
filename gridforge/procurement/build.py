@@ -25,6 +25,24 @@ from .schema import (INFORMATIVE, MANDATORY, PREFERRED, EvaluationCriterion,
                      SpecPackage)
 
 
+def default_step(steps: list[LadderStep]) -> LadderStep:
+    """Which relief to tender when nobody said.
+
+    The one that unlocks the most racks across the whole ladder, which is the same
+    ordering `gridforge spec --list` prints. A client who reads the list and then
+    runs the command without arguments must get the thing at the top of it —
+    anything else is the tool disagreeing with itself.
+
+    Not the first rung: the ladder starts with whatever bound first, which is often
+    a small item, and tendering it first buys three racks and no date movement.
+    """
+    totals: dict[str, int] = {}
+    for st in steps:
+        totals[st.binding_id] = totals.get(st.binding_id, 0) + st.racks_unlocked
+    best_id = max(totals, key=lambda k: (totals[k], k))
+    return next(st for st in steps if st.binding_id == best_id)
+
+
 def relief_steps(result: ScenarioResult) -> list[LadderStep]:
     """Rungs that are actually a purchase. A commercial relief has nothing to tender."""
     return [s for s in result.ladder.steps
@@ -426,7 +444,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
                     f"{', '.join(sorted({s.binding_id for s in steps}))}")
             step = matches[0]
         else:
-            step = steps[0]
+            step = default_step(steps)
 
     ctx = result.envelope.context if hasattr(result.envelope, "context") else intake.context
 

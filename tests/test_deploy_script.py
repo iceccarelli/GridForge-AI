@@ -1,5 +1,16 @@
 """The deploy script, run against a fake `fly`.
 
+SAFETY FIRST, and this is not decorative. The first version of this file put a
+fake binary named `fly` on PATH and trusted the script to find it. The script
+resolved `command -v flyctl` first, found the REAL flyctl installed in the
+developer's Codespace, and ran `fly apps create test-engine` against their live
+Fly.io account. A test that touches production is a worse bug than the one it was
+written to catch.
+
+So: the fake is installed under BOTH names, FLY_BIN names it explicitly, and
+_assert_fake() refuses to run at all unless the binary the script will use is the
+one this test wrote.
+
 This file exists because the same bug shipped twice. deploy-engine.sh generated a
 fresh GRIDFORGE_API_KEYS on every run, so every deploy invalidated the key the
 website was using. Patch 0014 "fixed" it by grepping `fly secrets list` — the grep
@@ -60,14 +71,16 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fly = bin_dir / "fly"
+    flyctl = bin_dir / "flyctl"
     # When json_ok is False the fake returns the same text for --json too, which is
     # exactly what an older flyctl does: it ignores the flag and prints a table.
     body = FAKE_FLY
     if not json_ok:
         body = body.replace('"secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"',
                             '"secrets list")  cat "${FAKE_SECRETS_TXT:-/dev/null}"')
-    fly.write_text(body)
-    fly.chmod(fly.stat().st_mode | stat.S_IEXEC)
+    for target in (fly, flyctl):
+        target.write_text(body)
+        target.chmod(target.stat().st_mode | stat.S_IEXEC)
 
     log = tmp_path / "fly.log"
     out_file = tmp_path / "secrets.out"
@@ -76,6 +89,7 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "FLY_BIN": str(fly),
         "FLY_LOG": str(log),
         "FAKE_SECRETS_OUT": str(out_file) if secrets_out is not None else "/dev/null",
         "FAKE_SECRETS_TXT": str(out_file),
@@ -85,10 +99,26 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
         "FLY_APP": "test-engine",
         **(env_extra or {}),
     }
+    _assert_fake(env, fly)
     proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, env=env,
                           capture_output=True, text=True)
+    assert "personal organization" not in proc.stderr, (
+        "the script reached a real Fly account:\n" + proc.stderr)
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return proc, calls
+
+
+def _assert_fake(env: dict, fake: Path) -> None:
+    """Refuse to run unless the binary the script will use is ours.
+
+    Belt and braces on top of FLY_BIN: if a future edit drops that override, this
+    stops the suite rather than letting it create apps in somebody's account.
+    """
+    chosen = env.get("FLY_BIN", "")
+    assert chosen == str(fake), f"FLY_BIN is {chosen!r}, not the fake at {fake}"
+    resolved = shutil.which("fly", path=env["PATH"])
+    assert resolved and Path(resolved).parent == fake.parent, (
+        f"PATH would resolve `fly` to {resolved}, which is not the fake")
 
 
 def secret_sets(calls):
@@ -135,6 +165,36 @@ class TestNeverRotates:
         assert proc.returncode == 0, proc.stderr
         assert secret_sets(calls) == []
         assert "Uncertainty must never resolve to overwriting a credential" in proc.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestSafety:
+    """The regression that matters most: this file once created a real Fly app."""
+
+    def test_a_real_flyctl_earlier_on_path_is_not_used(self, tmp_path):
+        decoy = tmp_path / "decoy"
+        decoy.mkdir()
+        real = decoy / "flyctl"
+        real.write_text("#!/usr/bin/env bash\necho 'REAL FLYCTL CALLED' >&2\nexit 0\n")
+        real.chmod(real.stat().st_mode | stat.S_IEXEC)
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST,
+                          env_extra={"PATH": f"{decoy}:{tmp_path / 'bin'}:{os.environ['PATH']}"})
+        assert "REAL FLYCTL CALLED" not in proc.stderr, (
+            "the script used a flyctl this test did not write")
+        assert calls, "the fake recorded nothing — it was never called"
+
+    def test_the_script_refuses_when_no_binary_exists(self, tmp_path):
+        # PATH keeps the system dirs so bash itself is still findable; only the
+        # fly binaries are absent, which is the condition under test.
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        env = {**os.environ, "FLY_BIN": str(tmp_path / "does-not-exist"),
+               "GRIDFORGE_SKIP_DEPLOY": "1",
+               "PATH": f"{empty}:/usr/bin:/bin"}
+        proc = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env,
+                              capture_output=True, text=True)
+        assert proc.returncode == 2
+        assert "flyctl not found" in proc.stderr
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")

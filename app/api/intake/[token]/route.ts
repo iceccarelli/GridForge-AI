@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
-import { PRODUCT_BY_KIND } from "@/lib/products";
+import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
 
 export const runtime = "nodejs";
@@ -56,7 +56,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
   await updateByToken(token, { intake: doc, status: "generating" });
 
-  const endpoint = row.kind === "envelope_study_deposit" ? "study" : "screen";
+  // From the catalogue, not from a conditional here. Branching on the kind inline
+  // is how a EUR 18,000 Procurement Specification purchase generated a Density
+  // Screen: the client paid for one document and the system produced another,
+  // and nothing objected.
+  const endpoint = deliverableEndpoint(row.kind);
+  if (!endpoint) {
+    await updateByToken(token, {
+      status: "awaiting_intake",
+      title: null,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          `No generation path is configured for '${row.kind}'. This is our problem, ` +
+          `not yours — your intake is saved and we have been told.`,
+      },
+      { status: 500 }
+    );
+  }
   const rendered = await renderDeliverable(doc, endpoint);
 
   if (!rendered.ok) {
@@ -73,9 +92,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
+  // What bound, read out of the working files the engine just produced. Stored
+  // under a namespaced key so the client's own intake stays exactly as they
+  // entered it — the follow-on offer names their constraint rather than a generic
+  // one, and an unreadable bundle simply means it does not.
+  const binding = bindingFrom(rendered.working);
+
   await updateByToken(token, {
     status: "draft",
     title: rendered.title,
+    intake: binding ? { ...doc, _gridforge: { binding } } : doc,
     document_html: rendered.html,
     document_md: rendered.md,
     ...(rendered.deck ? { deck_html: rendered.deck } : {}),
@@ -91,4 +117,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       "You will get the link once it is released — we do not publish an engineering opinion " +
       "nobody has read.",
   });
+}
+
+/**
+ * The constraint that binds, from scenarios.csv.
+ *
+ * Deliberately tolerant: a missing or reshaped bundle returns null and the page
+ * falls back to a generic sentence. Guessing a constraint would be worse than not
+ * naming one — this is a document about what physically limits a client's hall.
+ */
+function bindingFrom(working: Record<string, string> | null): string | null {
+  const csv = working?.["scenarios.csv"];
+  if (!csv) return null;
+  try {
+    const [header, ...rows] = csv.split("\n").filter((l) => l.trim());
+    const cols = header.split(",");
+    const i = cols.indexOf("binds_first");
+    if (i < 0 || !rows.length) return null;
+    // Split respecting quoted fields — scenario names contain commas.
+    const cells = rows[0].match(/("([^"]|"")*"|[^,]*)(,|$)/g) ?? [];
+    const raw = (cells[i] ?? "").replace(/,$/, "").replace(/^"|"$/g, "").trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
 }

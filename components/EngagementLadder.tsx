@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
-import { PRODUCTS, type ProductId } from "@/lib/products";
+import { LADDER_PRODUCTS, type ProductId } from "@/lib/products";
 
 /**
  * The engagement ladder: what can be bought now, in the order clients climb it.
@@ -14,16 +14,12 @@ import { PRODUCTS, type ProductId } from "@/lib/products";
  * that moves with our effort would make our slowness their problem.
  */
 
-const ORDER: ProductId[] = [
-  "density_screen",
-  "envelope_study_deposit",
-  "portfolio_screen_deposit",
-  "hall_watch",
-];
-
+// Derived from the catalogue, never hand-written. A literal list here is how the
+// Procurement Specification shipped priced, documented and impossible to buy.
 const NOTE: Partial<Record<ProductId, string>> = {
   density_screen: "Credits in full against the study.",
   envelope_study_deposit: "Deposit against €22k–€45k, scoped before we start.",
+  procurement_spec: "One relief per engagement. Your bids come back comparable.",
   portfolio_screen_deposit: "Deposit against €60k–€140k, five to fifteen halls.",
   hall_watch: "Cancel any time; no minimum term.",
 };
@@ -74,8 +70,8 @@ export function EngagementLadder() {
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        {ORDER.map((id) => {
-          const p = PRODUCTS[id];
+        {LADDER_PRODUCTS.map((p) => {
+          const id = p.id;
           return (
             <div key={id} className="panel flex flex-col p-6">
               <div className="flex items-baseline justify-between gap-4">

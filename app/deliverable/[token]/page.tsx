@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getByToken } from "@/lib/deliverables";
 import { WatchUpsell } from "@/components/WatchUpsell";
+import { SpecUpsell } from "@/components/SpecUpsell";
+import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const metadata: Metadata = {
   title: "Your engineering deliverable | GridForge AI",
@@ -112,9 +114,35 @@ export default async function DeliverablePage({
           </div>
         </section>
       ) : null}
-      {row.kind === "proposal" ? null : <WatchUpsell />}
+      {row.kind === "proposal" ? null : (
+        <>
+          {/* A specification is already the next step; offering it under itself
+              would be the page selling what the reader has just bought. */}
+          {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? null : (
+            <SpecUpsell constraint={bindingConstraint(row)} />
+          )}
+          <WatchUpsell />
+        </>
+      )}
     </main>
   );
+}
+
+/**
+ * The constraint this document says binds, read out of the stored intake.
+ *
+ * Best effort and optional: the upsell reads correctly without it. Guessing a
+ * constraint would be worse than not naming one, so an unreadable intake simply
+ * returns null.
+ */
+function bindingConstraint(row: { intake?: unknown }): string | null {
+  try {
+    const meta = (row.intake as Record<string, unknown> | undefined)?.["_gridforge"];
+    const t = (meta as Record<string, unknown> | undefined)?.["binding"];
+    return typeof t === "string" && t.trim() ? t : null;
+  } catch {
+    return null;
+  }
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {

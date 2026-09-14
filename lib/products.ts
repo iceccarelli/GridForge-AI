@@ -38,6 +38,25 @@ export interface Product {
    * gridforge/commercial.py; tests/test_catalogue_parity.py fails if they drift.
    */
   apiUnits?: number;
+  /**
+   * Where on the site this is sold. Required on every product, with no default.
+   *
+   * The engagement ladder used to be a hand-written array in a component, and a
+   * product added to this catalogue simply never appeared for sale — which is how
+   * the Procurement Specification shipped priced, documented and unbuyable. The
+   * ladder is now derived from this field, and a test fails if any product omits
+   * it. Something unsellable now has to be declared unsellable on purpose.
+   */
+  surface: "ladder" | "developers" | "upsell" | "hidden";
+  /** Position on the engagement ladder. Lower first. */
+  ladderOrder?: number;
+  /**
+   * Which engine endpoint generates this deliverable. Required whenever
+   * producesDeliverable is true — the intake route reads it rather than
+   * branching on the kind, which is how a EUR 18,000 specification purchase
+   * once generated a Density Screen.
+   */
+  endpoint?: "screen" | "study" | "spec";
 }
 
 export const PRODUCTS: Record<ProductId, Product> = {
@@ -56,6 +75,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
     turnaroundDays: 5,
     producesDeliverable: true,
     creditsAgainst: "envelope_study_deposit",
+    surface: "ladder",
+    ladderOrder: 10,
+    endpoint: "screen",
   },
   envelope_study_deposit: {
     id: "envelope_study_deposit",
@@ -71,6 +93,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "engineering team.",
     turnaroundDays: 25,
     producesDeliverable: false,
+    surface: "ladder",
+    ladderOrder: 20,
+    endpoint: "study",
   },
   hall_watch: {
     id: "hall_watch",
@@ -88,6 +113,8 @@ export const PRODUCTS: Record<ProductId, Product> = {
     turnaroundDays: 2,
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 3 },
+    surface: "ladder",
+    ladderOrder: 50,
   },
   portfolio_screen_deposit: {
     id: "portfolio_screen_deposit",
@@ -101,6 +128,8 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "Portfolio Screen document and one model pack per hall.",
     turnaroundDays: 45,
     producesDeliverable: false,
+    surface: "ladder",
+    ladderOrder: 40,
   },
   procurement_spec: {
     id: "procurement_spec",
@@ -118,6 +147,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "energisation date.",
     turnaroundDays: 12,
     producesDeliverable: true,
+    surface: "ladder",
+    ladderOrder: 30,
+    endpoint: "spec",
   },
   api_triage: {
     id: "api_triage",
@@ -135,6 +167,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 1 },
     apiUnits: 600,
+    surface: "developers",
   },
   api_scale: {
     id: "api_scale",
@@ -151,6 +184,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 1 },
     apiUnits: 2_500,
+    surface: "developers",
   },
   api_platform: {
     id: "api_platform",
@@ -168,12 +202,43 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 1 },
     apiUnits: 10_000,
+    surface: "developers",
   },
 };
 
-export const API_PRODUCTS: Product[] = Object.values(PRODUCTS).filter(
-  (p) => p.apiUnits !== undefined
+export const PRODUCT_BY_KIND: Record<string, Product> = Object.fromEntries(
+  Object.values(PRODUCTS).map((p) => [p.kind, p])
 );
+
+export const API_PRODUCTS: Product[] = Object.values(PRODUCTS).filter(
+  (p) => p.surface === "developers"
+);
+
+/**
+ * The engagement ladder, derived rather than hand-written.
+ *
+ * A product added to this file now appears for sale automatically. The previous
+ * arrangement — a literal array of ids inside a component — meant adding a
+ * product to the catalogue and forgetting one line left it priced, documented
+ * and impossible to buy.
+ */
+export const LADDER_PRODUCTS: Product[] = Object.values(PRODUCTS)
+  .filter((p) => p.surface === "ladder")
+  .sort((a, b) => (a.ladderOrder ?? 999) - (b.ladderOrder ?? 999));
+
+/**
+ * Which engine endpoint generates a purchased deliverable.
+ *
+ * Single source of truth. The intake route used to branch on the kind inline —
+ * `kind === "envelope_study_deposit" ? "study" : "screen"` — so a Procurement
+ * Specification purchase silently generated a Density Screen. The client paid
+ * EUR 18,000 for the wrong document and nothing in the system objected.
+ */
+export function deliverableEndpoint(kind: string): "screen" | "study" | "spec" | null {
+  const p = PRODUCT_BY_KIND[kind];
+  if (!p) return null;
+  return p.endpoint ?? null;
+}
 
 export function isApiProduct(id: string): boolean {
   return Boolean(PRODUCTS[id as ProductId]?.apiUnits);
@@ -186,10 +251,6 @@ export function eurFromCents(cents: number): string {
     maximumFractionDigits: 0,
   }).format(cents / 100);
 }
-
-export const PRODUCT_BY_KIND: Record<string, Product> = Object.fromEntries(
-  Object.values(PRODUCTS).map((p) => [p.kind, p])
-);
 
 export function isProductId(v: unknown): v is ProductId {
   return typeof v === "string" && v in PRODUCTS;

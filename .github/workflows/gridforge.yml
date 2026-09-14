@@ -25,6 +25,8 @@ jobs:
         run: python -m pytest tests -q
       - name: The engine must import with no third-party package present
         run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
+      - name: Nothing priced may be unbuyable, ungeneratable or undeliverable
+        run: python -m pytest tests/test_stack_consistency.py tests/test_catalogue_parity.py -q
 
   deliverables:
     runs-on: ubuntu-latest
@@ -371,6 +373,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Every purchased deliverable has a generation path
+        run: |
+          node -e "
+          const ts = require('node:fs').readFileSync('lib/products.ts','utf8');
+          const blocks = ts.split('export const PRODUCTS')[1].split('export const PRODUCT_BY_KIND')[0];
+          const products = [...blocks.matchAll(/^  (\\w+): \\{([\\s\\S]*?)^  \\},/gm)];
+          let bad = [];
+          for (const [, id, body] of products) {
+            if (!/surface:\\s*\"/.test(body)) bad.push(id + ' (no surface)');
+            if (/producesDeliverable: true/.test(body) && !/endpoint:\\s*\"/.test(body))
+              bad.push(id + ' (deliverable with no endpoint)');
+          }
+          if (bad.length) { console.error('catalogue is inconsistent:', bad); process.exit(1); }
+          console.log('catalogue ok:', products.length, 'products');
+          "
       - name: A key minted by the website must verify on the engine
         env:
           GRIDFORGE_KEY_SECRET: ci-cross-language-secret
