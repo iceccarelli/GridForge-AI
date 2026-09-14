@@ -9,6 +9,7 @@ The two most commonly missed, and therefore the two most commercially valuable:
 from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, SIMULATED, V
+from ..costs import cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW
 from ..thermal.schema import Architecture
@@ -89,7 +90,8 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                f"per rack; {available_approach.render()} approach available"),
         relief=ReliefOption(
             description="Add CDU capacity (one further unit per bank)",
-            capex_eur=V(180_000, "EUR", "additional row CDU, installed", ASSUMED, band=0.35),
+            capex_eur=cost("cdu.addition", 180_000, "EUR", "additional row CDU, installed"),
+            cost_key="cdu.addition",
             lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
             apply=_apply,
         ),
@@ -123,7 +125,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}",
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
-            capex_eur=V(900_000, "EUR", "plant uprate capex", ASSUMED, band=0.45),
+            capex_eur=cost("plant.uprate", 900_000, "EUR", "chilled-water plant uprate"),
+            cost_key="plant.uprate",
             lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
             apply=_apply,
             risk="A dedicated high-temperature loop is usually cheaper to run and should be compared "
@@ -156,7 +159,8 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
                f"(~1.45 l/min/kW at 10 K delta-T)"),
         relief=ReliefOption(
             description="Uprate pumps and secondary pipework",
-            capex_eur=V(420_000, "EUR", "pump and pipework uprate", ASSUMED, band=0.5),
+            capex_eur=cost("pump.uprate", 420_000, "EUR", "pump and secondary pipework uprate"),
+            cost_key="pump.uprate",
             lead_time_weeks=V(30, "weeks", "pump / pipework lead time", ASSUMED, band=(18, 48)),
             apply=_apply,
             risk="Flow, not delta-T, governs a retrofit. Check pipe DN and available head before "
@@ -191,7 +195,9 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
                f"per position"),
         relief=ReliefOption(
             description="Add in-row cooling or rear-door heat exchangers for the residual air load",
-            capex_eur=V(9_000, "EUR/rack", "in-row / RDHx per rack, installed", ASSUMED, band=0.4),
+            capex_eur=cost("inrow_rdhx.per_rack", 9_000, "EUR/rack",
+                           "in-row cooling or rear-door heat exchanger, installed"),
+            cost_key="inrow_rdhx.per_rack",
             lead_time_weeks=V(20, "weeks", "in-row / RDHx lead time", ASSUMED, band=(12, 32)),
             apply=_apply, per_rack=True,
         ),
@@ -238,7 +244,9 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
                f"{required_fws.render()}; {mech} delivers {achievable.render()}"),
         relief=ReliefOption(
             description="Adiabatic assist plus trim chiller on the high-temperature loop",
-            capex_eur=V(350_000, "EUR", "adiabatic assist / trim chiller", ASSUMED, band=0.5),
+            capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
+                           "adiabatic assist and trim chiller"),
+            cost_key="trim_chiller.adiabatic",
             lead_time_weeks=V(32, "weeks", "lead time", ASSUMED, band=(20, 48)),
             apply=_apply,
             risk="Adiabatic assist reintroduces water consumption; check permits and WUE targets.",

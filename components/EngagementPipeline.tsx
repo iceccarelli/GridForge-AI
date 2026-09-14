@@ -36,6 +36,7 @@ export function EngagementPipeline({
   const [rows, setRows] = useState(deliverables);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Record<string, string>>({});
 
   const waiting = useMemo(() => rows.filter((r) => r.status === "draft"), [rows]);
   const revenue = useMemo(
@@ -68,6 +69,34 @@ export function EngagementPipeline({
             : r
         )
       );
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function propose(q: AdminQualification) {
+    setBusy(q.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/proposal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: q.inputs,
+          engagement: "density_screen",
+          company: q.company,
+          email: q.email,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.ok) {
+        setError(body?.error ?? "Could not generate the proposal.");
+        return;
+      }
+      setProposals((p) => ({ ...p, [q.id]: body.url as string }));
+      window.open(body.url as string, "_blank");
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -293,6 +322,7 @@ export function EngagementPipeline({
                   "Binds first",
                   "Intake",
                   "Contact",
+                  "",
                 ]}
               />
               <tbody>
@@ -322,6 +352,27 @@ export function EngagementPipeline({
                         </>
                       ) : (
                         "anonymous"
+                      )}
+                    </Td>
+                    <Td>
+                      {proposals[q.id] ? (
+                        <Link
+                          href={proposals[q.id]}
+                          target="_blank"
+                          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-verified hover:underline"
+                        >
+                          Proposal <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => propose(q)}
+                          disabled={busy === q.id}
+                          className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-power/60 px-3 py-1.5 text-xs font-semibold text-power hover:bg-power/10 disabled:opacity-60"
+                        >
+                          {busy === q.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Proposal
+                        </button>
                       )}
                     </Td>
                   </tr>

@@ -6,7 +6,7 @@ import ast
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "gridforge"
-KERNEL = {"validation", "common", "constraints"}
+KERNEL = {"validation", "common", "constraints", "costs"}
 
 ALLOWED: dict[str, set[str]] = {
     "site": set(),

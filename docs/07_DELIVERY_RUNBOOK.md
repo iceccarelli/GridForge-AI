@@ -101,6 +101,50 @@ no dependencies, so it scales to zero and costs single-digit euros a month.
 
 A green build means the commands in this runbook work. A red one means do not send anything.
 
+## The cost library — the line that compounds
+
+Every relief price starts as a placeholder with a -50%/+100% band, and the study says
+so on its own face: *"7 of 8 priced lines are library placeholders."* Each quotation
+you record replaces one, raises the evidence class of everything derived from it, and
+tightens the whole estimate. The AACE accuracy class follows the **weakest** line, so
+one placeholder still drags a study back to Class 5 — averaging would be dishonest.
+
+```bash
+python3 -m gridforge cost list
+python3 -m gridforge cost add --key tapoff.unit --label "tap-off unit and rack feed" \
+  --unit EUR/rack --value 5200 --basis firm_quote \
+  --supplier "Acme" --quoted-on 2026-09-01 --valid-until 2026-12-31 --region DE
+```
+
+Bases, weakest first: `library_default` (E0) · `published_benchmark` (E1) ·
+`budgetary_quote` (E3) · `firm_quote` (E5) · `contracted` (E7, what was actually paid).
+An expired quotation is automatically demoted to a modelled figure — a price with a
+lapsed validity date is not a price.
+
+**Quote the constraint that binds first.** On a typical hall that is the tap-off rating
+or the transformer, and one quotation there moves the headline number more than five
+elsewhere. Two real quote sets turn this library into something no competitor can
+reconstruct from public sources, and it is worth more with every engagement.
+
+## Proposals that open with a finding
+
+```bash
+python3 -m gridforge proposal intake.json --engagement density_screen -o out
+```
+
+Or one click from `/admin/pipeline` on any qualified hall — it generates the document,
+stores it with its own link, and opens it.
+
+The proposal names the binding constraint, the deployable racks and the date-setting
+item **before** it names a price, because the engine has already run. A consultancy
+cannot send that, since producing the finding is their engagement. The data request in
+section 3 is the same gap list the engine generates, so the proposal tells the client
+exactly what to go and measure whether or not they buy.
+
+`gridforge/commercial.py` and `lib/products.ts` are two price lists in two languages;
+a test parses the TypeScript and fails the build if they ever disagree. A proposal that
+quotes a different number from the checkout page is worse than no proposal.
+
 ## Working the pipeline
 
 `/admin/pipeline` is where the money is. It shows every purchased engagement with its

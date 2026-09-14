@@ -307,6 +307,23 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                            "Annual energy cost", "Energy cost per GPU-hour", "Critical path"], rows,
                           caption=f"Cost basis: {rec.economics.aace_class}. Excludes IT hardware, "
                                   f"migration and lost tenancy revenue."))
+    mix = rec.economics.cost_basis_mix or {}
+    placeholders = mix.get("library_default", 0)
+    priced = sum(v for k, v in mix.items() if k != "library_default")
+    total_lines = placeholders + priced
+    if total_lines:
+        s.blocks.append(Table(
+            ["Cost basis", "Lines"],
+            [[basis.replace("_", " "), V(float(n), "lines", f"cost lines on {basis}", ESTIMATED)]
+             for basis, n in sorted(mix.items(), key=lambda kv: -kv[1])],
+            caption="What each price in this study rests on. The accuracy class above follows the "
+                    "weakest line, not the average."))
+    if placeholders:
+        s.blocks.append(Callout("warning",
+            f"{placeholders} of {total_lines} priced lines are library placeholders rather than "
+            "quotations, which is why this estimate is stated at the accuracy class above. Each "
+            "quotation obtained replaces a placeholder and tightens the whole estimate; the "
+            "constraint that binds is worth quoting first."))
     s.blocks.append(Callout("warning",
         "Public retrofit cost benchmarks currently span roughly 2 to 12 MEUR per MW — a four- to "
         "sixfold spread. No figure in this section should be treated as a market benchmark; they "

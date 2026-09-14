@@ -75,6 +75,7 @@ class LadderStep:
     lead_time_weeks: Quantity | None
     risk: str = ""
     gate: bool = False
+    cost_key: str | None = None
     taken: bool = True     # False -> relief exists on paper but cannot actually be bought
 
     @property
@@ -93,6 +94,15 @@ class HeadroomLadder:
     final: EnvelopeResult | None = None
     initial: EnvelopeResult | None = None
     final_context: EnvelopeContext | None = None
+
+    @property
+    def cost_keys(self) -> list[str]:
+        """Which cost-library lines this ladder's price rests on.
+
+        Sentinels ("client-supplied", "not-capital") are real answers to "where did
+        this number come from" but they are not library lines, so they are returned
+        here and filtered by whoever is counting placeholders."""
+        return [s.cost_key for s in self.taken_steps if s.cost_key]
 
     @property
     def taken_steps(self) -> list["LadderStep"]:
@@ -134,14 +144,16 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
                 i, binding.id, binding.name, binding.domain, res.max_racks, res.max_racks,
                 binding.basis, binding.relief.description,
                 _absolute_capex(binding.relief, res.max_racks),
-                binding.relief.lead_time_weeks, binding.relief.risk, binding.gate, taken=False))
+                binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
+                binding.relief.cost_key, taken=False))
             break
         nxt = solve(nxt_ctx)
         out.steps.append(LadderStep(
             i, binding.id, binding.name, binding.domain, res.max_racks, nxt.max_racks,
             binding.basis, binding.relief.description,
             _absolute_capex(binding.relief, nxt.max_racks),
-            binding.relief.lead_time_weeks, binding.relief.risk, binding.gate))
+            binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
+            binding.relief.cost_key))
         if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
             break
         cur, res = nxt_ctx, nxt

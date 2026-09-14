@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 
 from ..common import ASSUMED, ESTIMATED, V
+from ..costs import cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from ..validation import Quantity
 from .btm import installed_firm_kW, next_option, option_capex
@@ -72,6 +73,9 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             capex_eur=option_capex(opt),
             lead_time_weeks=opt.lead_time_weeks,
             apply=_apply,
+            # Priced from the client's own declared option: their quotation for
+            # their site beats anything in our library.
+            cost_key="client-supplied",
             risk=(opt.permitting_note or
                   "Permitting, fuel supply and emissions consent govern the schedule; "
                   "confirm before relying on the lead time."),
@@ -79,11 +83,11 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     else:
         relief = ReliefOption(
             description="Grid reinforcement / new connection capacity from the DSO",
-            capex_eur=V(2_500_000, "EUR", "indicative grid reinforcement capex", ASSUMED,
-                        band=(1_000_000, 8_000_000),
-                        assumptions=["Placeholder until a DSO connection offer is obtained. "
-                                     "In most FLAP-D metros this option is unavailable at any "
-                                     "price before 2030."]),
+            capex_eur=cost("grid.reinforcement", 2_500_000, "EUR",
+                           "grid reinforcement capex",
+                           note="Placeholder until a DSO connection offer is obtained. In most "
+                                "FLAP-D metros this option is unavailable at any price before 2030."),
+            cost_key="grid.reinforcement",
             lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
                               assumptions=["Frankfurt: no new large connections before 2030; "
                                            "Amsterdam queue ~10 years"]),
@@ -129,8 +133,10 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     relief = ReliefOption(
         description="Replace / add transformer capacity (uprate ~60%)",
-        capex_eur=V(1_200_000, "EUR", "transformer + switchgear replacement capex", ASSUMED, band=0.4,
-                    assumptions=["Excludes civils and outage management; obtain quotations in project phase 1"]),
+        capex_eur=cost("transformer.replacement", 1_200_000, "EUR",
+                       "transformer and switchgear replacement",
+                       note="Excludes civils and outage management."),
+        cost_key="transformer.replacement",
         lead_time_weeks=lead if lead is not None else V(160, "weeks", "power transformer lead time", ASSUMED,
                                                         band=(80, 210),
                                                         assumptions=["120 weeks in 2024, 160+ weeks in 2026"]),
@@ -171,10 +177,11 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy",
         relief=ReliefOption(
             description="Add UPS modules / new UPS block",
-            capex_eur=(V(320, "EUR/kW", "UPS capex per kW", ASSUMED, band=0.35) *
+            capex_eur=(cost("ups.per_kW", 320, "EUR/kW", "UPS capacity, installed") *
                        ctx.cluster.platform.rack_kW *
                        V(20.0, "1", "20-rack capacity increment", ASSUMED)).relabel(
                            "UPS module addition capex", "power.ups_relief_capex"),
+            cost_key="ups.per_kW",
             lead_time_weeks=V(30, "weeks", "UPS lead time", ASSUMED, band=(20, 52)),
             apply=_apply,
         ),
@@ -214,7 +221,9 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else
                          "Add two further busway runs (needs riser and routing space)"),
-            capex_eur=V(450_000, "EUR", "busway replacement capex for one hall", ASSUMED, band=0.4),
+            capex_eur=cost("busway.replacement", 450_000, "EUR",
+                           "busway replacement for one hall"),
+            cost_key="busway.replacement",
             lead_time_weeks=V(36, "weeks", "busway and tap-off lead time", ASSUMED, band=(24, 52),
                               assumptions=["Tap-off units are a reported shortage item"]),
             apply=_apply,
@@ -246,7 +255,8 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
                f"{lv.tapoff_max_A.render()}"),
         relief=ReliefOption(
             description="Higher-rated tap-off units (and busway if ampacity does not allow)",
-            capex_eur=V(6_000, "EUR/rack", "tap-off unit and rack feed", ASSUMED, band=0.4),
+            capex_eur=cost("tapoff.unit", 6_000, "EUR/rack", "tap-off unit and rack feed"),
+            cost_key="tapoff.unit",
             lead_time_weeks=V(24, "weeks", "tap-off lead time", ASSUMED, band=(12, 40)),
             apply=_apply, per_rack=True,
         ),

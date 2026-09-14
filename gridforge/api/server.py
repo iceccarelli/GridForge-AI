@@ -17,6 +17,7 @@ Endpoints
     POST /v1/screen                     full intake -> screen payload       (key)
     POST /v1/study                      full intake -> model pack           (key)
     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
+    POST /v1/proposal                   intake     -> priced proposal       (key)
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated). With no keys configured the paid endpoints refuse rather than
@@ -37,6 +38,8 @@ from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, rank
+from ..commercial import ENGAGEMENTS, engagement
+from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
 from ..reporting.study import build as build_study_report
 from ..reporting.study import collect_claims
@@ -47,7 +50,7 @@ from ..serialize import model_pack
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 
@@ -197,6 +200,21 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return model_pack(intake, results)
 
 
+def handle_proposal(body: dict, tier: Tier) -> dict:
+    intake, results = _run(body.get("intake") or body)
+    try:
+        eng = engagement(str(body.get("engagement") or "density_screen"))
+    except KeyError as exc:
+        raise ApiError(422, str(exc), available=sorted(ENGAGEMENTS))
+    report = build_proposal_report(
+        intake, results, eng, objective=_objective(body),
+        valid_days=int(body.get("valid_days") or 30), contact=str(body.get("contact") or ""))
+    out = _rendered(report, results, str(body.get("format") or "html").lower())
+    out["engagement"] = {"id": eng.id, "name": eng.name, "price_eur": eng.price_eur,
+                         "turnaround_days": eng.turnaround_days}
+    return out
+
+
 def handle_portfolio(body: dict, tier: Tier) -> dict:
     docs = body.get("intakes")
     if not isinstance(docs, list) or not docs:
@@ -230,6 +248,7 @@ ROUTES = {
     "/v1/screen": (handle_screen, Tier.CLIENT),
     "/v1/study": (handle_study, Tier.CLIENT),
     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
+    "/v1/proposal": (handle_proposal, Tier.CLIENT),
 }
 
 

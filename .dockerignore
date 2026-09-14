@@ -1,10 +1,29 @@
+# The image is the interpreter plus the engine. Nothing else belongs in the build
+# context: a 318 MB .next/ directory uploaded on every deploy is pure latency.
 .git
+.github
 node_modules
+.next
 out
+dist
+coverage
+.pytest_cache
+__pycache__
+*.patch
+*.md
+!pyproject.toml
+
+# The website is not in the image — the engine is a separate service.
 app
 components
 lib
 public
 supabase
-*.md
+scripts
 tests
+.env*
+next.config.ts
+tailwind.config.ts
+postcss.config.mjs
+tsconfig.json
+package*.json

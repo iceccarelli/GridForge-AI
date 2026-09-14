@@ -49,6 +49,16 @@ jobs:
         run: python -m gridforge portfolio examples/intake/*.json -o /tmp/portfolio
       - name: Reference project
         run: python -m examples.reference_site
+      - name: A quotation must strengthen the deliverable
+        run: |
+          python -m gridforge cost add --key tapoff.unit --label "tap-off unit" --unit EUR/rack \
+            --value 5200 --basis firm_quote --supplier CI --quoted-on 2026-01-01 \
+            --valid-until 2099-12-31 --library /tmp/costs.json
+          GRIDFORGE_COST_LIBRARY=/tmp/costs.json python -m gridforge study \
+            examples/intake/reference_hall.json -o /tmp/quoted
+          grep -q "firm quote" /tmp/quoted/envelope_study.md
+      - name: Proposal from the CLI
+        run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
       - uses: actions/upload-artifact@v4
         with:
           name: sample-deliverables
@@ -79,6 +89,13 @@ jobs:
             -d '{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}' \
             -o /tmp/q.json
           python -c "import json; b=json.load(open('/tmp/q.json')); s=json.dumps(b); assert b['as_found']['binding_constraint'], 'no binding constraint'; assert 'EUR' not in s, 'leaked a currency figure'; assert 'capex' not in s, 'leaked capex'; print('qualifier ok:', b['as_found']['binding_constraint'])"
+      - name: Proposal renders and quotes the catalogue price
+        run: |
+          curl -sf -X POST http://127.0.0.1:8080/v1/proposal \
+            -H 'content-type: application/json' -H 'x-api-key: ci-key' \
+            -d '{"intake":{"grid":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9},"lv":{"busway_ampacity_A":400,"tapoff_max_A":63},"thermal":{"plant":{"design_supply_C":6}},"hall":{"positions_available":180},"compute":{"platform":"gb300_nvl72"}},"engagement":"density_screen","format":"md"}' \
+            -o /tmp/p.json
+          python -c "import json; b=json.load(open('/tmp/p.json')); assert b['engagement']['price_eur']==4500, b['engagement']; assert 'What we already found' in b['document']; print('proposal ok')"
       - name: Paid endpoints refuse without a key
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')

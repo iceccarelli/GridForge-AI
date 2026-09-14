@@ -46,6 +46,10 @@ class ReliefOption:
     lead_time_weeks: Quantity
     apply: Callable[[EnvelopeContext], EnvelopeContext] = field(repr=False)
     risk: str = ""
+    # Where this price came from. A cost-library key, or one of the sentinels:
+    #   "client-supplied"  the intake declared it (a client's own quote beats our library)
+    #   "not-capital"      the relief is commercial or contractual, not a purchase
+    cost_key: str | None = None
     per_rack: bool = False        # capex quoted per rack rather than as a lump sum
     customer_funded: bool = True  # capital rule: we never fund physical deployment
 

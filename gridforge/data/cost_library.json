@@ -1,0 +1,6 @@
+{
+  "schema": "gridforge/cost-library/1",
+  "updated": "2026-09-14",
+  "note": "Every line carries its basis. library_default is a placeholder, not a price. Replacing a line with a quotation raises the evidence class of every number derived from it, and the AACE accuracy class of the whole estimate follows the weakest line.",
+  "entries": []
+}

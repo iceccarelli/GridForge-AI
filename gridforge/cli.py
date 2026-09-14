@@ -27,6 +27,8 @@ from .reporting.gates import GateFailure, ReportMode
 from .reporting.portfolio import SiteEntry
 from .reporting.portfolio import build as build_portfolio
 from .reporting.screen import build as build_screen
+from .commercial import ENGAGEMENTS, engagement
+from .reporting.proposal import build as build_proposal
 from .reporting.study import Objective, _pick_recommended, collect_claims
 from .reporting.study import build as build_study
 from .scenario import run_all, sensitivity
@@ -158,6 +160,86 @@ def cmd_study(args) -> int:
     return 0
 
 
+def cmd_proposal(args) -> int:
+    intake = load(args.intake)
+    results = _run(intake)
+    try:
+        eng = engagement(args.engagement)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    report = build_proposal(intake, results, eng, objective=OBJECTIVES[args.objective],
+                            valid_days=args.valid_days, contact=args.contact or "")
+    out = Path(args.out)
+    w = _emit(report, out, "proposal", claims=collect_claims(results))
+    print(f"Proposal — {eng.name} for {intake.client}: EUR {eng.price_eur:,}, "
+          f"{eng.turnaround_days} working days. "
+          f"Opens with {results and _pick_recommended(results, OBJECTIVES[args.objective]).envelope.binding.name}.")
+    w.report()
+    return 0
+
+
+def cmd_cost(args) -> int:
+    from .costs import COST_EVIDENCE, CostEntry, CostLibrary
+
+    lib = CostLibrary.load(args.library)
+    if args.cost_cmd == "list":
+        if not lib.entries:
+            print("The cost library is empty: every relief price is a placeholder with a "
+                  "-50%/+100% band.")
+            print("Add your first quotation:")
+            print("  python3 -m gridforge cost add --key tapoff.unit --label 'tap-off unit' "
+                  "--unit EUR/rack --value 5200 \\")
+            print("      --basis firm_quote --supplier 'Acme' --quoted-on 2026-09-01 "
+                  "--valid-until 2026-12-31 --region DE")
+            return 0
+        print(f"{'key':28s} {'value':>12s}  {'unit':10s} {'basis':20s} {'class':5s} source")
+        for e in sorted(lib.entries.values(), key=lambda x: x.key):
+            q = e.quantity()
+            flag = " (EXPIRED)" if e.stale else ""
+            who = e.supplier or e.source or "—"
+            print(f"{e.key:28s} {e.value:12,.0f}  {e.unit:10s} {e.basis:20s} "
+                  f"{q.evidence.short:5s} {who}{flag}")
+        return 0
+
+    if args.cost_cmd == "show":
+        e = lib.get(args.key)
+        if e is None:
+            print(f"{args.key}: not in the library — a placeholder is used instead.")
+            return 1
+        for k, v in e.__dict__.items():
+            if v is not None:
+                print(f"  {k:14s} {v}")
+        print(f"  {'evidence':14s} {e.quantity().evidence.name}")
+        return 0
+
+    if args.cost_cmd == "remove":
+        if lib.entries.pop(args.key, None) is None:
+            print(f"{args.key}: not in the library")
+            return 1
+        print(f"removed {args.key} -> {lib.save(args.library)}")
+        return 0
+
+    # add
+    if args.basis not in COST_EVIDENCE:
+        print(f"unknown basis {args.basis!r}. One of: {', '.join(COST_EVIDENCE)}", file=sys.stderr)
+        return 2
+    entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
+                      value=float(args.value), basis=args.basis, supplier=args.supplier,
+                      quoted_on=args.quoted_on, valid_until=args.valid_until,
+                      region=args.region, project=args.project, note=args.note,
+                      source=args.source)
+    lib.put(entry)
+    path = lib.save(args.library)
+    q = entry.quantity()
+    print(f"{entry.key} = {q.render()}  [{entry.basis}]")
+    print(f"wrote {path}")
+    if entry.basis == "library_default":
+        print("NOTE: recorded as a library default, so it stays a placeholder. Use "
+              "--basis firm_quote once you have a written quotation.")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api.server import serve
     serve(args.host, args.port)
@@ -203,6 +285,34 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.set_defaults(func=fn)
+
+    s = sub.add_parser("proposal", help="a priced proposal that opens with a real finding")
+    s.add_argument("intake")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--engagement", default="density_screen", choices=sorted(ENGAGEMENTS))
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--valid-days", dest="valid_days", type=int, default=30)
+    s.add_argument("--contact", default="")
+    s.set_defaults(func=cmd_proposal)
+
+    s = sub.add_parser("cost", help="the cost library: what a relief actually costs")
+    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove"])
+    s.add_argument("--key", default="")
+    s.add_argument("--label", default="")
+    s.add_argument("--unit", default="EUR")
+    s.add_argument("--value", default="0")
+    s.add_argument("--basis", default="library_default",
+                   help="library_default | published_benchmark | budgetary_quote | "
+                        "firm_quote | contracted")
+    s.add_argument("--supplier")
+    s.add_argument("--quoted-on", dest="quoted_on", help="ISO date of the quotation")
+    s.add_argument("--valid-until", dest="valid_until")
+    s.add_argument("--region")
+    s.add_argument("--project")
+    s.add_argument("--note")
+    s.add_argument("--source")
+    s.add_argument("--library", help="path to a cost library JSON (default: the bundled one)")
+    s.set_defaults(func=cmd_cost)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
     s.add_argument("--host", default="0.0.0.0")

@@ -3,6 +3,7 @@ one that most often stops a 130 kW rack from ever entering a 2015 hall."""
 from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, V
+from ..costs import cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from .schema import FloorType
 
@@ -39,7 +40,9 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
         basis=f"{imposed.render()} imposed against {capacity.render()} design capacity",
         relief=ReliefOption(
             description="Load spreading / remove raised floor and deploy on slab",
-            capex_eur=V(260_000, "EUR", "structural works for one hall", ASSUMED, band=0.5),
+            capex_eur=cost("floor.load_spreading", 260_000, "EUR",
+                           "structural works for one hall"),
+            cost_key="floor.load_spreading",
             lead_time_weeks=V(18, "weeks", "structural works", ASSUMED, band=(10, 30)),
             apply=_apply,
             risk="Requires structural survey; in multi-storey buildings this relief may not exist.",
@@ -64,6 +67,7 @@ def floor_space(ctx: EnvelopeContext) -> ConstraintResult:
             capex_eur=V(0, "EUR", "commercial, not capital", ASSUMED),
             lead_time_weeks=V(52, "weeks", "lease and migration cycle", ASSUMED, band=(26, 104)),
             apply=lambda c: c,
+            cost_key="not-capital",
             risk="Commercial and contractual, not engineering. Tenancy revenue at risk.",
         ),
     )
