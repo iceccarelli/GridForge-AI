@@ -1,0 +1,1687 @@
+From 0ea71c40bb0b96598d9b33ac5895abb09998aa3d Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 00:29:10 +0000
+Subject: [PATCH] feat(economics): cost library with evidence upgrade, proposal
+ generator, price parity
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0008. Two assets that compound, and a build-context fix that was costing a
+318 MB upload on every deploy.
+
+COST LIBRARY (gridforge/costs.py)
+
+Every relief price now resolves through a versioned library, and the report states
+what it rests on: "7 of 8 priced lines are library placeholders rather than
+quotations". Record a real quotation and the evidence class of everything derived
+from it rises, the band tightens, and the AACE accuracy class moves with it.
+
+    library_default      E0   a placeholder; a band, not a price
+    published_benchmark  E1   a public figure, correctly attributed
+    budgetary_quote      E3   a supplier's indicative number, reviewed
+    firm_quote           E5   a written quotation with a validity date
+    contracted           E7   what was actually paid on a delivered project
+
+The accuracy class follows the WEAKEST line, not the average — one placeholder
+still drags a study back to Class 5, because averaging would be dishonest. An
+expired quotation is automatically demoted to a modelled figure: a price with a
+lapsed validity date is not a price.
+
+    python3 -m gridforge cost add --key tapoff.unit --unit EUR/rack --value 5200 \
+      --basis firm_quote --supplier Acme --quoted-on 2026-09-01 --valid-until 2026-12-31
+
+A test asserts every priced relief names where its number came from — a library
+key, "client-supplied" (the intake declared it, and their quote beats our library)
+or "not-capital". A price with no stated source could never be improved.
+
+This is the asset the physics is not. A competent engineer can rebuild the
+constraint set from public sources in a month; a priced, dated, regional library of
+what these interventions actually cost cannot be rebuilt from anything public, and
+it is worth more after every engagement.
+
+PROPOSAL GENERATOR (gridforge/reporting/proposal.py, POST /v1/proposal)
+
+    python3 -m gridforge proposal intake.json --engagement density_screen -o out
+
+The proposal names the binding constraint, the deployable rack counts and the item
+that sets the date BEFORE it names a price, because the engine has already run. A
+consultancy's proposal cannot contain a finding — producing the finding is their
+engagement. Section 3 is the auto-generated data request, so the client learns what
+to measure whether or not they buy.
+
+One click from /admin/pipeline on any qualified hall: generates it, stores it with
+its own shareable link, opens it.
+
+ONE PRICE LIST, TWO LANGUAGES
+
+gridforge/commercial.py mirrors lib/products.ts. A test parses the TypeScript and
+fails the build if they disagree, and asserts every deposit is smaller than the
+engagement it reserves. A proposal that quotes a different number from the checkout
+page is worse than no proposal.
+
+Also: .dockerignore now excludes .next, which was uploading 318 MB to the builder on
+every deploy.
+
+127 Python tests pass, up from 111. tsc, next lint and next build clean. CI now also
+asserts a quotation reaches the study, the proposal quotes the catalogue price, and
+the CLI proposal renders.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .dockerignore                     |  21 ++-
+ .github/workflows/gridforge.yml   |  17 +++
+ app/api/admin/proposal/route.ts   | 116 +++++++++++++++++
+ components/EngagementPipeline.tsx |  51 ++++++++
+ docs/07_DELIVERY_RUNBOOK.md       |  44 +++++++
+ gridforge/api/server.py           |  21 ++-
+ gridforge/cli.py                  | 110 ++++++++++++++++
+ gridforge/commercial.py           | 102 +++++++++++++++
+ gridforge/constraints.py          |   4 +
+ gridforge/costs.py                | 210 ++++++++++++++++++++++++++++++
+ gridforge/data/cost_library.json  |   6 +
+ gridforge/economics/model.py      |  32 +++--
+ gridforge/envelope/solver.py      |  16 ++-
+ gridforge/power/constraints.py    |  30 +++--
+ gridforge/reporting/proposal.py   | 174 +++++++++++++++++++++++++
+ gridforge/reporting/study.py      |  17 +++
+ gridforge/site/constraints.py     |   6 +-
+ gridforge/thermal/constraints.py  |  18 ++-
+ tests/test_architecture.py        |   2 +-
+ tests/test_costs_and_proposal.py  | 183 ++++++++++++++++++++++++++
+ 20 files changed, 1149 insertions(+), 31 deletions(-)
+ create mode 100644 app/api/admin/proposal/route.ts
+ create mode 100644 gridforge/commercial.py
+ create mode 100644 gridforge/costs.py
+ create mode 100644 gridforge/data/cost_library.json
+ create mode 100644 gridforge/reporting/proposal.py
+ create mode 100644 tests/test_costs_and_proposal.py
+
+diff --git a/.dockerignore b/.dockerignore
+index aa1050f..c05b3b0 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -1,10 +1,29 @@
++# The image is the interpreter plus the engine. Nothing else belongs in the build
++# context: a 318 MB .next/ directory uploaded on every deploy is pure latency.
+ .git
++.github
+ node_modules
++.next
+ out
++dist
++coverage
++.pytest_cache
++__pycache__
++*.patch
++*.md
++!pyproject.toml
++
++# The website is not in the image — the engine is a separate service.
+ app
+ components
+ lib
+ public
+ supabase
+-*.md
++scripts
+ tests
++.env*
++next.config.ts
++tailwind.config.ts
++postcss.config.mjs
++tsconfig.json
++package*.json
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 8516717..9a753ad 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -49,6 +49,16 @@ jobs:
+         run: python -m gridforge portfolio examples/intake/*.json -o /tmp/portfolio
+       - name: Reference project
+         run: python -m examples.reference_site
++      - name: A quotation must strengthen the deliverable
++        run: |
++          python -m gridforge cost add --key tapoff.unit --label "tap-off unit" --unit EUR/rack \
++            --value 5200 --basis firm_quote --supplier CI --quoted-on 2026-01-01 \
++            --valid-until 2099-12-31 --library /tmp/costs.json
++          GRIDFORGE_COST_LIBRARY=/tmp/costs.json python -m gridforge study \
++            examples/intake/reference_hall.json -o /tmp/quoted
++          grep -q "firm quote" /tmp/quoted/envelope_study.md
++      - name: Proposal from the CLI
++        run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
+       - uses: actions/upload-artifact@v4
+         with:
+           name: sample-deliverables
+@@ -79,6 +89,13 @@ jobs:
+             -d '{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}' \
+             -o /tmp/q.json
+           python -c "import json; b=json.load(open('/tmp/q.json')); s=json.dumps(b); assert b['as_found']['binding_constraint'], 'no binding constraint'; assert 'EUR' not in s, 'leaked a currency figure'; assert 'capex' not in s, 'leaked capex'; print('qualifier ok:', b['as_found']['binding_constraint'])"
++      - name: Proposal renders and quotes the catalogue price
++        run: |
++          curl -sf -X POST http://127.0.0.1:8080/v1/proposal \
++            -H 'content-type: application/json' -H 'x-api-key: ci-key' \
++            -d '{"intake":{"grid":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9},"lv":{"busway_ampacity_A":400,"tapoff_max_A":63},"thermal":{"plant":{"design_supply_C":6}},"hall":{"positions_available":180},"compute":{"platform":"gb300_nvl72"}},"engagement":"density_screen","format":"md"}' \
++            -o /tmp/p.json
++          python -c "import json; b=json.load(open('/tmp/p.json')); assert b['engagement']['price_eur']==4500, b['engagement']; assert 'What we already found' in b['document']; print('proposal ok')"
+       - name: Paid endpoints refuse without a key
+         run: |
+           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')
+diff --git a/app/api/admin/proposal/route.ts b/app/api/admin/proposal/route.ts
+new file mode 100644
+index 0000000..81d5a0a
+--- /dev/null
++++ b/app/api/admin/proposal/route.ts
+@@ -0,0 +1,116 @@
++import { NextResponse } from "next/server";
++import { cookies } from "next/headers";
++import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
++import { createDeliverable } from "@/lib/deliverables";
++import { toEngineBody, type QualifyInput } from "@/lib/qualify";
++
++export const runtime = "nodejs";
++export const maxDuration = 120;
++
++const ENGAGEMENTS = ["density_screen", "envelope_study", "portfolio_screen"] as const;
++
++// Turn a qualified hall into a priced proposal with a real finding in it.
++//
++// The engine has already solved this hall, so the proposal opens with the binding
++// constraint and the rack counts before it names a price. A consultancy's proposal
++// cannot do that, because producing the finding IS their engagement.
++//
++// The result is stored as a deliverable with its own link, so it can be emailed.
++export async function POST(req: Request) {
++  const store = await cookies();
++  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
++    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
++  }
++
++  let body: { inputs?: Partial<QualifyInput>; engagement?: string; company?: string; email?: string };
++  try {
++    body = await req.json();
++  } catch {
++    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
++  }
++
++  const engagement = ENGAGEMENTS.includes(body.engagement as (typeof ENGAGEMENTS)[number])
++    ? body.engagement
++    : "density_screen";
++  if (!body.inputs) {
++    return NextResponse.json({ ok: false, error: "inputs required" }, { status: 422 });
++  }
++
++  const base = process.env.GRIDFORGE_API_URL;
++  const key = process.env.GRIDFORGE_API_KEY;
++  if (!base || !key) {
++    return NextResponse.json(
++      {
++        ok: false,
++        error:
++          "Proposals need the engine's paid endpoints. Set GRIDFORGE_API_URL and GRIDFORGE_API_KEY.",
++      },
++      { status: 503 }
++    );
++  }
++
++  const engineIntake = toEngineBody(body.inputs as QualifyInput);
++
++  try {
++    const call = async (format: "html" | "md") => {
++      const res = await fetch(`${base.replace(/\/$/, "")}/v1/proposal`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json", "X-API-Key": key },
++        body: JSON.stringify({ intake: qualifyToIntake(engineIntake), engagement, format }),
++        signal: AbortSignal.timeout(120_000),
++        cache: "no-store",
++      });
++      const payload = await res.json().catch(() => ({}));
++      if (!res.ok) throw new Error(payload?.error ?? `engine ${res.status}`);
++      return payload as { title: string; document: string };
++    };
++    const [html, md] = await Promise.all([call("html"), call("md")]);
++
++    const row = await createDeliverable({
++      kind: "proposal",
++      status: "released",
++      email: body.email ?? null,
++      company: body.company ?? null,
++      title: html.title,
++      document_html: html.document,
++      document_md: md.document,
++      released_at: new Date().toISOString(),
++    });
++
++    return NextResponse.json({
++      ok: true,
++      title: html.title,
++      token: row?.token ?? null,
++      url: row?.token ? `/deliverable/${row.token}` : null,
++    });
++  } catch (err) {
++    return NextResponse.json(
++      { ok: false, error: err instanceof Error ? err.message : "engine unreachable" },
++      { status: 502 }
++    );
++  }
++}
++
++/** The engine's /v1/qualify expands the short form into a sparse intake; /v1/proposal
++ *  wants the intake itself, so do the same expansion here. Kept deliberately close to
++ *  qualify_to_intake in gridforge/api/server.py. */
++function qualifyToIntake(b: Record<string, unknown>): Record<string, unknown> {
++  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
++  const grid: Record<string, unknown> = {
++    contracted_MW: n(b.contracted_MW),
++    current_site_peak_MW: n(b.current_site_peak_MW),
++    current_it_load_MW: n(b.current_it_load_MW),
++  };
++  const contracted = n(b.contracted_MW);
++  if (contracted !== undefined) grid.firm_capacity_MVA = contracted / 0.97;
++  return {
++    project: { client: String(b.client ?? "Qualified hall"), reference: "web" },
++    site: { name: b.site_name, metro: b.metro, country: b.country },
++    hall: { id: b.hall_id ?? "HALL-1", positions_available: n(b.positions_available) },
++    grid,
++    lv: { busway_ampacity_A: n(b.busway_ampacity_A), tapoff_max_A: n(b.tapoff_max_A) },
++    thermal: { plant: { design_supply_C: n(b.plant_supply_C) } },
++    compute: { platform: b.platform ?? "gb300_nvl72" },
++    scenarios: ["hybrid_dlc", "full_dlc", "full_dlc_btm"],
++  };
++}
+diff --git a/components/EngagementPipeline.tsx b/components/EngagementPipeline.tsx
+index d70db64..73a35c8 100644
+--- a/components/EngagementPipeline.tsx
++++ b/components/EngagementPipeline.tsx
+@@ -36,6 +36,7 @@ export function EngagementPipeline({
+   const [rows, setRows] = useState(deliverables);
+   const [busy, setBusy] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  const [proposals, setProposals] = useState<Record<string, string>>({});
+ 
+   const waiting = useMemo(() => rows.filter((r) => r.status === "draft"), [rows]);
+   const revenue = useMemo(
+@@ -75,6 +76,34 @@ export function EngagementPipeline({
+     }
+   }
+ 
++  async function propose(q: AdminQualification) {
++    setBusy(q.id);
++    setError(null);
++    try {
++      const res = await fetch("/api/admin/proposal", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({
++          inputs: q.inputs,
++          engagement: "density_screen",
++          company: q.company,
++          email: q.email,
++        }),
++      });
++      const body = await res.json();
++      if (!res.ok || !body.ok) {
++        setError(body?.error ?? "Could not generate the proposal.");
++        return;
++      }
++      setProposals((p) => ({ ...p, [q.id]: body.url as string }));
++      window.open(body.url as string, "_blank");
++    } catch {
++      setError("Could not reach the server.");
++    } finally {
++      setBusy(null);
++    }
++  }
++
+   return (
+     <main className="mx-auto w-full max-w-7xl px-5 pb-24 pt-24 sm:px-8">
+       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+@@ -293,6 +322,7 @@ export function EngagementPipeline({
+                   "Binds first",
+                   "Intake",
+                   "Contact",
++                  "",
+                 ]}
+               />
+               <tbody>
+@@ -324,6 +354,27 @@ export function EngagementPipeline({
+                         "anonymous"
+                       )}
+                     </Td>
++                    <Td>
++                      {proposals[q.id] ? (
++                        <Link
++                          href={proposals[q.id]}
++                          target="_blank"
++                          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-verified hover:underline"
++                        >
++                          Proposal <ExternalLink className="h-3 w-3" />
++                        </Link>
++                      ) : (
++                        <button
++                          type="button"
++                          onClick={() => propose(q)}
++                          disabled={busy === q.id}
++                          className="inline-flex items-center gap-2 whitespace-nowrap rounded border border-power/60 px-3 py-1.5 text-xs font-semibold text-power hover:bg-power/10 disabled:opacity-60"
++                        >
++                          {busy === q.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
++                          Proposal
++                        </button>
++                      )}
++                    </Td>
+                   </tr>
+                 ))}
+               </tbody>
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 652e0d2..2b08c73 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -101,6 +101,50 @@ no dependencies, so it scales to zero and costs single-digit euros a month.
+ 
+ A green build means the commands in this runbook work. A red one means do not send anything.
+ 
++## The cost library — the line that compounds
++
++Every relief price starts as a placeholder with a -50%/+100% band, and the study says
++so on its own face: *"7 of 8 priced lines are library placeholders."* Each quotation
++you record replaces one, raises the evidence class of everything derived from it, and
++tightens the whole estimate. The AACE accuracy class follows the **weakest** line, so
++one placeholder still drags a study back to Class 5 — averaging would be dishonest.
++
++```bash
++python3 -m gridforge cost list
++python3 -m gridforge cost add --key tapoff.unit --label "tap-off unit and rack feed" \
++  --unit EUR/rack --value 5200 --basis firm_quote \
++  --supplier "Acme" --quoted-on 2026-09-01 --valid-until 2026-12-31 --region DE
++```
++
++Bases, weakest first: `library_default` (E0) · `published_benchmark` (E1) ·
++`budgetary_quote` (E3) · `firm_quote` (E5) · `contracted` (E7, what was actually paid).
++An expired quotation is automatically demoted to a modelled figure — a price with a
++lapsed validity date is not a price.
++
++**Quote the constraint that binds first.** On a typical hall that is the tap-off rating
++or the transformer, and one quotation there moves the headline number more than five
++elsewhere. Two real quote sets turn this library into something no competitor can
++reconstruct from public sources, and it is worth more with every engagement.
++
++## Proposals that open with a finding
++
++```bash
++python3 -m gridforge proposal intake.json --engagement density_screen -o out
++```
++
++Or one click from `/admin/pipeline` on any qualified hall — it generates the document,
++stores it with its own link, and opens it.
++
++The proposal names the binding constraint, the deployable racks and the date-setting
++item **before** it names a price, because the engine has already run. A consultancy
++cannot send that, since producing the finding is their engagement. The data request in
++section 3 is the same gap list the engine generates, so the proposal tells the client
++exactly what to go and measure whether or not they buy.
++
++`gridforge/commercial.py` and `lib/products.ts` are two price lists in two languages;
++a test parses the TypeScript and fails the build if they ever disagree. A proposal that
++quotes a different number from the checkout page is worse than no proposal.
++
+ ## Working the pipeline
+ 
+ `/admin/pipeline` is where the money is. It shows every purchased engagement with its
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+index 3bcaa51..ec24cd7 100644
+--- a/gridforge/api/server.py
++++ b/gridforge/api/server.py
+@@ -17,6 +17,7 @@ Endpoints
+     POST /v1/screen                     full intake -> screen payload       (key)
+     POST /v1/study                      full intake -> model pack           (key)
+     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
++    POST /v1/proposal                   intake     -> priced proposal       (key)
+ 
+ Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
+ (comma separated). With no keys configured the paid endpoints refuse rather than
+@@ -37,6 +38,8 @@ from ..intake.loader import IntakeError, blank_intake, load_document
+ from ..reporting import to_html, to_markdown
+ from ..reporting.gates import ReportMode, run_all_gates
+ from ..reporting.portfolio import SiteEntry, rank
++from ..commercial import ENGAGEMENTS, engagement
++from ..reporting.proposal import build as build_proposal_report
+ from ..reporting.screen import build as build_screen_report
+ from ..reporting.study import build as build_study_report
+ from ..reporting.study import collect_claims
+@@ -47,7 +50,7 @@ from ..serialize import model_pack
+ from .payloads import qualify_payload, screen_payload
+ from .tiers import Tier
+ 
+-VERSION = "0.3.0"
++VERSION = "0.4.0"
+ MAX_BODY_BYTES = 512 * 1024
+ RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
+ 
+@@ -197,6 +200,21 @@ def handle_study(body: dict, tier: Tier) -> dict:
+     return model_pack(intake, results)
+ 
+ 
++def handle_proposal(body: dict, tier: Tier) -> dict:
++    intake, results = _run(body.get("intake") or body)
++    try:
++        eng = engagement(str(body.get("engagement") or "density_screen"))
++    except KeyError as exc:
++        raise ApiError(422, str(exc), available=sorted(ENGAGEMENTS))
++    report = build_proposal_report(
++        intake, results, eng, objective=_objective(body),
++        valid_days=int(body.get("valid_days") or 30), contact=str(body.get("contact") or ""))
++    out = _rendered(report, results, str(body.get("format") or "html").lower())
++    out["engagement"] = {"id": eng.id, "name": eng.name, "price_eur": eng.price_eur,
++                         "turnaround_days": eng.turnaround_days}
++    return out
++
++
+ def handle_portfolio(body: dict, tier: Tier) -> dict:
+     docs = body.get("intakes")
+     if not isinstance(docs, list) or not docs:
+@@ -230,6 +248,7 @@ ROUTES = {
+     "/v1/screen": (handle_screen, Tier.CLIENT),
+     "/v1/study": (handle_study, Tier.CLIENT),
+     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
++    "/v1/proposal": (handle_proposal, Tier.CLIENT),
+ }
+ 
+ 
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index a05926f..6067c0a 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -27,6 +27,8 @@ from .reporting.gates import GateFailure, ReportMode
+ from .reporting.portfolio import SiteEntry
+ from .reporting.portfolio import build as build_portfolio
+ from .reporting.screen import build as build_screen
++from .commercial import ENGAGEMENTS, engagement
++from .reporting.proposal import build as build_proposal
+ from .reporting.study import Objective, _pick_recommended, collect_claims
+ from .reporting.study import build as build_study
+ from .scenario import run_all, sensitivity
+@@ -158,6 +160,86 @@ def cmd_study(args) -> int:
+     return 0
+ 
+ 
++def cmd_proposal(args) -> int:
++    intake = load(args.intake)
++    results = _run(intake)
++    try:
++        eng = engagement(args.engagement)
++    except KeyError as exc:
++        print(str(exc), file=sys.stderr)
++        return 2
++    report = build_proposal(intake, results, eng, objective=OBJECTIVES[args.objective],
++                            valid_days=args.valid_days, contact=args.contact or "")
++    out = Path(args.out)
++    w = _emit(report, out, "proposal", claims=collect_claims(results))
++    print(f"Proposal — {eng.name} for {intake.client}: EUR {eng.price_eur:,}, "
++          f"{eng.turnaround_days} working days. "
++          f"Opens with {results and _pick_recommended(results, OBJECTIVES[args.objective]).envelope.binding.name}.")
++    w.report()
++    return 0
++
++
++def cmd_cost(args) -> int:
++    from .costs import COST_EVIDENCE, CostEntry, CostLibrary
++
++    lib = CostLibrary.load(args.library)
++    if args.cost_cmd == "list":
++        if not lib.entries:
++            print("The cost library is empty: every relief price is a placeholder with a "
++                  "-50%/+100% band.")
++            print("Add your first quotation:")
++            print("  python3 -m gridforge cost add --key tapoff.unit --label 'tap-off unit' "
++                  "--unit EUR/rack --value 5200 \\")
++            print("      --basis firm_quote --supplier 'Acme' --quoted-on 2026-09-01 "
++                  "--valid-until 2026-12-31 --region DE")
++            return 0
++        print(f"{'key':28s} {'value':>12s}  {'unit':10s} {'basis':20s} {'class':5s} source")
++        for e in sorted(lib.entries.values(), key=lambda x: x.key):
++            q = e.quantity()
++            flag = " (EXPIRED)" if e.stale else ""
++            who = e.supplier or e.source or "—"
++            print(f"{e.key:28s} {e.value:12,.0f}  {e.unit:10s} {e.basis:20s} "
++                  f"{q.evidence.short:5s} {who}{flag}")
++        return 0
++
++    if args.cost_cmd == "show":
++        e = lib.get(args.key)
++        if e is None:
++            print(f"{args.key}: not in the library — a placeholder is used instead.")
++            return 1
++        for k, v in e.__dict__.items():
++            if v is not None:
++                print(f"  {k:14s} {v}")
++        print(f"  {'evidence':14s} {e.quantity().evidence.name}")
++        return 0
++
++    if args.cost_cmd == "remove":
++        if lib.entries.pop(args.key, None) is None:
++            print(f"{args.key}: not in the library")
++            return 1
++        print(f"removed {args.key} -> {lib.save(args.library)}")
++        return 0
++
++    # add
++    if args.basis not in COST_EVIDENCE:
++        print(f"unknown basis {args.basis!r}. One of: {', '.join(COST_EVIDENCE)}", file=sys.stderr)
++        return 2
++    entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
++                      value=float(args.value), basis=args.basis, supplier=args.supplier,
++                      quoted_on=args.quoted_on, valid_until=args.valid_until,
++                      region=args.region, project=args.project, note=args.note,
++                      source=args.source)
++    lib.put(entry)
++    path = lib.save(args.library)
++    q = entry.quantity()
++    print(f"{entry.key} = {q.render()}  [{entry.basis}]")
++    print(f"wrote {path}")
++    if entry.basis == "library_default":
++        print("NOTE: recorded as a library default, so it stays a placeholder. Use "
++              "--basis firm_quote once you have a written quotation.")
++    return 0
++
++
+ def cmd_serve(args) -> int:
+     from .api.server import serve
+     serve(args.host, args.port)
+@@ -204,6 +286,34 @@ def main(argv: list[str] | None = None) -> int:
+         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+         s.set_defaults(func=fn)
+ 
++    s = sub.add_parser("proposal", help="a priced proposal that opens with a real finding")
++    s.add_argument("intake")
++    s.add_argument("-o", "--out", default="out")
++    s.add_argument("--engagement", default="density_screen", choices=sorted(ENGAGEMENTS))
++    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++    s.add_argument("--valid-days", dest="valid_days", type=int, default=30)
++    s.add_argument("--contact", default="")
++    s.set_defaults(func=cmd_proposal)
++
++    s = sub.add_parser("cost", help="the cost library: what a relief actually costs")
++    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove"])
++    s.add_argument("--key", default="")
++    s.add_argument("--label", default="")
++    s.add_argument("--unit", default="EUR")
++    s.add_argument("--value", default="0")
++    s.add_argument("--basis", default="library_default",
++                   help="library_default | published_benchmark | budgetary_quote | "
++                        "firm_quote | contracted")
++    s.add_argument("--supplier")
++    s.add_argument("--quoted-on", dest="quoted_on", help="ISO date of the quotation")
++    s.add_argument("--valid-until", dest="valid_until")
++    s.add_argument("--region")
++    s.add_argument("--project")
++    s.add_argument("--note")
++    s.add_argument("--source")
++    s.add_argument("--library", help="path to a cost library JSON (default: the bundled one)")
++    s.set_defaults(func=cmd_cost)
++
+     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
+     s.add_argument("--host", default="0.0.0.0")
+     s.add_argument("--port", type=int, default=8080)
+diff --git a/gridforge/commercial.py b/gridforge/commercial.py
+new file mode 100644
+index 0000000..e581f07
+--- /dev/null
++++ b/gridforge/commercial.py
+@@ -0,0 +1,102 @@
++"""The engagement catalogue.
++
++Mirrors `lib/products.ts` on the website. Two languages, one price list — so
++`tests/test_catalogue_parity.py` parses the TypeScript and fails the build if they
++ever disagree. A proposal that quotes a different number from the checkout page is
++worse than no proposal.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++
++@dataclass(frozen=True)
++class Engagement:
++    id: str
++    name: str
++    price_eur: int
++    turnaround_days: int
++    question: str
++    deliverable: str
++    scope_in: tuple[str, ...] = ()
++    scope_out: tuple[str, ...] = ()
++    credits_against: str | None = None
++    payment_terms: str = "100% on commissioning. The engagement opens when payment clears."
++
++
++SCOPE_OUT_COMMON = (
++    "Stamped design drawings, or any deliverable requiring a professional engineering signature.",
++    "CFD of the hall — available as a priced add-on or a later phase.",
++    "Equipment selection, bill of materials, pricing or procurement. We quote no equipment and "
++    "take no margin on hardware.",
++    "Structural sign-off. Our floor-loading check is a screening calculation only.",
++    "Electrical protection and arc-flash studies.",
++    "Commissioning, migration planning and tenancy strategy.",
++)
++
++ENGAGEMENTS: dict[str, Engagement] = {
++    "density_screen": Engagement(
++        id="density_screen",
++        name="Density Screen",
++        price_eur=4_500,
++        turnaround_days=5,
++        question="What stops this hall first, and how far can it go?",
++        deliverable=(
++            "Density Screen document (HTML and Markdown), the first six rungs of the headroom "
++            "ladder, and a data request you can hand your own engineers verbatim."),
++        scope_in=(
++            "The binding constraint as the hall stands, with the basis stated in engineering units.",
++            "Deployable racks of your target platform, as found and after the costed ladder.",
++            "The item that sets the date.",
++            "Every cooling architecture screened against the same constraint set.",
++            "The list of inputs still assumed, each with why it binds and where to get it.",
++        ),
++        scope_out=SCOPE_OUT_COMMON,
++        credits_against="envelope_study",
++    ),
++    "envelope_study": Engagement(
++        id="envelope_study",
++        name="Capacity & Density Envelope Study",
++        price_eur=22_000,
++        turnaround_days=25,
++        question=("How much AI compute can this hall carry, what binds first, and what does each "
++                  "step of density cost?"),
++        deliverable=(
++            "Envelope Study (HTML and Markdown), machine-readable model pack, and a 90-minute "
++            "walkthrough with your engineering team."),
++        scope_in=(
++            "The complete headroom ladder: every constraint, what relieves it, what that costs "
++            "and how long it takes.",
++            "Time to power, with the item that sets the date named.",
++            "All architectures compared, grid-only and behind-the-meter.",
++            "One-at-a-time sensitivity against the relieved case.",
++            "Screening economics with the accuracy class stated, and a risk register.",
++            "A model pack you keep, so you can re-run our conclusion when your inputs change.",
++        ),
++        scope_out=SCOPE_OUT_COMMON,
++    ),
++    "portfolio_screen": Engagement(
++        id="portfolio_screen",
++        name="Portfolio Screen",
++        price_eur=60_000,
++        turnaround_days=45,
++        question="Which of these halls should carry the compute, and in what order?",
++        deliverable="Portfolio Screen document and one model pack per hall.",
++        scope_in=(
++            "Every hall screened with one identical model, library and assumption set, so the "
++            "ranking is comparable even where the inputs are not equally complete.",
++            "Ranking by deliverable compute, by time to power and by capital cost per rack — the "
++            "three orderings rarely agree.",
++            "A portfolio view of which constraint binds across several halls, because a shared "
++            "constraint is a programme, not a site problem.",
++        ),
++        scope_out=SCOPE_OUT_COMMON,
++    ),
++}
++
++
++def engagement(engagement_id: str) -> Engagement:
++    if engagement_id not in ENGAGEMENTS:
++        raise KeyError(f"unknown engagement {engagement_id!r}. "
++                       f"One of: {', '.join(sorted(ENGAGEMENTS))}")
++    return ENGAGEMENTS[engagement_id]
+diff --git a/gridforge/constraints.py b/gridforge/constraints.py
+index 780931d..a1d0a07 100644
+--- a/gridforge/constraints.py
++++ b/gridforge/constraints.py
+@@ -46,6 +46,10 @@ class ReliefOption:
+     lead_time_weeks: Quantity
+     apply: Callable[[EnvelopeContext], EnvelopeContext] = field(repr=False)
+     risk: str = ""
++    # Where this price came from. A cost-library key, or one of the sentinels:
++    #   "client-supplied"  the intake declared it (a client's own quote beats our library)
++    #   "not-capital"      the relief is commercial or contractual, not a purchase
++    cost_key: str | None = None
+     per_rack: bool = False        # capex quoted per rack rather than as a lump sum
+     customer_funded: bool = True  # capital rule: we never fund physical deployment
+ 
+diff --git a/gridforge/costs.py b/gridforge/costs.py
+new file mode 100644
+index 0000000..71b879d
+--- /dev/null
++++ b/gridforge/costs.py
+@@ -0,0 +1,210 @@
++"""Cost library — the asset the physics is not.
++
++Every relief on the headroom ladder needs a price. Today most of those prices are
++library defaults with a -50%/+100% band, and a study that rests on them says so.
++The moment a real quotation lands, that line gets replaced and **the evidence class
++of every number derived from it rises**. The deliverable literally gets stronger as
++the business accumulates quotations, and the report states which lines are still
++guesses.
++
++That is the mechanism worth owning. A competent engineer can rebuild the constraint
++physics from public sources in a month. A priced, dated, regional library of what
++these interventions actually cost — built from quotations obtained on real projects —
++cannot be rebuilt from anything public, and it compounds with every engagement.
++
++Cost evidence maps onto the same ladder as everything else:
++
++    library_default      E0  a placeholder; a band, not a price
++    published_benchmark  E1  a public figure, correctly attributed
++    budgetary_quote      E3  a supplier's indicative number, reviewed
++    firm_quote           E5  a written quotation with a validity date
++    contracted           E7  what was actually paid on a delivered project
++"""
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass, field
++from datetime import date
++from pathlib import Path
++
++from .common import V
++from .validation import EvidenceClass, Quantity, Source
++
++LIBRARY_PATH = Path(__file__).resolve().parent / "data" / "cost_library.json"
++
++COST_EVIDENCE: dict[str, EvidenceClass] = {
++    "library_default": EvidenceClass.E0_ASSUMPTION,
++    "published_benchmark": EvidenceClass.E1_MODEL,
++    "budgetary_quote": EvidenceClass.E3_ENGINEERING_ESTIMATE,
++    "firm_quote": EvidenceClass.E5_CUSTOMER_DATA,
++    "contracted": EvidenceClass.E7_DEPLOYED,
++}
++
++# AACE class follows the evidence, not the other way round. Quoting Class 3
++# accuracy off library defaults is the most common way these numbers mislead.
++AACE_BY_EVIDENCE: dict[EvidenceClass, str] = {
++    EvidenceClass.E0_ASSUMPTION: "Class 5 (order of magnitude): -50% / +100%",
++    EvidenceClass.E1_MODEL: "Class 5 (order of magnitude): -50% / +100%",
++    EvidenceClass.E2_SIMULATION: "Class 4 (study): -30% / +50%",
++    EvidenceClass.E3_ENGINEERING_ESTIMATE: "Class 4 (study): -30% / +50%",
++    EvidenceClass.E4_EXPERIMENTAL: "Class 3 (budget authorisation): -20% / +30%",
++    EvidenceClass.E5_CUSTOMER_DATA: "Class 3 (budget authorisation): -20% / +30%",
++    EvidenceClass.E6_FIELD_VALIDATED: "Class 2 (control): -15% / +20%",
++    EvidenceClass.E7_DEPLOYED: "Class 1 (check estimate): -10% / +15%",
++}
++
++BAND_BY_EVIDENCE: dict[EvidenceClass, tuple[float, float]] = {
++    EvidenceClass.E0_ASSUMPTION: (0.5, 2.0),
++    EvidenceClass.E1_MODEL: (0.5, 2.0),
++    EvidenceClass.E2_SIMULATION: (0.7, 1.5),
++    EvidenceClass.E3_ENGINEERING_ESTIMATE: (0.7, 1.5),
++    EvidenceClass.E4_EXPERIMENTAL: (0.8, 1.3),
++    EvidenceClass.E5_CUSTOMER_DATA: (0.8, 1.3),
++    EvidenceClass.E6_FIELD_VALIDATED: (0.85, 1.2),
++    EvidenceClass.E7_DEPLOYED: (0.9, 1.15),
++}
++
++
++@dataclass(frozen=True)
++class CostEntry:
++    key: str
++    label: str
++    unit: str                 # "EUR", "EUR/kW", "EUR/rack"
++    value: float
++    basis: str = "library_default"
++    supplier: str | None = None
++    quoted_on: str | None = None      # ISO date of the quotation
++    valid_until: str | None = None
++    region: str | None = None
++    project: str | None = None
++    note: str | None = None
++    source: str | None = None
++
++    @property
++    def evidence(self) -> EvidenceClass:
++        return COST_EVIDENCE.get(self.basis, EvidenceClass.E0_ASSUMPTION)
++
++    @property
++    def stale(self) -> bool:
++        """A quotation with an expired validity date is not a quotation any more."""
++        if not self.valid_until:
++            return False
++        try:
++            return date.fromisoformat(self.valid_until) < date.today()
++        except ValueError:
++            return False
++
++    def quantity(self) -> Quantity:
++        ev = EvidenceClass.E1_MODEL if (self.stale and self.evidence > EvidenceClass.E1_MODEL) \
++            else self.evidence
++        lo, hi = BAND_BY_EVIDENCE[ev]
++        assumptions = []
++        if self.note:
++            assumptions.append(self.note)
++        if self.basis == "library_default":
++            assumptions.append(
++                "Library default, not a price. Replace with a quotation before this figure "
++                "supports a capital decision.")
++        if self.supplier and self.quoted_on:
++            assumptions.append(f"Quoted by {self.supplier} on {self.quoted_on}"
++                               + (f", valid to {self.valid_until}" if self.valid_until else "")
++                               + (f" ({self.region})" if self.region else "") + ".")
++        if self.stale:
++            assumptions.append(
++                f"Quotation expired on {self.valid_until}; downgraded to a modelled figure "
++                "until it is refreshed.")
++        sources = [Source(self.source)] if self.source else []
++        return V(self.value, self.unit, self.label, ev,
++                 band=(self.value * lo, self.value * hi),
++                 assumptions=assumptions, sources=sources)
++
++
++@dataclass
++class CostLibrary:
++    entries: dict[str, CostEntry] = field(default_factory=dict)
++    path: Path | None = None
++
++    @staticmethod
++    def load(path: str | Path | None = None) -> "CostLibrary":
++        p = Path(path or os.environ.get("GRIDFORGE_COST_LIBRARY") or LIBRARY_PATH)
++        if not p.exists():
++            return CostLibrary(entries={}, path=p)
++        raw = json.loads(p.read_text())
++        rows = raw.get("entries", raw) if isinstance(raw, dict) else raw
++        entries = {}
++        for r in rows:
++            e = CostEntry(**r)
++            entries[e.key] = e
++        return CostLibrary(entries=entries, path=p)
++
++    def save(self, path: str | Path | None = None) -> Path:
++        p = Path(path or self.path or LIBRARY_PATH)
++        p.parent.mkdir(parents=True, exist_ok=True)
++        payload = {
++            "schema": "gridforge/cost-library/1",
++            "updated": date.today().isoformat(),
++            "note": ("Every line carries its basis. library_default is a placeholder, not a "
++                     "price. Replacing a line with a quotation raises the evidence class of "
++                     "every number derived from it."),
++            "entries": [e.__dict__ for e in sorted(self.entries.values(), key=lambda x: x.key)],
++        }
++        p.write_text(json.dumps(payload, indent=2))
++        return p
++
++    def get(self, key: str) -> CostEntry | None:
++        return self.entries.get(key)
++
++    def put(self, entry: CostEntry) -> None:
++        self.entries[entry.key] = entry
++
++    def lookup(self, key: str, fallback_value: float, unit: str, label: str,
++               note: str | None = None) -> Quantity:
++        """The price for a relief. Falls back to the caller's placeholder, recorded
++        as a library default so the report can count how many of them it rests on."""
++        entry = self.entries.get(key)
++        if entry is None:
++            entry = CostEntry(key=key, label=label, unit=unit, value=fallback_value,
++                              basis="library_default", note=note)
++        return entry.quantity()
++
++    # --- what the report needs to say about itself -------------------------
++    def basis_mix(self, keys: list[str]) -> dict[str, int]:
++        mix: dict[str, int] = {}
++        for k in keys:
++            basis = self.entries[k].basis if k in self.entries else "library_default"
++            mix[basis] = mix.get(basis, 0) + 1
++        return mix
++
++    def weakest(self, keys: list[str]) -> EvidenceClass:
++        worst = EvidenceClass.E7_DEPLOYED
++        for k in keys:
++            e = self.entries[k].quantity().evidence if k in self.entries \
++                else EvidenceClass.E0_ASSUMPTION
++            if e < worst:
++                worst = e
++        return worst
++
++    def aace_class(self, keys: list[str]) -> str:
++        return AACE_BY_EVIDENCE[self.weakest(keys)]
++
++
++_LIBRARY: CostLibrary | None = None
++
++
++def library() -> CostLibrary:
++    global _LIBRARY
++    if _LIBRARY is None:
++        _LIBRARY = CostLibrary.load()
++    return _LIBRARY
++
++
++def reload_library(path: str | Path | None = None) -> CostLibrary:
++    global _LIBRARY
++    _LIBRARY = CostLibrary.load(path)
++    return _LIBRARY
++
++
++def cost(key: str, fallback_value: float, unit: str, label: str,
++         note: str | None = None) -> Quantity:
++    return library().lookup(key, fallback_value, unit, label, note)
+diff --git a/gridforge/data/cost_library.json b/gridforge/data/cost_library.json
+new file mode 100644
+index 0000000..e936cc6
+--- /dev/null
++++ b/gridforge/data/cost_library.json
+@@ -0,0 +1,6 @@
++{
++  "schema": "gridforge/cost-library/1",
++  "updated": "2026-09-14",
++  "note": "Every line carries its basis. library_default is a placeholder, not a price. Replacing a line with a quotation raises the evidence class of every number derived from it, and the AACE accuracy class of the whole estimate follows the weakest line.",
++  "entries": []
++}
+diff --git a/gridforge/economics/model.py b/gridforge/economics/model.py
+index b26099b..a71ed38 100644
+--- a/gridforge/economics/model.py
++++ b/gridforge/economics/model.py
+@@ -11,14 +11,18 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ 
+ from ..common import ASSUMED, ESTIMATED, MODELLED, V
++from ..costs import cost, library
+ from ..envelope.solver import EnvelopeResult, HeadroomLadder
+ from ..validation import Quantity
+ 
+-CONVERSION_CAPEX_EUR_PER_RACK = V(
+-    55_000, "EUR/rack", "in-hall conversion capex per rack (manifolds, QDs, rack fit-out, commissioning)",
+-    ASSUMED, band=(30_000, 110_000),
+-    assumptions=["AACE Class 5. Excludes IT hardware, excludes migration and lost tenancy revenue.",
+-                 "Public retrofit benchmarks span 2-12 MEUR per MW; do not quote either as a benchmark."])
++CONVERSION_COST_KEY = "conversion.per_rack"
++
++
++def conversion_capex_per_rack():
++    return cost(CONVERSION_COST_KEY, 55_000, "EUR/rack",
++                "in-hall conversion per rack (manifolds, QDs, rack fit-out, commissioning)",
++                note="Excludes IT hardware, migration and lost tenancy revenue. Public retrofit "
++                     "benchmarks span 2-12 MEUR per MW; neither is a benchmark.")
+ 
+ ELECTRICITY_EUR_PER_MWH = V(140, "EUR/MWh", "all-in electricity price", ASSUMED, band=(90, 220),
+                             assumptions=["Placeholder. Replace with the site's actual contracted tariff."])
+@@ -37,16 +41,23 @@ class EconomicsResult:
+     energy_cost_per_gpu_hour_eur: Quantity
+     critical_path_weeks: float
+     aace_class: str = AACE_CLASS
++    cost_basis_mix: dict = None  # type: ignore[assignment]
++
++    @property
++    def rests_on_placeholders(self) -> int:
++        return (self.cost_basis_mix or {}).get("library_default", 0)
+ 
+ 
+ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) -> EconomicsResult:
++    keys = sorted({k for k in lad.cost_keys if "." in k} | {CONVERSION_COST_KEY})
+     racks = V(float(res.max_racks), "racks", "deployable racks", ESTIMATED)
+-    conv = (racks * CONVERSION_CAPEX_EUR_PER_RACK).relabel(
++    conv = (racks * conversion_capex_per_rack()).relabel(
+         "in-hall conversion capex", "economics.conversion_capex", step_evidence=MODELLED)
+     relief_total = lad.cumulative_capex_eur
++    aace = library().aace_class(keys)
+     relief = V(relief_total, "EUR", "capex of relief measures taken along the headroom ladder",
+                ASSUMED, band=(relief_total * 0.5, relief_total * 2.0),
+-               assumptions=[AACE_CLASS])
++               assumptions=[aace])
+     total = (conv + relief).relabel("total capex", "economics.total_capex", step_evidence=MODELLED)
+     per_kW = (total / res.it_load_kW).relabel(
+         "capex per kW of IT load deployed", "economics.capex_per_kW", step_evidence=MODELLED) \
+@@ -55,11 +66,12 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
+     hours = V(8760.0, "h", "hours per year", ESTIMATED)
+     energy = (res.facility_load_kW * utilisation * hours).convert(
+         0.001, "MWh", "annual site energy for the deployed load")
+-    cost = (energy * ELECTRICITY_EUR_PER_MWH).relabel(
++    cost_ = (energy * ELECTRICITY_EUR_PER_MWH).relabel(
+         "annual energy cost", "economics.energy_cost", step_evidence=MODELLED)
+     gpu_hours = float(res.gpus) * 8760.0
+-    per_gpu_h = (cost / V(gpu_hours, "gpu*h", "annual GPU hours", ESTIMATED)).relabel(
++    per_gpu_h = (cost_ / V(gpu_hours, "gpu*h", "annual GPU hours", ESTIMATED)).relabel(
+         "energy cost per GPU-hour", "economics.energy_per_gpu_hour", step_evidence=MODELLED) \
+         if gpu_hours > 0 else V(0, "EUR/gpu*h", "energy cost per GPU-hour (no GPUs deployable)", MODELLED)
+ 
+-    return EconomicsResult(conv, relief, total, per_kW, energy, cost, per_gpu_h, lad.critical_path_weeks)
++    return EconomicsResult(conv, relief, total, per_kW, energy, cost_, per_gpu_h,
++                           lad.critical_path_weeks, aace, library().basis_mix(keys))
+diff --git a/gridforge/envelope/solver.py b/gridforge/envelope/solver.py
+index be43691..5a871b6 100644
+--- a/gridforge/envelope/solver.py
++++ b/gridforge/envelope/solver.py
+@@ -75,6 +75,7 @@ class LadderStep:
+     lead_time_weeks: Quantity | None
+     risk: str = ""
+     gate: bool = False
++    cost_key: str | None = None
+     taken: bool = True     # False -> relief exists on paper but cannot actually be bought
+ 
+     @property
+@@ -94,6 +95,15 @@ class HeadroomLadder:
+     initial: EnvelopeResult | None = None
+     final_context: EnvelopeContext | None = None
+ 
++    @property
++    def cost_keys(self) -> list[str]:
++        """Which cost-library lines this ladder's price rests on.
++
++        Sentinels ("client-supplied", "not-capital") are real answers to "where did
++        this number come from" but they are not library lines, so they are returned
++        here and filtered by whoever is counting placeholders."""
++        return [s.cost_key for s in self.taken_steps if s.cost_key]
++
+     @property
+     def taken_steps(self) -> list["LadderStep"]:
+         return [s for s in self.steps if s.taken]
+@@ -134,14 +144,16 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
+                 i, binding.id, binding.name, binding.domain, res.max_racks, res.max_racks,
+                 binding.basis, binding.relief.description,
+                 _absolute_capex(binding.relief, res.max_racks),
+-                binding.relief.lead_time_weeks, binding.relief.risk, binding.gate, taken=False))
++                binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
++                binding.relief.cost_key, taken=False))
+             break
+         nxt = solve(nxt_ctx)
+         out.steps.append(LadderStep(
+             i, binding.id, binding.name, binding.domain, res.max_racks, nxt.max_racks,
+             binding.basis, binding.relief.description,
+             _absolute_capex(binding.relief, nxt.max_racks),
+-            binding.relief.lead_time_weeks, binding.relief.risk, binding.gate))
++            binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
++            binding.relief.cost_key))
+         if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
+             break
+         cur, res = nxt_ctx, nxt
+diff --git a/gridforge/power/constraints.py b/gridforge/power/constraints.py
+index 17088f6..365f96e 100644
+--- a/gridforge/power/constraints.py
++++ b/gridforge/power/constraints.py
+@@ -9,6 +9,7 @@ from __future__ import annotations
+ import math
+ 
+ from ..common import ASSUMED, ESTIMATED, V
++from ..costs import cost
+ from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
+ from ..validation import Quantity
+ from .btm import installed_firm_kW, next_option, option_capex
+@@ -72,6 +73,9 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+             capex_eur=option_capex(opt),
+             lead_time_weeks=opt.lead_time_weeks,
+             apply=_apply,
++            # Priced from the client's own declared option: their quotation for
++            # their site beats anything in our library.
++            cost_key="client-supplied",
+             risk=(opt.permitting_note or
+                   "Permitting, fuel supply and emissions consent govern the schedule; "
+                   "confirm before relying on the lead time."),
+@@ -79,11 +83,11 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+     else:
+         relief = ReliefOption(
+             description="Grid reinforcement / new connection capacity from the DSO",
+-            capex_eur=V(2_500_000, "EUR", "indicative grid reinforcement capex", ASSUMED,
+-                        band=(1_000_000, 8_000_000),
+-                        assumptions=["Placeholder until a DSO connection offer is obtained. "
+-                                     "In most FLAP-D metros this option is unavailable at any "
+-                                     "price before 2030."]),
++            capex_eur=cost("grid.reinforcement", 2_500_000, "EUR",
++                           "grid reinforcement capex",
++                           note="Placeholder until a DSO connection offer is obtained. In most "
++                                "FLAP-D metros this option is unavailable at any price before 2030."),
++            cost_key="grid.reinforcement",
+             lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
+                               assumptions=["Frankfurt: no new large connections before 2030; "
+                                            "Amsterdam queue ~10 years"]),
+@@ -129,8 +133,10 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+ 
+     relief = ReliefOption(
+         description="Replace / add transformer capacity (uprate ~60%)",
+-        capex_eur=V(1_200_000, "EUR", "transformer + switchgear replacement capex", ASSUMED, band=0.4,
+-                    assumptions=["Excludes civils and outage management; obtain quotations in project phase 1"]),
++        capex_eur=cost("transformer.replacement", 1_200_000, "EUR",
++                       "transformer and switchgear replacement",
++                       note="Excludes civils and outage management."),
++        cost_key="transformer.replacement",
+         lead_time_weeks=lead if lead is not None else V(160, "weeks", "power transformer lead time", ASSUMED,
+                                                         band=(80, 210),
+                                                         assumptions=["120 weeks in 2024, 160+ weeks in 2026"]),
+@@ -171,10 +177,11 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+         basis=f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy",
+         relief=ReliefOption(
+             description="Add UPS modules / new UPS block",
+-            capex_eur=(V(320, "EUR/kW", "UPS capex per kW", ASSUMED, band=0.35) *
++            capex_eur=(cost("ups.per_kW", 320, "EUR/kW", "UPS capacity, installed") *
+                        ctx.cluster.platform.rack_kW *
+                        V(20.0, "1", "20-rack capacity increment", ASSUMED)).relabel(
+                            "UPS module addition capex", "power.ups_relief_capex"),
++            cost_key="ups.per_kW",
+             lead_time_weeks=V(30, "weeks", "UPS lead time", ASSUMED, band=(20, 52)),
+             apply=_apply,
+         ),
+@@ -214,7 +221,9 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
+             description=("Replace busway with 800-1000 A and new tap-off units"
+                          if lv.busway_ampacity_A.value < 1000 else
+                          "Add two further busway runs (needs riser and routing space)"),
+-            capex_eur=V(450_000, "EUR", "busway replacement capex for one hall", ASSUMED, band=0.4),
++            capex_eur=cost("busway.replacement", 450_000, "EUR",
++                           "busway replacement for one hall"),
++            cost_key="busway.replacement",
+             lead_time_weeks=V(36, "weeks", "busway and tap-off lead time", ASSUMED, band=(24, 52),
+                               assumptions=["Tap-off units are a reported shortage item"]),
+             apply=_apply,
+@@ -246,7 +255,8 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
+                f"{lv.tapoff_max_A.render()}"),
+         relief=ReliefOption(
+             description="Higher-rated tap-off units (and busway if ampacity does not allow)",
+-            capex_eur=V(6_000, "EUR/rack", "tap-off unit and rack feed", ASSUMED, band=0.4),
++            capex_eur=cost("tapoff.unit", 6_000, "EUR/rack", "tap-off unit and rack feed"),
++            cost_key="tapoff.unit",
+             lead_time_weeks=V(24, "weeks", "tap-off lead time", ASSUMED, band=(12, 40)),
+             apply=_apply, per_rack=True,
+         ),
+diff --git a/gridforge/reporting/proposal.py b/gridforge/reporting/proposal.py
+new file mode 100644
+index 0000000..b01dc2a
+--- /dev/null
++++ b/gridforge/reporting/proposal.py
+@@ -0,0 +1,174 @@
++"""Proposal generator.
++
++A proposal that opens with a real engineering finding about the client's own hall
++outsells one that opens with a company profile. This one does: before it names a
++price it tells them what binds, how many racks they can deploy today, and which of
++their inputs nobody has measured — because the engine has already run.
++
++That is the part no competitor can copy cheaply. A consultancy's proposal cannot
++contain a finding, because producing the finding is the engagement.
++"""
++from __future__ import annotations
++
++from datetime import date, timedelta
++
++from ..commercial import Engagement
++from ..common import ASSUMED, ESTIMATED, V
++from ..constraints import EnvelopeContext
++from ..envelope.time_to_power import schedule
++from ..intake.loader import Intake
++from ..scenario.run import ScenarioResult
++from .gates import DISCLOSURE_MARKER, claims_below_floor
++from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
++from .study import Objective, _pick_recommended, collect_claims
++
++
++def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
++          objective: Objective = Objective.MAX_COMPUTE,
++          valid_days: int = 30, contact: str = "") -> Report:
++    ctx: EnvelopeContext = intake.context
++    rec = _pick_recommended(results, objective)
++    t = schedule(rec.ladder)
++    plat = ctx.cluster.platform
++    today = date.today()
++    valid_to = today + timedelta(days=valid_days)
++
++    r = Report(
++        title=f"Proposal — {eng.name}, {ctx.site.name} hall {ctx.hall.id}",
++        subtitle=(f"{intake.client} · prepared {today.isoformat()} · valid to "
++                  f"{valid_to.isoformat()} · target platform {plat.name}"),
++        watermark=("The findings below are a screening read produced before this engagement "
++                   "begins. They are modelled from the inputs supplied, not measured at the site."),
++        status="Proposal",
++        meta=[("Client", intake.client), ("Site", ctx.site.name), ("Hall", ctx.hall.id),
++              ("Engagement", eng.name), ("Fee", f"EUR {eng.price_eur:,}"),
++              ("Turnaround", f"{eng.turnaround_days} working days")],
++        footer=("GridForge AI — independent power and thermal engineering. We quote no equipment "
++                "and take no margin on hardware."),
++    )
++
++    # 1 — the finding, before the price
++    s = Section("1. What we already found")
++    s.blocks.append(Para(
++        "We ran your hall through the capacity engine before writing this. The following is not a "
++        "claim about what we might do; it is what the constraint set already says, on the inputs "
++        "you supplied."))
++    s.blocks.append(Statement(
++        f"Deployable {plat.name} racks as the hall stands",
++        V(float(rec.envelope.max_racks), "racks", "deployable racks as found", ESTIMATED),
++        rec.envelope.binding.basis))
++    s.blocks.append(Statement(
++        "Deployable after the costed ladder",
++        V(float(rec.unlocked_racks), "racks", "deployable racks after relief", ESTIMATED),
++        rec.spec.name))
++    if t.weeks_to_full is not None:
++        s.blocks.append(Statement(
++            "Time to full capacity",
++            V(t.weeks_to_full, "weeks", "elapsed weeks to full energisation", ESTIMATED,
++              band=(t.weeks_to_full * 0.7, t.weeks_to_full * 1.6)),
++            f"set by {t.critical_item.lower()}"))
++    s.blocks.append(Callout("answer",
++        f"Binding constraint: {rec.envelope.binding.name} ({rec.envelope.binding.domain}). "
++        f"{rec.envelope.binding.basis}."))
++    if rec.envelope.max_racks == 0:
++        s.blocks.append(Callout("warning",
++            "On these inputs the hall cannot host a single rack of the target platform today. "
++            "That is a finding, not a sales problem — and a credible 'not without these three "
++            "things' is worth the fee on its own."))
++    r.sections.append(s)
++
++    # 2 — the question the engagement answers
++    s = Section("2. What this engagement answers")
++    s.blocks.append(Para(eng.question))
++    s.blocks.append(Para(f"You receive: {eng.deliverable}"))
++    s.blocks.append(Bullets(list(eng.scope_in)))
++    r.sections.append(s)
++
++    # 3 — what we need
++    s = Section("3. What we need from you")
++    if intake.report.gaps:
++        s.blocks.append(Para(
++            f"Intake is {intake.report.completeness:.0%} complete. Each row below is a number that "
++            "moves the answer and that nobody has measured. Anything you cannot supply is filled "
++            "from a library default and named as an assumption in the deliverable — nothing is "
++            "invented silently."))
++        s.blocks.append(Table(
++            ["Input", "Status", "Assumed if not supplied", "Where it comes from"],
++            [[g.label, Lit("required" if g.required else "optional"),
++              Lit(g.fallback_description), Lit(g.how_to_get_it)] for g in intake.report.gaps]))
++    else:
++        s.blocks.append(Para(
++            "Intake is complete. Nothing further is required to begin; the clock starts on "
++            "commissioning."))
++    for w in intake.report.warnings:
++        s.blocks.append(Callout("note", w))
++    r.sections.append(s)
++
++    # 4 — commercials
++    s = Section("4. Fee, timing and terms")
++    s.blocks.append(Table(
++        ["Item", "Terms"],
++        [["Fee", Lit(f"EUR {eng.price_eur:,}, fixed")],
++         ["Turnaround", Lit(f"{eng.turnaround_days} working days from a complete intake")],
++         ["Payment", Lit(eng.payment_terms)],
++         ["Credit", Lit(
++             f"Credits in full against the {eng.credits_against.replace('_', ' ')}."
++             if eng.credits_against else "—")],
++         ["Validity", Lit(f"This proposal is valid to {valid_to.isoformat()}.")],
++         ["Independence", Lit("We quote no equipment and take no margin on hardware. Nothing in "
++                              "the deliverable routes you to a supplier we are paid by.")]],
++        caption="Fixed fee. We do not bill hours, because you are buying an answer."))
++    s.blocks.append(Statement(
++        "Fee", V(float(eng.price_eur), "EUR", f"{eng.name} fixed fee", ESTIMATED),
++        f"{eng.turnaround_days} working days from a complete intake"))
++    r.sections.append(s)
++
++    # 5 — scope boundary
++    s = Section("5. What is outside scope")
++    s.blocks.append(Para(
++        "This is an engineering opinion supported by a documented model. It is not a design "
++        "package and confers no design liability. Specifically outside scope:"))
++    s.blocks.append(Bullets(list(eng.scope_out)))
++    r.sections.append(s)
++
++    # 6 — method
++    s = Section("6. How the answer is produced")
++    s.blocks.append(Bullets([
++        "Thirteen independent constraints across electrical, thermal and physical domains are "
++        "evaluated over one model of your hall. The envelope is the minimum; the binding "
++        "constraint is the one that produced it.",
++        "Each constraint reports what relieves it, what that costs and how long it takes, so the "
++        "answer is an ordered ladder rather than a single number.",
++        "Every quantity carries an evidence class. A number you supply is your measured data; a "
++        "number we fall back to is an assumption and is labelled as one. A model applied to "
++        "measured data stays a model.",
++        "The document cannot assert measurement over a modelled quantity — that check runs "
++        "automatically before anything is released.",
++        "You receive the model, not just the conclusion, so you can re-run it when your inputs "
++        "change.",
++    ]))
++    r.sections.append(s)
++
++    # 7 — next step
++    s = Section("7. To proceed")
++    s.blocks.append(Para(
++        "Commission the engagement and you will receive an intake link for the hall's numbers. "
++        "The clock starts when the intake is complete, not when payment clears."))
++    if contact:
++        s.blocks.append(Para(contact))
++    s.blocks.append(Callout("note",
++        "Before you spend anything with us: get the DSO position in writing on firm capacity and "
++        "any flexibility product. It costs nothing but time, and on some sites it ends the "
++        "question entirely. We would rather tell you that now than bill you to discover it."))
++    below = claims_below_floor(collect_claims(results))
++    if below:
++        detail = "; ".join(
++            f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
++            f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
++        s.blocks.append(Callout("warning",
++            f"{DISCLOSURE_MARKER} the findings in section 1 are a screening read built partly on "
++            f"library defaults. {detail}. They are sufficient to decide whether this engagement is "
++            "worth commissioning, and not sufficient to support procurement, construction or an "
++            "investment committee decision. Closing the gaps in section 3 is what changes that."))
++    r.sections.append(s)
++    return r
+diff --git a/gridforge/reporting/study.py b/gridforge/reporting/study.py
+index ceb61c0..ed3b272 100644
+--- a/gridforge/reporting/study.py
++++ b/gridforge/reporting/study.py
+@@ -307,6 +307,23 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
+                            "Annual energy cost", "Energy cost per GPU-hour", "Critical path"], rows,
+                           caption=f"Cost basis: {rec.economics.aace_class}. Excludes IT hardware, "
+                                   f"migration and lost tenancy revenue."))
++    mix = rec.economics.cost_basis_mix or {}
++    placeholders = mix.get("library_default", 0)
++    priced = sum(v for k, v in mix.items() if k != "library_default")
++    total_lines = placeholders + priced
++    if total_lines:
++        s.blocks.append(Table(
++            ["Cost basis", "Lines"],
++            [[basis.replace("_", " "), V(float(n), "lines", f"cost lines on {basis}", ESTIMATED)]
++             for basis, n in sorted(mix.items(), key=lambda kv: -kv[1])],
++            caption="What each price in this study rests on. The accuracy class above follows the "
++                    "weakest line, not the average."))
++    if placeholders:
++        s.blocks.append(Callout("warning",
++            f"{placeholders} of {total_lines} priced lines are library placeholders rather than "
++            "quotations, which is why this estimate is stated at the accuracy class above. Each "
++            "quotation obtained replaces a placeholder and tightens the whole estimate; the "
++            "constraint that binds is worth quoting first."))
+     s.blocks.append(Callout("warning",
+         "Public retrofit cost benchmarks currently span roughly 2 to 12 MEUR per MW — a four- to "
+         "sixfold spread. No figure in this section should be treated as a market benchmark; they "
+diff --git a/gridforge/site/constraints.py b/gridforge/site/constraints.py
+index 183aa58..fd2de54 100644
+--- a/gridforge/site/constraints.py
++++ b/gridforge/site/constraints.py
+@@ -3,6 +3,7 @@ one that most often stops a 130 kW rack from ever entering a 2015 hall."""
+ from __future__ import annotations
+ 
+ from ..common import ASSUMED, ESTIMATED, V
++from ..costs import cost
+ from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
+ from .schema import FloorType
+ 
+@@ -39,7 +40,9 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
+         basis=f"{imposed.render()} imposed against {capacity.render()} design capacity",
+         relief=ReliefOption(
+             description="Load spreading / remove raised floor and deploy on slab",
+-            capex_eur=V(260_000, "EUR", "structural works for one hall", ASSUMED, band=0.5),
++            capex_eur=cost("floor.load_spreading", 260_000, "EUR",
++                           "structural works for one hall"),
++            cost_key="floor.load_spreading",
+             lead_time_weeks=V(18, "weeks", "structural works", ASSUMED, band=(10, 30)),
+             apply=_apply,
+             risk="Requires structural survey; in multi-storey buildings this relief may not exist.",
+@@ -64,6 +67,7 @@ def floor_space(ctx: EnvelopeContext) -> ConstraintResult:
+             capex_eur=V(0, "EUR", "commercial, not capital", ASSUMED),
+             lead_time_weeks=V(52, "weeks", "lease and migration cycle", ASSUMED, band=(26, 104)),
+             apply=lambda c: c,
++            cost_key="not-capital",
+             risk="Commercial and contractual, not engineering. Tenancy revenue at risk.",
+         ),
+     )
+diff --git a/gridforge/thermal/constraints.py b/gridforge/thermal/constraints.py
+index 0956e7e..9afbcce 100644
+--- a/gridforge/thermal/constraints.py
++++ b/gridforge/thermal/constraints.py
+@@ -9,6 +9,7 @@ The two most commonly missed, and therefore the two most commercially valuable:
+ from __future__ import annotations
+ 
+ from ..common import ASSUMED, ESTIMATED, SIMULATED, V
++from ..costs import cost
+ from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
+ from ..thermal.library import ARCH_RACK_CAPABILITY_kW
+ from ..thermal.schema import Architecture
+@@ -89,7 +90,8 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+                f"per rack; {available_approach.render()} approach available"),
+         relief=ReliefOption(
+             description="Add CDU capacity (one further unit per bank)",
+-            capex_eur=V(180_000, "EUR", "additional row CDU, installed", ASSUMED, band=0.35),
++            capex_eur=cost("cdu.addition", 180_000, "EUR", "additional row CDU, installed"),
++            cost_key="cdu.addition",
+             lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
+             apply=_apply,
+         ),
+@@ -123,7 +125,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
+         basis=f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}",
+         relief=ReliefOption(
+             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+-            capex_eur=V(900_000, "EUR", "plant uprate capex", ASSUMED, band=0.45),
++            capex_eur=cost("plant.uprate", 900_000, "EUR", "chilled-water plant uprate"),
++            cost_key="plant.uprate",
+             lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
+             apply=_apply,
+             risk="A dedicated high-temperature loop is usually cheaper to run and should be compared "
+@@ -156,7 +159,8 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
+                f"(~1.45 l/min/kW at 10 K delta-T)"),
+         relief=ReliefOption(
+             description="Uprate pumps and secondary pipework",
+-            capex_eur=V(420_000, "EUR", "pump and pipework uprate", ASSUMED, band=0.5),
++            capex_eur=cost("pump.uprate", 420_000, "EUR", "pump and secondary pipework uprate"),
++            cost_key="pump.uprate",
+             lead_time_weeks=V(30, "weeks", "pump / pipework lead time", ASSUMED, band=(18, 48)),
+             apply=_apply,
+             risk="Flow, not delta-T, governs a retrofit. Check pipe DN and available head before "
+@@ -191,7 +195,9 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
+                f"per position"),
+         relief=ReliefOption(
+             description="Add in-row cooling or rear-door heat exchangers for the residual air load",
+-            capex_eur=V(9_000, "EUR/rack", "in-row / RDHx per rack, installed", ASSUMED, band=0.4),
++            capex_eur=cost("inrow_rdhx.per_rack", 9_000, "EUR/rack",
++                           "in-row cooling or rear-door heat exchanger, installed"),
++            cost_key="inrow_rdhx.per_rack",
+             lead_time_weeks=V(20, "weeks", "in-row / RDHx lead time", ASSUMED, band=(12, 32)),
+             apply=_apply, per_rack=True,
+         ),
+@@ -238,7 +244,9 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
+                f"{required_fws.render()}; {mech} delivers {achievable.render()}"),
+         relief=ReliefOption(
+             description="Adiabatic assist plus trim chiller on the high-temperature loop",
+-            capex_eur=V(350_000, "EUR", "adiabatic assist / trim chiller", ASSUMED, band=0.5),
++            capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
++                           "adiabatic assist and trim chiller"),
++            cost_key="trim_chiller.adiabatic",
+             lead_time_weeks=V(32, "weeks", "lead time", ASSUMED, band=(20, 48)),
+             apply=_apply,
+             risk="Adiabatic assist reintroduces water consumption; check permits and WUE targets.",
+diff --git a/tests/test_architecture.py b/tests/test_architecture.py
+index 07377c4..05a52e0 100644
+--- a/tests/test_architecture.py
++++ b/tests/test_architecture.py
+@@ -6,7 +6,7 @@ import ast
+ import pathlib
+ 
+ ROOT = pathlib.Path(__file__).resolve().parents[1] / "gridforge"
+-KERNEL = {"validation", "common", "constraints"}
++KERNEL = {"validation", "common", "constraints", "costs"}
+ 
+ ALLOWED: dict[str, set[str]] = {
+     "site": set(),
+diff --git a/tests/test_costs_and_proposal.py b/tests/test_costs_and_proposal.py
+new file mode 100644
+index 0000000..fcdce04
+--- /dev/null
++++ b/tests/test_costs_and_proposal.py
+@@ -0,0 +1,183 @@
++"""The cost library and the proposal generator.
++
++Two things carry real commercial weight here and both are tested as such:
++a quotation must actually strengthen the deliverable, and the proposal must quote
++the same price as the checkout page.
++"""
++import json
++import re
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from gridforge.commercial import ENGAGEMENTS, engagement
++from gridforge.costs import AACE_BY_EVIDENCE, CostEntry, CostLibrary, reload_library
++from gridforge.intake.loader import load
++from gridforge.reporting import to_markdown
++from gridforge.reporting.proposal import build as build_proposal
++from gridforge.scenario import run_all
++from gridforge.validation import EvidenceClass
++
++ROOT = Path(__file__).resolve().parents[1]
++REFERENCE = ROOT / "examples" / "intake" / "reference_hall.json"
++
++
++@pytest.fixture(scope="module")
++def solved():
++    intake = load(REFERENCE)
++    return intake, run_all(intake.context, intake.scenarios)
++
++
++# --- the cost library --------------------------------------------------------
++def test_a_missing_line_is_an_assumption_not_a_price():
++    lib = CostLibrary()
++    q = lib.lookup("nothing.here", 1000, "EUR", "placeholder")
++    assert q.evidence is EvidenceClass.E0_ASSUMPTION
++    assert "not a price" in " ".join(q.prov.all_assumptions())
++
++
++def test_a_firm_quote_raises_the_evidence_class_and_tightens_the_band():
++    lib = CostLibrary()
++    lib.put(CostEntry(key="tapoff.unit", label="tap-off", unit="EUR/rack", value=5200,
++                      basis="firm_quote", supplier="Acme", quoted_on="2026-09-01",
++                      valid_until="2099-12-31", region="DE"))
++    q = lib.lookup("tapoff.unit", 6000, "EUR/rack", "tap-off")
++    assert q.evidence is EvidenceClass.E5_CUSTOMER_DATA
++    lo, hi = q.band
++    assert (hi - lo) / q.value < 0.6, "a quotation must narrow the band, not just relabel it"
++
++
++def test_an_expired_quote_is_downgraded_not_trusted():
++    lib = CostLibrary()
++    lib.put(CostEntry(key="k", label="l", unit="EUR", value=100, basis="firm_quote",
++                      supplier="Acme", quoted_on="2020-01-01", valid_until="2020-06-30"))
++    q = lib.lookup("k", 200, "EUR", "l")
++    assert q.evidence <= EvidenceClass.E1_MODEL
++    assert any("expired" in a for a in q.prov.all_assumptions())
++
++
++def test_the_accuracy_class_follows_the_weakest_line():
++    lib = CostLibrary()
++    lib.put(CostEntry(key="a", label="a", unit="EUR", value=1, basis="contracted"))
++    assert lib.aace_class(["a"]) == AACE_BY_EVIDENCE[EvidenceClass.E7_DEPLOYED]
++    assert lib.aace_class(["a", "b"]) == AACE_BY_EVIDENCE[EvidenceClass.E0_ASSUMPTION], (
++        "one placeholder drags the whole estimate back; averaging would be dishonest"
++    )
++
++
++def test_quotations_reach_the_study_and_the_study_says_how_many_are_missing(tmp_path, solved):
++    lib = CostLibrary(path=tmp_path / "costs.json")
++    lib.put(CostEntry(key="tapoff.unit", label="tap-off", unit="EUR/rack", value=5200,
++                      basis="firm_quote", supplier="Acme", quoted_on="2026-09-01",
++                      valid_until="2099-12-31"))
++    lib.save()
++    try:
++        reload_library(tmp_path / "costs.json")
++        intake = load(REFERENCE)
++        results = run_all(intake.context, intake.scenarios)
++        econ = results[-1].economics
++        assert econ.cost_basis_mix.get("firm_quote", 0) >= 1
++        assert econ.rests_on_placeholders >= 1
++    finally:
++        reload_library()
++
++
++def test_cost_cli_round_trips(tmp_path):
++    lib = tmp_path / "costs.json"
++    add = subprocess.run(
++        [sys.executable, "-m", "gridforge", "cost", "add", "--key", "cdu.addition",
++         "--label", "row CDU", "--unit", "EUR", "--value", "164000", "--basis", "budgetary_quote",
++         "--supplier", "Acme", "--quoted-on", "2026-09-01", "--library", str(lib)],
++        cwd=ROOT, capture_output=True, text=True)
++    assert add.returncode == 0, add.stderr
++    assert "E3" in add.stdout
++    listed = subprocess.run([sys.executable, "-m", "gridforge", "cost", "list",
++                             "--library", str(lib)], cwd=ROOT, capture_output=True, text=True)
++    assert "cdu.addition" in listed.stdout
++    assert json.loads(lib.read_text())["entries"][0]["supplier"] == "Acme"
++
++
++def test_every_taken_relief_prices_from_a_named_library_line(solved):
++    _, results = solved
++    for res in results:
++        for step in res.ladder.taken_steps:
++            if step.capex_eur is not None and step.relief_description:
++                assert step.cost_key, (
++                    f"{step.binding_id} has a price with no cost-library key, so a quotation "
++                    "could never replace it"
++                )
++
++
++# --- the proposal ------------------------------------------------------------
++def test_proposal_opens_with_a_finding_not_a_company_profile(solved):
++    intake, results = solved
++    md = to_markdown(build_proposal(intake, results, engagement("density_screen")))
++    first = md.split("## 2.")[0]
++    assert "What we already found" in first
++    assert "Binding constraint" in first
++    assert "racks" in first
++
++
++def test_proposal_states_the_fee_and_the_clock(solved):
++    intake, results = solved
++    eng = engagement("density_screen")
++    md = to_markdown(build_proposal(intake, results, eng))
++    assert f"{eng.price_eur:,}" in md
++    assert f"{eng.turnaround_days} working days" in md
++
++
++def test_proposal_carries_the_data_request(solved):
++    intake, results = solved
++    md = to_markdown(build_proposal(intake, results, engagement("density_screen")))
++    assert "What we need from you" in md
++
++
++def test_proposal_declares_independence(solved):
++    intake, results = solved
++    md = to_markdown(build_proposal(intake, results, engagement("density_screen")))
++    assert "no margin on hardware" in md
++
++
++def test_proposal_carries_the_evidence_disclosure(solved):
++    intake, results = solved
++    md = to_markdown(build_proposal(intake, results, engagement("density_screen")))
++    assert "EVIDENCE DISCLOSURE" in md
++
++
++def test_unknown_engagement_is_refused():
++    with pytest.raises(KeyError, match="unknown engagement"):
++        engagement("free_consulting")
++
++
++# --- one price list, two languages ------------------------------------------
++def _ts_products() -> dict[str, int]:
++    src = (ROOT / "lib" / "products.ts").read_text()
++    out: dict[str, int] = {}
++    for block in re.split(r"\n  (?=\w+: \{)", src):
++        m_id = re.search(r'id:\s*"([a-z_]+)"', block)
++        m_amt = re.search(r"amountCents:\s*([\d_]+)", block)
++        if m_id and m_amt:
++            out[m_id.group(1)] = int(m_amt.group(1).replace("_", ""))
++    return out
++
++
++def test_the_website_and_the_engine_quote_the_same_price():
++    ts = _ts_products()
++    assert ts, "could not parse lib/products.ts — fix the parser before trusting this test"
++    assert ts["density_screen"] == ENGAGEMENTS["density_screen"].price_eur * 100, (
++        "the proposal and the checkout page must never quote different numbers"
++    )
++
++
++def test_deposits_are_smaller_than_the_engagements_they_reserve():
++    ts = _ts_products()
++    assert ts["envelope_study_deposit"] < ENGAGEMENTS["envelope_study"].price_eur * 100
++    assert ts["portfolio_screen_deposit"] < ENGAGEMENTS["portfolio_screen"].price_eur * 100
++
++
++def test_every_engagement_declares_what_it_does_not_do():
++    for eng in ENGAGEMENTS.values():
++        assert eng.scope_out, f"{eng.id} has no scope boundary"
++        assert any("no margin on hardware" in x for x in eng.scope_out)
+-- 
+2.43.0
+
