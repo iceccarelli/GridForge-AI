@@ -1,0 +1,98 @@
+<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Reference Colocation Campus · hall DH-02</title><style>
+*{box-sizing:border-box}
+body{margin:0;background:#070B14;color:#F5F7FA;
+  font:16px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.deck{max-width:1180px;margin:0 auto;padding:24px 20px 96px}
+.slide{background:#0E1524;border:1px solid #1E2942;border-radius:10px;
+  padding:40px 44px;margin-bottom:24px;min-height:560px;display:flex;flex-direction:column;gap:18px}
+.kicker{font:600 11px/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;
+  color:#00E5FF;margin:0}
+h1{font-size:2rem;line-height:1.15;margin:0;font-weight:650;letter-spacing:-.015em;
+  text-wrap:balance;max-width:24ch}
+.slide h2{font-size:1.6rem;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.01em;
+  text-wrap:balance;max-width:32ch}
+.lead{color:#8A94A6;margin:0;max-width:74ch;font-size:1.02rem}
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:4px 0}
+.fig{border:1px solid #1E2942;background:#131C2E;border-radius:8px;padding:16px 18px}
+.fig .k{font:600 10px/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;
+  color:#5A6478}
+.fig .v{font:650 2.1rem/1.1 ui-monospace,monospace;margin-top:8px;color:#F5F7FA;
+  font-variant-numeric:tabular-nums}
+.fig .n{color:#8A94A6;font-size:.85rem;margin-top:6px}
+ul{margin:0;padding-left:1.1rem;max-width:76ch;color:#F5F7FA}
+li{margin-bottom:.5rem}
+.tw{overflow-x:auto;border:1px solid #1E2942;border-radius:8px;background:#131C2E}
+table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}
+th{font:600 10px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;
+  color:#5A6478;text-align:left;padding:10px 14px;border-bottom:1px solid #1E2942;white-space:nowrap}
+td{padding:9px 14px;border-bottom:1px solid #1E2942;color:#8A94A6;vertical-align:top}
+td:nth-child(2){color:#F5F7FA}
+tr:last-child td{border-bottom:none}
+svg{width:100%;height:auto;max-width:100%}
+.note{margin-top:auto;color:#5A6478;font-size:.8rem;border-top:1px solid #1E2942;padding-top:14px}
+.deckhead{padding:44px 44px 8px}
+.deckhead p{color:#8A94A6;margin:.6rem 0 0}
+.count{position:fixed;right:16px;bottom:14px;font:600 11px ui-monospace,monospace;color:#5A6478;
+  background:#0E1524;border:1px solid #1E2942;border-radius:99px;padding:6px 12px}
+@media (max-width:700px){.slide{padding:26px 20px;min-height:0}h1{font-size:1.5rem}
+  .slide h2{font-size:1.25rem}.fig .v{font-size:1.6rem}}
+@media print{
+  body{background:#fff;color:#111}
+  .deck{max-width:none;padding:0}
+  .slide{break-after:page;border:none;border-radius:0;background:#fff;min-height:0;
+    padding:22mm 20mm;page-break-after:always}
+  .slide:last-child{break-after:auto;page-break-after:auto}
+  .kicker{color:#0a6f7f}.lead,.fig .n,td{color:#444}.fig .k,.note{color:#666}
+  .fig,.tw{background:#fff;border-color:#ccc}th,td{border-color:#ddd}
+  .count{display:none}
+  @page{size:A4 landscape;margin:0}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><div class='deck'><section class='slide'><p class='kicker'>Walkthrough</p><h1>How much AI compute can DH-02 carry?</h1><p class='lead'>Capacity and density envelope · target platform NVIDIA GB300 NVL72 · 5 architectures compared</p><p class='lead'>Thirteen constraints across electrical, thermal and physical domains, solved over one model of this hall. The envelope is the minimum; the binding constraint is the one that produced it.</p><p class='note'>Every figure in this deck carries an evidence class and comes from the same solved model as the written study.</p></section><section class='slide'><p class='kicker'>The answer</p><h2>Rack feed / tap-off rating</h2><p class='lead'>platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5).</p><div class='figs'><div class='fig'><div class='k'>Deployable today</div><div class='v'>0</div><div class='n'>racks, as the hall stands</div></div><div class='fig'><div class='k'>After the ladder</div><div class='v'>62</div><div class='n'>racks · Full DLC plus behind-the-meter supply</div></div><div class='fig'><div class='k'>Time to full capacity</div><div class='v'>160</div><div class='n'>weeks · set by transformer capacity</div></div></div><p class='note'>Reference Project (synthetic) · prepared 2026-09-14 · modelled, not measured</p></section><section class='slide'><p class='kicker'>What stops it</p><h2>The headroom ladder</h2><p class='lead'>Each row is what binds next, what moves it, and what that costs.</p><div class='tw'><table><thead><tr><th scope='col'>#</th><th scope='col'>Constraint</th><th scope='col'>Racks</th><th scope='col'>Relief</th><th scope='col'>Capex</th><th scope='col'>Lead time</th></tr></thead><tbody><tr><td>1</td><td>Rack feed / tap-off rating</td><td>0 → 0</td><td>Higher-rated tap-off units (and busway if ampacity does not allo</td><td>6,000 [3,000–12,000] EUR/rack</td><td>24 [12–40] weeks</td></tr><tr><td>2</td><td>Residual air load removal per rack</td><td>0 → 0</td><td>Add in-row cooling or rear-door heat exchangers for the residual</td><td>9,000 [4,500–18,000] EUR/rack</td><td>20 [12–32] weeks</td></tr><tr><td>3</td><td>Achievable facility water temperature</td><td>0 → 8</td><td>Adiabatic assist plus trim chiller on the high-temperature loop</td><td>350,000 [175,000–700,000] EUR</td><td>32 [20–48] weeks</td></tr><tr><td>4</td><td>Transformer capacity</td><td>8 → 8</td><td>Replace / add transformer capacity (uprate ~60%)</td><td>1,200,000 [600,000–2,400,000] EUR</td><td>160 [80–210] weeks</td></tr><tr><td>5</td><td>UPS capacity (protected load)</td><td>8 → 12</td><td>Add UPS modules / new UPS block</td><td>864,000 [422,000–1,820,000] EUR</td><td>30 [20–52] weeks</td></tr><tr><td>6</td><td>Busway ampacity</td><td>12 → 22</td><td>Replace busway with 800-1000 A and new tap-off units</td><td>450,000 [225,000–900,000] EUR</td><td>36 [24–52] weeks</td></tr><tr><td>7</td><td>CDU capacity (derated to site water temperature)</td><td>22 → 25</td><td>Add CDU capacity (one further unit per bank)</td><td>180,000 [90,000–360,000] EUR</td><td>26 [16–40] weeks</td></tr><tr><td>8</td><td>UPS capacity (protected load)</td><td>25 → 28</td><td>Add UPS modules / new UPS block</td><td>864,000 [422,000–1,820,000] EUR</td><td>30 [20–52] weeks</td></tr></tbody></table></div><p class='note'>Reference Project (synthetic) · prepared 2026-09-14 · modelled, not measured</p></section><section class='slide'><p class='kicker'>When</p><h2>Time to power</h2><p class='lead'>Reliefs run in parallel, so the racks unlocked by the first N steps arrive at the longest lead time among them. One item sets the date: transformer capacity.</p><svg viewBox="0 0 900 350" role="img"
+  aria-label="Racks energised against elapsed weeks. 62 racks at week 160.">
+  <style>
+    .ax{fill:#5A6478;font:500 12px ui-monospace,monospace}
+    .lbl{fill:#F5F7FA;font:600 13px ui-monospace,monospace}
+    .lbl.big{font-size:20px} .lbl.dim{fill:#8A94A6;font-weight:500}
+    .cap{fill:#8A94A6;font:500 12px ui-monospace,monospace}
+  </style>
+  <line x1="64" y1="298.0" x2="768" y2="298.0" stroke="#1E2942" stroke-width="1"/><line x1="64" y1="233.5" x2="768" y2="233.5" stroke="#1E2942" stroke-width="1"/><line x1="64" y1="169.0" x2="768" y2="169.0" stroke="#1E2942" stroke-width="1"/><line x1="64" y1="104.5" x2="768" y2="104.5" stroke="#1E2942" stroke-width="1"/><line x1="64" y1="40.0" x2="768" y2="40.0" stroke="#1E2942" stroke-width="1"/>
+  <path d="M 64.0 298.0 H 204.8 V 264.7 H 768.0 V 40.0 L 768.0 298 L 64.0 298 Z" fill="#1193A8" fill-opacity="0.12"/>
+  <path d="M 64.0 298.0 H 204.8 V 264.7 H 768.0 V 40.0" fill="none" stroke="#1193A8" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="204.8" cy="264.7" r="5" fill="#1193A8" stroke="#0E1524" stroke-width="2"><title>8 racks at week 32</title></circle><circle cx="768.0" cy="40.0" r="5" fill="#1193A8" stroke="#0E1524" stroke-width="2"><title>62 racks at week 160</title></circle><text x="54" y="302.0" text-anchor="end" class="ax">0</text><text x="54" y="237.5" text-anchor="end" class="ax">16</text><text x="54" y="173.0" text-anchor="end" class="ax">31</text><text x="54" y="108.5" text-anchor="end" class="ax">46</text><text x="54" y="44.0" text-anchor="end" class="ax">62</text><text x="64.0" y="318.0" text-anchor="middle" class="ax">0</text><text x="240.0" y="318.0" text-anchor="middle" class="ax">40</text><text x="416.0" y="318.0" text-anchor="middle" class="ax">80</text><text x="592.0" y="318.0" text-anchor="middle" class="ax">120</text><text x="768.0" y="318.0" text-anchor="middle" class="ax">160</text><text x="216.8" y="252.7" class="lbl">8 racks · week 32</text><text x="782.0" y="44.0" class="lbl big">62 racks</text><text x="782.0" y="64.0" class="lbl dim">week 160</text>
+  <text x="64" y="342" class="cap">elapsed weeks — reliefs run in parallel</text>
+  <text x="10" y="16" class="cap">racks energised</text>
+</svg><p class='note'>Capacity arrives in steps, not continuously — each step is a constraint relieved.</p></section><section class='slide'><p class='kicker'>Architecture</p><h2>The same connection, more compute</h2><p class='lead'>Every kilowatt the cooling architecture consumes is a kilowatt of contracted capacity that cannot be sold as compute.</p><svg viewBox="0 0 900 252" role="img"
+  aria-label="Deployable racks by cooling architecture after the headroom ladder.">
+  <style>
+    .cat{fill:#8A94A6;font:500 13px ui-monospace,monospace}
+    .val{fill:#F5F7FA;font:600 15px ui-monospace,monospace}
+  </style>
+  <text x="356" y="34" text-anchor="end" class="cat">Retained air, grid only</text><rect x="372" y="12" width="2.0" height="34" rx="4" fill="#1193A8"><title>Retained air, grid only: 0 racks</title></rect><text x="386.0" y="34" class="val">0</text><text x="356" y="82" text-anchor="end" class="cat">Rear-door heat exchangers, grid only</text><rect x="372" y="60" width="2.0" height="34" rx="4" fill="#1193A8"><title>Rear-door heat exchangers, grid only: 0 racks</title></rect><text x="386.0" y="82" class="val">0</text><text x="356" y="130" text-anchor="end" class="cat">Hybrid DLC on retained plant, grid only</text><rect x="372" y="108" width="176.1" height="34" rx="4" fill="#1193A8"><title>Hybrid DLC on retained plant, grid only: 26 racks</title></rect><text x="560.1" y="130" class="val">26</text><text x="356" y="178" text-anchor="end" class="cat">Full DLC, grid only</text><rect x="372" y="156" width="189.7" height="34" rx="4" fill="#1193A8"><title>Full DLC, grid only: 28 racks</title></rect><text x="573.7" y="178" class="val">28</text><text x="356" y="226" text-anchor="end" class="cat">Full DLC plus behind-the-meter supply</text><rect x="372" y="204" width="420.0" height="34" rx="4" fill="#1193A8"><title>Full DLC plus behind-the-meter supply: 62 racks</title></rect><text x="804.0" y="226" class="val">62</text>
+</svg><p class='note'>Reference Project (synthetic) · prepared 2026-09-14 · modelled, not measured</p></section><section class='slide'><p class='kicker'>Cost</p><h2>What it takes, and how well we know it</h2><p class='lead'>8 of 8 priced lines are library placeholders rather than quotations. That is why the accuracy class reads as it does — it follows the weakest line, not the average.</p><div class='figs'><div class='fig'><div class='k'>Indicative capex</div><div class='v'>18,400,000 EUR</div></div><div class='fig'><div class='k'>Per kW of IT</div><div class='v'>2,200 EUR/kW</div></div><div class='fig'><div class='k'>Accuracy class</div><div class='v'>Class 5 (order of magnitude)</div><div class='n'> -50% / +100%</div></div></div><p class='note'>Excludes IT hardware, migration and lost tenancy revenue.</p></section><section class='slide'><p class='kicker'>Evidence</p><h2>What nobody has measured yet</h2><p class='lead'>Every input below the headline was supplied rather than assumed.</p><p class='note'>Reference Project (synthetic) · prepared 2026-09-14 · modelled, not measured</p></section><section class='slide'><p class='kicker'>Recommendation</p><h2>Full DLC plus behind-the-meter supply</h2><p class='lead'>The same hall with on-site firm supply where the grid connection binds. The only scenario whose capacity is set by what can be built rather than by the queue.</p><ul><li>Get the DSO position in writing on firm capacity and any flexibility product. It costs nothing but time and it can end the question.</li><li>Commission a structural assessment of the floor and a hydraulic model of the secondary loop. Both are cheap relative to the decision and both can invalidate it.</li><li>Place long-lead orders only after those clear — lead time, not construction, governs the programme.</li><li>Instrument the hall and reconcile this model against twelve months of measured data before phase two. That is what moves these numbers from estimated to field-validated.</li></ul><p class='note'>Reference Project (synthetic) · prepared 2026-09-14 · modelled, not measured</p></section><section class='slide'><p class='kicker'>Boundary</p><h2>What this is, and what it is not</h2><ul><li>An engineering opinion supported by a documented model. Not a design package, and it confers no design liability.</li><li>No stamped drawings, no CFD of this hall, no equipment selection or bill of materials.</li><li>The floor-loading check is a screening calculation; a structural engineer must sign it off.</li><li>We quote no equipment and take no margin on hardware. Nothing here routes you to a supplier we are paid by.</li></ul><p class='note'>Nothing in this deck is a measurement of this asset unless it is labelled E5 or above.</p></section></div><div class='count' id='count'>1 / 9</div><script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var counter = document.getElementById('count');
+  function current(){
+    var best = 0, bestTop = Infinity;
+    slides.forEach(function(s, i){
+      var top = Math.abs(s.getBoundingClientRect().top);
+      if (top < bestTop) { bestTop = top; best = i; }
+    });
+    return best;
+  }
+  function show(i){
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    slides[i].scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+  function paint(){ if (counter) counter.textContent = (current() + 1) + ' / ' + slides.length; }
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); show(current() + 1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'PageUp')   { e.preventDefault(); show(current() - 1); }
+    if (e.key === 'Home') { e.preventDefault(); show(0); }
+    if (e.key === 'End')  { e.preventDefault(); show(slides.length - 1); }
+  });
+  window.addEventListener('scroll', paint, {passive: true});
+  paint();
+})();
+</script></body></html>

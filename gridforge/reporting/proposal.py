@@ -10,7 +10,9 @@ contain a finding, because producing the finding is the engagement.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
+
+from ..clock import report_date
 
 from ..commercial import Engagement
 from ..common import ASSUMED, ESTIMATED, V
@@ -30,7 +32,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     rec = _pick_recommended(results, objective)
     t = schedule(rec.ladder)
     plat = ctx.cluster.platform
-    today = date.today()
+    today = report_date()
     valid_to = today + timedelta(days=valid_days)
 
     r = Report(

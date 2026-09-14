@@ -1,0 +1,78 @@
+path,value,source
+btm_options[0].capacity_MW,2.0,client
+btm_options[0].capex_eur_per_kW,900,client
+btm_options[0].firm,True,client
+btm_options[0].firm_capacity_factor,0.5,client
+btm_options[0].id,BESS-2MW-8MWh,client
+btm_options[0].kind,bess,client
+btm_options[0].lead_time_weeks,30,client
+btm_options[0].permitting_note,No combustion consent required; grid-code compliance and fire separation govern the programme.,client
+btm_options[1].capacity_MW,5.0,client
+btm_options[1].capex_eur_per_kW,800,client
+btm_options[1].firm,True,client
+btm_options[1].id,GEN-5MW,client
+btm_options[1].kind,gas_engine,client
+btm_options[1].lead_time_weeks,44,client
+btm_options[1].opex_eur_per_MWh,95,client
+btm_options[1].permitting_note,"Emissions consent and fuel supply are the schedule risk, not the equipment.",client
+compute.default_architecture,hybrid_dlc,client
+compute.platform,gb300_nvl72,client
+compute.utilisation,0.75,client
+grid.contracted_MW,12.0,client
+grid.current_it_load_MW,4.9,client
+grid.current_site_peak_MW,7.4,client
+grid.dso,Reference DSO,client
+grid.firm_capacity_MVA,14.0,client
+grid.power_factor,0.97,client
+grid.queue_note,"No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.",client
+hall.aisle_pitch_m,2.4,client
+hall.build_year,2015,client
+hall.clear_height_m,3.2,client
+hall.containment,cold_aisle,client
+hall.design_density_kW_per_rack,8,client
+hall.floor_loading_kPa,12,client
+hall.floor_type,raised_floor,client
+hall.id,DH-02,client
+hall.net_white_space_m2,2400,client
+hall.positions_available,180,client
+hall.rack_positions,560,client
+lv.busway_ampacity_A,400,client
+lv.busway_runs,8,client
+lv.busway_utilisation_limit,0.8,client
+lv.phases,3,client
+lv.tapoff_max_A,63,client
+lv.voltage_V,400,client
+project.client,Reference Project (synthetic),client
+project.note,SYNTHETIC REFERENCE DATA — not a customer asset. Used to demonstrate the deliverable.,client
+project.objective,max_compute,client
+project.reference,REF-EU-01/DH-02,client
+scenarios[0],retained_air,client
+scenarios[1],rdhx,client
+scenarios[2],hybrid_dlc,client
+scenarios[3],full_dlc,client
+scenarios[4],full_dlc_btm,client
+site.country,DE,client
+site.design_drybulb_C,34,client
+site.design_wetbulb_C,21,client
+site.id,REF-EU-01,client
+site.metro,Frankfurt,client
+site.name,Reference Colocation Campus,client
+thermal.plant.available_head_kPa,250,client
+thermal.plant.chilled_water_capacity_kW,6800,client
+thermal.plant.design_return_C,12,client
+thermal.plant.design_supply_C,6,client
+thermal.plant.free_cooling_hours_per_year,2600,client
+thermal.plant.id,CH-PLANT,client
+thermal.plant.pump_flow_capacity_l_per_min,9000,client
+thermal.residual_air_capacity_kW_per_rack,9,client
+transformers[0].derating_factor,0.9,client
+transformers[0].id,TX-A/B,client
+transformers[0].redundancy,N+1,client
+transformers[0].replacement_lead_time_weeks,160,client
+transformers[0].unit_rating_MVA,5.0,client
+transformers[0].units,3,client
+ups[0].id,UPS-1,client
+ups[0].redundancy,N+1,client
+ups[0].step_load_capability,0.5,client
+ups[0].unit_rating_kW,1200,client
+ups[0].units,6,client

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import html
-from datetime import date
+from ..clock import report_date_iso
 
 from ..validation import Quantity
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
@@ -44,8 +44,12 @@ def to_markdown(r: Report) -> str:
                     out += ["", f"*{b.caption}*"]
                 out.append("")
     out += _appendix_md(r)
+    # An engineering document without a date is not an engineering document, and
+    # the markdown is the copy that gets pasted into the client's own files.
+    out += ["---", ""]
     if r.footer:
-        out += ["---", "", r.footer]
+        out += [r.footer, ""]
+    out += [f"Generated {report_date_iso()} by the GridForge-AI envelope engine.", ""]
     return "\n".join(out)
 
 
@@ -215,7 +219,7 @@ def to_html(r: Report, *, full_document: bool = True) -> str:
             elif isinstance(b, Table):
                 parts.append(_table_html(b))
     parts.append(_appendix_html(r))
-    parts.append(f"<div class='foot'>{e(r.footer)}<br>Generated {date.today().isoformat()} "
+    parts.append(f"<div class='foot'>{e(r.footer)}<br>Generated {report_date_iso()} "
                  f"by the GridForge-AI envelope engine.</div></div>")
     if full_document:
         parts.append("</body></html>")

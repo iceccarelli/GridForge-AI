@@ -82,6 +82,55 @@ jobs:
             /tmp/portfolio
             /tmp/blank_out
 
+  reference:
+    runs-on: ubuntu-latest
+    # The worked example at /reference is the deliverable a prospect reads before
+    # they pay. If it drifts from the engine, we are showing a promise we no
+    # longer keep. Regenerate it here and fail on any byte of difference.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Regenerate the published worked example
+        run: bash scripts/build-reference.sh
+      - name: The committed worked example must match a fresh run
+        run: |
+          git diff --stat -- public/reference
+          git diff --exit-code -- public/reference || {
+            echo ""
+            echo "public/reference is stale. Run: bash scripts/build-reference.sh && git add public/reference"
+            exit 1
+          }
+          test -z "$(git status --porcelain -- public/reference)" || {
+            git status --porcelain -- public/reference
+            echo "the build produced files that are not committed"
+            exit 1
+          }
+      - name: The working files must carry a checkable provenance chain
+        run: |
+          python -c "
+          import csv, pathlib
+          d = pathlib.Path('public/reference/working_files')
+          for name in ['scenarios.csv','headroom_ladder.csv','constraints.csv','inputs.csv','assumed_inputs.csv','provenance.csv','README.txt']:
+              assert (d/name).exists(), name
+          rows = list(csv.DictReader(open(d/'provenance.csv')))
+          assert len(rows) > 20, len(rows)
+          assert all(r['digest'] for r in rows), 'a quantity with no digest'
+          derived = [r for r in rows if r['derived_from']]
+          assert derived, 'nothing derived — the chain is flat'
+          print('provenance ok:', len(rows), 'quantities,', len(derived), 'derived')
+          "
+      - name: The published pack must declare itself synthetic
+        run: |
+          python -c "
+          import json
+          d = json.load(open('public/reference/model_pack.json'))
+          assert d['synthetic'] is True
+          assert 'not a customer asset' in d['notice']
+          print('notice ok')
+          "
+
   api:
     runs-on: ubuntu-latest
     steps:

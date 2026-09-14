@@ -28,6 +28,14 @@ export default function QualifyPage() {
 
       <CapacityQualifier />
 
+      <p className="mt-6 text-sm text-mute">
+        Want to see what the paid study looks like before you ask?{" "}
+        <a href="/reference" className="text-power hover:underline">
+          Read one in full
+        </a>{" "}
+        — the whole document, the deck, and the tables behind every number.
+      </p>
+
       <section className="mt-12 panel p-6 sm:p-8">
         <BindingConstraintInsights />
       </section>

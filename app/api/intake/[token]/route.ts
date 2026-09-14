@@ -79,6 +79,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     document_html: rendered.html,
     document_md: rendered.md,
     ...(rendered.deck ? { deck_html: rendered.deck } : {}),
+    ...(rendered.working ? { working_files: rendered.working } : {}),
   });
 
   return NextResponse.json({

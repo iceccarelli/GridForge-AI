@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><link rel='preconnect' href='https://fonts.gstatic.com' crossorigin><link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap'><title>Proposal — Density Screen, Reference Colocation Campus hall DH-02</title><style>
+:root{
+  --paper:#eef1f3; --surface:#ffffff; --ink:#15191d; --muted:#5b636b;
+  --line:#d3dadf; --rule:#b9c3ca;
+  --accent:#14606f; --accent-soft:#e2edef;
+  --critical:#8f2d2d; --critical-soft:#f7e9e8;
+  --caution:#7d6111; --caution-soft:#f7f0dc;
+  --ok:#2b6144; --ok-soft:#e5f0e9;
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
+  --line:#2c343a; --rule:#3c464e;
+  --accent:#5fb3c4; --accent-soft:#17313a;
+  --critical:#e08b8b; --critical-soft:#2e1e1e;
+  --caution:#d6b45e; --caution-soft:#2c2617;
+  --ok:#7dc3a0; --ok-soft:#1a2b23;
+}}
+:root[data-theme="dark"]{
+  --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
+  --line:#2c343a; --rule:#3c464e;
+  --accent:#5fb3c4; --accent-soft:#17313a;
+  --critical:#e08b8b; --critical-soft:#2e1e1e;
+  --caution:#d6b45e; --caution-soft:#2c2617;
+  --ok:#7dc3a0; --ok-soft:#1a2b23;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:68rem;margin:0 auto;padding-block:2rem 5rem;padding-left:1.25rem;
+  padding-right:1.25rem;display:flex;flex-direction:column;gap:0}
+/* title block - the convention a drawing uses to identify itself */
+.titleblock{background:var(--surface);border:1px solid var(--rule);margin-bottom:2.25rem}
+.titleblock h1{margin:0;padding:1.25rem 1.4rem .5rem;font-size:1.65rem;line-height:1.18;
+  font-weight:600;letter-spacing:-.015em;text-wrap:balance}
+.titleblock .sub{margin:0;padding:0 1.4rem 1.1rem;color:var(--muted);font-size:.9rem}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
+  border-top:1px solid var(--line)}
+.meta div{padding:.6rem 1.4rem;border-right:1px solid var(--line)}
+.meta div:last-child{border-right:none}
+.meta dt{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--muted);margin:0 0 .15rem}
+.meta dd{margin:0;font-size:.86rem;font-weight:500}
+.status{display:inline-block;font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;
+  text-transform:uppercase;padding:.22rem .5rem;border:1px solid var(--caution);
+  color:var(--caution);background:var(--caution-soft)}
+h2{font-size:1.08rem;font-weight:600;letter-spacing:.005em;margin:2.6rem 0 .9rem;
+  padding-bottom:.4rem;border-bottom:2px solid var(--rule);text-wrap:balance}
+h3{font-size:.95rem;font-weight:600;margin:1.6rem 0 .5rem}
+p{margin:0 0 .9rem;max-width:66ch}
+ul{margin:0 0 1rem;padding-left:1.15rem;max-width:66ch}
+li{margin-bottom:.3rem}
+/* instrument readout */
+.stmt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.35rem 1.5rem;
+  align-items:baseline;background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--accent);padding:.75rem 1rem;margin:0 0 .5rem}
+.stmt b{grid-column:1;font-size:.72rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted);font-family:var(--mono)}
+.stmt .v{grid-column:2;grid-row:1/3;font-family:var(--mono);font-size:1.3rem;
+  font-weight:500;font-variant-numeric:tabular-nums;text-align:right;color:var(--accent)}
+.stmt .basis{grid-column:1;font-size:.84rem;color:var(--muted);font-family:var(--serif);
+  font-style:italic}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface);
+  margin:.4rem 0 .6rem}
+table{border-collapse:collapse;width:100%;font-size:.84rem;font-variant-numeric:tabular-nums}
+th,td{padding:.48rem .7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;
+  font-weight:600;color:var(--muted);border-bottom:2px solid var(--rule);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{font-weight:500}
+caption,.cap{caption-side:bottom;text-align:left;color:var(--muted);font-size:.82rem;
+  font-family:var(--serif);font-style:italic;margin:0 0 1.2rem}
+.callout{padding:.75rem .95rem;margin:.5rem 0 1rem;border:1px solid var(--line);
+  background:var(--surface);font-size:.9rem;max-width:70ch}
+.callout::before{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.09em;
+  text-transform:uppercase;margin-bottom:.3rem}
+.callout.answer{border-left:3px solid var(--ok);background:var(--ok-soft);color:var(--ink)}
+.callout.answer::before{content:"Recommendation";color:var(--ok)}
+.callout.warning{border-left:3px solid var(--critical);background:var(--critical-soft)}
+.callout.warning::before{content:"Caution";color:var(--critical)}
+.callout.note{border-left:3px solid var(--accent);background:var(--accent-soft)}
+.callout.note::before{content:"Note";color:var(--accent)}
+code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:.05rem .3rem}
+.foot{color:var(--muted);font-size:.82rem;margin-top:3rem;border-top:1px solid var(--rule);
+  padding-top:.9rem;font-family:var(--mono)}
+@media (max-width:560px){
+  .titleblock h1{font-size:1.3rem}
+  .stmt{grid-template-columns:1fr}
+  .stmt .v{grid-column:1;grid-row:auto;text-align:left}
+  .meta div{border-right:none;border-bottom:1px solid var(--line)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><div class='wrap'><header class='titleblock'><h1>Proposal — Density Screen, Reference Colocation Campus hall DH-02</h1><p class='sub'>Reference Project (synthetic) · prepared 2026-09-14 · valid to 2026-10-14 · target platform NVIDIA GB300 NVL72</p><dl class='meta'><div><dt>Client</dt><dd>Reference Project (synthetic)</dd></div><div><dt>Site</dt><dd>Reference Colocation Campus</dd></div><div><dt>Hall</dt><dd>DH-02</dd></div><div><dt>Engagement</dt><dd>Density Screen</dd></div><div><dt>Fee</dt><dd>EUR 4,500</dd></div><div><dt>Turnaround</dt><dd>5 working days</dd></div></dl></header><div class='callout warning'>The findings below are a screening read produced before this engagement begins. They are modelled from the inputs supplied, not measured at the site.</div><h2>1. What we already found</h2><p>We ran your hall through the capacity engine before writing this. The following is not a claim about what we might do; it is what the constraint set already says, on the inputs you supplied.</p><div class='stmt'><b>Deployable NVIDIA GB300 NVL72 racks as the hall stands</b><div class='v'>0 racks (E3)</div><div class='basis'>Limited by: platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5)</div></div><div class='stmt'><b>Deployable after the costed ladder</b><div class='v'>62 racks (E3)</div><div class='basis'>Limited by: Full DLC plus behind-the-meter supply</div></div><div class='stmt'><b>Time to full capacity</b><div class='v'>160 [112–256] weeks (E3)</div><div class='basis'>Limited by: set by transformer capacity</div></div><div class='callout answer'>Binding constraint: Rack feed / tap-off rating (electrical). platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5).</div><div class='callout warning'>On these inputs the hall cannot host a single rack of the target platform today. That is a finding, not a sales problem — and a credible &#x27;not without these three things&#x27; is worth the fee on its own.</div><h2>2. What this engagement answers</h2><p>What stops this hall first, and how far can it go?</p><p>You receive: Density Screen document (HTML and Markdown), the first six rungs of the headroom ladder, and a data request you can hand your own engineers verbatim.</p><ul><li>The binding constraint as the hall stands, with the basis stated in engineering units.</li><li>Deployable racks of your target platform, as found and after the costed ladder.</li><li>The item that sets the date.</li><li>Every cooling architecture screened against the same constraint set.</li><li>The list of inputs still assumed, each with why it binds and where to get it.</li></ul><h2>3. What we need from you</h2><p>Intake is complete. Nothing further is required to begin; the clock starts on commissioning.</p><h2>4. Fee, timing and terms</h2><div class='tablewrap'><table><thead><tr><th scope='col'>Item</th><th scope='col'>Terms</th></tr></thead><tbody><tr><td>Fee</td><td>EUR 4,500, fixed</td></tr><tr><td>Turnaround</td><td>5 working days from a complete intake</td></tr><tr><td>Payment</td><td>100% on commissioning. The engagement opens when payment clears.</td></tr><tr><td>Credit</td><td>Credits in full against the envelope study.</td></tr><tr><td>Validity</td><td>This proposal is valid to 2026-10-14.</td></tr><tr><td>Independence</td><td>We quote no equipment and take no margin on hardware. Nothing in the deliverable routes you to a supplier we are paid by.</td></tr></tbody></table></div><p class='cap'>Fixed fee. We do not bill hours, because you are buying an answer.</p><div class='stmt'><b>Fee</b><div class='v'>4,500 EUR (E3)</div><div class='basis'>Limited by: 5 working days from a complete intake</div></div><h2>5. What is outside scope</h2><p>This is an engineering opinion supported by a documented model. It is not a design package and confers no design liability. Specifically outside scope:</p><ul><li>Stamped design drawings, or any deliverable requiring a professional engineering signature.</li><li>CFD of the hall — available as a priced add-on or a later phase.</li><li>Equipment selection, bill of materials, pricing or procurement. We quote no equipment and take no margin on hardware.</li><li>Structural sign-off. Our floor-loading check is a screening calculation only.</li><li>Electrical protection and arc-flash studies.</li><li>Commissioning, migration planning and tenancy strategy.</li></ul><h2>6. How the answer is produced</h2><ul><li>Thirteen independent constraints across electrical, thermal and physical domains are evaluated over one model of your hall. The envelope is the minimum; the binding constraint is the one that produced it.</li><li>Each constraint reports what relieves it, what that costs and how long it takes, so the answer is an ordered ladder rather than a single number.</li><li>Every quantity carries an evidence class. A number you supply is your measured data; a number we fall back to is an assumption and is labelled as one. A model applied to measured data stays a model.</li><li>The document cannot assert measurement over a modelled quantity — that check runs automatically before anything is released.</li><li>You receive the model, not just the conclusion, so you can re-run it when your inputs change.</li></ul><h2>7. To proceed</h2><p>Commission the engagement and you will receive an intake link for the hall&#x27;s numbers. The clock starts when the intake is complete, not when payment clears.</p><div class='callout note'>Before you spend anything with us: get the DSO position in writing on firm capacity and any flexibility product. It costs nothing but time, and on some sites it ends the question entirely. We would rather tell you that now than bill you to discover it.</div><div class='callout warning'>EVIDENCE DISCLOSURE: the findings in section 1 are a screening read built partly on library defaults. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. They are sufficient to decide whether this engagement is worth commissioning, and not sufficient to support procurement, construction or an investment committee decision. Closing the gaps in section 3 is what changes that.</div><h2>Appendix A — Assumptions, provenance and validation status</h2><p>Every number in this report carries an evidence class. The class of a computed number is never higher than the weakest of its inputs, so a model applied to measured data yields a modelled number and never a measurement.</p><div class='tablewrap'><table><thead><tr><th scope='col'>Class</th><th scope='col'>Meaning</th></tr></thead><tbody><tr><td>E0</td><td>assumed</td></tr><tr><td>E1</td><td>modelled</td></tr><tr><td>E2</td><td>simulated</td></tr><tr><td>E3</td><td>estimated</td></tr><tr><td>E4</td><td>validated against test data</td></tr><tr><td>E5</td><td>measured at site (customer data)</td></tr><tr><td>E6</td><td>field-validated</td></tr><tr><td>E7</td><td>observed in operation</td></tr></tbody></table></div><h3>A.1 Assumptions relied upon</h3><ul></ul><h3>A.2 Sources</h3><ul></ul><h3>A.3 Provenance of headline quantities</h3><div class='tablewrap'><table><thead><tr><th scope='col'>Quantity</th><th scope='col'>Evidence</th><th scope='col'>Model</th><th scope='col'>Digest</th></tr></thead><tbody><tr><td>deployable racks as found</td><td>E3</td><td>input</td><td><code>37ccfd2a8602</code></td></tr><tr><td>deployable racks after relief</td><td>E3</td><td>input</td><td><code>5bb5a58337e6</code></td></tr><tr><td>elapsed weeks to full energisation</td><td>E3</td><td>input</td><td><code>85cf5cf7107b</code></td></tr><tr><td>Density Screen fixed fee</td><td>E3</td><td>input</td><td><code>7ca2ecfa0a05</code></td></tr></tbody></table></div><div class='foot'>GridForge AI — independent power and thermal engineering. We quote no equipment and take no margin on hardware.<br>Generated 2026-09-14 by the GridForge-AI envelope engine.</div></div></body></html>

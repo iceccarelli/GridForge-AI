@@ -1,0 +1,3882 @@
+{
+  "schema": "gridforge/model-pack/1",
+  "generated": "2026-09-14",
+  "project": {
+    "client": "Reference Project (synthetic)",
+    "reference": "REF-EU-01/DH-02",
+    "objective": "max_compute",
+    "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
+  },
+  "intake": {
+    "document": {
+      "project": {
+        "client": "Reference Project (synthetic)",
+        "reference": "REF-EU-01/DH-02",
+        "objective": "max_compute",
+        "note": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Used to demonstrate the deliverable."
+      },
+      "site": {
+        "id": "REF-EU-01",
+        "name": "Reference Colocation Campus",
+        "country": "DE",
+        "metro": "Frankfurt",
+        "design_drybulb_C": 34,
+        "design_wetbulb_C": 21
+      },
+      "hall": {
+        "id": "DH-02",
+        "build_year": 2015,
+        "floor_type": "raised_floor",
+        "net_white_space_m2": 2400,
+        "floor_loading_kPa": {
+          "value": 12,
+          "note": "Design value from the building record, not a survey"
+        },
+        "clear_height_m": 3.2,
+        "aisle_pitch_m": 2.4,
+        "rack_positions": 560,
+        "positions_available": 180,
+        "design_density_kW_per_rack": 8,
+        "containment": "cold_aisle"
+      },
+      "grid": {
+        "dso": "Reference DSO",
+        "firm_capacity_MVA": 14.0,
+        "power_factor": 0.97,
+        "contracted_MW": 12.0,
+        "current_site_peak_MW": {
+          "value": 7.4,
+          "note": "12 months of half-hourly metered data"
+        },
+        "current_it_load_MW": 4.9,
+        "queue_note": "No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it."
+      },
+      "transformers": [
+        {
+          "id": "TX-A/B",
+          "unit_rating_MVA": 5.0,
+          "units": 3,
+          "redundancy": "N+1",
+          "derating_factor": 0.9,
+          "replacement_lead_time_weeks": 160
+        }
+      ],
+      "ups": [
+        {
+          "id": "UPS-1",
+          "unit_rating_kW": 1200,
+          "units": 6,
+          "redundancy": "N+1",
+          "step_load_capability": 0.5
+        }
+      ],
+      "lv": {
+        "voltage_V": 400,
+        "phases": 3,
+        "busway_ampacity_A": {
+          "value": 400,
+          "note": "Legacy 400 A busway; modern AI halls use 800-1000 A"
+        },
+        "busway_runs": 8,
+        "busway_utilisation_limit": 0.8,
+        "tapoff_max_A": 63
+      },
+      "thermal": {
+        "plant": {
+          "id": "CH-PLANT",
+          "chilled_water_capacity_kW": 6800,
+          "design_supply_C": {
+            "value": 6,
+            "note": "Legacy low-temperature plant"
+          },
+          "design_return_C": 12,
+          "pump_flow_capacity_l_per_min": 9000,
+          "available_head_kPa": 250,
+          "free_cooling_hours_per_year": 2600
+        },
+        "residual_air_capacity_kW_per_rack": {
+          "value": 9,
+          "evidence": "E3",
+          "note": "Derived from hall design density and containment; confirm by measurement"
+        },
+        "cdus": []
+      },
+      "compute": {
+        "platform": "gb300_nvl72",
+        "utilisation": 0.75,
+        "default_architecture": "hybrid_dlc"
+      },
+      "btm_options": [
+        {
+          "id": "BESS-2MW-8MWh",
+          "kind": "bess",
+          "capacity_MW": 2.0,
+          "capex_eur_per_kW": 900,
+          "lead_time_weeks": 30,
+          "firm": true,
+          "firm_capacity_factor": 0.5,
+          "permitting_note": "No combustion consent required; grid-code compliance and fire separation govern the programme."
+        },
+        {
+          "id": "GEN-5MW",
+          "kind": "gas_engine",
+          "capacity_MW": 5.0,
+          "capex_eur_per_kW": 800,
+          "lead_time_weeks": 44,
+          "firm": true,
+          "opex_eur_per_MWh": 95,
+          "permitting_note": "Emissions consent and fuel supply are the schedule risk, not the equipment."
+        }
+      ],
+      "scenarios": [
+        "retained_air",
+        "rdhx",
+        "hybrid_dlc",
+        "full_dlc",
+        "full_dlc_btm"
+      ]
+    },
+    "completeness": 1.0,
+    "can_issue": true,
+    "supplied": [
+      "compute.platform",
+      "grid.contracted_MW",
+      "grid.current_it_load_MW",
+      "grid.current_site_peak_MW",
+      "grid.firm_capacity_MVA",
+      "hall.floor_loading_kPa",
+      "hall.positions_available",
+      "lv.busway_ampacity_A",
+      "lv.tapoff_max_A",
+      "site.design_drybulb_C",
+      "thermal.plant.chilled_water_capacity_kW",
+      "thermal.plant.design_supply_C",
+      "thermal.plant.pump_flow_capacity_l_per_min",
+      "thermal.residual_air_capacity_kW_per_rack",
+      "transformers",
+      "ups"
+    ],
+    "gaps": [],
+    "warnings": [],
+    "engagement_recommendation": "Complete intake. This supports a full Capacity & Density Envelope Study with site-specific conclusions."
+  },
+  "scenarios": [
+    {
+      "id": "retained_air",
+      "name": "Retained air, grid only",
+      "architecture": "retained_air",
+      "rationale": "Counterfactual: change nothing about the cooling architecture.",
+      "as_found": {
+        "racks": 0,
+        "binding": "rack_feed_tapoff",
+        "binding_name": "Rack feed / tap-off rating",
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+      },
+      "after_ladder": {
+        "racks": 0,
+        "binding": "architecture_capability",
+        "it_load_kW": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "deployable IT load",
+          "model": "envelope.it_load@0.1",
+          "digest": "a4e3fd845acb"
+        },
+        "gpus": 0
+      },
+      "ladder": [
+        {
+          "step": 1,
+          "constraint": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "domain": "electrical",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+          "capex_eur": {
+            "value": 6000.0,
+            "low": 3000.0,
+            "high": 12000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "bac2079ddc64"
+          },
+          "lead_time_weeks": {
+            "value": 24,
+            "low": 12,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "tap-off lead time",
+            "model": "input@0.1",
+            "digest": "7a5fc57ce1e4"
+          },
+          "risk": ""
+        }
+      ],
+      "time_to_power": {
+        "weeks_to_first_rack": null,
+        "weeks_to_full": null,
+        "sets_the_date": "Rack feed / tap-off rating",
+        "curve": []
+      },
+      "economics": {
+        "capex_total_eur": {
+          "value": 6000.0,
+          "low": 3000.0,
+          "high": 12000.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "total capex",
+          "model": "economics.total_capex@0.1",
+          "digest": "698a41adaa1e"
+        },
+        "capex_per_kW_it": {
+          "value": 0,
+          "low": 0,
+          "high": 0,
+          "unit": "EUR/kW",
+          "evidence": "E1_MODEL",
+          "label": "capex per kW (no deployable load)",
+          "model": "input@0.1",
+          "digest": "fa43210b5cde"
+        },
+        "annual_energy_cost_eur": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual energy cost",
+          "model": "economics.energy_cost@0.1",
+          "digest": "8c2b146e0f84"
+        },
+        "energy_cost_per_gpu_hour_eur": {
+          "value": 0,
+          "low": 0,
+          "high": 0,
+          "unit": "EUR/gpu*h",
+          "evidence": "E1_MODEL",
+          "label": "energy cost per GPU-hour (no GPUs deployable)",
+          "model": "input@0.1",
+          "digest": "fe231166c354"
+        },
+        "critical_path_weeks": 24,
+        "basis": "Class 5 (order of magnitude): -50% / +100%"
+      },
+      "constraints": [
+        {
+          "id": "rack_feed_tapoff",
+          "domain": "electrical",
+          "name": "Rack feed / tap-off rating",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "relief": {
+            "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+            "capex_eur": {
+              "value": 6000,
+              "low": 3000.0,
+              "high": 12000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off unit and rack feed",
+              "model": "input@0.1",
+              "digest": "a4d0a1c316ef"
+            },
+            "lead_time_weeks": {
+              "value": 24,
+              "low": 12,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off lead time",
+              "model": "input@0.1",
+              "digest": "7a5fc57ce1e4"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "architecture_capability",
+          "domain": "thermal",
+          "name": "Cooling architecture per-rack capability",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "retained_air is practically capable of 22 [15\u201325] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "relief": null
+        },
+        {
+          "id": "residual_air_removal",
+          "domain": "thermal",
+          "name": "Residual air load removal per rack",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "135 [132\u2013142] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "relief": {
+            "description": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+            "capex_eur": {
+              "value": 9000,
+              "low": 4500.0,
+              "high": 18000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row cooling or rear-door heat exchanger, installed",
+              "model": "input@0.1",
+              "digest": "0a4be3458324"
+            },
+            "lead_time_weeks": {
+              "value": 20,
+              "low": 12,
+              "high": 32,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row / RDHx lead time",
+              "model": "input@0.1",
+              "digest": "fe48412ff79a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "transformer_capacity",
+          "domain": "electrical",
+          "name": "Transformer capacity",
+          "gate": false,
+          "racks_permitted": 6,
+          "basis": "1,330 [845\u20131,810] kW (E3) usable after redundancy and derating",
+          "relief": {
+            "description": "Replace / add transformer capacity (uprate ~60%)",
+            "capex_eur": {
+              "value": 1200000,
+              "low": 600000.0,
+              "high": 2400000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "transformer and switchgear replacement",
+              "model": "input@0.1",
+              "digest": "b8816fd15315"
+            },
+            "lead_time_weeks": {
+              "value": 160.0,
+              "low": 80,
+              "high": 210,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "power transformer lead time",
+              "model": "input@0.1",
+              "digest": "010015f8a59e"
+            },
+            "risk": "Lead time, not construction, is usually the schedule driver."
+          }
+        },
+        {
+          "id": "ups_capacity",
+          "domain": "electrical",
+          "name": "UPS capacity (protected load)",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "relief": {
+            "description": "Add UPS modules / new UPS block",
+            "capex_eur": {
+              "value": 864000.0,
+              "low": 422400.0,
+              "high": 1817600.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS module addition capex",
+              "model": "power.ups_relief_capex@0.1",
+              "digest": "1423200e04d9"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 20,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS lead time",
+              "model": "input@0.1",
+              "digest": "843c6ad78c29"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "busway_ampacity",
+          "domain": "electrical",
+          "name": "Busway ampacity",
+          "gate": false,
+          "racks_permitted": 12,
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "relief": {
+            "description": "Replace busway with 800-1000 A and new tap-off units",
+            "capex_eur": {
+              "value": 450000,
+              "low": 225000.0,
+              "high": 900000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway replacement for one hall",
+              "model": "input@0.1",
+              "digest": "74129e356449"
+            },
+            "lead_time_weeks": {
+              "value": 36,
+              "low": 24,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway and tap-off lead time",
+              "model": "input@0.1",
+              "digest": "74ff17170551"
+            },
+            "risk": "Requires hall outage or phased de-tenanting."
+          }
+        },
+        {
+          "id": "grid_firm_capacity",
+          "domain": "electrical",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "gate": false,
+          "racks_permitted": 23,
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.45 [1.35\u20131.6]",
+          "relief": {
+            "description": "Grid reinforcement / new connection capacity from the DSO",
+            "capex_eur": {
+              "value": 2500000,
+              "low": 1250000.0,
+              "high": 5000000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement capex",
+              "model": "input@0.1",
+              "digest": "f5f7e0079a68"
+            },
+            "lead_time_weeks": {
+              "value": 260,
+              "low": 150,
+              "high": 520,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement lead time",
+              "model": "input@0.1",
+              "digest": "47721a918c66"
+            },
+            "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          }
+        },
+        {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 140,
+          "basis": "1,900 kW (E3) of plant headroom against 13.5 [10.6\u201321.3] kW (E0) per rack \u2014 residual air load only (liquid rejected to a dedicated high-temperature loop)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
+          "id": "floor_space",
+          "domain": "physical",
+          "name": "Available rack positions",
+          "gate": false,
+          "racks_permitted": 180,
+          "basis": "180 of 560 positions available in DH-02",
+          "relief": {
+            "description": "De-tenant further positions / release white space",
+            "capex_eur": {
+              "value": 0,
+              "low": 0,
+              "high": 0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "commercial, not capital",
+              "model": "input@0.1",
+              "digest": "06c63eaef6e8"
+            },
+            "lead_time_weeks": {
+              "value": 52,
+              "low": 26,
+              "high": 104,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lease and migration cycle",
+              "model": "input@0.1",
+              "digest": "61cc6bd65467"
+            },
+            "risk": "Commercial and contractual, not engineering. Tenancy revenue at risk."
+          }
+        },
+        {
+          "id": "floor_loading",
+          "domain": "physical",
+          "name": "Floor loading",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "relief": {
+            "description": "Load spreading / remove raised floor and deploy on slab",
+            "capex_eur": {
+              "value": 260000,
+              "low": 130000.0,
+              "high": 520000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works for one hall",
+              "model": "input@0.1",
+              "digest": "df283960afbf"
+            },
+            "lead_time_weeks": {
+              "value": 18,
+              "low": 10,
+              "high": 30,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works",
+              "model": "input@0.1",
+              "digest": "5ae81b18c56d"
+            },
+            "risk": "Requires structural survey; in multi-storey buildings this relief may not exist."
+          }
+        },
+        {
+          "id": "tcs_supply_achievable",
+          "domain": "thermal",
+          "name": "Achievable facility water temperature",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); existing chilled-water plant delivers 6 degC (E3)",
+          "relief": {
+            "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
+            "capex_eur": {
+              "value": 350000,
+              "low": 175000.0,
+              "high": 700000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "adiabatic assist and trim chiller",
+              "model": "input@0.1",
+              "digest": "af0380aad4fa"
+            },
+            "lead_time_weeks": {
+              "value": 32,
+              "low": 20,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lead time",
+              "model": "input@0.1",
+              "digest": "3141b684dcc2"
+            },
+            "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          }
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity",
+          "gate": false,
+          "racks_permitted": null,
+          "basis": "architecture does not use CDUs",
+          "relief": null
+        },
+        {
+          "id": "hydraulic_flow",
+          "domain": "thermal",
+          "name": "Hydraulic flow capacity",
+          "gate": false,
+          "racks_permitted": null,
+          "basis": "no liquid circuit in this architecture",
+          "relief": null
+        }
+      ]
+    },
+    {
+      "id": "rdhx",
+      "name": "Rear-door heat exchangers, grid only",
+      "architecture": "rdhx",
+      "rationale": "Lowest-disruption path; keeps the legacy plant, lifts per-rack capability.",
+      "as_found": {
+        "racks": 0,
+        "binding": "rack_feed_tapoff",
+        "binding_name": "Rack feed / tap-off rating",
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+      },
+      "after_ladder": {
+        "racks": 0,
+        "binding": "architecture_capability",
+        "it_load_kW": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "deployable IT load",
+          "model": "envelope.it_load@0.1",
+          "digest": "a4e3fd845acb"
+        },
+        "gpus": 0
+      },
+      "ladder": [
+        {
+          "step": 1,
+          "constraint": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "domain": "electrical",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+          "capex_eur": {
+            "value": 6000.0,
+            "low": 3000.0,
+            "high": 12000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "bac2079ddc64"
+          },
+          "lead_time_weeks": {
+            "value": 24,
+            "low": 12,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "tap-off lead time",
+            "model": "input@0.1",
+            "digest": "7a5fc57ce1e4"
+          },
+          "risk": ""
+        }
+      ],
+      "time_to_power": {
+        "weeks_to_first_rack": null,
+        "weeks_to_full": null,
+        "sets_the_date": "Rack feed / tap-off rating",
+        "curve": []
+      },
+      "economics": {
+        "capex_total_eur": {
+          "value": 6000.0,
+          "low": 3000.0,
+          "high": 12000.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "total capex",
+          "model": "economics.total_capex@0.1",
+          "digest": "698a41adaa1e"
+        },
+        "capex_per_kW_it": {
+          "value": 0,
+          "low": 0,
+          "high": 0,
+          "unit": "EUR/kW",
+          "evidence": "E1_MODEL",
+          "label": "capex per kW (no deployable load)",
+          "model": "input@0.1",
+          "digest": "fa43210b5cde"
+        },
+        "annual_energy_cost_eur": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual energy cost",
+          "model": "economics.energy_cost@0.1",
+          "digest": "101c7d75ffc7"
+        },
+        "energy_cost_per_gpu_hour_eur": {
+          "value": 0,
+          "low": 0,
+          "high": 0,
+          "unit": "EUR/gpu*h",
+          "evidence": "E1_MODEL",
+          "label": "energy cost per GPU-hour (no GPUs deployable)",
+          "model": "input@0.1",
+          "digest": "fe231166c354"
+        },
+        "critical_path_weeks": 24,
+        "basis": "Class 5 (order of magnitude): -50% / +100%"
+      },
+      "constraints": [
+        {
+          "id": "rack_feed_tapoff",
+          "domain": "electrical",
+          "name": "Rack feed / tap-off rating",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "relief": {
+            "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+            "capex_eur": {
+              "value": 6000,
+              "low": 3000.0,
+              "high": 12000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off unit and rack feed",
+              "model": "input@0.1",
+              "digest": "a4d0a1c316ef"
+            },
+            "lead_time_weeks": {
+              "value": 24,
+              "low": 12,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off lead time",
+              "model": "input@0.1",
+              "digest": "7a5fc57ce1e4"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "architecture_capability",
+          "domain": "thermal",
+          "name": "Cooling architecture per-rack capability",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "rdhx is practically capable of 60 [20\u201380] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "relief": null
+        },
+        {
+          "id": "residual_air_removal",
+          "domain": "thermal",
+          "name": "Residual air load removal per rack",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "135 [132\u2013142] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "relief": {
+            "description": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+            "capex_eur": {
+              "value": 9000,
+              "low": 4500.0,
+              "high": 18000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row cooling or rear-door heat exchanger, installed",
+              "model": "input@0.1",
+              "digest": "0a4be3458324"
+            },
+            "lead_time_weeks": {
+              "value": 20,
+              "low": 12,
+              "high": 32,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row / RDHx lead time",
+              "model": "input@0.1",
+              "digest": "fe48412ff79a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "transformer_capacity",
+          "domain": "electrical",
+          "name": "Transformer capacity",
+          "gate": false,
+          "racks_permitted": 7,
+          "basis": "1,330 [845\u20131,810] kW (E3) usable after redundancy and derating",
+          "relief": {
+            "description": "Replace / add transformer capacity (uprate ~60%)",
+            "capex_eur": {
+              "value": 1200000,
+              "low": 600000.0,
+              "high": 2400000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "transformer and switchgear replacement",
+              "model": "input@0.1",
+              "digest": "b8816fd15315"
+            },
+            "lead_time_weeks": {
+              "value": 160.0,
+              "low": 80,
+              "high": 210,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "power transformer lead time",
+              "model": "input@0.1",
+              "digest": "010015f8a59e"
+            },
+            "risk": "Lead time, not construction, is usually the schedule driver."
+          }
+        },
+        {
+          "id": "ups_capacity",
+          "domain": "electrical",
+          "name": "UPS capacity (protected load)",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "relief": {
+            "description": "Add UPS modules / new UPS block",
+            "capex_eur": {
+              "value": 864000.0,
+              "low": 422400.0,
+              "high": 1817600.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS module addition capex",
+              "model": "power.ups_relief_capex@0.1",
+              "digest": "1423200e04d9"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 20,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS lead time",
+              "model": "input@0.1",
+              "digest": "843c6ad78c29"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "busway_ampacity",
+          "domain": "electrical",
+          "name": "Busway ampacity",
+          "gate": false,
+          "racks_permitted": 12,
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "relief": {
+            "description": "Replace busway with 800-1000 A and new tap-off units",
+            "capex_eur": {
+              "value": 450000,
+              "low": 225000.0,
+              "high": 900000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway replacement for one hall",
+              "model": "input@0.1",
+              "digest": "74129e356449"
+            },
+            "lead_time_weeks": {
+              "value": 36,
+              "low": 24,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway and tap-off lead time",
+              "model": "input@0.1",
+              "digest": "74ff17170551"
+            },
+            "risk": "Requires hall outage or phased de-tenanting."
+          }
+        },
+        {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 14,
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (liquid rejected into the existing plant)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
+          "id": "grid_firm_capacity",
+          "domain": "electrical",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "gate": false,
+          "racks_permitted": 25,
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.35 [1.28\u20131.45]",
+          "relief": {
+            "description": "Grid reinforcement / new connection capacity from the DSO",
+            "capex_eur": {
+              "value": 2500000,
+              "low": 1250000.0,
+              "high": 5000000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement capex",
+              "model": "input@0.1",
+              "digest": "f5f7e0079a68"
+            },
+            "lead_time_weeks": {
+              "value": 260,
+              "low": 150,
+              "high": 520,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement lead time",
+              "model": "input@0.1",
+              "digest": "47721a918c66"
+            },
+            "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          }
+        },
+        {
+          "id": "hydraulic_flow",
+          "domain": "thermal",
+          "name": "Hydraulic flow capacity",
+          "gate": false,
+          "racks_permitted": 69,
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "relief": {
+            "description": "Uprate pumps and secondary pipework",
+            "capex_eur": {
+              "value": 420000,
+              "low": 210000.0,
+              "high": 840000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump and secondary pipework uprate",
+              "model": "input@0.1",
+              "digest": "3171ff0f8a7b"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 18,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump / pipework lead time",
+              "model": "input@0.1",
+              "digest": "d6452fdae4ff"
+            },
+            "risk": "Flow, not delta-T, governs a retrofit. Check pipe DN and available head before assuming pumps alone solve it."
+          }
+        },
+        {
+          "id": "floor_space",
+          "domain": "physical",
+          "name": "Available rack positions",
+          "gate": false,
+          "racks_permitted": 180,
+          "basis": "180 of 560 positions available in DH-02",
+          "relief": {
+            "description": "De-tenant further positions / release white space",
+            "capex_eur": {
+              "value": 0,
+              "low": 0,
+              "high": 0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "commercial, not capital",
+              "model": "input@0.1",
+              "digest": "06c63eaef6e8"
+            },
+            "lead_time_weeks": {
+              "value": 52,
+              "low": 26,
+              "high": 104,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lease and migration cycle",
+              "model": "input@0.1",
+              "digest": "61cc6bd65467"
+            },
+            "risk": "Commercial and contractual, not engineering. Tenancy revenue at risk."
+          }
+        },
+        {
+          "id": "floor_loading",
+          "domain": "physical",
+          "name": "Floor loading",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "relief": {
+            "description": "Load spreading / remove raised floor and deploy on slab",
+            "capex_eur": {
+              "value": 260000,
+              "low": 130000.0,
+              "high": 520000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works for one hall",
+              "model": "input@0.1",
+              "digest": "df283960afbf"
+            },
+            "lead_time_weeks": {
+              "value": 18,
+              "low": 10,
+              "high": 30,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works",
+              "model": "input@0.1",
+              "digest": "5ae81b18c56d"
+            },
+            "risk": "Requires structural survey; in multi-storey buildings this relief may not exist."
+          }
+        },
+        {
+          "id": "tcs_supply_achievable",
+          "domain": "thermal",
+          "name": "Achievable facility water temperature",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); existing chilled-water plant delivers 6 degC (E3)",
+          "relief": {
+            "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
+            "capex_eur": {
+              "value": 350000,
+              "low": 175000.0,
+              "high": 700000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "adiabatic assist and trim chiller",
+              "model": "input@0.1",
+              "digest": "af0380aad4fa"
+            },
+            "lead_time_weeks": {
+              "value": 32,
+              "low": 20,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lead time",
+              "model": "input@0.1",
+              "digest": "3141b684dcc2"
+            },
+            "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          }
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity",
+          "gate": false,
+          "racks_permitted": null,
+          "basis": "architecture does not use CDUs",
+          "relief": null
+        }
+      ]
+    },
+    {
+      "id": "hybrid_dlc",
+      "name": "Hybrid DLC on retained plant, grid only",
+      "architecture": "hybrid_dlc",
+      "rationale": "Direct-to-chip with the existing plant carrying both liquid and residual air load. Cheapest route to density, worst energy outcome.",
+      "as_found": {
+        "racks": 0,
+        "binding": "rack_feed_tapoff",
+        "binding_name": "Rack feed / tap-off rating",
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+      },
+      "after_ladder": {
+        "racks": 26,
+        "binding": "grid_firm_capacity",
+        "it_load_kW": {
+          "value": 3510.0,
+          "low": 3432.0,
+          "high": 3692.0,
+          "unit": "kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "deployable IT load",
+          "model": "envelope.it_load@0.1",
+          "digest": "a4e3fd845acb"
+        },
+        "gpus": 1872
+      },
+      "ladder": [
+        {
+          "step": 1,
+          "constraint": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "domain": "electrical",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+          "capex_eur": {
+            "value": 6000.0,
+            "low": 3000.0,
+            "high": 12000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "bac2079ddc64"
+          },
+          "lead_time_weeks": {
+            "value": 24,
+            "low": 12,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "tap-off lead time",
+            "model": "input@0.1",
+            "digest": "7a5fc57ce1e4"
+          },
+          "risk": ""
+        },
+        {
+          "step": 2,
+          "constraint": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "domain": "thermal",
+          "racks_before": 0,
+          "racks_after": 7,
+          "taken": true,
+          "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+          "capex_eur": {
+            "value": 63000.0,
+            "low": 31500.0,
+            "high": 126000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 7 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "683fbc5f115e"
+          },
+          "lead_time_weeks": {
+            "value": 20,
+            "low": 12,
+            "high": 32,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-row / RDHx lead time",
+            "model": "input@0.1",
+            "digest": "fe48412ff79a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 3,
+          "constraint": "transformer_capacity",
+          "name": "Transformer capacity",
+          "domain": "electrical",
+          "racks_before": 7,
+          "racks_after": 8,
+          "taken": true,
+          "relief": "Replace / add transformer capacity (uprate ~60%)",
+          "capex_eur": {
+            "value": 1200000,
+            "low": 600000.0,
+            "high": 2400000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "transformer and switchgear replacement",
+            "model": "input@0.1",
+            "digest": "b8816fd15315"
+          },
+          "lead_time_weeks": {
+            "value": 160.0,
+            "low": 80,
+            "high": 210,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "power transformer lead time",
+            "model": "input@0.1",
+            "digest": "010015f8a59e"
+          },
+          "risk": "Lead time, not construction, is usually the schedule driver."
+        },
+        {
+          "step": 4,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 8,
+          "racks_after": 12,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 5,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 12,
+          "racks_after": 14,
+          "taken": true,
+          "relief": "Replace busway with 800-1000 A and new tap-off units",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 6,
+          "constraint": "plant_capacity",
+          "name": "Chilled-water plant capacity",
+          "domain": "thermal",
+          "racks_before": 14,
+          "racks_after": 22,
+          "taken": true,
+          "relief": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+          "capex_eur": {
+            "value": 900000,
+            "low": 450000.0,
+            "high": 1800000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "chilled-water plant uprate",
+            "model": "input@0.1",
+            "digest": "df9224a00794"
+          },
+          "lead_time_weeks": {
+            "value": 44,
+            "low": 30,
+            "high": 70,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "chiller / dry cooler lead time",
+            "model": "input@0.1",
+            "digest": "823a7da52136"
+          },
+          "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+        },
+        {
+          "step": 7,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 22,
+          "racks_after": 25,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 8,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 25,
+          "racks_after": 26,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 9,
+          "constraint": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "domain": "electrical",
+          "racks_before": 26,
+          "racks_after": 26,
+          "taken": false,
+          "relief": "Grid reinforcement / new connection capacity from the DSO",
+          "capex_eur": {
+            "value": 2500000,
+            "low": 1250000.0,
+            "high": 5000000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement capex",
+            "model": "input@0.1",
+            "digest": "f5f7e0079a68"
+          },
+          "lead_time_weeks": {
+            "value": 260,
+            "low": 150,
+            "high": 520,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement lead time",
+            "model": "input@0.1",
+            "digest": "47721a918c66"
+          },
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+        }
+      ],
+      "time_to_power": {
+        "weeks_to_first_rack": 24,
+        "weeks_to_full": 160.0,
+        "sets_the_date": "Transformer capacity",
+        "curve": [
+          {
+            "weeks": 24,
+            "racks": 7,
+            "unlocked_by": "Residual air load removal per rack"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 8,
+            "unlocked_by": "Transformer capacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 12,
+            "unlocked_by": "UPS capacity (protected load)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 14,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 22,
+            "unlocked_by": "Chilled-water plant capacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 25,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 26,
+            "unlocked_by": "UPS capacity (protected load)"
+          }
+        ]
+      },
+      "economics": {
+        "capex_total_eur": {
+          "value": 5960000.0,
+          "low": 2978500.0,
+          "high": 11914000.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "total capex",
+          "model": "economics.total_capex@0.1",
+          "digest": "698a41adaa1e"
+        },
+        "capex_per_kW_it": {
+          "value": 1700.0,
+          "low": 806.7443120260021,
+          "high": 3471.4452214452213,
+          "unit": "EUR/kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "capex per kW of IT load deployed",
+          "model": "economics.capex_per_kW@0.1",
+          "digest": "7c17f4c9bb7f"
+        },
+        "annual_energy_cost_eur": {
+          "value": 4200000.0,
+          "low": 2475796.752,
+          "high": 7470983.52,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual energy cost",
+          "model": "economics.energy_cost@0.1",
+          "digest": "9484f91af71c"
+        },
+        "energy_cost_per_gpu_hour_eur": {
+          "value": 0.256,
+          "low": 0.150975,
+          "high": 0.4555833333333333,
+          "unit": "EUR/gpu*h",
+          "evidence": "E0_ASSUMPTION",
+          "label": "energy cost per GPU-hour",
+          "model": "economics.energy_per_gpu_hour@0.1",
+          "digest": "225353cfdc60"
+        },
+        "critical_path_weeks": 160.0,
+        "basis": "Class 5 (order of magnitude): -50% / +100%"
+      },
+      "constraints": [
+        {
+          "id": "rack_feed_tapoff",
+          "domain": "electrical",
+          "name": "Rack feed / tap-off rating",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "relief": {
+            "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+            "capex_eur": {
+              "value": 6000,
+              "low": 3000.0,
+              "high": 12000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off unit and rack feed",
+              "model": "input@0.1",
+              "digest": "a4d0a1c316ef"
+            },
+            "lead_time_weeks": {
+              "value": 24,
+              "low": 12,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off lead time",
+              "model": "input@0.1",
+              "digest": "7a5fc57ce1e4"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "residual_air_removal",
+          "domain": "thermal",
+          "name": "Residual air load removal per rack",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "13.5 [10.6\u201321.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "relief": {
+            "description": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+            "capex_eur": {
+              "value": 9000,
+              "low": 4500.0,
+              "high": 18000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row cooling or rear-door heat exchanger, installed",
+              "model": "input@0.1",
+              "digest": "0a4be3458324"
+            },
+            "lead_time_weeks": {
+              "value": 20,
+              "low": 12,
+              "high": 32,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row / RDHx lead time",
+              "model": "input@0.1",
+              "digest": "fe48412ff79a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "transformer_capacity",
+          "domain": "electrical",
+          "name": "Transformer capacity",
+          "gate": false,
+          "racks_permitted": 7,
+          "basis": "1,330 [845\u20131,810] kW (E3) usable after redundancy and derating",
+          "relief": {
+            "description": "Replace / add transformer capacity (uprate ~60%)",
+            "capex_eur": {
+              "value": 1200000,
+              "low": 600000.0,
+              "high": 2400000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "transformer and switchgear replacement",
+              "model": "input@0.1",
+              "digest": "b8816fd15315"
+            },
+            "lead_time_weeks": {
+              "value": 160.0,
+              "low": 80,
+              "high": 210,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "power transformer lead time",
+              "model": "input@0.1",
+              "digest": "010015f8a59e"
+            },
+            "risk": "Lead time, not construction, is usually the schedule driver."
+          }
+        },
+        {
+          "id": "ups_capacity",
+          "domain": "electrical",
+          "name": "UPS capacity (protected load)",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "relief": {
+            "description": "Add UPS modules / new UPS block",
+            "capex_eur": {
+              "value": 864000.0,
+              "low": 422400.0,
+              "high": 1817600.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS module addition capex",
+              "model": "power.ups_relief_capex@0.1",
+              "digest": "1423200e04d9"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 20,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS lead time",
+              "model": "input@0.1",
+              "digest": "843c6ad78c29"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "busway_ampacity",
+          "domain": "electrical",
+          "name": "Busway ampacity",
+          "gate": false,
+          "racks_permitted": 12,
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "relief": {
+            "description": "Replace busway with 800-1000 A and new tap-off units",
+            "capex_eur": {
+              "value": 450000,
+              "low": 225000.0,
+              "high": 900000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway replacement for one hall",
+              "model": "input@0.1",
+              "digest": "74129e356449"
+            },
+            "lead_time_weeks": {
+              "value": 36,
+              "low": 24,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway and tap-off lead time",
+              "model": "input@0.1",
+              "digest": "74ff17170551"
+            },
+            "risk": "Requires hall outage or phased de-tenanting."
+          }
+        },
+        {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 14,
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (liquid rejected into the existing plant)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity (derated to site water temperature)",
+          "gate": false,
+          "racks_permitted": 22,
+          "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
+          "relief": {
+            "description": "Add CDU capacity (one further unit per bank)",
+            "capex_eur": {
+              "value": 180000,
+              "low": 90000.0,
+              "high": 360000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "additional row CDU, installed",
+              "model": "input@0.1",
+              "digest": "e2a2ad42d89f"
+            },
+            "lead_time_weeks": {
+              "value": 26,
+              "low": 16,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "CDU lead time",
+              "model": "input@0.1",
+              "digest": "77ae364db11a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "grid_firm_capacity",
+          "domain": "electrical",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "gate": false,
+          "racks_permitted": 26,
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.3 [1.22\u20131.4]",
+          "relief": {
+            "description": "Grid reinforcement / new connection capacity from the DSO",
+            "capex_eur": {
+              "value": 2500000,
+              "low": 1250000.0,
+              "high": 5000000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement capex",
+              "model": "input@0.1",
+              "digest": "f5f7e0079a68"
+            },
+            "lead_time_weeks": {
+              "value": 260,
+              "low": 150,
+              "high": 520,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement lead time",
+              "model": "input@0.1",
+              "digest": "47721a918c66"
+            },
+            "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          }
+        },
+        {
+          "id": "hydraulic_flow",
+          "domain": "thermal",
+          "name": "Hydraulic flow capacity",
+          "gate": false,
+          "racks_permitted": 69,
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "relief": {
+            "description": "Uprate pumps and secondary pipework",
+            "capex_eur": {
+              "value": 420000,
+              "low": 210000.0,
+              "high": 840000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump and secondary pipework uprate",
+              "model": "input@0.1",
+              "digest": "3171ff0f8a7b"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 18,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump / pipework lead time",
+              "model": "input@0.1",
+              "digest": "d6452fdae4ff"
+            },
+            "risk": "Flow, not delta-T, governs a retrofit. Check pipe DN and available head before assuming pumps alone solve it."
+          }
+        },
+        {
+          "id": "floor_space",
+          "domain": "physical",
+          "name": "Available rack positions",
+          "gate": false,
+          "racks_permitted": 180,
+          "basis": "180 of 560 positions available in DH-02",
+          "relief": {
+            "description": "De-tenant further positions / release white space",
+            "capex_eur": {
+              "value": 0,
+              "low": 0,
+              "high": 0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "commercial, not capital",
+              "model": "input@0.1",
+              "digest": "06c63eaef6e8"
+            },
+            "lead_time_weeks": {
+              "value": 52,
+              "low": 26,
+              "high": 104,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lease and migration cycle",
+              "model": "input@0.1",
+              "digest": "61cc6bd65467"
+            },
+            "risk": "Commercial and contractual, not engineering. Tenancy revenue at risk."
+          }
+        },
+        {
+          "id": "floor_loading",
+          "domain": "physical",
+          "name": "Floor loading",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "relief": {
+            "description": "Load spreading / remove raised floor and deploy on slab",
+            "capex_eur": {
+              "value": 260000,
+              "low": 130000.0,
+              "high": 520000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works for one hall",
+              "model": "input@0.1",
+              "digest": "df283960afbf"
+            },
+            "lead_time_weeks": {
+              "value": 18,
+              "low": 10,
+              "high": 30,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works",
+              "model": "input@0.1",
+              "digest": "5ae81b18c56d"
+            },
+            "risk": "Requires structural survey; in multi-storey buildings this relief may not exist."
+          }
+        },
+        {
+          "id": "architecture_capability",
+          "domain": "thermal",
+          "name": "Cooling architecture per-rack capability",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "hybrid_dlc is practically capable of 142 [100\u2013150] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "relief": null
+        },
+        {
+          "id": "tcs_supply_achievable",
+          "domain": "thermal",
+          "name": "Achievable facility water temperature",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); existing chilled-water plant delivers 6 degC (E3)",
+          "relief": {
+            "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
+            "capex_eur": {
+              "value": 350000,
+              "low": 175000.0,
+              "high": 700000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "adiabatic assist and trim chiller",
+              "model": "input@0.1",
+              "digest": "af0380aad4fa"
+            },
+            "lead_time_weeks": {
+              "value": 32,
+              "low": 20,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lead time",
+              "model": "input@0.1",
+              "digest": "3141b684dcc2"
+            },
+            "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          }
+        }
+      ]
+    },
+    {
+      "id": "full_dlc",
+      "name": "Full DLC, grid only",
+      "architecture": "full_dlc",
+      "rationale": "Dedicated warm-water loop for the chip load, legacy plant for the residual air. Bounded by the grid connection.",
+      "as_found": {
+        "racks": 0,
+        "binding": "rack_feed_tapoff",
+        "binding_name": "Rack feed / tap-off rating",
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+      },
+      "after_ladder": {
+        "racks": 28,
+        "binding": "grid_firm_capacity",
+        "it_load_kW": {
+          "value": 3780.0,
+          "low": 3696.0,
+          "high": 3976.0,
+          "unit": "kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "deployable IT load",
+          "model": "envelope.it_load@0.1",
+          "digest": "a4e3fd845acb"
+        },
+        "gpus": 2016
+      },
+      "ladder": [
+        {
+          "step": 1,
+          "constraint": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "domain": "electrical",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+          "capex_eur": {
+            "value": 6000.0,
+            "low": 3000.0,
+            "high": 12000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "bac2079ddc64"
+          },
+          "lead_time_weeks": {
+            "value": 24,
+            "low": 12,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "tap-off lead time",
+            "model": "input@0.1",
+            "digest": "7a5fc57ce1e4"
+          },
+          "risk": ""
+        },
+        {
+          "step": 2,
+          "constraint": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "domain": "thermal",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+          "capex_eur": {
+            "value": 9000.0,
+            "low": 4500.0,
+            "high": 18000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "88b4e413a7ee"
+          },
+          "lead_time_weeks": {
+            "value": 20,
+            "low": 12,
+            "high": 32,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-row / RDHx lead time",
+            "model": "input@0.1",
+            "digest": "fe48412ff79a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 3,
+          "constraint": "tcs_supply_achievable",
+          "name": "Achievable facility water temperature",
+          "domain": "thermal",
+          "racks_before": 0,
+          "racks_after": 8,
+          "taken": true,
+          "relief": "Adiabatic assist plus trim chiller on the high-temperature loop",
+          "capex_eur": {
+            "value": 350000,
+            "low": 175000.0,
+            "high": 700000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "adiabatic assist and trim chiller",
+            "model": "input@0.1",
+            "digest": "af0380aad4fa"
+          },
+          "lead_time_weeks": {
+            "value": 32,
+            "low": 20,
+            "high": 48,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "lead time",
+            "model": "input@0.1",
+            "digest": "3141b684dcc2"
+          },
+          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+        },
+        {
+          "step": 4,
+          "constraint": "transformer_capacity",
+          "name": "Transformer capacity",
+          "domain": "electrical",
+          "racks_before": 8,
+          "racks_after": 8,
+          "taken": true,
+          "relief": "Replace / add transformer capacity (uprate ~60%)",
+          "capex_eur": {
+            "value": 1200000,
+            "low": 600000.0,
+            "high": 2400000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "transformer and switchgear replacement",
+            "model": "input@0.1",
+            "digest": "b8816fd15315"
+          },
+          "lead_time_weeks": {
+            "value": 160.0,
+            "low": 80,
+            "high": 210,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "power transformer lead time",
+            "model": "input@0.1",
+            "digest": "010015f8a59e"
+          },
+          "risk": "Lead time, not construction, is usually the schedule driver."
+        },
+        {
+          "step": 5,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 8,
+          "racks_after": 12,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 6,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 12,
+          "racks_after": 22,
+          "taken": true,
+          "relief": "Replace busway with 800-1000 A and new tap-off units",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 7,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 22,
+          "racks_after": 25,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 8,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 25,
+          "racks_after": 28,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 9,
+          "constraint": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "domain": "electrical",
+          "racks_before": 28,
+          "racks_after": 28,
+          "taken": false,
+          "relief": "Grid reinforcement / new connection capacity from the DSO",
+          "capex_eur": {
+            "value": 2500000,
+            "low": 1250000.0,
+            "high": 5000000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement capex",
+            "model": "input@0.1",
+            "digest": "f5f7e0079a68"
+          },
+          "lead_time_weeks": {
+            "value": 260,
+            "low": 150,
+            "high": 520,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement lead time",
+            "model": "input@0.1",
+            "digest": "47721a918c66"
+          },
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+        }
+      ],
+      "time_to_power": {
+        "weeks_to_first_rack": 32,
+        "weeks_to_full": 160.0,
+        "sets_the_date": "Transformer capacity",
+        "curve": [
+          {
+            "weeks": 32,
+            "racks": 8,
+            "unlocked_by": "Achievable facility water temperature"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 12,
+            "unlocked_by": "UPS capacity (protected load)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 22,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 25,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 28,
+            "unlocked_by": "UPS capacity (protected load)"
+          }
+        ]
+      },
+      "economics": {
+        "capex_total_eur": {
+          "value": 5460000.0,
+          "low": 2731500.0,
+          "high": 10926000.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "total capex",
+          "model": "economics.total_capex@0.1",
+          "digest": "698a41adaa1e"
+        },
+        "capex_per_kW_it": {
+          "value": 1450.0,
+          "low": 686.9969818913481,
+          "high": 2956.1688311688313,
+          "unit": "EUR/kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "capex per kW of IT load deployed",
+          "model": "economics.capex_per_kW@0.1",
+          "digest": "7c17f4c9bb7f"
+        },
+        "annual_energy_cost_eur": {
+          "value": 4170000.0,
+          "low": 2513261.5199999996,
+          "high": 7356045.312000001,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual energy cost",
+          "model": "economics.energy_cost@0.1",
+          "digest": "e325c835963f"
+        },
+        "energy_cost_per_gpu_hour_eur": {
+          "value": 0.236,
+          "low": 0.14231249999999998,
+          "high": 0.41653333333333337,
+          "unit": "EUR/gpu*h",
+          "evidence": "E0_ASSUMPTION",
+          "label": "energy cost per GPU-hour",
+          "model": "economics.energy_per_gpu_hour@0.1",
+          "digest": "97c6866ebaf9"
+        },
+        "critical_path_weeks": 160.0,
+        "basis": "Class 5 (order of magnitude): -50% / +100%"
+      },
+      "constraints": [
+        {
+          "id": "rack_feed_tapoff",
+          "domain": "electrical",
+          "name": "Rack feed / tap-off rating",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "relief": {
+            "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+            "capex_eur": {
+              "value": 6000,
+              "low": 3000.0,
+              "high": 12000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off unit and rack feed",
+              "model": "input@0.1",
+              "digest": "a4d0a1c316ef"
+            },
+            "lead_time_weeks": {
+              "value": 24,
+              "low": 12,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off lead time",
+              "model": "input@0.1",
+              "digest": "7a5fc57ce1e4"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "residual_air_removal",
+          "domain": "thermal",
+          "name": "Residual air load removal per rack",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "13.5 [10.6\u201321.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "relief": {
+            "description": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+            "capex_eur": {
+              "value": 9000,
+              "low": 4500.0,
+              "high": 18000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row cooling or rear-door heat exchanger, installed",
+              "model": "input@0.1",
+              "digest": "0a4be3458324"
+            },
+            "lead_time_weeks": {
+              "value": 20,
+              "low": 12,
+              "high": 32,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row / RDHx lead time",
+              "model": "input@0.1",
+              "digest": "fe48412ff79a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "tcs_supply_achievable",
+          "domain": "thermal",
+          "name": "Achievable facility water temperature",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb delivers 44 [42\u201346] degC (E0)",
+          "relief": {
+            "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
+            "capex_eur": {
+              "value": 350000,
+              "low": 175000.0,
+              "high": 700000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "adiabatic assist and trim chiller",
+              "model": "input@0.1",
+              "digest": "af0380aad4fa"
+            },
+            "lead_time_weeks": {
+              "value": 32,
+              "low": 20,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lead time",
+              "model": "input@0.1",
+              "digest": "3141b684dcc2"
+            },
+            "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          }
+        },
+        {
+          "id": "transformer_capacity",
+          "domain": "electrical",
+          "name": "Transformer capacity",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,330 [845\u20131,810] kW (E3) usable after redundancy and derating",
+          "relief": {
+            "description": "Replace / add transformer capacity (uprate ~60%)",
+            "capex_eur": {
+              "value": 1200000,
+              "low": 600000.0,
+              "high": 2400000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "transformer and switchgear replacement",
+              "model": "input@0.1",
+              "digest": "b8816fd15315"
+            },
+            "lead_time_weeks": {
+              "value": 160.0,
+              "low": 80,
+              "high": 210,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "power transformer lead time",
+              "model": "input@0.1",
+              "digest": "010015f8a59e"
+            },
+            "risk": "Lead time, not construction, is usually the schedule driver."
+          }
+        },
+        {
+          "id": "ups_capacity",
+          "domain": "electrical",
+          "name": "UPS capacity (protected load)",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "relief": {
+            "description": "Add UPS modules / new UPS block",
+            "capex_eur": {
+              "value": 864000.0,
+              "low": 422400.0,
+              "high": 1817600.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS module addition capex",
+              "model": "power.ups_relief_capex@0.1",
+              "digest": "1423200e04d9"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 20,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS lead time",
+              "model": "input@0.1",
+              "digest": "843c6ad78c29"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "busway_ampacity",
+          "domain": "electrical",
+          "name": "Busway ampacity",
+          "gate": false,
+          "racks_permitted": 12,
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "relief": {
+            "description": "Replace busway with 800-1000 A and new tap-off units",
+            "capex_eur": {
+              "value": 450000,
+              "low": 225000.0,
+              "high": 900000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway replacement for one hall",
+              "model": "input@0.1",
+              "digest": "74129e356449"
+            },
+            "lead_time_weeks": {
+              "value": 36,
+              "low": 24,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway and tap-off lead time",
+              "model": "input@0.1",
+              "digest": "74ff17170551"
+            },
+            "risk": "Requires hall outage or phased de-tenanting."
+          }
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity (derated to site water temperature)",
+          "gate": false,
+          "racks_permitted": 22,
+          "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
+          "relief": {
+            "description": "Add CDU capacity (one further unit per bank)",
+            "capex_eur": {
+              "value": 180000,
+              "low": 90000.0,
+              "high": 360000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "additional row CDU, installed",
+              "model": "input@0.1",
+              "digest": "e2a2ad42d89f"
+            },
+            "lead_time_weeks": {
+              "value": 26,
+              "low": 16,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "CDU lead time",
+              "model": "input@0.1",
+              "digest": "77ae364db11a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "grid_firm_capacity",
+          "domain": "electrical",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "gate": false,
+          "racks_permitted": 28,
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.2 [1.15\u20131.28]",
+          "relief": {
+            "description": "Grid reinforcement / new connection capacity from the DSO",
+            "capex_eur": {
+              "value": 2500000,
+              "low": 1250000.0,
+              "high": 5000000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement capex",
+              "model": "input@0.1",
+              "digest": "f5f7e0079a68"
+            },
+            "lead_time_weeks": {
+              "value": 260,
+              "low": 150,
+              "high": 520,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "grid reinforcement lead time",
+              "model": "input@0.1",
+              "digest": "47721a918c66"
+            },
+            "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          }
+        },
+        {
+          "id": "hydraulic_flow",
+          "domain": "thermal",
+          "name": "Hydraulic flow capacity",
+          "gate": false,
+          "racks_permitted": 69,
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "relief": {
+            "description": "Uprate pumps and secondary pipework",
+            "capex_eur": {
+              "value": 420000,
+              "low": 210000.0,
+              "high": 840000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump and secondary pipework uprate",
+              "model": "input@0.1",
+              "digest": "3171ff0f8a7b"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 18,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump / pipework lead time",
+              "model": "input@0.1",
+              "digest": "d6452fdae4ff"
+            },
+            "risk": "Flow, not delta-T, governs a retrofit. Check pipe DN and available head before assuming pumps alone solve it."
+          }
+        },
+        {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 140,
+          "basis": "1,900 kW (E3) of plant headroom against 13.5 [10.6\u201321.3] kW (E0) per rack \u2014 residual air load only (liquid rejected to a dedicated high-temperature loop)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
+          "id": "floor_space",
+          "domain": "physical",
+          "name": "Available rack positions",
+          "gate": false,
+          "racks_permitted": 180,
+          "basis": "180 of 560 positions available in DH-02",
+          "relief": {
+            "description": "De-tenant further positions / release white space",
+            "capex_eur": {
+              "value": 0,
+              "low": 0,
+              "high": 0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "commercial, not capital",
+              "model": "input@0.1",
+              "digest": "06c63eaef6e8"
+            },
+            "lead_time_weeks": {
+              "value": 52,
+              "low": 26,
+              "high": 104,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lease and migration cycle",
+              "model": "input@0.1",
+              "digest": "61cc6bd65467"
+            },
+            "risk": "Commercial and contractual, not engineering. Tenancy revenue at risk."
+          }
+        },
+        {
+          "id": "floor_loading",
+          "domain": "physical",
+          "name": "Floor loading",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "relief": {
+            "description": "Load spreading / remove raised floor and deploy on slab",
+            "capex_eur": {
+              "value": 260000,
+              "low": 130000.0,
+              "high": 520000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works for one hall",
+              "model": "input@0.1",
+              "digest": "df283960afbf"
+            },
+            "lead_time_weeks": {
+              "value": 18,
+              "low": 10,
+              "high": 30,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works",
+              "model": "input@0.1",
+              "digest": "5ae81b18c56d"
+            },
+            "risk": "Requires structural survey; in multi-storey buildings this relief may not exist."
+          }
+        },
+        {
+          "id": "architecture_capability",
+          "domain": "thermal",
+          "name": "Cooling architecture per-rack capability",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "relief": null
+        }
+      ]
+    },
+    {
+      "id": "full_dlc_btm",
+      "name": "Full DLC plus behind-the-meter supply",
+      "architecture": "full_dlc",
+      "rationale": "The same hall with on-site firm supply where the grid connection binds. The only scenario whose capacity is set by what can be built rather than by the queue.",
+      "as_found": {
+        "racks": 0,
+        "binding": "rack_feed_tapoff",
+        "binding_name": "Rack feed / tap-off rating",
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+      },
+      "after_ladder": {
+        "racks": 62,
+        "binding": "grid_firm_capacity",
+        "it_load_kW": {
+          "value": 8370.0,
+          "low": 8184.0,
+          "high": 8804.0,
+          "unit": "kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "deployable IT load",
+          "model": "envelope.it_load@0.1",
+          "digest": "a4e3fd845acb"
+        },
+        "gpus": 4464
+      },
+      "ladder": [
+        {
+          "step": 1,
+          "constraint": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "domain": "electrical",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+          "capex_eur": {
+            "value": 6000.0,
+            "low": 3000.0,
+            "high": 12000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "bac2079ddc64"
+          },
+          "lead_time_weeks": {
+            "value": 24,
+            "low": 12,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "tap-off lead time",
+            "model": "input@0.1",
+            "digest": "7a5fc57ce1e4"
+          },
+          "risk": ""
+        },
+        {
+          "step": 2,
+          "constraint": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "domain": "thermal",
+          "racks_before": 0,
+          "racks_after": 0,
+          "taken": true,
+          "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+          "capex_eur": {
+            "value": 9000.0,
+            "low": 4500.0,
+            "high": 18000.0,
+            "unit": "EUR/rack",
+            "evidence": "E0_ASSUMPTION",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
+            "model": "envelope.relief_capex@0.1",
+            "digest": "88b4e413a7ee"
+          },
+          "lead_time_weeks": {
+            "value": 20,
+            "low": 12,
+            "high": 32,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-row / RDHx lead time",
+            "model": "input@0.1",
+            "digest": "fe48412ff79a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 3,
+          "constraint": "tcs_supply_achievable",
+          "name": "Achievable facility water temperature",
+          "domain": "thermal",
+          "racks_before": 0,
+          "racks_after": 8,
+          "taken": true,
+          "relief": "Adiabatic assist plus trim chiller on the high-temperature loop",
+          "capex_eur": {
+            "value": 350000,
+            "low": 175000.0,
+            "high": 700000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "adiabatic assist and trim chiller",
+            "model": "input@0.1",
+            "digest": "af0380aad4fa"
+          },
+          "lead_time_weeks": {
+            "value": 32,
+            "low": 20,
+            "high": 48,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "lead time",
+            "model": "input@0.1",
+            "digest": "3141b684dcc2"
+          },
+          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+        },
+        {
+          "step": 4,
+          "constraint": "transformer_capacity",
+          "name": "Transformer capacity",
+          "domain": "electrical",
+          "racks_before": 8,
+          "racks_after": 8,
+          "taken": true,
+          "relief": "Replace / add transformer capacity (uprate ~60%)",
+          "capex_eur": {
+            "value": 1200000,
+            "low": 600000.0,
+            "high": 2400000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "transformer and switchgear replacement",
+            "model": "input@0.1",
+            "digest": "b8816fd15315"
+          },
+          "lead_time_weeks": {
+            "value": 160.0,
+            "low": 80,
+            "high": 210,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "power transformer lead time",
+            "model": "input@0.1",
+            "digest": "010015f8a59e"
+          },
+          "risk": "Lead time, not construction, is usually the schedule driver."
+        },
+        {
+          "step": 5,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 8,
+          "racks_after": 12,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 6,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 12,
+          "racks_after": 22,
+          "taken": true,
+          "relief": "Replace busway with 800-1000 A and new tap-off units",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 7,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 22,
+          "racks_after": 25,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 8,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 25,
+          "racks_after": 28,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 9,
+          "constraint": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "domain": "electrical",
+          "racks_before": 28,
+          "racks_after": 31,
+          "taken": true,
+          "relief": "Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW)",
+          "capex_eur": {
+            "value": 1800000.0,
+            "low": 1260000.0,
+            "high": 2340000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "BESS-2MW-8MWh installed capex",
+            "model": "power.btm_capex@0.1",
+            "digest": "6d5723d85dba"
+          },
+          "lead_time_weeks": {
+            "value": 30.0,
+            "low": 19.5,
+            "high": 40.5,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "BESS-2MW-8MWh lead time",
+            "model": "input@0.1",
+            "digest": "6b920c9df84d"
+          },
+          "risk": "No combustion consent required; grid-code compliance and fire separation govern the programme."
+        },
+        {
+          "step": 10,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 31,
+          "racks_after": 33,
+          "taken": true,
+          "relief": "Add two further busway runs (needs riser and routing space)",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 11,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 33,
+          "racks_after": 34,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 12,
+          "constraint": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "domain": "electrical",
+          "racks_before": 34,
+          "racks_after": 39,
+          "taken": true,
+          "relief": "Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW)",
+          "capex_eur": {
+            "value": 4000000.0,
+            "low": 2800000.0,
+            "high": 5200000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "GEN-5MW installed capex",
+            "model": "power.btm_capex@0.1",
+            "digest": "1be583b10fb5"
+          },
+          "lead_time_weeks": {
+            "value": 44.0,
+            "low": 28.6,
+            "high": 59.400000000000006,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "GEN-5MW lead time",
+            "model": "input@0.1",
+            "digest": "481a422b0494"
+          },
+          "risk": "Emissions consent and fuel supply are the schedule risk, not the equipment."
+        },
+        {
+          "step": 13,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 39,
+          "racks_after": 40,
+          "taken": true,
+          "relief": "Add two further busway runs (needs riser and routing space)",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 14,
+          "constraint": "transformer_capacity",
+          "name": "Transformer capacity",
+          "domain": "electrical",
+          "racks_before": 40,
+          "racks_after": 43,
+          "taken": true,
+          "relief": "Replace / add transformer capacity (uprate ~60%)",
+          "capex_eur": {
+            "value": 1200000,
+            "low": 600000.0,
+            "high": 2400000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "transformer and switchgear replacement",
+            "model": "input@0.1",
+            "digest": "b8816fd15315"
+          },
+          "lead_time_weeks": {
+            "value": 160.0,
+            "low": 80,
+            "high": 210,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "power transformer lead time",
+            "model": "input@0.1",
+            "digest": "010015f8a59e"
+          },
+          "risk": "Lead time, not construction, is usually the schedule driver."
+        },
+        {
+          "step": 15,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 43,
+          "racks_after": 44,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        },
+        {
+          "step": 16,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 44,
+          "racks_after": 47,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 17,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 47,
+          "racks_after": 55,
+          "taken": true,
+          "relief": "Add two further busway runs (needs riser and routing space)",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 18,
+          "constraint": "busway_ampacity",
+          "name": "Busway ampacity",
+          "domain": "electrical",
+          "racks_before": 55,
+          "racks_after": 55,
+          "taken": true,
+          "relief": "Add two further busway runs (needs riser and routing space)",
+          "capex_eur": {
+            "value": 450000,
+            "low": 225000.0,
+            "high": 900000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway replacement for one hall",
+            "model": "input@0.1",
+            "digest": "74129e356449"
+          },
+          "lead_time_weeks": {
+            "value": 36,
+            "low": 24,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "busway and tap-off lead time",
+            "model": "input@0.1",
+            "digest": "74ff17170551"
+          },
+          "risk": "Requires hall outage or phased de-tenanting."
+        },
+        {
+          "step": 19,
+          "constraint": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "domain": "thermal",
+          "racks_before": 55,
+          "racks_after": 61,
+          "taken": true,
+          "relief": "Add CDU capacity (one further unit per bank)",
+          "capex_eur": {
+            "value": 180000,
+            "low": 90000.0,
+            "high": 360000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "additional row CDU, installed",
+            "model": "input@0.1",
+            "digest": "e2a2ad42d89f"
+          },
+          "lead_time_weeks": {
+            "value": 26,
+            "low": 16,
+            "high": 40,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "CDU lead time",
+            "model": "input@0.1",
+            "digest": "77ae364db11a"
+          },
+          "risk": ""
+        },
+        {
+          "step": 20,
+          "constraint": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "domain": "electrical",
+          "racks_before": 61,
+          "racks_after": 62,
+          "taken": true,
+          "relief": "Add UPS modules / new UPS block",
+          "capex_eur": {
+            "value": 864000.0,
+            "low": 422400.0,
+            "high": 1817600.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS module addition capex",
+            "model": "power.ups_relief_capex@0.1",
+            "digest": "1423200e04d9"
+          },
+          "lead_time_weeks": {
+            "value": 30,
+            "low": 20,
+            "high": 52,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "UPS lead time",
+            "model": "input@0.1",
+            "digest": "843c6ad78c29"
+          },
+          "risk": ""
+        }
+      ],
+      "time_to_power": {
+        "weeks_to_first_rack": 32,
+        "weeks_to_full": 160.0,
+        "sets_the_date": "Transformer capacity",
+        "curve": [
+          {
+            "weeks": 32,
+            "racks": 8,
+            "unlocked_by": "Achievable facility water temperature"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 12,
+            "unlocked_by": "UPS capacity (protected load)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 22,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 25,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 28,
+            "unlocked_by": "UPS capacity (protected load)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 31,
+            "unlocked_by": "Firm supply (grid import + behind-the-meter)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 33,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 34,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 39,
+            "unlocked_by": "Firm supply (grid import + behind-the-meter)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 40,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 43,
+            "unlocked_by": "Transformer capacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 44,
+            "unlocked_by": "UPS capacity (protected load)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 47,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 55,
+            "unlocked_by": "Busway ampacity"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 61,
+            "unlocked_by": "CDU capacity (derated to site water temperature)"
+          },
+          {
+            "weeks": 160.0,
+            "racks": 62,
+            "unlocked_by": "UPS capacity (protected load)"
+          }
+        ]
+      },
+      "economics": {
+        "capex_total_eur": {
+          "value": 18400000.0,
+          "low": 9200500.0,
+          "high": 36802000.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "total capex",
+          "model": "economics.total_capex@0.1",
+          "digest": "698a41adaa1e"
+        },
+        "capex_per_kW_it": {
+          "value": 2200.0,
+          "low": 1045.0363471149478,
+          "high": 4496.823069403715,
+          "unit": "EUR/kW",
+          "evidence": "E0_ASSUMPTION",
+          "label": "capex per kW of IT load deployed",
+          "model": "economics.capex_per_kW@0.1",
+          "digest": "7c17f4c9bb7f"
+        },
+        "annual_energy_cost_eur": {
+          "value": 9240000.0,
+          "low": 5565079.079999999,
+          "high": 16288386.048000002,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual energy cost",
+          "model": "economics.energy_cost@0.1",
+          "digest": "e325c835963f"
+        },
+        "energy_cost_per_gpu_hour_eur": {
+          "value": 0.236,
+          "low": 0.14231249999999998,
+          "high": 0.41653333333333337,
+          "unit": "EUR/gpu*h",
+          "evidence": "E0_ASSUMPTION",
+          "label": "energy cost per GPU-hour",
+          "model": "economics.energy_per_gpu_hour@0.1",
+          "digest": "97c6866ebaf9"
+        },
+        "critical_path_weeks": 160.0,
+        "basis": "Class 5 (order of magnitude): -50% / +100%"
+      },
+      "constraints": [
+        {
+          "id": "rack_feed_tapoff",
+          "domain": "electrical",
+          "name": "Rack feed / tap-off rating",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "relief": {
+            "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
+            "capex_eur": {
+              "value": 6000,
+              "low": 3000.0,
+              "high": 12000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off unit and rack feed",
+              "model": "input@0.1",
+              "digest": "a4d0a1c316ef"
+            },
+            "lead_time_weeks": {
+              "value": 24,
+              "low": 12,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "tap-off lead time",
+              "model": "input@0.1",
+              "digest": "7a5fc57ce1e4"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "residual_air_removal",
+          "domain": "thermal",
+          "name": "Residual air load removal per rack",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "13.5 [10.6\u201321.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "relief": {
+            "description": "Add in-row cooling or rear-door heat exchangers for the residual air load",
+            "capex_eur": {
+              "value": 9000,
+              "low": 4500.0,
+              "high": 18000.0,
+              "unit": "EUR/rack",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row cooling or rear-door heat exchanger, installed",
+              "model": "input@0.1",
+              "digest": "0a4be3458324"
+            },
+            "lead_time_weeks": {
+              "value": 20,
+              "low": 12,
+              "high": 32,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "in-row / RDHx lead time",
+              "model": "input@0.1",
+              "digest": "fe48412ff79a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "tcs_supply_achievable",
+          "domain": "thermal",
+          "name": "Achievable facility water temperature",
+          "gate": true,
+          "racks_permitted": 0,
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb delivers 44 [42\u201346] degC (E0)",
+          "relief": {
+            "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
+            "capex_eur": {
+              "value": 350000,
+              "low": 175000.0,
+              "high": 700000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "adiabatic assist and trim chiller",
+              "model": "input@0.1",
+              "digest": "af0380aad4fa"
+            },
+            "lead_time_weeks": {
+              "value": 32,
+              "low": 20,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lead time",
+              "model": "input@0.1",
+              "digest": "3141b684dcc2"
+            },
+            "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          }
+        },
+        {
+          "id": "transformer_capacity",
+          "domain": "electrical",
+          "name": "Transformer capacity",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,330 [845\u20131,810] kW (E3) usable after redundancy and derating",
+          "relief": {
+            "description": "Replace / add transformer capacity (uprate ~60%)",
+            "capex_eur": {
+              "value": 1200000,
+              "low": 600000.0,
+              "high": 2400000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "transformer and switchgear replacement",
+              "model": "input@0.1",
+              "digest": "b8816fd15315"
+            },
+            "lead_time_weeks": {
+              "value": 160.0,
+              "low": 80,
+              "high": 210,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "power transformer lead time",
+              "model": "input@0.1",
+              "digest": "010015f8a59e"
+            },
+            "risk": "Lead time, not construction, is usually the schedule driver."
+          }
+        },
+        {
+          "id": "ups_capacity",
+          "domain": "electrical",
+          "name": "UPS capacity (protected load)",
+          "gate": false,
+          "racks_permitted": 8,
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "relief": {
+            "description": "Add UPS modules / new UPS block",
+            "capex_eur": {
+              "value": 864000.0,
+              "low": 422400.0,
+              "high": 1817600.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS module addition capex",
+              "model": "power.ups_relief_capex@0.1",
+              "digest": "1423200e04d9"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 20,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "UPS lead time",
+              "model": "input@0.1",
+              "digest": "843c6ad78c29"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "busway_ampacity",
+          "domain": "electrical",
+          "name": "Busway ampacity",
+          "gate": false,
+          "racks_permitted": 12,
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "relief": {
+            "description": "Replace busway with 800-1000 A and new tap-off units",
+            "capex_eur": {
+              "value": 450000,
+              "low": 225000.0,
+              "high": 900000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway replacement for one hall",
+              "model": "input@0.1",
+              "digest": "74129e356449"
+            },
+            "lead_time_weeks": {
+              "value": 36,
+              "low": 24,
+              "high": 52,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "busway and tap-off lead time",
+              "model": "input@0.1",
+              "digest": "74ff17170551"
+            },
+            "risk": "Requires hall outage or phased de-tenanting."
+          }
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity (derated to site water temperature)",
+          "gate": false,
+          "racks_permitted": 22,
+          "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
+          "relief": {
+            "description": "Add CDU capacity (one further unit per bank)",
+            "capex_eur": {
+              "value": 180000,
+              "low": 90000.0,
+              "high": 360000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "additional row CDU, installed",
+              "model": "input@0.1",
+              "digest": "e2a2ad42d89f"
+            },
+            "lead_time_weeks": {
+              "value": 26,
+              "low": 16,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "CDU lead time",
+              "model": "input@0.1",
+              "digest": "77ae364db11a"
+            },
+            "risk": ""
+          }
+        },
+        {
+          "id": "grid_firm_capacity",
+          "domain": "electrical",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "gate": false,
+          "racks_permitted": 28,
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.2 [1.15\u20131.28]",
+          "relief": {
+            "description": "Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW)",
+            "capex_eur": {
+              "value": 1800000.0,
+              "low": 1260000.0,
+              "high": 2340000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "BESS-2MW-8MWh installed capex",
+              "model": "power.btm_capex@0.1",
+              "digest": "6d5723d85dba"
+            },
+            "lead_time_weeks": {
+              "value": 30.0,
+              "low": 19.5,
+              "high": 40.5,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "BESS-2MW-8MWh lead time",
+              "model": "input@0.1",
+              "digest": "6b920c9df84d"
+            },
+            "risk": "No combustion consent required; grid-code compliance and fire separation govern the programme."
+          }
+        },
+        {
+          "id": "hydraulic_flow",
+          "domain": "thermal",
+          "name": "Hydraulic flow capacity",
+          "gate": false,
+          "racks_permitted": 69,
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "relief": {
+            "description": "Uprate pumps and secondary pipework",
+            "capex_eur": {
+              "value": 420000,
+              "low": 210000.0,
+              "high": 840000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump and secondary pipework uprate",
+              "model": "input@0.1",
+              "digest": "3171ff0f8a7b"
+            },
+            "lead_time_weeks": {
+              "value": 30,
+              "low": 18,
+              "high": 48,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "pump / pipework lead time",
+              "model": "input@0.1",
+              "digest": "d6452fdae4ff"
+            },
+            "risk": "Flow, not delta-T, governs a retrofit. Check pipe DN and available head before assuming pumps alone solve it."
+          }
+        },
+        {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 140,
+          "basis": "1,900 kW (E3) of plant headroom against 13.5 [10.6\u201321.3] kW (E0) per rack \u2014 residual air load only (liquid rejected to a dedicated high-temperature loop)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
+          "id": "floor_space",
+          "domain": "physical",
+          "name": "Available rack positions",
+          "gate": false,
+          "racks_permitted": 180,
+          "basis": "180 of 560 positions available in DH-02",
+          "relief": {
+            "description": "De-tenant further positions / release white space",
+            "capex_eur": {
+              "value": 0,
+              "low": 0,
+              "high": 0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "commercial, not capital",
+              "model": "input@0.1",
+              "digest": "06c63eaef6e8"
+            },
+            "lead_time_weeks": {
+              "value": 52,
+              "low": 26,
+              "high": 104,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "lease and migration cycle",
+              "model": "input@0.1",
+              "digest": "61cc6bd65467"
+            },
+            "risk": "Commercial and contractual, not engineering. Tenancy revenue at risk."
+          }
+        },
+        {
+          "id": "floor_loading",
+          "domain": "physical",
+          "name": "Floor loading",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "relief": {
+            "description": "Load spreading / remove raised floor and deploy on slab",
+            "capex_eur": {
+              "value": 260000,
+              "low": 130000.0,
+              "high": 520000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works for one hall",
+              "model": "input@0.1",
+              "digest": "df283960afbf"
+            },
+            "lead_time_weeks": {
+              "value": 18,
+              "low": 10,
+              "high": 30,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "structural works",
+              "model": "input@0.1",
+              "digest": "5ae81b18c56d"
+            },
+            "risk": "Requires structural survey; in multi-storey buildings this relief may not exist."
+          }
+        },
+        {
+          "id": "architecture_capability",
+          "domain": "thermal",
+          "name": "Cooling architecture per-rack capability",
+          "gate": true,
+          "racks_permitted": null,
+          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "relief": null
+        }
+      ]
+    }
+  ],
+  "sensitivity": [
+    {
+      "input": "Contracted power 20% lower",
+      "racks": 48
+    },
+    {
+      "input": "Contracted power at full firm capacity",
+      "racks": 63
+    },
+    {
+      "input": "PUE 10% worse than assumed",
+      "racks": 57
+    },
+    {
+      "input": "PUE 10% better than assumed",
+      "racks": 63
+    },
+    {
+      "input": "Per-position air capacity at 20 kW",
+      "racks": 62
+    },
+    {
+      "input": "Liquid capture fraction 5% lower",
+      "racks": 62
+    },
+    {
+      "input": "Platform rack power 5% higher",
+      "racks": 59
+    }
+  ],
+  "disclaimer": "Every quantity carries an evidence class. Nothing in this pack is a measurement of a physical asset unless labelled E5 or above. Modelled values are what the stated inputs imply, not what the site has been observed to do.",
+  "synthetic": true,
+  "notice": "SYNTHETIC REFERENCE DATA \u2014 not a customer asset. Every figure is modelled from invented inputs and none is a measurement of a real site."
+}

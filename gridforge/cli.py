@@ -37,7 +37,7 @@ from .reporting.study import Objective, _pick_recommended, collect_claims
 from .reporting.study import build as build_study
 from .scenario import run_all, sensitivity
 from .scenario.knobs import SENSITIVITY_KNOBS
-from .serialize import write_model_pack
+from .serialize import write_csv_bundle, write_model_pack
 
 OBJECTIVES = {o.value: o for o in Objective}
 
@@ -137,6 +137,8 @@ def cmd_screen(args) -> int:
     w = _emit(report, out, "density_screen", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results)
     w.paths.append(out / "model_pack.json")
+    if args.csv:
+        w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     rec = _pick_recommended(results, objective)
     print(f"Density Screen — {intake.client}: {rec.envelope.max_racks} racks as found, "
           f"{rec.unlocked_racks} after the ladder, binding on {rec.envelope.binding.name}.")
@@ -155,6 +157,8 @@ def cmd_study(args) -> int:
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)
     w.paths.append(out / "model_pack.json")
+    if args.csv:
+        w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
           f"{rec.unlocked_racks} racks after the ladder.")
     if not intake.report.can_issue:
@@ -375,6 +379,9 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("intake")
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+        s.add_argument("--csv", action="store_true",
+                       help="also write the working files, so the client's engineers can check "
+                            "the arithmetic in a spreadsheet")
         s.set_defaults(func=fn)
 
     s = sub.add_parser("diff", help="what changed between two intakes, and which input changed it")

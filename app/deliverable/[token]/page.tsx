@@ -86,6 +86,32 @@ export default async function DeliverablePage({
         className="rounded border border-line bg-white"
         dangerouslySetInnerHTML={{ __html: row.document_html ?? "" }}
       />
+      {row.working_files && Object.keys(row.working_files).length ? (
+        <section className="mt-8 rounded border border-line bg-panel-2 p-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+            Check our arithmetic
+          </p>
+          <p className="mt-2 max-w-3xl text-sm text-mute">
+            The tables behind this document, as files your own engineers can open. Every headline
+            quantity in <span className="font-mono text-ghost">provenance.csv</span> can be walked
+            back to the assumptions underneath it. If you find an error, tell us — we would rather
+            be corrected than cited.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {Object.keys(row.working_files)
+              .sort()
+              .map((f) => (
+                <a
+                  key={f}
+                  href={`/api/deliverable/${token}?format=csv&file=${encodeURIComponent(f)}`}
+                  className="rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
+                >
+                  {f}
+                </a>
+              ))}
+          </div>
+        </section>
+      ) : null}
       {row.kind === "proposal" ? null : <WatchUpsell />}
     </main>
   );

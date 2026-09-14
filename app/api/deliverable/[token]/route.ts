@@ -24,7 +24,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     );
   }
 
-  const format = new URL(req.url).searchParams.get("format");
+  const params = new URL(req.url).searchParams;
+  const format = params.get("format");
+
+  if (format === "csv") {
+    const name = params.get("file") ?? "";
+    const body = row.working_files?.[name];
+    if (!body) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "No such working file for this engagement.",
+          available: Object.keys(row.working_files ?? {}),
+        },
+        { status: 404 }
+      );
+    }
+    return new NextResponse(body, {
+      headers: {
+        "Content-Type": name.endsWith(".csv")
+          ? "text/csv; charset=utf-8"
+          : "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${name}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
   if (format === "deck") {
     if (!row.deck_html) {
       return NextResponse.json(

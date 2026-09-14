@@ -9,7 +9,7 @@ answer gets read, and gets renewed.
 """
 from __future__ import annotations
 
-from datetime import date
+from ..clock import report_date_iso
 
 from ..common import ASSUMED, ESTIMATED, V
 from ..change import EnvelopeDiff
@@ -41,7 +41,7 @@ def label_for(path: str) -> str:
 
 def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
           period: str = "") -> Report:
-    today = date.today().isoformat()
+    today = report_date_iso()
     r = Report(
         title=f"Change note — {site}, hall {hall}",
         subtitle=(f"{client} · {period or today} · compared on {d.before.scenario_name}"),

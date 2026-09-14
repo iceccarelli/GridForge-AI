@@ -52,11 +52,11 @@ from ..reporting.study import collect_claims
 from ..reporting.study import Objective
 from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
-from ..serialize import model_pack
+from ..serialize import csv_bundle, model_pack
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 
@@ -194,6 +194,8 @@ def handle_screen(body: dict, tier: Tier) -> dict:
 def handle_study(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     fmt = str(body.get("format") or "json").lower()
+    if fmt == "csv":
+        return {"format": "csv", "files": csv_bundle(intake, results)}
     if fmt in ("html", "md"):
         objective = _objective(body)
         from ..reporting.study import _pick_recommended

@@ -172,6 +172,7 @@ export interface AdminDeliverable {
   released_at: string | null;
   has_document: boolean;
   has_deck: boolean;
+  has_working_files: boolean;
 }
 
 export async function fetchQualifications(limit = 500): Promise<AdminQualification[]> {
@@ -201,7 +202,7 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     // engagements, it does not need to ship two megabytes of HTML to render a row.
     const cols =
       "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
-      "document_html,deck_html";
+      "document_html,deck_html,working_files";
     const res = await fetch(
       `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
       { headers: c.headers, cache: "no-store" }
@@ -213,11 +214,13 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     const rows = (await res.json()) as (AdminDeliverable & {
       document_html: string | null;
       deck_html: string | null;
+      working_files: Record<string, string> | null;
     })[];
-    return rows.map(({ document_html, deck_html, ...r }) => ({
+    return rows.map(({ document_html, deck_html, working_files, ...r }) => ({
       ...r,
       has_document: Boolean(document_html),
       has_deck: Boolean(deck_html),
+      has_working_files: Boolean(working_files),
     }));
   } catch (err) {
     console.error("[GridForge] fetchDeliverables error:", err);

@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .clock import report_date_iso
 from .common import V
 from .validation import EvidenceClass, Quantity, Source
 
@@ -175,7 +176,7 @@ class CostLibrary:
         p.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema": "gridforge/cost-library/1",
-            "updated": date.today().isoformat(),
+            "updated": report_date_iso(),
             "note": ("Every line carries its basis. library_default is a placeholder, not a "
                      "price. Replacing a line with a quotation raises the evidence class of "
                      "every number derived from it."),

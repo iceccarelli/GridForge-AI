@@ -39,6 +39,7 @@ export interface DeliverableRecord {
   document_html: string | null;
   document_md: string | null;
   deck_html: string | null;
+  working_files: Record<string, string> | null;
   title: string | null;
   created_at?: string;
   released_at?: string | null;
@@ -112,7 +113,14 @@ export async function renderDeliverable(
   intake: Record<string, unknown>,
   endpoint: "screen" | "study"
 ): Promise<
-  | { ok: true; title: string; html: string; md: string; deck: string | null }
+  | {
+      ok: true;
+      title: string;
+      html: string;
+      md: string;
+      deck: string | null;
+      working: Record<string, string> | null;
+    }
   | { ok: false; error: string }
 > {
   const base = process.env.GRIDFORGE_API_URL;
@@ -153,9 +161,40 @@ export async function renderDeliverable(
     }
   };
 
+  const working = async (): Promise<Record<string, string> | null> => {
+    // The tables behind the document, so the client's own engineers can check the
+    // arithmetic. A failed bundle never fails the document.
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": key },
+        body: JSON.stringify({ intake, format: "csv" }),
+        signal: AbortSignal.timeout(120_000),
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { files?: Record<string, string> };
+      return body.files ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   try {
-    const [html, md, deckHtml] = await Promise.all([call("html"), call("md"), deck()]);
-    return { ok: true, title: html.title, html: html.document, md: md.document, deck: deckHtml };
+    const [html, md, deckHtml, files] = await Promise.all([
+      call("html"),
+      call("md"),
+      deck(),
+      working(),
+    ]);
+    return {
+      ok: true,
+      title: html.title,
+      html: html.document,
+      md: md.document,
+      deck: deckHtml,
+      working: files,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
   }

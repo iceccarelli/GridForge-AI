@@ -1,0 +1,12 @@
+-- 0006_working_files.sql — the arithmetic behind the deliverable, stored with it
+--
+-- A client who cannot check our numbers has to trust us. Trust is not a
+-- commercial asset; a checkable model is. Every Envelope Study ships with the
+-- CSV bundle the engine produced it from — scenarios, the headroom ladder, the
+-- constraint table, the inputs actually used, the inputs we assumed, and the
+-- provenance chain for every derived quantity.
+--
+-- Stored as a jsonb map of filename -> file body. The bundle is small (tens of
+-- kB of text) and belongs to exactly one deliverable, so a column beats a table.
+-- It is stripped from admin list views; only the token holder can pull it.
+alter table public.deliverables add column if not exists working_files jsonb;

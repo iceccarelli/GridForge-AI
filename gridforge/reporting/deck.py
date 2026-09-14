@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass, field
-from datetime import date
+from ..clock import report_date_iso
 
 from ..common import ESTIMATED, V
 from ..envelope.time_to_power import TimeToPower, schedule
@@ -175,7 +175,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         title=f"{ctx.site.name} · hall {ctx.hall.id}",
         subtitle=(f"Capacity and density envelope · target platform {plat.name} · "
                   f"{len(results)} architectures compared"),
-        footer=(f"{intake.client} · prepared {date.today().isoformat()} · modelled, not measured"),
+        footer=(f"{intake.client} · prepared {report_date_iso()} · modelled, not measured"),
     )
 
     d.slides.append(Slide(
