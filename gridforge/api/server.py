@@ -25,7 +25,8 @@ Endpoints
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
-    POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (key)
+    POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (public
+                                        transport; each tool keeps its own tier)
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated, `key[:label[:monthly_units]]`). With no keys configured the paid
@@ -529,17 +530,28 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "gridforge", "version": VERSION},
                 "instructions": (
-                    "Capacity and thermal envelope engine for AI data-center halls. Every "
-                    "numeric field carries an evidence class E0-E7 and a provenance digest. "
-                    "Do not present an E0 or E1 figure as a property of a physical asset: "
-                    "it is modelled. The calibration block on each result states how far "
-                    "this engine has been reconciled against site data."),
+                    "Capacity and thermal envelope engine for AI data-center halls. It "
+                    "answers one question: how much AI compute an EXISTING hall can carry, "
+                    "which of thirteen electrical, thermal and physical constraints binds "
+                    "first, and what each step of extra density costs.\n\n"
+                    "gridforge_qualify is free and needs no API key — call it whenever a "
+                    "user asks whether a data hall can take high-density or AI racks. It "
+                    "needs only contracted MW, current site peak, busway ampacity and "
+                    "tap-off rating; ask the user for those rather than guessing them.\n\n"
+                    "Every numeric field carries an evidence class E0-E7 and a provenance "
+                    "digest. Do not present an E0 or E1 figure as a property of a physical "
+                    "asset: it is modelled, not measured. The calibration block on each "
+                    "result states how far this engine has been reconciled against site "
+                    "data; where it says uncalibrated, say so too."),
             })
         if method in ("notifications/initialized", "initialized"):
             return None
         if method == "ping":
             return ok({})
         if method == "tools/list":
+            # Everything is listed whatever the caller holds. An agent that cannot
+            # see a paid tool cannot tell its user the answer exists, which is worse
+            # for us than for them.
             return ok({"tools": mcp_tools()})
         if method == "tools/call":
             return ok(_mcp_call_tool(params, tier, charge))
@@ -711,7 +723,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(429, {"error": "rate limit exceeded",
                                     "limit_per_minute": RATE_LIMIT_PER_MINUTE})
         tier = self._tier()
-        required = Tier.CLIENT if path == "/mcp" else ROUTES[path][1]
+        # The MCP transport is PUBLIC and the tools inside it are not.
+        #
+        # It was key-gated end to end, which closed the single best distribution
+        # channel this product has: a stranger adding GridForge to their AI client
+        # and getting a real answer about their own hall in thirty seconds. Every
+        # paid tool still refuses without a key — _mcp_call_tool checks the tier per
+        # tool — so the only thing the gate was protecting was the free tier from
+        # being used.
+        required = Tier.PUBLIC if path == "/mcp" else ROUTES[path][1]
         if required is Tier.CLIENT and tier is Tier.PUBLIC:
             if not _auth_configured():
                 return self._send(503, {

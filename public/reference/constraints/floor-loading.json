@@ -1,0 +1,31 @@
+{
+  "id": "floor_loading",
+  "slug": "floor-loading",
+  "name": "Floor loading",
+  "domain": "physical",
+  "headline": "A fully populated AI rack weighs around 1.4 tonnes and a Rated-3 raised floor was designed for about 1,220 kg/m\u00b2.",
+  "limits": "Distributed and point load the hall floor can carry, including the raised floor system where one is present.",
+  "relation": "Rack mass divided by footprint, against the design distributed load \u2014 and separately against point loads at the castors, which is usually the harder test.",
+  "binds_when": "Divide your platform's rack mass by its footprint and compare against your hall's design floor loading. If it is close, treat the number in the building record as a screening value and commission a structural assessment before committing.",
+  "relief": "Structural strengthening, load spreading, or relocating the deployment to slab.",
+  "relief_risk": "Structural work in a live hall is disruptive and the assessment itself can invalidate the plan. It is cheap relative to the decision and should be done early for that reason.",
+  "misconception": "Treating the design value in the building record as a measurement. It is a design value, and a 2014 record may not reflect what was built.",
+  "sources": [
+    "TIA-942 Rated-3 floor loading design values; platform rack masses from published vendor data."
+  ],
+  "see_also": [
+    "floor_space"
+  ],
+  "lead_time_weeks": {
+    "low": 12,
+    "high": 40
+  },
+  "worked_example": {
+    "question": "What does one NVIDIA GB300 NVL72 rack impose on the floor?",
+    "working": "1400 kg / 0.72 m\u00b2",
+    "answer": "1,944 kg/m\u00b2 distributed",
+    "consequence": "Against a TIA-942 Rated-3 design value of about 1,220 kg/m\u00b2."
+  },
+  "cost_basis": null,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

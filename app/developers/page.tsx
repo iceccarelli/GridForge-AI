@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
+import McpInstall from "@/components/McpInstall";
 
 export const metadata: Metadata = {
   title: "Machine interface — call the engine | GridForge AI",
@@ -162,7 +163,11 @@ export default async function DevelopersPage() {
         </div>
       </section>
 
-      <section className="mt-12 grid gap-4 lg:grid-cols-2">
+      <section className="mt-12">
+        <McpInstall engine={API} />
+      </section>
+
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
         <div className="rounded border border-line bg-panel-2 p-6">
           <h3 className="text-lg font-semibold text-ghost">Try it without a key</h3>
           <p className="mt-2 text-sm text-mute">
@@ -189,8 +194,8 @@ export default async function DevelopersPage() {
             <span className="font-mono text-ghost">
               {cat?.mcp.protocolVersion ?? "2025-06-18"}
             </span>
-            . The handshake returns instructions telling the model not to present a modelled figure
-            as a property of a physical asset.
+            . The transport is open; each tool keeps its own tier, so the free qualifier works
+            without a key and everything else asks for one.
           </p>
           <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/mcp \\

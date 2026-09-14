@@ -1,0 +1,37 @@
+{
+  "id": "residual_air_removal",
+  "slug": "residual-air-load-removal",
+  "name": "Residual air load removal per rack",
+  "domain": "thermal",
+  "headline": "Twenty kilowatts of air load in a rack position designed for eight is still an air problem.",
+  "limits": "Heat removable from a single rack position by air, at the hall's containment and airflow.",
+  "relation": "Residual air per rack = rack kW \u00d7 (1 \u2212 liquid capture). The hall's per-position air capability \u2014 commonly 10\u201320 kW with good containment \u2014 is what it must fit inside.",
+  "binds_when": "Compare the residual air load of one target rack against what one position in your hall can actually remove today. Containment quality decides this more than plant capacity does.",
+  "relief": "In-row cooling or rear-door heat exchangers at the affected positions.",
+  "relief_risk": "Rear doors need water at the position, which is a pipework and leak-detection question in a live hall.",
+  "misconception": "Per-position capability inferred from hall-average density. The average is not the limit; the position is.",
+  "sources": [
+    "Uptime Intelligence on practical retrofit density ceilings."
+  ],
+  "see_also": [
+    "plant_capacity",
+    "architecture_capability"
+  ],
+  "lead_time_weeks": {
+    "low": 10,
+    "high": 30
+  },
+  "worked_example": {
+    "question": "What must one rack position remove by air?",
+    "working": "135 kW \u00d7 (1 \u2212 0.90)",
+    "answer": "13 kW at one position",
+    "consequence": "Good containment gets a position to roughly 10\u201320 kW."
+  },
+  "cost_basis": {
+    "key": "inrow_rdhx.per_rack",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

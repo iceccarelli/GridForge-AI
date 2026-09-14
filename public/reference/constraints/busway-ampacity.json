@@ -1,0 +1,37 @@
+{
+  "id": "busway_ampacity",
+  "slug": "busway-ampacity",
+  "name": "Busway ampacity",
+  "domain": "electrical",
+  "headline": "A 400 A busway run cannot feed three 130 kW racks, whatever the hall total says.",
+  "limits": "The continuous current a busway run carries, derated for ambient, grouping and the site's own continuous-load policy.",
+  "relation": "Racks per run = (ampacity \u00d7 utilisation limit \u00d7 \u221a3 \u00d7 V \u00d7 pf) / rack power. At 400 A, 0.8 continuous limit, 400 V and pf 0.95, a run supports roughly 210 kW \u2014 about 1.6 racks of a 132 kW platform.",
+  "binds_when": "Take your installed ampacity per run, multiply by your continuous-load derating (often 0.8), and convert to kW. Divide by your target rack power. If that number is smaller than the racks you want per run, this binds. Legacy halls commonly run 400 A; modern AI halls specify 800\u20131000 A.",
+  "relief": "Replace the busway with a higher ampacity, or add further runs where riser and routing space exists. Adding runs is usually cheaper and slower than it sounds, because the constraint moves upstream to the panel.",
+  "relief_risk": "Replacement is invasive in an occupied hall and is normally phased run by run. Adding runs needs riser space that a 2014 building may not have.",
+  "misconception": "Ampacity is often read as a nameplate rather than a continuous rating. The derated figure is the one that decides.",
+  "sources": [
+    "IEC 61439-6 busbar trunking systems; site continuous-load policy."
+  ],
+  "see_also": [
+    "rack_feed_tapoff",
+    "transformer_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 16,
+    "high": 44
+  },
+  "worked_example": {
+    "question": "How many racks does a 400 A busway run carry?",
+    "working": "400 A \u00d7 0.8 \u00d7 1.73 \u00d7 400 V \u00d7 0.95 = 211 kW; 211 / 135",
+    "answer": "1.6 racks per run",
+    "consequence": "Modern AI halls specify 800\u20131000 A for this reason."
+  },
+  "cost_basis": {
+    "key": "busway.replacement",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

@@ -1,0 +1,38 @@
+{
+  "id": "plant_capacity",
+  "slug": "chilled-water-plant-capacity",
+  "name": "Chilled-water plant capacity",
+  "domain": "thermal",
+  "headline": "Direct liquid cooling does not remove the air load \u2014 it shrinks it, and the remainder still needs the plant you already have.",
+  "limits": "Chilled-water capacity available for the residual air load that liquid cooling does not capture.",
+  "relation": "Residual air load per rack = rack kW \u00d7 (1 \u2212 liquid capture fraction). At a 0.85 capture fraction a 132 kW rack still rejects about 20 kW to air \u2014 more than a whole rack in the hall's original design.",
+  "binds_when": "Multiply your target rack count by rack power by (1 \u2212 capture fraction) and compare against plant headroom at your site's summer design dry bulb, not at a standard rating condition.",
+  "relief": "Additional plant, adiabatic assist, or a trim chiller on a high-temperature loop. Raising the loop temperature is often worth more than raising duty.",
+  "relief_risk": "Retaining low-temperature plant for the residual air load forgoes most of the free-cooling benefit the liquid loop was supposed to deliver.",
+  "misconception": "\"We are going liquid, so cooling is solved.\" The residual air load of a dense hall frequently exceeds the hall's entire original design load.",
+  "sources": [
+    "Platform liquid capture fractions from published vendor architectures, corroborated where possible."
+  ],
+  "see_also": [
+    "residual_air_removal",
+    "cdu_capacity",
+    "tcs_supply_achievable"
+  ],
+  "lead_time_weeks": {
+    "low": 24,
+    "high": 60
+  },
+  "worked_example": {
+    "question": "How much air load remains after direct liquid cooling?",
+    "working": "135 kW \u00d7 (1 \u2212 0.90)",
+    "answer": "13 kW per rack, still to air",
+    "consequence": "More than two racks' worth in a hall designed for 8 kW."
+  },
+  "cost_basis": {
+    "key": "trim_chiller.adiabatic",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

@@ -1,0 +1,32 @@
+{
+  "id": "tcs_supply_achievable",
+  "slug": "achievable-facility-water-temperature",
+  "name": "Achievable facility water temperature",
+  "domain": "thermal",
+  "headline": "Legacy plant makes 6 \u00b0C water beautifully. Liquid cooling would rather have 30 \u00b0C.",
+  "limits": "The facility water temperature the site can actually deliver to the CDUs, which sets the approach and therefore the usable duty.",
+  "relation": "A high-temperature loop at around 30 \u00b0C supply unlocks free cooling for most of a European year and widens nothing \u2014 the approach to a platform accepting 45 \u00b0C inlet stays comfortable. A 6 \u00b0C loop wastes that twice.",
+  "binds_when": "If your plant is designed around 6\u201310 \u00b0C supply and you are adding liquid cooling, the question is not whether the plant is big enough but whether it should be making water that cold at all.",
+  "relief": "A separate high-temperature loop, adiabatic assist, or a trim chiller sized for the hours the free cooling does not cover.",
+  "relief_risk": "Two loops means two sets of controls and a commissioning problem. Retaining the low-temperature loop for residual air load is usually unavoidable and is what caps the efficiency gain.",
+  "misconception": "Treating water temperature as a plant setting rather than as the variable that decides both CDU duty and annual energy.",
+  "sources": [
+    "OCP Water-Based Transfer Fluids Guidelines, 2025."
+  ],
+  "see_also": [
+    "cdu_capacity",
+    "plant_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 20,
+    "high": 52
+  },
+  "worked_example": null,
+  "cost_basis": {
+    "key": "trim_chiller.adiabatic",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

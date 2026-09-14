@@ -250,6 +250,20 @@ jobs:
               assert bad not in blob, f'the public reference claims {bad!r}'
           print('language ok')
           "
+      - name: Every constraint has a machine-readable twin
+        run: |
+          python -c "
+          import json, pathlib
+          ref = pathlib.Path('public/reference')
+          doc = json.loads((ref / 'constraints.json').read_text())
+          for c in doc['constraints']:
+              f = ref / 'constraints' / (c['slug'] + '.json')
+              assert f.exists(), f'no JSON twin for {c[\"slug\"]}'
+              twin = json.loads(f.read_text())
+              assert twin['worked_example'] == c['worked_example']
+              assert twin['notice'], 'a twin that travels without the notice is a naked number'
+          print('twins ok:', len(doc['constraints']))
+          "
       - name: The published specification must be part of the worked example
         run: |
           test -f public/reference/specification.html
@@ -328,6 +342,36 @@ jobs:
           assert c['state'] == 'uncalibrated', c['state']
           assert 'has not been established' in c['statement']
           print('discovery ok')
+          "
+      - name: The free tier is reachable by an agent with no key at all
+        run: |
+          # The single best distribution channel this product has: a stranger adding
+          # GridForge to their AI client and getting a real answer in thirty seconds.
+          # It was closed by a transport-level gate that protected nothing.
+          curl -sf -X POST http://127.0.0.1:8080/mcp \
+            -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"gridforge_qualify","arguments":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}}}' \
+            -o /tmp/free.json
+          python -c "
+          import json
+          r = json.load(open('/tmp/free.json'))['result']
+          assert r['isError'] is False
+          assert r['structuredContent']['as_found']['binding_constraint']
+          blob = json.dumps(r)
+          assert 'EUR' not in blob and 'capex' not in blob, 'the free tool leaked priced content'
+          print('free tier ok:', r['content'][0]['text'])
+          "
+          # And every paid tool still refuses, with the free one named.
+          curl -sf -X POST http://127.0.0.1:8080/mcp \
+            -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gridforge_study","arguments":{}}}' \
+            -o /tmp/paid.json
+          python -c "
+          import json
+          e = json.load(open('/tmp/paid.json'))['error']
+          assert e['code'] == -32001, e
+          assert e['data']['free_tool'] == 'gridforge_qualify'
+          print('paid tools still gated')
           "
       - name: MCP answers a handshake and a tool call
         run: |

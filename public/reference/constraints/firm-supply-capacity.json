@@ -1,0 +1,26 @@
+{
+  "id": "grid_firm_capacity",
+  "slug": "firm-supply-capacity",
+  "name": "Firm supply (grid import and behind-the-meter)",
+  "domain": "electrical",
+  "headline": "In core European metros the grid connection is the asset, and it is not growing before the 2030s.",
+  "limits": "Firm capacity available for new load: contracted grid import, less current site peak, plus any behind-the-meter supply that genuinely counts as firm.",
+  "relation": "Headroom = (contracted MW \u2212 current site peak MW) + \u03a3(BTM capacity \u00d7 firm capacity factor). A battery contributes its firm fraction, not its nameplate.",
+  "binds_when": "Subtract your current site peak from your contracted capacity. If the remainder is smaller than your intended new IT load at your expected PUE, this binds \u2014 and unlike every other constraint on this list, you cannot buy your way out of it inside the decision horizon in most European metros.",
+  "relief": "Behind-the-meter supply, where it is firm and consentable. Otherwise, getting more compute out of the capacity already contracted \u2014 which is the whole premise of a density retrofit.",
+  "relief_risk": "Consent, not equipment, is the schedule risk for combustion plant. Grid-code compliance and fire separation govern battery programmes. A capacity factor applied to a nameplate is an assumption, and should be labelled as one.",
+  "misconception": "Nameplate BTM capacity counted as firm. A 2 MW battery is not 2 MW of firm capacity, and the fraction that is depends on the duty.",
+  "sources": [
+    "Mainova on Frankfurt connection availability; TenneT queue positions; CRU Large Energy User policy, Ireland."
+  ],
+  "see_also": [
+    "transformer_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 30,
+    "high": 260
+  },
+  "worked_example": null,
+  "cost_basis": null,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

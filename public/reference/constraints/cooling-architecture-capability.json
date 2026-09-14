@@ -1,0 +1,27 @@
+{
+  "id": "architecture_capability",
+  "slug": "cooling-architecture-capability",
+  "name": "Cooling architecture per-rack capability",
+  "domain": "thermal",
+  "headline": "Air-cooled halls stop somewhere between 20 and 40 kW a rack, and no amount of plant changes that.",
+  "limits": "The maximum per-rack power the chosen cooling architecture can support at all, before any question of capacity.",
+  "relation": "A gate rather than a capacity: retained air, rear-door, hybrid DLC and full DLC each have a per-rack ceiling. Exceeding it is not a shortfall, it is an architecture that does not apply.",
+  "binds_when": "If your target rack power is above roughly 40 kW and the hall is air cooled with containment, this gate closes before any capacity constraint is reached. The honest answer at that point is an architecture change, not more plant.",
+  "relief": "Change the architecture: rear-door, hybrid direct liquid cooling, or full DLC with a high-temperature loop.",
+  "relief_risk": "Each step up is a larger programme and a different skill set in the hall. The decision is rarely reversible within a tenancy.",
+  "misconception": "Believing a hall can be pushed to 100 kW+ a rack with better airflow. Fewer than 4% of facilities can host 100 kW racks today.",
+  "sources": [
+    "Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is below 30 kW; practical retrofit ceiling 20\u201340 kW."
+  ],
+  "see_also": [
+    "residual_air_removal",
+    "cdu_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 12,
+    "high": 36
+  },
+  "worked_example": null,
+  "cost_basis": null,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

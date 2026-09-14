@@ -1,0 +1,26 @@
+{
+  "id": "floor_space",
+  "slug": "available-rack-positions",
+  "name": "Available rack positions",
+  "domain": "physical",
+  "headline": "The cheapest constraint to discover and the most awkward to relieve, because it is somebody's tenancy.",
+  "limits": "Rack positions that can actually be released for the new deployment.",
+  "relation": "Positions available, not positions installed. A hall with 560 positions and 380 under contract has 180.",
+  "binds_when": "Count what you can genuinely empty inside the programme. If that is fewer than the racks the power and cooling would allow, this binds \u2014 and it binds on commercial terms, not engineering ones.",
+  "relief": "Release positions from existing tenancy, or consolidate.",
+  "relief_risk": "Commercial and contractual, not capital. The lead time is a negotiation, which makes it the hardest item on the ladder to programme honestly.",
+  "misconception": "Counting installed positions rather than releasable ones, which overstates the envelope before any physics is done.",
+  "sources": [
+    "Site tenancy records."
+  ],
+  "see_also": [
+    "floor_loading"
+  ],
+  "lead_time_weeks": {
+    "low": 4,
+    "high": 20
+  },
+  "worked_example": null,
+  "cost_basis": null,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

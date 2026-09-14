@@ -47,6 +47,18 @@ GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference constraints \
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge reference platforms \
   -o "$OUT/platforms.json" >/dev/null
 
+# One file per constraint, so a crawler or an agent can fetch exactly the page it
+# wants at a clean, cacheable URL instead of scraping rendered HTML.
+python3 - "$OUT" <<'PY'
+import json, pathlib, sys
+out = pathlib.Path(sys.argv[1]) / "constraints"
+out.mkdir(parents=True, exist_ok=True)
+doc = json.loads((pathlib.Path(sys.argv[1]) / "constraints.json").read_text())
+for c in doc["constraints"]:
+    (out / f"{c['slug']}.json").write_text(
+        json.dumps({**c, "notice": doc["notice"]}, indent=2) + "\n")
+PY
+
 # The machine-callable surface, committed so /developers renders the same schema the
 # server validates against, and so CI notices when a tool, a unit rate or a schema
 # changes without the published contract changing with it.

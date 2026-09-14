@@ -112,6 +112,16 @@ GET  /v1/usage        this key's metered usage and remaining allowance
 GET  /v1/version      the rate card
 ```
 
+**The transport is open; each tool keeps its own tier.** `gridforge_qualify` works
+over MCP with no key and no account — one paste into an AI client and an operator has
+the binding constraint for their own hall. Every paid tool refuses without a key and
+names the free one when it does. The paid tiers sell because the free one already
+answered something true.
+
+```bash
+claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
+```
+
 Metered in **units, not calls** — a qualify and a forty-hall portfolio run are not the
 same work. Rates are published, because a meter whose rate is secret is a meter nobody
 integrates against. Over quota returns **402, not 429**: to a machine those are different
@@ -131,6 +141,8 @@ Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
 ```
 /                      the argument, and the free qualifier
 /qualify               seven numbers in, the binding constraint out
+/llms.txt              the machine index: what this site contains, where the
+                       canonical JSON lives, and how to read an evidence class
 /constraints           all thirteen, each with the governing relation, a worked example
                        you can check by hand, what relieves it and how many weeks
 /constraints/<slug>    one constraint in full

@@ -652,3 +652,57 @@ so does a page for a constraint that does not exist.
 
 `app/sitemap.ts` generates the constraint URLs from the same file, so a new constraint is
 indexed without anyone remembering to add it.
+
+
+## Distribution: the free tier had to be reachable by a machine
+
+The MCP transport was key-gated end to end. Every paid tool inside it already checked
+its own tier, so the only thing that gate protected was the free tier from being used —
+and with it the single best distribution channel this product has: a stranger adding
+GridForge to their AI client and getting a real answer about their own hall in thirty
+seconds.
+
+It is open now. `gridforge_qualify` needs no key and no account; every paid tool refuses
+without one and names the free tool when it does, so an agent always knows what it can
+call. `tools/list` shows everything whatever the caller holds — an agent that cannot see
+a paid tool cannot tell its user the answer exists, which costs us more than it costs
+them.
+
+One paste, on `/developers`:
+
+```bash
+claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
+```
+
+The handshake instructions are load-bearing. They tell the model that the free tool
+exists and what it needs, that an E0 or E1 figure is modelled rather than measured and
+must not be presented as a property of a physical asset, and that the calibration record
+currently says uncalibrated. A modelled number loose inside an agent loop is more
+dangerous than one in a board pack: nobody downstream reads the footnote.
+
+## Being the source a model cites
+
+`/llms.txt` is the machine index — what the site contains, where the canonical JSON
+lives, how to read an evidence class, and how to call the free tool. Generated from the
+same catalogue the pages render, so it cannot go stale.
+
+Every constraint also has a JSON twin at `/reference/constraints/<slug>.json`, carrying
+the notice with it. A crawler scraping rendered HTML gets our prose and loses the
+evidence class, the lead time and the arithmetic; the twin hands over the structure. A
+twin that travelled without the notice would be a naked number, so CI checks for it.
+
+`/api/cite` gives the citation, the BibTeX and the **required caveat** in one call. The
+friction that stops a niche citing you is usually clerical — nobody knows what to put in
+the footnote — so we write it, and the footnote carries the caveat so a modelled figure
+cannot travel without its label.
+
+**robots.txt welcomes AI crawlers explicitly** — GPTBot, ClaudeBot, PerplexityBot,
+Google-Extended, CCBot and the rest — while keeping every token-addressed path closed to
+everyone. Most of this niche is now blocking them. We want the opposite: when an operator
+asks a model what stops their hall taking AI racks, we would rather the answer came from
+a constraint reference that names its evidence class than from a vendor reference design
+that ends in a bill of materials.
+
+That is not altruism and should not be described as such. Being the source is worth more
+than any single engagement, and the reference is how somebody arrives already believing
+the tool.

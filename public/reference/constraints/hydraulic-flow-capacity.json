@@ -1,0 +1,32 @@
+{
+  "id": "hydraulic_flow",
+  "slug": "hydraulic-flow-capacity",
+  "name": "Hydraulic flow capacity",
+  "domain": "thermal",
+  "headline": "A flow figure without a head figure is not a duty point.",
+  "limits": "Pumped flow available to the technology cooling loop at the system's actual resistance.",
+  "relation": "Required flow \u2248 rack count \u00d7 platform flow per rack. Around 1.45 l/min per kW at a 10 K delta-T is a reasonable screening figure; the platform's own published flow per rack is better.",
+  "binds_when": "Multiply target racks by the platform's flow per rack and compare against installed pumped capacity \u2014 then check available head against the resistance the new loop adds. Halls pass the first test and fail the second.",
+  "relief": "Pump replacement or addition, and pipework where the resistance is in the distribution rather than the pumps.",
+  "relief_risk": "Head is where retrofits are caught out. Adding flow to a loop whose resistance has risen gives a duty point nobody modelled.",
+  "misconception": "Flow capacity quoted from the pump nameplate rather than from the duty point of the system as it will be built.",
+  "sources": [
+    "OCP fluid guidelines; site hydraulic records."
+  ],
+  "see_also": [
+    "cdu_capacity",
+    "tcs_supply_achievable"
+  ],
+  "lead_time_weeks": {
+    "low": 12,
+    "high": 36
+  },
+  "worked_example": {
+    "question": "What flow do 20 racks need?",
+    "working": "20 \u00d7 130 l/min",
+    "answer": "2600 l/min",
+    "consequence": "Check it against available head, not only against pump capacity."
+  },
+  "cost_basis": null,
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

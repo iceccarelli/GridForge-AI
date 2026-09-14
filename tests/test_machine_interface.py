@@ -220,10 +220,21 @@ def test_over_quota_is_402_not_429(server):
 
 # --- MCP -------------------------------------------------------------------
 
-def test_mcp_requires_a_key(server):
+def test_mcp_is_open_at_the_transport_and_gated_at_the_tool(server):
+    """This assertion was the other way round until the free tier could not be
+    reached by an agent at all. The gate protected nothing — every paid tool checks
+    its own tier inside — while closing the best distribution channel we have.
+    tests/test_agent_distribution.py holds both halves of this open."""
     status, body, _ = call(server, "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    assert status == 401
-    assert body["tool_schemas"] == "/v1/tools"
+    assert status == 200
+    assert body["result"]["serverInfo"]["name"] == "gridforge"
+
+    status, body, _ = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "gridforge_study", "arguments": {}}})
+    assert status == 200
+    assert body["error"]["code"] == -32001
+    assert "requires an API key" in body["error"]["message"]
 
 
 def test_mcp_handshake(server):

@@ -1,0 +1,31 @@
+{
+  "id": "ups_capacity",
+  "slug": "ups-capacity",
+  "name": "UPS capacity (protected load)",
+  "domain": "electrical",
+  "headline": "AI training loads step harder than anything a 2014 UPS was specified for.",
+  "limits": "Protected capacity available for new IT load, and the instantaneous step the installed blocks will accept without transferring to bypass.",
+  "relation": "Headroom = installed protected capacity \u00d7 redundancy factor \u2212 existing protected load. Separately, a synchronised training job can present a step of a large fraction of its own rating in milliseconds.",
+  "binds_when": "Compare protected headroom against the new IT load. Then ask a second question most people skip: what step load are the installed blocks rated for, and what step will a synchronised job actually present?",
+  "relief": "Additional modules where the installed system parallels, or a new block with its own switchgear where it does not.",
+  "relief_risk": "Mixed-vintage parallel operation is a common and expensive surprise. Whether new modules will parallel with the installed system is a question to settle before it is priced, not after.",
+  "misconception": "Capacity is checked and step-load capability is not. The second is what causes the incident.",
+  "sources": [
+    "Site UPS schedules; manufacturer step-load ratings."
+  ],
+  "see_also": [
+    "transformer_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 20,
+    "high": 52
+  },
+  "worked_example": null,
+  "cost_basis": {
+    "key": "ups.per_kW",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}

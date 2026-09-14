@@ -1,0 +1,37 @@
+{
+  "id": "transformer_capacity",
+  "slug": "transformer-capacity",
+  "name": "Transformer capacity",
+  "domain": "electrical",
+  "headline": "The transformer is rarely the tightest constraint and is usually the one that sets the date.",
+  "limits": "Usable secondary capacity after the site's derating policy and at the redundancy the hall is sold on.",
+  "relation": "Required MVA \u2248 (racks \u00d7 rack kW \u00d7 PUE) / 1000 / pf, at N+1 or 2N as the hall is contracted. Harmonic content from GPU rectifier loads derates a standard unit further.",
+  "binds_when": "Sum your existing IT load and the new load at your expected PUE, divide by 0.95, and compare against installed capacity with one unit out of service. If the margin is thin, check lead time before you check price.",
+  "relief": "Additional or replacement transformer capacity, and the switchgear that comes with it.",
+  "relief_risk": "Lead times of 120\u2013160+ weeks have been reported for power transformers. This is the item most likely to set the energisation date for the whole retrofit, and every week of it is a week of contracted power earning nothing.",
+  "misconception": "Treated as a capex line when it is a schedule line. A cheaper transformer eighteen months later is the expensive one.",
+  "sources": [
+    "Reported European transformer lead times, 2025\u20132026."
+  ],
+  "see_also": [
+    "grid_firm_capacity",
+    "ups_capacity"
+  ],
+  "lead_time_weeks": {
+    "low": 52,
+    "high": 160
+  },
+  "worked_example": {
+    "question": "What transformer capacity do 20 NVIDIA GB300 NVL72 racks need?",
+    "working": "20 \u00d7 135 kW \u00d7 PUE 1.20 / 1000 / 0.95",
+    "answer": "3.41 MVA before redundancy",
+    "consequence": "At N+1 the installed capacity has to carry that with one unit out of service."
+  },
+  "cost_basis": {
+    "key": "transformer.replacement",
+    "basis": "library_default",
+    "evidence": "E0_ASSUMPTION",
+    "note": "A placeholder with a \u221250%/+100% band, not a price. It is replaced by a quotation the first time we tender this relief on a real project."
+  },
+  "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."
+}
