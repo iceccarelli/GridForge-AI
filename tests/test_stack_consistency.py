@@ -230,6 +230,92 @@ def test_the_commercial_spine_lists_what_is_actually_purchasable(cat):
         assert name in spine, f"the commercial spine does not mention {name}"
 
 
+#: Everything allowed to sit in the repository root, and why it is there.
+#: A root file is the first thing a stranger reads and the easiest place for a
+#: stray to hide, so the list is explicit rather than a pattern.
+ROOT_FILES = {
+    ".dockerignore": "docker build context",
+    ".env.example": "the environment, documented",
+    ".eslintrc.json": "lint config",
+    ".gitignore": "",
+    "Dockerfile": "the engine image",
+    "Makefile": "",
+    "README.md": "",
+    "fly.toml": "engine deployment",
+    "next.config.ts": "",
+    "package.json": "",
+    "package-lock.json": "",
+    "postcss.config.mjs": "",
+    "pyproject.toml": "the engine package",
+    "render.yaml": "alternate deployment",
+    "tailwind.config.ts": "",
+    "tsconfig.json": "",
+    "vercel.json": "site deployment and the weekly cron",
+}
+
+
+def _tracked() -> list[str]:
+    import subprocess
+    return subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True,
+                          text=True, check=True).stdout.split()
+
+
+def test_nothing_foreign_is_committed_at_the_repository_root():
+    """Two things landed on public main this way: a patch file, and a build tool
+    belonging to an entirely different project.
+
+    Neither was caught, because nothing was looking. Every test asked whether what
+    we had was correct; none asked whether something we did not put there had
+    arrived. And .gitignore is no defence — a GitHub web upload commits directly,
+    and an ignore rule only stops an UNTRACKED file being added.
+
+    The root is the first thing a stranger reads. Adding a file here should be a
+    decision, so the list is explicit: add yours to ROOT_FILES with a reason.
+    """
+    at_root = sorted(f for f in _tracked() if "/" not in f)
+    unexpected = [f for f in at_root if f not in ROOT_FILES]
+    assert not unexpected, (
+        f"files at the repository root that nothing declares: {unexpected}. "
+        f"A patch belongs in inbox/ — see inbox/README.md. Anything belonging to "
+        f"another project belongs in that project's history, not this one.")
+
+
+def test_the_root_allowlist_has_no_dead_entries():
+    """An allowlist that outlives the files it names stops being a description of
+    the repository and starts being a wish."""
+    tracked = set(_tracked())
+    dead = sorted(f for f in ROOT_FILES if f not in tracked)
+    assert not dead, f"ROOT_FILES names files that are not tracked: {dead}"
+
+
+def test_no_patch_is_committed_anywhere():
+    """A patch is an instruction, not a source file. scripts/apply-inbox.sh removes
+    each one in the same commit that applies it, so one surviving here means a patch
+    was applied some other way and the repository is accumulating them again."""
+    left = [f for f in _tracked() if f.endswith(".patch")]
+    assert not left, (
+        f"patch files committed to the repository: {left}. Apply them with "
+        f"scripts/apply-inbox.sh, which removes each one in the commit that "
+        f"applies it.")
+
+
+def test_the_inbox_exists_and_is_empty_of_patches():
+    """Tracked so an upload has somewhere to land; empty so nothing accumulates."""
+    inbox = ROOT / "inbox"
+    assert (inbox / "README.md").exists(), "inbox/README.md is the upload instructions"
+    assert not list(inbox.glob("*.patch")), (
+        "a patch is still sitting in inbox/. Run scripts/apply-inbox.sh.")
+
+
+def test_the_apply_script_removes_the_patch_it_applied():
+    src = (ROOT / "scripts" / "apply-inbox.sh").read_text()
+    assert "git rm -q --cached" in src
+    assert "commit -q --amend" in src, (
+        "the patch must be removed in the SAME commit that applies it, or the "
+        "history records a file that was never meant to be part of the project")
+    assert "git reset -q --hard" in src, "a failing patch must roll back"
+
+
 def test_the_runbook_documents_every_command_the_cli_offers():
     """The runbook is what the founder works from. A command it does not mention is
     one that does not get used; a command it mentions that does not exist is worse."""

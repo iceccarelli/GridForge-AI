@@ -27,6 +27,15 @@ jobs:
         run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
       - name: Nothing priced may be unbuyable, ungeneratable or undeliverable
         run: python -m pytest tests/test_stack_consistency.py tests/test_catalogue_parity.py -q
+      - name: Nothing foreign at the root, and no patch committed anywhere
+        run: |
+          # A patch file and a build tool from another project both reached public
+          # main by being uploaded to the repository root. .gitignore is no defence:
+          # a web upload commits directly, and an ignore rule only stops an
+          # UNTRACKED file being staged.
+          git ls-files | grep -E '\.patch$' && { echo "a patch is committed"; exit 1; } || true
+          python -m pytest tests/test_stack_consistency.py -q \
+            -k "repository_root or allowlist or patch_is_committed or inbox or apply_script"
 
   deliverables:
     runs-on: ubuntu-latest

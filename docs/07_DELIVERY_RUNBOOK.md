@@ -706,3 +706,47 @@ that ends in a bill of materials.
 That is not altruism and should not be described as such. Being the source is worth more
 than any single engagement, and the reference is how somebody arrives already believing
 the tool.
+
+
+## How a change gets in, and why not through the root
+
+Two things reached public `main` by being uploaded to the repository root: a patch
+file, and `nb` — a build tool belonging to an entirely different project, which then
+could not run because it hardcoded a path to that project's workspace.
+
+Neither was caught. Every test asked whether what we had was correct; none asked
+whether something we had not put there had arrived.
+
+**`.gitignore` was never going to stop it.** `/*.patch` has been in that file the
+whole time. A GitHub web upload commits through the API, and an ignore rule only
+prevents an *untracked* file being staged by `git add`. Once a file is tracked the
+rule is silent. That is worth knowing in general: ignore rules are a convenience for
+`git add`, not a policy about what may exist in a repository.
+
+**And it compounds.** A file at the root that you have also touched locally — even
+just `chmod +x` — makes `git pull` abort with "local changes would be overwritten".
+Every command after that then fails for reasons that have nothing to do with the
+real problem: the patch you were trying to fetch never arrives, the test run is on
+stale code, the commit records a mode change under a message about something else,
+and the push is rejected as non-fast-forward. One cause, five symptoms, none of them
+pointing at it.
+
+### The arrangement now
+
+```bash
+# upload 00NN-something.patch into inbox/, then
+bash scripts/apply-inbox.sh
+```
+
+`inbox/` is tracked, so an upload has somewhere to land, and holds nothing but its
+own README, so nothing accumulates. The script applies each patch with `git am`,
+folds the removal of the patch file into the same commit with `--amend`, runs the
+tests, and resets hard to the previous HEAD if they fail. One commit per patch, and
+the instruction does not survive its own execution.
+
+`--dry-run` says what would apply and changes nothing.
+
+Four tests hold it: nothing undeclared at the root, no dead entries in that
+declaration, no `.patch` committed anywhere, and nothing left in `inbox/`. A fifth
+reads the script itself and fails if the removal stops being folded into the commit,
+because a patch that survives in history is the problem coming back quietly.

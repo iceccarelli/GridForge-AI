@@ -166,6 +166,24 @@ public, that we are no longer keeping.
 
 ---
 
+## Receiving a change
+
+Patches land in `inbox/`, never at the repository root:
+
+```bash
+# drop 00NN-something.patch into inbox/, then
+bash scripts/apply-inbox.sh
+```
+
+It applies each patch in order, runs the tests, and commits the result **with the
+patch removed in the same commit** — rolling back if the tests fail. A patch is an
+instruction, not a source file.
+
+`.gitignore` is no defence here and never was: a GitHub web upload commits directly,
+and an ignore rule only stops an *untracked* file being added. So the guard is a
+test — `tests/test_stack_consistency.py` declares every file allowed at the root and
+fails on anything else, on any committed `.patch`, and on a patch left in `inbox/`.
+
 ## Running it
 
 ```bash
