@@ -1,0 +1,557 @@
+From 9544529366d5dee2c60fab3cdb735aff66314d42 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 08:05:26 +0000
+Subject: [PATCH] feat(funnel): put the qualifier on the homepage, publish the
+ binding-constraint dataset
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0011. The engine, the deliverables and the subscription all existed; the
+funnel that feeds them did not. /qualify was reachable only by typing the URL, and
+nothing on the site sold the engagements the engine can actually produce.
+
+THE QUALIFIER IS NOW ON THE HOMEPAGE
+
+A #qualify section between the simulator and the services block — the narrative
+place for it, since everything above is argument and this is the engine answering a
+question about the reader's own hall for nothing. It is also the only thing on the
+site that feeds the dataset.
+
+THE DATASET IS NOW PUBLISHED (/api/insights)
+
+The distribution of what actually binds across every hall run through the engine,
+with the median tap-off rating, busway ampacity and plant supply temperature behind
+it. Anonymised, cached, and rendered on the homepage and /qualify.
+
+This is the growth loop and the moat in the same object. Anyone competent can
+rebuild the constraint physics from ASHRAE, OCP and a month of work; nobody else is
+accumulating a record of what stops real European halls, and every free run adds a
+row. Publishing it is what turns a private asset into the reason this practice is
+the one people call.
+
+Two rules, both enforced in the route:
+  * nothing identifying leaves it — no company, site, hall or email;
+  * nothing is published below eight halls, because a distribution over four is
+    noise dressed as evidence AND a small sample can point at whoever filled it in.
+Below the threshold the component renders the honest version — how many halls are
+in and what it takes to publish — rather than a chart of four rows.
+
+The basis line states that the sample is self-selected: people run this because
+they suspect a problem, so it is what binds among halls someone was worried about,
+not a survey of the European estate. A dataset presented as more than it is would
+be worth less than none.
+
+THE ENGAGEMENT LADDER IS ON /pricing
+
+Screen, Study deposit, Portfolio deposit and Hall Watch, each with its fee, what
+the client receives and a working checkout button, read from lib/products.ts so the
+page can never drift from what Stripe charges. Fixed fees throughout: a fee that
+moved with our effort would make our slowness the client's problem.
+
+Chart marks are now design tokens (chart / chart-alt in tailwind.config.ts) rather
+than one-off hexes, so the dimmed, validated steps are reused rather than
+re-derived. Sitemap now carries /qualify, /pricing, /infrastructure, /intelligence;
+the section rail carries the qualifier.
+
+155 Python tests pass. tsc, next lint and next build clean. Both new sections
+rendered headlessly and reviewed before shipping.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ app/api/insights/route.ts                |  65 +++++++++++
+ app/page.tsx                             |  39 +++++++
+ app/pricing/page.tsx                     |   3 +
+ app/qualify/page.tsx                     |   5 +
+ app/sitemap.ts                           |   4 +
+ components/BindingConstraintInsights.tsx | 115 +++++++++++++++++++
+ components/EngagementLadder.tsx          | 138 +++++++++++++++++++++++
+ components/SectionNav.tsx                |   1 +
+ tailwind.config.ts                       |   5 +
+ 9 files changed, 375 insertions(+)
+ create mode 100644 app/api/insights/route.ts
+ create mode 100644 components/BindingConstraintInsights.tsx
+ create mode 100644 components/EngagementLadder.tsx
+
+diff --git a/app/api/insights/route.ts b/app/api/insights/route.ts
+new file mode 100644
+index 0000000..f0c1372
+--- /dev/null
++++ b/app/api/insights/route.ts
+@@ -0,0 +1,65 @@
++import { NextResponse } from "next/server";
++import { fetchQualifications, summariseQualifications } from "@/lib/admin";
++
++export const runtime = "nodejs";
++export const revalidate = 900;
++
++// What actually binds in real European halls — published, anonymised.
++//
++// This is the growth loop and the moat in one. Anyone competent can rebuild the
++// constraint physics from ASHRAE, OCP and a month of work. Nobody else is
++// accumulating a record of what actually stops real halls, and every free
++// qualifier run adds a row. Publishing the distribution is what turns that record
++// from a private asset into the reason this practice is the one people call.
++//
++// Two rules, both non-negotiable:
++//   * nothing identifying leaves this route — no company, site, hall, email;
++//   * nothing is published below MIN_HALLS, because a distribution over four halls
++//     is noise wearing the clothes of evidence, and a small sample can point at
++//     the individual who filled it in.
++const MIN_HALLS = 8;
++
++export async function GET() {
++  const rows = await fetchQualifications(1000);
++  const scored = rows.filter((r) => r.binding_constraint);
++
++  if (scored.length < MIN_HALLS) {
++    return NextResponse.json({
++      ok: true,
++      published: false,
++      halls: scored.length,
++      threshold: MIN_HALLS,
++      reason:
++        `Not enough halls yet. We publish this once ${MIN_HALLS} have been through the engine — ` +
++        "a distribution over a handful of sites is noise dressed as evidence, and a small sample " +
++        "can point at whoever filled it in.",
++    });
++  }
++
++  const s = summariseQualifications(rows);
++  return NextResponse.json({
++    ok: true,
++    published: true,
++    halls: s.withResult,
++    blocked_as_found: s.blockedAsFound,
++    constraints: s.constraints.map((c) => ({
++      constraint: c.constraint,
++      halls: c.halls,
++      share: Math.round(c.share * 1000) / 1000,
++    })),
++    medians: {
++      contracted_headroom_pct:
++        s.medianHeadroomPct === null ? null : Math.round(s.medianHeadroomPct),
++      tapoff_A: s.medianTapoffA,
++      busway_A: s.medianBuswayA,
++      plant_supply_C: s.medianPlantSupplyC,
++    },
++    metros: s.metros.map((m) => m.metro),
++    basis:
++      "Halls submitted to the public capacity qualifier. Each was solved with the same " +
++      "constraint set; figures not supplied were filled from library defaults and are named as " +
++      "assumptions in that hall's own read. Self-selected sample — people run this because they " +
++      "suspect a problem — so read it as what binds among halls someone was worried about, not " +
++      "as a survey of the European estate.",
++  });
++}
+diff --git a/app/page.tsx b/app/page.tsx
+index d187abb..377bfd7 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -22,6 +22,9 @@ const LoadSimulator = dynamic(() => import("@/components/LoadSimulator").then(m
+ const TimeToPowerComparator = dynamic(() => import("@/components/TimeToPowerComparator").then(m => m.TimeToPowerComparator));
+ const ConfigStudio = dynamic(() => import("@/components/ConfigStudio").then(m => m.ConfigStudio));
+ const SingleLineDiagram = dynamic(() => import("@/components/SingleLineDiagram").then(m => m.SingleLineDiagram));
++const BindingConstraintInsights = dynamic(() =>
++  import("@/components/BindingConstraintInsights").then((m) => m.BindingConstraintInsights)
++);
+ import { SectionNav } from "@/components/SectionNav";
+ import { JsonLd } from "@/components/JsonLd";
+ const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
+@@ -288,6 +291,42 @@ export default function Home() {
+       </section>
+ 
+       {/* ============== SERVICES ============== */}
++      {/* The qualifier. Everything above this is argument; this is the engine
++          answering a question about the reader's own hall, for nothing. It is also
++          where the binding-constraint dataset comes from. */}
++      <section id="qualify" className="max-w-5xl mx-auto px-6 py-20">
++        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
++          <div className="max-w-xl">
++            <div className="eyebrow mb-3 text-power">RUN IT ON YOUR OWN HALL</div>
++            <h2 className="section-title">
++              Most halls don&rsquo;t fail on cooling.
++              <br />
++              They fail on a 63&nbsp;A tap-off.
++            </h2>
++          </div>
++          <p className="max-w-sm text-mute">
++            Thirteen constraints decide how much AI compute an existing hall can carry. One binds
++            first, and it is rarely the one people expect. Seven numbers you already know, and the
++            engine tells you which — free, no contact details.
++          </p>
++        </div>
++
++        <div className="panel p-6 sm:p-8">
++          <BindingConstraintInsights compact />
++          <div className="mt-6 flex flex-wrap items-center gap-3">
++            <Link
++              href="/qualify"
++              className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
++            >
++              Find the binding constraint <ArrowRight className="h-4 w-4" />
++            </Link>
++            <span className="text-[11px] text-faint font-mono">
++              solved server-side · capital cost and programme duration are the paid engagement
++            </span>
++          </div>
++        </div>
++      </section>
++
+       <section id="services" className="max-w-7xl mx-auto px-6 py-20">
+         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+           <div className="max-w-xl">
+diff --git a/app/pricing/page.tsx b/app/pricing/page.tsx
+index dbb65e5..6249d18 100644
+--- a/app/pricing/page.tsx
++++ b/app/pricing/page.tsx
+@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
+ import { SERVICES, PACKAGES, SITE } from "@/lib/site";
+ import { openAudit } from "@/lib/ui";
+ import { startDeposit } from "@/lib/checkout";
++import { EngagementLadder } from "@/components/EngagementLadder";
+ import { COMMERCE, foundingSlotsRemaining, eur } from "@/lib/commerce";
+ 
+ const TIERS = PACKAGES.map((pkg) => {
+@@ -156,6 +157,8 @@ export default function PricingPage() {
+             </button>
+           </div>
+ 
++          <EngagementLadder />
++
+           <div className="mt-12">
+             <Link
+               href="/#services"
+diff --git a/app/qualify/page.tsx b/app/qualify/page.tsx
+index b449da2..1c7bc36 100644
+--- a/app/qualify/page.tsx
++++ b/app/qualify/page.tsx
+@@ -1,4 +1,5 @@
+ import type { Metadata } from "next";
++import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
+ import { CapacityQualifier } from "@/components/CapacityQualifier";
+ 
+ export const metadata: Metadata = {
+@@ -27,6 +28,10 @@ export default function QualifyPage() {
+ 
+       <CapacityQualifier />
+ 
++      <section className="mt-12 panel p-6 sm:p-8">
++        <BindingConstraintInsights />
++      </section>
++
+       <section className="mt-12 grid gap-6 sm:grid-cols-3">
+         {[
+           {
+diff --git a/app/sitemap.ts b/app/sitemap.ts
+index 80a4278..9162c6b 100644
+--- a/app/sitemap.ts
++++ b/app/sitemap.ts
+@@ -5,6 +5,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
+   const now = new Date();
+   return [
+     { url: base, lastModified: now, changeFrequency: "weekly", priority: 1 },
++    { url: `${base}/qualify`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
++    { url: `${base}/pricing`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
++    { url: `${base}/infrastructure`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
++    { url: `${base}/intelligence`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
+     { url: `${base}/legal/privacy`, lastModified: now, priority: 0.3 },
+     { url: `${base}/legal/terms`, lastModified: now, priority: 0.3 },
+     { url: `${base}/legal/security`, lastModified: now, priority: 0.3 },
+diff --git a/components/BindingConstraintInsights.tsx b/components/BindingConstraintInsights.tsx
+new file mode 100644
+index 0000000..02d56f8
+--- /dev/null
++++ b/components/BindingConstraintInsights.tsx
+@@ -0,0 +1,115 @@
++"use client";
++
++import React, { useEffect, useState } from "react";
++
++/**
++ * What actually binds — the published distribution.
++ *
++ * One measure across categories, so one hue and a value printed on every bar.
++ * The mark colour is a dimmed step of the brand's `power`: #00E5FF is an interface
++ * colour and sits outside the usable lightness band as a data mark on this surface.
++ *
++ * Below the publication threshold this renders the honest version — how many halls
++ * are in, and what it will take to publish — rather than a chart of four rows.
++ */
++
++interface Insights {
++  published: boolean;
++  halls: number;
++  threshold?: number;
++  reason?: string;
++  blocked_as_found?: number;
++  constraints?: { constraint: string; halls: number; share: number }[];
++  medians?: {
++    contracted_headroom_pct: number | null;
++    tapoff_A: number | null;
++    busway_A: number | null;
++    plant_supply_C: number | null;
++  };
++  metros?: string[];
++  basis?: string;
++}
++
++export function BindingConstraintInsights({ compact = false }: { compact?: boolean }) {
++  const [data, setData] = useState<Insights | null>(null);
++  const [failed, setFailed] = useState(false);
++
++  useEffect(() => {
++    let alive = true;
++    fetch("/api/insights")
++      .then((r) => r.json())
++      .then((b) => alive && (b?.ok ? setData(b as Insights) : setFailed(true)))
++      .catch(() => alive && setFailed(true));
++    return () => {
++      alive = false;
++    };
++  }, []);
++
++  if (failed || !data) return null;
++
++  if (!data.published) {
++    return (
++      <div className="rounded border border-dashed border-line px-5 py-6">
++        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++          What actually binds
++        </p>
++        <p className="mt-2 text-sm text-mute">
++          {data.halls} hall{data.halls === 1 ? "" : "s"} through the engine so far. {data.reason}
++        </p>
++      </div>
++    );
++  }
++
++  const top = Math.max(...(data.constraints ?? []).map((c) => c.halls), 1);
++  const rows = compact ? (data.constraints ?? []).slice(0, 4) : (data.constraints ?? []);
++
++  return (
++    <div>
++      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
++        <div>
++          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
++            What actually binds
++          </p>
++          <p className="mt-1 text-sm text-mute">
++            Across {data.halls} halls run through the engine
++            {typeof data.blocked_as_found === "number"
++              ? ` · ${data.blocked_as_found} cannot host the target platform as they stand`
++              : ""}
++            .
++          </p>
++        </div>
++        {data.medians?.tapoff_A ? (
++          <p className="font-mono text-xs text-faint">
++            median tap-off {data.medians.tapoff_A} A · busway {data.medians.busway_A} A · plant{" "}
++            {data.medians.plant_supply_C}&nbsp;°C
++          </p>
++        ) : null}
++      </div>
++
++      <div className="grid gap-2">
++        {rows.map((c) => (
++          <div key={c.constraint} className="rounded border border-line bg-panel-2 p-3">
++            <div className="flex items-baseline justify-between gap-3">
++              <span className="text-sm text-ghost">{c.constraint}</span>
++              <span className="font-mono text-sm text-chart">
++                {c.halls}
++                <span className="text-faint"> · {Math.round(c.share * 100)}%</span>
++              </span>
++            </div>
++            <div className="mt-2 h-1.5 w-full rounded bg-line">
++              <div
++                className="h-1.5 rounded bg-chart"
++                style={{ width: `${Math.max(2, Math.round((c.halls / top) * 100))}%` }}
++                title={`${c.constraint}: ${c.halls} halls`}
++              />
++            </div>
++          </div>
++        ))}
++      </div>
++
++      {!compact && data.basis ? (
++        <p className="mt-4 max-w-3xl text-[11px] leading-relaxed text-faint">{data.basis}</p>
++      ) : null}
++    </div>
++  );
++}
+diff --git a/components/EngagementLadder.tsx b/components/EngagementLadder.tsx
+new file mode 100644
+index 0000000..b071685
+--- /dev/null
++++ b/components/EngagementLadder.tsx
+@@ -0,0 +1,138 @@
++"use client";
++
++import React, { useState } from "react";
++import Link from "next/link";
++import { ArrowRight, Loader2 } from "lucide-react";
++import { eur } from "@/lib/commerce";
++import { PRODUCTS, type ProductId } from "@/lib/products";
++
++/**
++ * The engagement ladder: what can be bought now, in the order clients climb it.
++ *
++ * Every fee here is fixed and every one buys a named artefact. Nothing on this
++ * list is billed by the hour, because the client is buying an answer — and a fee
++ * that moves with our effort would make our slowness their problem.
++ */
++
++const ORDER: ProductId[] = [
++  "density_screen",
++  "envelope_study_deposit",
++  "portfolio_screen_deposit",
++  "hall_watch",
++];
++
++const NOTE: Partial<Record<ProductId, string>> = {
++  density_screen: "Credits in full against the study.",
++  envelope_study_deposit: "Deposit against €22k–€45k, scoped before we start.",
++  portfolio_screen_deposit: "Deposit against €60k–€140k, five to fifteen halls.",
++  hall_watch: "Cancel any time; no minimum term.",
++};
++
++export function EngagementLadder() {
++  const [busy, setBusy] = useState<ProductId | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  async function buy(id: ProductId) {
++    setBusy(id);
++    setError(null);
++    try {
++      const res = await fetch("/api/checkout", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ product: id }),
++      });
++      const body = await res.json();
++      if (!res.ok || !body.ok || !body.url) {
++        setError(
++          body?.error === "Payments not configured"
++            ? "Checkout is not live on this deployment yet — use the enquiry route below."
++            : (body?.error ?? "Could not start checkout.")
++        );
++        return;
++      }
++      window.location.href = body.url as string;
++    } catch {
++      setError("Could not reach checkout.");
++    } finally {
++      setBusy(null);
++    }
++  }
++
++  return (
++    <section className="mt-20">
++      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
++        <div className="max-w-xl">
++          <div className="eyebrow mb-2 text-power">Capacity engineering — buy today</div>
++          <h2 className="text-2xl font-semibold tracking-tight">
++            Fixed fee, named artefact, no hourly billing.
++          </h2>
++        </div>
++        <p className="max-w-sm text-[14px] text-mute">
++          Start where your question is. Most halls start with the screen, because it costs less
++          than the meeting you would otherwise have about whether to have a meeting.
++        </p>
++      </div>
++
++      <div className="grid gap-5 md:grid-cols-2">
++        {ORDER.map((id) => {
++          const p = PRODUCTS[id];
++          return (
++            <div key={id} className="panel flex flex-col p-6">
++              <div className="flex items-baseline justify-between gap-4">
++                <h3 className="text-lg font-semibold text-ghost">{p.name}</h3>
++                <span className="data whitespace-nowrap font-mono text-power">
++                  {eur(p.amountCents)}
++                  {p.recurring ? (
++                    <span className="text-faint">
++                      {" "}
++                      / {p.recurring.intervalCount === 3 ? "quarter" : p.recurring.interval}
++                    </span>
++                  ) : null}
++                </span>
++              </div>
++              <p className="mt-3 text-[14px] leading-relaxed text-mute">{p.description}</p>
++              <p className="mt-3 text-[13px] leading-relaxed text-faint">
++                <span className="font-mono text-[10px] uppercase tracking-[0.14em]">
++                  You receive
++                </span>
++                <br />
++                {p.deliverable}
++              </p>
++              <div className="mt-auto pt-5">
++                <div className="flex flex-wrap items-center gap-3">
++                  <button
++                    type="button"
++                    onClick={() => buy(id)}
++                    disabled={busy === id}
++                    className="inline-flex items-center gap-2 rounded-lg bg-power px-4 py-2.5 text-sm font-medium text-ink transition-all hover:bg-power/90 disabled:opacity-60"
++                  >
++                    {busy === id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
++                    {p.recurring ? "Start" : "Commission"} <ArrowRight size={15} />
++                  </button>
++                  <span className="text-[11px] text-faint">
++                    {NOTE[id]}
++                    {p.turnaroundDays && !p.recurring
++                      ? ` ${p.turnaroundDays} working days from a complete intake.`
++                      : ""}
++                  </span>
++                </div>
++              </div>
++            </div>
++          );
++        })}
++      </div>
++
++      {error ? <p className="mt-4 text-sm text-flag">{error}</p> : null}
++
++      <p className="mt-6 max-w-3xl text-[13px] leading-relaxed text-faint">
++        Not sure which? Run the{" "}
++        <Link href="/qualify" className="text-power hover:underline">
++          free qualifier
++        </Link>{" "}
++        first. It names the constraint that binds your hall and the inputs nobody has measured, and
++        it costs nothing. If it tells you the answer is no, that is the cheapest no you will ever
++        get.
++      </p>
++    </section>
++  );
++}
+diff --git a/components/SectionNav.tsx b/components/SectionNav.tsx
+index 2271874..507fdb7 100644
+--- a/components/SectionNav.tsx
++++ b/components/SectionNav.tsx
+@@ -13,6 +13,7 @@ const SECTIONS = [
+   { id: "intelligence", label: "Live data" },
+   { id: "comparator", label: "Comparator" },
+   { id: "simulator", label: "Simulator" },
++  { id: "qualify", label: "Qualifier" },
+   { id: "services", label: "Services" },
+   { id: "how", label: "How it works" },
+   { id: "architectures", label: "Architectures" },
+diff --git a/tailwind.config.ts b/tailwind.config.ts
+index f84e441..2befb96 100644
+--- a/tailwind.config.ts
++++ b/tailwind.config.ts
+@@ -19,6 +19,11 @@ const config: Config = {
+         queue: "#FFB020", // grid queue / delay / warning
+         verified: "#34D399", // genuinely operational / confirmed
+         flag: "#F87171", // cost / risk
++        // Chart marks — dimmed steps of power/queue. The interface accents sit
++        // outside the usable lightness band as data marks on the panel surface;
++        // these pass lightness, chroma, colour-vision separation and contrast.
++        chart: "#1193A8",
++        "chart-alt": "#BD8318",
+         // Text
+         ghost: "#F5F7FA",
+         mute: "#8A94A6",
+-- 
+2.43.0
+
