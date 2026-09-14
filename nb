@@ -22,11 +22,20 @@
 
 set -Eeuo pipefail
 
-ROOT="${ROOT:-/workspaces/neuralbridge}"
+# The repository this script is sitting in, not a path typed in months ago.
+#
+# It used to be ROOT="${ROOT:-/workspaces/neuralbridge}". A tool that assumes its
+# own location will eventually be run somewhere else, and this one was: it was
+# uploaded into a different repository, committed to that repository's public
+# main, and then refused to run with "not a directory" — which says nothing about
+# what actually happened. Deriving it means the script works wherever it is put
+# and the guard below catches wherever it should not have been put.
+_self_dir() { cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd; }
+ROOT="${ROOT:-$(git -C "$(_self_dir)" rev-parse --show-toplevel 2>/dev/null || _self_dir)}"
 MAIN="main"
 # Bumped whenever this file changes. Printed by every command, so a stale copy is
 # visible in the first line of output instead of in a confusing failure later.
-NB_VERSION="2026.09.14.2"
+NB_VERSION="2026.09.14.3"
 # Branches that are published artefacts rather than somebody's work. gh-pages is
 # rewritten by `mkdocs gh-deploy --force` in CI on every push to main: deleting
 # it takes the docs site down until the next push and then it comes straight
@@ -57,6 +66,33 @@ _blocked() {
 
 cd "$ROOT" 2>/dev/null || die "not a directory: $ROOT"
 git rev-parse --git-dir >/dev/null 2>&1 || die "$ROOT is not a git repository"
+
+# This script rebuilds ONE repository from ONE patch chain. Run anywhere else it
+# would reset a branch it does not understand and replay patches that do not
+# belong. Refusing is cheap; the alternative is a stranger's main branch.
+_wrong_repo() {
+  printf '%s  XX  this is not the repository %s belongs to%s\n' \
+    "$c_red" "$(basename "${BASH_SOURCE[0]}")" "$c_off" >&2
+  printf '      here:   %s\n' "$ROOT" >&2
+  printf '      remote: %s\n' "$(git remote get-url origin 2>/dev/null || echo '(none)')" >&2
+  printf '\n      It rebuilds neuralbridge from the patch chain in that repository.\n' >&2
+  printf '      Open the neuralbridge workspace and run it there.\n' >&2
+  printf '\n      If it was committed here by mistake, it does not belong in the\n' >&2
+  printf '      history of this project:\n\n' >&2
+  printf '          git rm --cached %s && git commit -m "remove %s: it belongs to another repository"\n\n' \
+    "$(basename "${BASH_SOURCE[0]}")" "$(basename "${BASH_SOURCE[0]}")" >&2
+  exit 1
+}
+
+# Two independent signals, because either one alone has a false positive: a fork
+# has a different remote, and a fresh clone before the first rebuild has no chain.
+_looks_like_home() {
+  git remote get-url origin 2>/dev/null | grep -qi 'neuralbridge' && return 0
+  [ -f 0002-baseline-patches-001-and-002.patch ] && return 0
+  [ -d src/assurance ] && return 0
+  return 1
+}
+_looks_like_home || _wrong_repo
 
 # ---------------------------------------------------------------- doctor ----
 cmd_doctor() {
