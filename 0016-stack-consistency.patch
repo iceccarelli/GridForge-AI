@@ -1,0 +1,1502 @@
+From 75e7f5b7cbcb2a04a6c8c0d4105b2515b82a2a22 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 16:12:57 +0000
+Subject: [PATCH] =?UTF-8?q?fix(stack):=20close=20the=20joins=20=E2=80=94?=
+ =?UTF-8?q?=20nothing=20priced=20may=20be=20unbuyable,=20ungeneratable=20o?=
+ =?UTF-8?q?r=20undeliverable?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0016. Three failures in a row had the same shape: a fact stated in two
+places, one of them updated. This patch fixes the three, and then removes the
+shape.
+
+A TEST CREATED A REAL FLY APP
+
+tests/test_deploy_script.py put a fake binary named `fly` on PATH and trusted the
+script to find it. The script resolved `command -v flyctl` first, found the REAL
+flyctl in the Codespace, and ran `fly apps create test-engine` against a live
+Fly.io account — visible in the run as "automatically selected personal
+organization". Six tests then failed because the app it had just created existed.
+
+A test that touches production is a worse bug than the one it was written to
+catch. Fixed three ways: FLY_BIN names the binary explicitly, the fake is
+installed under both `fly` and `flyctl`, and _assert_fake() refuses to run unless
+the binary the script will use is the one the test wrote. A regression test puts a
+loud decoy flyctl earlier on PATH and proves it is never called. And with FLY_BIN
+set the script no longer offers to install flyctl — a CI job that silently
+downloads a real one is one step from a test that uses it.
+
+  If a stray app remains:  fly apps destroy test-engine
+
+AN EUR 18,000 PURCHASE WOULD HAVE GENERATED A DENSITY SCREEN
+
+The intake route branched inline: kind === "envelope_study_deposit" ? "study" :
+"screen". A Procurement Specification purchase fell through to "screen". The
+client pays for one document and receives another, and nothing in the system
+objects. The endpoint now comes from the catalogue (deliverableEndpoint), an
+unmapped kind fails loudly with the intake preserved, and renderDeliverable
+handles "spec" — returning the response schedule in the working-files slot, since
+that is the artefact that makes four quotations comparable.
+
+THE PROCUREMENT SPECIFICATION WAS PRICED, DOCUMENTED AND UNBUYABLE
+
+The engagement ladder was a hand-written array of ids inside a component. Adding a
+product to the catalogue and forgetting that one line left it invisible. The
+ladder is now derived from a `surface` field that every product must declare —
+with no default, so something unsellable has to be declared unsellable on purpose
+— and a test fails if a literal ORDER array reappears.
+
+THE SHAPE, REMOVED
+
+tests/test_stack_consistency.py asserts the joins rather than the parts: every
+product reaches a surface; every deliverable reaches an endpoint; every endpoint
+the site names exists on the engine; every engagement the engine quotes can be
+paid for; every paid route is metered and agent-reachable (/v1/deck the one
+deliberate exception, named as deliberate); the published tools.json matches the
+engine's live schemas and rates; the README names every product and every package;
+the commercial spine lists what is actually purchasable; and every CLI command
+appears in the runbook. Adding a command without documenting it now fails the
+build. It is meant to.
+
+THE UPSELL THE STUDY ALREADY CREATES
+
+A delivered study ends with a constraint and a date, and somebody then has to buy
+the thing that relieves it. /deliverable/<token> now offers the Procurement
+Specification by name — reading the binding constraint out of the working files
+the engine just produced, so it says "now somebody has to buy the thing that
+relieves rack feed / tap-off rating" rather than a generic sentence. Shown after
+the working files, never before: an upsell that arrives ahead of the evidence
+reads as the point of the document.
+
+`gridforge spec` with no --constraint now targets the same relief that
+`spec --list` prints at the top. A tool that disagrees with itself between two
+commands is worse than one that picks badly.
+
+THE README DESCRIBED A DIFFERENT COMPANY
+
+It called this repository "a marketing + lead-generation site" for a
+"physics-informed energy management system" practice — four patches after it had
+stopped being that. Rewritten: the honesty kernel, the product ladder, the engine,
+the machine interface, the site map, what is deliberately absent. Two tests keep
+it true.
+
+docs/00_COMMERCIAL_SPINE.md goes to v0.2: the ladder now reflects what is built,
+and the two durable assets are named — the cost library and the accuracy record.
+Neither can be bought, scraped or inferred, and both accrue one hall at a time.
+
+TESTS
+
+21 new (310 total). CI gained a consistency job in `test` and a catalogue check in
+`site`, so a drift of this class cannot reach main again.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml  |  17 +++
+ README.md                        | 238 ++++++++++++++++++++----------
+ app/api/intake/[token]/route.ts  |  54 ++++++-
+ app/deliverable/[token]/page.tsx |  30 +++-
+ components/EngagementLadder.tsx  |  16 +-
+ components/SpecUpsell.tsx        |  95 ++++++++++++
+ docs/00_COMMERCIAL_SPINE.md      |  55 ++++++-
+ docs/07_DELIVERY_RUNBOOK.md      |  59 ++++++++
+ gridforge/procurement/build.py   |  20 ++-
+ lib/deliverables.ts              |  26 +++-
+ lib/products.ts                  |  71 ++++++++-
+ scripts/deploy-engine.sh         |  16 +-
+ tests/test_deploy_script.py      |  64 +++++++-
+ tests/test_stack_consistency.py  | 244 +++++++++++++++++++++++++++++++
+ 14 files changed, 898 insertions(+), 107 deletions(-)
+ create mode 100644 components/SpecUpsell.tsx
+ create mode 100644 tests/test_stack_consistency.py
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index cfc2fd0..961de3f 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -25,6 +25,8 @@ jobs:
+         run: python -m pytest tests -q
+       - name: The engine must import with no third-party package present
+         run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
++      - name: Nothing priced may be unbuyable, ungeneratable or undeliverable
++        run: python -m pytest tests/test_stack_consistency.py tests/test_catalogue_parity.py -q
+ 
+   deliverables:
+     runs-on: ubuntu-latest
+@@ -371,6 +373,21 @@ jobs:
+       - uses: actions/setup-python@v5
+         with:
+           python-version: '3.13'
++      - name: Every purchased deliverable has a generation path
++        run: |
++          node -e "
++          const ts = require('node:fs').readFileSync('lib/products.ts','utf8');
++          const blocks = ts.split('export const PRODUCTS')[1].split('export const PRODUCT_BY_KIND')[0];
++          const products = [...blocks.matchAll(/^  (\\w+): \\{([\\s\\S]*?)^  \\},/gm)];
++          let bad = [];
++          for (const [, id, body] of products) {
++            if (!/surface:\\s*\"/.test(body)) bad.push(id + ' (no surface)');
++            if (/producesDeliverable: true/.test(body) && !/endpoint:\\s*\"/.test(body))
++              bad.push(id + ' (deliverable with no endpoint)');
++          }
++          if (bad.length) { console.error('catalogue is inconsistent:', bad); process.exit(1); }
++          console.log('catalogue ok:', products.length, 'products');
++          "
+       - name: A key minted by the website must verify on the engine
+         env:
+           GRIDFORGE_KEY_SECRET: ci-cross-language-secret
+diff --git a/README.md b/README.md
+index b522944..b0e6dc9 100644
+--- a/README.md
++++ b/README.md
+@@ -1,121 +1,203 @@
+-# GridForge AI
++# GridForge-AI
+ 
+-**Speed to Power for AI Data Centers** — a marketing + lead-generation site for a founder-led, pilot-stage behind-the-meter power engineering practice.
++**How much AI compute can an existing data hall actually carry, what binds first, and what does each step of extra density cost?**
+ 
+-GridForge AI helps AI data-center developers bypass multi-year grid interconnection queues with on-site hybrid microgrids, DC distribution, and a physics-informed energy management system (EMS). This repository is the public website: it explains the niche, presents the real sellable engineering services, captures qualified leads, and includes an interactive (sample-data) dashboard preview.
++A zero-dependency Python engine that solves that question against thirteen electrical,
++thermal and physical constraints, and a Next.js site that sells the answer — as fixed-fee
++engineering engagements, as a metered API, and as a machine-callable MCP endpoint.
++
++No equipment is sold. No margin is taken on hardware. No physical asset is owned.
+ 
+ ---
+ 
+-## A note on honesty
++## The honesty kernel
+ 
+-This site is written to persuade **without fabricating a track record.** It is a real engineering practice at pilot stage, and the copy says so. Specifically:
++Every number the engine produces carries an **evidence class** and a **provenance
++digest**, and arithmetic propagates the *weakest* class of its inputs. A figure computed
++from an assumption is an assumption, whatever else went into it.
+ 
+-- Every market figure (68 GW demand, ~2,600 GW in interconnection queues, 5–8 year waits, etc.) is **a claim about the market**, sourced from public 2025–2026 research (RAND, FERC/LBNL, IEA, DOE). None of them are presented as GridForge's own results.
+-- The "Reference Architectures" section presents **engineering designs**, explicitly labeled *reference designs — not delivered customer projects.*
+-- The dashboard is clearly labeled **Interactive preview — sample data.**
+-- There are no fake customers, no fabricated efficiency stats, no invented partnerships or patents.
++```
++E0 assumed          E4 validated against test data
++E1 modelled         E5 measured at site (customer data)
++E2 simulated        E6 field-validated (our model reconciled against site performance)
++E3 estimated        E7 observed in operation
++```
+ 
+-This is deliberate. The buyers in this niche are sophisticated infrastructure and energy people who will check claims, and false advertising carries real legal exposure (FTC, Competition Act, EU). The persuasion here comes from genuine market data and engineering depth, not invented proof. **Please keep it that way** as the practice grows — replace reference designs with real case studies only once they are real.
++This is enforced, not intended. Report gates run before any document leaves the engine
++and refuse to emit one that carries an un-provenanced number, an evidence class above
++its inputs, or measurement language it has not earned. `gridforge/reporting/gates.py`.
+ 
+----
++**The engine also publishes how wrong it is.** `gridforge/calibration/` holds a ledger of
++what the model predicted next to what instrumented sites turned out to be. Today it is
++empty, and every study says so in section 14, `/v1/calibration` says so in public, and
++the block rides on every API response. A report that omits its accuracy record when the
++record is empty has told the reader the question does not matter.
+ 
+-## Tech stack
+-
+-- **Next.js 15.1.0** (App Router) + **React 18** + **TypeScript**
+-- **Tailwind CSS 3** with a custom "instrumentation / blueprint" design system
+-- **Framer Motion** for the signature *Time to Power* animation
+-- **react-hook-form** + **zod** for the audit-request form
+-- **sonner** for toasts
+-- **lucide-react** for icons
+-- Fonts: **Inter** (body) + **JetBrains Mono** (all data/numbers/eyebrows), via `next/font`
++---
+ 
+-## Project structure
++## What can be bought
+ 
+-```
+-app/
+-  layout.tsx            Root layout, fonts, metadata, mounts Navbar/Footer/AuditModal
+-  page.tsx              Honest homepage (hero, market reality, problem, approach,
+-                        services, reference architectures, tech, founder, FAQ, CTA)
+-  dashboard/page.tsx    Sample-data dashboard preview (sessionStorage demo auth)
+-  api/audit/route.ts    Lead-capture API (Resend if configured, else server log)
+-  legal/{privacy,terms,security}/page.tsx
+-  not-found.tsx · robots.ts · sitemap.ts · globals.css
+-components/
+-  Navbar.tsx            Working CTAs + demo client-portal login
+-  Footer.tsx
+-  TimeToPower.tsx       Signature animated grid-queue vs on-site comparison
+-  AuditModal.tsx        Mounted once; opens via the `gridforge:open-audit` event
+-  LegalShell.tsx
+-lib/
+-  site.ts               SINGLE SOURCE OF TRUTH for all content/market data
+-  ui.ts                 openAudit() — global event so every CTA works
+-public/
+-  icon.svg · og.png
+-```
++| | | |
++|---|---|---|
++| **Density Screen** | €4,500 · 5 days | What binds, racks as found and after the ladder, the item that sets the date |
++| **Capacity & Density Envelope Study** | €22k–€45k · 25 days | Five architectures compared, the full ladder, time to power, sensitivity, economics, model pack |
++| **Procurement Specification** | €18,000 · 12 days | The tender document the study implies, and your bids ranked in racks and weeks |
++| **Portfolio Screen** | €60k–€140k · 45 days | Five to fifteen halls under one methodology |
++| **Hall Watch** | €6,000 / quarter | The model stays live; a change note names the input that moved the answer |
++| **API — Triage** | €900 / month | Metered access for software: 600 units |
++| **API — Scale** | €2,900 / month | 2,500 units; portfolio billed per hall |
++| **API — Platform** | €7,500 / month | 10,000 units, a named engineer, redistribution terms |
+ 
+-Every call-to-action on the site calls `openAudit()` (from `lib/ui.ts`), which dispatches a window event the single mounted `AuditModal` listens for. To change any copy or market figure, edit **`lib/site.ts`**.
++Prices live in `gridforge/commercial.py` (what proposals quote) and `lib/products.ts`
++(what checkout charges). `tests/test_catalogue_parity.py` fails the build if they
++disagree, and `tests/test_stack_consistency.py` fails if anything priced cannot be
++bought, generated or delivered.
+ 
+ ---
+ 
+-## Local development
++## The engine
+ 
+ ```bash
+-npm install
+-npm run dev          # http://localhost:3000
+-npm run build        # production build (must pass before deploy)
+-npm run typecheck    # tsc --noEmit
++python3 -m gridforge init -o intake.json          # the blank intake a client fills in
++python3 -m gridforge gaps intake.json             # what is missing and why it binds
++python3 -m gridforge screen intake.json -o out    # the Density Screen
++python3 -m gridforge study intake.json -o out --csv   # the Study, with working files
++python3 -m gridforge deck intake.json -o out      # the walkthrough for the client session
++python3 -m gridforge proposal intake.json -o out  # a proposal that opens with a real finding
++python3 -m gridforge portfolio halls/*.json -o out
++python3 -m gridforge diff before.json after.json -o out   # what moved, and which input moved it
++python3 -m gridforge spec intake.json --list      # what on this ladder can be tendered
++python3 -m gridforge bids intake.json a.json b.json --ingest
++python3 -m gridforge cost list                    # the cost library and its evidence
++python3 -m gridforge calibrate show               # the accuracy record, honest either way
++python3 -m gridforge key issue --account acme --plan api_scale
++python3 -m gridforge tools                        # the machine-callable surface
++python3 -m gridforge serve --port 8080            # the HTTP API
+ ```
+ 
+-Node 18.18+ or 20+ recommended.
++Python 3.11+. **No third-party packages**, enforced by `tests/test_architecture.py` —
++which also enforces the dependency rule that stops the domain packages growing into each
++other.
+ 
+-## Environment variables
++```
++gridforge/
++  validation/      evidence classes, provenance DAG, interval arithmetic, units
++  constraints.py   the constraint protocol and registry          ← kernel
++  costs.py         the cost library and its evidence ladder       ← kernel
++  site/ power/ compute/ thermal/     schemas, libraries, constraints
++  envelope/        the solver, the headroom ladder, time to power
++  scenario/        architectures compared under one objective
++  economics/       capex, energy, AACE accuracy class
++  calibration/     what the model said vs what sites turned out to be
++  procurement/     specifications, bid evaluation, cost-library ingest
++  reporting/       documents, report gates, deck, proposal, change note, specification
++  api/             HTTP, metering, signed keys, tool schemas, MCP
++  integrations/    ports for GridOS / ThermalForge / DERIM, each raising NotWired
++                   until it is genuinely wired. An adapter that quietly returns a
++                   plausible number is the worst possible failure in this product.
++```
+ 
+-Nothing is required to build or deploy. All env vars are **optional** and only enable live lead delivery / analytics. Copy `.env.example` to `.env.local` to set them locally, or add them in Vercel → Project → Settings → Environment Variables.
++---
+ 
+-| Variable | Purpose | If unset |
+-| --- | --- | --- |
+-| `NEXT_PUBLIC_FORMSPREE_ID` | Audit form posts leads straight to Formspree (simplest path to a live inbox). | Form falls back to the `/api/audit` route. |
+-| `RESEND_API_KEY` | `/api/audit` emails leads via Resend. | Route logs the lead server-side and returns success (no email sent). |
+-| `LEAD_TO_EMAIL` | Destination address for Resend lead emails. | Required alongside `RESEND_API_KEY`. |
+-| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Enables privacy-friendly Plausible analytics. | No analytics. |
++## The machine interface
+ 
+-**To start collecting real leads immediately:** create a form at [formspree.io](https://formspree.io), then set `NEXT_PUBLIC_FORMSPREE_ID` in Vercel and redeploy. That's the only thing standing between this site and a working sales funnel.
++```
++GET  /v1/tools        every callable, in OpenAI function shape and MCP shape
++POST /mcp             Model Context Protocol over JSON-RPC 2.0
++GET  /v1/calibration  the accuracy record, public
++GET  /v1/usage        this key's metered usage and remaining allowance
++GET  /v1/version      the rate card
++```
+ 
+-## Demo client portal
++Metered in **units, not calls** — a qualify and a forty-hall portfolio run are not the
++same work. Rates are published, because a meter whose rate is secret is a meter nobody
++integrates against. Over quota returns **402, not 429**: to a machine those are different
++instructions, and an agent told to retry a call it can never afford will retry it forever.
+ 
+-The "Client portal" button opens a demo login. Credentials (sample data only):
++Keys are signed (`gfk1.<payload>.<signature>`) and verified offline, so self-serve
++subscriptions issue working keys in seconds without giving the engine a database. The
++website mints and the engine verifies with no shared runtime, so `tests/test_api_keys.py`
++mints one in Node, verifies it in Python, and asserts both produce the identical string.
++
++---
++
++## The site
++
++Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
+ 
+ ```
+-email:    demo@gridforge.ai
+-password: demo2026
++/                      the argument, and the free qualifier
++/qualify               seven numbers in, the binding constraint out
++/reference             the complete deliverable, published — study, deck, proposal,
++                       specification, model pack, and the CSVs behind every number
++/developers            the machine interface, and metered plans you can buy
++/pricing               the engagement ladder, derived from the catalogue
++/intake/<token>        a client fills in the hall
++/deliverable/<token>   what they bought, plus the working files to check it
++/api-access/<token>    a customer's API key, shown once
++/watch/<token>         a watched hall and its change notes
++/admin/pipeline        engagements, watched halls, API accounts, and what binds across all of them
+ ```
+ 
+----
++`/reference` is regenerated by `scripts/build-reference.sh` and CI fails on
++`git diff --exit-code public/reference`. A published worked example that has quietly
++drifted from the engine is worse than none: it is a specific, checkable promise, in
++public, that we are no longer keeping.
+ 
+-## Deploy
++---
+ 
+-### Push to GitHub
++## Running it
+ 
+ ```bash
+-git init
+-git add -A
+-git commit -m "GridForge AI — honest rebuild"
+-git remote add origin git@github.com:iceccarelli/GridForge-AI.git
+-git branch -M main
+-git push -u origin main
++python3 -m pytest tests -q        # the engine, the gates, the catalogue, the deploy script
++npm ci && npx tsc --noEmit && npm run build
++bash scripts/build-reference.sh   # must leave public/reference unchanged
++bash scripts/deploy-engine.sh --check   # dry run; touches nothing
+ ```
+ 
+-### Vercel
++Environment, engine side: `GRIDFORGE_API_KEYS`, `GRIDFORGE_KEY_SECRET`,
++`GRIDFORGE_USAGE_FILE` (on a mounted volume), `GRIDFORGE_ALLOWED_ORIGINS`,
++`GRIDFORGE_COST_LIBRARY`, `GRIDFORGE_CALIBRATION_LEDGER`, `GRIDFORGE_REPORT_DATE`.
++
++Environment, site side: `GRIDFORGE_API_URL`, `GRIDFORGE_API_KEY`,
++`GRIDFORGE_KEY_SECRET` (the same value as the engine), `SUPABASE_URL`,
++`SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
++`RESEND_API_KEY`, `RESEND_FROM`, `ADMIN_PASSWORD`, `CRON_SECRET`.
+ 
+-1. Import the `iceccarelli/GridForge-AI` repo at [vercel.com/new](https://vercel.com/new).
+-2. Framework preset: **Next.js** (auto-detected). No build settings to change.
+-3. (Optional) Add the env vars above to enable live leads.
+-4. Deploy. Default URL: `https://gridforge-ai.vercel.app`.
++`scripts/deploy-engine.sh` **never rotates a credential.** Minting requires
++`--bootstrap`, and when the secret list cannot be read it refuses to write rather than
++guessing. Two earlier versions did guess, and each one silently invalidated the live key
++on every deploy. `tests/test_deploy_script.py` runs it against a fake `fly` and proves it.
+ 
+ ---
+ 
+-## License & ownership
++## What is deliberately not here
++
++- **No owned assets.** No cooling inventory, no energy assets, no hardware, no
++  warehouses, no speculative installations. Physical deployment is customer-funded.
++- **No equipment sold and no margin on hardware.** Specifications state duty and
++  interfaces; the supplier proposes the equipment. That is why a client can hand our
++  document to their own procurement without a conflict to declare.
++- **No platform whose rack power the manufacturer has not published.** Absent by design;
++  `/v1/platforms` lists what is missing and why. An invented number in a capacity study
++  is how an engineering reputation ends.
++- **No quotation in the committed cost library.** Supplier prices are confidential and
++  live in a gitignored local library. The same rule applies to the calibration ledger:
++  client site data never enters the repository.
++
++---
++
++## Documentation
++
++`docs/00_COMMERCIAL_SPINE.md` (the strategy and the ICP) ·
++`docs/01_PRODUCT_SPEC` · `docs/02_ENGINEERING_REFERENCE` (the physics and its sources) ·
++`docs/03_TARGET_ARCHITECTURE` · `docs/04_MARKET_EVIDENCE` ·
++`docs/06_AUDIT_FINDINGS` · **`docs/07_DELIVERY_RUNBOOK.md`** — how the work is actually
++delivered, and the one to read first.
++
++---
+ 
+ © GridForge AI · Founder: [Vincenzo Grimaldi](https://igrimaldi.engineering) · Frankfurt, DE · Toronto, CA
+ 
+-Legal pages (`/legal/*`) are honest templates and flag where real entity details and counsel review are still required before relying on them.
++Legal pages (`/legal/*`) are honest templates and flag where real entity details and
++counsel review are still required before relying on them.
+diff --git a/app/api/intake/[token]/route.ts b/app/api/intake/[token]/route.ts
+index ea952d4..4588406 100644
+--- a/app/api/intake/[token]/route.ts
++++ b/app/api/intake/[token]/route.ts
+@@ -1,6 +1,6 @@
+ import { NextResponse } from "next/server";
+ import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
+-import { PRODUCT_BY_KIND } from "@/lib/products";
++import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
+ import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
+ 
+ export const runtime = "nodejs";
+@@ -56,7 +56,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string
+   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
+   await updateByToken(token, { intake: doc, status: "generating" });
+ 
+-  const endpoint = row.kind === "envelope_study_deposit" ? "study" : "screen";
++  // From the catalogue, not from a conditional here. Branching on the kind inline
++  // is how a EUR 18,000 Procurement Specification purchase generated a Density
++  // Screen: the client paid for one document and the system produced another,
++  // and nothing objected.
++  const endpoint = deliverableEndpoint(row.kind);
++  if (!endpoint) {
++    await updateByToken(token, {
++      status: "awaiting_intake",
++      title: null,
++    });
++    return NextResponse.json(
++      {
++        ok: false,
++        error:
++          `No generation path is configured for '${row.kind}'. This is our problem, ` +
++          `not yours — your intake is saved and we have been told.`,
++      },
++      { status: 500 }
++    );
++  }
+   const rendered = await renderDeliverable(doc, endpoint);
+ 
+   if (!rendered.ok) {
+@@ -73,9 +92,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string
+     );
+   }
+ 
++  // What bound, read out of the working files the engine just produced. Stored
++  // under a namespaced key so the client's own intake stays exactly as they
++  // entered it — the follow-on offer names their constraint rather than a generic
++  // one, and an unreadable bundle simply means it does not.
++  const binding = bindingFrom(rendered.working);
++
+   await updateByToken(token, {
+     status: "draft",
+     title: rendered.title,
++    intake: binding ? { ...doc, _gridforge: { binding } } : doc,
+     document_html: rendered.html,
+     document_md: rendered.md,
+     ...(rendered.deck ? { deck_html: rendered.deck } : {}),
+@@ -92,3 +118,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string
+       "nobody has read.",
+   });
+ }
++
++/**
++ * The constraint that binds, from scenarios.csv.
++ *
++ * Deliberately tolerant: a missing or reshaped bundle returns null and the page
++ * falls back to a generic sentence. Guessing a constraint would be worse than not
++ * naming one — this is a document about what physically limits a client's hall.
++ */
++function bindingFrom(working: Record<string, string> | null): string | null {
++  const csv = working?.["scenarios.csv"];
++  if (!csv) return null;
++  try {
++    const [header, ...rows] = csv.split("\n").filter((l) => l.trim());
++    const cols = header.split(",");
++    const i = cols.indexOf("binds_first");
++    if (i < 0 || !rows.length) return null;
++    // Split respecting quoted fields — scenario names contain commas.
++    const cells = rows[0].match(/("([^"]|"")*"|[^,]*)(,|$)/g) ?? [];
++    const raw = (cells[i] ?? "").replace(/,$/, "").replace(/^"|"$/g, "").trim();
++    return raw || null;
++  } catch {
++    return null;
++  }
++}
+diff --git a/app/deliverable/[token]/page.tsx b/app/deliverable/[token]/page.tsx
+index 3a8290b..fbad424 100644
+--- a/app/deliverable/[token]/page.tsx
++++ b/app/deliverable/[token]/page.tsx
+@@ -2,6 +2,8 @@ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { getByToken } from "@/lib/deliverables";
+ import { WatchUpsell } from "@/components/WatchUpsell";
++import { SpecUpsell } from "@/components/SpecUpsell";
++import { PRODUCT_BY_KIND } from "@/lib/products";
+ 
+ export const metadata: Metadata = {
+   title: "Your engineering deliverable | GridForge AI",
+@@ -112,11 +114,37 @@ export default async function DeliverablePage({
+           </div>
+         </section>
+       ) : null}
+-      {row.kind === "proposal" ? null : <WatchUpsell />}
++      {row.kind === "proposal" ? null : (
++        <>
++          {/* A specification is already the next step; offering it under itself
++              would be the page selling what the reader has just bought. */}
++          {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? null : (
++            <SpecUpsell constraint={bindingConstraint(row)} />
++          )}
++          <WatchUpsell />
++        </>
++      )}
+     </main>
+   );
+ }
+ 
++/**
++ * The constraint this document says binds, read out of the stored intake.
++ *
++ * Best effort and optional: the upsell reads correctly without it. Guessing a
++ * constraint would be worse than not naming one, so an unreadable intake simply
++ * returns null.
++ */
++function bindingConstraint(row: { intake?: unknown }): string | null {
++  try {
++    const meta = (row.intake as Record<string, unknown> | undefined)?.["_gridforge"];
++    const t = (meta as Record<string, unknown> | undefined)?.["binding"];
++    return typeof t === "string" && t.trim() ? t : null;
++  } catch {
++    return null;
++  }
++}
++
+ function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+   return (
+     <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+diff --git a/components/EngagementLadder.tsx b/components/EngagementLadder.tsx
+index b071685..2b515dd 100644
+--- a/components/EngagementLadder.tsx
++++ b/components/EngagementLadder.tsx
+@@ -4,7 +4,7 @@ import React, { useState } from "react";
+ import Link from "next/link";
+ import { ArrowRight, Loader2 } from "lucide-react";
+ import { eur } from "@/lib/commerce";
+-import { PRODUCTS, type ProductId } from "@/lib/products";
++import { LADDER_PRODUCTS, type ProductId } from "@/lib/products";
+ 
+ /**
+  * The engagement ladder: what can be bought now, in the order clients climb it.
+@@ -14,16 +14,12 @@ import { PRODUCTS, type ProductId } from "@/lib/products";
+  * that moves with our effort would make our slowness their problem.
+  */
+ 
+-const ORDER: ProductId[] = [
+-  "density_screen",
+-  "envelope_study_deposit",
+-  "portfolio_screen_deposit",
+-  "hall_watch",
+-];
+-
++// Derived from the catalogue, never hand-written. A literal list here is how the
++// Procurement Specification shipped priced, documented and impossible to buy.
+ const NOTE: Partial<Record<ProductId, string>> = {
+   density_screen: "Credits in full against the study.",
+   envelope_study_deposit: "Deposit against €22k–€45k, scoped before we start.",
++  procurement_spec: "One relief per engagement. Your bids come back comparable.",
+   portfolio_screen_deposit: "Deposit against €60k–€140k, five to fifteen halls.",
+   hall_watch: "Cancel any time; no minimum term.",
+ };
+@@ -74,8 +70,8 @@ export function EngagementLadder() {
+       </div>
+ 
+       <div className="grid gap-5 md:grid-cols-2">
+-        {ORDER.map((id) => {
+-          const p = PRODUCTS[id];
++        {LADDER_PRODUCTS.map((p) => {
++          const id = p.id;
+           return (
+             <div key={id} className="panel flex flex-col p-6">
+               <div className="flex items-baseline justify-between gap-4">
+diff --git a/components/SpecUpsell.tsx b/components/SpecUpsell.tsx
+new file mode 100644
+index 0000000..d7becdc
+--- /dev/null
++++ b/components/SpecUpsell.tsx
+@@ -0,0 +1,95 @@
++"use client";
++
++import React, { useState } from "react";
++import { ClipboardList, Loader2 } from "lucide-react";
++import { eur } from "@/lib/commerce";
++import { PRODUCTS } from "@/lib/products";
++
++/**
++ * The follow-on offer under a delivered study or screen.
++ *
++ * This is the moment the argument is strongest, and it is not a sales argument —
++ * it is the next thing the client physically has to do. The document they have
++ * just read ends with a constraint and a date. Somebody now has to write a
++ * specification for the thing that relieves it, and compare four quotations that
++ * will otherwise answer four different questions.
++ *
++ * Shown after the working files rather than before: they should check our
++ * arithmetic first. An upsell that arrives before the evidence reads as the point
++ * of the document.
++ */
++export function SpecUpsell({ constraint }: { constraint?: string | null }) {
++  const spec = PRODUCTS.procurement_spec;
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  async function commission() {
++    setBusy(true);
++    setError(null);
++    try {
++      const res = await fetch("/api/checkout", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ product: spec.id }),
++      });
++      const body = await res.json();
++      if (!res.ok || !body.ok || !body.url) {
++        setError(body?.error ?? "Could not start checkout.");
++        return;
++      }
++      window.location.href = body.url as string;
++    } catch {
++      setError("Could not reach checkout.");
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  return (
++    <section className="mt-8 rounded border border-line bg-panel-2 p-6">
++      <div className="flex items-start gap-3">
++        <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-power" />
++        <div className="flex-1">
++          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
++            What happens next
++          </span>
++          <h2 className="mt-2 text-lg font-semibold text-ghost">
++            {constraint
++              ? `Now somebody has to buy the thing that relieves ${constraint.toLowerCase()}.`
++              : "Now somebody has to buy the thing that relieves it."}
++          </h2>
++          <p className="mt-2 max-w-3xl text-sm text-mute">
++            Between this document and a purchase order sits three weeks of an engineer writing
++            a specification, arguing about what to ask for, and comparing four quotations that
++            answer four different questions. We generate the specification from the same
++            solved model: every duty derived from a constraint in your hall and quoted at your
++            site&rsquo;s own conditions, with a response schedule that makes the bids
++            comparable — then ranked in racks and weeks, not only in euros.
++          </p>
++          <ul className="mt-3 space-y-1 text-sm text-mute">
++            <li>— No make, no model, no supplier named. We take no margin on hardware.</li>
++            <li>— A bid that is cheaper and fourteen weeks slower is visible as the expensive one.</li>
++            <li>
++              — The quotations come back and replace our library defaults, so the next number we
++              give you is stronger than this one.
++            </li>
++          </ul>
++          <div className="mt-5 flex flex-wrap items-center gap-4">
++            <button
++              onClick={commission}
++              disabled={busy}
++              className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:opacity-60"
++            >
++              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
++              Commission it — {eur(spec.amountCents)}
++            </button>
++            <span className="text-xs text-faint">
++              {spec.turnaroundDays} working days. One relief per engagement.
++            </span>
++          </div>
++          {error ? <p className="mt-3 text-sm text-queue">{error}</p> : null}
++        </div>
++      </div>
++    </section>
++  );
++}
+diff --git a/docs/00_COMMERCIAL_SPINE.md b/docs/00_COMMERCIAL_SPINE.md
+index 371a389..5cf0632 100644
+--- a/docs/00_COMMERCIAL_SPINE.md
++++ b/docs/00_COMMERCIAL_SPINE.md
+@@ -1,7 +1,13 @@
+-# GridForge-AI — Commercial Spine v0.1
+-**Status:** decision document, pre-audit. Written 2026-09-13.
++# GridForge-AI — Commercial Spine v0.2
++**Status:** decision document. Written 2026-09-13, revised 2026-09-14 after patches 0001–0016.
+ **Owner:** founder. **Review cadence:** weekly against the metrics in §8.
+ 
++**What changed in v0.2:** the ladder in §5 now reflects what is actually built and
++purchasable — the Procurement Specification, Hall Watch and metered API access have all
++shipped, and §7's service→software trigger has fired. The two durable assets are named
++explicitly: the cost library and the accuracy record. Everything else in this document
++stands as written, including the steelman in §4, which has not got any weaker.
++
+ ---
+ 
+ ## 1. The one sentence
+@@ -61,11 +67,54 @@ Highest-fit sub-segment: **regional/edge roll-ups and independent operators** 
+ | 0 | **Density Screen** (1 hall, desk-based, 8-page envelope + binding constraint) | **€4,500** fixed, credited in full against #1 | 5 working days | 10–14 | Door-opener. Converts a conversation into a paid relationship. Not a loss-leader — it must be profitable on its own. |
+ | 1 | **Capacity & Density Envelope Study** (the core product) | **€22k–€45k** | 3–5 weeks | 45–70 → 30 once templated | The €20–50k product in the brief. See `01_PRODUCT_SPEC`. |
+ | 2 | **Portfolio Screen** (5–15 halls, ranked, one methodology) | **€60k–€140k** | 6–10 weeks | 120–200 | ICP-A roll-ups and ICP-B site hunts. Highest €/hour once #1 is templated — same engine, N sites. |
++| 2b | **Procurement Specification** (one relief, tender-ready, bids ranked) | **€18,000** | 12 working days | 12–18 | The step the study creates and nobody else fills. Pays twice: see below. |
+ | 3 | **Owner's-engineer support through concept design** | €80k–€150k+, or day rate | 3–6 months | — | Only when pulled. Do not chase. |
+-| 4 | **Re-run / monitoring subscription** | Deferred | — | — | Only after the trigger in §7 fires. |
++| 4 | **Hall Watch** — the model stays live, quarterly change notes | **€6,000/quarter** | continuous | 1–2 | Shipped. The trigger in §7 fired. |
++| 5 | **API — Triage** (600 units/month) | **€900/month** | continuous | ~0 | Shipped. One team screening a portfolio it owns. |
++| 5b | **API — Scale** (2,500 units/month) | **€2,900/month** | continuous | ~0 | A platform or fund pricing halls continuously. |
++| 5c | **API — Platform** (10,000 units/month, named engineer) | **€7,500/month** | continuous | low | Embedding the engine in someone else's product. |
+ 
+ Rule: **#0 and #1 must stand alone commercially.** If they only make sense as a route to #3, we are a design firm with a marketing gimmick.
+ 
++### Why the Procurement Specification sits where it does
++
++It is priced below the Study on purpose, and it is the most strategically valuable
++engagement on the ladder for a reason that has nothing to do with its fee.
++
++A Study ends with "the transformer sets the date at 52 weeks". The client then has to go
++and buy a transformer. Between that finding and a purchase order sits three weeks of an
++engineer writing a specification, arguing about what to ask for, and comparing four
++quotations that answer four different questions. Nobody sells that step. The vendors
++cannot — every specification they write ends in their own BOM. The consultancies price it
++as a design engagement. We generate it from the model that produced the finding, in
++twelve days, naming no make and no model.
++
++**And the responses come back.** A returned bid is a dated, attributable,
++project-specific price — exactly what the cost library is short of. Every procurement
++engagement moves library lines from E0 placeholder to E5 firm quote, which raises the
++AACE accuracy class of every future study that touches them. The work pays once as a fee
++and once as a moat, and the moat compounds with each engagement rather than with each
++month of effort.
++
++That is the answer to the steelman in §4. We will not out-brand Arup and we should not
++try. What we can own is a priced, dated, regional library of what these interventions
++actually cost, and a record of where our predictions landed against instrumented sites —
++neither of which can be bought, scraped or inferred, and both of which accrue one hall at
++a time.
++
++### §5b — the accuracy record (`gridforge/calibration/`)
++
++The second asset nobody can copy. A ledger of what the model predicted next to what
++instrumented sites turned out to be, with rules enforced in code: an observation must be
++E5 or above (site data, never another run of our own model), client names are hashed
++before storage, and the committed ledger refuses client data outright.
++
++**It currently reads zero, and every deliverable says so.** Section 14 of every study,
++`/v1/calibration` in public, and a block on every API response. Competitors do not print
++their own error record because they cannot survive printing it. The day it reads
++*n=17, the tap-off model runs 4% conservative* is the day answering back takes a
++competitor seventeen halls and two years.
++
+ ## 6. Pricing logic and the price objection
+ 
+ Anchor on the decision, not the hours. A 10 MW hall retrofit is a **€20m–€100m** decision (retrofit cost estimates in circulation range **$2 m/MW** (STL Partners, interview-derived) to **$8–12 m/MW** (low-quality secondary) — a 4–6× spread that is itself an argument for paying someone to get the number right). At 0.05–0.2% of the decision value, €22–45k is trivially defensible. Consultancy day-rate inference puts a 10–20 day senior feasibility study in the **€20k–€60k** band — we sit at the bottom of that band with a faster clock and no equipment conflict.
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 807a8e4..4468fea 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -545,3 +545,62 @@ a person in the loop; the screening-mode disclosure rides on the document either
+ the study. A prospect can read the document they would actually send to suppliers
+ before paying for anything — same argument as publishing the study, one step further
+ down the sales cycle.
++
++## Consistency is enforced, not intended
++
++Three things shipped broken in a row, and each was the same shape: a fact stated in two
++places, one of them updated.
++
++- The Procurement Specification shipped priced, documented and **absent from the
++  engagement ladder** — because the ladder was a hand-written array of ids inside a
++  component and nobody edited it.
++- That same product, once bought, would have generated a **Density Screen**, because the
++  intake route branched on the kind inline: `kind === "envelope_study_deposit" ? "study"
++  : "screen"`. A client pays €18,000 and receives a different document; nothing objects.
++- `commercial.py` claimed for fourteen patches that a parity test existed. It did not.
++
++`tests/test_stack_consistency.py` now asserts the **joins** rather than the parts:
++
++- every product declares a `surface` (no default — something unsellable has to be
++  declared unsellable on purpose);
++- the ladder is derived from the catalogue, and the test fails if a literal `ORDER` array
++  reappears in the component;
++- every product with `producesDeliverable: true` names an `endpoint`, and every endpoint
++  the site names exists on the engine;
++- the intake route reads `deliverableEndpoint()` rather than branching, and an unmapped
++  kind fails loudly instead of generating the wrong document;
++- every engagement the engine quotes can be paid for on the site;
++- every paid route is metered and reachable by a machine (`/v1/deck` is the one
++  deliberate exception, and the test names it as deliberate);
++- `public/reference/tools.json` matches the engine's live schemas and unit rates;
++- the README names every product and every package, and does not still describe a
++  behind-the-meter EMS practice;
++- the commercial spine lists what is actually purchasable;
++- every CLI command appears in this runbook.
++
++That last one means adding a command to `cli.py` without writing it down here fails the
++build. It is meant to.
++
++## A test that created a real Fly app
++
++`tests/test_deploy_script.py` put a fake binary named `fly` on `PATH` and trusted the
++script to find it. The script resolved `command -v flyctl` first, found the **real**
++flyctl installed in the Codespace, and ran `fly apps create test-engine` against a live
++Fly.io account. A test that touches production is a worse bug than the one it was written
++to catch.
++
++Fixed three ways, because one was clearly not enough:
++
++1. `FLY_BIN` names the binary explicitly, and the script honours it.
++2. The fake is installed under **both** `fly` and `flyctl`.
++3. `_assert_fake()` refuses to run the script at all unless the binary it will use is the
++   one the test wrote, and asserts afterwards that no real account was reached.
++
++And when `FLY_BIN` is set the script no longer offers to install flyctl. A test or a CI
++job that silently downloads a real flyctl is one step from a test that uses it.
++
++**If you still have a stray `test-engine` app on your Fly account, delete it:**
++
++```bash
++fly apps destroy test-engine
++```
+diff --git a/gridforge/procurement/build.py b/gridforge/procurement/build.py
+index 8fac19e..5d187da 100644
+--- a/gridforge/procurement/build.py
++++ b/gridforge/procurement/build.py
+@@ -25,6 +25,24 @@ from .schema import (INFORMATIVE, MANDATORY, PREFERRED, EvaluationCriterion,
+                      SpecPackage)
+ 
+ 
++def default_step(steps: list[LadderStep]) -> LadderStep:
++    """Which relief to tender when nobody said.
++
++    The one that unlocks the most racks across the whole ladder, which is the same
++    ordering `gridforge spec --list` prints. A client who reads the list and then
++    runs the command without arguments must get the thing at the top of it —
++    anything else is the tool disagreeing with itself.
++
++    Not the first rung: the ladder starts with whatever bound first, which is often
++    a small item, and tendering it first buys three racks and no date movement.
++    """
++    totals: dict[str, int] = {}
++    for st in steps:
++        totals[st.binding_id] = totals.get(st.binding_id, 0) + st.racks_unlocked
++    best_id = max(totals, key=lambda k: (totals[k], k))
++    return next(st for st in steps if st.binding_id == best_id)
++
++
+ def relief_steps(result: ScenarioResult) -> list[LadderStep]:
+     """Rungs that are actually a purchase. A commercial relief has nothing to tender."""
+     return [s for s in result.ladder.steps
+@@ -426,7 +444,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
+                     f"{', '.join(sorted({s.binding_id for s in steps}))}")
+             step = matches[0]
+         else:
+-            step = steps[0]
++            step = default_step(steps)
+ 
+     ctx = result.envelope.context if hasattr(result.envelope, "context") else intake.context
+ 
+diff --git a/lib/deliverables.ts b/lib/deliverables.ts
+index 0f6cf52..af8b6b2 100644
+--- a/lib/deliverables.ts
++++ b/lib/deliverables.ts
+@@ -111,7 +111,7 @@ export async function updateByToken(
+ /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */
+ export async function renderDeliverable(
+   intake: Record<string, unknown>,
+-  endpoint: "screen" | "study"
++  endpoint: "screen" | "study" | "spec"
+ ): Promise<
+   | {
+       ok: true;
+@@ -142,8 +142,9 @@ export async function renderDeliverable(
+   };
+ 
+   const deck = async (): Promise<string | null> => {
+-    // The walkthrough is part of the Study engagement, not the Screen. A failed
+-    // deck must never fail the document: the document is what was bought.
++    // The walkthrough is part of the Study engagement, not the Screen and not a
++    // Specification. A failed deck must never fail the document: the document is
++    // what was bought.
+     if (endpoint !== "study") return null;
+     try {
+       const res = await fetch(`${base.replace(/\/$/, "")}/v1/deck`, {
+@@ -164,7 +165,26 @@ export async function renderDeliverable(
+   const working = async (): Promise<Record<string, string> | null> => {
+     // The tables behind the document, so the client's own engineers can check the
+     // arithmetic. A failed bundle never fails the document.
++    //
++    // For a Specification the equivalent artefact is the response schedule: the
++    // machine-readable template a supplier fills in, which is the half that makes
++    // four quotations comparable. Same slot, same delivery route.
+     try {
++      if (endpoint === "spec") {
++        const res = await fetch(`${base.replace(/\/$/, "")}/v1/spec`, {
++          method: "POST",
++          headers: { "Content-Type": "application/json", "X-API-Key": key },
++          body: JSON.stringify({ intake, format: "md" }),
++          signal: AbortSignal.timeout(120_000),
++          cache: "no-store",
++        });
++        if (!res.ok) return null;
++        const body = (await res.json()) as { response_template?: unknown };
++        if (!body.response_template) return null;
++        return {
++          "response_template.json": JSON.stringify(body.response_template, null, 2),
++        };
++      }
+       const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+         method: "POST",
+         headers: { "Content-Type": "application/json", "X-API-Key": key },
+diff --git a/lib/products.ts b/lib/products.ts
+index bfc069c..899b31a 100644
+--- a/lib/products.ts
++++ b/lib/products.ts
+@@ -38,6 +38,25 @@ export interface Product {
+    * gridforge/commercial.py; tests/test_catalogue_parity.py fails if they drift.
+    */
+   apiUnits?: number;
++  /**
++   * Where on the site this is sold. Required on every product, with no default.
++   *
++   * The engagement ladder used to be a hand-written array in a component, and a
++   * product added to this catalogue simply never appeared for sale — which is how
++   * the Procurement Specification shipped priced, documented and unbuyable. The
++   * ladder is now derived from this field, and a test fails if any product omits
++   * it. Something unsellable now has to be declared unsellable on purpose.
++   */
++  surface: "ladder" | "developers" | "upsell" | "hidden";
++  /** Position on the engagement ladder. Lower first. */
++  ladderOrder?: number;
++  /**
++   * Which engine endpoint generates this deliverable. Required whenever
++   * producesDeliverable is true — the intake route reads it rather than
++   * branching on the kind, which is how a EUR 18,000 specification purchase
++   * once generated a Density Screen.
++   */
++  endpoint?: "screen" | "study" | "spec";
+ }
+ 
+ export const PRODUCTS: Record<ProductId, Product> = {
+@@ -56,6 +75,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     turnaroundDays: 5,
+     producesDeliverable: true,
+     creditsAgainst: "envelope_study_deposit",
++    surface: "ladder",
++    ladderOrder: 10,
++    endpoint: "screen",
+   },
+   envelope_study_deposit: {
+     id: "envelope_study_deposit",
+@@ -71,6 +93,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
+       "engineering team.",
+     turnaroundDays: 25,
+     producesDeliverable: false,
++    surface: "ladder",
++    ladderOrder: 20,
++    endpoint: "study",
+   },
+   hall_watch: {
+     id: "hall_watch",
+@@ -88,6 +113,8 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     turnaroundDays: 2,
+     producesDeliverable: false,
+     recurring: { interval: "month", intervalCount: 3 },
++    surface: "ladder",
++    ladderOrder: 50,
+   },
+   portfolio_screen_deposit: {
+     id: "portfolio_screen_deposit",
+@@ -101,6 +128,8 @@ export const PRODUCTS: Record<ProductId, Product> = {
+       "Portfolio Screen document and one model pack per hall.",
+     turnaroundDays: 45,
+     producesDeliverable: false,
++    surface: "ladder",
++    ladderOrder: 40,
+   },
+   procurement_spec: {
+     id: "procurement_spec",
+@@ -118,6 +147,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
+       "energisation date.",
+     turnaroundDays: 12,
+     producesDeliverable: true,
++    surface: "ladder",
++    ladderOrder: 30,
++    endpoint: "spec",
+   },
+   api_triage: {
+     id: "api_triage",
+@@ -135,6 +167,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     producesDeliverable: false,
+     recurring: { interval: "month", intervalCount: 1 },
+     apiUnits: 600,
++    surface: "developers",
+   },
+   api_scale: {
+     id: "api_scale",
+@@ -151,6 +184,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     producesDeliverable: false,
+     recurring: { interval: "month", intervalCount: 1 },
+     apiUnits: 2_500,
++    surface: "developers",
+   },
+   api_platform: {
+     id: "api_platform",
+@@ -168,13 +202,44 @@ export const PRODUCTS: Record<ProductId, Product> = {
+     producesDeliverable: false,
+     recurring: { interval: "month", intervalCount: 1 },
+     apiUnits: 10_000,
++    surface: "developers",
+   },
+ };
+ 
++export const PRODUCT_BY_KIND: Record<string, Product> = Object.fromEntries(
++  Object.values(PRODUCTS).map((p) => [p.kind, p])
++);
++
+ export const API_PRODUCTS: Product[] = Object.values(PRODUCTS).filter(
+-  (p) => p.apiUnits !== undefined
++  (p) => p.surface === "developers"
+ );
+ 
++/**
++ * The engagement ladder, derived rather than hand-written.
++ *
++ * A product added to this file now appears for sale automatically. The previous
++ * arrangement — a literal array of ids inside a component — meant adding a
++ * product to the catalogue and forgetting one line left it priced, documented
++ * and impossible to buy.
++ */
++export const LADDER_PRODUCTS: Product[] = Object.values(PRODUCTS)
++  .filter((p) => p.surface === "ladder")
++  .sort((a, b) => (a.ladderOrder ?? 999) - (b.ladderOrder ?? 999));
++
++/**
++ * Which engine endpoint generates a purchased deliverable.
++ *
++ * Single source of truth. The intake route used to branch on the kind inline —
++ * `kind === "envelope_study_deposit" ? "study" : "screen"` — so a Procurement
++ * Specification purchase silently generated a Density Screen. The client paid
++ * EUR 18,000 for the wrong document and nothing in the system objected.
++ */
++export function deliverableEndpoint(kind: string): "screen" | "study" | "spec" | null {
++  const p = PRODUCT_BY_KIND[kind];
++  if (!p) return null;
++  return p.endpoint ?? null;
++}
++
+ export function isApiProduct(id: string): boolean {
+   return Boolean(PRODUCTS[id as ProductId]?.apiUnits);
+ }
+@@ -187,10 +252,6 @@ export function eurFromCents(cents: number): string {
+   }).format(cents / 100);
+ }
+ 
+-export const PRODUCT_BY_KIND: Record<string, Product> = Object.fromEntries(
+-  Object.values(PRODUCTS).map((p) => [p.kind, p])
+-);
+-
+ export function isProductId(v: unknown): v is ProductId {
+   return typeof v === "string" && v in PRODUCTS;
+ }
+diff --git a/scripts/deploy-engine.sh b/scripts/deploy-engine.sh
+index 6e064b5..9a75c8e 100755
+--- a/scripts/deploy-engine.sh
++++ b/scripts/deploy-engine.sh
+@@ -38,7 +38,11 @@ done
+ say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
+ warn() { printf '\n\033[33m%s\033[0m\n' "$*"; }
+ 
+-if ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
++# FLY_BIN means the caller named a binary. Honour it or fail — never reach out and
++# install something. A test or a CI job that silently downloads a real flyctl is
++# one step from a test that uses it.
++if [ -z "${FLY_BIN:-}" ] \
++   && ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
+   say "Installing flyctl"
+   curl -L https://fly.io/install.sh | sh
+   export FLYCTL_INSTALL="${FLYCTL_INSTALL:-$HOME/.fly}"
+@@ -48,7 +52,15 @@ if ! command -v flyctl >/dev/null 2>&1 && ! command -v fly >/dev/null 2>&1; then
+     echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> "$HOME/.bashrc"
+   }
+ fi
+-FLY="$(command -v flyctl || command -v fly)"
++# FLY_BIN lets a caller name the binary explicitly. Tests set it, because
++# resolving by name alone picked up a REAL flyctl installed elsewhere on PATH and
++# ran `apps create` against a live account — a test that touches production is a
++# worse bug than the one it was written to catch.
++FLY="${FLY_BIN:-$(command -v flyctl || command -v fly)}"
++if [ ! -x "$FLY" ]; then
++  echo "flyctl not found (looked for FLY_BIN, flyctl, fly)" >&2
++  exit 2
++fi
+ 
+ if ! "$FLY" auth whoami >/dev/null 2>&1; then
+   say "Sign in to Fly (a browser window or a device code will follow)"
+diff --git a/tests/test_deploy_script.py b/tests/test_deploy_script.py
+index 9a31d81..718b3ff 100644
+--- a/tests/test_deploy_script.py
++++ b/tests/test_deploy_script.py
+@@ -1,5 +1,16 @@
+ """The deploy script, run against a fake `fly`.
+ 
++SAFETY FIRST, and this is not decorative. The first version of this file put a
++fake binary named `fly` on PATH and trusted the script to find it. The script
++resolved `command -v flyctl` first, found the REAL flyctl installed in the
++developer's Codespace, and ran `fly apps create test-engine` against their live
++Fly.io account. A test that touches production is a worse bug than the one it was
++written to catch.
++
++So: the fake is installed under BOTH names, FLY_BIN names it explicitly, and
++_assert_fake() refuses to run at all unless the binary the script will use is the
++one this test wrote.
++
+ This file exists because the same bug shipped twice. deploy-engine.sh generated a
+ fresh GRIDFORGE_API_KEYS on every run, so every deploy invalidated the key the
+ website was using. Patch 0014 "fixed" it by grepping `fly secrets list` — the grep
+@@ -60,14 +71,16 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
+     bin_dir = tmp_path / "bin"
+     bin_dir.mkdir(exist_ok=True)
+     fly = bin_dir / "fly"
++    flyctl = bin_dir / "flyctl"
+     # When json_ok is False the fake returns the same text for --json too, which is
+     # exactly what an older flyctl does: it ignores the flag and prints a table.
+     body = FAKE_FLY
+     if not json_ok:
+         body = body.replace('"secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"',
+                             '"secrets list")  cat "${FAKE_SECRETS_TXT:-/dev/null}"')
+-    fly.write_text(body)
+-    fly.chmod(fly.stat().st_mode | stat.S_IEXEC)
++    for target in (fly, flyctl):
++        target.write_text(body)
++        target.chmod(target.stat().st_mode | stat.S_IEXEC)
+ 
+     log = tmp_path / "fly.log"
+     out_file = tmp_path / "secrets.out"
+@@ -76,6 +89,7 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
+     env = {
+         **os.environ,
+         "PATH": f"{bin_dir}:{os.environ['PATH']}",
++        "FLY_BIN": str(fly),
+         "FLY_LOG": str(log),
+         "FAKE_SECRETS_OUT": str(out_file) if secrets_out is not None else "/dev/null",
+         "FAKE_SECRETS_TXT": str(out_file),
+@@ -85,12 +99,28 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
+         "FLY_APP": "test-engine",
+         **(env_extra or {}),
+     }
++    _assert_fake(env, fly)
+     proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, env=env,
+                           capture_output=True, text=True)
++    assert "personal organization" not in proc.stderr, (
++        "the script reached a real Fly account:\n" + proc.stderr)
+     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+     return proc, calls
+ 
+ 
++def _assert_fake(env: dict, fake: Path) -> None:
++    """Refuse to run unless the binary the script will use is ours.
++
++    Belt and braces on top of FLY_BIN: if a future edit drops that override, this
++    stops the suite rather than letting it create apps in somebody's account.
++    """
++    chosen = env.get("FLY_BIN", "")
++    assert chosen == str(fake), f"FLY_BIN is {chosen!r}, not the fake at {fake}"
++    resolved = shutil.which("fly", path=env["PATH"])
++    assert resolved and Path(resolved).parent == fake.parent, (
++        f"PATH would resolve `fly` to {resolved}, which is not the fake")
++
++
+ def secret_sets(calls):
+     return [c for c in calls if c[:2] == ["secrets", "set"]]
+ 
+@@ -137,6 +167,36 @@ class TestNeverRotates:
+         assert "Uncertainty must never resolve to overwriting a credential" in proc.stdout
+ 
+ 
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
++class TestSafety:
++    """The regression that matters most: this file once created a real Fly app."""
++
++    def test_a_real_flyctl_earlier_on_path_is_not_used(self, tmp_path):
++        decoy = tmp_path / "decoy"
++        decoy.mkdir()
++        real = decoy / "flyctl"
++        real.write_text("#!/usr/bin/env bash\necho 'REAL FLYCTL CALLED' >&2\nexit 0\n")
++        real.chmod(real.stat().st_mode | stat.S_IEXEC)
++        proc, calls = run(tmp_path, secrets_out=JSON_LIST,
++                          env_extra={"PATH": f"{decoy}:{tmp_path / 'bin'}:{os.environ['PATH']}"})
++        assert "REAL FLYCTL CALLED" not in proc.stderr, (
++            "the script used a flyctl this test did not write")
++        assert calls, "the fake recorded nothing — it was never called"
++
++    def test_the_script_refuses_when_no_binary_exists(self, tmp_path):
++        # PATH keeps the system dirs so bash itself is still findable; only the
++        # fly binaries are absent, which is the condition under test.
++        empty = tmp_path / "empty"
++        empty.mkdir()
++        env = {**os.environ, "FLY_BIN": str(tmp_path / "does-not-exist"),
++               "GRIDFORGE_SKIP_DEPLOY": "1",
++               "PATH": f"{empty}:/usr/bin:/bin"}
++        proc = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env,
++                              capture_output=True, text=True)
++        assert proc.returncode == 2
++        assert "flyctl not found" in proc.stderr
++
++
+ @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+ class TestBootstrap:
+     def test_bootstrap_mints_only_what_is_missing(self, tmp_path):
+diff --git a/tests/test_stack_consistency.py b/tests/test_stack_consistency.py
+new file mode 100644
+index 0000000..684722a
+--- /dev/null
++++ b/tests/test_stack_consistency.py
+@@ -0,0 +1,244 @@
++"""One question, asked of the whole stack: can everything we price actually be bought,
++built and delivered?
++
++Each of these has already failed in production at least once:
++
++  * The Procurement Specification shipped priced, documented, and absent from the
++    engagement ladder — because the ladder was a hand-written array in a component
++    and nobody edited it.
++  * That same product, once bought, would have generated a Density Screen, because
++    the intake route branched inline on the kind.
++  * commercial.py claimed for fourteen patches that a parity test existed. It did not.
++
++The pattern is always the same: a fact stated in two places, and only one of them
++updated. So this file asserts the JOINS rather than the parts — every catalogue
++entry reaches a surface, every deliverable reaches an endpoint, every endpoint the
++site calls exists on the engine, and every engagement the engine quotes can be paid
++for.
++"""
++import json
++import re
++from pathlib import Path
++
++import pytest
++
++from gridforge.api.server import ROUTES
++from gridforge.api.tools import TOOLS_BY_NAME
++from gridforge.api.metering import UNIT_COST
++from gridforge.commercial import API_PLANS, ENGAGEMENTS
++
++ROOT = Path(__file__).resolve().parents[1]
++PRODUCTS_TS = (ROOT / "lib" / "products.ts").read_text()
++LADDER_TSX = (ROOT / "components" / "EngagementLadder.tsx").read_text()
++
++
++def products() -> dict[str, dict]:
++    body = PRODUCTS_TS.split("export const PRODUCTS", 1)[1]
++    body = body.split("export const PRODUCT_BY_KIND", 1)[0]
++    out: dict[str, dict] = {}
++    for m in re.finditer(r"^  (\w+): \{(.*?)^  \},", body, re.S | re.M):
++        pid, chunk = m.group(1), m.group(2)
++        rec: dict = {"id": pid, "raw": chunk}
++        for field, pattern in [
++            ("name", r'name:\s*"([^"]+)"'),
++            ("kind", r'kind:\s*"([^"]+)"'),
++            ("surface", r'surface:\s*"([^"]+)"'),
++            ("endpoint", r'endpoint:\s*"([^"]+)"'),
++        ]:
++            mm = re.search(pattern, chunk)
++            if mm:
++                rec[field] = mm.group(1)
++        rec["producesDeliverable"] = "producesDeliverable: true" in chunk
++        mm = re.search(r"ladderOrder:\s*(\d+)", chunk)
++        if mm:
++            rec["ladderOrder"] = int(mm.group(1))
++        out[pid] = rec
++    return out
++
++
++@pytest.fixture(scope="module")
++def cat():
++    p = products()
++    assert len(p) >= 7, f"only parsed {len(p)} products — the catalogue moved"
++    return p
++
++
++# --- every product reaches a surface ---------------------------------------
++
++def test_every_product_declares_where_it_is_sold(cat):
++    """No default. Something unsellable has to be declared unsellable on purpose."""
++    missing = [pid for pid, p in cat.items() if not p.get("surface")]
++    assert not missing, f"products with no surface: {missing}"
++    allowed = {"ladder", "developers", "upsell", "hidden"}
++    bad = {pid: p["surface"] for pid, p in cat.items() if p["surface"] not in allowed}
++    assert not bad, bad
++
++
++def test_every_ladder_product_has_a_position(cat):
++    for pid, p in cat.items():
++        if p["surface"] == "ladder":
++            assert "ladderOrder" in p, f"{pid} is on the ladder with no position"
++    orders = [p["ladderOrder"] for p in cat.values() if p["surface"] == "ladder"]
++    assert len(set(orders)) == len(orders), f"two products share a ladder position: {orders}"
++
++
++def test_the_ladder_is_derived_and_not_hand_written():
++    """A literal array of ids in the component is the exact mechanism that left a
++    priced, documented product impossible to buy."""
++    assert "LADDER_PRODUCTS" in LADDER_TSX
++    assert "const ORDER" not in LADDER_TSX, (
++        "the engagement ladder is hand-written again — a product added to the "
++        "catalogue will silently never appear for sale")
++
++
++def test_the_procurement_specification_is_purchasable(cat):
++    """The specific regression. It shipped priced, documented and unbuyable."""
++    p = cat["procurement_spec"]
++    assert p["surface"] == "ladder"
++    assert p["producesDeliverable"]
++    assert p["endpoint"] == "spec"
++
++
++# --- every deliverable reaches an endpoint ---------------------------------
++
++def test_every_purchased_deliverable_has_a_generation_path(cat):
++    """A product that produces a deliverable and names no endpoint means a client
++    pays and nothing can be generated."""
++    for pid, p in cat.items():
++        if p["producesDeliverable"]:
++            assert p.get("endpoint"), f"{pid} produces a deliverable with no endpoint"
++
++
++def test_every_endpoint_named_by_the_site_exists_on_the_engine(cat):
++    named = {p["endpoint"] for p in cat.values() if p.get("endpoint")}
++    for e in named:
++        assert f"/v1/{e}" in ROUTES, (
++            f"the site would call /v1/{e}, which the engine does not serve")
++
++
++def test_the_intake_route_reads_the_catalogue_rather_than_branching():
++    src = (ROOT / "app" / "api" / "intake" / "[token]" / "route.ts").read_text()
++    assert "deliverableEndpoint(row.kind)" in src
++    assert 'kind === "envelope_study_deposit" ? "study" : "screen"' not in src, (
++        "the generation path is an inline conditional again — this is how an "
++        "EUR 18,000 specification purchase produced a Density Screen")
++
++
++def test_an_unmapped_kind_fails_loudly_rather_than_generating_the_wrong_document():
++    src = (ROOT / "app" / "api" / "intake" / "[token]" / "route.ts").read_text()
++    assert "No generation path is configured" in src
++
++
++# --- engine and site agree on what exists ----------------------------------
++
++def test_every_engagement_the_engine_quotes_can_be_paid_for(cat):
++    """A proposal that quotes an engagement with no checkout route is a proposal
++    that ends in an email asking how to pay."""
++    by_kind = {p.get("kind", p["id"]) for p in cat.values()}
++    for eid in ENGAGEMENTS:
++        assert eid in by_kind or f"{eid}_deposit" in by_kind, (
++            f"the engine quotes {eid} and the site sells no way to buy it")
++
++
++def test_every_api_plan_is_on_the_developers_surface(cat):
++    for pid in API_PLANS:
++        assert cat[pid]["surface"] == "developers", (
++            f"{pid} is an API plan but is sold as {cat[pid]['surface']}")
++
++
++def test_every_paid_route_is_metered(cat):
++    """An endpoint with no unit rate bills nothing and cannot be sold."""
++    for path in ROUTES:
++        assert path in UNIT_COST, f"{path} is routable but has no published unit rate"
++
++
++def test_every_tool_points_at_a_real_route():
++    for name, t in TOOLS_BY_NAME.items():
++        assert t["endpoint"] in ROUTES, f"{name} advertises {t['endpoint']}, which does not exist"
++
++
++def test_every_paid_route_is_reachable_by_a_machine():
++    """A capability only the website can use is a feature; one an agent can call is
++    a product. Anything paid should be in the tool catalogue or deliberately not."""
++    advertised = {t["endpoint"] for t in TOOLS_BY_NAME.values()}
++    # /v1/deck is the one deliberate omission: the walkthrough is a human session
++    # artefact and an agent calling it in a loop has misunderstood what it is for.
++    deliberate = {"/v1/deck"}
++    missing = {p for p in ROUTES if p not in advertised} - deliberate
++    assert not missing, f"paid routes no agent can discover: {sorted(missing)}"
++
++
++# --- the published worked example matches the product ----------------------
++
++REFERENCE = ROOT / "public" / "reference"
++
++
++def test_the_worked_example_covers_every_document_we_sell():
++    """A prospect is told they can read the deliverable before paying. That claim
++    has to hold for each document, not just the study."""
++    for name in ["envelope_study.md", "proposal.md", "specification.md",
++                 "walkthrough.html", "response_template.json"]:
++        assert (REFERENCE / name).exists(), f"public/reference/{name} is missing"
++
++
++def test_the_published_tool_catalogue_matches_the_engine():
++    published = json.loads((REFERENCE / "tools.json").read_text())
++    assert {t["name"] for t in published["tools"]} == set(TOOLS_BY_NAME), (
++        "public/reference/tools.json is stale — an integrator would read a schema "
++        "the server no longer validates against. Run scripts/build-reference.sh.")
++    for t in published["tools"]:
++        assert t["units"] == UNIT_COST[t["endpoint"]], (
++            f"{t['name']}: published rate {t['units']}, actual {UNIT_COST[t['endpoint']]}")
++
++
++# --- documentation is not allowed to claim things that are not there -------
++
++def test_the_readme_names_every_product_and_every_package(cat):
++    """The first file anyone opens. It once described this repository as a
++    marketing site for a behind-the-meter EMS practice, four patches after it had
++    stopped being that."""
++    readme = (ROOT / "README.md").read_text()
++    for pid, p in cat.items():
++        if p["surface"] == "hidden":
++            continue
++        # A deposit is a payment mechanism, not a product a reader needs named;
++        # the engagement it opens is what must appear.
++        name = p["name"].split(" — deposit")[0]
++        assert name in readme, f"README does not mention {name}"
++    packages = [d.name for d in (ROOT / "gridforge").iterdir()
++                if d.is_dir() and not d.name.startswith(("_", "."))
++                and (d / "__init__.py").exists()]
++    missing = [d for d in packages if f"{d}/" not in readme]
++    assert not missing, f"README's architecture map omits: {missing}"
++
++
++def test_the_readme_does_not_describe_a_different_company():
++    readme = (ROOT / "README.md").read_text().lower()
++    for stale in ["lead-generation site", "physics-informed energy management",
++                  "interactive (sample-data) dashboard"]:
++        assert stale not in readme, f"README still says {stale!r}"
++
++
++def test_the_commercial_spine_lists_what_is_actually_purchasable(cat):
++    """The strategy document and the price list are allowed to disagree about the
++    future. They are not allowed to disagree about the present."""
++    spine = (ROOT / "docs" / "00_COMMERCIAL_SPINE.md").read_text()
++    for pid, p in cat.items():
++        if p["surface"] == "hidden":
++            continue
++        name = p["name"].split(" — deposit")[0]
++        assert name in spine, f"the commercial spine does not mention {name}"
++
++
++def test_the_runbook_documents_every_command_the_cli_offers():
++    """The runbook is what the founder works from. A command it does not mention is
++    one that does not get used; a command it mentions that does not exist is worse."""
++    import argparse
++    from gridforge import cli
++    runbook = (ROOT / "docs" / "07_DELIVERY_RUNBOOK.md").read_text()
++    parser_src = (ROOT / "gridforge" / "cli.py").read_text()
++    commands = set(re.findall(r'sub\.add_parser\("([a-z]+)"', parser_src))
++    assert len(commands) > 8, commands
++    undocumented = sorted(c for c in commands
++                          if f"gridforge {c}" not in runbook and f"`{c}`" not in runbook)
++    assert not undocumented, f"CLI commands absent from the runbook: {undocumented}"
+-- 
+2.43.0
+
