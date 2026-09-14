@@ -28,6 +28,8 @@ from .reporting.portfolio import SiteEntry
 from .reporting.portfolio import build as build_portfolio
 from .reporting.screen import build as build_screen
 from .commercial import ENGAGEMENTS, engagement
+from .change import diff as envelope_diff
+from .reporting.change_note import build as build_change_note
 from .reporting.deck import build as build_deck
 from .reporting.deck import to_html as deck_to_html
 from .reporting.proposal import build as build_proposal
@@ -158,6 +160,48 @@ def cmd_study(args) -> int:
     if not intake.report.can_issue:
         print(f"  NOTE: {len(intake.report.required_gaps)} required inputs are assumed. "
               f"Screening mode only — see the evidence disclosure in the report.")
+    w.report()
+    return 0
+
+
+def cmd_diff(args) -> int:
+    before = json.loads(Path(args.before).read_text()) if Path(args.before).exists() else None
+    after = json.loads(Path(args.after).read_text()) if Path(args.after).exists() else None
+    if before is None:
+        print(f"no such intake file: {args.before}", file=sys.stderr)
+        return 2
+    if after is None:
+        print(f"no such intake file: {args.after}", file=sys.stderr)
+        return 2
+    d = envelope_diff(before, after, objective=OBJECTIVES[args.objective],
+                      attribute=not args.no_attribute)
+    project = after.get("project", {}) or {}
+    report = build_change_note(
+        d,
+        site=args.site or str((after.get("site") or {}).get("name") or "Site"),
+        hall=args.hall or str((after.get("hall") or {}).get("id") or "Hall"),
+        client=args.client or str(project.get("client") or "Client"),
+        period=args.period or "")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    w = _emit(report, out, "change_note")
+    payload = {
+        "headline": d.headline(),
+        "material": d.material,
+        "before": d.before.__dict__,
+        "after": d.after.__dict__,
+        "racks_delta": d.racks_delta,
+        "weeks_delta": d.weeks_delta,
+        "capex_delta_eur": d.capex_delta,
+        "binding_moved": d.binding_moved,
+        "changed_inputs": d.changed_paths,
+        "drivers": [dr.__dict__ for dr in d.drivers],
+        "explained_racks": d.explained,
+        "unexplained_racks": d.residual,
+    }
+    (out / "change.json").write_text(json.dumps(payload, indent=2))
+    w.paths.append(out / "change.json")
+    print(d.headline())
     w.report()
     return 0
 
@@ -332,6 +376,19 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.set_defaults(func=fn)
+
+    s = sub.add_parser("diff", help="what changed between two intakes, and which input changed it")
+    s.add_argument("before")
+    s.add_argument("after")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--no-attribute", action="store_true",
+                   help="skip the per-input probes (faster, but no driver table)")
+    s.add_argument("--site", default="")
+    s.add_argument("--hall", default="")
+    s.add_argument("--client", default="")
+    s.add_argument("--period", default="")
+    s.set_defaults(func=cmd_diff)
 
     s = sub.add_parser("deck", help="the walkthrough deck for the client session")
     s.add_argument("intake")

@@ -64,8 +64,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    const recurring = product?.recurring;
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",
+      mode: recurring ? "subscription" : "payment",
       payment_method_types: ["card"],
       line_items: [
         {
@@ -76,12 +77,29 @@ export async function POST(req: Request) {
               description: product ? product.description : COMMERCE.deposit.description,
             },
             unit_amount: product ? product.amountCents : COMMERCE.deposit.amountCents,
+            ...(recurring
+              ? {
+                  recurring: {
+                    interval: recurring.interval,
+                    interval_count: recurring.intervalCount,
+                  },
+                }
+              : {}),
           },
           quantity: 1,
         },
       ],
-      discounts,
+      // Stripe rejects one-off discounts on a subscription session; a recurring
+      // engagement is not the place for a founding credit anyway.
+      ...(recurring ? {} : { discounts }),
       customer_email: email,
+      ...(recurring
+        ? {
+            subscription_data: {
+              metadata: { company, kind: product?.kind ?? "", qualification_id: qualificationId },
+            },
+          }
+        : {}),
       metadata: {
         company,
         capacity_mw: capacityMW ? String(capacityMW) : "",

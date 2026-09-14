@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getByToken } from "@/lib/deliverables";
+import { WatchUpsell } from "@/components/WatchUpsell";
 
 export const metadata: Metadata = {
   title: "Your engineering deliverable | GridForge AI",
@@ -85,6 +86,7 @@ export default async function DeliverablePage({
         className="rounded border border-line bg-white"
         dangerouslySetInnerHTML={{ __html: row.document_html ?? "" }}
       />
+      {row.kind === "proposal" ? null : <WatchUpsell />}
     </main>
   );
 }

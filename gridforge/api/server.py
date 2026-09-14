@@ -19,6 +19,7 @@ Endpoints
     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
     POST /v1/proposal                   intake     -> priced proposal       (key)
     POST /v1/deck                       intake     -> walkthrough deck      (key)
+    POST /v1/diff                       two intakes-> change note           (key)
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated). With no keys configured the paid endpoints refuse rather than
@@ -40,6 +41,8 @@ from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, rank
 from ..commercial import ENGAGEMENTS, engagement
+from ..change import EnvelopeState, diff as envelope_diff, diff_from_state
+from ..reporting.change_note import build as build_change_note_report
 from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
@@ -53,7 +56,7 @@ from ..serialize import model_pack
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 
@@ -203,6 +206,56 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return model_pack(intake, results)
 
 
+def handle_diff(body: dict, tier: Tier) -> dict:
+    after = body.get("after") or body.get("intake")
+    if not isinstance(after, dict):
+        raise ApiError(422, 'expected {"before": {...}, "after": {...}} or '
+                            '{"previous_state": {...}, "after": {...}}')
+    objective = _objective(body)
+    prev = body.get("previous_state")
+    if isinstance(prev, dict):
+        try:
+            d = diff_from_state(EnvelopeState(**prev), after, objective=objective)
+        except TypeError as exc:
+            raise ApiError(422, f"previous_state is not a recorded envelope state: {exc}")
+    else:
+        before = body.get("before")
+        if not isinstance(before, dict):
+            raise ApiError(422, 'a diff needs either "before" or "previous_state"')
+        d = envelope_diff(before, after, objective=objective,
+                          attribute=bool(body.get("attribute", True)))
+
+    payload = {
+        "headline": d.headline(),
+        "material": d.material,
+        "before": d.before.__dict__,
+        "after": d.after.__dict__,
+        "racks_delta": d.racks_delta,
+        "weeks_delta": d.weeks_delta,
+        "capex_delta_eur": d.capex_delta,
+        "binding_moved": d.binding_moved,
+        "changed_inputs": d.changed_paths,
+        "drivers": [dr.__dict__ for dr in d.drivers],
+        "explained_racks": d.explained,
+        "unexplained_racks": d.residual,
+    }
+    fmt = str(body.get("format") or "json").lower()
+    if fmt in ("html", "md"):
+        site = str((after.get("site") or {}).get("name") or body.get("site") or "Site")
+        hall = str((after.get("hall") or {}).get("id") or body.get("hall") or "Hall")
+        client = str((after.get("project") or {}).get("client") or body.get("client") or "Client")
+        report = build_change_note_report(d, site=site, hall=hall, client=client,
+                                          period=str(body.get("period") or ""))
+        md = to_markdown(report)
+        rendered = ({"format": "md", "title": report.title, "document": md} if fmt == "md"
+                    else {"format": "html", "title": report.title,
+                          "document": to_html(report, full_document=False),
+                          "document_full": to_html(report, full_document=True)})
+        rendered.update(payload)
+        return rendered
+    return payload
+
+
 def handle_deck(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     deck = build_deck_report(intake, results, objective=_objective(body))
@@ -261,6 +314,7 @@ ROUTES = {
     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
     "/v1/proposal": (handle_proposal, Tier.CLIENT),
     "/v1/deck": (handle_deck, Tier.CLIENT),
+    "/v1/diff": (handle_diff, Tier.CLIENT),
 }
 
 

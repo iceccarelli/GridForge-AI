@@ -311,3 +311,41 @@ export function summariseQualifications(rows: AdminQualification[]): Qualificati
       .slice(0, 8),
   };
 }
+
+export interface AdminWatch {
+  id: string;
+  created_at: string;
+  token: string;
+  status: string;
+  cadence: string;
+  email: string | null;
+  company: string | null;
+  site_name: string | null;
+  hall_id: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  has_intake: boolean;
+}
+
+export async function fetchWatches(limit = 200): Promise<AdminWatch[]> {
+  const c = sb();
+  if (!c) return [];
+  try {
+    const cols =
+      "id,created_at,token,status,cadence,email,company,site_name,hall_id," +
+      "last_run_at,next_run_at,intake";
+    const res = await fetch(
+      `${c.url}/rest/v1/watches?select=${cols}&order=created_at.desc&limit=${limit}`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] fetchWatches failed:", await res.text());
+      return [];
+    }
+    const rows = (await res.json()) as (AdminWatch & { intake: unknown })[];
+    return rows.map(({ intake, ...r }) => ({ ...r, has_intake: Boolean(intake) }));
+  } catch (err) {
+    console.error("[GridForge] fetchWatches error:", err);
+    return [];
+  }
+}

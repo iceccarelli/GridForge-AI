@@ -166,6 +166,37 @@ exactly what to go and measure whether or not they buy.
 a test parses the TypeScript and fails the build if they ever disagree. A proposal that
 quotes a different number from the checkout page is worse than no proposal.
 
+## Hall Watch — the recurring line
+
+```bash
+python3 -m gridforge diff was.json now.json -o out    # change_note.{md,html} + change.json
+```
+
+A study is a photograph; a hall is not. Contracted power moves, tenancy frees up,
+the tenant changes platform, a quotation lands. Six months later the client's question
+is never "solve it again" — it is **"what moved, and why."** Nobody else can answer it,
+because nobody else is holding the model.
+
+**€6,000 a quarter.** The model is re-solved on schedule and whenever the client updates
+an input, and they get a change note: what moved, which input moved it, and whether it
+changes the decision. The attribution moves each input on its own and re-solves, so the
+note names a cause rather than a delta — and the part the single-input probes do not
+explain is **reported as a residual**, not quietly distributed, because constraints
+interact and a driver table that adds up to the wrong number is worse than none.
+
+The run that finds nothing still sends a note, in three lines. That matters more than it
+sounds: a subscription that manufactures a finding every quarter to justify its fee is
+one the client eventually reads for what it is.
+
+**The answer can move without the client touching anything.** When a quotation replaces a
+placeholder in the cost library, or a platform's figures are revised, the envelope moves —
+and they hear it from us rather than discovering it. That is the argument for the
+subscription, and it is true rather than salesmanship.
+
+Plumbing: `/watch/<token>` for the client, `/api/cron/watches` on a weekly Vercel cron
+(`vercel.json`, authorised by `CRON_SECRET`), watched halls and annualised recurring
+revenue on `/admin/pipeline`. The offer sits under every delivered study.
+
 ## Working the pipeline
 
 `/admin/pipeline` is where the money is. It shows every purchased engagement with its

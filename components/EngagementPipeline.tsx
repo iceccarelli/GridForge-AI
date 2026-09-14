@@ -3,9 +3,14 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, ExternalLink, Loader2 } from "lucide-react";
-import type { AdminDeliverable, AdminQualification, QualificationInsights } from "@/lib/admin";
+import type {
+  AdminDeliverable,
+  AdminQualification,
+  AdminWatch,
+  QualificationInsights,
+} from "@/lib/admin";
 import { eur } from "@/lib/commerce";
-import { PRODUCT_BY_KIND } from "@/lib/products";
+import { PRODUCT_BY_KIND, PRODUCTS } from "@/lib/products";
 
 /**
  * The pipeline: what came in, what was bought, and what is waiting on you.
@@ -25,11 +30,13 @@ const STATUS_TONE: Record<string, string> = {
 export function EngagementPipeline({
   deliverables,
   qualifications,
+  watches,
   insights,
   supabaseReady,
 }: {
   deliverables: AdminDeliverable[];
   qualifications: AdminQualification[];
+  watches: AdminWatch[];
   insights: QualificationInsights;
   supabaseReady: boolean;
 }) {
@@ -43,6 +50,9 @@ export function EngagementPipeline({
     () => rows.reduce((sum, r) => sum + (r.amount_cents ?? 0), 0),
     [rows]
   );
+  const activeWatches = useMemo(() => watches.filter((w) => w.status === "active"), [watches]);
+  // Quarterly engagements, so annualised recurring revenue is four times the fee.
+  const arrCents = activeWatches.length * PRODUCTS.hall_watch.amountCents * 4;
 
   async function act(token: string, action: "release" | "unrelease") {
     setBusy(token);
@@ -135,6 +145,11 @@ export function EngagementPipeline({
         <Stat label="Halls qualified" value={String(insights.halls)} tone="power" />
       </div>
 
+      <div className="mb-8 grid gap-3 sm:grid-cols-2">
+        <Stat label="Halls watched" value={String(activeWatches.length)} tone="power" small />
+        <Stat label="Annualised recurring" value={eur(arrCents)} tone="verified" small />
+      </div>
+
       {error ? (
         <div className="mb-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" />
@@ -219,6 +234,54 @@ export function EngagementPipeline({
         <p className="mt-2 text-[11px] text-faint">
           Generation is automatic; release is not. Read the draft before you put your name on it.
         </p>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="mb-3 text-sm font-semibold text-ghost">Watched halls</h2>
+        {watches.length === 0 ? (
+          <Empty>No hall is under watch yet. The offer sits under every delivered study.</Empty>
+        ) : (
+          <div className="overflow-x-auto rounded border border-line">
+            <table className="w-full text-sm">
+              <Head cols={["Opened", "Client", "Hall", "Cadence", "Last run", "Next", "State"]} />
+              <tbody>
+                {watches.map((w) => (
+                  <tr key={w.id} className="border-t border-line align-middle">
+                    <Td className="font-mono text-faint">
+                      {new Date(w.created_at).toLocaleDateString()}
+                    </Td>
+                    <Td>
+                      <span className="text-ghost">{w.company || "—"}</span>
+                      <span className="block text-xs text-faint">{w.email || "—"}</span>
+                    </Td>
+                    <Td className="text-mute">
+                      {w.site_name || "—"}
+                      {w.hall_id ? <span className="text-faint"> / {w.hall_id}</span> : null}
+                    </Td>
+                    <Td className="text-mute">{w.cadence}</Td>
+                    <Td className="font-mono text-faint">
+                      {w.last_run_at ? new Date(w.last_run_at).toLocaleDateString() : "—"}
+                    </Td>
+                    <Td className="font-mono text-faint">
+                      {w.next_run_at ? new Date(w.next_run_at).toLocaleDateString() : "—"}
+                    </Td>
+                    <Td>
+                      <span
+                        className={`inline-block rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] ${
+                          w.status === "active"
+                            ? "border-verified/50 text-verified"
+                            : "border-line text-mute"
+                        }`}
+                      >
+                        {w.has_intake ? w.status : "awaiting numbers"}
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="mb-12">

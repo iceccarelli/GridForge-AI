@@ -22,7 +22,17 @@ interface Row {
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
 
-export function EngagementIntake({ token }: { token: string }) {
+export function EngagementIntake({
+  token,
+  endpoint,
+  submitLabel = "Submit the hall's numbers",
+}: {
+  token: string;
+  /** Defaults to the engagement intake. A Hall Watch points it at /api/watch. */
+  endpoint?: string;
+  submitLabel?: string;
+}) {
+  const url = endpoint ?? `/api/intake/${token}`;
   const [loading, setLoading] = useState(true);
   const [meta, setMeta] = useState<{ product?: { name: string }; status?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,11 +57,11 @@ export function EngagementIntake({ token }: { token: string }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/intake/${token}`)
+    fetch(url)
       .then((r) => r.json())
       .then((b) => {
         if (!alive) return;
-        if (!b.ok) setError("This engagement link is not valid.");
+        if (!b.ok) setError("This link is not valid.");
         else setMeta(b);
       })
       .catch(() => alive && setError("Could not load this engagement."))
@@ -59,7 +69,7 @@ export function EngagementIntake({ token }: { token: string }) {
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [url]);
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
@@ -155,7 +165,7 @@ export function EngagementIntake({ token }: { token: string }) {
         .map((r) => ({ id: r.id, unit_rating_kW: r.rating, units: r.units, redundancy: r.redundancy })),
     };
     try {
-      const res = await fetch(`/api/intake/${token}`, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -165,7 +175,7 @@ export function EngagementIntake({ token }: { token: string }) {
         setError(body?.error ?? "Submission failed.");
         return;
       }
-      setDone(body.message);
+      setDone(body.message ?? body.headline ?? "Received.");
     } catch {
       setError("Could not reach the server. Your numbers were not submitted — try again.");
     } finally {
@@ -295,7 +305,7 @@ export function EngagementIntake({ token }: { token: string }) {
           className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {busy ? "Solving" : "Submit the hall's numbers"}
+          {busy ? "Solving" : submitLabel}
         </button>
         <span className="max-w-md text-[11px] text-faint">
           Anything left blank is filled from a library default and named as an assumption in the

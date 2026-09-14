@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createDeliverable } from "@/lib/deliverables";
+import { createWatch } from "@/lib/watches";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const runtime = "nodejs";
@@ -34,7 +35,16 @@ export async function POST(req: Request) {
 
     const kind = (session.metadata?.kind as string) || "engagement_deposit";
     const product = PRODUCT_BY_KIND[kind];
-    if (product?.producesDeliverable) {
+    if (kind === "hall_watch") {
+      await openWatch({
+        email,
+        company,
+        sessionId: session.id,
+        subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
+        customerId: typeof session.customer === "string" ? session.customer : null,
+      });
+      await notifyFounder({ email, company, amount });
+    } else if (product?.producesDeliverable) {
       // A purchased engineering deliverable. Paying does not produce a document:
       // it opens an intake the client fills in, which is then generated and
       // released by a human. See lib/deliverables.ts.
@@ -60,6 +70,54 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, received: true });
+}
+
+async function openWatch(p: {
+  email: string;
+  company: string;
+  sessionId: string;
+  subscriptionId: string | null;
+  customerId: string | null;
+}): Promise<void> {
+  const row = await createWatch({
+    email: p.email || null,
+    company: p.company || null,
+    stripe_subscription_id: p.subscriptionId,
+    stripe_customer_id: p.customerId,
+    cadence: "quarterly",
+  });
+  if (!row) {
+    console.error("[GridForge] could not open a watch for session", p.sessionId);
+    return;
+  }
+  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const url = `${base}/watch/${row.token}`;
+  console.log(`[GridForge] hall watch opened for ${p.email || "unknown"} — ${url}`);
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from || !p.email) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: p.email,
+        subject: "Your hall is now watched",
+        text:
+          "The model stays live from here.\n\n" +
+          "Give it the hall's current numbers once, and from then on it is re-solved every " +
+          "quarter and whenever you change an input. You get a change note naming what moved " +
+          "and which input moved it — including when the movement came from our side because a " +
+          "library or the constraint set was revised.\n\n" +
+          url +
+          "\n\nIf nothing material changes, we will tell you that in three lines rather than " +
+          "send you a document to justify the fee.",
+      }),
+    });
+  } catch (err) {
+    console.error("[GridForge] watch email failed:", err);
+  }
 }
 
 async function openDeliverable(p: {

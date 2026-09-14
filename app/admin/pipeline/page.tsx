@@ -6,6 +6,7 @@ import {
   adminConfigured,
   fetchDeliverables,
   fetchQualifications,
+  fetchWatches,
   summariseQualifications,
   supabaseConfigured,
   verifyAdminCookie,
@@ -42,15 +43,17 @@ export default async function PipelinePage() {
     redirect("/admin/login");
   }
 
-  const [deliverables, qualifications] = await Promise.all([
+  const [deliverables, qualifications, watches] = await Promise.all([
     fetchDeliverables(),
     fetchQualifications(),
+    fetchWatches(),
   ]);
 
   return (
     <EngagementPipeline
       deliverables={deliverables}
       qualifications={qualifications}
+      watches={watches}
       insights={summariseQualifications(qualifications)}
       supabaseReady={supabaseConfigured()}
     />

@@ -6,7 +6,11 @@
 // buys the screen has already decided to spend, which is the only qualification
 // signal that has ever meant anything.
 
-export type ProductId = "density_screen" | "envelope_study_deposit" | "portfolio_screen_deposit";
+export type ProductId =
+  | "density_screen"
+  | "envelope_study_deposit"
+  | "portfolio_screen_deposit"
+  | "hall_watch";
 
 export interface Product {
   id: ProductId;
@@ -22,6 +26,8 @@ export interface Product {
   /** Does buying it start the intake → generate → release flow? */
   producesDeliverable: boolean;
   creditsAgainst?: ProductId;
+  /** A recurring engagement. Checkout runs in subscription mode. */
+  recurring?: { interval: "month" | "year"; intervalCount: number };
 }
 
 export const PRODUCTS: Record<ProductId, Product> = {
@@ -55,6 +61,23 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "engineering team.",
     turnaroundDays: 25,
     producesDeliverable: false,
+  },
+  hall_watch: {
+    id: "hall_watch",
+    kind: "hall_watch",
+    name: "Hall Watch",
+    amountCents: 600_000, // €6,000 per quarter
+    description:
+      "We keep your hall's model live. Every quarter — and whenever you update an input — it " +
+      "is re-solved and you get a change note: what moved, which input moved it, and whether " +
+      "it changes the decision.",
+    deliverable:
+      "A quarterly change note naming the inputs that moved the answer, plus an unlimited " +
+      "re-run whenever you update the hall's numbers. Nothing material to report is itself a " +
+      "reportable answer, and we say so in three lines rather than padding it.",
+    turnaroundDays: 2,
+    producesDeliverable: false,
+    recurring: { interval: "month", intervalCount: 3 },
   },
   portfolio_screen_deposit: {
     id: "portfolio_screen_deposit",

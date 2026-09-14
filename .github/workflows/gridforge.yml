@@ -59,6 +59,16 @@ jobs:
           grep -q "firm quote" /tmp/quoted/envelope_study.md
       - name: Proposal from the CLI
         run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
+      - name: A change note names the input that moved the answer
+        run: |
+          python -c "
+          import json, copy
+          d = json.load(open('examples/intake/reference_hall.json'))
+          a = copy.deepcopy(d); a['grid']['contracted_MW'] = 10.5
+          json.dump(a, open('/tmp/after.json','w'))
+          "
+          python -m gridforge diff examples/intake/reference_hall.json /tmp/after.json -o /tmp/change
+          python -c "import json; c=json.load(open('/tmp/change/change.json')); assert c['racks_delta']<0; assert c['drivers'][0]['path']=='grid.contracted_MW', c['drivers']; assert c['explained_racks']+c['unexplained_racks']==c['racks_delta']; print('change note ok:', c['headline'])"
       - name: Walkthrough deck from the CLI
         run: |
           python -m gridforge deck examples/intake/reference_hall.json -o /tmp/deck
@@ -102,6 +112,17 @@ jobs:
             -d '{"intake":{"grid":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9},"lv":{"busway_ampacity_A":400,"tapoff_max_A":63},"thermal":{"plant":{"design_supply_C":6}},"hall":{"positions_available":180},"compute":{"platform":"gb300_nvl72"}},"engagement":"density_screen","format":"md"}' \
             -o /tmp/p.json
           python -c "import json; b=json.load(open('/tmp/p.json')); assert b['engagement']['price_eur']==4500, b['engagement']; assert 'What we already found' in b['document']; print('proposal ok')"
+      - name: A change with no movement reports no movement
+        run: |
+          python -c "
+          import json
+          d = json.load(open('examples/intake/reference_hall.json'))
+          json.dump({'before': d, 'after': d, 'format': 'md'}, open('/tmp/same.json','w'))
+          "
+          curl -sf -X POST http://127.0.0.1:8080/v1/diff \
+            -H 'content-type: application/json' -H 'x-api-key: ci-key' \
+            --data @/tmp/same.json -o /tmp/d.json
+          python -c "import json; b=json.load(open('/tmp/d.json')); assert b['material'] is False, b['headline']; assert b['racks_delta']==0; print('no-change ok')"
       - name: Paid endpoints refuse without a key
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')
