@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { createDeliverable } from "@/lib/deliverables";
+import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const runtime = "nodejs";
 
@@ -31,7 +33,21 @@ export async function POST(req: Request) {
     const amount = session.amount_total ?? 0;
 
     const kind = (session.metadata?.kind as string) || "engagement_deposit";
-    if (kind === "intelligence_subscription") {
+    const product = PRODUCT_BY_KIND[kind];
+    if (product?.producesDeliverable) {
+      // A purchased engineering deliverable. Paying does not produce a document:
+      // it opens an intake the client fills in, which is then generated and
+      // released by a human. See lib/deliverables.ts.
+      await openDeliverable({
+        kind,
+        email,
+        company,
+        amount,
+        sessionId: session.id,
+        qualificationId: (session.metadata?.qualification_id as string) || null,
+      });
+      await notifyFounder({ email, company, amount });
+    } else if (kind === "intelligence_subscription") {
       const plan = (session.metadata?.plan as string) || "unknown";
       const customerId = typeof session.customer === "string" ? session.customer : "";
       await recordSubscription({ email, plan, sessionId: session.id, customerId });
@@ -44,6 +60,61 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, received: true });
+}
+
+async function openDeliverable(p: {
+  kind: string;
+  email: string;
+  company: string;
+  amount: number;
+  sessionId: string;
+  qualificationId: string | null;
+}): Promise<void> {
+  const record = await createDeliverable({
+    kind: p.kind,
+    email: p.email || null,
+    company: p.company || null,
+    amount_cents: p.amount || null,
+    stripe_session_id: p.sessionId,
+    qualification_id: p.qualificationId || null,
+    status: "awaiting_intake",
+  });
+  if (!record) {
+    console.error("[GridForge] could not open a deliverable for session", p.sessionId);
+    return;
+  }
+  const base = process.env.SITE_URL || "https://timetopower.ai";
+  console.log(
+    `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${record.token}`
+  );
+  await emailIntakeLink({ email: p.email, kind: p.kind, url: `${base}/intake/${record.token}` });
+}
+
+async function emailIntakeLink(p: { email: string; kind: string; url: string }): Promise<void> {
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from || !p.email) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: p.email,
+        subject: "Your GridForge engagement — the numbers we need",
+        text:
+          "Thank you. The engagement is open.\n\n" +
+          "The next step is the hall's own numbers. Everything you do not supply is filled " +
+          "from a library default and named as an assumption in the deliverable, so the more " +
+          "of it you complete, the fewer of your conclusions rest on our guesses.\n\n" +
+          p.url +
+          "\n\nThe link is unguessable and specific to this engagement. Do not forward it to " +
+          "anyone who should not read the result.",
+      }),
+    });
+  } catch (err) {
+    console.error("[GridForge] intake email failed:", err);
+  }
 }
 
 async function recordSubscription(p: {

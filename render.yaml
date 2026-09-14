@@ -1,0 +1,20 @@
+# render.yaml — alternative host for the capacity engine.
+#
+# Set GRIDFORGE_API_KEYS in the Render dashboard before you point the website at
+# it. Without it the paid endpoints refuse: a misconfigured deployment must fail
+# closed, not serve the deliverable for free.
+services:
+  - type: web
+    name: gridforge-engine
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: GRIDFORGE_RATE_LIMIT
+        value: "60"
+      - key: GRIDFORGE_ALLOWED_ORIGINS
+        value: "*"
+      - key: GRIDFORGE_API_KEYS
+        sync: false

@@ -34,9 +34,15 @@ from urllib.parse import urlparse
 
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..intake.loader import IntakeError, blank_intake, load_document
+from ..reporting import to_html, to_markdown
+from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, rank
+from ..reporting.screen import build as build_screen_report
+from ..reporting.study import build as build_study_report
+from ..reporting.study import collect_claims
 from ..reporting.study import Objective
 from ..scenario import run_all
+from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import model_pack
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
@@ -154,13 +160,40 @@ def handle_qualify(body: dict, tier: Tier) -> dict:
     return qualify_payload(intake, results, _objective(body))
 
 
+def _rendered(report, results, fmt: str) -> dict:
+    """Render a deliverable and run the report gates over it before it leaves the
+    building. A document that fails a gate is never returned - the point of the
+    gates is that they stand between a modelled number and a customer."""
+    md = to_markdown(report)
+    run_all_gates(report, md, claims=collect_claims(results), mode=ReportMode.SCREENING)
+    if fmt == "md":
+        return {"format": "md", "title": report.title, "document": md}
+    return {"format": "html", "title": report.title,
+            "document": to_html(report, full_document=False),
+            "document_full": to_html(report, full_document=True)}
+
+
 def handle_screen(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
+    fmt = str(body.get("format") or "json").lower()
+    if fmt in ("html", "md"):
+        report = build_screen_report(intake, results, objective=_objective(body))
+        return _rendered(report, results, fmt)
     return screen_payload(intake, results, _objective(body), tier=tier)
 
 
 def handle_study(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
+    fmt = str(body.get("format") or "json").lower()
+    if fmt in ("html", "md"):
+        objective = _objective(body)
+        from ..reporting.study import _pick_recommended
+        from ..scenario import sensitivity
+        rec = _pick_recommended(results, objective)
+        sens = sensitivity(rec, SENSITIVITY_KNOBS)
+        report = build_study_report(intake.context, results, sens,
+                                    client=intake.client, objective=objective)
+        return _rendered(report, results, fmt)
     return model_pack(intake, results)
 
 

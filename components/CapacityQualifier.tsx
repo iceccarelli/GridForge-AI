@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
+import { PRODUCTS } from "@/lib/products";
+import { eur } from "@/lib/commerce";
 import { openAudit } from "@/lib/ui";
 
 /**
@@ -303,23 +305,82 @@ function QualifyReadout({ result, headline }: { result: QualifyResult; headline:
         </div>
       ) : null}
 
-      <div className="mt-6 rounded border border-line bg-panel-2 p-4">
-        <p className="text-sm text-ghost">{intake.recommended_engagement}</p>
-        <button
-          type="button"
-          onClick={() =>
-            openAudit("capacity-qualifier", {
-              capacityMW: Math.round((found.it_load_kW?.value ?? 0) / 1000),
-              summary: `${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`,
-            })
-          }
-          className="mt-3 inline-flex items-center gap-2 rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10"
-        >
-          Take this to a screen <ArrowRight className="h-4 w-4" />
-        </button>
-      </div>
+      <CommissionPanel
+        recommendation={intake.recommended_engagement}
+        summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
+        capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
+      />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
+    </div>
+  );
+}
+
+function CommissionPanel({
+  recommendation,
+  summary,
+  capacityMW,
+}: {
+  recommendation: string;
+  summary: string;
+  capacityMW: number;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const screen = PRODUCTS.density_screen;
+
+  async function commission() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product: screen.id, capacityMW }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.ok || !body.url) {
+        setError(
+          body?.error === "Payments not configured"
+            ? "Checkout is not live on this deployment yet — use the conversation route below."
+            : (body?.error ?? "Could not start checkout.")
+        );
+        return;
+      }
+      window.location.href = body.url as string;
+    } catch {
+      setError("Could not reach checkout. Try the conversation route below.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded border border-line bg-panel-2 p-4">
+      <p className="text-sm text-ghost">{recommendation}</p>
+      <p className="mt-2 text-xs text-faint">
+        {screen.deliverable} {screen.turnaroundDays} working days from a complete intake, and the
+        fee credits in full against the full study.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={commission}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded bg-power px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Commission the {screen.name} · {eur(screen.amountCents)}
+        </button>
+        <button
+          type="button"
+          onClick={() => openAudit("capacity-qualifier", { capacityMW, summary })}
+          className="inline-flex items-center gap-2 rounded border border-line px-4 py-2 text-sm text-mute hover:text-ghost"
+        >
+          Talk it through first <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+      {error ? <p className="mt-3 text-sm text-flag">{error}</p> : null}
     </div>
   );
 }

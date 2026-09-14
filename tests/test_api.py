@@ -237,3 +237,42 @@ def test_redactor_strips_at_any_depth():
     out = redact(payload, Tier.PUBLIC)
     assert out == {"a": {"b": [{"keep": 2}]}}
     assert redact(payload, Tier.CLIENT) == payload
+
+
+# --- rendered deliverables ---------------------------------------------------
+def test_screen_renders_html_for_a_paying_client(server):
+    status, body = call(server, "/v1/screen",
+                        {"intake": qualify_to_intake(GOOD), "format": "html"}, key=KEY)
+    assert status == 200, body
+    assert body["format"] == "html"
+    assert "Density Screen" in body["title"]
+    assert "<table" in body["document"]
+    assert body["document_full"].startswith("<!doctype html")
+
+
+def test_screen_renders_markdown(server):
+    status, body = call(server, "/v1/screen",
+                        {"intake": qualify_to_intake(GOOD), "format": "md"}, key=KEY)
+    assert status == 200
+    assert body["document"].startswith("# Density Screen")
+
+
+def test_rendered_documents_carry_the_evidence_disclosure(server):
+    _, body = call(server, "/v1/screen",
+                   {"intake": qualify_to_intake(GOOD), "format": "md"}, key=KEY)
+    assert "EVIDENCE DISCLOSURE" in body["document"], (
+        "a document built on library defaults must say so, or the gates are decoration"
+    )
+
+
+def test_study_renders_a_full_document(server):
+    status, body = call(server, "/v1/study",
+                        {"intake": qualify_to_intake(GOOD), "format": "html"}, key=KEY)
+    assert status == 200, body
+    assert "Envelope Study" in body["title"]
+    assert len(body["document"]) > 10_000
+
+
+def test_rendering_is_not_available_to_the_public_tier(server):
+    status, _ = call(server, "/v1/screen", {"intake": qualify_to_intake(GOOD), "format": "html"})
+    assert status == 401, "the rendered deliverable is the product; it needs a key"

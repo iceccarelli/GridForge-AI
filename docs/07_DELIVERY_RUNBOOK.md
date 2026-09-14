@@ -54,6 +54,37 @@ and says plainly that no result was produced; it never invents a number.
 must never be: two versions of the truth is precisely what a provenance-first product cannot
 survive.
 
+## The money loop, once the engine is deployed
+
+```
+/qualify  ->  Commission the Density Screen (Stripe, EUR 4,500)
+          ->  webhook opens a deliverable and emails an intake link
+          ->  client fills /intake/<token> with the hall's numbers
+          ->  engine generates the document  (automatic)
+          ->  YOU release it                 (deliberately not automatic)
+          ->  client reads /deliverable/<token>
+```
+
+Release is a separate human act and must stay one. Generating a document from an
+intake is leverage; publishing an unreviewed engineering opinion with your name on it
+is not a business, it is a liability. Release with:
+
+```bash
+curl -X PATCH https://<site>/api/admin/deliverables \
+  -H 'content-type: application/json' -b "gf_admin=<cookie>" \
+  -d '{"token":"<token>","action":"release"}'
+```
+
+Deploy the engine first, or none of this runs:
+
+```bash
+fly launch --no-deploy --copy-config && fly secrets set GRIDFORGE_API_KEYS=$(openssl rand -hex 24) && fly deploy
+# then on the site: GRIDFORGE_API_URL=https://<app>.fly.dev  GRIDFORGE_API_KEY=<same key>
+```
+
+`render.yaml` is there if you prefer Render. Either way the engine has no database and
+no dependencies, so it scales to zero and costs single-digit euros a month.
+
 ## What CI guarantees before you send anything
 
 `.github/workflows/gridforge.yml` runs, on every push that touches the engine:

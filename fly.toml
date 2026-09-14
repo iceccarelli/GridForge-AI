@@ -1,0 +1,39 @@
+# fly.toml — the capacity engine as a service.
+#
+#   fly launch --no-deploy --copy-config
+#   fly secrets set GRIDFORGE_API_KEYS=$(openssl rand -hex 24)
+#   fly deploy
+#
+# Then on the website: GRIDFORGE_API_URL=https://<app>.fly.dev and, only if the
+# site should reach the paid endpoints, GRIDFORGE_API_KEY set to the same value.
+#
+# The engine has no database and no dependencies, so it scales to zero and starts
+# in well under a second. Running it costs single-digit euros a month.
+app = "gridforge-engine"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  GRIDFORGE_RATE_LIMIT = "60"
+  # Comma-separated origins, or "*" while you are still wiring it up.
+  GRIDFORGE_ALLOWED_ORIGINS = "*"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

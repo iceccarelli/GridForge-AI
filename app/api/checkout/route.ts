@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
+import { PRODUCTS, isProductId } from "@/lib/products";
 
 export const runtime = "nodejs";
 
-// Creates a Stripe Checkout Session for the engagement reservation deposit.
+// Creates a Stripe Checkout Session.
+//
+// Two shapes. Without `product` it is the engagement reservation deposit, exactly
+// as before. With `product` it is a catalogue engagement (see lib/products.ts) —
+// the Density Screen buys a real deliverable, so its session carries the
+// qualification id and the webhook starts the intake → generate → release flow.
+//
+// Original behaviour, unchanged:
 // Applies the Founding Partner credit server-side when slots remain, so the
 // promotion can't be forged from the client. Returns the hosted payment URL.
 export async function POST(req: Request) {
@@ -29,14 +37,20 @@ export async function POST(req: Request) {
   const capacityMW = typeof body.capacityMW === "number" ? body.capacityMW : undefined;
   const service = typeof body.service === "string" ? body.service : undefined;
   const wantsFounding = body.founding === true;
+  const productId = isProductId(body.product) ? body.product : null;
+  const product = productId ? PRODUCTS[productId] : null;
+  const qualificationId =
+    typeof body.qualificationId === "string" ? body.qualificationId : "";
 
   const origin =
     req.headers.get("origin") ||
     process.env.SITE_URL ||
     "https://timetopower.ai";
 
-  // Apply founding credit only if explicitly requested AND slots remain.
-  const applyFounding = wantsFounding && foundingSlotsRemaining() > 0;
+  // The founding credit applies to the engagement deposit, not to a fixed-fee
+  // engineering deliverable — discounting the screen would undercut the only
+  // qualification signal that means anything.
+  const applyFounding = !product && wantsFounding && foundingSlotsRemaining() > 0;
   const discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
   if (applyFounding) {
     const coupon = await stripe.coupons.create({
@@ -58,10 +72,10 @@ export async function POST(req: Request) {
           price_data: {
             currency: COMMERCE.currency,
             product_data: {
-              name: COMMERCE.deposit.label,
-              description: COMMERCE.deposit.description,
+              name: product ? product.name : COMMERCE.deposit.label,
+              description: product ? product.description : COMMERCE.deposit.description,
             },
-            unit_amount: COMMERCE.deposit.amountCents,
+            unit_amount: product ? product.amountCents : COMMERCE.deposit.amountCents,
           },
           quantity: 1,
         },
@@ -73,10 +87,13 @@ export async function POST(req: Request) {
         capacity_mw: capacityMW ? String(capacityMW) : "",
         service: service ?? "",
         founding_applied: applyFounding ? "yes" : "no",
-        kind: "engagement_deposit",
+        kind: product ? product.kind : "engagement_deposit",
+        qualification_id: qualificationId,
       },
-      success_url: `${origin}/?deposit=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/pricing?deposit=cancelled`,
+      success_url: product
+        ? `${origin}/commissioned?session_id={CHECKOUT_SESSION_ID}`
+        : `${origin}/?deposit=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: product ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
     });
 
     return NextResponse.json({ ok: true, url: session.url });
