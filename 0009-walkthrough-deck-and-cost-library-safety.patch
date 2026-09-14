@@ -1,0 +1,1100 @@
+From 0a9f8a465da620564ff3c46791c55c9bac221ce6 Mon Sep 17 00:00:00 2001
+From: Claude Opus 5 <noreply@anthropic.com>
+Date: Mon, 14 Sep 2026 00:42:58 +0000
+Subject: [PATCH] feat(deck): walkthrough deck; fix(costs): quotations must
+ never be committed
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patch 0009. One correction that matters legally, and the artefact that wins the
+follow-on engagement.
+
+FIX — A QUOTATION MUST NEVER REACH THE REPOSITORY
+
+`cost add` wrote to the bundled, version-controlled library by default. That is
+wrong twice over: a fabricated price would raise the evidence class of a real
+study, and a genuine supplier quotation is confidential and frequently under NDA,
+so it must never be committed or shipped in an image. Now there are two files and
+the distinction is enforced:
+
+  gridforge/data/cost_library.json   committed seed — placeholders and published
+                                     benchmarks only, figures anyone may read
+  cost_library.local.json            yours — gitignored, never in the image,
+                                     overlaid on the seed at runtime
+
+`cost add` writes privately by default and REFUSES to put a quotation in the seed.
+A quotation without --supplier and --quoted-on is rejected outright: without them
+it is not a quotation, it is a number someone remembered. `cost where` shows which
+files are in play, and a test plus a CI step fail the build if a quotation ever
+appears in the committed seed.
+
+THE WALKTHROUGH DECK (gridforge/reporting/deck.py, POST /v1/deck)
+
+    python3 -m gridforge deck intake.json -o out
+
+Nine slides from the same solved model as the written study, so slide and report
+can never disagree — a walkthrough that contradicts the deliverable is worse than
+no walkthrough. Arrow keys to advance; a print stylesheet turns each slide into one
+landscape page, so Print to PDF produces something sendable. No network, no fonts
+to fetch, no script from anywhere: a client can open it on a plane. A test asserts
+there is no URL in the output.
+
+It ships automatically with a purchased Envelope Study and appears on the client's
+deliverable page beside the document; a failed deck never fails the document,
+because the document is what was bought. The Screen does not include one.
+
+Two charts, and the colour work is deliberate. #00E5FF and #FFB020 are interface
+colours; as data marks against the panel surface they sit outside the usable
+lightness band. The deck uses dimmed steps of the same hues, validated for
+lightness, chroma, colour-vision separation and contrast, and every value a mark
+encodes is also printed — nothing is knowable by colour alone. The energisation
+curve keeps one point per distinct week: several ladder steps routinely complete in
+the same week, and stacking a column of dots on one x position reads as noise and
+implies events the client will never experience.
+
+137 Python tests pass, up from 127. tsc, next lint and next build clean.
+Migration 0004 adds deck_html to deliverables.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ta9qaApsT4oVbFmpCa414o
+---
+ .github/workflows/gridforge.yml               |   6 +
+ .gitignore                                    |   1 +
+ app/api/deliverable/[token]/route.ts          |  11 +
+ app/api/intake/[token]/route.ts               |   1 +
+ app/deliverable/[token]/page.tsx              |  24 +-
+ docs/07_DELIVERY_RUNBOOK.md                   |  21 +
+ gridforge/api/server.py                       |  14 +-
+ gridforge/cli.py                              |  65 ++-
+ gridforge/costs.py                            |  42 +-
+ gridforge/reporting/deck.py                   | 417 ++++++++++++++++++
+ lib/admin.ts                                  |  15 +-
+ lib/deliverables.ts                           |  30 +-
+ supabase/migrations/0004_deliverable_deck.sql |   6 +
+ tests/test_costs_and_proposal.py              |  93 ++++
+ 14 files changed, 724 insertions(+), 22 deletions(-)
+ create mode 100644 gridforge/reporting/deck.py
+ create mode 100644 supabase/migrations/0004_deliverable_deck.sql
+
+diff --git a/.github/workflows/gridforge.yml b/.github/workflows/gridforge.yml
+index 9a753ad..31ff4a2 100644
+--- a/.github/workflows/gridforge.yml
++++ b/.github/workflows/gridforge.yml
+@@ -59,6 +59,12 @@ jobs:
+           grep -q "firm quote" /tmp/quoted/envelope_study.md
+       - name: Proposal from the CLI
+         run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
++      - name: Walkthrough deck from the CLI
++        run: |
++          python -m gridforge deck examples/intake/reference_hall.json -o /tmp/deck
++          python -c "h=open('/tmp/deck/walkthrough.html').read(); assert 'http' not in h.replace('http-equiv',''), 'the deck must render offline'; assert '<svg' in h; print('deck ok', len(h), 'bytes')"
++      - name: The committed cost library must hold no quotations
++        run: python -m gridforge cost where
+       - uses: actions/upload-artifact@v4
+         with:
+           name: sample-deliverables
+diff --git a/.gitignore b/.gitignore
+index 20ad713..1c39270 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -38,3 +38,4 @@ __pycache__/
+ .pytest_cache/
+ out/
+ intake.json
++cost_library.local.json
+diff --git a/app/api/deliverable/[token]/route.ts b/app/api/deliverable/[token]/route.ts
+index 85e60f5..c442b8b 100644
+--- a/app/api/deliverable/[token]/route.ts
++++ b/app/api/deliverable/[token]/route.ts
+@@ -25,6 +25,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
+   }
+ 
+   const format = new URL(req.url).searchParams.get("format");
++  if (format === "deck") {
++    if (!row.deck_html) {
++      return NextResponse.json(
++        { ok: false, error: "No walkthrough deck was produced for this engagement." },
++        { status: 404 }
++      );
++    }
++    return new NextResponse(row.deck_html, {
++      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
++    });
++  }
+   if (format === "md") {
+     return new NextResponse(row.document_md ?? "", {
+       headers: {
+diff --git a/app/api/intake/[token]/route.ts b/app/api/intake/[token]/route.ts
+index 628cc35..3c2bbbf 100644
+--- a/app/api/intake/[token]/route.ts
++++ b/app/api/intake/[token]/route.ts
+@@ -78,6 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string
+     title: rendered.title,
+     document_html: rendered.html,
+     document_md: rendered.md,
++    ...(rendered.deck ? { deck_html: rendered.deck } : {}),
+   });
+ 
+   return NextResponse.json({
+diff --git a/app/deliverable/[token]/page.tsx b/app/deliverable/[token]/page.tsx
+index bdcdb32..71456f2 100644
+--- a/app/deliverable/[token]/page.tsx
++++ b/app/deliverable/[token]/page.tsx
+@@ -60,12 +60,24 @@ export default async function DeliverablePage({
+         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">
+           Released{row.released_at ? ` · ${new Date(row.released_at).toLocaleDateString()}` : ""}
+         </p>
+-        <a
+-          href={`/api/deliverable/${token}?format=md`}
+-          className="rounded border border-line px-4 py-2 text-sm text-mute hover:text-ghost"
+-        >
+-          Download Markdown
+-        </a>
++        <div className="flex flex-wrap items-center gap-3">
++          {row.deck_html ? (
++            <a
++              href={`/api/deliverable/${token}?format=deck`}
++              target="_blank"
++              rel="noreferrer"
++              className="rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10"
++            >
++              Walkthrough deck
++            </a>
++          ) : null}
++          <a
++            href={`/api/deliverable/${token}?format=md`}
++            className="rounded border border-line px-4 py-2 text-sm text-mute hover:text-ghost"
++          >
++            Download Markdown
++          </a>
++        </div>
+       </div>
+       {/* The document is generated by our own engine and stored as rendered HTML;
+           it contains no scripts and no third-party content. */}
+diff --git a/docs/07_DELIVERY_RUNBOOK.md b/docs/07_DELIVERY_RUNBOOK.md
+index 2b08c73..4d0f648 100644
+--- a/docs/07_DELIVERY_RUNBOOK.md
++++ b/docs/07_DELIVERY_RUNBOOK.md
+@@ -126,6 +126,27 @@ or the transformer, and one quotation there moves the headline number more than
+ elsewhere. Two real quote sets turn this library into something no competitor can
+ reconstruct from public sources, and it is worth more with every engagement.
+ 
++## The walkthrough deck
++
++```bash
++python3 -m gridforge deck intake.json -o out     # out/walkthrough.html
++```
++
++Nine slides generated from the same solved model as the written study, so the slide
++and the report can never disagree. Arrow keys to advance; `Print to PDF` gives a
++landscape deck you can send. No network, no fonts to fetch, no script from anywhere —
++a client can open it on a plane.
++
++It ships automatically with a purchased Envelope Study and appears on the client's
++deliverable page next to the document. The Screen does not include one: the
++walkthrough is part of the Study engagement.
++
++**The chart colours are not the brand accents.** `#00E5FF` and `#FFB020` are interface
++colours; as data marks on the panel surface they fall outside the usable lightness
++band. The deck uses dimmed steps of the same hues that pass the lightness, chroma,
++colour-vision-separation and contrast checks — and every value a mark encodes is also
++printed, so nothing is knowable by colour alone.
++
+ ## Proposals that open with a finding
+ 
+ ```bash
+diff --git a/gridforge/api/server.py b/gridforge/api/server.py
+index ec24cd7..d62c0ac 100644
+--- a/gridforge/api/server.py
++++ b/gridforge/api/server.py
+@@ -18,6 +18,7 @@ Endpoints
+     POST /v1/study                      full intake -> model pack           (key)
+     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
+     POST /v1/proposal                   intake     -> priced proposal       (key)
++    POST /v1/deck                       intake     -> walkthrough deck      (key)
+ 
+ Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
+ (comma separated). With no keys configured the paid endpoints refuse rather than
+@@ -39,6 +40,8 @@ from ..reporting import to_html, to_markdown
+ from ..reporting.gates import ReportMode, run_all_gates
+ from ..reporting.portfolio import SiteEntry, rank
+ from ..commercial import ENGAGEMENTS, engagement
++from ..reporting.deck import build as build_deck_report
++from ..reporting.deck import to_html as deck_to_html
+ from ..reporting.proposal import build as build_proposal_report
+ from ..reporting.screen import build as build_screen_report
+ from ..reporting.study import build as build_study_report
+@@ -50,7 +53,7 @@ from ..serialize import model_pack
+ from .payloads import qualify_payload, screen_payload
+ from .tiers import Tier
+ 
+-VERSION = "0.4.0"
++VERSION = "0.5.0"
+ MAX_BODY_BYTES = 512 * 1024
+ RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
+ 
+@@ -200,6 +203,14 @@ def handle_study(body: dict, tier: Tier) -> dict:
+     return model_pack(intake, results)
+ 
+ 
++def handle_deck(body: dict, tier: Tier) -> dict:
++    intake, results = _run(body.get("intake") or body)
++    deck = build_deck_report(intake, results, objective=_objective(body))
++    return {"format": "html", "title": deck.title, "slides": len(deck.slides),
++            "document": deck_to_html(deck, full_document=False),
++            "document_full": deck_to_html(deck, full_document=True)}
++
++
+ def handle_proposal(body: dict, tier: Tier) -> dict:
+     intake, results = _run(body.get("intake") or body)
+     try:
+@@ -249,6 +260,7 @@ ROUTES = {
+     "/v1/study": (handle_study, Tier.CLIENT),
+     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
+     "/v1/proposal": (handle_proposal, Tier.CLIENT),
++    "/v1/deck": (handle_deck, Tier.CLIENT),
+ }
+ 
+ 
+diff --git a/gridforge/cli.py b/gridforge/cli.py
+index 6067c0a..801fa6d 100644
+--- a/gridforge/cli.py
++++ b/gridforge/cli.py
+@@ -28,6 +28,8 @@ from .reporting.portfolio import SiteEntry
+ from .reporting.portfolio import build as build_portfolio
+ from .reporting.screen import build as build_screen
+ from .commercial import ENGAGEMENTS, engagement
++from .reporting.deck import build as build_deck
++from .reporting.deck import to_html as deck_to_html
+ from .reporting.proposal import build as build_proposal
+ from .reporting.study import Objective, _pick_recommended, collect_claims
+ from .reporting.study import build as build_study
+@@ -160,6 +162,20 @@ def cmd_study(args) -> int:
+     return 0
+ 
+ 
++def cmd_deck(args) -> int:
++    intake = load(args.intake)
++    results = _run(intake)
++    deck = build_deck(intake, results, objective=OBJECTIVES[args.objective])
++    out = Path(args.out)
++    out.mkdir(parents=True, exist_ok=True)
++    path = out / "walkthrough.html"
++    path.write_text(deck_to_html(deck))
++    print(f"Walkthrough deck — {deck.title}: {len(deck.slides)} slides. "
++          "Arrow keys to advance; Print to PDF for a sendable copy.")
++    print(f"  wrote {path}")
++    return 0
++
++
+ def cmd_proposal(args) -> int:
+     intake = load(args.intake)
+     results = _run(intake)
+@@ -180,9 +196,26 @@ def cmd_proposal(args) -> int:
+ 
+ 
+ def cmd_cost(args) -> int:
+-    from .costs import COST_EVIDENCE, CostEntry, CostLibrary
++    from .costs import (BUNDLED_PATH, COST_EVIDENCE, PUBLISHABLE_BASES, CostEntry,
++                        CostLibrary, private_path)
++
++    target = Path(args.library) if args.library else (BUNDLED_PATH if args.bundled
++                                                      else private_path())
++
++    if args.cost_cmd == "where":
++        print(f"  seed (committed, published figures only) : {BUNDLED_PATH}")
++        print(f"  yours (gitignored, quotations)           : {private_path()}"
++              f"{'' if private_path().exists() else '   [not created yet]'}")
++        merged = CostLibrary.resolved()
++        print(f"  lines in effect                          : {len(merged.entries)}")
++        bad = CostLibrary.load(BUNDLED_PATH).publishable_violations()
++        if bad:
++            print(f"  ! the committed seed holds quotations: {', '.join(bad)}")
++            return 1
++        return 0
+ 
+-    lib = CostLibrary.load(args.library)
++    lib = CostLibrary.resolved(args.library) if args.cost_cmd in ("list", "show") \
++        else CostLibrary.load(target)
+     if args.cost_cmd == "list":
+         if not lib.entries:
+             print("The cost library is empty: every relief price is a placeholder with a "
+@@ -224,6 +257,17 @@ def cmd_cost(args) -> int:
+     if args.basis not in COST_EVIDENCE:
+         print(f"unknown basis {args.basis!r}. One of: {', '.join(COST_EVIDENCE)}", file=sys.stderr)
+         return 2
++    if target == BUNDLED_PATH and args.basis not in PUBLISHABLE_BASES:
++        print(f"refusing to write a {args.basis} into the committed seed at {BUNDLED_PATH}.\n"
++              "A supplier quotation is confidential and frequently under NDA; it must not be "
++              "committed to a repository or shipped in an image.\n"
++              f"Drop --bundled and it goes to {private_path()}, which is gitignored.",
++              file=sys.stderr)
++        return 2
++    if args.basis != "library_default" and not (args.supplier and args.quoted_on):
++        print(f"a {args.basis} needs --supplier and --quoted-on. Without them it is not a "
++              "quotation, it is a number someone remembered.", file=sys.stderr)
++        return 2
+     entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
+                       value=float(args.value), basis=args.basis, supplier=args.supplier,
+                       quoted_on=args.quoted_on, valid_until=args.valid_until,
+@@ -237,6 +281,9 @@ def cmd_cost(args) -> int:
+     if entry.basis == "library_default":
+         print("NOTE: recorded as a library default, so it stays a placeholder. Use "
+               "--basis firm_quote once you have a written quotation.")
++    elif target != BUNDLED_PATH:
++        print("This file is gitignored and is not shipped in the image. Keep it that way: "
++              "quotations are confidential.")
+     return 0
+ 
+ 
+@@ -286,6 +333,12 @@ def main(argv: list[str] | None = None) -> int:
+         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+         s.set_defaults(func=fn)
+ 
++    s = sub.add_parser("deck", help="the walkthrough deck for the client session")
++    s.add_argument("intake")
++    s.add_argument("-o", "--out", default="out")
++    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
++    s.set_defaults(func=cmd_deck)
++
+     s = sub.add_parser("proposal", help="a priced proposal that opens with a real finding")
+     s.add_argument("intake")
+     s.add_argument("-o", "--out", default="out")
+@@ -296,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
+     s.set_defaults(func=cmd_proposal)
+ 
+     s = sub.add_parser("cost", help="the cost library: what a relief actually costs")
+-    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove"])
++    s.add_argument("cost_cmd", choices=["list", "show", "add", "remove", "where"])
+     s.add_argument("--key", default="")
+     s.add_argument("--label", default="")
+     s.add_argument("--unit", default="EUR")
+@@ -311,7 +364,11 @@ def main(argv: list[str] | None = None) -> int:
+     s.add_argument("--project")
+     s.add_argument("--note")
+     s.add_argument("--source")
+-    s.add_argument("--library", help="path to a cost library JSON (default: the bundled one)")
++    s.add_argument("--library",
++                   help="path to a cost library JSON (default: your private, gitignored one)")
++    s.add_argument("--bundled", action="store_true",
++                   help="write to the committed seed instead. Refuses quotations: the seed may "
++                        "hold only placeholders and published benchmarks.")
+     s.set_defaults(func=cmd_cost)
+ 
+     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
+diff --git a/gridforge/costs.py b/gridforge/costs.py
+index 71b879d..2c14322 100644
+--- a/gridforge/costs.py
++++ b/gridforge/costs.py
+@@ -31,7 +31,25 @@ from pathlib import Path
+ from .common import V
+ from .validation import EvidenceClass, Quantity, Source
+ 
+-LIBRARY_PATH = Path(__file__).resolve().parent / "data" / "cost_library.json"
++# Two files, and the distinction matters commercially and legally.
++#
++# BUNDLED is shipped in the repository and the Docker image. It may hold only
++# placeholders and published benchmarks — figures anyone may read. A supplier's
++# quotation is confidential, frequently NDA'd, and must never be committed.
++#
++# PRIVATE is where your own quotations live: gitignored, never in the image,
++# overlaid on top of the seed at runtime. Point GRIDFORGE_COST_LIBRARY at a shared
++# location if more than one person needs it.
++BUNDLED_PATH = Path(__file__).resolve().parent / "data" / "cost_library.json"
++PRIVATE_FILENAME = "cost_library.local.json"
++
++#: Bases that may appear in the bundled, version-controlled seed.
++PUBLISHABLE_BASES = frozenset({"library_default", "published_benchmark"})
++
++
++def private_path() -> Path:
++    env = os.environ.get("GRIDFORGE_COST_LIBRARY")
++    return Path(env) if env else Path.cwd() / PRIVATE_FILENAME
+ 
+ COST_EVIDENCE: dict[str, EvidenceClass] = {
+     "library_default": EvidenceClass.E0_ASSUMPTION,
+@@ -127,7 +145,7 @@ class CostLibrary:
+ 
+     @staticmethod
+     def load(path: str | Path | None = None) -> "CostLibrary":
+-        p = Path(path or os.environ.get("GRIDFORGE_COST_LIBRARY") or LIBRARY_PATH)
++        p = Path(path) if path else private_path()
+         if not p.exists():
+             return CostLibrary(entries={}, path=p)
+         raw = json.loads(p.read_text())
+@@ -138,8 +156,22 @@ class CostLibrary:
+             entries[e.key] = e
+         return CostLibrary(entries=entries, path=p)
+ 
++    @staticmethod
++    def resolved(private: str | Path | None = None) -> "CostLibrary":
++        """The seed, overlaid by your own quotations. This is what a study uses."""
++        lib = CostLibrary.load(BUNDLED_PATH)
++        lib.entries = dict(lib.entries)
++        priv = CostLibrary.load(private)
++        lib.entries.update(priv.entries)
++        lib.path = priv.path
++        return lib
++
++    def publishable_violations(self) -> list[str]:
++        """Entries that must not be committed. A quotation is confidential."""
++        return [e.key for e in self.entries.values() if e.basis not in PUBLISHABLE_BASES]
++
+     def save(self, path: str | Path | None = None) -> Path:
+-        p = Path(path or self.path or LIBRARY_PATH)
++        p = Path(path) if path else (self.path or private_path())
+         p.parent.mkdir(parents=True, exist_ok=True)
+         payload = {
+             "schema": "gridforge/cost-library/1",
+@@ -195,13 +227,13 @@ _LIBRARY: CostLibrary | None = None
+ def library() -> CostLibrary:
+     global _LIBRARY
+     if _LIBRARY is None:
+-        _LIBRARY = CostLibrary.load()
++        _LIBRARY = CostLibrary.resolved()
+     return _LIBRARY
+ 
+ 
+ def reload_library(path: str | Path | None = None) -> CostLibrary:
+     global _LIBRARY
+-    _LIBRARY = CostLibrary.load(path)
++    _LIBRARY = CostLibrary.resolved(path)
+     return _LIBRARY
+ 
+ 
+diff --git a/gridforge/reporting/deck.py b/gridforge/reporting/deck.py
+new file mode 100644
+index 0000000..28c5a40
+--- /dev/null
++++ b/gridforge/reporting/deck.py
+@@ -0,0 +1,417 @@
++"""The walkthrough deck.
++
++The Envelope Study includes a 90-minute session with the client's engineering team,
++and that session is where the follow-on engagement is won or lost. This generates
++the deck for it from the same solved model as the document, so the slide and the
++report can never disagree — a walkthrough that contradicts the deliverable is worse
++than no walkthrough.
++
++Self-contained HTML: arrow keys to advance, and a print stylesheet that turns each
++slide into one landscape page so `Print to PDF` produces something sendable. No
++dependencies, no fonts to fetch, no script from anywhere.
++
++Chart colours are deliberately NOT the brand accents. #00E5FF and #FFB020 are
++interface colours; as data marks against the panel surface they sit outside the
++usable lightness band. The two steps below are the same hues, dimmed until they
++pass the lightness, chroma, colour-vision-separation and contrast checks. Every
++value they encode is also printed as a label, so nothing depends on colour alone.
++"""
++from __future__ import annotations
++
++import html
++from dataclasses import dataclass, field
++from datetime import date
++
++from ..common import ESTIMATED, V
++from ..envelope.time_to_power import TimeToPower, schedule
++from ..intake.loader import Intake
++from ..scenario.run import ScenarioResult
++from .study import Objective, _pick_recommended
++
++MARK = "#1193A8"       # capacity — dimmed step of the brand's `power`
++MARK_ALT = "#BD8318"   # delay    — dimmed step of the brand's `queue`
++
++
++@dataclass
++class Slide:
++    kicker: str
++    title: str
++    lead: str = ""
++    bullets: list[str] = field(default_factory=list)
++    figures: list[tuple[str, str, str]] = field(default_factory=list)  # label, value, note
++    table: tuple[list[str], list[list[str]]] | None = None
++    svg: str = ""
++    note: str = ""
++
++
++@dataclass
++class Deck:
++    title: str
++    subtitle: str
++    slides: list[Slide] = field(default_factory=list)
++    footer: str = ""
++
++
++# --- charts ------------------------------------------------------------------
++def _energisation_svg(t: TimeToPower) -> str:
++    """Racks energised against elapsed weeks. A step chart, because capacity arrives
++    in discrete unlocks rather than continuously."""
++    # One point per distinct week, keeping the highest rack count at that week.
++    # Several ladder steps routinely complete in the same week; plotting each of
++    # them stacks a column of dots on one x position, which reads as noise and
++    # implies events the client will never experience. What they experience is a
++    # date on which capacity arrives.
++    by_week: dict[float, float] = {0.0: float(t.racks_now)}
++    for p in t.points:
++        by_week[p.weeks] = max(by_week.get(p.weeks, 0.0), float(p.racks))
++    pts = sorted(by_week.items())
++    if len(pts) < 2 or t.max_racks <= 0:
++        return ""
++    w, h = 900, 350
++    ml, mr, mt, mb = 64, 132, 40, 52        # room for the outermost labels
++    x_max = max(p[0] for p in pts) or 1.0
++    y_max = max(p[1] for p in pts) or 1.0
++    px = lambda x: ml + (x / x_max) * (w - ml - mr)          # noqa: E731
++    py = lambda y: h - mb - (y / y_max) * (h - mt - mb)      # noqa: E731
++
++    grid, ticks = [], []
++    for i in range(5):
++        y = y_max * i / 4
++        gy = py(y)
++        grid.append(f'<line x1="{ml}" y1="{gy:.1f}" x2="{w - mr}" y2="{gy:.1f}" '
++                    f'stroke="#1E2942" stroke-width="1"/>')
++        ticks.append(f'<text x="{ml - 10}" y="{gy + 4:.1f}" text-anchor="end" '
++                     f'class="ax">{y:.0f}</text>')
++    for i in range(5):
++        x = x_max * i / 4
++        ticks.append(f'<text x="{px(x):.1f}" y="{h - mb + 20:.1f}" text-anchor="middle" '
++                     f'class="ax">{x:.0f}</text>')
++
++    d = [f"M {px(pts[0][0]):.1f} {py(pts[0][1]):.1f}"]
++    for i in range(1, len(pts)):
++        d.append(f"H {px(pts[i][0]):.1f}")
++        d.append(f"V {py(pts[i][1]):.1f}")
++    line = " ".join(d)
++    area = (f"{line} L {px(pts[-1][0]):.1f} {h - mb} L {px(pts[0][0]):.1f} {h - mb} Z")
++
++    marks = []
++    for x, y in pts:
++        if y <= 0:
++            continue
++        marks.append(f'<circle cx="{px(x):.1f}" cy="{py(y):.1f}" r="5" fill="{MARK}" '
++                     f'stroke="#0E1524" stroke-width="2"><title>{y:.0f} racks at week '
++                     f'{x:.0f}</title></circle>')
++
++    first = next((p for p in pts if p[1] > 0), None)
++    labels = []
++    if first:
++        labels.append(f'<text x="{px(first[0]) + 12:.1f}" y="{py(first[1]) - 12:.1f}" '
++                      f'class="lbl">{first[1]:.0f} racks · week {first[0]:.0f}</text>')
++    lx, ly = pts[-1]
++    labels.append(f'<text x="{px(lx) + 14:.1f}" y="{py(ly) + 4:.1f}" class="lbl big">'
++                  f'{ly:.0f} racks</text>')
++    labels.append(f'<text x="{px(lx) + 14:.1f}" y="{py(ly) + 24:.1f}" class="lbl dim">'
++                  f'week {lx:.0f}</text>')
++
++    return f'''<svg viewBox="0 0 {w} {h}" role="img"
++  aria-label="Racks energised against elapsed weeks. {ly:.0f} racks at week {lx:.0f}.">
++  <style>
++    .ax{{fill:#5A6478;font:500 12px ui-monospace,monospace}}
++    .lbl{{fill:#F5F7FA;font:600 13px ui-monospace,monospace}}
++    .lbl.big{{font-size:20px}} .lbl.dim{{fill:#8A94A6;font-weight:500}}
++    .cap{{fill:#8A94A6;font:500 12px ui-monospace,monospace}}
++  </style>
++  {''.join(grid)}
++  <path d="{area}" fill="{MARK}" fill-opacity="0.12"/>
++  <path d="{line}" fill="none" stroke="{MARK}" stroke-width="2" stroke-linejoin="round"/>
++  {''.join(marks)}{''.join(ticks)}{''.join(labels)}
++  <text x="{ml}" y="{h - 8}" class="cap">elapsed weeks — reliefs run in parallel</text>
++  <text x="{ml - 54}" y="16" class="cap">racks energised</text>
++</svg>'''
++
++
++def _architectures_svg(results: list[ScenarioResult]) -> str:
++    """One measure across five architectures, so one hue and a value on every bar."""
++    def short(name: str) -> str:
++        return name if len(name) <= 40 else name[:39].rstrip(" ,-") + "…"
++
++    rows = [(short(r.spec.name), r.unlocked_racks) for r in results]
++    if not rows:
++        return ""
++    top = max(v for _, v in rows) or 1
++    bar_h, gap = 34, 14
++    w = 900
++    ml, mr, mt = 372, 108, 12
++    h = mt + len(rows) * (bar_h + gap)
++    out = []
++    for i, (name, val) in enumerate(rows):
++        y = mt + i * (bar_h + gap)
++        bw = max(2.0, (val / top) * (w - ml - mr))
++        out.append(f'<text x="{ml - 16}" y="{y + bar_h / 2 + 5:.0f}" text-anchor="end" '
++                   f'class="cat">{html.escape(name)}</text>')
++        out.append(f'<rect x="{ml}" y="{y}" width="{bw:.1f}" height="{bar_h}" rx="4" '
++                   f'fill="{MARK}"><title>{name}: {val} racks</title></rect>')
++        out.append(f'<text x="{ml + bw + 12:.1f}" y="{y + bar_h / 2 + 5:.0f}" class="val">'
++                   f'{val}</text>')
++    return f'''<svg viewBox="0 0 {w} {h}" role="img"
++  aria-label="Deployable racks by cooling architecture after the headroom ladder.">
++  <style>
++    .cat{{fill:#8A94A6;font:500 13px ui-monospace,monospace}}
++    .val{{fill:#F5F7FA;font:600 15px ui-monospace,monospace}}
++  </style>
++  {''.join(out)}
++</svg>'''
++
++
++# --- the deck ----------------------------------------------------------------
++def build(intake: Intake, results: list[ScenarioResult], *,
++          objective: Objective = Objective.MAX_COMPUTE) -> Deck:
++    ctx = intake.context
++    rec = _pick_recommended(results, objective)
++    t = schedule(rec.ladder)
++    plat = ctx.cluster.platform
++    econ = rec.economics
++    d = Deck(
++        title=f"{ctx.site.name} · hall {ctx.hall.id}",
++        subtitle=(f"Capacity and density envelope · target platform {plat.name} · "
++                  f"{len(results)} architectures compared"),
++        footer=(f"{intake.client} · prepared {date.today().isoformat()} · modelled, not measured"),
++    )
++
++    d.slides.append(Slide(
++        kicker="Walkthrough",
++        title=f"How much AI compute can {ctx.hall.id} carry?",
++        lead=("Thirteen constraints across electrical, thermal and physical domains, solved over "
++              "one model of this hall. The envelope is the minimum; the binding constraint is the "
++              "one that produced it."),
++        note="Every figure in this deck carries an evidence class and comes from the same solved "
++             "model as the written study."))
++
++    d.slides.append(Slide(
++        kicker="The answer",
++        title=rec.envelope.binding.name,
++        lead=rec.envelope.binding.basis + ".",
++        figures=[
++            ("Deployable today", str(rec.envelope.max_racks), "racks, as the hall stands"),
++            ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
++            ("Time to full capacity",
++             "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
++             f"weeks · set by {t.critical_item.lower()}"),
++        ]))
++
++    ladder_rows = [[str(s.step), s.binding_name,
++                    f"{s.racks_before} → {s.racks_after}",
++                    (s.relief_description or "no relief available")[:64],
++                    "—" if s.capex_eur is None else s.capex_eur.render(with_class=False),
++                    "—" if s.lead_time_weeks is None else s.lead_time_weeks.render(with_class=False)]
++                   for s in rec.ladder.steps[:8]]
++    d.slides.append(Slide(
++        kicker="What stops it",
++        title="The headroom ladder",
++        lead="Each row is what binds next, what moves it, and what that costs.",
++        table=(["#", "Constraint", "Racks", "Relief", "Capex", "Lead time"], ladder_rows)))
++
++    d.slides.append(Slide(
++        kicker="When",
++        title="Time to power",
++        lead=("Reliefs run in parallel, so the racks unlocked by the first N steps arrive at the "
++              f"longest lead time among them. One item sets the date: {t.critical_item.lower()}."),
++        svg=_energisation_svg(t),
++        note="Capacity arrives in steps, not continuously — each step is a constraint relieved."))
++
++    d.slides.append(Slide(
++        kicker="Architecture",
++        title="The same connection, more compute",
++        lead=("Every kilowatt the cooling architecture consumes is a kilowatt of contracted "
++              "capacity that cannot be sold as compute."),
++        svg=_architectures_svg(results)))
++
++    mix = econ.cost_basis_mix or {}
++    placeholders = mix.get("library_default", 0)
++    total_lines = sum(mix.values())
++    d.slides.append(Slide(
++        kicker="Cost",
++        title="What it takes, and how well we know it",
++        figures=[
++            ("Indicative capex", econ.capex_total_eur.render(with_band=False, with_class=False), ""),
++            ("Per kW of IT", econ.capex_eur_per_kW_it.render(with_band=False, with_class=False), ""),
++            ("Accuracy class", econ.aace_class.split(":")[0], econ.aace_class.split(":", 1)[-1]),
++        ],
++        lead=(f"{placeholders} of {total_lines} priced lines are library placeholders rather than "
++              "quotations. That is why the accuracy class reads as it does — it follows the "
++              "weakest line, not the average."
++              if placeholders else
++              "Every priced line rests on a quotation rather than a placeholder."),
++        note="Excludes IT hardware, migration and lost tenancy revenue."))
++
++    gaps = intake.report.gaps
++    d.slides.append(Slide(
++        kicker="Evidence",
++        title="What nobody has measured yet",
++        lead=(f"Intake is {intake.report.completeness:.0%} complete. Each of these moves the "
++              "answer and is currently a library default."
++              if gaps else "Every input below the headline was supplied rather than assumed."),
++        table=(["Input", "Assumed", "Where it comes from"],
++               [[g.label, g.fallback_description, g.how_to_get_it] for g in gaps[:8]])
++        if gaps else None))
++
++    d.slides.append(Slide(
++        kicker="Recommendation",
++        title=rec.spec.name,
++        lead=rec.spec.rationale,
++        bullets=[
++            "Get the DSO position in writing on firm capacity and any flexibility product. It "
++            "costs nothing but time and it can end the question.",
++            "Commission a structural assessment of the floor and a hydraulic model of the "
++            "secondary loop. Both are cheap relative to the decision and both can invalidate it.",
++            "Place long-lead orders only after those clear — lead time, not construction, governs "
++            "the programme.",
++            "Instrument the hall and reconcile this model against twelve months of measured data "
++            "before phase two. That is what moves these numbers from estimated to field-validated.",
++        ]))
++
++    d.slides.append(Slide(
++        kicker="Boundary",
++        title="What this is, and what it is not",
++        bullets=[
++            "An engineering opinion supported by a documented model. Not a design package, and it "
++            "confers no design liability.",
++            "No stamped drawings, no CFD of this hall, no equipment selection or bill of materials.",
++            "The floor-loading check is a screening calculation; a structural engineer must sign "
++            "it off.",
++            "We quote no equipment and take no margin on hardware. Nothing here routes you to a "
++            "supplier we are paid by.",
++        ],
++        note="Nothing in this deck is a measurement of this asset unless it is labelled E5 or "
++             "above."))
++    return d
++
++
++# --- rendering ---------------------------------------------------------------
++_CSS = """
++*{box-sizing:border-box}
++body{margin:0;background:#070B14;color:#F5F7FA;
++  font:16px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
++.deck{max-width:1180px;margin:0 auto;padding:24px 20px 96px}
++.slide{background:#0E1524;border:1px solid #1E2942;border-radius:10px;
++  padding:40px 44px;margin-bottom:24px;min-height:560px;display:flex;flex-direction:column;gap:18px}
++.kicker{font:600 11px/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;
++  color:#00E5FF;margin:0}
++h1{font-size:2rem;line-height:1.15;margin:0;font-weight:650;letter-spacing:-.015em;
++  text-wrap:balance;max-width:24ch}
++.slide h2{font-size:1.6rem;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.01em;
++  text-wrap:balance;max-width:32ch}
++.lead{color:#8A94A6;margin:0;max-width:74ch;font-size:1.02rem}
++.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:4px 0}
++.fig{border:1px solid #1E2942;background:#131C2E;border-radius:8px;padding:16px 18px}
++.fig .k{font:600 10px/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;
++  color:#5A6478}
++.fig .v{font:650 2.1rem/1.1 ui-monospace,monospace;margin-top:8px;color:#F5F7FA;
++  font-variant-numeric:tabular-nums}
++.fig .n{color:#8A94A6;font-size:.85rem;margin-top:6px}
++ul{margin:0;padding-left:1.1rem;max-width:76ch;color:#F5F7FA}
++li{margin-bottom:.5rem}
++.tw{overflow-x:auto;border:1px solid #1E2942;border-radius:8px;background:#131C2E}
++table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}
++th{font:600 10px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;
++  color:#5A6478;text-align:left;padding:10px 14px;border-bottom:1px solid #1E2942;white-space:nowrap}
++td{padding:9px 14px;border-bottom:1px solid #1E2942;color:#8A94A6;vertical-align:top}
++td:nth-child(2){color:#F5F7FA}
++tr:last-child td{border-bottom:none}
++svg{width:100%;height:auto;max-width:100%}
++.note{margin-top:auto;color:#5A6478;font-size:.8rem;border-top:1px solid #1E2942;padding-top:14px}
++.deckhead{padding:44px 44px 8px}
++.deckhead p{color:#8A94A6;margin:.6rem 0 0}
++.count{position:fixed;right:16px;bottom:14px;font:600 11px ui-monospace,monospace;color:#5A6478;
++  background:#0E1524;border:1px solid #1E2942;border-radius:99px;padding:6px 12px}
++@media (max-width:700px){.slide{padding:26px 20px;min-height:0}h1{font-size:1.5rem}
++  .slide h2{font-size:1.25rem}.fig .v{font-size:1.6rem}}
++@media print{
++  body{background:#fff;color:#111}
++  .deck{max-width:none;padding:0}
++  .slide{break-after:page;border:none;border-radius:0;background:#fff;min-height:0;
++    padding:22mm 20mm;page-break-after:always}
++  .slide:last-child{break-after:auto;page-break-after:auto}
++  .kicker{color:#0a6f7f}.lead,.fig .n,td{color:#444}.fig .k,.note{color:#666}
++  .fig,.tw{background:#fff;border-color:#ccc}th,td{border-color:#ddd}
++  .count{display:none}
++  @page{size:A4 landscape;margin:0}
++}
++@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
++"""
++
++_JS = """
++(function(){
++  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
++  var counter = document.getElementById('count');
++  function current(){
++    var best = 0, bestTop = Infinity;
++    slides.forEach(function(s, i){
++      var top = Math.abs(s.getBoundingClientRect().top);
++      if (top < bestTop) { bestTop = top; best = i; }
++    });
++    return best;
++  }
++  function show(i){
++    i = Math.max(0, Math.min(slides.length - 1, i));
++    slides[i].scrollIntoView({behavior: 'smooth', block: 'start'});
++  }
++  function paint(){ if (counter) counter.textContent = (current() + 1) + ' / ' + slides.length; }
++  document.addEventListener('keydown', function(e){
++    if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); show(current() + 1); }
++    if (e.key === 'ArrowLeft'  || e.key === 'PageUp')   { e.preventDefault(); show(current() - 1); }
++    if (e.key === 'Home') { e.preventDefault(); show(0); }
++    if (e.key === 'End')  { e.preventDefault(); show(slides.length - 1); }
++  });
++  window.addEventListener('scroll', paint, {passive: true});
++  paint();
++})();
++"""
++
++
++def to_html(deck: Deck, *, full_document: bool = True) -> str:
++    e = html.escape
++    parts: list[str] = []
++    if full_document:
++        parts += ["<!doctype html><html lang='en'><head><meta charset='utf-8'>",
++                  "<meta name='viewport' content='width=device-width,initial-scale=1'>"]
++    parts.append(f"<title>{e(deck.title)}</title><style>{_CSS}</style>")
++    if full_document:
++        parts.append("</head><body>")
++    parts.append("<div class='deck'>")
++
++    for i, s in enumerate(deck.slides):
++        parts.append("<section class='slide'>")
++        parts.append(f"<p class='kicker'>{e(s.kicker)}</p>")
++        parts.append(f"<h1>{e(s.title)}</h1>" if i == 0 else f"<h2>{e(s.title)}</h2>")
++        if i == 0:
++            parts.append(f"<p class='lead'>{e(deck.subtitle)}</p>")
++        if s.lead:
++            parts.append(f"<p class='lead'>{e(s.lead)}</p>")
++        if s.figures:
++            parts.append("<div class='figs'>")
++            for k, v, n in s.figures:
++                parts.append(f"<div class='fig'><div class='k'>{e(k)}</div>"
++                             f"<div class='v'>{e(v)}</div>"
++                             + (f"<div class='n'>{e(n)}</div>" if n else "") + "</div>")
++            parts.append("</div>")
++        if s.svg:
++            parts.append(s.svg)
++        if s.bullets:
++            parts.append("<ul>" + "".join(f"<li>{e(b)}</li>" for b in s.bullets) + "</ul>")
++        if s.table:
++            head, rows = s.table
++            th = "".join(f"<th scope='col'>{e(h)}</th>" for h in head)
++            tr = "".join("<tr>" + "".join(f"<td>{e(str(c))}</td>" for c in r) + "</tr>"
++                         for r in rows)
++            parts.append(f"<div class='tw'><table><thead><tr>{th}</tr></thead>"
++                         f"<tbody>{tr}</tbody></table></div>")
++        parts.append(f"<p class='note'>{e(s.note or deck.footer)}</p>")
++        parts.append("</section>")
++
++    parts.append("</div>")
++    parts.append(f"<div class='count' id='count'>1 / {len(deck.slides)}</div>")
++    parts.append(f"<script>{_JS}</script>")
++    if full_document:
++        parts.append("</body></html>")
++    return "".join(parts)
+diff --git a/lib/admin.ts b/lib/admin.ts
+index 3b2af93..1782dd9 100644
+--- a/lib/admin.ts
++++ b/lib/admin.ts
+@@ -171,6 +171,7 @@ export interface AdminDeliverable {
+   title: string | null;
+   released_at: string | null;
+   has_document: boolean;
++  has_deck: boolean;
+ }
+ 
+ export async function fetchQualifications(limit = 500): Promise<AdminQualification[]> {
+@@ -199,7 +200,8 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
+     // Deliberately does not select the document bodies: the pipeline view lists
+     // engagements, it does not need to ship two megabytes of HTML to render a row.
+     const cols =
+-      "id,created_at,token,kind,status,email,company,amount_cents,title,released_at,document_html";
++      "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
++      "document_html,deck_html";
+     const res = await fetch(
+       `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
+       { headers: c.headers, cache: "no-store" }
+@@ -208,8 +210,15 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
+       console.error("[GridForge] fetchDeliverables failed:", await res.text());
+       return [];
+     }
+-    const rows = (await res.json()) as (AdminDeliverable & { document_html: string | null })[];
+-    return rows.map(({ document_html, ...r }) => ({ ...r, has_document: Boolean(document_html) }));
++    const rows = (await res.json()) as (AdminDeliverable & {
++      document_html: string | null;
++      deck_html: string | null;
++    })[];
++    return rows.map(({ document_html, deck_html, ...r }) => ({
++      ...r,
++      has_document: Boolean(document_html),
++      has_deck: Boolean(deck_html),
++    }));
+   } catch (err) {
+     console.error("[GridForge] fetchDeliverables error:", err);
+     return [];
+diff --git a/lib/deliverables.ts b/lib/deliverables.ts
+index 2104ab9..9a95b7e 100644
+--- a/lib/deliverables.ts
++++ b/lib/deliverables.ts
+@@ -38,6 +38,7 @@ export interface DeliverableRecord {
+   intake: Record<string, unknown> | null;
+   document_html: string | null;
+   document_md: string | null;
++  deck_html: string | null;
+   title: string | null;
+   created_at?: string;
+   released_at?: string | null;
+@@ -110,7 +111,10 @@ export async function updateByToken(
+ export async function renderDeliverable(
+   intake: Record<string, unknown>,
+   endpoint: "screen" | "study"
+-): Promise<{ ok: true; title: string; html: string; md: string } | { ok: false; error: string }> {
++): Promise<
++  | { ok: true; title: string; html: string; md: string; deck: string | null }
++  | { ok: false; error: string }
++> {
+   const base = process.env.GRIDFORGE_API_URL;
+   const key = process.env.GRIDFORGE_API_KEY;
+   if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
+@@ -129,9 +133,29 @@ export async function renderDeliverable(
+     return body as { title: string; document: string; document_full?: string };
+   };
+ 
++  const deck = async (): Promise<string | null> => {
++    // The walkthrough is part of the Study engagement, not the Screen. A failed
++    // deck must never fail the document: the document is what was bought.
++    if (endpoint !== "study") return null;
++    try {
++      const res = await fetch(`${base.replace(/\/$/, "")}/v1/deck`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json", "X-API-Key": key },
++        body: JSON.stringify({ intake }),
++        signal: AbortSignal.timeout(120_000),
++        cache: "no-store",
++      });
++      if (!res.ok) return null;
++      const body = (await res.json()) as { document_full?: string };
++      return body.document_full ?? null;
++    } catch {
++      return null;
++    }
++  };
++
+   try {
+-    const [html, md] = await Promise.all([call("html"), call("md")]);
+-    return { ok: true, title: html.title, html: html.document, md: md.document };
++    const [html, md, deckHtml] = await Promise.all([call("html"), call("md"), deck()]);
++    return { ok: true, title: html.title, html: html.document, md: md.document, deck: deckHtml };
+   } catch (err) {
+     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
+   }
+diff --git a/supabase/migrations/0004_deliverable_deck.sql b/supabase/migrations/0004_deliverable_deck.sql
+new file mode 100644
+index 0000000..13a3a1c
+--- /dev/null
++++ b/supabase/migrations/0004_deliverable_deck.sql
+@@ -0,0 +1,6 @@
++-- 0004_deliverable_deck.sql — the walkthrough deck stored beside the document
++--
++-- The Envelope Study includes a session with the client's engineering team, and
++-- that session is where the follow-on engagement is won. The deck is generated
++-- from the same solved model as the document, so the two can never disagree.
++alter table public.deliverables add column if not exists deck_html text;
+diff --git a/tests/test_costs_and_proposal.py b/tests/test_costs_and_proposal.py
+index fcdce04..0c2d29f 100644
+--- a/tests/test_costs_and_proposal.py
++++ b/tests/test_costs_and_proposal.py
+@@ -181,3 +181,96 @@ def test_every_engagement_declares_what_it_does_not_do():
+     for eng in ENGAGEMENTS.values():
+         assert eng.scope_out, f"{eng.id} has no scope boundary"
+         assert any("no margin on hardware" in x for x in eng.scope_out)
++
++
++# --- the cost library must never leak a quotation into the repository --------
++def test_the_committed_seed_holds_no_quotations():
++    """A supplier quotation is confidential and frequently under NDA. It must not
++    be committed to a repository or shipped in an image."""
++    from gridforge.costs import BUNDLED_PATH, CostLibrary
++    bad = CostLibrary.load(BUNDLED_PATH).publishable_violations()
++    assert not bad, (
++        f"the committed cost library holds quotations: {bad}. Move them to the private "
++        "library (drop --bundled) and remove them from version control."
++    )
++
++
++def test_the_private_library_is_gitignored():
++    from gridforge.costs import PRIVATE_FILENAME
++    assert PRIVATE_FILENAME in (ROOT / ".gitignore").read_text()
++
++
++def test_cli_refuses_a_quotation_in_the_committed_seed():
++    r = subprocess.run(
++        [sys.executable, "-m", "gridforge", "cost", "add", "--bundled", "--key", "x",
++         "--unit", "EUR", "--value", "1", "--basis", "firm_quote", "--supplier", "A",
++         "--quoted-on", "2026-01-01"],
++        cwd=ROOT, capture_output=True, text=True)
++    assert r.returncode == 2
++    assert "confidential" in r.stderr
++
++
++def test_cli_refuses_a_quotation_with_no_supplier(tmp_path):
++    r = subprocess.run(
++        [sys.executable, "-m", "gridforge", "cost", "add", "--key", "x", "--unit", "EUR",
++         "--value", "1", "--basis", "firm_quote", "--library", str(tmp_path / "c.json")],
++        cwd=ROOT, capture_output=True, text=True)
++    assert r.returncode == 2
++    assert "not a quotation" in r.stderr
++
++
++def test_cost_where_reports_both_files():
++    r = subprocess.run([sys.executable, "-m", "gridforge", "cost", "where"],
++                       cwd=ROOT, capture_output=True, text=True)
++    assert r.returncode == 0, r.stdout + r.stderr
++    assert "seed" in r.stdout and "yours" in r.stdout
++
++
++# --- the walkthrough deck ----------------------------------------------------
++def test_deck_has_the_slides_that_win_the_room(solved):
++    from gridforge.reporting.deck import build as build_deck
++    intake, results = solved
++    kickers = [s.kicker for s in build_deck(intake, results).slides]
++    for expected in ("The answer", "What stops it", "When", "Cost", "Evidence",
++                     "Recommendation", "Boundary"):
++        assert expected in kickers
++
++
++def test_deck_charts_label_every_value_they_encode(solved):
++    """Nothing may be knowable only by colour or only by hovering."""
++    from gridforge.reporting.deck import build as build_deck, to_html
++    intake, results = solved
++    html = to_html(build_deck(intake, results))
++    for res in results:
++        assert f">{res.unlocked_racks}<" in html, (
++            f"{res.spec.id}'s value is not printed beside its bar"
++        )
++
++
++def test_deck_energisation_curve_has_one_point_per_week(solved):
++    from gridforge.envelope.time_to_power import schedule
++    from gridforge.reporting.deck import _energisation_svg
++    from gridforge.reporting.study import _pick_recommended
++    intake, results = solved
++    svg = _energisation_svg(schedule(_pick_recommended(results).ladder))
++    assert svg.count("<circle") <= 6, (
++        "several ladder steps land in the same week; stacking a column of dots on one x "
++        "position reads as noise and implies events the client never experiences"
++    )
++
++
++def test_deck_declares_what_it_is_not(solved):
++    from gridforge.reporting.deck import build as build_deck, to_html
++    intake, results = solved
++    html = to_html(build_deck(intake, results))
++    assert "no margin on hardware" in html
++    assert "not a design package" in html.lower() or "Not a design package" in html
++
++
++def test_deck_is_self_contained(solved):
++    from gridforge.reporting.deck import build as build_deck, to_html
++    intake, results = solved
++    html = to_html(build_deck(intake, results))
++    assert "http://" not in html and "https://" not in html, (
++        "the deck must render with no network at all — a client may open it offline"
++    )
+-- 
+2.43.0
+
