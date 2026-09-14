@@ -1,12 +1,26 @@
 """Response shapes. One place, so the website and a client integration cannot drift."""
 from __future__ import annotations
 
+from ..calibration import accuracy_block, constraint_key
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..reporting.study import Objective, _pick_recommended
 from ..scenario.run import ScenarioResult
 from ..serialize import _q, scenario_dict
 from .tiers import PUBLIC_NOTICE, Tier, redact
+
+
+def calibration_block(results: list[ScenarioResult]) -> dict:
+    """How far this engine has been reconciled against site data, on every payload.
+
+    On every payload, including the free one, including when the answer is "not at
+    all". A consumer that is a machine cannot read a footnote; if the accuracy
+    record is not a field, it does not exist as far as an agent is concerned, and
+    an E0 figure will be written into someone's model as though it were surveyed.
+    """
+    bound = sorted({r.envelope.binding.id for r in results})
+    keys = [constraint_key(b) for b in bound] + ["envelope.racks", "envelope.it_load_kW"]
+    return accuracy_block(keys)
 
 
 def _gap_list(intake: Intake) -> list[dict]:
@@ -49,6 +63,7 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
             "warnings": intake.report.warnings,
             "recommended_engagement": intake.report.engagement_recommendation,
         },
+        "calibration": calibration_block(results),
         "notice": PUBLIC_NOTICE,
     }
 
@@ -67,5 +82,6 @@ def screen_payload(intake: Intake, results: list[ScenarioResult],
                    "gaps": _gap_list(intake),
                    "warnings": intake.report.warnings,
                    "recommended_engagement": intake.report.engagement_recommendation},
+        "calibration": calibration_block(results),
     }
     return redact(body, tier)

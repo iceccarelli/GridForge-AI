@@ -1,0 +1,31 @@
+{
+  "state": "uncalibrated",
+  "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 19 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+  "observations": 0,
+  "sites": 0,
+  "keys_asserted": 19,
+  "keys_with_site_observations": 0,
+  "coverage": 0.0,
+  "keys": [],
+  "uncalibrated_keys": [
+    "constraint.architecture_capability.racks",
+    "constraint.busway_ampacity.racks",
+    "constraint.cdu_capacity.racks",
+    "constraint.floor_loading.racks",
+    "constraint.floor_space.racks",
+    "constraint.grid_firm_capacity.racks",
+    "constraint.hydraulic_flow.racks",
+    "constraint.plant_capacity.racks",
+    "constraint.rack_feed_tapoff.racks",
+    "constraint.residual_air_removal.racks",
+    "constraint.tcs_supply_achievable.racks",
+    "constraint.transformer_capacity.racks",
+    "constraint.ups_capacity.racks",
+    "economics.capex_total_eur",
+    "envelope.facility_load_kW",
+    "envelope.it_load_kW",
+    "envelope.racks",
+    "schedule.weeks_to_full",
+    "thermal.pue"
+  ]
+}

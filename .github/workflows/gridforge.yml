@@ -75,6 +75,47 @@ jobs:
           python -c "h=open('/tmp/deck/walkthrough.html').read(); assert 'http' not in h.replace('http-equiv',''), 'the deck must render offline'; assert '<svg' in h; print('deck ok', len(h), 'bytes')"
       - name: The committed cost library must hold no quotations
         run: python -m gridforge cost where
+      - name: The accuracy record must be honest, and refuse to be faked
+        run: |
+          python -m gridforge calibrate where
+          python -m gridforge calibrate keys
+          python -m gridforge calibrate show | tee /tmp/cal.txt
+          grep -q "has not been established" /tmp/cal.txt
+          python -m gridforge calibrate add --key envelope.racks --site "CI" --hall H1 \
+            --predicted 26 --observed 24 --unit racks --on 2026-11-30 \
+            --method "CI smoke" --ledger /tmp/cal.json
+          python -c "
+          import json
+          d = json.load(open('/tmp/cal.json'))
+          assert len(d['observations']) == 1
+          assert 'CI' not in json.dumps(d).replace('CI smoke',''), 'a site name reached the ledger'
+          print('ledger ok')
+          "
+          # An observation weaker than site data must be refused, or the ledger can
+          # validate the engine against itself.
+          if python -m gridforge calibrate add --key envelope.racks --site B --hall H2 \
+               --predicted 1 --observed 1 --on 2026-01-01 --method m \
+               --evidence E1_MODEL --ledger /tmp/cal.json; then
+            echo "a modelled observation was accepted into the calibration ledger"; exit 1
+          fi
+          # And client data must be impossible to commit.
+          if python -m gridforge calibrate add --key envelope.racks --site B --hall H2 \
+               --predicted 1 --observed 1 --on 2026-01-01 --method m \
+               --ledger gridforge/data/calibration.json; then
+            echo "client site data was written into the published ledger"; exit 1
+          fi
+      - name: The machine-callable surface must be printable
+        run: |
+          python -m gridforge tools
+          python -m gridforge tools --json -o /tmp/tools.json
+          python -c "
+          import json
+          d = json.load(open('/tmp/tools.json'))
+          assert len(d['tools']) >= 6
+          assert d['mcp']['endpoint'] == '/mcp'
+          assert all(t['returns'] for t in d['tools'])
+          print('catalogue ok:', len(d['tools']), 'tools')
+          "
       - uses: actions/upload-artifact@v4
         with:
           name: sample-deliverables
@@ -176,6 +217,53 @@ jobs:
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/v1/study -d '{}')
           test "$code" = "401" || { echo "expected 401, got $code"; exit 1; }
+      - name: An agent can discover the surface without a key
+        run: |
+          curl -sf http://127.0.0.1:8080/v1/tools -o /tmp/tools.json
+          curl -sf http://127.0.0.1:8080/v1/calibration -o /tmp/cal.json
+          python -c "
+          import json
+          t = json.load(open('/tmp/tools.json'))
+          assert {x['name'] for x in t['tools']} >= {'gridforge_qualify','gridforge_study'}
+          c = json.load(open('/tmp/cal.json'))
+          assert c['state'] == 'uncalibrated', c['state']
+          assert 'has not been established' in c['statement']
+          print('discovery ok')
+          "
+      - name: MCP answers a handshake and a tool call
+        run: |
+          curl -sf -X POST http://127.0.0.1:8080/mcp \
+            -H 'content-type: application/json' -H 'x-api-key: ci-key' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' -o /tmp/init.json
+          curl -sf -X POST http://127.0.0.1:8080/mcp \
+            -H 'content-type: application/json' -H 'x-api-key: ci-key' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gridforge_qualify","arguments":{"contracted_MW":12,"current_site_peak_MW":7.4,"current_it_load_MW":4.9,"busway_ampacity_A":400,"tapoff_max_A":63,"plant_supply_C":6,"positions_available":180}}}' \
+            -o /tmp/call.json
+          python -c "
+          import json
+          i = json.load(open('/tmp/init.json'))['result']
+          assert i['serverInfo']['name'] == 'gridforge'
+          assert 'evidence class' in i['instructions'].lower()
+          r = json.load(open('/tmp/call.json'))['result']
+          assert r['isError'] is False
+          assert r['structuredContent']['calibration']['state']
+          blob = json.dumps(r)
+          assert 'EUR' not in blob and 'capex' not in blob, 'the free tool leaked priced content'
+          print('mcp ok:', r['content'][0]['text'])
+          "
+      - name: An exhausted quota returns 402, not 429
+        env:
+          GRIDFORGE_API_KEYS: tiny-key:ci:1
+        run: |
+          python -m gridforge serve --port 8081 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8081/health && break; sleep 0.5; done
+          body='{"intake":{"grid":{"contracted_MW":12},"lv":{"busway_ampacity_A":400}}}'
+          curl -s -o /dev/null -X POST http://127.0.0.1:8081/v1/screen \
+            -H 'content-type: application/json' -H 'x-api-key: tiny-key' -d "$body"
+          code=$(curl -s -o /tmp/over.json -w '%{http_code}' -X POST http://127.0.0.1:8081/v1/screen \
+            -H 'content-type: application/json' -H 'x-api-key: tiny-key' -d "$body")
+          test "$code" = "402" || { echo "expected 402, got $code"; cat /tmp/over.json; exit 1; }
+          python -c "import json; b=json.load(open('/tmp/over.json')); assert b['fix']; print('402 ok:', b['error'])"
 
   site:
     runs-on: ubuntu-latest

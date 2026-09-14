@@ -335,6 +335,122 @@ def cmd_cost(args) -> int:
     return 0
 
 
+def cmd_calibrate(args) -> int:
+    """The accuracy record: what the model said, what the site turned out to be.
+
+    This is the one command whose output gets worse before it gets better. With an
+    empty ledger it prints zeros, and that is the correct commercial position to be
+    honest about — the alternative is a product that cannot ever distinguish itself
+    from a spreadsheet, because it has never been checked against anything.
+    """
+    from .calibration import (Observation, ObservationError, accuracy_block, all_keys,
+                              calibration_for, label, load_ledger)
+    from .calibration.keys import known
+    from .calibration.ledger import BUNDLED_PATH, append_observation, private_path
+    from .calibration.schema import site_ref
+    from .validation.evidence import EvidenceClass as _EvidenceClass
+
+    if args.cal_cmd == "where":
+        print(f"  published ledger (committed, no client data) : {BUNDLED_PATH}")
+        print(f"  yours (gitignored, site observations)        : {private_path()}"
+              f"{'' if private_path().exists() else '   [not created yet]'}")
+        led = load_ledger()
+        print(f"  observations in effect                       : {len(led.observations)}")
+        print(f"  sites                                        : "
+              f"{len({o.site_ref for o in led.observations})}")
+        return 0
+
+    if args.cal_cmd == "keys":
+        for k in all_keys():
+            print(f"  {k:48s} {label(k)}")
+        return 0
+
+    if args.cal_cmd == "show":
+        led = load_ledger()
+        block = accuracy_block(all_keys(), led)
+        print(block["statement"])
+        print()
+        print(f"{'model output':48s} {'state':14s} {'n':>3s}  bias")
+        for k in all_keys():
+            c = calibration_for(k, led.observations)
+            bias = "—" if c.bias_pct is None else f"{c.bias_pct:+.0f}%"
+            print(f"{k:48s} {c.state.value:14s} {c.n:3d}  {bias}")
+        if not led.observations:
+            print()
+            print("No site data has been reconciled against this engine yet. Record the first:")
+            print("  python3 -m gridforge calibrate add --key envelope.racks \\")
+            print("      --site 'Client A' --hall DH-02 --predicted 26 --observed 24 "
+                  "--unit racks \\")
+            print("      --on 2026-11-30 --method 'half-hourly metering, 3 months post-energisation'")
+        return 0
+
+    # add
+    if not known(args.key):
+        print(f"unknown key {args.key!r}. `gridforge calibrate keys` lists them.", file=sys.stderr)
+        print("Keys are fixed on purpose: a renamed key orphans every observation "
+              "recorded under the old one.", file=sys.stderr)
+        return 2
+    if not args.site or not args.hall:
+        print("--site and --hall are required: they are hashed into a stable, "
+              "non-reversible site reference.", file=sys.stderr)
+        return 2
+    try:
+        obs = Observation(
+            key=args.key, site_ref=site_ref(args.site, args.hall),
+            predicted=float(args.predicted), observed=float(args.observed),
+            unit=args.unit, observed_on=args.on,
+            evidence=_EvidenceClass[args.evidence], method=args.method,
+            platform=args.platform or "", note=args.note or "")
+    except KeyError:
+        print(f"unknown evidence class {args.evidence!r}", file=sys.stderr)
+        return 2
+    except ObservationError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    try:
+        path = append_observation(obs, Path(args.ledger) if args.ledger else None)
+    except ObservationError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    # Read back from the file we actually wrote, not from the default ledger: with
+    # --ledger pointing elsewhere the default is empty and would report n=0 for an
+    # observation that was just recorded.
+    from .calibration.ledger import _read
+    c = calibration_for(obs.key, _read(path))
+    print(f"recorded -> {path}")
+    print(f"  {obs.key}: predicted {obs.predicted:g}, observed {obs.observed:g} "
+          f"({obs.error_pct:+.1f}%)")
+    print(f"  {c.sentence()}")
+    return 0
+
+
+def cmd_tools(args) -> int:
+    """Print the machine-callable surface: what an agent can call, and what it costs.
+
+    Written to a file and committed, this is what the /developers page renders, so
+    an integrator reads the same schema the server will actually validate against.
+    """
+    from .api.tools import catalogue
+    cat = catalogue()
+    if args.json:
+        out = json.dumps(cat, indent=2)
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(out + "\n")
+            print(f"wrote {args.out}")
+        else:
+            print(out)
+        return 0
+    print(f"{'tool':22s} {'units':>5s}  {'tier':7s} endpoint")
+    for t in cat["tools"]:
+        print(f"{t['name']:22s} {t['units']:5d}  {t['tier']:7s} {t['endpoint']}")
+    print()
+    print(f"MCP: POST {cat['mcp']['endpoint']}  (JSON-RPC 2.0, protocol "
+          f"{cat['mcp']['protocolVersion']})")
+    print(f"Auth: {cat['auth']['header']}. {cat['auth']['note']}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api.server import serve
     serve(args.host, args.port)
@@ -434,6 +550,30 @@ def main(argv: list[str] | None = None) -> int:
                    help="write to the committed seed instead. Refuses quotations: the seed may "
                         "hold only placeholders and published benchmarks.")
     s.set_defaults(func=cmd_cost)
+
+    s = sub.add_parser("calibrate",
+                       help="the accuracy record: model vs what the site turned out to be")
+    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where"])
+    s.add_argument("--key", default="", help="`gridforge calibrate keys` lists them")
+    s.add_argument("--site", default="", help="client site name — hashed, never stored")
+    s.add_argument("--hall", default="", help="hall id — hashed with the site name")
+    s.add_argument("--predicted", default="0", help="what this engine said")
+    s.add_argument("--observed", default="0", help="what the site turned out to be")
+    s.add_argument("--unit", default="")
+    s.add_argument("--on", default="", help="ISO date the site data covers")
+    s.add_argument("--method", default="",
+                   help="how it was obtained: metering, BMS trend, commissioning record")
+    s.add_argument("--evidence", default="E5_CUSTOMER_DATA",
+                   help="E5_CUSTOMER_DATA | E6_FIELD_VALIDATED | E7_DEPLOYED")
+    s.add_argument("--platform", default="")
+    s.add_argument("--note", default="")
+    s.add_argument("--ledger", help="path to a ledger JSON (default: your private, gitignored one)")
+    s.set_defaults(func=cmd_calibrate)
+
+    s = sub.add_parser("tools", help="the machine-callable surface: tools, units, MCP")
+    s.add_argument("--json", action="store_true", help="print the full catalogue as JSON")
+    s.add_argument("-o", "--out", help="write the JSON catalogue to this path")
+    s.set_defaults(func=cmd_tools)
 
     s = sub.add_parser("serve", help="run the HTTP API (stdlib only, no dependencies)")
     s.add_argument("--host", default="0.0.0.0")

@@ -1,0 +1,864 @@
+{
+  "tools": [
+    {
+      "name": "gridforge_qualify",
+      "description": "Free. Seven numbers about an existing air-cooled hall in, one answer out: which physical constraint binds first when you try to deploy AI racks in it, how many racks fit as found, and which item sets the energisation date. Use this to triage a portfolio before paying for anything.",
+      "endpoint": "/v1/qualify",
+      "method": "POST",
+      "tier": "public",
+      "units": 0,
+      "returns": "binding constraint, racks as found and after relief, the item that sets the date, and the inputs nobody has measured. No capital cost, no lead times: those are the paid engagement.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "contracted_MW",
+          "current_site_peak_MW",
+          "busway_ampacity_A",
+          "tapoff_max_A"
+        ],
+        "properties": {
+          "contracted_MW": {
+            "type": "number",
+            "description": "Contracted grid capacity, MW."
+          },
+          "current_site_peak_MW": {
+            "type": "number",
+            "description": "Current site peak demand, MW."
+          },
+          "current_it_load_MW": {
+            "type": "number",
+            "description": "Current IT load, MW."
+          },
+          "busway_ampacity_A": {
+            "type": "number",
+            "description": "Installed busway ampacity, A."
+          },
+          "tapoff_max_A": {
+            "type": "number",
+            "description": "Largest installed tap-off rating, A."
+          },
+          "plant_supply_C": {
+            "type": "number",
+            "description": "Chilled-water design supply temperature, \u00b0C."
+          },
+          "positions_available": {
+            "type": "integer",
+            "description": "Rack positions that can be released."
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_screen",
+      "description": "Density Screen. A full intake in, a screening read out: every constraint evaluated, the headroom ladder, and which relief unlocks the most racks per euro.",
+      "endpoint": "/v1/screen",
+      "method": "POST",
+      "tier": "client",
+      "units": 1,
+      "returns": "screen payload, or the rendered screening document.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "md",
+              "html"
+            ],
+            "default": "json"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_study",
+      "description": "Capacity & Density Envelope Study. Five architectures compared, the full headroom ladder with costs and lead times, time-to-power, sensitivity, economics, and the provenance of every number. format='csv' returns the working files a client's own engineer can rebuild the answer from.",
+      "endpoint": "/v1/study",
+      "method": "POST",
+      "tier": "client",
+      "units": 5,
+      "returns": "the model pack, a rendered document, or the CSV working files.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "md",
+              "html",
+              "csv"
+            ],
+            "default": "json"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_portfolio",
+      "description": "Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per rack and what binds first for each. Bills one unit per hall.",
+      "endpoint": "/v1/portfolio",
+      "method": "POST",
+      "tier": "client",
+      "units": 1,
+      "returns": "halls ranked against the objective, with the total deployable rack count.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intakes"
+        ],
+        "properties": {
+          "intakes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "minItems": 1
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_diff",
+      "description": "What moved, and which input moved it. Two intakes (or a recorded envelope state and a new intake) in, an attributed change note out, including the part the single-input probes do not explain, reported as a residual rather than distributed.",
+      "endpoint": "/v1/diff",
+      "method": "POST",
+      "tier": "client",
+      "units": 2,
+      "returns": "headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "after"
+        ],
+        "properties": {
+          "before": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "previous_state": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "A recorded envelope state from an earlier run."
+          },
+          "after": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "attribute": {
+            "type": "boolean",
+            "default": true
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "md",
+              "html"
+            ],
+            "default": "json"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_proposal",
+      "description": "A priced proposal for a named engagement, built from what the engine already found.",
+      "endpoint": "/v1/proposal",
+      "method": "POST",
+      "tier": "client",
+      "units": 2,
+      "returns": "the proposal document and the engagement's catalogue price.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "engagement": {
+            "type": "string",
+            "default": "density_screen"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "valid_days": {
+            "type": "integer",
+            "default": 30
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "html",
+              "md"
+            ],
+            "default": "html"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
+  "openai": [
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_qualify",
+        "description": "Free. Seven numbers about an existing air-cooled hall in, one answer out: which physical constraint binds first when you try to deploy AI racks in it, how many racks fit as found, and which item sets the energisation date. Use this to triage a portfolio before paying for anything.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "contracted_MW",
+            "current_site_peak_MW",
+            "busway_ampacity_A",
+            "tapoff_max_A"
+          ],
+          "properties": {
+            "contracted_MW": {
+              "type": "number",
+              "description": "Contracted grid capacity, MW."
+            },
+            "current_site_peak_MW": {
+              "type": "number",
+              "description": "Current site peak demand, MW."
+            },
+            "current_it_load_MW": {
+              "type": "number",
+              "description": "Current IT load, MW."
+            },
+            "busway_ampacity_A": {
+              "type": "number",
+              "description": "Installed busway ampacity, A."
+            },
+            "tapoff_max_A": {
+              "type": "number",
+              "description": "Largest installed tap-off rating, A."
+            },
+            "plant_supply_C": {
+              "type": "number",
+              "description": "Chilled-water design supply temperature, \u00b0C."
+            },
+            "positions_available": {
+              "type": "integer",
+              "description": "Rack positions that can be released."
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_screen",
+        "description": "Density Screen. A full intake in, a screening read out: every constraint evaluated, the headroom ladder, and which relief unlocks the most racks per euro.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_study",
+        "description": "Capacity & Density Envelope Study. Five architectures compared, the full headroom ladder with costs and lead times, time-to-power, sensitivity, economics, and the provenance of every number. format='csv' returns the working files a client's own engineer can rebuild the answer from.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html",
+                "csv"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_portfolio",
+        "description": "Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per rack and what binds first for each. Bills one unit per hall.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intakes"
+          ],
+          "properties": {
+            "intakes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+                "additionalProperties": true
+              },
+              "minItems": 1
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_diff",
+        "description": "What moved, and which input moved it. Two intakes (or a recorded envelope state and a new intake) in, an attributed change note out, including the part the single-input probes do not explain, reported as a residual rather than distributed.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "after"
+          ],
+          "properties": {
+            "before": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "previous_state": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "A recorded envelope state from an earlier run."
+            },
+            "after": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "attribute": {
+              "type": "boolean",
+              "default": true
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_proposal",
+        "description": "A priced proposal for a named engagement, built from what the engine already found.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "engagement": {
+              "type": "string",
+              "default": "density_screen"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "valid_days": {
+              "type": "integer",
+              "default": 30
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "html",
+                "md"
+              ],
+              "default": "html"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "mcp": {
+    "endpoint": "/mcp",
+    "protocol": "jsonrpc-2.0",
+    "protocolVersion": "2025-06-18",
+    "tools": [
+      {
+        "name": "gridforge_qualify",
+        "description": "Free. Seven numbers about an existing air-cooled hall in, one answer out: which physical constraint binds first when you try to deploy AI racks in it, how many racks fit as found, and which item sets the energisation date. Use this to triage a portfolio before paying for anything.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "contracted_MW",
+            "current_site_peak_MW",
+            "busway_ampacity_A",
+            "tapoff_max_A"
+          ],
+          "properties": {
+            "contracted_MW": {
+              "type": "number",
+              "description": "Contracted grid capacity, MW."
+            },
+            "current_site_peak_MW": {
+              "type": "number",
+              "description": "Current site peak demand, MW."
+            },
+            "current_it_load_MW": {
+              "type": "number",
+              "description": "Current IT load, MW."
+            },
+            "busway_ampacity_A": {
+              "type": "number",
+              "description": "Installed busway ampacity, A."
+            },
+            "tapoff_max_A": {
+              "type": "number",
+              "description": "Largest installed tap-off rating, A."
+            },
+            "plant_supply_C": {
+              "type": "number",
+              "description": "Chilled-water design supply temperature, \u00b0C."
+            },
+            "positions_available": {
+              "type": "integer",
+              "description": "Rack positions that can be released."
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 0,
+          "gridforge/tier": "public",
+          "gridforge/endpoint": "/v1/qualify"
+        }
+      },
+      {
+        "name": "gridforge_screen",
+        "description": "Density Screen. A full intake in, a screening read out: every constraint evaluated, the headroom ladder, and which relief unlocks the most racks per euro.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 1,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/screen"
+        }
+      },
+      {
+        "name": "gridforge_study",
+        "description": "Capacity & Density Envelope Study. Five architectures compared, the full headroom ladder with costs and lead times, time-to-power, sensitivity, economics, and the provenance of every number. format='csv' returns the working files a client's own engineer can rebuild the answer from.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html",
+                "csv"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 5,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/study"
+        }
+      },
+      {
+        "name": "gridforge_portfolio",
+        "description": "Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per rack and what binds first for each. Bills one unit per hall.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intakes"
+          ],
+          "properties": {
+            "intakes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+                "additionalProperties": true
+              },
+              "minItems": 1
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 1,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/portfolio"
+        }
+      },
+      {
+        "name": "gridforge_diff",
+        "description": "What moved, and which input moved it. Two intakes (or a recorded envelope state and a new intake) in, an attributed change note out, including the part the single-input probes do not explain, reported as a residual rather than distributed.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "after"
+          ],
+          "properties": {
+            "before": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "previous_state": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "A recorded envelope state from an earlier run."
+            },
+            "after": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "attribute": {
+              "type": "boolean",
+              "default": true
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json"
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 2,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/diff"
+        }
+      },
+      {
+        "name": "gridforge_proposal",
+        "description": "A priced proposal for a named engagement, built from what the engine already found.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "engagement": {
+              "type": "string",
+              "default": "density_screen"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "valid_days": {
+              "type": "integer",
+              "default": 30
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "html",
+                "md"
+              ],
+              "default": "html"
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 2,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/proposal"
+        }
+      }
+    ]
+  },
+  "auth": {
+    "header": "X-API-Key",
+    "note": "gridforge_qualify is free and needs no key. Everything else meters."
+  },
+  "evidence_note": "Every numeric field in a response carries an evidence class (E0 assumed \u2026 E7 observed in operation) and a provenance digest. An agent consuming these must not present an E0 or E1 figure as a property of the physical asset. The calibration block states how far this engine has been reconciled against site data; where it says uncalibrated, it means uncalibrated."
+}

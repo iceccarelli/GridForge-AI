@@ -1,0 +1,4 @@
+{
+  "note": "Published calibration ledger. Empty by design: no site observation has been reconciled against this engine yet, and stating that plainly is the product. Client site data is confidential and lives in calibration.local.json, which is gitignored and never enters the image.",
+  "observations": []
+}

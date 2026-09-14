@@ -275,6 +275,24 @@ Every quantity in this report carries an evidence class; Appendix A lists the as
 
 > ⚠️ EVIDENCE DISCLOSURE: this is a screening study built on library defaults and assumed inputs. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. These conclusions are not sufficient to support procurement, construction or an investment committee decision on their own; they are sufficient to decide whether to spend money finding out. The inputs listed in Appendix A.1 are what must be measured to lift them.
 
+## 14. Model accuracy against instrumented sites
+
+Two different things get called accuracy. The ranges shown throughout this report are input uncertainty propagated through the model — they say how much the answer moves when an input is uncertain. This section is the other one: how far this engine's outputs have been reconciled against data from instrumented sites, which is the only thing that can tell you whether the model itself is right.
+
+> ⚠️ Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 5 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.
+
+| Model output | State | Observations | Sites | Median bias | Last observation |
+| --- | --- | --- | --- | --- | --- |
+| Racks permitted by rack feed tapoff | uncalibrated | 0 | 0 | — | — |
+| Racks of the target platform actually deployed | uncalibrated | 0 | 0 | — | — |
+| Deployable IT load in the hall | uncalibrated | 0 | 0 | — | — |
+| Weeks from go-ahead to full capacity | uncalibrated | 0 | 0 | — | — |
+| Delivered capex for the works | uncalibrated | 0 | 0 | — | — |
+
+*Bias is the median of observed / predicted, so a positive figure means the model has run conservative. An output with no observations is reported as uncalibrated rather than omitted.*
+
+Reconciliation is how a figure in this report moves from estimated to field-validated. It requires site data we do not have and cannot generate: interval metering at the relevant point, a BMS trend, or a commissioning record. Where this study recommends instrumentation, that is what it is for — the client gets a better answer next time, and the model gets an observation it can be held to.
+
 ## Appendix A — Assumptions, provenance and validation status
 
 Every number in this report carries an evidence class. The class of a computed number is never higher than the weakest of its inputs.

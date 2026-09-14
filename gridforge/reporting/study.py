@@ -372,7 +372,59 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             "decide whether to spend money finding out. The inputs listed in Appendix A.1 are what "
             "must be measured to lift them."))
     r.sections.append(s)
+
+    # 14 ------------------------------------------------- model accuracy record
+    # Printed whether or not the record is flattering, and today it is empty. A
+    # report that omits its own accuracy record when the record is empty has told
+    # the reader the question does not matter.
+    r.sections.append(_accuracy_section(results))
     return r
+
+
+def _accuracy_section(results: list[ScenarioResult]) -> Section:
+    from ..calibration import accuracy_block, constraint_key, label as key_label
+    bound = sorted({res.envelope.binding.id for res in results})
+    keys = [constraint_key(b) for b in bound] + [
+        "envelope.racks", "envelope.it_load_kW", "schedule.weeks_to_full",
+        "economics.capex_total_eur"]
+    block = accuracy_block(keys)
+
+    s = Section("14. Model accuracy against instrumented sites")
+    s.blocks.append(Para(
+        "Two different things get called accuracy. The ranges shown throughout this report "
+        "are input uncertainty propagated through the model — they say how much the answer "
+        "moves when an input is uncertain. This section is the other one: how far this "
+        "engine's outputs have been reconciled against data from instrumented sites, which "
+        "is the only thing that can tell you whether the model itself is right."))
+    s.blocks.append(Callout("note" if block["observations"] else "warning", block["statement"]))
+
+    rows = []
+    for k in keys:
+        c = next((x for x in block["keys"] if x["key"] == k), None)
+        # Lit(): these are counts of our own records, not modelled quantities. The
+        # provenance guard is right to demand a Quantity for anything computed; a
+        # tally of how many sites we have reconciled is neither computed nor ours
+        # to attach an evidence class to.
+        if c:
+            rows.append([key_label(k), c["state"], Lit(str(c["n"])), Lit(str(c["sites"])),
+                         Lit(f"{c['bias_pct']:+.0f}%" if c["bias_pct"] is not None else "—"),
+                         Lit(c["last_observed_on"] or "—")])
+        else:
+            rows.append([key_label(k), "uncalibrated", Lit("0"), Lit("0"), Lit("—"), Lit("—")])
+    s.blocks.append(Table(
+        headers=["Model output", "State", "Observations", "Sites", "Median bias",
+                 "Last observation"],
+        rows=rows,
+        caption=("Bias is the median of observed / predicted, so a positive figure means the "
+                 "model has run conservative. An output with no observations is reported as "
+                 "uncalibrated rather than omitted.")))
+    s.blocks.append(Para(
+        "Reconciliation is how a figure in this report moves from estimated to field-validated. "
+        "It requires site data we do not have and cannot generate: interval metering at the "
+        "relevant point, a BMS trend, or a commissioning record. Where this study recommends "
+        "instrumentation, that is what it is for — the client gets a better answer next time, "
+        "and the model gets an observation it can be held to."))
+    return s
 
 
 def _pue_of(res: ScenarioResult) -> Quantity:

@@ -33,6 +33,21 @@ d["notice"] = ("SYNTHETIC REFERENCE DATA — not a customer asset. Every figure 
 json.dump(d, open(p, "w"), indent=2)
 PY
 
+# The machine-callable surface, committed so /developers renders the same schema the
+# server validates against, and so CI notices when a tool, a unit rate or a schema
+# changes without the published contract changing with it.
+GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge tools --json -o "$OUT/tools.json" >/dev/null
+
+# The accuracy record, published whether or not it flatters us.
+python3 - "$OUT/calibration.json" <<'PY'
+import json, sys
+from gridforge.calibration import accuracy_block, all_keys
+from gridforge.calibration.ledger import load_ledger
+# published_only: a local ledger of client site data must never reach public/.
+json.dump(accuracy_block(all_keys(), load_ledger(published_only=True)),
+          open(sys.argv[1], "w"), indent=2)
+PY
+
 # Byte-identical across runs, so CI can diff it. zipfile stamps each entry with
 # the source file's mtime by default, which would make every rebuild differ.
 python3 - "$OUT" <<'PY'
