@@ -505,6 +505,19 @@ jobs:
           if (bad.length) { console.error('catalogue is inconsistent:', bad); process.exit(1); }
           console.log('catalogue ok:', products.length, 'products');
           "
+      - name: The whole stack, driven the way a customer drives it
+        run: |
+          # npm test calls the real route handlers but stubs the engine and the
+          # database, so it can only assert behaviour somebody already knew about.
+          # This runs the real engine, the real production build over HTTP, and a
+          # PostgREST built from the actual migration files.
+          #
+          # The difference is not theoretical: the follow-on offer read the hall's
+          # binding constraint out of scenarios.csv, and a Density Screen never
+          # produces one. Every screen ever sold offered a generic constraint. No
+          # stub would have shown that — a stub returns what its author believed.
+          npm run verify:local
+
       - name: A key minted by the website must verify on the engine
         env:
           GRIDFORGE_KEY_SECRET: ci-cross-language-secret

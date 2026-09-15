@@ -910,3 +910,21 @@ SITE_URL=… SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRE
 
 `--schema` exits non-zero and names the missing table. Both modes print PASS/FAIL
 per criterion, so "we checked" is a transcript rather than a memory.
+
+## The whole stack, before a deploy
+
+```bash
+npm run build && npm run verify:local
+```
+
+Spawns its own engine, an in-memory PostgREST built from `supabase/migrations/`,
+and the production build on local ports; drives the free read, the engagement from
+purchase to released document, Hall Watch from baseline to cancellation, and the
+Intelligence entitlement; then kills all three. **40 criteria.** Nothing touches
+production.
+
+It exists because `npm test` stubs the engine and the database, and a stub returns
+what its author believed. The follow-on offer read the hall's binding constraint
+out of `scenarios.csv` — which a Density Screen never produces — so every screen
+ever sold offered a generic constraint. That was found by asking the real engine
+and getting an empty bundle back. It now runs in CI.
