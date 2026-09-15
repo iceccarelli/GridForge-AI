@@ -286,6 +286,32 @@ where they were before.
 
 7 unit tests (6 fail against the pre-fix code) and 2 end-to-end criteria.
 
+## L12 — The commonest path of all was the one still missing the join
+
+L11 seeded the intake from the qualification a purchase was bought from. It worked
+for the shareable read, and not for the tab the read was produced in.
+
+`/api/qualify` never returned the qualification id, and `CapacityQualifier`'s own
+"commission it" posted `{ product, capacityMW }` and nothing else. So an engineer
+who qualified and bought in the same tab — the shortest and commonest route to a
+sale there is — got an engagement with `qualification_id: null`, **no prefill, and
+no provenance from the read to the money**.
+
+A fix that only covers the longer path is worse than none, because it reads as
+done. The route now returns the id alongside the share link, the qualifier carries
+it into checkout, and both paths behave the same.
+
+**Held to the same rule as the share link:** the id is offered *only* when the row
+actually landed. A share link to a row that was never written is a 404 sent to
+somebody's director; an id that references nothing would fail the foreign key on
+the deliverable later, and — with the fulfilment fix in place — that is a paid
+engagement retried by Stripe until it gives up. Both are null together, or neither.
+
+10 tests on the qualifier (3 fail against the pre-fix code), which also pin the
+free tier's own invariants: no priced content, a named field on a missing number, a
+peak above contracted capacity refused with the reason, and an unreachable engine
+inventing nothing while still keeping the enquiry.
+
 ---
 
 ## The checklist, and where each case is exercised
@@ -312,7 +338,7 @@ where they were before.
 | webhook redelivered after success | one fulfilment, enforced by a unique index |
 | unknown token on any addressed page | 404 |
 
-**161 executable site tests**, plus 397 engine tests.
+**171 executable site tests**, plus 397 engine tests.
 
 ---
 

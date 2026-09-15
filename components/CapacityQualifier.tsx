@@ -75,6 +75,15 @@ export function CapacityQualifier() {
   const [result, setResult] = useState<QualifyResult | null>(null);
   const [headline, setHeadline] = useState<string>("");
   const [share, setShare] = useState<string | null>(null);
+  /**
+   * The read this session produced, so a purchase made here carries it.
+   *
+   * Without it the commonest path of all — qualify, then commission in the same
+   * tab — opened an empty intake form and asked the customer to retype the seven
+   * numbers they had just entered, after paying. The shareable read carried its
+   * qualification; the tab it was produced in did not.
+   */
+  const [qualificationId, setQualificationId] = useState<string | null>(null);
 
   const set = (key: keyof Values, raw: string) =>
     setValues((v) => ({ ...v, [key]: raw === "" ? 0 : Number(raw) }));
@@ -99,6 +108,7 @@ export function CapacityQualifier() {
       setResult(body.result as QualifyResult);
       setHeadline(String(body.headline ?? ""));
       setShare(typeof body.share === "string" ? body.share : null);
+      setQualificationId(typeof body.qualificationId === "string" ? body.qualificationId : null);
     } catch {
       setError("Could not reach the engine. Your figures were not lost — try again.");
     } finally {
@@ -222,7 +232,14 @@ export function CapacityQualifier() {
         </div>
       ) : null}
 
-      {result ? <QualifyReadout result={result} headline={headline} share={share} /> : null}
+      {result ? (
+        <QualifyReadout
+          result={result}
+          headline={headline}
+          share={share}
+          qualificationId={qualificationId}
+        />
+      ) : null}
     </div>
   );
 }
@@ -231,10 +248,12 @@ function QualifyReadout({
   result,
   headline,
   share,
+  qualificationId,
 }: {
   result: QualifyResult;
   headline: string;
   share: string | null;
+  qualificationId: string | null;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
   return (
@@ -321,6 +340,7 @@ function QualifyReadout({
         recommendation={intake.recommended_engagement}
         summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
         capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
+        qualificationId={qualificationId}
       />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
@@ -332,10 +352,13 @@ function CommissionPanel({
   recommendation,
   summary,
   capacityMW,
+  qualificationId,
 }: {
   recommendation: string;
   summary: string;
   capacityMW: number;
+  /** The read being commissioned, so the engagement opens joined to it. */
+  qualificationId: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +371,14 @@ function CommissionPanel({
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product: screen.id, capacityMW }),
+        // The read this was bought from travels with the purchase: the webhook
+        // writes it to the engagement, and the intake form seeds itself from the
+        // numbers already typed above rather than asking for them twice.
+        body: JSON.stringify({
+          product: screen.id,
+          capacityMW,
+          qualificationId: qualificationId ?? undefined,
+        }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok || !body.url) {
