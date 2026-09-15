@@ -490,3 +490,53 @@ def test_no_route_reaches_supabase_without_checking_whether_it_worked():
         + "\n\nUse a lib/ data module (lib/watches.ts, lib/subscribers.ts, "
           "lib/api-access.ts) rather than an inline fetch."
     )
+
+
+# --- a token-addressed page must actually resolve its token -------------------
+
+#: The server-side lookup each token page is expected to make. A page under
+#: app/<x>/[token]/ is reachable by anyone who types a URL; the token IS the
+#: credential, so a page that never looks it up is not addressed by a token at
+#: all, it is public with a decorative path segment.
+TOKEN_LOOKUPS = ("getByToken", "getQualification", "getWatch", "getApiAccount")
+
+
+def test_every_token_addressed_page_resolves_its_token_server_side():
+    """app/intake/[token] rendered unconditionally.
+
+    /intake/anything returned 200 and a complete, live-looking intake form. The API
+    behind it did check the token, so nothing could be submitted and no engine work
+    could be had for free — but the person most likely to arrive with a token that
+    does not resolve is the customer whose link is stale or mistyped, on a
+    four-figure engagement, and a form that fails on submit is a worse answer than
+    saying plainly that the link is not live.
+
+    Every other token page already did this. This is the one that did not, and
+    nothing in the repository could see the difference.
+    """
+    pages = sorted((ROOT / "app").glob("*/[[]token[]]/page.tsx"))
+    assert len(pages) >= 4, f"expected several token-addressed pages, found {pages}"
+    offenders = []
+    for f in pages:
+        src = f.read_text()
+        if not any(fn in src for fn in TOKEN_LOOKUPS):
+            offenders.append(str(f.relative_to(ROOT)))
+    assert not offenders, (
+        "token-addressed pages that never look the token up:\n  "
+        + "\n  ".join(offenders)
+        + f"\n\nResolve it server-side with one of {TOKEN_LOOKUPS} and render a "
+          "not-found state (or call notFound()) when it does not exist.")
+
+
+def test_no_token_addressed_page_is_statically_rendered():
+    """A token page that Next renders at build time would serve one customer's
+    read to whoever asked next, or cache a 404 for a link that had not been minted
+    yet. force-dynamic is the difference."""
+    offenders = []
+    for f in sorted((ROOT / "app").glob("*/[[]token[]]/page.tsx")):
+        src = f.read_text()
+        if 'dynamic = "force-dynamic"' not in src:
+            offenders.append(str(f.relative_to(ROOT)))
+    assert not offenders, (
+        'token-addressed pages without `export const dynamic = "force-dynamic"`:\n  '
+        + "\n  ".join(offenders))

@@ -1,7 +1,7 @@
 import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createDeliverable } from "@/lib/deliverables";
+import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import {
@@ -18,6 +18,28 @@ export const runtime = "nodejs";
 // Stripe webhook. Verifies the signature (so events can't be forged), then on
 // checkout.session.completed marks the matching lead deposit_paid in Supabase
 // and emails the founder. Reads the raw body — required for signature checks.
+/**
+ * A payment we could not fulfil must not be reported to Stripe as delivered.
+ *
+ * Stripe treats a 2xx as done and never redelivers. So the old shape — log the
+ * failure, return, fall through to a 200 — turned a failed write into a permanent
+ * orphan: the customer had paid between EUR 4,500 and EUR 95,000, and there was no
+ * engagement row, no intake link and nothing in the admin dashboard. The only
+ * trace was a log line nobody was watching.
+ *
+ * A 500 makes Stripe redeliver, and every open* helper above checks for its own
+ * prior row first, so a replay is a no-op rather than a second fulfilment.
+ */
+function fulfilmentFailed(what: string, sessionId: string) {
+  console.error(
+    `[GridForge] ${what} NOT fulfilled for session ${sessionId}; asking Stripe to retry`
+  );
+  return NextResponse.json(
+    { ok: false, error: "Purchase could not be fulfilled" },
+    { status: 500 }
+  );
+}
+
 export async function POST(req: Request) {
   const key = process.env.STRIPE_SECRET_KEY;
   const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -49,7 +71,7 @@ export async function POST(req: Request) {
       // subscription becomes a signed key the engine can verify offline, and the
       // customer is on their own machine-callable endpoint within seconds. That
       // immediacy is the product; a key that arrives tomorrow is a lost customer.
-      await openApiAccount({
+      const opened = await openApiAccount({
         kind,
         email,
         company,
@@ -57,21 +79,23 @@ export async function POST(req: Request) {
         customerId: typeof session.customer === "string" ? session.customer : null,
         subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
       });
+      if (!opened) return fulfilmentFailed("api account", session.id);
       await notifyFounder({ email, company, amount });
     } else if (kind === "hall_watch") {
-      await openWatch({
+      const opened = await openWatch({
         email,
         company,
         sessionId: session.id,
         subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
         customerId: typeof session.customer === "string" ? session.customer : null,
       });
+      if (!opened) return fulfilmentFailed("hall watch", session.id);
       await notifyFounder({ email, company, amount });
     } else if (product?.producesDeliverable) {
       // A purchased engineering deliverable. Paying does not produce a document:
       // it opens an intake the client fills in, which is then generated and
       // released by a human. See lib/deliverables.ts.
-      await openDeliverable({
+      const opened = await openDeliverable({
         kind,
         email,
         company,
@@ -79,6 +103,7 @@ export async function POST(req: Request) {
         sessionId: session.id,
         qualificationId: (session.metadata?.qualification_id as string) || null,
       });
+      if (!opened) return fulfilmentFailed("engagement", session.id);
       await notifyFounder({ email, company, amount });
     } else if (kind === "intelligence_subscription") {
       // The subscription id is what makes cancellation possible later. Storing
@@ -239,7 +264,14 @@ async function openApiAccount(p: {
   units: number;
   customerId: string | null;
   subscriptionId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  if (p.subscriptionId) {
+    const already = await findBySubscription(p.subscriptionId);
+    if (already) {
+      console.log(`[GridForge] api account already open for subscription ${p.subscriptionId}`);
+      return true;
+    }
+  }
   const created = await createApiAccount({
     email: p.email || null,
     company: p.company || null,
@@ -250,7 +282,7 @@ async function openApiAccount(p: {
   });
   if (!created) {
     console.error("[GridForge] could not open an api account for", p.email || "unknown");
-    return;
+    return false;
   }
   const base = SITE_URL;
   const url = `${base}/api-access/${created.token}`;
@@ -258,7 +290,10 @@ async function openApiAccount(p: {
 
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
-  if (!key || !from || !p.email) return;
+  // The row is written; from here the work is done. Email is best-effort and must
+  // never turn a fulfilled purchase back into a failed webhook — a retry would
+  // find the row and do nothing anyway, and the link is in the log above.
+  if (!key || !from || !p.email) return true;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -288,6 +323,7 @@ async function openApiAccount(p: {
   } catch (err) {
     console.error("[GridForge] api key email failed:", err);
   }
+  return true;
 }
 
 async function openWatch(p: {
@@ -296,7 +332,14 @@ async function openWatch(p: {
   sessionId: string;
   subscriptionId: string | null;
   customerId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  if (p.subscriptionId) {
+    const already = await watchBySubscription(p.subscriptionId);
+    if (already) {
+      console.log(`[GridForge] watch already open for subscription ${p.subscriptionId}`);
+      return true;
+    }
+  }
   const row = await createWatch({
     email: p.email || null,
     company: p.company || null,
@@ -306,14 +349,17 @@ async function openWatch(p: {
   });
   if (!row) {
     console.error("[GridForge] could not open a watch for session", p.sessionId);
-    return;
+    return false;
   }
   const base = SITE_URL;
   const url = `${base}/watch/${row.token}`;
   console.log(`[GridForge] hall watch opened for ${p.email || "unknown"} — ${url}`);
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
-  if (!key || !from || !p.email) return;
+  // The row is written; from here the work is done. Email is best-effort and must
+  // never turn a fulfilled purchase back into a failed webhook — a retry would
+  // find the row and do nothing anyway, and the link is in the log above.
+  if (!key || !from || !p.email) return true;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -336,6 +382,7 @@ async function openWatch(p: {
   } catch (err) {
     console.error("[GridForge] watch email failed:", err);
   }
+  return true;
 }
 
 async function openDeliverable(p: {
@@ -345,7 +392,15 @@ async function openDeliverable(p: {
   amount: number;
   sessionId: string;
   qualificationId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  // Replay first. Stripe redelivers until it gets a 2xx and this handler now
+  // asks for that, so a second delivery of a session already opened must be a
+  // no-op rather than a second intake link for one payment.
+  const already = await deliverableBySession(p.sessionId);
+  if (already) {
+    console.log(`[GridForge] deliverable already open for session ${p.sessionId}`);
+    return true;
+  }
   const record = await createDeliverable({
     kind: p.kind,
     email: p.email || null,
@@ -357,13 +412,14 @@ async function openDeliverable(p: {
   });
   if (!record) {
     console.error("[GridForge] could not open a deliverable for session", p.sessionId);
-    return;
+    return false;
   }
   const base = SITE_URL;
   console.log(
     `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${record.token}`
   );
   await emailIntakeLink({ email: p.email, kind: p.kind, url: `${base}/intake/${record.token}` });
+  return true;
 }
 
 async function emailIntakeLink(p: { email: string; kind: string; url: string }): Promise<void> {
@@ -371,7 +427,7 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
   const from = process.env.RESEND_FROM;
   if (!key || !from || !p.email) return;
   try {
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -388,8 +444,22 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
           "anyone who should not read the result.",
       }),
     });
+    // Resend answers a rejection with a status, not a throw. This is the message
+    // that carries a EUR 4,500 engagement's only intake link; losing it silently
+    // is how a paid customer sits waiting for an email nobody knows never left.
+    // The link is in the log above, so this is recoverable — but only if it is
+    // said out loud.
+    if (!res.ok) {
+      console.error(
+        "[GridForge] intake email NOT sent:",
+        res.status,
+        await res.text(),
+        "— link was",
+        p.url
+      );
+    }
   } catch (err) {
-    console.error("[GridForge] intake email failed:", err);
+    console.error("[GridForge] intake email failed:", err, "— link was", p.url);
   }
 }
 

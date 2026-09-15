@@ -25,14 +25,14 @@ named with them.
 
 | Suite | Command | Result |
 |---|---|---|
-| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **397 passed** |
-| Site route handlers | `npm test` (`vitest run`) | **110 passed, 8 files** |
+| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **399 passed** |
+| Site route handlers | `npm test` (`vitest run`) | **118 passed, 8 files** |
 | Types | `npx tsc --noEmit` | clean |
 | Lint | `npx next lint` | clean (1 pre-existing warning in `BackgroundReel.tsx`, untouched) |
 | Production build | `npm run build` | compiled successfully; 44 routes; `/q/[token]` present, `/infrastructure` gone |
 
 Baseline at `ea1f62d` was **348 passed, 3 failed**. Every one of those three is now
-green, and the suite has grown to 397 + 110.
+green, and the suite has grown to 399 + 118.
 
 ### The mission's testing checklist
 

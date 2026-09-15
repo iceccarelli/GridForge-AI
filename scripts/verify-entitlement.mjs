@@ -104,6 +104,11 @@ const COLUMNS = {
   ],
   scenarios: ["email", "name", "mw", "region_id", "avoided_eur"],
   qualifications: ["token"], // the shareable read resolves on it
+  // The columns a webhook retry resolves against. Without them a redelivered
+  // event fulfils the same payment twice — one customer, two intake links.
+  deliverables: ["stripe_session_id", "token", "status", "qualification_id"],
+  watches: ["stripe_subscription_id", "token", "status"],
+  api_accounts: ["stripe_subscription_id", "token", "account", "key_expires_at"],
 };
 
 head(`Schema — ${SB}`);

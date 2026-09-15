@@ -106,6 +106,7 @@ keys.
 #      supabase/migrations/0008_qualification_token.sql   # arrived with patch 0024
 #      supabase/migrations/0009_subscriptions.sql         # new in GF-001
 #      supabase/migrations/0010_scenarios.sql             # new in GF-001
+#      supabase/migrations/0011_one_fulfilment_per_payment.sql   # new in GF-001
 
 # 2. Engine (unchanged by this mission; skip if already deployed)
 bash scripts/deploy-engine.sh
@@ -140,7 +141,7 @@ SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
 ```
 
 Exits non-zero and names the missing table. Verified both ways in this session:
-**11/11 against a database with the migrations, 7/11 without** — failing on exactly
+**14/14 against a database with the migrations, and a fail naming the exact missing table without** — failing on exactly
 `subscriptions` and `scenarios`.
 
 ```bash
@@ -150,12 +151,12 @@ SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRET=whsec_… \
   node scripts/verify-entitlement.mjs --full --yes-write-to-this-database
 ```
 
-26 criteria: not-a-subscriber → forged webhook refused → purchase recorded →
+29 criteria: not-a-subscriber → forged webhook refused → purchase recorded →
 entitlement live on the right plan → redelivery does not double-issue → exactly one
 active row → the subscription id cancellation needs was stored → paid surface
 accepts a write and reads it back → failed payment does not lock out → cancellation
 withdraws → paid surface closes. It writes under a marked `gf-verify+…@` address
-and deletes those rows in a `finally` block. **Verified locally: 26/26, cleanup
+and deletes those rows in a `finally` block. **Verified locally: 29/29, cleanup
 confirmed.**
 
 The second flag is required because it writes to whatever database you point it at.
@@ -163,16 +164,25 @@ Read the URL it prints before you pass it.
 
 ## COMMERCIAL PASS CRITERION
 
-GF-001 is commercially complete when, and only when, `--full` reports 26/26 against
+GF-001 is commercially complete when, and only when, `--full` reports 29/29 against
 `https://timetopower.ai` and the hosted Supabase project. Until then this mission is
 PARTIAL, whatever CI says.
 
 ## NEXT ACTION
 
-1. Apply `0009_subscriptions.sql` and `0010_scenarios.sql` to the hosted project.
-2. `node scripts/verify-entitlement.mjs --schema` → expect 11/11.
+1. Apply `0009_subscriptions.sql`, `0010_scenarios.sql` and `0011_one_fulfilment_per_payment.sql` to the hosted project.
+2. `node scripts/verify-entitlement.mjs --schema` → expect 14/14.
 3. Deploy the branch.
 4. `node scripts/verify-entitlement.mjs --full --yes-write-to-this-database` →
-   expect 26/26.
+   expect 29/29.
 5. One real purchase in Stripe **test mode** through `/intelligence`, to exercise
    Checkout Session creation — the one link no script here can stand in for.
+
+
+## A note on `0011`
+
+`0011_one_fulfilment_per_payment.sql` creates three **partial unique indexes** on
+tables that may already hold rows. If one fails to create, it has found something
+worth knowing: two fulfilments already exist for a single payment. Nothing is
+damaged — the migration stops — and the duplicates want resolving before it is
+re-run. That is the intended behaviour and it is why the index is worth having.

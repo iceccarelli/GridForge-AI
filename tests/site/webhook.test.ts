@@ -65,7 +65,15 @@ beforeEach(() => {
   process.env.STRIPE_WEBHOOK_SECRET = WH_SECRET;
   delete process.env.RESEND_API_KEY; // no outbound email from a test
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  db = new PostgrestFake(["subscriptions", "scenarios", "watches", "api_accounts", "leads"]);
+  db = new PostgrestFake([
+    "subscriptions",
+    "scenarios",
+    "watches",
+    "watch_notes",
+    "api_accounts",
+    "deliverables",
+    "leads",
+  ]);
   restore = db.install();
 });
 
@@ -255,6 +263,105 @@ describe("the lifecycle must reach all three products", () => {
       })
     );
     expect(db.rows("subscriptions")[0].status).toBe("past_due");
+  });
+});
+
+describe("a payment we cannot fulfil is never reported to Stripe as delivered", () => {
+  /**
+   * The most expensive defect in the handler, and the least visible. Stripe treats
+   * a 2xx as delivered and never redelivers. The old shape logged the failure,
+   * returned, and fell through to a 200 — so a customer who had just paid between
+   * EUR 4,500 and EUR 95,000 got no engagement row, no intake link and nothing in
+   * the admin dashboard, and the only trace was a log line nobody was watching.
+   */
+  function purchase(kind: string, over: Record<string, unknown> = {}) {
+    return {
+      id: `evt_${kind}`,
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: `cs_${kind}_1`,
+          object: "checkout_session",
+          customer_email: "buyer@northhall.example",
+          customer: "cus_buy",
+          subscription: `sub_${kind}`,
+          amount_total: 450000,
+          metadata: { kind, company: "North Hall" },
+          ...over,
+        },
+      },
+    };
+  }
+
+  it("asks Stripe to retry when the engagement cannot be opened — THE regression", async () => {
+    db.dropTable("deliverables");
+    const { POST } = await route();
+    const res = await POST(delivery(purchase("density_screen")));
+    expect(res.status).toBe(500);
+  });
+
+  it("asks Stripe to retry when an API account cannot be opened", async () => {
+    db.dropTable("api_accounts");
+    const { POST } = await route();
+    expect((await POST(delivery(purchase("api_scale")))).status).toBe(500);
+  });
+
+  it("asks Stripe to retry when a Hall Watch cannot be opened", async () => {
+    db.dropTable("watches");
+    const { POST } = await route();
+    expect((await POST(delivery(purchase("hall_watch")))).status).toBe(500);
+  });
+
+  it("opens the engagement and carries the qualification into it", async () => {
+    const { POST } = await route();
+    const res = await POST(
+      delivery(purchase("density_screen", {
+        metadata: { kind: "density_screen", company: "North Hall", qualification_id: "qual-123" },
+      }))
+    );
+    expect(res.status).toBe(200);
+    const rows = db.rows("deliverables");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "density_screen",
+      status: "awaiting_intake",
+      stripe_session_id: "cs_density_screen_1",
+      qualification_id: "qual-123",
+    });
+    expect(String(rows[0].token).length).toBeGreaterThan(16);
+  });
+
+  it("does not open a second engagement when Stripe redelivers", async () => {
+    // The retry this handler now asks for makes a replay certain rather than
+    // unlikely. One payment, one intake link.
+    const { POST } = await route();
+    expect((await POST(delivery(purchase("density_screen")))).status).toBe(200);
+    expect((await POST(delivery(purchase("density_screen")))).status).toBe(200);
+    expect(db.rows("deliverables")).toHaveLength(1);
+  });
+
+  it("does not open a second API account when Stripe redelivers", async () => {
+    const { POST } = await route();
+    await POST(delivery(purchase("api_scale")));
+    await POST(delivery(purchase("api_scale")));
+    expect(db.rows("api_accounts")).toHaveLength(1);
+  });
+
+  it("does not open a second watch when Stripe redelivers", async () => {
+    const { POST } = await route();
+    await POST(delivery(purchase("hall_watch")));
+    await POST(delivery(purchase("hall_watch")));
+    expect(db.rows("watches")).toHaveLength(1);
+  });
+
+  it("issues a key the account can actually use", async () => {
+    process.env.GRIDFORGE_KEY_SECRET = "test-signing-secret";
+    const { POST } = await route();
+    await POST(delivery(purchase("api_scale")));
+    const row = db.rows("api_accounts")[0];
+    expect(row.status).toBe("active");
+    expect(row.stripe_subscription_id).toBe("sub_api_scale");
+    delete process.env.GRIDFORGE_KEY_SECRET;
   });
 });
 

@@ -82,6 +82,33 @@ export async function createDeliverable(
   return rows[0] ?? null;
 }
 
+/**
+ * The engagement already opened for a Stripe checkout session, if there is one.
+ *
+ * Stripe redelivers a webhook until it gets a 2xx, and the handler now returns a
+ * 500 when it cannot open the engagement — which is the only way a four-figure payment
+ * stops being silently orphaned. That makes a replay certain rather than unlikely,
+ * so the insert has to be safe to repeat: without this lookup a retry would hand
+ * one customer two intake links for one payment.
+ */
+export async function deliverableBySession(
+  sessionId: string
+): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !sessionId) return null;
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?stripe_session_id=eq.${encodeURIComponent(sessionId)}` +
+      `&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
+    return null;
+  }
+  const rows = (await res.json()) as DeliverableRecord[];
+  return rows[0] ?? null;
+}
+
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
   const c = creds();
   if (!c || !token) return null;

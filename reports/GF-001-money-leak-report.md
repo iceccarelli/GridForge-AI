@@ -20,6 +20,8 @@ every fix was re-run against the pre-fix version to confirm the test fails on it
 | `/api/keys` | Metered API keys, recurring revenue | **Stranded paying customers at day 35** — fixed |
 | `/api/admin/login` | The entire lead pipeline + deliverable release | **Unlimited free guesses** — fixed |
 | `/api/insights` | Published aggregates over customer halls | **Published unanswered enquiries' metros** — fixed |
+| `/api/stripe/webhook` — fulfilment | A €4,500–€95,000 engagement | **Paid, never fulfilled, reported to Stripe as delivered** — fixed |
+| `/intake/[token]` | The buyer's next step | Rendered a live form for **any** token — fixed |
 | `/api/deliverable/[token]` | A €4,500–€95,000 artifact | Draft never served; hardened a prototype lookup |
 | `/api/cron/watches` | Scheduled paid work | Bearer secret, fails closed — **no finding** |
 | `/api/checkout`, `/api/subscribe` | Payment initiation | Price catalogue-driven — **verified**. But the post-payment redirect was caller-controlled — fixed |
@@ -134,6 +136,62 @@ was being written.
 
 ---
 
+## L7 — Three paid purchases could be taken and never fulfilled *(highest value found)*
+
+The same defect as L3, on the **flagship transaction** rather than the subscription.
+
+`openDeliverable`, `openApiAccount` and `openWatch` each did this: attempt the
+write, and if it failed, `console.error` and `return`. Control fell through to the
+handler's closing `200`. **Stripe treats a 2xx as delivered and never redelivers.**
+
+So a customer paid between €4,500 and €95,000 for an engagement, the insert failed,
+and there was no engagement row, no intake link, and nothing in the admin
+dashboard. The founder still got the "you have a sale" email. The only trace of the
+customer was a log line nobody was watching. Same for a metered API account and a
+Hall Watch.
+
+**The fix has two halves, and one without the other is worse than neither.**
+Returning 500 makes Stripe redeliver — but none of these writes was idempotent, so
+a retry after a write that had actually succeeded (insert landed, response lost)
+would fulfil the same payment twice and hand one customer two intake links. So each
+helper now looks for its own prior row first — `deliverableBySession` on the
+checkout session, `watchBySubscription` and `findBySubscription` on the
+subscription — and only then inserts.
+
+`0011_one_fulfilment_per_payment.sql` makes that a database guarantee rather than a
+check that can lose a race with Stripe's own concurrent retry: partial unique
+indexes on `deliverables(stripe_session_id)`, `watches(stripe_subscription_id)` and
+`api_accounts(stripe_subscription_id)`.
+
+Also fixed alongside: `emailIntakeLink` never checked Resend's status. That message
+carries an engagement's only intake link. It now logs the failure **and the link**,
+so it is recoverable.
+
+**Verified over HTTP:** free qualification → real engine read → purchase → engagement
+opened carrying the qualification id → redelivery opens no second engagement →
+intake link resolves → unknown token 404s → document withheld until released →
+release refuses without an admin session. Against the pre-fix webhook, **6 of the 8
+new tests fail** — all three orphan paths and all three duplicate paths.
+
+## L8 — The intake page rendered for any token at all
+
+`/intake/anything` returned 200 and a complete, live-looking form. The API behind it
+*does* check the token, so nothing could be submitted and no engine work could be
+had for free — this was never a compute leak.
+
+It is a conversion one. The person most likely to arrive with a token that does not
+resolve is the customer whose link is stale or mistyped, on a four-figure
+engagement, and handing them a form that fails on submit is a worse answer than
+telling them the link is not live. Every other token page already resolved
+server-side; this was the only one that did not, and nothing could see the
+difference.
+
+Two guards added: every `app/*/[token]/page.tsx` must resolve its token through a
+server-side lookup, and must be `force-dynamic` — a token page rendered at build
+time would serve one customer's read to whoever asked next.
+
+---
+
 ## The checklist, and where each case is exercised
 
 | Case | Result |
@@ -154,8 +212,11 @@ was being written.
 | brute force | 429 with `Retry-After` |
 | client-supplied price | impossible — catalogue-driven, verified |
 | attacker-chosen redirect | refused; falls back to the registry |
+| paid but unfulfillable | 500 — Stripe redelivers, never silently orphaned |
+| webhook redelivered after success | one fulfilment, enforced by a unique index |
+| unknown token on any addressed page | 404 |
 
-**110 executable site tests**, plus 397 engine tests.
+**118 executable site tests**, plus 397 engine tests.
 
 ---
 
