@@ -201,3 +201,11 @@ def test_the_developers_page_offers_a_one_paste_install():
     assert "mcpServers" in src
     page = (ROOT / "app" / "developers" / "page.tsx").read_text()
     assert "McpInstall" in page
+
+
+def test_the_shareable_capacity_read_is_closed_to_crawlers():
+    """It is somebody's hall, shared by them, with whoever they choose. A crawler
+    indexing one would publish a customer's site figures to anyone who searches."""
+    assert '"/q/"' in ROBOTS
+    page = (ROOT / "app" / "q" / "[token]" / "page.tsx").read_text()
+    assert "robots: { index: false, follow: false }" in page

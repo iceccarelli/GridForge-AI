@@ -135,6 +135,31 @@ export async function updateWatch(token: string, patch: Partial<WatchRecord>): P
   return res.ok;
 }
 
+/**
+ * The watch behind a Stripe subscription.
+ *
+ * This lookup exists because the billing webhook knew how to find an API account
+ * by subscription id and did not know how to find a watch. The consequence was
+ * one-directional and expensive in the wrong way: Hall Watch renewed correctly,
+ * but a cancelled or unpaid subscription left `status` at "active", and
+ * dueWatches() — which filters on exactly that — kept generating and sending
+ * quarterly change notes to somebody who had stopped paying for them.
+ */
+export async function watchBySubscription(subscriptionId: string): Promise<WatchRecord | null> {
+  const c = creds();
+  if (!c || !subscriptionId) return null;
+  const res = await fetch(
+    `${c.url}/rest/v1/watches?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}` +
+      `&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] watchBySubscription failed:", await res.text());
+    return null;
+  }
+  return ((await res.json()) as WatchRecord[])[0] ?? null;
+}
+
 export async function recordNote(row: Partial<WatchNote> & { watch_id: string }): Promise<boolean> {
   const c = creds();
   if (!c) {

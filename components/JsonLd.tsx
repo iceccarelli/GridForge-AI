@@ -1,4 +1,4 @@
-import { SITE, SERVICES, FAQ } from "@/lib/site";
+import { SITE, SITE_URL, SERVICES, FAQ } from "@/lib/site";
 import { LADDER_PRODUCTS } from "@/lib/products";
 
 /**
@@ -7,7 +7,7 @@ import { LADDER_PRODUCTS } from "@/lib/products";
  * human sees (a Google requirement, and just honest). Emitted into the initial
  * SSR HTML. No fabricated ratings, reviews, or aggregate claims.
  */
-const SITE_URL = "https://gridforge-ai.vercel.app";
+
 
 function jsonLdScript(obj: unknown) {
   // Escape "<" to prevent any chance of a </script> breakout from content.

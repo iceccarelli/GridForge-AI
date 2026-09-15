@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
 
 /**
  * AI crawlers are welcome, deliberately.
@@ -38,10 +39,11 @@ const PRIVATE_PATHS = [
   "/deliverable/",
   "/watch/",
   "/intake/",
+  "/q/",
 ];
 
 export default function robots(): MetadataRoute.Robots {
-  const base = "https://gridforge-ai.vercel.app";
+  const base = SITE_URL;
   return {
     // Token-addressed pages are private by their URL alone. A crawler that indexes
     // one has published a customer's deliverable, watch or API account to anyone

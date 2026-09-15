@@ -14,10 +14,15 @@ export default function CommissionedPage() {
       </h1>
       <div className="mt-6 grid gap-4 text-mute">
         <p>
-          An intake link is on its way to the email you paid with. It asks for thirteen numbers a
-          facilities engineer already has: the connection and contracted capacity, what the site
-          actually draws, the busway and tap-off ratings, the floor loading, the plant capacity and
-          its supply temperature, and the transformer and UPS schedules.
+          An intake link is on its way to the email you paid with. It asks for the hall&apos;s own
+          numbers: the connection and contracted capacity, what the site actually draws, the busway
+          and tap-off ratings, the floor loading, the plant capacity and its supply temperature, and
+          the transformer and UPS schedules.
+        </p>
+        <p>
+          If you came from the free qualifier, the numbers you typed there are already filled in —
+          check them rather than re-enter them. A Density Screen needs no more than the qualifier
+          asked for; the rest it will assume and tell you it assumed.
         </p>
         <p>
           Anything you cannot supply is filled from a library default and named as an assumption in

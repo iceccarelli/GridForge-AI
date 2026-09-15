@@ -239,6 +239,7 @@ ROOT_FILES = {
     ".eslintrc.json": "lint config",
     ".gitignore": "",
     "Dockerfile": "the engine image",
+    "HANDOFF.md": "the brief a new agent or engineer starts from",
     "Makefile": "",
     "README.md": "",
     "fly.toml": "engine deployment",
@@ -251,6 +252,7 @@ ROOT_FILES = {
     "tailwind.config.ts": "",
     "tsconfig.json": "",
     "vercel.json": "site deployment and the weekly cron",
+    "vitest.config.ts": "the site layer's test runner — see tests/site/",
 }
 
 
@@ -314,6 +316,15 @@ def test_the_apply_script_removes_the_patch_it_applied():
         "the patch must be removed in the SAME commit that applies it, or the "
         "history records a file that was never meant to be part of the project")
     assert "git reset -q --hard" in src, "a failing patch must roll back"
+    # Behaviour is asserted properly in tests/test_patch_intake.py, against a real
+    # throwaway repository. These two are here so that deleting either capability
+    # fails the consistency suite as well, where someone reading the joins will see it.
+    assert "sweeping" in src, (
+        "a patch uploaded through the GitHub web interface lands at the repository "
+        "root; the script must sweep it into inbox/ rather than fail")
+    assert "baseline" in src, (
+        "the script must record which tests were ALREADY failing and roll back only "
+        "on NEW ones — it reverted a good patch twice for a failure it did not cause")
 
 
 def test_the_runbook_documents_every_command_the_cli_offers():
@@ -328,3 +339,204 @@ def test_the_runbook_documents_every_command_the_cli_offers():
     undocumented = sorted(c for c in commands
                           if f"gridforge {c}" not in runbook and f"`{c}`" not in runbook)
     assert not undocumented, f"CLI commands absent from the runbook: {undocumented}"
+
+
+# --- every recurring product survives its own billing lifecycle ---------------
+
+WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_text()
+
+#: Every table that holds something sold on a Stripe subscription, and the lookup
+#: that resolves a subscription id to a row in it. Add a third recurring product
+#: and it belongs here, or its cancellation will be silently unhandled.
+SUBSCRIPTION_LOOKUPS = {
+    "api_accounts": "findBySubscription",
+    "watches": "watchBySubscription",
+    # The third one. The note above said to add it; it was not added, and the
+    # consequence was worse than the Hall Watch bug rather than smaller: the table
+    # did not exist either, so a cancelled GridForge Intelligence subscription had
+    # nothing to cancel and /account had nothing to gate on.
+    "subscriptions": "subscriptionByStripeId",
+}
+
+#: The events that decide whether we keep doing work for someone.
+LIFECYCLE_EVENTS = ("invoice.paid", "customer.subscription.deleted", "invoice.payment_failed")
+
+
+def _event_block(event: str) -> str:
+    """The body of one `if (event.type === ...)` handler, comments removed.
+
+    Comments are stripped because these assertions are about what the code DOES. A
+    comment explaining why we do not cancel here contains the word "cancelled", and a
+    test that reads it is testing prose.
+    """
+    marker = f'if (event.type === "{event}")'
+    assert marker in WEBHOOK_TS, f"the webhook no longer handles {event}"
+    rest = WEBHOOK_TS.split(marker, 1)[1]
+    nxt = re.search(r"\n  if \(event\.type ===", rest)
+    block = rest[: nxt.start()] if nxt else rest
+    return "\n".join(l for l in block.splitlines() if not l.lstrip().startswith("//"))
+
+
+@pytest.mark.parametrize("event", LIFECYCLE_EVENTS)
+def test_every_subscription_product_is_resolved_on_every_billing_event(event):
+    """Hall Watch and API access are both sold on a Stripe subscription. For two
+    patches only ONE of them was looked up here.
+
+    The direction of the bug is what makes it worth a test. Billing was fine — the
+    subscription renewed by itself. What did not happen was the reverse: a cancelled
+    or unpaid Hall Watch never left status "active", dueWatches() filters on exactly
+    that, and the weekly cron went on generating and sending quarterly change notes
+    to somebody who had stopped paying. Free consulting, delivered on a schedule,
+    with nothing in the system that would ever notice.
+
+    A revenue product that cannot be switched off is not a smaller bug than one that
+    cannot be switched on.
+    """
+    block = _event_block(event)
+    missing = [table for table, fn in SUBSCRIPTION_LOOKUPS.items() if fn not in block]
+    assert not missing, (
+        f'the "{event}" handler never looks up: {missing}. Every table holding a '
+        f"recurring product must be resolved on every lifecycle event, or that "
+        f"product keeps being delivered after it stops being paid for.")
+
+
+def test_a_failed_payment_pauses_a_watch_rather_than_cancelling_it():
+    """Stripe retries a failed card. A client whose card fails on Tuesday and clears
+    on Thursday must not have lost the quarter they paid for."""
+    block = _event_block("invoice.payment_failed")
+    assert '"paused"' in block, "a failed payment must pause the watch, not cancel it"
+    assert '"cancelled"' not in block, (
+        "invoice.payment_failed must not cancel — only customer.subscription.deleted does")
+    assert '"paused"' in _event_block("invoice.paid"), (
+        "a payment that clears must bring a paused watch back")
+
+
+# --- every table the site talks to must exist ---------------------------------
+
+def _sql() -> str:
+    return "\n".join(
+        f.read_text() for f in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
+    )
+
+
+def _site_sources() -> list[Path]:
+    out: list[Path] = []
+    for d in ("app", "lib", "components"):
+        out.extend(p for p in (ROOT / d).rglob("*.ts"))
+        out.extend(p for p in (ROOT / d).rglob("*.tsx"))
+    return out
+
+
+def test_every_table_the_site_reads_or_writes_has_a_migration():
+    """The defect this exists for, stated plainly: two tables were read and written
+    by shipping code and neither had ever been created.
+
+    `subscriptions` took a real monthly Stripe subscription and `scenarios` held the
+    work a subscriber saved. PostgREST answers a missing relation with HTTP 404;
+    `fetch` does not reject on a 404; every call site wrapped its request in a
+    `try/catch` that only catches a THROW. So the write failed in complete silence —
+    not even a log line — and every read resolved to "this person is not a
+    subscriber". A customer paid and was shown the upgrade prompt forever.
+
+    Nothing in the repository could see it. Every other join here is asserted
+    between two files we own; this one is a join between our code and a database
+    that is not in the repository at all, and the only durable place to check it is
+    the migration that creates the table.
+    """
+    sql = _sql()
+    used: dict[str, str] = {}
+    for f in _site_sources():
+        for m in re.finditer(r"rest/v1/([A-Za-z0-9_]+)", f.read_text()):
+            used.setdefault(m.group(1), str(f.relative_to(ROOT)))
+
+    missing = {
+        table: where
+        for table, where in sorted(used.items())
+        if not re.search(rf"create table (if not exists )?(public\.)?{table}\b", sql)
+    }
+    assert not missing, (
+        "the site reads or writes tables that no migration creates:\n  "
+        + "\n  ".join(f"{t} — first seen in {w}" for t, w in missing.items())
+        + "\n\nPostgREST answers a missing table with 404 and fetch does not throw on "
+          "404, so this fails silently in production rather than loudly."
+    )
+
+
+def test_no_route_reaches_supabase_without_checking_whether_it_worked():
+    """`await fetch(...)` with no `res.ok` is the mechanism behind every bug this
+    file guards against. A 404, a 409 from a unique index, a 400 from a NOT NULL
+    column — none of them throw, so a handler that never looks at the status cannot
+    tell a write that happened from one that did not.
+
+    Server-side data access belongs in a lib/ module that checks. The routes that
+    did it inline are the ones that shipped broken.
+    """
+    offenders: list[str] = []
+    for f in _site_sources():
+        if f.name.endswith(".test.ts"):
+            continue
+        text = f.read_text()
+        if "rest/v1/" not in text:
+            continue
+        rel = str(f.relative_to(ROOT))
+        # A file that talks to PostgREST must also read the outcome. lib/ modules
+        # that wrap it are the intended home; a route that inlines the call without
+        # ever looking at res.ok is not.
+        if ".ok" not in text and "res.status" not in text:
+            offenders.append(rel)
+    assert not offenders, (
+        "these talk to Supabase and never check whether the request succeeded:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nUse a lib/ data module (lib/watches.ts, lib/subscribers.ts, "
+          "lib/api-access.ts) rather than an inline fetch."
+    )
+
+
+# --- a token-addressed page must actually resolve its token -------------------
+
+#: The server-side lookup each token page is expected to make. A page under
+#: app/<x>/[token]/ is reachable by anyone who types a URL; the token IS the
+#: credential, so a page that never looks it up is not addressed by a token at
+#: all, it is public with a decorative path segment.
+TOKEN_LOOKUPS = ("getByToken", "getQualification", "getWatch", "getApiAccount")
+
+
+def test_every_token_addressed_page_resolves_its_token_server_side():
+    """app/intake/[token] rendered unconditionally.
+
+    /intake/anything returned 200 and a complete, live-looking intake form. The API
+    behind it did check the token, so nothing could be submitted and no engine work
+    could be had for free — but the person most likely to arrive with a token that
+    does not resolve is the customer whose link is stale or mistyped, on a
+    four-figure engagement, and a form that fails on submit is a worse answer than
+    saying plainly that the link is not live.
+
+    Every other token page already did this. This is the one that did not, and
+    nothing in the repository could see the difference.
+    """
+    pages = sorted((ROOT / "app").glob("*/[[]token[]]/page.tsx"))
+    assert len(pages) >= 4, f"expected several token-addressed pages, found {pages}"
+    offenders = []
+    for f in pages:
+        src = f.read_text()
+        if not any(fn in src for fn in TOKEN_LOOKUPS):
+            offenders.append(str(f.relative_to(ROOT)))
+    assert not offenders, (
+        "token-addressed pages that never look the token up:\n  "
+        + "\n  ".join(offenders)
+        + f"\n\nResolve it server-side with one of {TOKEN_LOOKUPS} and render a "
+          "not-found state (or call notFound()) when it does not exist.")
+
+
+def test_no_token_addressed_page_is_statically_rendered():
+    """A token page that Next renders at build time would serve one customer's
+    read to whoever asked next, or cache a 404 for a link that had not been minted
+    yet. force-dynamic is the difference."""
+    offenders = []
+    for f in sorted((ROOT / "app").glob("*/[[]token[]]/page.tsx")):
+        src = f.read_text()
+        if 'dynamic = "force-dynamic"' not in src:
+            offenders.append(str(f.relative_to(ROOT)))
+    assert not offenders, (
+        'token-addressed pages without `export const dynamic = "force-dynamic"`:\n  '
+        + "\n  ".join(offenders))

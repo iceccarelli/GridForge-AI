@@ -29,13 +29,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 
   if (format === "csv") {
     const name = params.get("file") ?? "";
-    const body = row.working_files?.[name];
-    if (!body) {
+    // hasOwnProperty, not a bare lookup: `?file=__proto__` and `?file=constructor`
+    // both resolve to something truthy on any plain object, and the client is a
+    // paying customer downloading their own working files. A 500 on that page is
+    // a support ticket against a document somebody paid five figures for.
+    const files = row.working_files ?? {};
+    const body = Object.prototype.hasOwnProperty.call(files, name) ? files[name] : undefined;
+    if (typeof body !== "string" || !body) {
       return NextResponse.json(
         {
           ok: false,
           error: "No such working file for this engagement.",
-          available: Object.keys(row.working_files ?? {}),
+          available: Object.keys(files),
         },
         { status: 404 }
       );

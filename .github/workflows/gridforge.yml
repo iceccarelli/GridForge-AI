@@ -27,6 +27,13 @@ jobs:
         run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
       - name: Nothing priced may be unbuyable, ungeneratable or undeliverable
         run: python -m pytest tests/test_stack_consistency.py tests/test_catalogue_parity.py -q
+      - name: One domain, one company, one price list
+        run: |
+          # The site carried two businesses: the behind-the-meter practice this
+          # repository began as, and the density engine it became. Both were live,
+          # with two fee structures on one pricing page, and every canonical URL
+          # pointed at a preview domain while every email pointed at the real one.
+          python -m pytest tests/test_one_company.py -q
       - name: Nothing foreign at the root, and no patch committed anywhere
         run: |
           # A patch file and a build tool from another project both reached public
@@ -453,7 +460,33 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx next lint
+      - name: The route handlers must be executed, not described
+        run: |
+          # Every other assertion about this layer is a regex over source text,
+          # which can see that a handler MENTIONS `status: 402` and can never see
+          # whether it returns one. These tests import the real route modules and
+          # call them with real Request objects against an in-memory PostgREST that
+          # can be told a table does not exist — which is how `subscriptions` and
+          # `scenarios` shipped with no migration and nobody noticed.
+          npm test
       - run: npm run build
+      - name: A token-addressed page may not be indexed or leak
+        run: |
+          node -e "
+          const fs = require('node:fs');
+          const robots = fs.readFileSync('app/robots.ts', 'utf8');
+          for (const p of ['/q/', '/deliverable/', '/watch/', '/intake/', '/api-access/']) {
+            if (!robots.includes(JSON.stringify(p))) {
+              console.error('not disallowed for crawlers:', p); process.exit(1);
+            }
+          }
+          for (const f of ['app/q/[token]/page.tsx', 'app/api-access/[token]/page.tsx']) {
+            if (!fs.readFileSync(f, 'utf8').includes('index: false')) {
+              console.error('not noindex:', f); process.exit(1);
+            }
+          }
+          console.log('token-addressed pages are closed');
+          "
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -472,6 +505,19 @@ jobs:
           if (bad.length) { console.error('catalogue is inconsistent:', bad); process.exit(1); }
           console.log('catalogue ok:', products.length, 'products');
           "
+      - name: The whole stack, driven the way a customer drives it
+        run: |
+          # npm test calls the real route handlers but stubs the engine and the
+          # database, so it can only assert behaviour somebody already knew about.
+          # This runs the real engine, the real production build over HTTP, and a
+          # PostgREST built from the actual migration files.
+          #
+          # The difference is not theoretical: the follow-on offer read the hall's
+          # binding constraint out of scenarios.csv, and a Density Screen never
+          # produces one. Every screen ever sold offered a generic constraint. No
+          # stub would have shown that — a stub returns what its author believed.
+          npm run verify:local
+
       - name: A key minted by the website must verify on the engine
         env:
           GRIDFORGE_KEY_SECRET: ci-cross-language-secret

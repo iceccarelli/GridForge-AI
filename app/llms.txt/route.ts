@@ -1,9 +1,10 @@
 import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
+import { SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-static";
 
-const SITE = "https://gridforge-ai.vercel.app";
+const SITE = SITE_URL;
 const ENGINE = "https://gridforge-engine.fly.dev";
 
 /**

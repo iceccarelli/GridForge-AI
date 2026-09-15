@@ -1,15 +1,45 @@
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createDeliverable } from "@/lib/deliverables";
-import { createWatch } from "@/lib/watches";
+import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
+import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
-import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
+import {
+  createApiAccount,
+  findBySubscription,
+  keyLife,
+  updateApiAccount,
+  type ApiAccount,
+} from "@/lib/api-access";
+import { recordSubscription, subscriptionByStripeId, updateSubscription } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
 
 // Stripe webhook. Verifies the signature (so events can't be forged), then on
 // checkout.session.completed marks the matching lead deposit_paid in Supabase
 // and emails the founder. Reads the raw body — required for signature checks.
+/**
+ * A payment we could not fulfil must not be reported to Stripe as delivered.
+ *
+ * Stripe treats a 2xx as done and never redelivers. So the old shape — log the
+ * failure, return, fall through to a 200 — turned a failed write into a permanent
+ * orphan: the customer had paid between EUR 4,500 and EUR 95,000, and there was no
+ * engagement row, no intake link and nothing in the admin dashboard. The only
+ * trace was a log line nobody was watching.
+ *
+ * A 500 makes Stripe redeliver, and every open* helper above checks for its own
+ * prior row first, so a replay is a no-op rather than a second fulfilment.
+ */
+function fulfilmentFailed(what: string, sessionId: string) {
+  console.error(
+    `[GridForge] ${what} NOT fulfilled for session ${sessionId}; asking Stripe to retry`
+  );
+  return NextResponse.json(
+    { ok: false, error: "Purchase could not be fulfilled" },
+    { status: 500 }
+  );
+}
+
 export async function POST(req: Request) {
   const key = process.env.STRIPE_SECRET_KEY;
   const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -41,7 +71,7 @@ export async function POST(req: Request) {
       // subscription becomes a signed key the engine can verify offline, and the
       // customer is on their own machine-callable endpoint within seconds. That
       // immediacy is the product; a key that arrives tomorrow is a lost customer.
-      await openApiAccount({
+      const opened = await openApiAccount({
         kind,
         email,
         company,
@@ -49,21 +79,23 @@ export async function POST(req: Request) {
         customerId: typeof session.customer === "string" ? session.customer : null,
         subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
       });
+      if (!opened) return fulfilmentFailed("api account", session.id);
       await notifyFounder({ email, company, amount });
     } else if (kind === "hall_watch") {
-      await openWatch({
+      const opened = await openWatch({
         email,
         company,
         sessionId: session.id,
         subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
         customerId: typeof session.customer === "string" ? session.customer : null,
       });
+      if (!opened) return fulfilmentFailed("hall watch", session.id);
       await notifyFounder({ email, company, amount });
     } else if (product?.producesDeliverable) {
       // A purchased engineering deliverable. Paying does not produce a document:
       // it opens an intake the client fills in, which is then generated and
       // released by a human. See lib/deliverables.ts.
-      await openDeliverable({
+      const opened = await openDeliverable({
         kind,
         email,
         company,
@@ -71,12 +103,37 @@ export async function POST(req: Request) {
         sessionId: session.id,
         qualificationId: (session.metadata?.qualification_id as string) || null,
       });
+      if (!opened) return fulfilmentFailed("engagement", session.id);
       await notifyFounder({ email, company, amount });
     } else if (kind === "intelligence_subscription") {
+      // The subscription id is what makes cancellation possible later. Storing
+      // only the session and customer ids — which is what this did — left
+      // customer.subscription.deleted with nothing to resolve against, so a
+      // cancelled Intelligence plan would have stayed active forever.
       const plan = (session.metadata?.plan as string) || "unknown";
-      const customerId = typeof session.customer === "string" ? session.customer : "";
-      await recordSubscription({ email, plan, sessionId: session.id, customerId });
-      await notifySubscriber({ email, plan });
+      const row = await recordSubscription({
+        email,
+        plan,
+        sessionId: session.id,
+        customerId: typeof session.customer === "string" ? session.customer : null,
+        subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
+      });
+      if (row) {
+        await notifySubscriber({ email, plan });
+      } else {
+        // Do not welcome somebody to a subscription we failed to record. Return a
+        // 500 so Stripe retries the event, and recordSubscription() is idempotent
+        // on the session id so the retry cannot double-issue.
+        console.error(
+          "[GridForge] intelligence subscription NOT recorded; asking Stripe to retry:",
+          email,
+          session.id
+        );
+        return NextResponse.json(
+          { ok: false, error: "Subscription could not be recorded" },
+          { status: 500 }
+        );
+      }
     } else {
       // Mark the most recent matching lead deposit_paid (match by email, newest first).
       await markDepositPaid({ email, company, amount, sessionId: session.id });
@@ -87,14 +144,45 @@ export async function POST(req: Request) {
   // A lapsed subscription must stop working, and a renewed one must not go dark.
   // Keys expire on their own within days, so these two events are the difference
   // between "it renewed and nobody noticed" and "my agents stopped at 3am".
+  // THREE things are sold on a Stripe subscription, not one: metered API access
+  // (api_accounts), Hall Watch (watches) and GridForge Intelligence
+  // (subscriptions). Every lifecycle event below has to resolve ALL THREE.
+  // api_accounts alone was resolved here for two patches and
+  // the consequence was that a cancelled Hall Watch went on being delivered —
+  // dueWatches() filters on status=active, the status was never moved off active,
+  // and the cron kept sending quarterly change notes to somebody who had stopped
+  // paying. Free work, sent on a schedule, indefinitely. Intelligence had the same
+  // hole and worse: its table did not exist at all, so nothing was ever recorded
+  // to cancel.
   if (event.type === "invoice.paid") {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
       const row = await findBySubscription(subId);
-      // Reissue silently. The customer's existing key keeps working until it
-      // expires; this simply makes sure a fresh one is available to rotate to.
       if (row && row.status !== "cancelled") {
         await updateApiAccount(row.token, { status: "active" });
+        // The payment renewed. The KEY does not — it is a signed token with a
+        // fixed expiry, and nothing can extend one in place. This comment used to
+        // say "reissue silently" and nothing reissued anything, so a paying
+        // customer's key aged out on day 35 and their agents stopped at 3am. That
+        // is the exact failure this handler was written to prevent, and it was
+        // happening to the customers who paid every month.
+        //
+        // We cannot mint for them here: a key is shown once and never stored, so
+        // there is nowhere to deliver it except the portal. So the renewal is
+        // where we TELL them, while there is still a working key to replace.
+        await remindToRotate(row);
+      }
+      // A watch paused by a failed payment comes back when the payment clears. A
+      // cancelled one does not come back by itself — that is a new sale.
+      const watch = await watchBySubscription(subId);
+      if (watch && watch.status === "paused") {
+        await updateWatch(watch.token, { status: "active" });
+      }
+      // Same rule for Intelligence: a payment that clears reinstates access that a
+      // failed payment had put past_due. A cancelled one stays cancelled.
+      const sub = await subscriptionByStripeId(subId);
+      if (sub && sub.status === "past_due") {
+        await updateSubscription(sub.id, { status: "active" });
       }
     }
   }
@@ -114,6 +202,18 @@ export async function POST(req: Request) {
         `[GridForge] api account ${row.account} cancelled; revoke key id ${row.key_id ?? "-"}`
       );
     }
+    const watch = await watchBySubscription(sub.id);
+    if (watch) {
+      await updateWatch(watch.token, { status: "cancelled" });
+      console.log(`[GridForge] hall watch ${watch.token} cancelled; scheduled runs stop`);
+    }
+    const intelligence = await subscriptionByStripeId(sub.id);
+    if (intelligence) {
+      await updateSubscription(intelligence.id, { status: "cancelled" });
+      console.log(
+        `[GridForge] intelligence subscription for ${intelligence.email} cancelled; /account drops to the free view`
+      );
+    }
   }
 
   if (event.type === "invoice.payment_failed") {
@@ -121,6 +221,18 @@ export async function POST(req: Request) {
     if (subId) {
       const row = await findBySubscription(subId);
       if (row) await updateApiAccount(row.token, { status: "past_due" });
+      // "paused", not "cancelled": Stripe retries, and a card that fails on
+      // Tuesday and clears on Thursday should not have cost the client a quarter.
+      const watch = await watchBySubscription(subId);
+      if (watch && watch.status === "active") {
+        await updateWatch(watch.token, { status: "paused" });
+      }
+      // past_due, not cancelled — the same retry logic, and invoice.paid above
+      // puts it back. An active subscription is the only one worth moving.
+      const sub = await subscriptionByStripeId(subId);
+      if (sub && sub.status === "active") {
+        await updateSubscription(sub.id, { status: "past_due" });
+      }
     }
   }
 
@@ -152,7 +264,14 @@ async function openApiAccount(p: {
   units: number;
   customerId: string | null;
   subscriptionId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  if (p.subscriptionId) {
+    const already = await findBySubscription(p.subscriptionId);
+    if (already) {
+      console.log(`[GridForge] api account already open for subscription ${p.subscriptionId}`);
+      return true;
+    }
+  }
   const created = await createApiAccount({
     email: p.email || null,
     company: p.company || null,
@@ -163,15 +282,18 @@ async function openApiAccount(p: {
   });
   if (!created) {
     console.error("[GridForge] could not open an api account for", p.email || "unknown");
-    return;
+    return false;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   const url = `${base}/api-access/${created.token}`;
   console.log(`[GridForge] api account opened for ${p.email || "unknown"} — ${url}`);
 
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
-  if (!key || !from || !p.email) return;
+  // The row is written; from here the work is done. Email is best-effort and must
+  // never turn a fulfilled purchase back into a failed webhook — a retry would
+  // find the row and do nothing anyway, and the link is in the log above.
+  if (!key || !from || !p.email) return true;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -201,6 +323,7 @@ async function openApiAccount(p: {
   } catch (err) {
     console.error("[GridForge] api key email failed:", err);
   }
+  return true;
 }
 
 async function openWatch(p: {
@@ -209,7 +332,14 @@ async function openWatch(p: {
   sessionId: string;
   subscriptionId: string | null;
   customerId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  if (p.subscriptionId) {
+    const already = await watchBySubscription(p.subscriptionId);
+    if (already) {
+      console.log(`[GridForge] watch already open for subscription ${p.subscriptionId}`);
+      return true;
+    }
+  }
   const row = await createWatch({
     email: p.email || null,
     company: p.company || null,
@@ -219,14 +349,17 @@ async function openWatch(p: {
   });
   if (!row) {
     console.error("[GridForge] could not open a watch for session", p.sessionId);
-    return;
+    return false;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   const url = `${base}/watch/${row.token}`;
   console.log(`[GridForge] hall watch opened for ${p.email || "unknown"} — ${url}`);
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
-  if (!key || !from || !p.email) return;
+  // The row is written; from here the work is done. Email is best-effort and must
+  // never turn a fulfilled purchase back into a failed webhook — a retry would
+  // find the row and do nothing anyway, and the link is in the log above.
+  if (!key || !from || !p.email) return true;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -249,6 +382,7 @@ async function openWatch(p: {
   } catch (err) {
     console.error("[GridForge] watch email failed:", err);
   }
+  return true;
 }
 
 async function openDeliverable(p: {
@@ -258,7 +392,15 @@ async function openDeliverable(p: {
   amount: number;
   sessionId: string;
   qualificationId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
+  // Replay first. Stripe redelivers until it gets a 2xx and this handler now
+  // asks for that, so a second delivery of a session already opened must be a
+  // no-op rather than a second intake link for one payment.
+  const already = await deliverableBySession(p.sessionId);
+  if (already) {
+    console.log(`[GridForge] deliverable already open for session ${p.sessionId}`);
+    return true;
+  }
   const record = await createDeliverable({
     kind: p.kind,
     email: p.email || null,
@@ -270,13 +412,14 @@ async function openDeliverable(p: {
   });
   if (!record) {
     console.error("[GridForge] could not open a deliverable for session", p.sessionId);
-    return;
+    return false;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   console.log(
     `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${record.token}`
   );
   await emailIntakeLink({ email: p.email, kind: p.kind, url: `${base}/intake/${record.token}` });
+  return true;
 }
 
 async function emailIntakeLink(p: { email: string; kind: string; url: string }): Promise<void> {
@@ -284,7 +427,7 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
   const from = process.env.RESEND_FROM;
   if (!key || !from || !p.email) return;
   try {
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -301,45 +444,79 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
           "anyone who should not read the result.",
       }),
     });
+    // Resend answers a rejection with a status, not a throw. This is the message
+    // that carries a EUR 4,500 engagement's only intake link; losing it silently
+    // is how a paid customer sits waiting for an email nobody knows never left.
+    // The link is in the log above, so this is recoverable — but only if it is
+    // said out loud.
+    if (!res.ok) {
+      console.error(
+        "[GridForge] intake email NOT sent:",
+        res.status,
+        await res.text(),
+        "— link was",
+        p.url
+      );
+    }
   } catch (err) {
-    console.error("[GridForge] intake email failed:", err);
+    console.error("[GridForge] intake email failed:", err, "— link was", p.url);
   }
 }
 
-async function recordSubscription(p: {
-  email: string;
-  plan: string;
-  sessionId: string;
-  customerId: string;
-}): Promise<void> {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key || !p.email) return;
-  const auth: Record<string, string> = key.startsWith("sb_secret_")
-    ? { apikey: key }
-    : { apikey: key, Authorization: `Bearer ${key}` };
+/**
+ * Tell an API customer their key is about to age out, at the moment we know they
+ * have just paid for another month of it.
+ *
+ * Sends the portal link, never the key — same rule as the welcome email. A key
+ * is shown once, at mint, and there is no copy anywhere for this to attach.
+ *
+ * Silent when the key is healthy, so a customer on a long-lived key is not
+ * emailed every month about nothing.
+ */
+async function remindToRotate(row: ApiAccount): Promise<void> {
+  const life = keyLife(row);
+  if (!life.needs_rotation) return;
+
+  const url = `${SITE_URL}/api-access/${row.token}`;
+  const when = life.expired
+    ? `expired on ${life.expires}`
+    : `expires on ${life.expires} — ${life.days_left} day(s) from now`;
+  console.log(`[GridForge] api account ${row.account}: key ${when}; reminding ${row.email ?? "no email"}`);
+
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from || !row.email) return;
   try {
-    await fetch(
-      `${url}/rest/v1/subscriptions?email=eq.${encodeURIComponent(p.email)}&status=eq.active`,
-      {
-        method: "PATCH",
-        headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ status: "superseded" }),
-      }
-    );
-    await fetch(`${url}/rest/v1/subscriptions`, {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: p.email,
-        plan: p.plan,
-        status: "active",
-        stripe_session_id: p.sessionId,
-        stripe_customer_id: p.customerId,
+        from,
+        to: row.email,
+        subject: life.expired
+          ? "Your GridForge API key has expired — mint a new one"
+          : "Your GridForge API key expires shortly",
+        text:
+          `Your subscription has renewed. Your API key ${when}.\n\n` +
+          "Keys carry their own expiry so the engine can verify them offline, with no " +
+          "database and no call home. The price of that is that a key cannot be extended " +
+          "in place — a new expiry means a new key, and only you can put it into your " +
+          "deployment.\n\n" +
+          "Mint the replacement here:\n\n" +
+          url +
+          "\n\n" +
+          (life.expired
+            ? "The old key is dead, so the new one replaces it immediately."
+            : "Your current key keeps working until it expires, so you can deploy the new " +
+              "one first and let the old one lapse. Nothing stops in between.") +
+          "\n\nYour allowance and account are unchanged.",
       }),
     });
+    if (!res.ok) {
+      console.error("[GridForge] rotation reminder failed:", res.status, await res.text());
+    }
   } catch (err) {
-    console.error("[GridForge] subscription record error:", err);
+    console.error("[GridForge] rotation reminder error:", err);
   }
 }
 
@@ -376,7 +553,7 @@ async function notifySubscriber(p: { email: string; plan: string }): Promise<voi
           subject: "Welcome to GridForge Intelligence",
           text:
             `Your ${p.plan} subscription is active.\n\n` +
-            `Sign in to your live dashboard: https://timetopower.ai/account/login\n\n` +
+            `Sign in to your live dashboard: ${siteUrl('/account/login')}\n\n` +
             `\u2014 GridForge AI`,
         }),
       });

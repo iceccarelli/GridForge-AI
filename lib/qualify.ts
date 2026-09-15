@@ -151,3 +151,185 @@ export function headline(r: QualifyResult): string {
   }
   return `About ${found.racks} ${r.platform.name} racks today, rising to roughly ${after.racks} once ${found.binding_constraint.toLowerCase()} is relieved.`;
 }
+
+
+// --- the shareable result --------------------------------------------------
+
+/**
+ * A qualification, addressed by its token.
+ *
+ * The result page exists because an answer that cannot leave the browser tab does
+ * not reach the person who can act on it. The engineer who types seven numbers in
+ * is rarely the one who signs off a study; the link is what crosses that gap, and
+ * it carries the engineering rather than a summary of it.
+ */
+export interface StoredQualification {
+  id: string;
+  created_at: string;
+  token: string;
+  site_name: string | null;
+  hall_id: string | null;
+  metro: string | null;
+  country: string | null;
+  platform: string | null;
+  inputs: Record<string, unknown>;
+  racks_as_found: number | null;
+  racks_after_relief: number | null;
+  binding_constraint: string | null;
+  intake_completeness: number | null;
+  company: string | null;
+  status: string;
+}
+
+function sbAuth(): { url: string; headers: Record<string, string> } | null {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  const headers: Record<string, string> = key.startsWith("sb_secret_")
+    ? { apikey: key, "Content-Type": "application/json" }
+    : { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+  return { url, headers };
+}
+
+export function newQualificationToken(): string {
+  // Node's webcrypto, available in the Next runtime without an import.
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString("base64url");
+}
+
+export async function getQualification(token: string): Promise<StoredQualification | null> {
+  const c = sbAuth();
+  if (!c || !token) return null;
+  const cols =
+    "id,created_at,token,site_name,hall_id,metro,country,platform,inputs," +
+    "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,status";
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/qualifications?select=${cols}&token=eq.${encodeURIComponent(token)}&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as StoredQualification[];
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How this hall compares with every other hall the engine has seen.
+ *
+ * The only thing on the page a competitor cannot write, and the reason the link
+ * gets forwarded. Respects the same privacy floor as /api/insights: below it, a
+ * distribution is noise dressed as evidence and a small sample can point at
+ * whoever filled it in.
+ */
+export const BENCHMARK_MIN_HALLS = 8;
+
+export interface Benchmark {
+  published: boolean;
+  halls: number;
+  sameConstraint: number;
+  sharePct: number | null;
+  blockedAsFound: number | null;
+}
+
+/**
+ * The qualification a purchased engagement was bought from.
+ *
+ * The customer typed seven numbers into the free qualifier, saw a real read, and
+ * paid. Asking them to type the same seven again before we will produce the thing
+ * they paid for is friction applied at the worst possible moment — after the money
+ * has been taken and before the product has been delivered, which is where an
+ * abandoned intake becomes revenue collected for a document nobody ever gets.
+ *
+ * Addressed by id, which only reaches here from `deliverables.qualification_id` —
+ * a uuid foreign key set by our own webhook, never by a caller.
+ */
+export async function qualificationById(id: string): Promise<StoredQualification | null> {
+  const c = sbAuth();
+  if (!c || !id) return null;
+  const cols =
+    "id,created_at,token,site_name,hall_id,metro,country,platform,inputs," +
+    "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,status";
+  const res = await fetch(
+    `${c.url}/rest/v1/qualifications?select=${cols}&id=eq.${encodeURIComponent(id)}&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] qualification by id failed:", res.status, await res.text());
+    return null;
+  }
+  const rows = (await res.json()) as StoredQualification[];
+  return rows[0] ?? null;
+}
+
+/**
+ * The fields of a stored qualification that may be carried into the engagement
+ * intake, by name.
+ *
+ * An allowlist, not a spread. The qualification row also holds the name, company
+ * and email of whoever ran it, and those are not intake fields — copying the whole
+ * object into a form would put one person's contact details in front of whoever
+ * holds the engagement link, which may be a different person entirely.
+ */
+const CARRIED_INTO_INTAKE = [
+  "siteName",
+  "hallId",
+  "metro",
+  "country",
+  "platform",
+  "contractedMW",
+  "currentPeakMW",
+  "currentItLoadMW",
+  "buswayAmpacityA",
+  "tapoffMaxA",
+  "plantSupplyC",
+  "positionsAvailable",
+] as const;
+
+/** What the buyer already told us, ready to seed the intake form. */
+export function intakePrefill(q: StoredQualification | null): Record<string, string> {
+  if (!q?.inputs || typeof q.inputs !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const k of CARRIED_INTO_INTAKE) {
+    const v = (q.inputs as Record<string, unknown>)[k];
+    if (v === undefined || v === null || v === "") continue;
+    if (typeof v === "number" && !Number.isFinite(v)) continue;
+    out[k] = String(v);
+  }
+  return out;
+}
+
+export async function benchmark(constraint: string | null): Promise<Benchmark> {
+  const c = sbAuth();
+  if (!c || !constraint) {
+    return { published: false, halls: 0, sameConstraint: 0, sharePct: null, blockedAsFound: null };
+  }
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/qualifications?select=binding_constraint,racks_as_found&binding_constraint=not.is.null&limit=2000`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) throw new Error("unreachable");
+    const rows = (await res.json()) as {
+      binding_constraint: string;
+      racks_as_found: number | null;
+    }[];
+    const halls = rows.length;
+    if (halls < BENCHMARK_MIN_HALLS) {
+      return { published: false, halls, sameConstraint: 0, sharePct: null, blockedAsFound: null };
+    }
+    const same = rows.filter((r) => r.binding_constraint === constraint).length;
+    return {
+      published: true,
+      halls,
+      sameConstraint: same,
+      sharePct: Math.round((same / halls) * 100),
+      blockedAsFound: rows.filter((r) => (r.racks_as_found ?? 0) === 0).length,
+    };
+  } catch {
+    return { published: false, halls: 0, sameConstraint: 0, sharePct: null, blockedAsFound: null };
+  }
+}

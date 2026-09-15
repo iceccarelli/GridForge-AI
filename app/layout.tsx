@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_URL } from "@/lib/site";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "sonner";
@@ -32,7 +33,8 @@ const mono = localFont({
   display: "swap",
 });
 
-const siteUrl = "https://gridforge-ai.vercel.app";
+// One registry, so the canonical URL cannot drift from the domain that serves it.
+const siteUrl = SITE_URL;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

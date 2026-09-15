@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
-import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
+import { intakePrefill, qualificationById } from "@/lib/qualify";
+import {
+  assumedFields,
+  intakeSchemaFor,
+  toIntakeDocument,
+  ASSUMABLE_SOURCE,
+} from "@/lib/engagement-intake";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -18,6 +24,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   const product = PRODUCT_BY_KIND[row.kind];
+
+  // The numbers they already gave us follow them into the thing they paid for.
+  //
+  // A customer types seven numbers into the free qualifier, sees a real read, and
+  // buys. Asking for the same seven again is friction at the worst moment there
+  // is: after the money is taken and before the document exists, which is exactly
+  // where an abandoned intake becomes revenue collected for something nobody ever
+  // receives. The join was in the database — deliverables.qualification_id, set by
+  // our own webhook — and nothing read it.
+  //
+  // Carried through an allowlist, never a spread: the qualification row also holds
+  // the name, company and email of whoever ran it, and the person holding this
+  // engagement link may be somebody else entirely.
+  const prefill = row.qualification_id
+    ? intakePrefill(await qualificationById(row.qualification_id))
+    : {};
+
   return NextResponse.json({
     ok: true,
     kind: row.kind,
@@ -25,6 +48,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     status: row.status,
     company: row.company,
     submitted: Boolean(row.intake),
+    prefill,
   });
 }
 
@@ -45,13 +69,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
-  const parsed = engagementIntakeSchema.safeParse(raw);
+  // The schema is the product's, not one shape for everything. A Density Screen
+  // asks for what the free qualifier asks for; a Procurement Specification asks
+  // for all of it, because its duties end up on a purchase order.
+  const parsed = intakeSchemaFor(row.kind).safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
       { ok: false, error: "Validation failed", issues: parsed.error.flatten() },
       { status: 422 }
     );
   }
+
+  // What the customer left to us. The engine names every assumption in the
+  // document itself; this is so the confirmation they see on submit says the same
+  // thing, rather than the first they hear of it being a document footnote.
+  const assumed = assumedFields(parsed.data as Record<string, unknown>);
 
   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
   await updateByToken(token, { intake: doc, status: "generating" });
@@ -92,11 +124,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
-  // What bound, read out of the working files the engine just produced. Stored
+  // What bound, as the engine reported it. Stored
   // under a namespaced key so the client's own intake stays exactly as they
   // entered it — the follow-on offer names their constraint rather than a generic
   // one, and an unreadable bundle simply means it does not.
-  const binding = bindingFrom(rendered.working);
+  // Prefer the engine's own field; fall back to the working-file bundle, which is
+  // all the Study used to have and all a Screen never had.
+  const binding = rendered.binding ?? bindingFrom(rendered.working);
 
   await updateByToken(token, {
     status: "draft",
@@ -116,6 +150,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       "Received. The document is generated and now sits with a senior engineer for review. " +
       "You will get the link once it is released — we do not publish an engineering opinion " +
       "nobody has read.",
+    // Said here as well as in the document. A customer who left three numbers
+    // blank should hear what we assumed at the moment they submitted, not
+    // discover it in a footnote a week later.
+    assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
   });
 }
 

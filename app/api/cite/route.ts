@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { constraintReference } from "@/lib/constraints";
+import { siteUrl } from "@/lib/site";
 
 export const dynamic = "force-static";
 
@@ -19,18 +20,18 @@ export async function GET() {
       title: "GridForge AI — capacity and density constraint reference",
       author: "GridForge AI",
       year,
-      url: "https://gridforge-ai.vercel.app/constraints",
-      machine_readable: "https://gridforge-ai.vercel.app/reference/constraints.json",
+      url: siteUrl("/constraints"),
+      machine_readable: siteUrl("/reference/constraints.json"),
       constraints: ref?.count ?? 0,
       how_to_cite:
         `GridForge AI (${year}). Capacity and density constraint reference for existing ` +
-        `data halls. https://gridforge-ai.vercel.app/constraints`,
+        `data halls. ${siteUrl("/constraints")}`,
       bibtex:
         `@misc{gridforge_constraints_${year},\n` +
         `  author = {{GridForge AI}},\n` +
         `  title  = {Capacity and density constraint reference for existing data halls},\n` +
         `  year   = {${year}},\n` +
-        `  url    = {https://gridforge-ai.vercel.app/constraints}\n}`,
+        `  url    = {${siteUrl("/constraints")}}\n}`,
       required_caveat:
         "Figures are modelled from published design values and vendor specifications. " +
         "No figure here is a measurement of any customer's asset. Each carries an " +

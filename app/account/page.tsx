@@ -33,6 +33,10 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<boolean | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
+  // "We could not check" is not "you have not subscribed". Showing a paying
+  // subscriber the upgrade prompt because our own store was unreachable is the
+  // client half of the defect fixed in app/api/subscription-status.
+  const [unreachable, setUnreachable] = useState(false);
 
   useEffect(() => {
     getSupabase().auth.getSession().then(async ({ data }) => {
@@ -46,9 +50,14 @@ export default function AccountPage() {
           body: JSON.stringify({ email: userEmail }),
         });
         const j = await res.json();
-        setActive(!!j.active);
-        setPlan(j.plan ?? null);
-      } catch { setActive(false); }
+        if (!res.ok) {
+          setUnreachable(true);
+          setActive(false);
+        } else {
+          setActive(!!j.active);
+          setPlan(j.plan ?? null);
+        }
+      } catch { setUnreachable(true); setActive(false); }
       setLoading(false);
     });
   }, [router]);
@@ -75,10 +84,30 @@ export default function AccountPage() {
             </div>
             <button onClick={signOut} className="data text-xs uppercase tracking-[0.1em] text-mute hover:text-white inline-flex items-center gap-1.5"><LogOut size={14} /> Sign out</button>
           </div>
-          {active ? <Intelligence email={email!} /> : <Gate />}
+          {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : <Gate />}
         </div>
       </main>
     </>
+  );
+}
+
+function Unavailable() {
+  return (
+    <div className="rounded-[var(--radius)] border border-line bg-panel p-8">
+      <div className="eyebrow text-mute mb-2">Temporarily unavailable</div>
+      <h2 className="text-xl font-semibold tracking-tight">We could not check your subscription</h2>
+      <p className="text-mute text-[14px] leading-relaxed mt-2 max-w-xl">
+        This is a fault on our side, not a change to your account. Nothing has been
+        cancelled and you have not been charged for anything new. Reload in a moment,
+        and if it persists, reply to your receipt and a person will pick it up.
+      </p>
+      <button
+        onClick={() => window.location.reload()}
+        className="mt-5 inline-flex items-center gap-2 rounded-lg border border-line px-5 py-3 text-sm font-semibold hover:border-power transition-all"
+      >
+        Try again
+      </button>
+    </div>
   );
 }
 
@@ -196,8 +225,18 @@ function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: numb
   }, [email, refreshKey]);
 
   async function remove(id: string) {
+    // Optimistic, but reversible: a delete that did not happen must not leave the
+    // row missing from the screen until the next reload, or the subscriber
+    // believes they removed something they still have.
+    const before = rows;
     setRows((rs) => rs.filter((r) => r.id !== id));
-    await fetch("/api/scenarios?email=" + encodeURIComponent(email) + "&id=" + encodeURIComponent(id), { method: "DELETE" });
+    try {
+      const res = await fetch(
+        "/api/scenarios?email=" + encodeURIComponent(email) + "&id=" + encodeURIComponent(id),
+        { method: "DELETE" }
+      );
+      if (!res.ok) setRows(before);
+    } catch { setRows(before); }
   }
 
   if (!loaded || rows.length === 0) return null;
@@ -285,7 +324,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
       });
       const j = await res.json();
       if (j.ok) { setSavedMsg("Saved"); onSaved(); }
-      else setSavedMsg("Could not save");
+      else setSavedMsg(typeof j.error === "string" ? j.error : "Could not save");
     } catch { setSavedMsg("Could not save"); }
     finally { setSaving(false); setTimeout(() => setSavedMsg(""), 2500); }
   }

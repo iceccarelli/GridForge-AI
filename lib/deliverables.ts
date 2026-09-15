@@ -82,6 +82,33 @@ export async function createDeliverable(
   return rows[0] ?? null;
 }
 
+/**
+ * The engagement already opened for a Stripe checkout session, if there is one.
+ *
+ * Stripe redelivers a webhook until it gets a 2xx, and the handler now returns a
+ * 500 when it cannot open the engagement — which is the only way a four-figure payment
+ * stops being silently orphaned. That makes a replay certain rather than unlikely,
+ * so the insert has to be safe to repeat: without this lookup a retry would hand
+ * one customer two intake links for one payment.
+ */
+export async function deliverableBySession(
+  sessionId: string
+): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !sessionId) return null;
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?stripe_session_id=eq.${encodeURIComponent(sessionId)}` +
+      `&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
+    return null;
+  }
+  const rows = (await res.json()) as DeliverableRecord[];
+  return rows[0] ?? null;
+}
+
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
   const c = creds();
   if (!c || !token) return null;
@@ -120,6 +147,8 @@ export async function renderDeliverable(
       md: string;
       deck: string | null;
       working: Record<string, string> | null;
+      /** What binds the hall as found, straight from the engine's own payload. */
+      binding: string | null;
     }
   | { ok: false; error: string }
 > {
@@ -158,6 +187,45 @@ export async function renderDeliverable(
       const body = (await res.json()) as { document_full?: string };
       return body.document_full ?? null;
     } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The binding constraint, from the engine's structured answer.
+   *
+   * It used to be read only out of `scenarios.csv` in the working-file bundle —
+   * and a Density Screen does not produce one. Its catalogue entry promises the
+   * document, the ladder and the data request, and no working files; `/v1/screen`
+   * has no csv format at all and is right not to.
+   *
+   * So for the Density Screen — the EUR 4,500 entry product whose whole commercial
+   * purpose is to credit against the Envelope Study — the follow-on offer named a
+   * generic constraint instead of the customer's own. That is the single most
+   * valuable upsell in the business and it was running blind on every screen ever
+   * sold. The figure was there the whole time, one field away, in the payload the
+   * engine already returns.
+   */
+  const structured = async (): Promise<string | null> => {
+    if (endpoint === "spec") return null;
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": key },
+        body: JSON.stringify({ intake }),
+        signal: AbortSignal.timeout(120_000),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error("[GridForge] binding lookup failed:", res.status, await res.text());
+        return null;
+      }
+      const body = (await res.json()) as {
+        scenarios?: { as_found?: { binding_name?: string } }[];
+      };
+      return body.scenarios?.[0]?.as_found?.binding_name ?? null;
+    } catch (err) {
+      console.error("[GridForge] binding lookup error:", err);
       return null;
     }
   };
@@ -201,11 +269,12 @@ export async function renderDeliverable(
   };
 
   try {
-    const [html, md, deckHtml, files] = await Promise.all([
+    const [html, md, deckHtml, files, binding] = await Promise.all([
       call("html"),
       call("md"),
       deck(),
       working(),
+      structured(),
     ]);
     return {
       ok: true,
@@ -214,6 +283,7 @@ export async function renderDeliverable(
       md: md.document,
       deck: deckHtml,
       working: files,
+      binding,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };

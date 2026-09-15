@@ -1,13 +1,26 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { EngagementIntake } from "@/components/EngagementIntake";
+import { getByToken } from "@/lib/deliverables";
 
 export const metadata: Metadata = {
   title: "Engagement intake | GridForge AI",
   robots: { index: false, follow: false },
 };
 
+// Resolved per request, like every other token-addressed page. This one rendered
+// unconditionally: /intake/anything returned 200 and a complete, live-looking
+// form. The API behind it does check the token, so nothing could be submitted and
+// no engine work could be had for free — but the person most likely to arrive with
+// a token that does not resolve is the customer whose link is stale or mistyped,
+// on a four-figure engagement, and handing them a form that fails on submit is a
+// worse answer than telling them plainly that the link is not live.
+export const dynamic = "force-dynamic";
+
 export default async function IntakePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const row = await getByToken(token);
+  if (!row) notFound();
   return (
     <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <header className="mb-8 max-w-3xl">
