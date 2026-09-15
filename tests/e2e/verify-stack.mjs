@@ -54,14 +54,40 @@ const ok = (label, cond, detail = "") => {
 const head = (t) => console.log(`\n${t}\n${"-".repeat(t.length)}`);
 
 const children = [];
-function start(cmd, args, env = {}) {
+/** The last lines each child said, kept so a failure can show them. */
+const logs = new Map();
+
+function start(name, cmd, args, env = {}) {
   const c = spawn(cmd, args, {
     cwd: ROOT,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(c);
+
+  // Drain both pipes. A piped child whose buffer fills BLOCKS, and a server that
+  // blocks mid-boot looks exactly like a server that is slow to start — the run
+  // would hang instead of failing, which in CI is the worst of both.
+  const tail = [];
+  logs.set(name, tail);
+  const keep = (buf) => {
+    for (const line of String(buf).split("\n")) {
+      if (!line.trim()) continue;
+      tail.push(line);
+      if (tail.length > 40) tail.shift();
+    }
+  };
+  c.stdout.on("data", keep);
+  c.stderr.on("data", keep);
+  c.on("error", (err) => keep(`spawn failed: ${err.message}`));
   return c;
+}
+
+/** What a service said, for when it did not come up. */
+function say(name) {
+  const tail = logs.get(name) ?? [];
+  if (!tail.length) return "(said nothing)";
+  return "\n      " + tail.slice(-12).join("\n      ");
 }
 function stopAll() {
   for (const c of children) {
@@ -74,7 +100,7 @@ function stopAll() {
 }
 
 /** Poll until `probe` resolves truthy, or give up. */
-async function waitFor(label, probe, attempts = 90) {
+async function waitFor(label, probe, attempts = 120) {
   for (let i = 0; i < attempts; i++) {
     try {
       if (await probe()) return true;
@@ -83,7 +109,7 @@ async function waitFor(label, probe, attempts = 90) {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error(`${label} did not come up`);
+  throw new Error(`${label} did not come up. It said:${say(label)}`);
 }
 
 const sb = (q, init = {}) =>
@@ -149,17 +175,18 @@ const HALL = {
 async function main() {
   head("Starting the stack");
 
-  start("node", [path.join("tests", "e2e", "postgrest-stub.mjs"), "supabase/migrations", String(PG_PORT)]);
-  await waitFor("postgrest stub", async () => (await fetch(`${PG}/rest/v1/leads?select=*&limit=1`)).ok);
+  start("postgrest", "node",
+    [path.join("tests", "e2e", "postgrest-stub.mjs"), "supabase/migrations", String(PG_PORT)]);
+  await waitFor("postgrest", async () => (await fetch(`${PG}/rest/v1/leads?select=*&limit=1`)).ok);
   ok("in-memory PostgREST, built from supabase/migrations", true, PG);
 
-  start(PYTHON, ["-m", "gridforge", "serve", "--port", String(ENGINE_PORT)], {
+  start("engine", PYTHON, ["-m", "gridforge", "serve", "--port", String(ENGINE_PORT)], {
     GRIDFORGE_API_KEYS: ENGINE_KEY,
   });
   await waitFor("engine", async () => (await fetch(`${ENGINE}/health`)).ok);
   ok("the capacity engine", true, ENGINE);
 
-  start("npx", ["next", "start", "-p", String(SITE_PORT)], {
+  start("site", "npx", ["next", "start", "-p", String(SITE_PORT)], {
     SUPABASE_URL: PG,
     SUPABASE_SERVICE_ROLE_KEY: "local-verify",
     GRIDFORGE_API_URL: ENGINE,
