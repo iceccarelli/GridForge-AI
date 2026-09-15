@@ -1,4 +1,4 @@
-import { SITE_URL, siteUrl } from "@/lib/site";
+import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { PLANS } from "@/lib/subscriptions";
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Unknown plan" }, { status: 400 });
   }
 
-  const origin = req.headers.get("origin") || SITE_URL;
+  const origin = checkoutOrigin(req.headers.get("origin"));
 
   try {
     const session = await stripe.checkout.sessions.create({

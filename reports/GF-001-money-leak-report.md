@@ -22,7 +22,7 @@ every fix was re-run against the pre-fix version to confirm the test fails on it
 | `/api/insights` | Published aggregates over customer halls | **Published unanswered enquiries' metros** — fixed |
 | `/api/deliverable/[token]` | A €4,500–€95,000 artifact | Draft never served; hardened a prototype lookup |
 | `/api/cron/watches` | Scheduled paid work | Bearer secret, fails closed — **no finding** |
-| `/api/checkout`, `/api/subscribe` | Payment initiation | Catalogue-driven, no client-supplied price — **no finding** |
+| `/api/checkout`, `/api/subscribe` | Payment initiation | Price catalogue-driven — **verified**. But the post-payment redirect was caller-controlled — fixed |
 | `/api/market`, `/grid`, `/queue`, `/constraints` | Public data | Free by design (distribution) — **no finding** |
 | Engine `/v1/*` | Metered compute | 401 unkeyed, 402 over quota, offline-verified keys — **no finding** |
 
@@ -105,6 +105,33 @@ route now summarises only the solved halls. The admin view still sees everything
 because internally "how many came in and how many did we answer" is the right
 question.
 
+## L6 — A checkout could send the customer somewhere else afterwards
+
+`unit_amount` is read from the catalogue and the Founding credit is applied
+server-side, so the **price** cannot be manipulated from the client. That part was
+checked rather than assumed, and it holds.
+
+What did not hold: both checkout routes built `success_url` and `cancel_url` from
+the request's own `Origin` header. Anyone could mint a genuine Checkout Session
+against this merchant whose success page was their own domain — the payment still
+arrived here, but the customer finished their purchase somewhere else, wearing our
+credibility on the way out.
+
+`session_id` is in that URL, so the next question was whether it is a credential.
+It is not: nothing in the repository accepts one, which was traced rather than
+assumed. So this is a phishing and brand vector, not theft — and two lines to
+close. `checkoutOrigin()` in `lib/site.ts`, the domain registry, honours the
+request origin only when it is the site's own and otherwise falls back to
+`SITE_URL`, which a preview deployment already sets correctly through
+`NEXT_PUBLIC_SITE_URL`.
+
+Eight tests, including lookalike hosts (`<our-host>.evil.example`), a scheme
+downgrade, a port change, `javascript:` and `data:`, and a final invariant that the
+function can only ever return an origin we chose. The lookalike is built from the
+registry rather than written out, because a test that hardcodes the domain is the
+same drift as a page that does — the repository's own guard caught that while this
+was being written.
+
 ---
 
 ## The checklist, and where each case is exercised
@@ -125,8 +152,10 @@ question.
 | cross-tenant access | list empty, delete 404, owner's row intact |
 | quota exhaustion | engine returns 402, not 429 |
 | brute force | 429 with `Retry-After` |
+| client-supplied price | impossible — catalogue-driven, verified |
+| attacker-chosen redirect | refused; falls back to the registry |
 
-**102 executable site tests**, plus 397 engine tests.
+**110 executable site tests**, plus 397 engine tests.
 
 ---
 

@@ -29,6 +29,35 @@ export function siteUrl(path = ""): string {
   return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * Where a Stripe checkout is allowed to send somebody afterwards.
+ *
+ * The checkout routes built success_url and cancel_url from the request's own
+ * Origin header, which the caller sets. So anyone could mint a real Checkout
+ * Session against this merchant whose success page was their own domain: the
+ * payment still reached us, but the customer finished their purchase on somebody
+ * else's site, wearing our credibility on the way out.
+ *
+ * Nothing leaked — the session id in that URL is not a credential and no route
+ * accepts one — so this is a phishing and brand vector rather than a theft
+ * vector. It is also two lines to close.
+ *
+ * An origin is honoured only if it is the site's own. Everything else falls back
+ * to SITE_URL, which a preview deployment sets through NEXT_PUBLIC_SITE_URL and
+ * which is therefore already correct there.
+ */
+export function checkoutOrigin(requestOrigin: string | null | undefined): string {
+  if (!requestOrigin) return SITE_URL;
+  try {
+    const given = new URL(requestOrigin);
+    const mine = new URL(SITE_URL);
+    if (given.origin === mine.origin) return given.origin;
+  } catch {
+    /* not a URL at all */
+  }
+  return SITE_URL;
+}
+
 export const SITE = {
   url: SITE_URL,
   // Social profiles — fill in each URL as the account goes live.
