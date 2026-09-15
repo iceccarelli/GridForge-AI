@@ -104,6 +104,48 @@ existing to reproduce a real condition honestly: `tests/site/postgrest-fake.ts`
    had already set for Hall Watch, but it is a commercial choice, not a technical
    one.
 
+## TWO THINGS DELIBERATELY NOT BUILT
+
+Recorded because deciding not to build is a decision, and an unrecorded one looks
+like an oversight.
+
+**1. The Screen's credit against the Study is a manual step.** Two customer-facing
+surfaces promise *"it credits in full against the full study"*, and
+`lib/products.ts` declares `creditsAgainst: "envelope_study_deposit"`. Nothing
+consumes it.
+
+That is correct as it stands. The Envelope Study is sold as a **deposit** that
+opens a human engagement and is invoiced by a person, and that person has
+`fetchDeliverables` and can search by email — so the data needed to honour the
+credit is in front of whoever raises the invoice. Building a credit-tracking
+mechanism would be engineering time spent on a step a human is already in.
+
+*What would change the answer:* volume. Once Screen→Study conversions are frequent
+enough that the operator stops remembering each one, the credit wants recording
+against the engagement rather than in someone's head. **Declared manual work, not
+hidden manual work.**
+
+**2. `/commissioned` could show the intake link instead of only promising an
+email.** After paying, the only route to the product is a message from Resend. The
+page carries Stripe's `session_id`, `deliverables.stripe_session_id` is indexed,
+and `deliverableBySession()` already exists — so the page *could* resolve the
+purchase and hand over the link immediately, removing email as a single point of
+failure on a four- to five-figure fulfilment.
+
+**Not done, because it is an access-control decision rather than a UI one.** The
+deliverable token is the same credential for `/intake/<token>` **and**
+`/deliverable/<token>`, so publishing it on a page keyed by `session_id` makes that
+session id equivalent to the document credential — and puts it in browser history,
+referrers and any analytics on the page. Stripe session ids are long and reach only
+the payer, so the risk is small; but the repository is deliberate about
+token-addressed surfaces (noindex, robots-disallowed, resolved server-side), and
+widening what counts as a credential is the founder's call.
+
+*The mitigation that was made instead:* `emailIntakeLink` now checks Resend's
+status and logs the failure **with the link**, so a message that never left is
+recoverable rather than invisible. The page's own fallback — reply to the Stripe
+receipt — is a declared manual path.
+
 ## COMMERCIAL WORKFLOW
 
 Every stage of the Product 01 workflow is VERIFIED in the capability matrix with
