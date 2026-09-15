@@ -92,6 +92,42 @@ def test_no_price_lives_outside_the_catalogue():
         "prices outside lib/products.ts:\n  " + "\n  ".join(offenders))
 
 
+def test_no_price_hides_from_the_guard_by_being_written_in_cents():
+    """The euro guard above looks for the € sign. A price written as `priceCents:
+    199900` and rendered through a formatter carries no € anywhere in its file, so
+    it is invisible to it — which is how a third fee structure could appear on the
+    site without anything failing.
+
+    lib/subscriptions.ts is the one declared exception and it is declared HERE, in
+    the test, rather than tacitly by the guard's blind spot. GridForge Intelligence
+    is a recurring software subscription rather than an engagement the engine
+    quotes, so it is not in lib/products.ts today; whether it should be is a
+    commercial decision. Until that decision is taken this test makes the exception
+    visible, and fails if a second one appears.
+    """
+    declared = {
+        ROOT / "lib" / "products.ts": "the catalogue",
+        ROOT / "lib" / "commerce.ts": "the deposit rule",
+        ROOT / "lib" / "subscriptions.ts":
+            "GridForge Intelligence plans — a recurring subscription, not an "
+            "engine engagement. Open question: fold into lib/products.ts.",
+        ROOT / "lib" / "admin.ts": "reads amounts back out of Stripe, sets none",
+        ROOT / "lib" / "deliverables.ts": "records what was charged, sets nothing",
+    }
+    offenders = []
+    for f in tracked():
+        if f in declared or "/legal/" in str(f):
+            continue
+        for m in re.finditer(r"[Pp]rice[A-Za-z]*\s*:\s*(\d{4,})", f.read_text()):
+            line = f.read_text()[: m.start()].count("\n") + 1
+            offenders.append(f"{f.relative_to(ROOT)}:{line} {m.group(0)}")
+    assert not offenders, (
+        "prices written in cents outside the declared files:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nAdd it to lib/products.ts, or declare it in this test with the "
+          "reason it lives elsewhere.")
+
+
 def test_the_second_price_list_is_gone():
     src = REGISTRY.read_text()
     assert "export const PACKAGES" not in src, (

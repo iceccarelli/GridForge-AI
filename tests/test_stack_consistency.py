@@ -252,6 +252,7 @@ ROOT_FILES = {
     "tailwind.config.ts": "",
     "tsconfig.json": "",
     "vercel.json": "site deployment and the weekly cron",
+    "vitest.config.ts": "the site layer's test runner — see tests/site/",
 }
 
 
@@ -350,6 +351,11 @@ WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_tex
 SUBSCRIPTION_LOOKUPS = {
     "api_accounts": "findBySubscription",
     "watches": "watchBySubscription",
+    # The third one. The note above said to add it; it was not added, and the
+    # consequence was worse than the Hall Watch bug rather than smaller: the table
+    # did not exist either, so a cancelled GridForge Intelligence subscription had
+    # nothing to cancel and /account had nothing to gate on.
+    "subscriptions": "subscriptionByStripeId",
 }
 
 #: The events that decide whether we keep doing work for someone.
@@ -403,3 +409,84 @@ def test_a_failed_payment_pauses_a_watch_rather_than_cancelling_it():
         "invoice.payment_failed must not cancel — only customer.subscription.deleted does")
     assert '"paused"' in _event_block("invoice.paid"), (
         "a payment that clears must bring a paused watch back")
+
+
+# --- every table the site talks to must exist ---------------------------------
+
+def _sql() -> str:
+    return "\n".join(
+        f.read_text() for f in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
+    )
+
+
+def _site_sources() -> list[Path]:
+    out: list[Path] = []
+    for d in ("app", "lib", "components"):
+        out.extend(p for p in (ROOT / d).rglob("*.ts"))
+        out.extend(p for p in (ROOT / d).rglob("*.tsx"))
+    return out
+
+
+def test_every_table_the_site_reads_or_writes_has_a_migration():
+    """The defect this exists for, stated plainly: two tables were read and written
+    by shipping code and neither had ever been created.
+
+    `subscriptions` took a real monthly Stripe subscription and `scenarios` held the
+    work a subscriber saved. PostgREST answers a missing relation with HTTP 404;
+    `fetch` does not reject on a 404; every call site wrapped its request in a
+    `try/catch` that only catches a THROW. So the write failed in complete silence —
+    not even a log line — and every read resolved to "this person is not a
+    subscriber". A customer paid and was shown the upgrade prompt forever.
+
+    Nothing in the repository could see it. Every other join here is asserted
+    between two files we own; this one is a join between our code and a database
+    that is not in the repository at all, and the only durable place to check it is
+    the migration that creates the table.
+    """
+    sql = _sql()
+    used: dict[str, str] = {}
+    for f in _site_sources():
+        for m in re.finditer(r"rest/v1/([A-Za-z0-9_]+)", f.read_text()):
+            used.setdefault(m.group(1), str(f.relative_to(ROOT)))
+
+    missing = {
+        table: where
+        for table, where in sorted(used.items())
+        if not re.search(rf"create table (if not exists )?(public\.)?{table}\b", sql)
+    }
+    assert not missing, (
+        "the site reads or writes tables that no migration creates:\n  "
+        + "\n  ".join(f"{t} — first seen in {w}" for t, w in missing.items())
+        + "\n\nPostgREST answers a missing table with 404 and fetch does not throw on "
+          "404, so this fails silently in production rather than loudly."
+    )
+
+
+def test_no_route_reaches_supabase_without_checking_whether_it_worked():
+    """`await fetch(...)` with no `res.ok` is the mechanism behind every bug this
+    file guards against. A 404, a 409 from a unique index, a 400 from a NOT NULL
+    column — none of them throw, so a handler that never looks at the status cannot
+    tell a write that happened from one that did not.
+
+    Server-side data access belongs in a lib/ module that checks. The routes that
+    did it inline are the ones that shipped broken.
+    """
+    offenders: list[str] = []
+    for f in _site_sources():
+        if f.name.endswith(".test.ts"):
+            continue
+        text = f.read_text()
+        if "rest/v1/" not in text:
+            continue
+        rel = str(f.relative_to(ROOT))
+        # A file that talks to PostgREST must also read the outcome. lib/ modules
+        # that wrap it are the intended home; a route that inlines the call without
+        # ever looking at res.ok is not.
+        if ".ok" not in text and "res.status" not in text:
+            offenders.append(rel)
+    assert not offenders, (
+        "these talk to Supabase and never check whether the request succeeded:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nUse a lib/ data module (lib/watches.ts, lib/subscribers.ts, "
+          "lib/api-access.ts) rather than an inline fetch."
+    )

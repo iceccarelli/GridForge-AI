@@ -460,6 +460,15 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx next lint
+      - name: The route handlers must be executed, not described
+        run: |
+          # Every other assertion about this layer is a regex over source text,
+          # which can see that a handler MENTIONS `status: 402` and can never see
+          # whether it returns one. These tests import the real route modules and
+          # call them with real Request objects against an in-memory PostgREST that
+          # can be told a table does not exist — which is how `subscriptions` and
+          # `scenarios` shipped with no migration and nobody noticed.
+          npm test
       - run: npm run build
       - name: A token-addressed page may not be indexed or leak
         run: |

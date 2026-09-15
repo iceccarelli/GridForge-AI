@@ -21,7 +21,9 @@ Two fixes, both asserted here:
 A shell script with no test is how a bug survives the patch that claims to fix it —
 the same sentence is at the top of tests/test_deploy_script.py, for the same reason.
 """
+import os
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -76,8 +78,13 @@ def make_patch(repo, name, write, subject):
     return patch
 
 
-def apply_inbox(repo):
-    return run(["bash", "scripts/apply-inbox.sh"], repo)
+def apply_inbox(repo, **env):
+    """The throwaway repository has no environment of its own, so hand the script the
+    interpreter running these tests. PYTEST is the script's documented override and
+    the subject here is the rollback logic, not interpreter discovery — which
+    test_the_script_refuses_to_run_without_a_working_test_runner covers separately."""
+    e = {**os.environ, "PYTEST": f"{sys.executable} -m pytest", **env}
+    return run(["bash", "scripts/apply-inbox.sh"], repo, env=e)
 
 
 # --- the sweep -------------------------------------------------------------
@@ -172,6 +179,55 @@ def test_a_patch_that_fixes_the_baseline_shrinks_it(repo):
     out = r.stdout + r.stderr
     assert r.returncode == 0, out
     assert "tests pass" in out, out
+
+
+# --- the runner itself -----------------------------------------------------
+
+def test_the_script_refuses_to_run_without_a_working_test_runner(repo):
+    """The defect this guards: `failures()` swallowed the runner's own error and
+    returned an empty failure list, which reads as green. On a machine without
+    pytest installed, the script would therefore apply and COMMIT a patch that
+    breaks the entire suite — the gate protecting main reporting success because
+    it never ran. A runner that cannot produce a verdict must stop the script."""
+    patch = make_patch(repo, "0001", {
+        "tests/test_broken.py": "def test_broken():\n    assert False\n",
+    }, "a patch that breaks the suite")
+    (repo / "inbox" / "0001-breaks.patch").write_text(patch)
+    before = git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    r = apply_inbox(repo, PYTEST="definitely-not-a-real-pytest-binary")
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, out
+    assert "cannot run" in out, out
+    assert git(repo, "rev-parse", "HEAD").stdout.strip() == before, (
+        "the script committed a patch it never tested")
+    assert (repo / "inbox" / "0001-breaks.patch").exists(), (
+        "the patch was consumed by a run that could not test it")
+
+
+def test_a_runner_that_crashes_stops_the_script_rather_than_reading_as_green(repo):
+    """Exit codes above 1 (internal error, usage error, interrupted) are not a
+    verdict about the code. Treating them as an empty failure list is the same bug
+    wearing different clothes."""
+    # Outside the repository on purpose: make_patch() runs `git add -A` followed by
+    # `git reset --hard`, which would commit and then delete an untracked stub here.
+    crasher = repo.parent / "crash.sh"
+    crasher.write_text(textwrap.dedent("""\
+        #!/usr/bin/env bash
+        if [ "$1" = --version ]; then echo 'pytest 9.0.0'; exit 0; fi
+        echo 'INTERNALERROR> boom' >&2
+        exit 3
+        """))
+    crasher.chmod(0o755)
+    patch = make_patch(repo, "0001", {"src.txt": "changed\n"}, "innocent")
+    (repo / "inbox" / "0001-innocent.patch").write_text(patch)
+    before = git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    r = apply_inbox(repo, PYTEST=str(crasher))
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, out
+    assert "exited 3" in out, out
+    assert git(repo, "rev-parse", "HEAD").stdout.strip() == before, out
 
 
 # --- the invariants the old test asserted, kept ----------------------------

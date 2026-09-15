@@ -66,13 +66,24 @@ async function persistLead(record: Record<string, unknown>): Promise<void> {
     ? { apikey: key }
     : { apikey: key, Authorization: `Bearer ${key}` };
   try {
-    await fetch(`${url}/rest/v1/leads`, {
+    const res = await fetch(`${url}/rest/v1/leads`, {
       method: "POST",
       headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
       body: JSON.stringify(record),
     });
+    // PostgREST rejects with a status, not a throw. Without this the only lead the
+    // agent ever captures is dropped in silence — the most expensive kind of
+    // failure this site has, because nothing downstream knows the person existed.
+    if (!res.ok) {
+      console.error(
+        "[GridForge] agent lead NOT persisted:",
+        res.status,
+        await res.text(),
+        JSON.stringify(record)
+      );
+    }
   } catch (err) {
-    console.error("[GridForge] agent lead persist error:", err);
+    console.error("[GridForge] agent lead persist error:", err, JSON.stringify(record));
   }
 }
 

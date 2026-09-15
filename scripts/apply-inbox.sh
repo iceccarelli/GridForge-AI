@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
-PYTEST=${PYTEST:-python3 -m pytest}
+PYTEST=${PYTEST:-}
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '\033[32m  ok  %s\033[0m\n' "$*"; }
@@ -34,13 +34,52 @@ warn() { printf '\033[33m  !!  %s\033[0m\n' "$*"; }
 die()  { printf '\033[31m  XX  %s\033[0m\n' "$*" >&2; exit 1; }
 head_() { printf '\n\033[2m== %s\033[0m\n' "$*"; }
 
+# --- the test runner -------------------------------------------------------
+# This script decides whether a patch may stay on main, and it decides it from the
+# test suite. So "the suite passed" and "the runner never ran" must never look the
+# same: an absent pytest used to read as green through the `|| true` below, which
+# would have applied and committed a patch that breaks everything, on a machine
+# whose only fault was not having pytest installed. Resolve a runner that actually
+# works, up front, and refuse to run at all if there is not one.
+resolve_pytest() {
+  local cand
+  if [ -n "$PYTEST" ]; then
+    # shellcheck disable=SC2086
+    $PYTEST --version >/dev/null 2>&1 \
+      || die "PYTEST='$PYTEST' cannot run: \`\$PYTEST --version\` failed. Fix it or
+      unset PYTEST to let the script find a runner itself."
+    return
+  fi
+  for cand in "./.venv/bin/python -m pytest" "python3 -m pytest" "python -m pytest" "pytest"; do
+    # shellcheck disable=SC2086
+    if $cand --version >/dev/null 2>&1; then PYTEST=$cand; return; fi
+  done
+  die "no working pytest found (tried .venv/bin/python, python3, python, pytest).
+      This script may not apply a patch it cannot test — a missing test runner is
+      not a passing test suite. Install pytest, or set PYTEST to a command that
+      works:  PYTEST='/path/to/python -m pytest' bash scripts/apply-inbox.sh"
+}
+
 # Failing node ids, one per line, sorted. Empty output means green.
+#
+# pytest exit codes: 0 all passed, 1 tests failed, 2 interrupted, 3 internal error,
+# 4 usage error, 5 no tests collected. Only 0 and 1 are a verdict about the code.
+# Anything else means the run itself is not trustworthy, and a run we cannot trust
+# must stop the script rather than quietly report an empty failure list.
 failures() {
-  # -rf prints "FAILED tests/x.py::y - message"; the id is field 2. pytest exits
-  # non-zero when it is red, which is the ONLY case we care about, so the failure
-  # must not take `set -e` with it.
-  { $PYTEST tests -q --tb=no -rf 2>/dev/null || true; } \
-    | awk '/^(FAILED|ERROR) /{print $2}' | sort -u
+  local out rc
+  # The failure must not take `set -e` with it — a red suite is an expected result
+  # here, not an error.
+  set +e
+  # shellcheck disable=SC2086
+  out=$($PYTEST tests -q --tb=no -rf 2>&1); rc=$?
+  set -e
+  if [ "$rc" -gt 1 ]; then
+    printf '%s\n' "$out" >&2
+    die "the test runner exited $rc — it did not produce a verdict about the code.
+      Nothing is applied and nothing is rolled back; HEAD is where you left it."
+  fi
+  printf '%s\n' "$out" | awk '/^(FAILED|ERROR) /{print $2}' | sort -u
 }
 
 # --- sweep -----------------------------------------------------------------
@@ -106,7 +145,9 @@ fi
 
 # --- baseline --------------------------------------------------------------
 # What is already red? A patch is only responsible for what it broke.
+resolve_pytest
 head_ "baseline (what already fails before anything is applied)"
+say "  runner: $PYTEST"
 BASE=$(mktemp); trap 'rm -f "$BASE" "${NOW:-}"' EXIT
 failures > "$BASE"
 if [ -s "$BASE" ]; then

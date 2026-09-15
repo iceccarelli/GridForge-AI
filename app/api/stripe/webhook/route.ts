@@ -5,6 +5,7 @@ import { createDeliverable } from "@/lib/deliverables";
 import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
+import { recordSubscription, subscriptionByStripeId, updateSubscription } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
 
@@ -74,10 +75,34 @@ export async function POST(req: Request) {
       });
       await notifyFounder({ email, company, amount });
     } else if (kind === "intelligence_subscription") {
+      // The subscription id is what makes cancellation possible later. Storing
+      // only the session and customer ids — which is what this did — left
+      // customer.subscription.deleted with nothing to resolve against, so a
+      // cancelled Intelligence plan would have stayed active forever.
       const plan = (session.metadata?.plan as string) || "unknown";
-      const customerId = typeof session.customer === "string" ? session.customer : "";
-      await recordSubscription({ email, plan, sessionId: session.id, customerId });
-      await notifySubscriber({ email, plan });
+      const row = await recordSubscription({
+        email,
+        plan,
+        sessionId: session.id,
+        customerId: typeof session.customer === "string" ? session.customer : null,
+        subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
+      });
+      if (row) {
+        await notifySubscriber({ email, plan });
+      } else {
+        // Do not welcome somebody to a subscription we failed to record. Return a
+        // 500 so Stripe retries the event, and recordSubscription() is idempotent
+        // on the session id so the retry cannot double-issue.
+        console.error(
+          "[GridForge] intelligence subscription NOT recorded; asking Stripe to retry:",
+          email,
+          session.id
+        );
+        return NextResponse.json(
+          { ok: false, error: "Subscription could not be recorded" },
+          { status: 500 }
+        );
+      }
     } else {
       // Mark the most recent matching lead deposit_paid (match by email, newest first).
       await markDepositPaid({ email, company, amount, sessionId: session.id });
@@ -88,13 +113,16 @@ export async function POST(req: Request) {
   // A lapsed subscription must stop working, and a renewed one must not go dark.
   // Keys expire on their own within days, so these two events are the difference
   // between "it renewed and nobody noticed" and "my agents stopped at 3am".
-  // TWO things are sold on a Stripe subscription, not one: metered API access
-  // (api_accounts) and Hall Watch (watches). Every lifecycle event below has to
-  // resolve BOTH, because only api_accounts was resolved here for two patches and
+  // THREE things are sold on a Stripe subscription, not one: metered API access
+  // (api_accounts), Hall Watch (watches) and GridForge Intelligence
+  // (subscriptions). Every lifecycle event below has to resolve ALL THREE.
+  // api_accounts alone was resolved here for two patches and
   // the consequence was that a cancelled Hall Watch went on being delivered —
   // dueWatches() filters on status=active, the status was never moved off active,
   // and the cron kept sending quarterly change notes to somebody who had stopped
-  // paying. Free work, sent on a schedule, indefinitely.
+  // paying. Free work, sent on a schedule, indefinitely. Intelligence had the same
+  // hole and worse: its table did not exist at all, so nothing was ever recorded
+  // to cancel.
   if (event.type === "invoice.paid") {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
@@ -109,6 +137,12 @@ export async function POST(req: Request) {
       const watch = await watchBySubscription(subId);
       if (watch && watch.status === "paused") {
         await updateWatch(watch.token, { status: "active" });
+      }
+      // Same rule for Intelligence: a payment that clears reinstates access that a
+      // failed payment had put past_due. A cancelled one stays cancelled.
+      const sub = await subscriptionByStripeId(subId);
+      if (sub && sub.status === "past_due") {
+        await updateSubscription(sub.id, { status: "active" });
       }
     }
   }
@@ -133,6 +167,13 @@ export async function POST(req: Request) {
       await updateWatch(watch.token, { status: "cancelled" });
       console.log(`[GridForge] hall watch ${watch.token} cancelled; scheduled runs stop`);
     }
+    const intelligence = await subscriptionByStripeId(sub.id);
+    if (intelligence) {
+      await updateSubscription(intelligence.id, { status: "cancelled" });
+      console.log(
+        `[GridForge] intelligence subscription for ${intelligence.email} cancelled; /account drops to the free view`
+      );
+    }
   }
 
   if (event.type === "invoice.payment_failed") {
@@ -145,6 +186,12 @@ export async function POST(req: Request) {
       const watch = await watchBySubscription(subId);
       if (watch && watch.status === "active") {
         await updateWatch(watch.token, { status: "paused" });
+      }
+      // past_due, not cancelled — the same retry logic, and invoice.paid above
+      // puts it back. An active subscription is the only one worth moving.
+      const sub = await subscriptionByStripeId(subId);
+      if (sub && sub.status === "active") {
+        await updateSubscription(sub.id, { status: "past_due" });
       }
     }
   }
@@ -328,43 +375,6 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
     });
   } catch (err) {
     console.error("[GridForge] intake email failed:", err);
-  }
-}
-
-async function recordSubscription(p: {
-  email: string;
-  plan: string;
-  sessionId: string;
-  customerId: string;
-}): Promise<void> {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key || !p.email) return;
-  const auth: Record<string, string> = key.startsWith("sb_secret_")
-    ? { apikey: key }
-    : { apikey: key, Authorization: `Bearer ${key}` };
-  try {
-    await fetch(
-      `${url}/rest/v1/subscriptions?email=eq.${encodeURIComponent(p.email)}&status=eq.active`,
-      {
-        method: "PATCH",
-        headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ status: "superseded" }),
-      }
-    );
-    await fetch(`${url}/rest/v1/subscriptions`, {
-      method: "POST",
-      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify({
-        email: p.email,
-        plan: p.plan,
-        status: "active",
-        stripe_session_id: p.sessionId,
-        stripe_customer_id: p.customerId,
-      }),
-    });
-  } catch (err) {
-    console.error("[GridForge] subscription record error:", err);
   }
 }
 
