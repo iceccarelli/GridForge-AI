@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callEngine, headline, qualifySchema } from "@/lib/qualify";
+import { callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
 
 export const runtime = "nodejs";
 
@@ -39,12 +39,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // Minted before the engine runs, so a result that fails to persist still has an
+  // identity and an unreachable engine still produces a row we can come back to.
+  const token = newQualificationToken();
+
   const outcome = await callEngine(input);
 
   if (!outcome.ok) {
     // Never invent a number when the engine is unavailable. Capture the enquiry
     // and say plainly what happened.
-    await persist(input, null).catch(() => undefined);
+    await persist(input, null, token).catch(() => undefined);
     const status = outcome.reason === "unconfigured" ? 503 : 502;
     return NextResponse.json(
       {
@@ -57,12 +61,17 @@ export async function POST(req: Request) {
     );
   }
 
-  await persist(input, outcome.result).catch(() => undefined);
+  const stored = await persist(input, outcome.result, token)
+    .then(() => true)
+    .catch(() => false);
 
   return NextResponse.json({
     ok: true,
     headline: headline(outcome.result),
     result: outcome.result,
+    // Only offered when the row actually landed. A share link to a row that was
+    // never written is a 404 sent to somebody's director.
+    share: stored ? `/q/${token}` : null,
   });
 }
 
@@ -74,11 +83,13 @@ async function persist(
         after_relief?: { racks?: number };
         intake?: { completeness?: number };
       }
-    | null
+    | null,
+  token: string
 ): Promise<void> {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const record = {
+    token,
     site_name: input.siteName ?? null,
     hall_id: input.hallId ?? null,
     metro: input.metro ?? null,
@@ -100,7 +111,9 @@ async function persist(
       "[GridForge] qualification (not persisted — Supabase unset):",
       JSON.stringify(record)
     );
-    return;
+    // Not persisted means not shareable. Throwing here is what makes the caller
+    // return share: null rather than a link to nothing.
+    throw new Error("supabase not configured");
   }
   const auth: Record<string, string> = key.startsWith("sb_secret_")
     ? { apikey: key }
@@ -110,5 +123,9 @@ async function persist(
     headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify(record),
   });
-  if (!res.ok) console.error("[GridForge] Supabase insert failed:", await res.text());
+  if (!res.ok) {
+    const detail = await res.text();
+    console.error("[GridForge] Supabase insert failed:", detail);
+    throw new Error(detail);
+  }
 }

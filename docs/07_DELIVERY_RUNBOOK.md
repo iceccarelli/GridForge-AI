@@ -734,7 +734,7 @@ pointing at it.
 ### The arrangement now
 
 ```bash
-# upload 00NN-something.patch into inbox/, then
+# upload 00NN-something.patch anywhere in the repo — the root is fine — then
 bash scripts/apply-inbox.sh
 ```
 
@@ -750,3 +750,141 @@ Four tests hold it: nothing undeclared at the root, no dead entries in that
 declaration, no `.patch` committed anywhere, and nothing left in `inbox/`. A fifth
 reads the script itself and fails if the removal stops being folded into the commit,
 because a patch that survives in history is the problem coming back quietly.
+
+### Two things the script learned afterwards, both on live main
+
+**It sweeps the root itself.** Telling a human to `git mv` a file every time the
+web uploader drops it in the wrong place is not a workflow, it is a chore with a
+failure rate. The script now moves any `*.patch` at the root into `inbox/` and
+commits the move when the file is tracked. Upload it wherever it lands.
+
+**It no longer punishes an innocent patch.** The script used to run the whole suite
+after applying and roll back on any red. That is wrong whenever the suite was
+already red: a stray patch file at the root was failing the root-hygiene test, and a
+correct, unrelated patch was reverted twice for it — the guard was right and the
+script's reading of it was wrong. It now records the failing test ids *before* it
+applies anything and rolls back only on **new** failures. Pre-existing ones are
+printed by name at the start and again at the end, so they still get fixed. A patch
+that repairs a baseline failure shrinks the baseline, so a later patch in the same
+run cannot quietly reintroduce it.
+
+`tests/test_patch_intake.py` drives the script against a throwaway repository and
+asserts all of it: the sweep, the tracked-file sweep with its commit, the refusal to
+overwrite an existing inbox entry, the innocent patch surviving a red baseline, the
+guilty patch still being rolled back, and the baseline shrinking when it is fixed.
+
+
+## The answer had to be able to leave the browser tab
+
+The free qualifier produced a real engineering read — the binding constraint with
+its basis, racks as found and after the ladder, the item that sets the date — and
+then lost all of it when the tab closed.
+
+That is not a cosmetic gap. **The person who types seven numbers into a capacity
+qualifier is an operations engineer. The person who signs off a five-figure study is
+a director.** The distance between them is a link, and there was not one, so every
+read stopped at whoever happened to be at the keyboard.
+
+`/q/<token>` is that link. It carries the engineering rather than a summary of it:
+the binding constraint, one click from its full reference page, what it takes to
+move and how many weeks that takes, what nobody has measured, and the same
+disclosure the paid document carries. A shareable page that softened any of that
+would be a brochure, and a director who has read one brochure recognises the next.
+
+The share block sits directly under the headline, not at the end. The moment to
+forward something is the moment you have just read the thing worth forwarding.
+
+### The benchmark is the reason it gets forwarded
+
+The page tells a reader how their hall compares with every other hall the engine has
+seen — *"tap-off rating binds first in 11 of 34 halls; 19 of those deploy zero racks
+as they stand."* That is the only sentence on the page a competitor cannot write,
+and it costs us nothing to give away because giving it away is what produces the
+next row.
+
+It respects the same privacy floor as `/api/insights` — a test asserts the two
+numbers are equal, so lowering one silently publishes on the shared page what the
+public route withholds. The query selects two columns, `binding_constraint` and
+`racks_as_found`, and a test asserts nothing else can creep into it.
+
+### What the tests hold
+
+- No link is offered when the row was not written. `persist()` now throws instead of
+  logging and moving on, because a share link to a row that was never written is a
+  404 sent to somebody's director.
+- The token is minted **before** the engine runs, so an unreachable engine still
+  leaves a row we can come back to, and the page says a read was not produced rather
+  than inventing one.
+- 18 random bytes, base64url. A short token on a page holding a customer's site
+  figures is not a token.
+- `/q/` is disallowed for every crawler and the page is `noindex`, like every other
+  token-addressed path.
+- The migration backfills before it constrains — a unique index added first refuses
+  on the existing nulls, and fails on exactly the deployments that already have data.
+
+
+## The site was two companies
+
+This repository began as a behind-the-meter power practice and became a density
+engine. Both were live on the same domain at the same time, and neither knew about
+the other.
+
+**/pricing rendered two fee structures, one above the other.** Power Audit
+€25k–€45k and Feasibility Study €45k–€95k at the top, then the real engagement
+ladder from €4,500 below it. Neither of the upper bands existed anywhere in
+`gridforge/commercial.py`, so the parity test could not see them and nothing failed.
+
+**/infrastructure sold megawatts.** A whole page of containerised behind-the-meter
+power blocks — gensets, BESS, footprints, weeks-to-energised. *"Stand up a megawatt
+while the queue says 2031."* The homepage carried the same offer three more times:
+reference architectures to 120 MW+, a configurator that sized campus builds, and a
+single-line diagram of a facility we would design.
+
+We do not build, own, finance or operate any of it, and the capital rule puts it out
+of scope permanently. Sizing envelopes for plant we would never supply are fictitious
+capacity wearing the clothes of a product sheet.
+
+**The assistant was the worst of it.** `/api/chat`'s system prompt was a confident,
+detailed briefing for the company that no longer exists: REF-01 hybrid microgrids,
+a 400–800 V DC bus, an EMS doing FCR/aFRR, and that same phantom fee list. A page
+can be skimmed; an assistant answers the specific question a buyer actually asked,
+in a tone that sounds like it knows. Its engagement list is now generated from
+`lib/products.ts`, so the prompt cannot drift from what checkout charges, and it is
+told plainly what to refuse.
+
+### One domain
+
+Six files hardcoded `gridforge-ai.vercel.app` — layout metadata, JSON-LD, robots,
+sitemap, llms.txt and the citation endpoint — while seven hardcoded
+`timetopower.ai` for emails, Stripe success URLs and deliverable links.
+
+Every canonical URL, every sitemap entry and the citation we *ask people to use*
+pointed at a preview domain. That splits search authority away from the domain that
+actually serves the site, and the whole reference and agent-distribution layer was
+advertising the wrong home.
+
+`SITE_URL` in `lib/site.ts` is now the only definition, overridable with
+`NEXT_PUBLIC_SITE_URL` for previews. A test walks every tracked `.ts`/`.tsx` file
+and fails on any hardcoded site URL outside the registry.
+
+### What the tests hold
+
+- No file hardcodes a site URL except `lib/site.ts`.
+- No euro figure exists outside `lib/products.ts` and `lib/commerce.ts`. That test
+  is what found the €25k–€45k still sitting in the chat prompt.
+- `SERVICES` may not offer a microgrid, HVDC distribution, an EMS or a Power Audit,
+  and must name the engagements that exist.
+- No file offers `POWER_BLOCKS`, `CONFIG_VARIANTS`, "Megawatts in months", "Power
+  blocks you can deploy" or "Stand up a megawatt" — comments recording why they were
+  removed are stripped before the check, so the history can stay in the file.
+- `/infrastructure` is gone from the routes, the navigation and the sitemap.
+- `MARKET_STATS` must still exist with its sources. Removing our own invented
+  capacity is not a reason to remove sourced figures about the market the buyer
+  actually lives in.
+
+### The band that could not be checked
+
+"Deposit against €22k–€45k" had the 22 in the engine and the 45 typed into a React
+component. Half of every quoted range was unsourceable. `Engagement.price_eur_max`
+now carries the top of the band, `opensBandCents` mirrors it into the catalogue, the
+ladder renders from that, and the parity test asserts the two agree.

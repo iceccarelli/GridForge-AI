@@ -1,7 +1,8 @@
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createDeliverable } from "@/lib/deliverables";
-import { createWatch } from "@/lib/watches";
+import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
 
@@ -87,6 +88,13 @@ export async function POST(req: Request) {
   // A lapsed subscription must stop working, and a renewed one must not go dark.
   // Keys expire on their own within days, so these two events are the difference
   // between "it renewed and nobody noticed" and "my agents stopped at 3am".
+  // TWO things are sold on a Stripe subscription, not one: metered API access
+  // (api_accounts) and Hall Watch (watches). Every lifecycle event below has to
+  // resolve BOTH, because only api_accounts was resolved here for two patches and
+  // the consequence was that a cancelled Hall Watch went on being delivered —
+  // dueWatches() filters on status=active, the status was never moved off active,
+  // and the cron kept sending quarterly change notes to somebody who had stopped
+  // paying. Free work, sent on a schedule, indefinitely.
   if (event.type === "invoice.paid") {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
@@ -95,6 +103,12 @@ export async function POST(req: Request) {
       // expires; this simply makes sure a fresh one is available to rotate to.
       if (row && row.status !== "cancelled") {
         await updateApiAccount(row.token, { status: "active" });
+      }
+      // A watch paused by a failed payment comes back when the payment clears. A
+      // cancelled one does not come back by itself — that is a new sale.
+      const watch = await watchBySubscription(subId);
+      if (watch && watch.status === "paused") {
+        await updateWatch(watch.token, { status: "active" });
       }
     }
   }
@@ -114,6 +128,11 @@ export async function POST(req: Request) {
         `[GridForge] api account ${row.account} cancelled; revoke key id ${row.key_id ?? "-"}`
       );
     }
+    const watch = await watchBySubscription(sub.id);
+    if (watch) {
+      await updateWatch(watch.token, { status: "cancelled" });
+      console.log(`[GridForge] hall watch ${watch.token} cancelled; scheduled runs stop`);
+    }
   }
 
   if (event.type === "invoice.payment_failed") {
@@ -121,6 +140,12 @@ export async function POST(req: Request) {
     if (subId) {
       const row = await findBySubscription(subId);
       if (row) await updateApiAccount(row.token, { status: "past_due" });
+      // "paused", not "cancelled": Stripe retries, and a card that fails on
+      // Tuesday and clears on Thursday should not have cost the client a quarter.
+      const watch = await watchBySubscription(subId);
+      if (watch && watch.status === "active") {
+        await updateWatch(watch.token, { status: "paused" });
+      }
     }
   }
 
@@ -165,7 +190,7 @@ async function openApiAccount(p: {
     console.error("[GridForge] could not open an api account for", p.email || "unknown");
     return;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   const url = `${base}/api-access/${created.token}`;
   console.log(`[GridForge] api account opened for ${p.email || "unknown"} — ${url}`);
 
@@ -221,7 +246,7 @@ async function openWatch(p: {
     console.error("[GridForge] could not open a watch for session", p.sessionId);
     return;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   const url = `${base}/watch/${row.token}`;
   console.log(`[GridForge] hall watch opened for ${p.email || "unknown"} — ${url}`);
   const key = process.env.RESEND_API_KEY;
@@ -272,7 +297,7 @@ async function openDeliverable(p: {
     console.error("[GridForge] could not open a deliverable for session", p.sessionId);
     return;
   }
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   console.log(
     `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${record.token}`
   );
@@ -376,7 +401,7 @@ async function notifySubscriber(p: { email: string; plan: string }): Promise<voi
           subject: "Welcome to GridForge Intelligence",
           text:
             `Your ${p.plan} subscription is active.\n\n` +
-            `Sign in to your live dashboard: https://timetopower.ai/account/login\n\n` +
+            `Sign in to your live dashboard: ${siteUrl('/account/login')}\n\n` +
             `\u2014 GridForge AI`,
         }),
       });

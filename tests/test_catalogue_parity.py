@@ -38,6 +38,10 @@ def ts_products() -> dict[str, dict]:
         name = re.search(r'name:\s*"([^"]+)"', chunk)
         amount = re.search(r"amountCents:\s*([\d_]+)", chunk)
         units = re.search(r"apiUnits:\s*([\d_]+)", chunk)
+        band = re.search(r"opensBandCents:\s*\[([\d_]+),\s*([\d_]+)\]", chunk)
+        if band:
+            rec["band"] = (int(band.group(1).replace("_", "")),
+                           int(band.group(2).replace("_", "")))
         recurring = re.search(r'interval:\s*"(\w+)",\s*intervalCount:\s*(\d+)', chunk)
         if name:
             rec["name"] = name.group(1)
@@ -91,6 +95,23 @@ def test_every_engagement_sold_on_the_site_agrees_with_the_engine(ts):
 def test_the_density_screen_price_agrees(ts):
     """The one engagement bought directly on the site, rather than by deposit."""
     assert ts["density_screen"]["amountCents"] == ENGAGEMENTS["density_screen"].price_eur * 100
+
+
+def test_the_band_a_deposit_opens_comes_from_the_engine(ts):
+    """The upper half of every quoted range used to be typed into a component —
+    "Deposit against EUR 22k-45k" — so nothing could check it. It is now a figure
+    the engine owns."""
+    pairs = {"envelope_study_deposit": "envelope_study",
+             "portfolio_screen_deposit": "portfolio_screen"}
+    for deposit_id, engagement_id in pairs.items():
+        band = ts[deposit_id].get("band")
+        assert band, f"{deposit_id} quotes no band"
+        eng = ENGAGEMENTS[engagement_id]
+        assert eng.price_eur_max, f"{engagement_id} has no upper band in the engine"
+        assert band == (eng.price_eur * 100, eng.price_eur_max * 100), (
+            f"{deposit_id}: site says {band}, engine says "
+            f"{(eng.price_eur * 100, eng.price_eur_max * 100)}")
+        assert eng.price_eur_max > eng.price_eur
 
 
 def test_deposits_are_smaller_than_the_engagements_they_open(ts):

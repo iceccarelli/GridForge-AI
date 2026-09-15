@@ -51,6 +51,13 @@ export interface Product {
   /** Position on the engagement ladder. Lower first. */
   ladderOrder?: number;
   /**
+   * For a deposit, the scoped band it opens, in EUR cents. Mirrors
+   * Engagement.price_eur / price_eur_max in gridforge/commercial.py. The upper
+   * half of every range used to be typed into a component, which made it a number
+   * nothing could check.
+   */
+  opensBandCents?: [number, number];
+  /**
    * Which engine endpoint generates this deliverable. Required whenever
    * producesDeliverable is true — the intake route reads it rather than
    * branching on the kind, which is how a EUR 18,000 specification purchase
@@ -96,6 +103,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     surface: "ladder",
     ladderOrder: 20,
     endpoint: "study",
+    opensBandCents: [2_200_000, 4_500_000],
   },
   hall_watch: {
     id: "hall_watch",
@@ -130,6 +138,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     surface: "ladder",
     ladderOrder: 40,
+    opensBandCents: [6_000_000, 14_000_000],
   },
   procurement_spec: {
     id: "procurement_spec",

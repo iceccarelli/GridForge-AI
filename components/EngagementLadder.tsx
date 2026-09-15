@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
-import { LADDER_PRODUCTS, type ProductId } from "@/lib/products";
+import { LADDER_PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
 
 /**
  * The engagement ladder: what can be bought now, in the order clients climb it.
@@ -18,9 +18,9 @@ import { LADDER_PRODUCTS, type ProductId } from "@/lib/products";
 // Procurement Specification shipped priced, documented and impossible to buy.
 const NOTE: Partial<Record<ProductId, string>> = {
   density_screen: "Credits in full against the study.",
-  envelope_study_deposit: "Deposit against €22k–€45k, scoped before we start.",
+  envelope_study_deposit: "scoped before we start.",
   procurement_spec: "One relief per engagement. Your bids come back comparable.",
-  portfolio_screen_deposit: "Deposit against €60k–€140k, five to fifteen halls.",
+  portfolio_screen_deposit: "five to fifteen halls.",
   hall_watch: "Cancel any time; no minimum term.",
 };
 
@@ -72,6 +72,14 @@ export function EngagementLadder() {
       <div className="grid gap-5 md:grid-cols-2">
         {LADDER_PRODUCTS.map((p) => {
           const id = p.id;
+          // The band a deposit opens comes from the catalogue, not from a string
+          // in this file. The upper figure used to be typed here, which made half
+          // of every quoted range a number nothing could check.
+          const band = p.opensBandCents
+            ? `Deposit against ${eurFromCents(p.opensBandCents[0])}–${eurFromCents(
+                p.opensBandCents[1]
+              )}, `
+            : "";
           return (
             <div key={id} className="panel flex flex-col p-6">
               <div className="flex items-baseline justify-between gap-4">
@@ -106,7 +114,7 @@ export function EngagementLadder() {
                     {p.recurring ? "Start" : "Commission"} <ArrowRight size={15} />
                   </button>
                   <span className="text-[11px] text-faint">
-                    {NOTE[id]}
+                    {band}{NOTE[id]}
                     {p.turnaroundDays && !p.recurring
                       ? ` ${p.turnaroundDays} working days from a complete intake.`
                       : ""}

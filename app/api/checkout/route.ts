@@ -1,3 +1,4 @@
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
@@ -44,8 +45,7 @@ export async function POST(req: Request) {
 
   const origin =
     req.headers.get("origin") ||
-    process.env.SITE_URL ||
-    "https://timetopower.ai";
+    SITE_URL;
 
   // The founding credit applies to the engagement deposit, not to a fixed-fee
   // engineering deliverable — discounting the screen would undercut the only

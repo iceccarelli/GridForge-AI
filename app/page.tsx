@@ -20,8 +20,6 @@ import dynamic from "next/dynamic";
 import { TimeToPower } from "@/components/TimeToPower";
 const LoadSimulator = dynamic(() => import("@/components/LoadSimulator").then(m => m.LoadSimulator));
 const TimeToPowerComparator = dynamic(() => import("@/components/TimeToPowerComparator").then(m => m.TimeToPowerComparator));
-const ConfigStudio = dynamic(() => import("@/components/ConfigStudio").then(m => m.ConfigStudio));
-const SingleLineDiagram = dynamic(() => import("@/components/SingleLineDiagram").then(m => m.SingleLineDiagram));
 const BindingConstraintInsights = dynamic(() =>
   import("@/components/BindingConstraintInsights").then((m) => m.BindingConstraintInsights)
 );
@@ -34,12 +32,10 @@ import {
   MARKET_STATS,
   PROBLEM_CARDS,
   SERVICES,
-  ARCHITECTURES,
   TECH,
   FAQ,
   SITE,
 } from "@/lib/site";
-import { POWER_BLOCKS } from "@/lib/catalog";
 
 
 const serviceIcons: Record<string, React.ElementType> = {
@@ -395,57 +391,12 @@ export default function Home() {
       </section>
 
       {/* ============== WHAT YOU CAN DEPLOY ============== */}
-      <section id="deploy" className="max-w-7xl mx-auto px-6 py-20">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
-          <div className="max-w-xl">
-            <div className="eyebrow mb-3">MEGAWATTS IN MONTHS</div>
-            <h2 className="section-title">Power blocks you can deploy.</h2>
-          </div>
-          <p className="max-w-sm text-mute">
-            Productized behind-the-meter capacity, engineered to your site. Energized
-            in months while the interconnection queue says years.
-          </p>
-        </div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {POWER_BLOCKS.map((b) => (
-            <div
-              key={b.id}
-              className={`panel panel-hover sweep p-6 flex flex-col ${
-                b.flagship ? "border-power/40" : ""
-              }`}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="data text-[10px] text-faint">{b.firmPct}% FIRM</div>
-                {b.flagship && <span className="pill pill-progress">MOST REQUESTED</span>}
-              </div>
-              <div className="text-3xl font-semibold text-power leading-none">
-                {b.capacityMW}
-                <span className="text-base"> MW</span>
-              </div>
-              <h3 className="text-base font-semibold tracking-tight mt-3 mb-2">{b.name}</h3>
-              <p className="text-ghost/75 text-[13px] leading-relaxed flex-1">{b.tagline}</p>
-              <div className="mt-5 pt-4 border-t border-line">
-                <div className="data text-[10px] text-faint mb-1">TIME TO ENERGIZED</div>
-                <div className="data text-sm text-queue">{b.leadTime}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-10 flex flex-wrap gap-3">
-          <Link
-            href="/infrastructure"
-            className="btn-primary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
-          >
-            See full specs &amp; configure <ArrowRight size={16} />
-          </Link>
-          <Link
-            href="/pricing"
-            className="btn-secondary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
-          >
-            Pricing &amp; reserve
-          </Link>
-        </div>
-      </section>
+      {/* A "MEGAWATTS IN MONTHS / Power blocks you can deploy" section stood here,
+          rendering POWER_BLOCKS: containerised 1-50 MW blocks with gensets, BESS,
+          footprints and weeks-to-energised. "Stand up a megawatt while the queue
+          says 2031." We do not stand up megawatts. We tell an operator what stops
+          the megawatts they already have contracted from becoming compute, which
+          is a harder thing to say and the only one we can stand behind. */}
       {/* ============== HOW IT WORKS ============== */}
       <section id="how" className="max-w-5xl mx-auto px-6 py-20">
         <div className="max-w-2xl mb-10">
@@ -460,95 +411,15 @@ export default function Home() {
         <SystemFlow />
       </section>
 
-      {/* ============== REFERENCE ARCHITECTURES ============== */}
-      <section
-        id="architectures"
-        className="bg-[#060912] border-y border-line py-20"
-      >
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-4">
-            <div className="max-w-xl">
-              <div className="eyebrow mb-3">REFERENCE ARCHITECTURES</div>
-              <h2 className="section-title">
-                The systems we design,<br />drawn to first principles.
-              </h2>
-            </div>
-            <p className="max-w-sm text-mute">
-              Modelled engineering reference designs, open to review — the depth
-              behind the services.
-            </p>
-          </div>
-
-          <div className="pill pill-progress inline-block mb-10">
-            REFERENCE DESIGNS — NOT DELIVERED CUSTOMER PROJECTS
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-5">
-            {ARCHITECTURES.map((a) => (
-              <div key={a.code} className="panel panel-hover p-7 flex flex-col">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="data text-xs text-power tracking-[0.12em]">
-                    {a.code}
-                  </span>
-                  <span className="data text-[10px] text-faint">{a.spec}</span>
-                </div>
-                <h3 className="text-2xl font-semibold tracking-tight mb-3">
-                  {a.title}
-                </h3>
-                <p className="text-ghost/80 text-[15px] leading-relaxed mb-6">
-                  {a.summary}
-                </p>
-                <div className="space-y-2.5 mt-auto">
-                  {a.points.map((p, i) => (
-                    <div key={i} className="flex items-start gap-2.5 text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-power mt-0.5 shrink-0" />
-                      <span className="text-ghost/80">{p}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-10">
-            <button
-              onClick={() => openAudit("architectures")}
-              className="btn-secondary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
-            >
-              Request a technical brief <ArrowRight size={16} />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* ============== CONFIGURATOR ============== */}
-      <section id="configure" className="max-w-5xl mx-auto px-6 py-20">
-        <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">MATCH A DESIGN TO YOUR SITE</div>
-          <h2 className="section-title">Which reference fits your build?</h2>
-          <p className="text-mute text-[15px] leading-relaxed mt-4">
-            Dial in your target capacity and firm/renewable balance. It maps you
-            to a reference variant with an honest first-power timeline and a
-            phasing plan — a starting point for the conversation, not a quote.
-          </p>
-        </div>
-        <ConfigStudio />
-      </section>
-
-      {/* ============== SINGLE-LINE DIAGRAM ============== */}
-      <section id="single-line" className="max-w-5xl mx-auto px-6 py-20">
-        <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">THE REFERENCE ARCHITECTURE, IN DETAIL</div>
-          <h2 className="section-title">What the internal power system actually looks like.</h2>
-          <p className="text-mute text-[15px] leading-relaxed mt-4">
-            Past the marketing: a real single-line diagram of a behind-the-meter
-            facility — grid, metering boundary, switchboard, UPS, distribution, and
-            the on-site generation and storage that keep the racks fed. Click through it.
-          </p>
-        </div>
-        <SingleLineDiagram />
-      </section>
-
+      {/* Three sections stood here: REFERENCE ARCHITECTURES, the CONFIGURATOR and a
+          SINGLE-LINE DIAGRAM of a behind-the-meter facility. All three described
+          hybrid power plants — gensets, fuel cells, utility-scale storage, campus
+          builds past 120 MW — that this practice does not design, build, own or
+          fund, and that the capital rule puts out of scope permanently. They were
+          the strongest-looking part of the page and the least true. What replaced
+          them is upstream: /constraints publishes the physics in full, /platforms
+          publishes what a hall is actually being asked to carry, and /qualify
+          answers the question for the reader's own hall. */}
       {/* ============== TECHNOLOGY ============== */}
       <section id="technology" className="max-w-5xl mx-auto px-6 py-20">
         <div className="max-w-2xl mb-12">

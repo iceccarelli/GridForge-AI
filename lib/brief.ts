@@ -94,7 +94,7 @@ export async function generateSitingBrief(opts: {
   if (y > 740) { doc.addPage(); y = 56; }
   setDraw(mute); doc.setLineWidth(0.5); doc.line(M, y, W - M, y); y += 14;
   doc.setFontSize(7.5); setText(mute);
-  const disc = "Figures combine live feeds (EPEX day-ahead for Central EU) with documented modeled estimates (US/Nordic queue and cost bands from published ISO reports). Stranded value assumes " + eurCompact(valuePerMwMonth) + "/MW-month. Directional, not bankable — a paid GridForge Power Audit confirms site-specific figures. timetopower.ai";
+  const disc = "Figures combine live feeds (EPEX day-ahead for Central EU) with documented modeled estimates (US/Nordic queue and cost bands from published ISO reports). Stranded value assumes " + eurCompact(valuePerMwMonth) + "/MW-month. Directional, not bankable — a paid GridForge engagement confirms site-specific figures.";
   const dlines = doc.splitTextToSize(disc, W - M * 2);
   doc.text(dlines, M, y);
 

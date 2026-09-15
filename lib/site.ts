@@ -6,7 +6,31 @@
 // stage engineering practice. Do not add fabricated customers or metrics.
 // ============================================================================
 
+/**
+ * The site's own address, in one place.
+ *
+ * It was in six: layout metadata, JSON-LD, robots.txt, sitemap.xml, llms.txt and
+ * the citation endpoint all hardcoded a Vercel preview domain, while every email,
+ * Stripe success URL and deliverable link hardcoded the real one. Search engines
+ * and AI crawlers were being told the canonical home of the site was a preview
+ * URL, which splits authority away from the domain that actually serves it — and
+ * the citation we ask people to use pointed at the wrong place.
+ *
+ * Set NEXT_PUBLIC_SITE_URL on a preview deployment. Everything else follows.
+ */
+export const SITE_URL: string = (
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.SITE_URL ||
+  "https://timetopower.ai"
+).replace(/\/$/, "");
+
+export function siteUrl(path = ""): string {
+  if (!path) return SITE_URL;
+  return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 export const SITE = {
+  url: SITE_URL,
   // Social profiles — fill in each URL as the account goes live.
   // Leave as empty string to keep the footer icon inactive (renders, links to #).
   social: {
@@ -73,38 +97,53 @@ export const PROBLEM_CARDS = [
   },
 ];
 
-// What GridForge actually sells today — real, deliverable engineering work.
+/**
+ * What can actually be bought.
+ *
+ * This advertised a Power Audit, a Feasibility Study with LCOE and IRR, an
+ * Integration Design package ready to hand to an EPC, and commissioning of a
+ * predictive control layer. None of it is a thing this practice does, two of them
+ * would require owning energy assets that the capital rule forbids outright, and
+ * the fee bands attached to them existed nowhere in the engine's catalogue.
+ *
+ * A services list describing a different company is not an aspiration. It is a
+ * claim, and the first competent buyer to ask for a reference finds out.
+ *
+ * Prices are deliberately NOT here. They live in lib/products.ts, parity-tested
+ * against gridforge/commercial.py, so a fee cannot be quoted on a page the engine
+ * has never heard of.
+ */
 export const SERVICES = [
   {
     icon: "search",
-    title: "Power Audit & Site Assessment",
-    desc: "Behind-the-meter feasibility, load profiling, interconnection-status review, and risk modeling for a candidate site. A clear, evidence-based go / no-go.",
-    deliverable: "Go / no-go decision + preliminary sizing",
-    timeline: "10–14 days",
+    title: "Density Screen",
+    desc: "One hall, five working days. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
+    deliverable: "Screening document, the first six rungs of the ladder, and a data request",
+    timeline: "5 working days",
     flagship: true,
   },
   {
     icon: "trending",
-    title: "Feasibility Study & Financial Model",
-    desc: "LCOE, IRR, and sensitivity analysis across fuel, storage, and incentive scenarios. Built to survive an investment committee, not a pitch deck.",
-    deliverable: "Bankable financial model + offtake options",
-    timeline: "3–5 weeks",
+    title: "Capacity & Density Envelope Study",
+    desc: "Five cooling architectures compared under one model, the full headroom ladder with costs and lead times, time to power, sensitivity, economics, and the provenance of every figure.",
+    deliverable: "Envelope Study, a walkthrough with your engineers, and a model pack you keep",
+    timeline: "25 working days",
     flagship: false,
   },
   {
     icon: "ruler",
-    title: "Integration Design & Engineering",
-    desc: "Single-line diagrams, protection coordination, EMS architecture, and vendor selection for a hybrid behind-the-meter system. Ready to hand to an EPC.",
-    deliverable: "Ready-to-permit design package",
-    timeline: "Scoped per site",
+    title: "Procurement Specification",
+    desc: "The tender document the study implies: every duty derived from a constraint in your hall and quoted at your site's own conditions, never at a manufacturer's reference condition. We name no make and no model.",
+    deliverable: "Specification, a response schedule, and your bids ranked in racks and weeks",
+    timeline: "12 working days",
     flagship: false,
   },
   {
     icon: "check",
-    title: "Commissioning & EMS Tuning",
-    desc: "On-site or remote commissioning support, performance validation, and tuning of the predictive control layer against real load telemetry.",
-    deliverable: "Validated performance + tuned controls",
-    timeline: "Engagement-based",
+    title: "Hall Watch",
+    desc: "The model stays live. Re-solved on a cadence and whenever you change an input, with a change note naming what moved and which input moved it — including when the movement came from our side.",
+    deliverable: "A quarterly change note, and an unlimited re-run when your numbers change",
+    timeline: "Continuous",
     flagship: false,
   },
 ];
@@ -233,39 +272,20 @@ export const COMPARATOR = {
   revSource: "Derived from public hyperscale colo lease ranges, 2025",
 } as const;
 
-// Modular configurator reference variants. These map to the REF-0x designs in
-// ARCHITECTURES — indicative sizing envelopes, not fixed quotes.
-export const CONFIG_VARIANTS = [
-  {
-    code: "REF-01-S",
-    name: "Skid · sub-40 MW",
-    mwMax: 40,
-    firmMix: "Gas baseload + BESS",
-    deployMonths: 14,
-    note: "Single-skid hybrid for a first phase or edge training pod.",
-  },
-  {
-    code: "REF-01-M",
-    name: "Containerized · 40–120 MW",
-    mwMax: 120,
-    firmMix: "Gas + fuel-cell firming + BESS + renewables",
-    deployMonths: 18,
-    note: "Phased containerized build; capacity tracks the cluster ramp.",
-  },
-  {
-    code: "REF-01-L",
-    name: "Campus · 120 MW+",
-    mwMax: 9_999,
-    firmMix: "Multi-genset + fuel cell + utility-scale BESS + PPA",
-    deployMonths: 24,
-    note: "Campus-scale hybrid with grid as secondary reliability layer.",
-  },
-] as const;
-
-// Indicative pricing bands for the productized services. Fixed-scope entry
-// points; ranges, not quotes — every engagement is scoped to the site.
-export const PACKAGES = [
-  { tier: "Power Audit & Site Assessment", band: "€25k–€45k", basis: "Fixed scope · 10–14 days", anchor: true },
-  { tier: "Feasibility Study & Financial Model", band: "€45k–€95k", basis: "Per site · 3–5 weeks" },
-  { tier: "Integration Design & Engineering", band: "Scoped per site", basis: "Quoted after feasibility" },
-] as const;
+// TWO BLOCKS WERE REMOVED HERE, AND WHY.
+//
+// CONFIG_VARIANTS described skid / containerized / campus builds to "120 MW+"
+// with gensets, fuel cells, utility-scale BESS, PPAs and deployment months
+// attached. We do not build, own or fund any of that, and the capital rule is
+// explicit that physical deployment is customer-funded. Sizing envelopes for
+// plant we would never supply are fictitious capacity wearing the clothes of a
+// product sheet.
+//
+// PACKAGES was a second price list — Power Audit EUR 25k-45k, Feasibility Study
+// EUR 45k-95k — which /pricing rendered ABOVE the real engagement ladder. A buyer
+// met two unrelated fee structures from two different businesses on one page.
+// Neither band existed anywhere in the engine's commercial catalogue, so the
+// parity test could not see them and nothing failed.
+//
+// The catalogue in lib/products.ts, parity-tested against gridforge/commercial.py,
+// is the only price list. Prices do not live in this file.

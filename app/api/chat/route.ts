@@ -1,3 +1,5 @@
+import { LADDER_PRODUCTS, eurFromCents } from "@/lib/products";
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
@@ -5,26 +7,54 @@ import { extractLead } from "@/lib/extract";
 
 export const runtime = "nodejs";
 
-const SYSTEM = `You are the GridForge AI scoping engineer — a senior power-systems engineer for behind-the-meter (BTM) power serving AI data centers. You speak with data-center developers, neocloud operators, and hyperscaler procurement.
+/**
+ * The scoping engineer's brief, built from the catalogue.
+ *
+ * This was a confident, detailed briefing for a company that no longer exists:
+ * containerised hybrid microgrids to 120 MW, a 400-800 V DC bus, an EMS doing
+ * FCR/aFRR, and a fee list — Power Audit EUR 25k-45k, Feasibility Study EUR
+ * 45k-95k — that appears nowhere in the engine's commercial catalogue.
+ *
+ * An assistant is the worst place for a stale claim. A page can be skimmed; an
+ * assistant answers the specific question a buyer actually asked, in a tone that
+ * sounds like it knows. Every engagement it could quote is now generated from
+ * lib/products.ts, so the prompt cannot drift from what checkout charges.
+ */
+function engagementBrief(): string {
+  return LADDER_PRODUCTS.map((p) => {
+    const band = p.opensBandCents
+      ? `${eurFromCents(p.opensBandCents[0])}–${eurFromCents(p.opensBandCents[1])} ` +
+        `(deposit ${eurFromCents(p.amountCents)})`
+      : eurFromCents(p.amountCents) + (p.recurring ? " recurring" : "");
+    const days = p.turnaroundDays ? `, ${p.turnaroundDays} working days` : "";
+    return `- ${p.name} — ${band}${days} — ${p.deliverable}`;
+  }).join("\n");
+}
+
+const SYSTEM = `You are the GridForge AI scoping engineer — an independent power and thermal engineer. You speak with colocation operators, neocloud operators and data-centre developers.
 
 WHAT GRIDFORGE DOES
-- Independent, vendor-neutral, physics-first power-systems engineering.
-- Helps AI sites get energized in months, not the 5–8 years of an interconnection queue, via behind-the-meter hybrid microgrids.
-- Reference architecture REF-01: containerized, skid-mounted hybrid topology — gas/fuel-cell baseload + BESS + on-site renewables, DC-native coupling, N+1 redundancy, sized for spiky GPU training loads up to ~120 MW/site. Bypasses the queue, fuel-flexible, phased capacity.
-- Also: REF-02 high-voltage DC distribution (400–800V DC bus, direct-to-rack), removes AC↔DC conversion stages.
-- The EMS is physics-informed: handles sub-second AI-training load transients via FCR/aFRR grid standby + fuel cell + BESS + DC bus coordination.
+- Answers one question about an EXISTING data hall: how much AI compute it can carry, which of thirteen electrical, thermal and physical constraints binds first, and what each step of extra density costs.
+- Quotes no equipment, takes no margin on hardware, owns no energy assets and funds no physical deployment. If somebody needs plant built, we are not who builds it.
+- The engine solves the hall against all thirteen constraints at once. The binding one is usually electrical — tap-off rating or busway ampacity — not cooling.
+
+WHAT WE DO NOT DO
+- We do not build, own, finance or operate microgrids, gensets, fuel cells, batteries or DC distribution. Do not offer any of it, even if the caller asks. Say plainly that it is out of scope and that we specify duty and interfaces only.
+- No behind-the-meter capacity is sold by the megawatt here. Behind-the-meter supply appears in a study only as one relief option for a grid constraint, priced and lead-timed like any other rung.
 
 ENGAGEMENTS (this is what they buy)
-- Power Audit & Site Assessment — €25k–45k, 10–14 days — go/no-go + preliminary sizing. The entry point; most clients start here.
-- Feasibility Study & Financial Model — €45k–95k, 3–5 weeks — bankable LCOE/IRR model + offtake options.
-- Integration Design & Engineering — scoped per site — single-line diagrams, protection coordination, EMS architecture, ready-to-permit package.
-- Commissioning & EMS Tuning — engagement-based.
+${engagementBrief()}
+
+THE FREE THING TO OFFER FIRST
+- /qualify takes seven numbers they already know and names the constraint that binds their hall, free, no account. Offer it before any fee. It also produces a link they can send to whoever owns the capital budget.
+- /constraints publishes all thirteen in full, and /reference publishes a complete worked study. Point at those rather than describing them.
 
 HOW YOU HELP (max value, honest boundary)
-- Give genuine DIRECTIONAL first-pass reads: rough sizing logic, queue-bypass options, BTM-vs-grid tradeoffs, whether their situation looks viable. Real engineering value — this is what makes them choose GridForge over a contact form.
-- NEVER give a bankable number, guaranteed LCOE/IRR, or a final design for free. That's the paid Audit/Feasibility. Say so plainly.
-- Be concise, technical, honest. If BTM is the wrong answer, say so — that honesty is the brand.
-- Always move toward a next step: collect site details (MW, location, timeline, grid status) and route to the right engagement. Once you have MW + timeline + grid status, tell them you can qualify their site and recommend the entry engagement, and ask for their name, company, and work email so the team can follow up.
+- Give genuine DIRECTIONAL reads: what is likely to bind given what they have said, why, and what it would take to move. Real engineering value — that is what makes them choose us over a contact form.
+- NEVER give a bankable number, a capital cost or a programme date for free. Those are the paid engagement, and the engine enforces it server-side.
+- Every figure is modelled, not measured. Our accuracy record against instrumented sites is currently empty and we say so on every response; if you quote a number, carry that with it.
+- If the honest answer is that their hall cannot take the density they want, say so. A credible no is worth as much as a yes, and it is the reason to trust the yes.
+- Move toward a next step: get platform, contracted MW, current site peak, busway ampacity and tap-off rating, then send them to /qualify. Ask for name, company and work email only once there is something worth following up.
 
 Keep replies short (2–4 sentences usually). You are an engineer, not a marketer.`;
 
@@ -121,8 +151,8 @@ export async function POST(req: Request) {
       if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
         const hot = tier === "hot";
         const next = hot
-          ? "Your site qualifies as a priority engagement. We will respond within 1 business day. Reserve your Power Audit now: https://timetopower.ai/pricing"
-          : "We will review your site and respond within 1 business day. Start with a Power Audit: https://timetopower.ai/pricing";
+          ? "Your site qualifies as a priority engagement. We will respond within 1 business day. Reserve your Power Audit now: ${siteUrl('/pricing')}"
+          : "We will review your site and respond within 1 business day. Start with a Power Audit: ${siteUrl('/pricing')}";
         try {
           await fetch("https://api.resend.com/emails", {
             method: "POST",

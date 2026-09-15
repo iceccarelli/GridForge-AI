@@ -27,6 +27,13 @@ jobs:
         run: python -c "import gridforge.cli, gridforge.intake.loader, gridforge.envelope"
       - name: Nothing priced may be unbuyable, ungeneratable or undeliverable
         run: python -m pytest tests/test_stack_consistency.py tests/test_catalogue_parity.py -q
+      - name: One domain, one company, one price list
+        run: |
+          # The site carried two businesses: the behind-the-meter practice this
+          # repository began as, and the density engine it became. Both were live,
+          # with two fee structures on one pricing page, and every canonical URL
+          # pointed at a preview domain while every email pointed at the real one.
+          python -m pytest tests/test_one_company.py -q
       - name: Nothing foreign at the root, and no patch committed anywhere
         run: |
           # A patch file and a build tool from another project both reached public
@@ -454,6 +461,23 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx next lint
       - run: npm run build
+      - name: A token-addressed page may not be indexed or leak
+        run: |
+          node -e "
+          const fs = require('node:fs');
+          const robots = fs.readFileSync('app/robots.ts', 'utf8');
+          for (const p of ['/q/', '/deliverable/', '/watch/', '/intake/', '/api-access/']) {
+            if (!robots.includes(JSON.stringify(p))) {
+              console.error('not disallowed for crawlers:', p); process.exit(1);
+            }
+          }
+          for (const f of ['app/q/[token]/page.tsx', 'app/api-access/[token]/page.tsx']) {
+            if (!fs.readFileSync(f, 'utf8').includes('index: false')) {
+              console.error('not noindex:', f); process.exit(1);
+            }
+          }
+          console.log('token-addressed pages are closed');
+          "
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'

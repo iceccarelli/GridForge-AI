@@ -239,6 +239,7 @@ ROOT_FILES = {
     ".eslintrc.json": "lint config",
     ".gitignore": "",
     "Dockerfile": "the engine image",
+    "HANDOFF.md": "the brief a new agent or engineer starts from",
     "Makefile": "",
     "README.md": "",
     "fly.toml": "engine deployment",
@@ -314,6 +315,15 @@ def test_the_apply_script_removes_the_patch_it_applied():
         "the patch must be removed in the SAME commit that applies it, or the "
         "history records a file that was never meant to be part of the project")
     assert "git reset -q --hard" in src, "a failing patch must roll back"
+    # Behaviour is asserted properly in tests/test_patch_intake.py, against a real
+    # throwaway repository. These two are here so that deleting either capability
+    # fails the consistency suite as well, where someone reading the joins will see it.
+    assert "sweeping" in src, (
+        "a patch uploaded through the GitHub web interface lands at the repository "
+        "root; the script must sweep it into inbox/ rather than fail")
+    assert "baseline" in src, (
+        "the script must record which tests were ALREADY failing and roll back only "
+        "on NEW ones — it reverted a good patch twice for a failure it did not cause")
 
 
 def test_the_runbook_documents_every_command_the_cli_offers():
@@ -328,3 +338,68 @@ def test_the_runbook_documents_every_command_the_cli_offers():
     undocumented = sorted(c for c in commands
                           if f"gridforge {c}" not in runbook and f"`{c}`" not in runbook)
     assert not undocumented, f"CLI commands absent from the runbook: {undocumented}"
+
+
+# --- every recurring product survives its own billing lifecycle ---------------
+
+WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_text()
+
+#: Every table that holds something sold on a Stripe subscription, and the lookup
+#: that resolves a subscription id to a row in it. Add a third recurring product
+#: and it belongs here, or its cancellation will be silently unhandled.
+SUBSCRIPTION_LOOKUPS = {
+    "api_accounts": "findBySubscription",
+    "watches": "watchBySubscription",
+}
+
+#: The events that decide whether we keep doing work for someone.
+LIFECYCLE_EVENTS = ("invoice.paid", "customer.subscription.deleted", "invoice.payment_failed")
+
+
+def _event_block(event: str) -> str:
+    """The body of one `if (event.type === ...)` handler, comments removed.
+
+    Comments are stripped because these assertions are about what the code DOES. A
+    comment explaining why we do not cancel here contains the word "cancelled", and a
+    test that reads it is testing prose.
+    """
+    marker = f'if (event.type === "{event}")'
+    assert marker in WEBHOOK_TS, f"the webhook no longer handles {event}"
+    rest = WEBHOOK_TS.split(marker, 1)[1]
+    nxt = re.search(r"\n  if \(event\.type ===", rest)
+    block = rest[: nxt.start()] if nxt else rest
+    return "\n".join(l for l in block.splitlines() if not l.lstrip().startswith("//"))
+
+
+@pytest.mark.parametrize("event", LIFECYCLE_EVENTS)
+def test_every_subscription_product_is_resolved_on_every_billing_event(event):
+    """Hall Watch and API access are both sold on a Stripe subscription. For two
+    patches only ONE of them was looked up here.
+
+    The direction of the bug is what makes it worth a test. Billing was fine — the
+    subscription renewed by itself. What did not happen was the reverse: a cancelled
+    or unpaid Hall Watch never left status "active", dueWatches() filters on exactly
+    that, and the weekly cron went on generating and sending quarterly change notes
+    to somebody who had stopped paying. Free consulting, delivered on a schedule,
+    with nothing in the system that would ever notice.
+
+    A revenue product that cannot be switched off is not a smaller bug than one that
+    cannot be switched on.
+    """
+    block = _event_block(event)
+    missing = [table for table, fn in SUBSCRIPTION_LOOKUPS.items() if fn not in block]
+    assert not missing, (
+        f'the "{event}" handler never looks up: {missing}. Every table holding a '
+        f"recurring product must be resolved on every lifecycle event, or that "
+        f"product keeps being delivered after it stops being paid for.")
+
+
+def test_a_failed_payment_pauses_a_watch_rather_than_cancelling_it():
+    """Stripe retries a failed card. A client whose card fails on Tuesday and clears
+    on Thursday must not have lost the quarter they paid for."""
+    block = _event_block("invoice.payment_failed")
+    assert '"paused"' in block, "a failed payment must pause the watch, not cancel it"
+    assert '"cancelled"' not in block, (
+        "invoice.payment_failed must not cancel — only customer.subscription.deleted does")
+    assert '"paused"' in _event_block("invoice.paid"), (
+        "a payment that clears must bring a paused watch back")

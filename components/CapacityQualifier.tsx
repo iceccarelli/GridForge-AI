@@ -74,6 +74,7 @@ export function CapacityQualifier() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QualifyResult | null>(null);
   const [headline, setHeadline] = useState<string>("");
+  const [share, setShare] = useState<string | null>(null);
 
   const set = (key: keyof Values, raw: string) =>
     setValues((v) => ({ ...v, [key]: raw === "" ? 0 : Number(raw) }));
@@ -83,6 +84,7 @@ export function CapacityQualifier() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setShare(null);
     try {
       const res = await fetch("/api/qualify", {
         method: "POST",
@@ -96,6 +98,7 @@ export function CapacityQualifier() {
       }
       setResult(body.result as QualifyResult);
       setHeadline(String(body.headline ?? ""));
+      setShare(typeof body.share === "string" ? body.share : null);
     } catch {
       setError("Could not reach the engine. Your figures were not lost — try again.");
     } finally {
@@ -219,16 +222,25 @@ export function CapacityQualifier() {
         </div>
       ) : null}
 
-      {result ? <QualifyReadout result={result} headline={headline} /> : null}
+      {result ? <QualifyReadout result={result} headline={headline} share={share} /> : null}
     </div>
   );
 }
 
-function QualifyReadout({ result, headline }: { result: QualifyResult; headline: string }) {
+function QualifyReadout({
+  result,
+  headline,
+  share,
+}: {
+  result: QualifyResult;
+  headline: string;
+  share: string | null;
+}) {
   const { as_found: found, after_relief: after, intake } = result;
   return (
     <div className="mt-8 animate-slide-up">
       <p className="text-lg text-ghost leading-snug max-w-3xl">{headline}</p>
+      {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
@@ -406,6 +418,57 @@ function Readout({
         {value}
         {suffix ? <span className="text-sm text-faint font-normal"> {suffix}</span> : null}
       </p>
+    </div>
+  );
+}
+
+
+/**
+ * The link out.
+ *
+ * This answer is usually read by an operations engineer, and the decision it leads
+ * to is usually signed by somebody else. Until there was a link, the engineering
+ * stopped at whoever happened to be at the keyboard — which is not a marketing
+ * problem, it is the answer failing to reach the person who can act on it.
+ *
+ * Placed directly under the headline rather than at the end: the moment to forward
+ * something is the moment you have just read the thing worth forwarding.
+ */
+function ShareLink({ href }: { href: string }) {
+  const [copied, setCopied] = React.useState(false);
+  const url = typeof window === "undefined" ? href : new URL(href, window.location.origin).toString();
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* the link is visible and selectable either way */
+    }
+  }
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3 rounded border border-power/40 bg-power/5 px-4 py-3">
+      <div className="min-w-56 flex-1">
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
+          Send this to whoever owns the capex
+        </p>
+        <p className="mt-1 text-xs text-mute">
+          A permanent page with the binding constraint, what it takes to move it, and how this
+          hall compares with every other one the engine has seen. Private to whoever holds the
+          link.
+        </p>
+      </div>
+      <a href={href} target="_blank" rel="noreferrer" className="text-sm text-power underline">
+        Open
+      </a>
+      <button
+        onClick={copy}
+        className="rounded bg-power px-4 py-2 text-sm font-semibold text-ink"
+      >
+        {copied ? "Copied" : "Copy link"}
+      </button>
     </div>
   );
 }

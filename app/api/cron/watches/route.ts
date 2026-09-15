@@ -1,3 +1,4 @@
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import {
   dueWatches,
@@ -87,7 +88,7 @@ async function notify(w: WatchRecord, headline: string): Promise<void> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
   if (!key || !from || !w.email) return;
-  const base = process.env.SITE_URL || "https://timetopower.ai";
+  const base = SITE_URL;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",

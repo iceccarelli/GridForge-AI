@@ -1,3 +1,4 @@
+import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 
@@ -169,8 +170,8 @@ async function notify(record: LeadRecord): Promise<void> {
   if (apiKey && realEmail) {
     const hot = record.tier === "hot";
     const nextSteps = hot
-      ? "Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nYou can reserve your Power Audit now \u2014 a fully-credited deposit secures senior engineering capacity, and the Founding Partner credit applies while slots remain:\nhttps://timetopower.ai/pricing"
-      : "We will review your site and respond within 1 business day.\n\nThe entry point is a Power Audit & Site Assessment (10\u201314 days): a clear go / no-go plus preliminary sizing. Details and pricing:\nhttps://timetopower.ai/pricing";
+      ? "Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nYou can reserve your Power Audit now \u2014 a fully-credited deposit secures senior engineering capacity, and the Founding Partner credit applies while slots remain:\n${siteUrl('/pricing')}"
+      : "We will review your site and respond within 1 business day.\n\nThe entry point is a Power Audit & Site Assessment (10\u201314 days): a clear go / no-go plus preliminary sizing. Details and pricing:\n${siteUrl('/pricing')}";
     try {
       await fetch("https://api.resend.com/emails", {
         method: "POST",
