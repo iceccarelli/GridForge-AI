@@ -140,19 +140,72 @@ unconfigured dependencies, and a store that is present but refusing.
 
 ---
 
-## G7 — Open, and deliberately not decided here
+## G7 — A second price list, invisible to the guard that exists to stop them *(resolved)*
 
-`lib/subscriptions.ts` holds the Intelligence plan prices as `priceCents`
-(€499 / €1,999 / €4,999 a month) and renders them through a formatter. The
+`lib/subscriptions.ts` held the Intelligence plan prices as `priceCents`
+(€499 / €1,999 / €4,999 a month) and rendered them through a formatter. The
 repository's "one price list" rule says a euro figure may appear only in
-`lib/products.ts`, but the guard looks for the `€` character, so a cents-denominated
-price is invisible to it.
+`lib/products.ts` — but the guard looks for the `€` character, so a
+cents-denominated price was invisible to it. A second fee structure, in plain
+sight, that nothing could see.
 
-**Not fixed, on purpose.** Whether a recurring software subscription belongs in a
-catalogue of engine engagements is a commercial decision, not a refactor. What this
-mission did instead is make the exception *visible*:
-`test_no_price_hides_from_the_guard_by_being_written_in_cents` declares each file
-allowed to carry a cents price and the reason, and fails if a second one appears.
+**First position, and it was wrong.** This was initially left open on the reasoning
+that "a recurring software subscription is not an engine engagement, so whether it
+belongs in the catalogue is a commercial decision". The catalogue contradicts that:
+`lib/products.ts` already prices `hall_watch`, which recurs, and `api_triage` /
+`api_scale` / `api_platform`, which are metered software subscriptions involving no
+engineering hours at all. Intelligence is the same shape as those and was simply
+missing. The evidence was in the file the whole time.
 
-**Recommended next action:** decide whether Intelligence folds into
-`lib/products.ts`, then delete the exception.
+**Resolved.** The prices moved to `INTELLIGENCE_PLANS` in `lib/products.ts`;
+`lib/subscriptions.ts` keeps only the sales copy — tagline, features, which tier is
+highlighted — and reads name and price from the catalogue. Its public API is
+unchanged, so `/intelligence` and `/api/subscribe` were untouched; verified live
+rendering €499 / €1,999 / €4,999 from the catalogue.
+
+The guard exception is **deleted**, because the exception no longer exists.
+`tests/test_catalogue_parity.py` gains four checks, including the rule already
+applied to the API plans: a monthly subscription must stay clearly under the
+flagship study, or a buyer is comparing a JSON feed with an engineering opinion
+that carries a named signatory and finding them similarly priced.
+
+---
+
+## G8 — Open, and a decision rather than a defect: what an intake may omit
+
+Found while driving the paid fulfilment path end to end.
+
+`lib/engagement-intake.ts` requires twelve physics fields, and
+`components/EngagementIntake.tsx` marks every one of them HTML-`required`. That is
+consistent and deliberate — not an oversight.
+
+Four things in the repository say the opposite:
+
+1. That file's own docstring: *"Anything left blank becomes a library default AND is
+   named as an assumption in the delivered document, so an incomplete form degrades
+   honestly rather than silently."*
+2. Its sibling `compact()`: *"Drop keys whose value is undefined so the engine
+   records them as gaps"* — a path those twelve fields can never take.
+3. The intake page's promise to the customer: *"every one you leave blank is filled
+   from a library default and named as an assumption in the document you receive."*
+4. The engine. A missing required field is a **gap**, not a rejection;
+   `can_issue` goes false and `engagement_recommendation` reads *"the study can
+   proceed in parallel on everything else"* and, for a thin intake, **"Sell the
+   Density Screen instead."**
+
+**The commercial consequence.** The Density Screen is the €4,500 product the engine
+recommends *precisely when the data is thin*, and its form will not accept thin
+data. A buyer who does not have `floorLoadingKPa` — a structural-survey figure — or
+a precise `plantCapacityKW` cannot submit anything at all, having already paid.
+
+**Deliberately not changed here.** It alters what a paying customer may submit; the
+UI was built the other way on purpose; and the wrong call either blocks fulfilment
+(today) or issues thin studies and damages the credibility the practice rests on.
+
+**Recommendation, for the founder to take or reject:** make it product-aware —
+optional for `density_screen`, required for `envelope_study` — which is the rule
+the engine already states. That needs no new commercial decision, only a choice to
+apply the engine's own.
+
+This is the largest remaining fulfilment risk on the flagship product.
+
