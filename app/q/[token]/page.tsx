@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CommissionScreen } from "@/components/CommissionScreen";
 import { AlertTriangle, ArrowRight, Users } from "lucide-react";
 import { BENCHMARK_MIN_HALLS, benchmark, getQualification } from "@/lib/qualify";
 import { constraintReference } from "@/lib/constraints";
@@ -167,12 +168,15 @@ export default async function QualificationPage({
             credits in full against the full study.
           </p>
         </div>
-        <Link
-          href="/pricing"
-          className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
-        >
-          {eur(screen.amountCents)} — commission it <ArrowRight className="h-4 w-4" />
-        </Link>
+        <CommissionScreen
+          productId={screen.id}
+          qualificationId={q.id}
+          company={q.company}
+          capacityMW={
+            typeof q.inputs?.contractedMW === "number" ? q.inputs.contractedMW : null
+          }
+          label={`${eur(screen.amountCents)} — commission it`}
+        />
         <Link
           href="/reference"
           className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"

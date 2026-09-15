@@ -221,9 +221,27 @@ async function main() {
   ok("the share link resolves", (await fetch(`${SITE}/q/${shareToken}`)).status === 200);
   ok("a token never minted 404s", (await fetch(`${SITE}/q/not-a-real-token`)).status === 404);
 
+  // The share link exists so the read reaches the person who signs. Its
+  // "commission it" button linked to /pricing, so that person clicked to buy and
+  // landed on a generic price list with the hall, the constraint and the
+  // qualification all gone. Every share was a conversion handed back to the top of
+  // the funnel.
+  const qualId = (await (await sb(`qualifications?token=eq.${shareToken}&select=id`)).json())?.[0]?.id;
+  const sharePage = await (await fetch(`${SITE}/q/${shareToken}`)).text();
+  ok("the share page offers the engagement at its price",
+     sharePage.includes("commission it") && sharePage.includes("4,500"));
+  // The CTA itself must be a control that starts checkout, not an anchor to the
+  // price list. The Navbar's own "Pricing" link is a different thing and stays.
+  const ctaIsButton = /<button[^>]*>[^<]*commission it/.test(sharePage);
+  const ctaIsPricingLink = /href="\/pricing"[^>]*>[^<]*commission it/.test(sharePage);
+  ok("and commissions it in place rather than sending the buyer to a price list",
+     ctaIsButton && !ctaIsPricingLink,
+     ctaIsButton ? "checkout control present" : "the CTA is still a link");
+  ok("carrying the qualification the read came from",
+     sharePage.includes(String(qualId ?? "\u0000")), "qualification id on the page");
+
   // --- the flagship engagement ----------------------------------------------
   head("The engagement — purchase to delivered document");
-  const qualId = (await (await sb(`qualifications?token=eq.${shareToken}&select=id`)).json())?.[0]?.id;
   const paid = await hook(
     checkout("density_screen", { metadata: { kind: "density_screen", company: "North Hall", qualification_id: qualId } })
   );

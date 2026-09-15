@@ -220,6 +220,42 @@ otherwise was wrong and was removed.
 
 ---
 
+## L10 — The page built for the buyer could not take their money
+
+Patch 0024 built `/q/<token>` for one stated reason: *"The person who types seven
+numbers into a capacity qualifier is an operations engineer. The person who signs
+off a five-figure study is a director. The distance between them is a link."*
+
+That page carried a private read of the director's own hall, with the binding
+constraint named on it, under a button reading **"€4,500 — commission it"**.
+
+The button linked to **`/pricing`**.
+
+So the one person on the site with the budget, at the moment of highest intent,
+clicked to buy and landed on a generic price list — the hall gone, the constraint
+gone, the qualification gone. Every share was a conversion handed back to the top
+of the funnel. The qualifier in the engineer's own tab had a real checkout call;
+the page built for the payer did not.
+
+Now a `CommissionScreen` control that starts checkout in place, carrying the
+qualification id so the engagement opens joined to the read it was bought from.
+
+**And a hazard closed in the same pass.** `deliverables.qualification_id` is a
+`uuid` with a foreign key. Anything else fails the insert — and because a failed
+fulfilment now correctly returns 500 so Stripe redelivers, a malformed id from the
+client would have turned a **real payment** into one that could never be fulfilled
+and would be retried until Stripe gave up. This is a risk my own earlier fix
+created. The checkout route now drops an id that could never be stored and lets the
+sale proceed unattached: the id is a convenience, the payment is not.
+
+17 checkout tests, 7 of which fail against the pre-fix code, covering
+`'; drop table--`, `../../etc/passwd`, an over-length uuid, a non-string, and an
+uppercase uuid (which Postgres accepts, so we must too). Plus three end-to-end
+criteria: the share page offers the engagement at its price, commissions it in
+place rather than linking to the price list, and carries the qualification.
+
+---
+
 ## The checklist, and where each case is exercised
 
 | Case | Result |
@@ -244,7 +280,7 @@ otherwise was wrong and was removed.
 | webhook redelivered after success | one fulfilment, enforced by a unique index |
 | unknown token on any addressed page | 404 |
 
-**127 executable site tests**, plus 397 engine tests.
+**154 executable site tests**, plus 397 engine tests.
 
 ---
 

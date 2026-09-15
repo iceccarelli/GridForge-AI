@@ -6,6 +6,9 @@ import { PRODUCTS, isProductId } from "@/lib/products";
 
 export const runtime = "nodejs";
 
+/** RFC 4122 shape. The database column is a uuid; nothing else can be stored. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Creates a Stripe Checkout Session.
 //
 // Two shapes. Without `product` it is the engagement reservation deposit, exactly
@@ -40,8 +43,19 @@ export async function POST(req: Request) {
   const wantsFounding = body.founding === true;
   const productId = isProductId(body.product) ? body.product : null;
   const product = productId ? PRODUCTS[productId] : null;
-  const qualificationId =
-    typeof body.qualificationId === "string" ? body.qualificationId : "";
+  // `deliverables.qualification_id` is a uuid with a foreign key to
+  // `qualifications`. Anything else fails the insert — and since a failed
+  // fulfilment now (correctly) returns 500 so Stripe redelivers, a malformed id
+  // from the client would turn a real payment into one that can never be
+  // fulfilled, retried forever. The id is a convenience, not a requirement, so a
+  // value that cannot possibly be one is dropped rather than carried into the
+  // payment. The purchase still completes; it simply arrives unattached.
+  const rawQualificationId =
+    typeof body.qualificationId === "string" ? body.qualificationId.trim() : "";
+  const qualificationId = UUID.test(rawQualificationId) ? rawQualificationId : "";
+  if (rawQualificationId && !qualificationId) {
+    console.warn("[GridForge] checkout ignored a malformed qualificationId:", rawQualificationId.slice(0, 64));
+  }
 
   const origin = checkoutOrigin(req.headers.get("origin"));
 
