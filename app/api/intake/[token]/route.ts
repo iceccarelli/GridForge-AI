@@ -92,11 +92,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
-  // What bound, read out of the working files the engine just produced. Stored
+  // What bound, as the engine reported it. Stored
   // under a namespaced key so the client's own intake stays exactly as they
   // entered it — the follow-on offer names their constraint rather than a generic
   // one, and an unreadable bundle simply means it does not.
-  const binding = bindingFrom(rendered.working);
+  // Prefer the engine's own field; fall back to the working-file bundle, which is
+  // all the Study used to have and all a Screen never had.
+  const binding = rendered.binding ?? bindingFrom(rendered.working);
 
   await updateByToken(token, {
     status: "draft",

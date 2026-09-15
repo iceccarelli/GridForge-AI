@@ -190,6 +190,34 @@ Two guards added: every `app/*/[token]/page.tsx` must resolve its token through 
 server-side lookup, and must be `force-dynamic` — a token page rendered at build
 time would serve one customer's read to whoever asked next.
 
+## L9 — The most valuable upsell in the business was running blind
+
+Not a leak — a conversion defect, and it had been live on **every Density Screen
+ever sold**.
+
+When an engagement is generated the route stores the hall's binding constraint so
+the follow-on offer names *that* rather than a generic one. It read the figure out
+of `scenarios.csv` in the working-file bundle. **A Density Screen does not produce
+one.** Its catalogue entry promises the document, the ladder and the data request
+and no working files, and `/v1/screen` has no csv format at all — correctly,
+because none was sold.
+
+So `_gridforge.binding` was never set for a Screen. The Density Screen is the
+€4,500 entry product whose entire commercial purpose is to `creditsAgainst` the
+Envelope Study, which makes screen → study the most valuable upsell in the
+business; and it was offering every customer a generic constraint while the
+customer's own sat one field away in the payload the engine already returns.
+
+Now read from `scenarios[0].as_found.binding_name`, with the CSV kept as the
+fallback so the Study path is unchanged. **Verified live:** a Density Screen now
+captures *"Rack feed / tap-off rating"* — the hall's actual constraint. Two of the
+nine new tests fail against the pre-fix code.
+
+**Corrected in the same pass:** an earlier draft of this report listed missing
+working files on a Density Screen as a defect. It is not — the catalogue does not
+promise them, and the engine is right to withhold them. The test that asserted
+otherwise was wrong and was removed.
+
 ---
 
 ## The checklist, and where each case is exercised
@@ -216,7 +244,7 @@ time would serve one customer's read to whoever asked next.
 | webhook redelivered after success | one fulfilment, enforced by a unique index |
 | unknown token on any addressed page | 404 |
 
-**118 executable site tests**, plus 397 engine tests.
+**127 executable site tests**, plus 397 engine tests.
 
 ---
 

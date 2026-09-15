@@ -147,6 +147,8 @@ export async function renderDeliverable(
       md: string;
       deck: string | null;
       working: Record<string, string> | null;
+      /** What binds the hall as found, straight from the engine's own payload. */
+      binding: string | null;
     }
   | { ok: false; error: string }
 > {
@@ -185,6 +187,45 @@ export async function renderDeliverable(
       const body = (await res.json()) as { document_full?: string };
       return body.document_full ?? null;
     } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The binding constraint, from the engine's structured answer.
+   *
+   * It used to be read only out of `scenarios.csv` in the working-file bundle —
+   * and a Density Screen does not produce one. Its catalogue entry promises the
+   * document, the ladder and the data request, and no working files; `/v1/screen`
+   * has no csv format at all and is right not to.
+   *
+   * So for the Density Screen — the EUR 4,500 entry product whose whole commercial
+   * purpose is to credit against the Envelope Study — the follow-on offer named a
+   * generic constraint instead of the customer's own. That is the single most
+   * valuable upsell in the business and it was running blind on every screen ever
+   * sold. The figure was there the whole time, one field away, in the payload the
+   * engine already returns.
+   */
+  const structured = async (): Promise<string | null> => {
+    if (endpoint === "spec") return null;
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": key },
+        body: JSON.stringify({ intake }),
+        signal: AbortSignal.timeout(120_000),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error("[GridForge] binding lookup failed:", res.status, await res.text());
+        return null;
+      }
+      const body = (await res.json()) as {
+        scenarios?: { as_found?: { binding_name?: string } }[];
+      };
+      return body.scenarios?.[0]?.as_found?.binding_name ?? null;
+    } catch (err) {
+      console.error("[GridForge] binding lookup error:", err);
       return null;
     }
   };
@@ -228,11 +269,12 @@ export async function renderDeliverable(
   };
 
   try {
-    const [html, md, deckHtml, files] = await Promise.all([
+    const [html, md, deckHtml, files, binding] = await Promise.all([
       call("html"),
       call("md"),
       deck(),
       working(),
+      structured(),
     ]);
     return {
       ok: true,
@@ -241,6 +283,7 @@ export async function renderDeliverable(
       md: md.document,
       deck: deckHtml,
       working: files,
+      binding,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
