@@ -116,19 +116,63 @@ bash scripts/deploy-engine.sh
 #      GRIDFORGE_API_URL, GRIDFORGE_API_KEY
 #      NEXT_PUBLIC_SITE_URL=https://timetopower.ai
 
-# 4. Prove it, in Stripe test mode, against the hosted project:
-#      subscribe → /account shows the plan → save a scenario → cancel in Stripe
-#      → /account drops to the free view
+# 4. Prove it — see VERIFICATION CRITERIA below, which is now a command rather
+#    than a checklist somebody has to remember.
 ```
 
 Verify locally first, exactly as this session did:
 
 ```bash
-python3 -m pytest tests -q        # 393 passed
-npm ci && npx tsc --noEmit && npm test && npm run build
+python3 -m pytest tests -q        # 397 passed
+npm ci && npm test                # 102 passed
+npx tsc --noEmit && npx next lint && npm run build
 ```
+
+## VERIFICATION CRITERIA — now executable
+
+The blocker used to be a paragraph asking a human to remember a checklist. It is a
+command:
+
+```bash
+# 1. READ ONLY. Must pass before any deploy touching a paid surface.
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
+  node scripts/verify-entitlement.mjs --schema
+```
+
+Exits non-zero and names the missing table. Verified both ways in this session:
+**11/11 against a database with the migrations, 7/11 without** — failing on exactly
+`subscriptions` and `scenarios`.
+
+```bash
+# 2. The whole cycle, through the LIVE webhook with a correctly signed event.
+SITE_URL=https://timetopower.ai \
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRET=whsec_… \
+  node scripts/verify-entitlement.mjs --full --yes-write-to-this-database
+```
+
+26 criteria: not-a-subscriber → forged webhook refused → purchase recorded →
+entitlement live on the right plan → redelivery does not double-issue → exactly one
+active row → the subscription id cancellation needs was stored → paid surface
+accepts a write and reads it back → failed payment does not lock out → cancellation
+withdraws → paid surface closes. It writes under a marked `gf-verify+…@` address
+and deletes those rows in a `finally` block. **Verified locally: 26/26, cleanup
+confirmed.**
+
+The second flag is required because it writes to whatever database you point it at.
+Read the URL it prints before you pass it.
+
+## COMMERCIAL PASS CRITERION
+
+GF-001 is commercially complete when, and only when, `--full` reports 26/26 against
+`https://timetopower.ai` and the hosted Supabase project. Until then this mission is
+PARTIAL, whatever CI says.
 
 ## NEXT ACTION
 
-Apply `0009_subscriptions.sql` and `0010_scenarios.sql` to the hosted Supabase
-project, then run step 4 above. That closes the one link this session could not.
+1. Apply `0009_subscriptions.sql` and `0010_scenarios.sql` to the hosted project.
+2. `node scripts/verify-entitlement.mjs --schema` → expect 11/11.
+3. Deploy the branch.
+4. `node scripts/verify-entitlement.mjs --full --yes-write-to-this-database` →
+   expect 26/26.
+5. One real purchase in Stripe **test mode** through `/intelligence`, to exercise
+   Checkout Session creation — the one link no script here can stand in for.

@@ -2,10 +2,20 @@
 
 ## STATUS
 
-**PASS**, with two declared limits stated in full under *WHAT DOES NOT WORK*: the
-migrations have not been applied to a hosted Supabase project, and Stripe's own API
-was never called. Neither is mocked and neither is hidden — both are named, and the
-work they gate is named with them.
+**ENGINEERING PASS. NOT YET A COMMERCIAL PASS.**
+
+The build is complete, every gate is green, and the full purchase→cancellation
+cycle runs end to end locally. But the two migrations have not been applied to the
+hosted Supabase project, so the promised customer outcome has not been observed on
+the deployment that takes the money. Under the standing rule that a green pipeline
+is an engineering gate and not a commercial one, this is PARTIAL until
+`scripts/verify-entitlement.mjs --full` passes against production.
+
+What follows is a PASS on everything that can be established without production
+access. The two things that cannot be — the migrations against a hosted Supabase
+project, and Stripe's own API — are stated in full under *WHAT DOES NOT WORK*.
+Neither is mocked and neither is hidden; both are named, and the work they gate is
+named with them.
 
 ---
 
@@ -15,14 +25,14 @@ work they gate is named with them.
 
 | Suite | Command | Result |
 |---|---|---|
-| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **393 passed** |
-| Site route handlers | `npm test` (`vitest run`) | **59 passed, 4 files** |
+| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **397 passed** |
+| Site route handlers | `npm test` (`vitest run`) | **102 passed, 7 files** |
 | Types | `npx tsc --noEmit` | clean |
 | Lint | `npx next lint` | clean (1 pre-existing warning in `BackgroundReel.tsx`, untouched) |
 | Production build | `npm run build` | compiled successfully; 44 routes; `/q/[token]` present, `/infrastructure` gone |
 
 Baseline at `ea1f62d` was **348 passed, 3 failed**. Every one of those three is now
-green, and the suite has grown to 393 + 59.
+green, and the suite has grown to 397 + 102.
 
 ### The mission's testing checklist
 
@@ -53,6 +63,9 @@ Each fix was reverted to its `HEAD` version and the new tests re-run:
 | `app/api/stripe/webhook/route.ts` | **9 of 16** |
 | `app/api/siting-analysis/route.ts` | **5 of 9** |
 | `scripts/apply-inbox.sh` | **2 of 9** |
+| `app/api/keys/route.ts` | **5 of 17** |
+| `app/api/insights/route.ts` | **2 of 9** |
+| `app/api/admin/login/route.ts` | **4 of 13** |
 
 A suite that passes against the broken code proves nothing. These do not.
 

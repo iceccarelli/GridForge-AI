@@ -888,3 +888,25 @@ and fails on any hardcoded site URL outside the registry.
 component. Half of every quoted range was unsourceable. `Engagement.price_eur_max`
 now carries the top of the band, `opensBandCents` mirrors it into the catalogue, the
 ladder renders from that, and the parity test asserts the two agree.
+
+## Does money actually become entitlement?
+
+CI cannot answer this. It has no database, no Stripe and no deployment, so a fully
+green pipeline is consistent with a customer paying and receiving nothing — which
+is exactly what happened when `subscriptions` and `scenarios` shipped with no
+migration for several releases.
+
+```bash
+# Read-only. Run this before every deploy that touches a paid surface.
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
+  node scripts/verify-entitlement.mjs --schema
+
+# The whole cycle — purchase, replay, paid surface, retry, cancellation — driven
+# through the live webhook with a correctly signed event. Writes rows under a
+# marked gf-verify+… address and deletes them again.
+SITE_URL=… SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRET=… \
+  node scripts/verify-entitlement.mjs --full --yes-write-to-this-database
+```
+
+`--schema` exits non-zero and names the missing table. Both modes print PASS/FAIL
+per criterion, so "we checked" is a transcript rather than a memory.

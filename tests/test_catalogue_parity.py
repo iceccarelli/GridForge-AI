@@ -155,3 +155,68 @@ def test_the_api_scope_names_what_it_is_not():
     joined = " ".join(API_SCOPE_OUT).lower()
     assert "no issued engineering opinion" in joined
     assert "indemnity" in joined
+
+
+# --- GridForge Intelligence ---------------------------------------------------
+
+def intelligence_plans() -> dict[str, dict]:
+    """The Intelligence tiers, parsed out of lib/products.ts.
+
+    They were in lib/subscriptions.ts as bare `priceCents`, next to the copy that
+    described them, where nothing could compare them to anything.
+    """
+    import re
+    src = PRODUCTS_TS.read_text()
+    assert "INTELLIGENCE_PLANS" in src, (
+        "the Intelligence price list left lib/products.ts — it is the only file "
+        "allowed to set a euro figure")
+    body = src.split("export const INTELLIGENCE_PLANS", 1)[1]
+    body = body.split("export const INTELLIGENCE_PLAN_IDS", 1)[0]
+    out: dict[str, dict] = {}
+    for m in re.finditer(r"^  (\w+): \{(.*?)^  \},", body, re.S | re.M):
+        pid, chunk = m.group(1), m.group(2)
+        price = re.search(r"priceCents:\s*([\d_]+)", chunk)
+        name = re.search(r'name:\s*"([^"]+)"', chunk)
+        assert price and name, f"could not read {pid}"
+        out[pid] = {"priceCents": int(price.group(1).replace("_", "")),
+                    "name": name.group(1)}
+    return out
+
+
+def test_no_intelligence_price_is_set_outside_the_catalogue():
+    """lib/subscriptions.ts is presentation now. A price that reappears next to the
+    copy describing it is the second price list coming back."""
+    src = (ROOT / "lib" / "subscriptions.ts").read_text()
+    import re
+    stray = re.findall(r"[Pp]rice[A-Za-z]*\s*:\s*\d{3,}", src)
+    assert not stray, f"a price was typed back into lib/subscriptions.ts: {stray}"
+    assert "INTELLIGENCE_PLANS" in src, "it must read the catalogue, not restate it"
+
+
+def test_every_intelligence_tier_is_priced_and_ordered():
+    plans = intelligence_plans()
+    assert set(plans) == {"developer", "team", "enterprise"}, plans
+    prices = [plans[p]["priceCents"] for p in ("developer", "team", "enterprise")]
+    assert prices == sorted(prices), f"the tiers are not in ascending order: {prices}"
+    assert all(p > 0 for p in prices)
+
+
+def test_intelligence_never_looks_like_a_substitute_for_the_study():
+    """The same rule already applied to the API plans, and for the same reason: a
+    monthly subscription that reads as comparable in price to the flagship study is
+    a buyer comparing a JSON feed with an engineering opinion that carries a named
+    signatory and an indemnity, and finding them similarly priced."""
+    study = ENGAGEMENTS["envelope_study"].price_eur
+    for pid, plan in intelligence_plans().items():
+        month = plan["priceCents"] / 100
+        assert month < study / 2, (
+            f"{pid} at EUR {month:.0f}/mo is within reach of the EUR {study} study")
+
+
+def test_the_cheapest_intelligence_tier_is_a_credible_first_purchase():
+    """Same threshold as the cheapest API plan: above roughly a thousand a month it
+    stops being a decision somebody can take without a procurement cycle."""
+    cheapest = min(p["priceCents"] for p in intelligence_plans().values()) / 100
+    assert cheapest <= 1000, (
+        f"the entry tier is EUR {cheapest:.0f}/mo, which needs a procurement cycle")
+

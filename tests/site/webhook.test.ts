@@ -258,6 +258,57 @@ describe("the lifecycle must reach all three products", () => {
   });
 });
 
+describe("a renewing API customer is warned before their key ages out", () => {
+  function iso(days: number) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+  function seedApiAccount(over: Record<string, unknown> = {}) {
+    db.seed("api_accounts", [
+      { token: "portal-acme", account: "acme", email: "ops@acme.example", company: "Acme",
+        plan: "api_scale", monthly_units: 2500, status: "active", key_id: "aabbccdd",
+        key_issued_at: iso(-30), key_expires_at: iso(4), revoked_key_ids: [],
+        stripe_subscription_id: "sub_api", stripe_customer_id: "cus_api", ...over },
+    ]);
+  }
+  function invoicePaid() {
+    return { id: "evt_api_paid", type: "invoice.paid",
+      data: { object: { id: "in_api", object: "invoice", subscription: "sub_api" } } };
+  }
+
+  it("reactivates the account on a renewal", async () => {
+    seedApiAccount({ status: "past_due" });
+    const { POST } = await route();
+    await POST(delivery(invoicePaid()));
+    expect(db.rows("api_accounts")[0].status).toBe("active");
+  });
+
+  it("does not silently mint a key nobody can be handed", async () => {
+    // A key is shown once and never stored. Minting here would burn the
+    // customer's current key id for a credential that goes nowhere.
+    seedApiAccount();
+    const { POST } = await route();
+    await POST(delivery(invoicePaid()));
+    expect(db.rows("api_accounts")[0].key_id).toBe("aabbccdd");
+  });
+
+  it("leaves a cancelled account alone on a stray invoice", async () => {
+    seedApiAccount({ status: "cancelled" });
+    const { POST } = await route();
+    await POST(delivery(invoicePaid()));
+    expect(db.rows("api_accounts")[0].status).toBe("cancelled");
+  });
+
+  it("acknowledges the event even when the reminder cannot be sent", async () => {
+    // No RESEND_API_KEY in tests. A webhook that throws because email is
+    // unconfigured makes Stripe retry a renewal that already succeeded.
+    seedApiAccount({ key_expires_at: iso(-2) });
+    const { POST } = await route();
+    expect((await POST(delivery(invoicePaid()))).status).toBe(200);
+  });
+});
+
 describe("events we do not handle", () => {
   it("acknowledges an unrelated event without touching anything", async () => {
     const { POST } = await route();

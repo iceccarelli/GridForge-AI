@@ -98,19 +98,22 @@ def test_no_price_hides_from_the_guard_by_being_written_in_cents():
     it is invisible to it — which is how a third fee structure could appear on the
     site without anything failing.
 
-    lib/subscriptions.ts is the one declared exception and it is declared HERE, in
-    the test, rather than tacitly by the guard's blind spot. GridForge Intelligence
-    is a recurring software subscription rather than an engagement the engine
-    quotes, so it is not in lib/products.ts today; whether it should be is a
-    commercial decision. Until that decision is taken this test makes the exception
-    visible, and fails if a second one appears.
+    lib/subscriptions.ts carried the GridForge Intelligence tiers this way — 49900,
+    199900, 499900 — and was therefore the second price list the "one price list"
+    rule exists to prevent, sitting in plain sight and invisible to every check.
+
+    The question it raised was whether a recurring software subscription belongs in
+    a catalogue of engine engagements. The file itself answers it: lib/products.ts
+    already prices hall_watch, which recurs, and api_triage / api_scale /
+    api_platform, which are metered software subscriptions involving no engineering
+    hours at all. Intelligence is the same shape as those. Its prices now live
+    there and lib/subscriptions.ts holds only the sales copy, so there is no
+    exception left to declare — which is the point. The remaining entries set no
+    price; they read amounts back out of Stripe or record what was charged.
     """
     declared = {
-        ROOT / "lib" / "products.ts": "the catalogue",
+        ROOT / "lib" / "products.ts": "the catalogue — the one place a price is set",
         ROOT / "lib" / "commerce.ts": "the deposit rule",
-        ROOT / "lib" / "subscriptions.ts":
-            "GridForge Intelligence plans — a recurring subscription, not an "
-            "engine engagement. Open question: fold into lib/products.ts.",
         ROOT / "lib" / "admin.ts": "reads amounts back out of Stripe, sets none",
         ROOT / "lib" / "deliverables.ts": "records what was charged, sets nothing",
     }

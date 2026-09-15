@@ -4,7 +4,13 @@ import Stripe from "stripe";
 import { createDeliverable } from "@/lib/deliverables";
 import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
-import { createApiAccount, findBySubscription, mintForAccount, updateApiAccount } from "@/lib/api-access";
+import {
+  createApiAccount,
+  findBySubscription,
+  keyLife,
+  updateApiAccount,
+  type ApiAccount,
+} from "@/lib/api-access";
 import { recordSubscription, subscriptionByStripeId, updateSubscription } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
@@ -127,10 +133,19 @@ export async function POST(req: Request) {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
       const row = await findBySubscription(subId);
-      // Reissue silently. The customer's existing key keeps working until it
-      // expires; this simply makes sure a fresh one is available to rotate to.
       if (row && row.status !== "cancelled") {
         await updateApiAccount(row.token, { status: "active" });
+        // The payment renewed. The KEY does not — it is a signed token with a
+        // fixed expiry, and nothing can extend one in place. This comment used to
+        // say "reissue silently" and nothing reissued anything, so a paying
+        // customer's key aged out on day 35 and their agents stopped at 3am. That
+        // is the exact failure this handler was written to prevent, and it was
+        // happening to the customers who paid every month.
+        //
+        // We cannot mint for them here: a key is shown once and never stored, so
+        // there is nowhere to deliver it except the portal. So the renewal is
+        // where we TELL them, while there is still a working key to replace.
+        await remindToRotate(row);
       }
       // A watch paused by a failed payment comes back when the payment clears. A
       // cancelled one does not come back by itself — that is a new sale.
@@ -375,6 +390,63 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
     });
   } catch (err) {
     console.error("[GridForge] intake email failed:", err);
+  }
+}
+
+/**
+ * Tell an API customer their key is about to age out, at the moment we know they
+ * have just paid for another month of it.
+ *
+ * Sends the portal link, never the key — same rule as the welcome email. A key
+ * is shown once, at mint, and there is no copy anywhere for this to attach.
+ *
+ * Silent when the key is healthy, so a customer on a long-lived key is not
+ * emailed every month about nothing.
+ */
+async function remindToRotate(row: ApiAccount): Promise<void> {
+  const life = keyLife(row);
+  if (!life.needs_rotation) return;
+
+  const url = `${SITE_URL}/api-access/${row.token}`;
+  const when = life.expired
+    ? `expired on ${life.expires}`
+    : `expires on ${life.expires} — ${life.days_left} day(s) from now`;
+  console.log(`[GridForge] api account ${row.account}: key ${when}; reminding ${row.email ?? "no email"}`);
+
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from || !row.email) return;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: row.email,
+        subject: life.expired
+          ? "Your GridForge API key has expired — mint a new one"
+          : "Your GridForge API key expires shortly",
+        text:
+          `Your subscription has renewed. Your API key ${when}.\n\n` +
+          "Keys carry their own expiry so the engine can verify them offline, with no " +
+          "database and no call home. The price of that is that a key cannot be extended " +
+          "in place — a new expiry means a new key, and only you can put it into your " +
+          "deployment.\n\n" +
+          "Mint the replacement here:\n\n" +
+          url +
+          "\n\n" +
+          (life.expired
+            ? "The old key is dead, so the new one replaces it immediately."
+            : "Your current key keeps working until it expires, so you can deploy the new " +
+              "one first and let the old one lapse. Nothing stops in between.") +
+          "\n\nYour allowance and account are unchanged.",
+      }),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] rotation reminder failed:", res.status, await res.text());
+    }
+  } catch (err) {
+    console.error("[GridForge] rotation reminder error:", err);
   }
 }
 
