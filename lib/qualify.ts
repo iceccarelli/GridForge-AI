@@ -235,6 +235,73 @@ export interface Benchmark {
   blockedAsFound: number | null;
 }
 
+/**
+ * The qualification a purchased engagement was bought from.
+ *
+ * The customer typed seven numbers into the free qualifier, saw a real read, and
+ * paid. Asking them to type the same seven again before we will produce the thing
+ * they paid for is friction applied at the worst possible moment — after the money
+ * has been taken and before the product has been delivered, which is where an
+ * abandoned intake becomes revenue collected for a document nobody ever gets.
+ *
+ * Addressed by id, which only reaches here from `deliverables.qualification_id` —
+ * a uuid foreign key set by our own webhook, never by a caller.
+ */
+export async function qualificationById(id: string): Promise<StoredQualification | null> {
+  const c = sbAuth();
+  if (!c || !id) return null;
+  const cols =
+    "id,created_at,token,site_name,hall_id,metro,country,platform,inputs," +
+    "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,status";
+  const res = await fetch(
+    `${c.url}/rest/v1/qualifications?select=${cols}&id=eq.${encodeURIComponent(id)}&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] qualification by id failed:", res.status, await res.text());
+    return null;
+  }
+  const rows = (await res.json()) as StoredQualification[];
+  return rows[0] ?? null;
+}
+
+/**
+ * The fields of a stored qualification that may be carried into the engagement
+ * intake, by name.
+ *
+ * An allowlist, not a spread. The qualification row also holds the name, company
+ * and email of whoever ran it, and those are not intake fields — copying the whole
+ * object into a form would put one person's contact details in front of whoever
+ * holds the engagement link, which may be a different person entirely.
+ */
+const CARRIED_INTO_INTAKE = [
+  "siteName",
+  "hallId",
+  "metro",
+  "country",
+  "platform",
+  "contractedMW",
+  "currentPeakMW",
+  "currentItLoadMW",
+  "buswayAmpacityA",
+  "tapoffMaxA",
+  "plantSupplyC",
+  "positionsAvailable",
+] as const;
+
+/** What the buyer already told us, ready to seed the intake form. */
+export function intakePrefill(q: StoredQualification | null): Record<string, string> {
+  if (!q?.inputs || typeof q.inputs !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const k of CARRIED_INTO_INTAKE) {
+    const v = (q.inputs as Record<string, unknown>)[k];
+    if (v === undefined || v === null || v === "") continue;
+    if (typeof v === "number" && !Number.isFinite(v)) continue;
+    out[k] = String(v);
+  }
+  return out;
+}
+
 export async function benchmark(constraint: string | null): Promise<Benchmark> {
   const c = sbAuth();
   if (!c || !constraint) {

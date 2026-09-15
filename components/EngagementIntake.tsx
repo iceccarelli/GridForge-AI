@@ -34,7 +34,14 @@ export function EngagementIntake({
 }) {
   const url = endpoint ?? `/api/intake/${token}`;
   const [loading, setLoading] = useState(true);
-  const [meta, setMeta] = useState<{ product?: { name: string }; status?: string; kind?: string } | null>(null);
+  const [meta, setMeta] = useState<{
+    product?: { name: string };
+    status?: string;
+    kind?: string;
+    prefill?: Record<string, string>;
+  } | null>(null);
+  /** Which fields arrived from the qualification, so the form can say so. */
+  const [carried, setCarried] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -83,8 +90,27 @@ export function EngagementIntake({
       .then((r) => r.json())
       .then((b) => {
         if (!alive) return;
-        if (!b.ok) setError("This link is not valid.");
-        else setMeta(b);
+        if (!b.ok) {
+          setError("This link is not valid.");
+          return;
+        }
+        setMeta(b);
+        // Seed from the qualification this engagement was bought from. Only
+        // fields the form actually has, and only where the customer has not
+        // already typed something — a reload must never overwrite their work.
+        const pre = (b.prefill ?? {}) as Record<string, string>;
+        const used: string[] = [];
+        setF((cur) => {
+          const next = { ...cur };
+          for (const [k, v] of Object.entries(pre)) {
+            if (!(k in next)) continue;
+            if (String(next[k] ?? "").trim() !== "") continue;
+            next[k] = String(v);
+            used.push(k);
+          }
+          return next;
+        });
+        setCarried(used);
       })
       .catch(() => alive && setError("Could not load this engagement."))
       .finally(() => alive && setLoading(false));
@@ -317,6 +343,22 @@ export function EngagementIntake({
         <div className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" />
           <p>{error}</p>
+        </div>
+      ) : null}
+
+      {carried.length > 0 ? (
+        <div
+          data-testid="carried-over"
+          className="rounded border border-line bg-panel/60 p-4 text-[12px] leading-relaxed text-mute"
+        >
+          <div className="eyebrow mb-2 text-power">
+            {carried.length} carried over from your qualification
+          </div>
+          <p>
+            These are the numbers you gave the qualifier, filled in for you. They are treated as
+            your measured data, so it is worth a glance before you submit — if anything has moved
+            since, change it here and the document follows what you enter now.
+          </p>
         </div>
       ) : null}
 

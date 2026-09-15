@@ -255,6 +255,18 @@ async function main() {
      (await (await sb(`deliverables?stripe_session_id=eq.cs_density_screen&select=id`)).json()).length === 1);
 
   const token = row.token;
+
+  // The seven numbers they typed into the FREE qualifier must follow them into
+  // the thing they paid for. Re-typing them after the money is taken is where an
+  // abandoned intake becomes revenue collected for a document nobody receives.
+  const intakeMeta = await (await fetch(`${SITE}/api/intake/${token}`)).json();
+  const pre = intakeMeta.prefill ?? {};
+  ok("the intake is seeded from the qualification it was bought from",
+     pre.contractedMW === "12" && pre.tapoffMaxA === "63" && pre.positionsAvailable === "180",
+     `${Object.keys(pre).length} field(s) carried`);
+  ok("and never carries the contact details of whoever ran it",
+     !JSON.stringify(pre).includes("@"), "no contact details in the prefill");
+
   ok("the intake page resolves for the buyer", (await fetch(`${SITE}/intake/${token}`)).status === 200);
   ok("and 404s for a token never issued", (await fetch(`${SITE}/intake/nope`)).status === 404);
 

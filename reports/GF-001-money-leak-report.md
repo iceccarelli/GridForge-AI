@@ -256,6 +256,38 @@ place rather than linking to the price list, and carries the qualification.
 
 ---
 
+## L11 — A paid customer had to type the same seven numbers twice
+
+The friction that costs most is not the one before the sale. It is the one **after
+the money is taken and before the product exists** — because an intake abandoned
+there is revenue collected for a document nobody ever receives, and it looks to the
+customer like they were charged for nothing.
+
+A buyer typed seven numbers into the free qualifier, saw a real read, and paid.
+The intake form then opened **empty**, and asked for the same seven again.
+
+The join was already in the database: `deliverables.qualification_id`, a uuid
+foreign key set by our own webhook and verified end to end. Nothing read it.
+
+`intakePrefill()` now seeds the form from the qualification the engagement was
+bought from — **eleven fields carried**, verified live. The form says so, because a
+number filled in for the customer is still treated as their measured data and is
+worth a glance before submit.
+
+**Carried through an allowlist, never a spread.** The qualification row also holds
+the name, company and email of whoever ran it, and the engagement link may be held
+by somebody else entirely — that is the whole point of the shareable read. A test
+asserts no contact detail reaches the form, and another asserts a reload never
+overwrites what the customer has already typed.
+
+**Fails soft.** A deleted qualification or a refusing store returns an empty
+prefill and the form still opens: the customer types the numbers, which is exactly
+where they were before.
+
+7 unit tests (6 fail against the pre-fix code) and 2 end-to-end criteria.
+
+---
+
 ## The checklist, and where each case is exercised
 
 | Case | Result |
@@ -280,7 +312,7 @@ place rather than linking to the price list, and carries the qualification.
 | webhook redelivered after success | one fulfilment, enforced by a unique index |
 | unknown token on any addressed page | 404 |
 
-**154 executable site tests**, plus 397 engine tests.
+**161 executable site tests**, plus 397 engine tests.
 
 ---
 

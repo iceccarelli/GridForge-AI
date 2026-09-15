@@ -312,6 +312,122 @@ describe("the EUR 18,000 Procurement Specification did NOT get relaxed", () => {
   });
 });
 
+describe("the numbers they already gave us follow them into what they paid for", () => {
+  /**
+   * A customer types seven numbers into the free qualifier, sees a real read, and
+   * buys. Asking for the same seven again is friction at the worst moment there
+   * is: after the money is taken and before the document exists, which is where an
+   * abandoned intake becomes revenue collected for something nobody receives.
+   *
+   * The join was already in the database — deliverables.qualification_id, set by
+   * our own webhook — and nothing read it.
+   */
+  const QUAL_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+  function seedQualification(inputs: Record<string, unknown>) {
+    db.seed("qualifications", [
+      { id: QUAL_ID, token: "qtok", site_name: "North Hall", company: "North Hall Ltd", inputs },
+    ]);
+  }
+
+  const TYPED = {
+    siteName: "North Hall",
+    hallId: "H1",
+    metro: "Dublin",
+    platform: "gb300_nvl72",
+    contractedMW: 12,
+    currentPeakMW: 7.4,
+    currentItLoadMW: 4.9,
+    buswayAmpacityA: 400,
+    tapoffMaxA: 63,
+    plantSupplyC: 6,
+    positionsAvailable: 180,
+  };
+
+  async function get(token = "engagement-token") {
+    const { GET } = await route();
+    const res = await GET(new Request(siteUrl(`/api/intake/${token}`)), {
+      params: Promise.resolve({ token }),
+    });
+    return { status: res.status, body: await res.json() };
+  }
+
+  it("hands the form back what the buyer already typed — THE regression", async () => {
+    db.createTable("qualifications");
+    seedQualification(TYPED);
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.prefill).toMatchObject({
+      siteName: "North Hall",
+      hallId: "H1",
+      contractedMW: "12",
+      tapoffMaxA: "63",
+      positionsAvailable: "180",
+    });
+  });
+
+  it("carries every field the engagement form actually has", async () => {
+    db.createTable("qualifications");
+    seedQualification(TYPED);
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    const { body } = await get();
+    expect(Object.keys(body.prefill).sort()).toEqual(Object.keys(TYPED).sort());
+  });
+
+  it("never carries the contact details of whoever ran the qualification", async () => {
+    // The engagement link may be held by somebody else entirely — that is the
+    // whole point of the shareable read. An allowlist, never a spread.
+    db.createTable("qualifications");
+    seedQualification({
+      ...TYPED,
+      name: "Ops Engineer",
+      email: "ops@northhall.example",
+      company: "North Hall Ltd",
+    });
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    const { body } = await get();
+    const blob = JSON.stringify(body.prefill);
+    expect(blob).not.toContain("ops@northhall.example");
+    expect(blob).not.toContain("Ops Engineer");
+    expect(body.prefill.email).toBeUndefined();
+    expect(body.prefill.name).toBeUndefined();
+  });
+
+  it("returns nothing when the engagement was not bought from a qualification", async () => {
+    db.createTable("qualifications");
+    seedEngagement("density_screen");
+    const { body } = await get();
+    expect(body.prefill).toEqual({});
+  });
+
+  it("does not fail the page when the qualification cannot be read", async () => {
+    // A deleted row, or a store that is refusing. The form must still open — the
+    // customer can type the numbers, which is exactly where they were before.
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.prefill).toEqual({});
+  });
+
+  it("skips values that are empty or not finite", async () => {
+    db.createTable("qualifications");
+    seedQualification({ ...TYPED, contractedMW: null, tapoffMaxA: "", currentPeakMW: 7.4 });
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    const { body } = await get();
+    expect(body.prefill.contractedMW).toBeUndefined();
+    expect(body.prefill.tapoffMaxA).toBeUndefined();
+    expect(body.prefill.currentPeakMW).toBe("7.4");
+  });
+
+  it("still 404s for a token that is not an engagement", async () => {
+    db.createTable("qualifications");
+    seedQualification(TYPED);
+    seedEngagement("density_screen", { qualification_id: QUAL_ID });
+    expect((await get("not-a-token")).status).toBe(404);
+  });
+});
+
 describe("generation", () => {
   it("leaves the document as a DRAFT — release is a human act", async () => {
     seedEngagement();

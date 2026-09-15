@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
+import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
   assumedFields,
   intakeSchemaFor,
@@ -23,6 +24,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   const product = PRODUCT_BY_KIND[row.kind];
+
+  // The numbers they already gave us follow them into the thing they paid for.
+  //
+  // A customer types seven numbers into the free qualifier, sees a real read, and
+  // buys. Asking for the same seven again is friction at the worst moment there
+  // is: after the money is taken and before the document exists, which is exactly
+  // where an abandoned intake becomes revenue collected for something nobody ever
+  // receives. The join was in the database — deliverables.qualification_id, set by
+  // our own webhook — and nothing read it.
+  //
+  // Carried through an allowlist, never a spread: the qualification row also holds
+  // the name, company and email of whoever ran it, and the person holding this
+  // engagement link may be somebody else entirely.
+  const prefill = row.qualification_id
+    ? intakePrefill(await qualificationById(row.qualification_id))
+    : {};
+
   return NextResponse.json({
     ok: true,
     kind: row.kind,
@@ -30,6 +48,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     status: row.status,
     company: row.company,
     submitted: Boolean(row.intake),
+    prefill,
   });
 }
 
