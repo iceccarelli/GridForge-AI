@@ -285,6 +285,73 @@ async function main() {
        headers: { "content-type": "application/json" },
        body: JSON.stringify(HALL) })).status === 409);
 
+  // --- the thin-intake case the Density Screen exists for ---------------------
+  head("A thin intake — the case the engine recommends this product for");
+  await hook(checkout("density_screen", {
+    id: "cs_thin", metadata: { kind: "density_screen", company: "Thin Hall" },
+  }));
+  const thinRow = (await (await sb(`deliverables?stripe_session_id=eq.cs_thin&select=*`)).json())[0];
+  ok("a second engagement is opened", Boolean(thinRow?.token));
+
+  // Exactly what the FREE qualifier asks for. The three the free tier never
+  // needed — firm capacity, floor loading, plant capacity — are absent.
+  const THIN = { ...HALL };
+  delete THIN.firmCapacityMVA;
+  delete THIN.floorLoadingKPa;
+  delete THIN.plantCapacityKW;
+
+  const thin = await fetch(`${SITE}/api/intake/${thinRow.token}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(THIN),
+  });
+  const thinBody = await thin.json();
+  ok("the paid workflow accepts it", thin.status === 200,
+     `HTTP ${thin.status} ${JSON.stringify(thinBody).slice(0, 150)}`);
+  ok("and says what it assumed, with where to get each one",
+     (thinBody.assumed ?? []).length === 3,
+     (thinBody.assumed ?? []).map((a) => a.field).join(", "));
+
+  const thinAfter = (await (await sb(`deliverables?token=eq.${thinRow.token}&select=*`)).json())[0];
+  ok("the engine still names what binds this hall",
+     Boolean(thinAfter?.intake?._gridforge?.binding), thinAfter?.intake?._gridforge?.binding);
+  ok("on the customer's OWN numbers, not ours",
+     thinAfter?.intake?.lv?.tapoff_max_A === 63 && thinAfter?.intake?.grid?.contracted_MW === 12);
+  ok("and the blanks were sent as gaps, never as zeroes",
+     !("firm_capacity_MVA" in (thinAfter?.intake?.grid ?? {})) &&
+     !("floor_loading_kPa" in (thinAfter?.intake?.hall ?? {})) &&
+     !("chilled_water_capacity_kW" in (thinAfter?.intake?.thermal?.plant ?? {})));
+
+  await fetch(`${SITE}/api/admin/deliverables`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ token: thinRow.token, action: "release" }),
+  });
+  const thinDoc = JSON.stringify(
+    await (await fetch(`${SITE}/api/deliverable/${thinRow.token}`)).json()
+  ).toLowerCase();
+  ok("the delivered document declares its assumptions rather than hiding them",
+     thinDoc.includes("assum"), thinDoc.includes("assum") ? "named in the document" : "NOT NAMED");
+  ok("and tells them what to go and measure — the thing they bought",
+     thinDoc.includes("measure") || thinDoc.includes("data request") || thinDoc.includes("request"),
+     "data-request list present");
+
+  ok("a Procurement Specification still refuses the same thin intake",
+     await (async () => {
+       await hook(checkout("procurement_spec", {
+         id: "cs_spec_thin", amount_total: 1800000,
+         metadata: { kind: "procurement_spec", company: "Thin Hall" },
+       }));
+       const r = (await (await sb(`deliverables?stripe_session_id=eq.cs_spec_thin&select=*`)).json())[0];
+       if (!r?.token) return false;
+       const res = await fetch(`${SITE}/api/intake/${r.token}`, {
+         method: "POST", headers: { "content-type": "application/json" },
+         body: JSON.stringify(THIN),
+       });
+       return res.status === 422;
+     })(),
+     "duties on a purchase order may not rest on our assumptions");
+
   // --- the recurring products ------------------------------------------------
   head("Hall Watch — the subscription has to keep delivering, and stop when it ends");
   await hook(checkout("hall_watch", { id: "cs_hall_watch", metadata: { kind: "hall_watch", company: "North Hall" } }));

@@ -171,41 +171,66 @@ that carries a named signatory and finding them similarly priced.
 
 ---
 
-## G8 — Open, and a decision rather than a defect: what an intake may omit
+## G8 — The €4,500 product refused the customer it was designed for *(resolved)*
 
-Found while driving the paid fulfilment path end to end.
+**The defect, quantified.** The free qualifier answers on **seven** numbers. The
+paid engagement form demanded **twelve**. The five extra were `siteName` and
+`hallId` — identity, fair to require — and three physics numbers the free tier had
+never needed:
 
-`lib/engagement-intake.ts` requires twelve physics fields, and
-`components/EngagementIntake.tsx` marks every one of them HTML-`required`. That is
-consistent and deliberate — not an oversight.
+| Field | Where a customer gets it |
+|---|---|
+| `firmCapacityMVA` | the DSO connection agreement |
+| `floorLoadingKPa` | the structural record for the hall |
+| `plantCapacityKW` | the mechanical schedule for the chilled-water plant |
 
-Four things in the repository say the opposite:
+None is on an operations engineer's desk. So a customer ran the qualifier, saw a
+real binding constraint, paid €4,500 — and was then blocked. **The buyer most
+likely to convert was the one most likely to be stopped, after paying.**
 
-1. That file's own docstring: *"Anything left blank becomes a library default AND is
-   named as an assumption in the delivered document, so an incomplete form degrades
-   honestly rather than silently."*
-2. Its sibling `compact()`: *"Drop keys whose value is undefined so the engine
-   records them as gaps"* — a path those twelve fields can never take.
-3. The intake page's promise to the customer: *"every one you leave blank is filled
-   from a library default and named as an assumption in the document you receive."*
-4. The engine. A missing required field is a **gap**, not a rejection;
-   `can_issue` goes false and `engagement_recommendation` reads *"the study can
-   proceed in parallel on everything else"* and, for a thin intake, **"Sell the
-   Density Screen instead."**
+**The engine had already ruled on it.** A missing required field is a *gap*, not a
+rejection; `can_issue` goes false and `engagement_recommendation` reads *"Sell the
+Density Screen instead: it produces the binding constraint and the data-request
+list"*. The Density Screen **is** the product for thin data, and its form would not
+accept thin data.
 
-**The commercial consequence.** The Density Screen is the €4,500 product the engine
-recommends *precisely when the data is thin*, and its form will not accept thin
-data. A buyer who does not have `floorLoadingKPa` — a structural-survey figure — or
-a precise `plantCapacityKW` cannot submit anything at all, having already paid.
+**The cheapest real test, run before changing anything.** Asked directly with those
+three removed, the engine returns:
 
-**Deliberately not changed here.** It alters what a paying customer may submit; the
-UI was built the other way on purpose; and the wrong call either blocks fulfilment
-(today) or issues thin studies and damages the credibility the practice rests on.
+```
+FULL intake   binding: Rack feed / tap-off rating   completeness 0.688   gaps 5
+THIN intake   binding: Rack feed / tap-off rating   completeness 0.500   gaps 8
+```
 
-**Recommendation, for the founder to take or reject:** make it product-aware —
-optional for `density_screen`, required for `envelope_study` — which is the rule
-the engine already states. That needs no new commercial decision, only a choice to
-apply the engine's own.
+Same binding constraint, same basis, same rack counts — on the customer's own E5
+figures. Only the gap count moves, and **the gaps are the deliverable**. (Note the
+"complete" form submission is itself only 0.688 complete by the engine's standard:
+the twelve fields were an arbitrary subset, never the engine's requirement.)
 
-This is the largest remaining fulfilment risk on the flagship product.
+**Resolved — product-aware, not weakened.**
 
+- `screenIntakeSchema` — the Density Screen requires what the free qualifier
+  requires and no more. The three become gaps.
+- `engagementIntakeSchema` — the €18,000 Procurement Specification still requires
+  all of them. That document states duties a supplier quotes against and a purchase
+  order is raised from; sizing plant from an assumed plant capacity is not a gap in
+  a report, it is a number on an order.
+- `intakeSchemaFor(kind)` — an unknown kind gets the **strict** shape, so a product
+  added to the catalogue without a decision costs a form field rather than a wrong
+  number in a specification.
+
+**The floor is deliberate.** Nothing below the free tier's own bar: a Screen built
+on fewer numbers than the qualifier answers on would have no site-specific content
+to sell, and selling one would be worse than the friction removed. Five tests
+assert each of the seven is still mandatory.
+
+**Engineering truth preserved, not traded away.** Blanks are sent to the engine as
+*absent keys*, never zeroes — a zero asserts the hall has no firm connection. The
+form names, before submit, each field it will assume and where to get it; the route
+returns the same list on submit; the engine names every assumption in the document
+and lists them in the data request. Verified end to end: the released document for
+a thin intake declares its assumptions and carries the data-request list.
+
+**Evidence:** 19 unit tests (5 fail against the pre-fix code) and 9 new end-to-end
+criteria against the real engine, including *"a Procurement Specification still
+refuses the same thin intake"*.

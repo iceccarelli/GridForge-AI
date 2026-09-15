@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
-import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
+import {
+  assumedFields,
+  intakeSchemaFor,
+  toIntakeDocument,
+  ASSUMABLE_SOURCE,
+} from "@/lib/engagement-intake";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -45,13 +50,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
-  const parsed = engagementIntakeSchema.safeParse(raw);
+  // The schema is the product's, not one shape for everything. A Density Screen
+  // asks for what the free qualifier asks for; a Procurement Specification asks
+  // for all of it, because its duties end up on a purchase order.
+  const parsed = intakeSchemaFor(row.kind).safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
       { ok: false, error: "Validation failed", issues: parsed.error.flatten() },
       { status: 422 }
     );
   }
+
+  // What the customer left to us. The engine names every assumption in the
+  // document itself; this is so the confirmation they see on submit says the same
+  // thing, rather than the first they hear of it being a document footnote.
+  const assumed = assumedFields(parsed.data as Record<string, unknown>);
 
   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
   await updateByToken(token, { intake: doc, status: "generating" });
@@ -118,6 +131,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       "Received. The document is generated and now sits with a senior engineer for review. " +
       "You will get the link once it is released — we do not publish an engineering opinion " +
       "nobody has read.",
+    // Said here as well as in the document. A customer who left three numbers
+    // blank should hear what we assumed at the moment they submitted, not
+    // discover it in a footnote a week later.
+    assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
   });
 }
 

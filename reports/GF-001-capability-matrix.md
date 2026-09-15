@@ -36,6 +36,7 @@ at the joins around it.
 | Engagement deposit checkout (Stripe) | WIRED | WIRED | Price is catalogue-driven — verified. Post-payment redirect was caller-controlled; fixed |
 | **Density Screen fulfilment** (€4,500) | WIRED | **VERIFIED** | Purchase → intake → engine → draft → human release → customer reads it. Driven over HTTP; see §3 |
 | **Hall Watch delivery** (recurring) | WIRED | **VERIFIED** | Baseline → "nothing moved" → a real input change → *"-19 racks (28 to 9); -4 weeks to full capacity"* → cancellation stops the cron |
+| **Density Screen accepts thin data** | **BLOCKED (form demanded 12, free tier asked 7)** | **VERIFIED** | The product the engine recommends for thin data now accepts it; the €18,000 Specification still does not. 9 e2e criteria |
 | **Screen → Study follow-on offer** | **PARTIAL (always generic)** | **VERIFIED** | Named the customer's own constraint only if working files existed, which a Screen never produces. Now renders *"…relieves rack feed / tap-off rating"* on the live page |
 | Metered API accounts, self-serve keys | **VERIFIED** | **VERIFIED** | `tests/test_api_keys.py`; cross-language key agreement in CI |
 | **GridForge Intelligence subscription** | **SHELL** | **VERIFIED** | Was: money in, nothing stored. Now: full lifecycle driven over HTTP — see §3 |
@@ -67,7 +68,6 @@ at the joins around it.
 |---|---|---|
 | Supabase schema applied to a real project | **WIRED** | Migrations `0009`/`0010` are written and were parsed and served by a local PostgREST stand-in built from those exact files. They have **not** been run against a hosted Supabase project. |
 | Stripe API calls (session creation) | **WIRED** | Signature verification and every webhook branch are verified, as is the price being catalogue-driven. Creating a real Checkout Session needs live keys. |
-| Intake completeness policy | **OPEN — a decision, not a defect** | The schema and the form require 12 physics fields; the file's own docstring, its sibling `compact()`, the page copy and the engine all say blanks become named assumptions. A Density Screen buyer with incomplete data cannot submit. See the gap analysis. |
 | Transactional email (Resend) | **WIRED** | Deliberately unset during testing; no outbound mail was sent. |
 | Anthropic-backed chat / analyst answers | **WIRED** | Gates verified; the model was never called. |
 | Any engine output against a real site | **E0–E1** | The repository's own position, unchanged: nothing is field-validated, and the calibration ledger says so. |

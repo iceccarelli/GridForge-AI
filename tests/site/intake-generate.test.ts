@@ -24,7 +24,7 @@ const BINDING = "Rack feed / tap-off rating";
 
 let db: PostgrestFake;
 let restorePg: () => void;
-let engineCalls: { url: string; format: string | null }[] = [];
+let engineCalls: { url: string; format: string | null; body: string }[] = [];
 
 async function route() {
   return await import("@/app/api/intake/[token]/route");
@@ -69,9 +69,10 @@ function installEngine(opts: { csvBundle?: Record<string, string> } = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith(ENGINE)) return pgFetch(input as RequestInfo, init);
-    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    const raw = String(init?.body ?? "{}");
+    const body = JSON.parse(raw);
     const format = body.format ?? null;
-    engineCalls.push({ url, format });
+    engineCalls.push({ url, format, body: raw });
 
     if (format === "html" || format === "md") {
       return new Response(
@@ -166,6 +167,148 @@ describe("the follow-on offer names the customer's own constraint", () => {
     const row = db.rows("deliverables")[0] as Record<string, any>;
     expect(row.intake.grid.contracted_MW).toBe(12);
     expect(row.intake.lv.tapoff_max_A).toBe(63);
+  });
+});
+
+describe("a thin intake — the product the engine recommends for exactly this case", () => {
+  /**
+   * The free qualifier answers on seven numbers. A customer who ran it, saw a real
+   * binding constraint and paid EUR 4,500 was then asked for three more the free
+   * tier had never needed: the firm connection capacity, the floor loading and the
+   * plant capacity — a DSO agreement, a structural record and a mechanical
+   * schedule. The buyer most likely to convert was the one most likely to be
+   * blocked, after paying.
+   *
+   * Asked directly with those three removed, the engine returns the same binding
+   * constraint, the same basis and the same rack counts, and moves from five named
+   * gaps to eight. The gaps are the deliverable.
+   */
+  const THIN = { ...INTAKE };
+  delete (THIN as Record<string, unknown>).firmCapacityMVA;
+  delete (THIN as Record<string, unknown>).floorLoadingKPa;
+  delete (THIN as Record<string, unknown>).plantCapacityKW;
+
+  it("a Density Screen accepts it — THE regression", async () => {
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    const res = await POST(post("engagement-token", THIN), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).toBe(200);
+    expect(db.rows("deliverables")[0].status).toBe("draft");
+  });
+
+  it("and still names what binds the hall", async () => {
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    await POST(post("engagement-token", THIN), { params: Promise.resolve({ token: "engagement-token" }) });
+    const row = db.rows("deliverables")[0] as Record<string, any>;
+    expect(row.intake?._gridforge?.binding).toBe(BINDING);
+  });
+
+  it("tells the customer what was assumed, and where to get it", async () => {
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    const body = await (
+      await POST(post("engagement-token", THIN), { params: Promise.resolve({ token: "engagement-token" }) })
+    ).json();
+    const fields = (body.assumed ?? []).map((a: { field: string }) => a.field).sort();
+    expect(fields).toEqual(["firmCapacityMVA", "floorLoadingKPa", "plantCapacityKW"]);
+    for (const a of body.assumed) expect(String(a.source).length).toBeGreaterThan(8);
+  });
+
+  it("sends the blanks to the engine as GAPS rather than as zeroes", async () => {
+    // A zero is a measurement. An absent key is a gap the engine fills from the
+    // library and names as an assumption. Sending 0 would assert that this hall
+    // has no firm connection and no chilled water.
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    await POST(post("engagement-token", THIN), { params: Promise.resolve({ token: "engagement-token" }) });
+    const sent = JSON.parse(String(engineCalls.at(-1)?.body ?? "{}")).intake ?? {};
+    expect(sent.grid).not.toHaveProperty("firm_capacity_MVA");
+    expect(sent.hall).not.toHaveProperty("floor_loading_kPa");
+    expect(sent.thermal?.plant ?? {}).not.toHaveProperty("chilled_water_capacity_kW");
+    // The numbers they DID give must still be there, untouched.
+    expect(sent.grid.contracted_MW).toBe(12);
+    expect(sent.lv.tapoff_max_A).toBe(63);
+  });
+
+  it("reports nothing assumed when the customer filled everything in", async () => {
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    const body = await (
+      await POST(post("engagement-token"), { params: Promise.resolve({ token: "engagement-token" }) })
+    ).json();
+    expect(body.assumed).toEqual([]);
+  });
+
+  it("still refuses an intake thinner than the FREE qualifier answers on", async () => {
+    // The floor is the free tier's own bar. Below it a screen has no
+    // site-specific content to sell, and selling one would be worse than the
+    // friction this change removed.
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    for (const missing of ["contractedMW", "tapoffMaxA", "buswayAmpacityA", "plantSupplyC", "positionsAvailable"]) {
+      const body: Record<string, unknown> = { ...THIN };
+      delete body[missing];
+      const res = await POST(post("engagement-token", body), {
+        params: Promise.resolve({ token: "engagement-token" }),
+      });
+      expect(res.status, `omitting ${missing} should be refused`).toBe(422);
+    }
+  });
+
+  it("still requires the hall's identity", async () => {
+    seedEngagement("density_screen");
+    const { POST } = await route();
+    const body: Record<string, unknown> = { ...THIN };
+    delete body.hallId;
+    const res = await POST(post("engagement-token", body), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("the EUR 18,000 Procurement Specification did NOT get relaxed", () => {
+  /**
+   * A specification states duties a supplier quotes against and a purchase order
+   * is raised from. Sizing plant from an assumed plant capacity is not a gap in a
+   * report — it is a number on an order. It keeps asking for all of them.
+   */
+  const THIN = { ...INTAKE };
+  delete (THIN as Record<string, unknown>).firmCapacityMVA;
+  delete (THIN as Record<string, unknown>).floorLoadingKPa;
+  delete (THIN as Record<string, unknown>).plantCapacityKW;
+
+  it("refuses a thin intake", async () => {
+    seedEngagement("procurement_spec");
+    const { POST } = await route();
+    const res = await POST(post("engagement-token", THIN), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).toBe(422);
+    expect(engineCalls).toHaveLength(0);
+  });
+
+  it("accepts a complete one", async () => {
+    seedEngagement("procurement_spec");
+    const { POST } = await route();
+    const res = await POST(post("engagement-token"), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("an unknown product kind asks for everything, rather than the least", async () => {
+    // A product added to the catalogue without a decision must fail toward the
+    // strict shape: the cost is a form field, not a wrong number in a document.
+    seedEngagement("some_future_product");
+    const { POST } = await route();
+    const res = await POST(post("engagement-token", THIN), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).not.toBe(200);
   });
 });
 
