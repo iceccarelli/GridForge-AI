@@ -30,6 +30,7 @@ named with them.
 | Types | `npx tsc --noEmit` | clean |
 | Lint | `npx next lint` | clean (1 pre-existing warning in `BackgroundReel.tsx`, untouched) |
 | Production build | `npm run build` | compiled successfully; 44 routes; `/q/[token]` present, `/infrastructure` gone |
+| **Full stack, end to end** | `npm run verify:local` | **40 criteria passed**, in CI as well as locally |
 
 Baseline at `ea1f62d` was **348 passed, 3 failed**. Every one of those three is now
 green, and the suite has grown to 399 + 127.
@@ -53,6 +54,23 @@ green, and the suite has grown to 399 + 127.
 | Deployment | production build served and driven over HTTP | pass |
 | Real customer workflow | see below | pass |
 
+### Three layers, because each one is blind to something
+
+1. **`python -m pytest tests`** — the engine, and the structural guards that hold
+   the two languages together.
+2. **`npm test`** — the real route handlers, called with real `Request` objects,
+   against an in-memory PostgREST that can be told a table does not exist.
+3. **`npm run verify:local`** — the real engine, the real production build over
+   HTTP, and a PostgREST built from the actual migration files, all spawned and
+   torn down by the harness.
+
+The third layer exists because the second cannot see integration behaviour. A stub
+returns what its author believed: the follow-on offer read the binding constraint
+out of `scenarios.csv`, a Density Screen never produces one, and that was found by
+asking the real engine and getting an empty bundle back. The harness runs in the CI
+`site` job — first run: *"The whole stack, driven the way a customer drives it:
+success"*.
+
 ### Negative control — do the new tests actually catch the old bugs?
 
 Each fix was reverted to its `HEAD` version and the new tests re-run:
@@ -66,8 +84,18 @@ Each fix was reverted to its `HEAD` version and the new tests re-run:
 | `app/api/keys/route.ts` | **5 of 17** |
 | `app/api/insights/route.ts` | **2 of 9** |
 | `app/api/admin/login/route.ts` | **4 of 13** |
+| `lib/deliverables.ts` (at `d5ab55a`) | **2 of 9** unit, and **2 of 40** e2e |
 
 A suite that passes against the broken code proves nothing. These do not.
+
+**One of these checks was worthless the first time it was run**, and it is recorded
+because the mistake is instructive: the harness was pointed at `HEAD`, which by then
+already contained the fix, and it reported a clean 40/40. Checking a guard by
+breaking something it does not cover proves nothing either, and it nearly went into
+this report as a pass. Re-run against `d5ab55a` — the commit *before* the fix — it
+gives 38/40, failing on exactly the two binding-constraint criteria and printing
+what the customer used to see: *"Now somebody has to buy the thing that relieves
+it."*
 
 ---
 

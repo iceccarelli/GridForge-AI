@@ -2,90 +2,125 @@
 
 ## STATUS
 
-**PASS**
+**PASS on the engineering. NOT a commercial PASS** — see the deployment report. The
+migrations are unapplied, so the promised outcome has not been observed on the
+deployment that takes the money.
 
 ## WHAT WAS TESTED
 
-The final diff, read in full, against four questions: does it duplicate anything
-that already existed; does it weaken a guard to make a test pass; does any new code
-path report success it has not earned; and is every claim in these reports backed by
-something that was executed.
+The whole branch diff (`4e4ce29..HEAD`, 53 files) read against five questions: does
+it duplicate something that already existed; does it weaken a guard to go green;
+does any path report success it has not earned; is every claim in these reports
+backed by something executed; and did any fix create a worse failure than the one
+it removed.
 
 ## WHAT ACTUALLY WORKS
 
-**No engine was duplicated and no working system was rewritten.** The mission's
-whole footprint in shipped code is 8 files:
+### No engine was duplicated and no working system rewritten
 
-| File | Change | Why not a duplicate |
+Twenty-two shipped files changed, plus three migrations and CI. The largest new
+file, `lib/subscribers.ts`, is modelled directly on the existing `lib/watches.ts`
+and **replaces three inline copies of the same query rather than adding a fourth**.
+`keyLife()` went into `lib/api-access.ts` beside the code it serves;
+`checkoutOrigin()` into `lib/site.ts`, already the single registry for the site's
+own address; `INTELLIGENCE_PLANS` into `lib/products.ts`, already declared the one
+file where a euro figure may live. Nothing new was invented to hold them.
+
+`gridforge/` — the engine, and the thing being sold — is **untouched**. Every
+change sits at the joins around it.
+
+### No guard was weakened to make anything pass
+
+Five of the repository's own guards went red during this work. All five were fixed
+by changing the **code**, never the assertion:
+
+| Guard | What it caught | Fix |
 |---|---|---|
-| `lib/subscribers.ts` (new) | Server-only data layer for `subscriptions` + `scenarios` | Modelled directly on the existing `lib/watches.ts` / `lib/api-access.ts` pattern — `rest()` helper, `res.ok` on every call. It *replaces* three inline copies rather than adding a fourth. |
-| `app/api/scenarios/route.ts` | Rewired onto that layer | Same surface, same methods; the inline fetches are gone |
-| `app/api/subscription-status/route.ts` | Rewired | ditto |
-| `app/api/stripe/webhook/route.ts` | Third product resolved on all three lifecycle events | Extends the existing pattern the file already applied to `api_accounts` and `watches` |
-| `app/api/siting-analysis/route.ts` | Gate fails closed | The check already existed; it was conditional on its own dependency |
-| `app/api/chat/route.ts` | `res.ok` on the lead insert | 8 lines |
-| `app/account/page.tsx` | "Could not check" ≠ "not subscribed"; reversible optimistic delete | The client half of the same defect |
-| `scripts/apply-inbox.sh` | Refuses to run without a working test runner | The script's own contract, enforced |
+| root hygiene | `vitest.config.ts` | declared in `ROOT_FILES` with a reason |
+| one domain | hardcoded URLs in the new tests | tests read `siteUrl()` from the registry |
+| one price list | a `€` written in a code comment | reworded the comment |
+| `res.ok` guard (new) | two further offending routes | both fixed |
+| token-page guard (new) | `/intake/[token]` never resolving | resolves server-side now |
 
-Plus two migrations, one vitest config, and the test tree.
+Four guards were **strengthened**: `SUBSCRIPTION_LOOKUPS` gained the third recurring
+product its own comment had asked for; the price rule gained a cents-aware
+companion; every `rest/v1/<table>` must now have a migration; and no route may
+reach Supabase without checking whether it worked.
 
-**No guard was weakened to make anything pass.** Three of the repository's own
-guards went red during this work and all three were fixed by changing the *code*,
-never the assertion:
+### Every new success path is earned
 
-- root hygiene rejected `vitest.config.ts` → declared in `ROOT_FILES` with a reason;
-- the one-domain rule rejected hardcoded URLs in the new tests → the tests now read
-  `siteUrl()` from the registry like every other file;
-- the new `res.ok` guard rejected two further routes → both were fixed.
+The three that return 200 do so only after `res.ok`. `recordSubscription`,
+`createScenario` and `deleteScenario` return the row or `null`;
+`deleteScenario` uses `return=representation` so a cross-tenant attempt reads as a
+miss, not a success. The three `open*` helpers in the webhook return a boolean the
+caller acts on, and a failure is a 500 rather than a silent 200.
 
-Two guards were *strengthened*: `SUBSCRIPTION_LOOKUPS` gained the third recurring
-product its own comment had asked for, and the one-price-list rule gained a
-cents-aware companion that makes its blind spot explicit.
+### Every claim is executed
 
-**Every new code path was checked for earned success.** The three that return 200
-do so only after a `res.ok`: `recordSubscription` returns the row or `null`,
-`createScenario` returns the row or `null`, `deleteScenario` returns whether
-anything actually matched. `deleteScenario` uses `return=representation` precisely
-so a cross-tenant attempt is a miss rather than a silent success.
-
-**Every claim was executed.** The negative control in the test report — reverting
-each fixed file and re-running the new tests — is the evidence that the suite is not
-vacuous: 13/24, 9/16, 5/9 and 2/9 fail against the pre-fix code.
+Each fixed file was reverted and its new tests re-run: 13/24, 9/16, 5/17, 5/9, 4/13,
+2/9, 2/9, 6/8, 2/40. A suite that passes against the broken code proves nothing.
 
 ## WHAT DOES NOT WORK
 
-Nothing found in review that is not already declared in the test report.
-
-One judgement worth flagging for a human: `recordSubscription` failing now returns
-**500** so Stripe redelivers. That is correct — a customer must not be welcomed to
-an entitlement that was not written — but it does mean that if the migrations are
-never applied, Stripe will retry the event and eventually mark it failed in the
-dashboard. That is the intended, visible outcome; the previous behaviour was a
-green checkmark over a lost customer.
+Nothing found in review beyond what the test and deployment reports already
+declare.
 
 ## MOCKS / PLACEHOLDERS REMAINING
 
-None in shipped code. One declared test double (`tests/site/postgrest-fake.ts`),
-which exists to reproduce a missing table and would be useless if it threw.
+None in shipped code. Two declared test doubles, both in the test tree and both
+existing to reproduce a real condition honestly: `tests/site/postgrest-fake.ts`
+(answers 404 without throwing, like the real service) and
+`tests/e2e/postgrest-stub.mjs` (creates only the tables the migrations declare).
 
-## KNOWN RISKS
+## KNOWN RISKS — including ones these changes created
 
-As listed in the test report. The one this review adds: `tests/site/` now has to be
-maintained alongside the routes. That is the cost of having executable tests at all,
-and it is a better cost than the one it replaces.
+1. **A failed fulfilment now returns 500 and Stripe retries.** Correct — a customer
+   must not be told a purchase succeeded when nothing was written — but if the
+   migrations are never applied, those events will visibly fail in the Stripe
+   dashboard after the retry window. That visibility is the intent; the previous
+   behaviour was a green checkmark over a lost customer.
+2. **`0011` creates partial unique indexes on tables that may hold rows.** A
+   failure to create means two fulfilments already exist for one payment. Nothing
+   is damaged, the migration stops, and that is worth knowing.
+3. **The admin throttle is per-instance.** In-memory, so it resets on a cold start.
+   A cost multiplier on guessing, not a lockout, and the code and tests say so.
+4. **`tests/site/` and `tests/e2e/` now have to be maintained** alongside the
+   routes. That is the cost of having executable tests at all, and a better cost
+   than the one it replaces.
+5. **Early revocation of a leaked API key still needs a manual env sync.** Expiry
+   covers the lapsed-subscription case. Fixing the leaked-key case means giving the
+   engine a network dependency and undoing the stateless design the key scheme
+   rests on — an architecture decision, and the founder's.
+
+## TWO JUDGEMENT CALLS WORTH A SECOND OPINION
+
+1. **Folding the Intelligence prices into `lib/products.ts`.** The first position
+   in this branch was the opposite, on the reasoning that a recurring software
+   subscription is not an engine engagement. The catalogue disproved it — it
+   already prices `hall_watch` and three metered API subscriptions. Recorded in the
+   gap analysis as a position that was wrong, rather than quietly reversed.
+2. **`past_due` still entitles.** A customer whose card is being retried keeps
+   access until `customer.subscription.deleted`. It follows the rule the repository
+   had already set for Hall Watch, but it is a commercial choice, not a technical
+   one.
 
 ## COMMERCIAL WORKFLOW
 
-Reviewed against the master mission's Product 01 requirement. Every stage from
-project creation to commercial workflow is classified VERIFIED in the capability
-matrix, with the evidence named per stage.
+Every stage of the Product 01 workflow is VERIFIED in the capability matrix with
+per-stage evidence, and the whole surface is re-runnable: `npm run verify:local`
+(40 criteria, in CI) locally, `scripts/verify-entitlement.mjs` against the hosted
+stack.
 
 ## DEPLOYMENT
 
-Reviewed; see the deployment report. The migration step is a genuine prerequisite
-and is stated as one rather than buried.
+See the deployment report. The migration step is a genuine prerequisite and is
+stated as one.
 
 ## NEXT ACTION
 
-Merge, apply the two migrations, then re-run the purchase cycle in Stripe test mode
-against the hosted project.
+1. Apply `0009`, `0010`, `0011`.
+2. `node scripts/verify-entitlement.mjs --schema` → expect 14/14.
+3. Deploy, then `--full --yes-write-to-this-database` → expect 29/29.
+4. One real purchase in Stripe **test mode**, for the Checkout Session creation no
+   script here can stand in for.
+5. Decide G8 — whether a Density Screen may accept a thin intake.
