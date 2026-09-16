@@ -99,12 +99,17 @@ export async function createWatch(
 export async function getWatch(token: string): Promise<WatchRecord | null> {
   const c = creds();
   if (!c || !token) return null;
-  const res = await fetch(
-    `${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(token)}&select=*&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (!res.ok) return null;
-  return ((await res.json()) as WatchRecord[])[0] ?? null;
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(token)}&select=*&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    return ((await res.json()) as WatchRecord[])[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] watch lookup unreachable:", err);
+    return null;
+  }
 }
 
 export async function dueWatches(limit = 25): Promise<WatchRecord[]> {

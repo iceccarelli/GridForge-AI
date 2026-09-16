@@ -143,17 +143,22 @@ export async function deliverableBySession(
 ): Promise<DeliverableRecord | null> {
   const c = creds();
   if (!c || !sessionId) return null;
-  const res = await fetch(
-    `${c.url}/rest/v1/deliverables?stripe_session_id=eq.${encodeURIComponent(sessionId)}` +
-      `&select=*&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (!res.ok) {
-    console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?stripe_session_id=eq.${encodeURIComponent(sessionId)}` +
+        `&select=*&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
+      return null;
+    }
+    const rows = (await res.json()) as DeliverableRecord[];
+    return rows[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] deliverable by session unreachable:", err);
     return null;
   }
-  const rows = (await res.json()) as DeliverableRecord[];
-  return rows[0] ?? null;
 }
 
 /**
@@ -209,13 +214,23 @@ export async function creditsToward(
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
   const c = creds();
   if (!c || !token) return null;
-  const res = await fetch(
-    `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}&select=*&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (!res.ok) return null;
-  const rows = (await res.json()) as DeliverableRecord[];
-  return rows[0] ?? null;
+  try {
+    // `fetch` REJECTS on a network-level failure rather than returning a status,
+    // and an unguarded rejection here propagates out of the server component and
+    // becomes a 500 on a page the customer reached by paying. Fail closed, the way
+    // lib/qualify.ts already does — which is why /q/ stayed at 404 in production
+    // while every other token page did not.
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}&select=*&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as DeliverableRecord[];
+    return rows[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] deliverable lookup unreachable:", err);
+    return null;
+  }
 }
 
 /**
@@ -229,15 +244,19 @@ export async function getByIntakeToken(token: string): Promise<DeliverableRecord
   const c = creds();
   if (!c || !token) return null;
   const q = encodeURIComponent(token);
-  const res = await fetch(
-    `${c.url}/rest/v1/deliverables?intake_token=eq.${q}&select=*&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (res.ok) {
-    const rows = (await res.json()) as DeliverableRecord[];
-    if (rows[0]) return rows[0];
-  } else {
-    console.error("[GridForge] intake token lookup failed:", res.status, await res.text());
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?intake_token=eq.${q}&select=*&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (res.ok) {
+      const rows = (await res.json()) as DeliverableRecord[];
+      if (rows[0]) return rows[0];
+    } else {
+      console.error("[GridForge] intake token lookup failed:", res.status, await res.text());
+    }
+  } catch (err) {
+    console.error("[GridForge] intake token lookup unreachable:", err);
   }
   return getByToken(token);
 }
