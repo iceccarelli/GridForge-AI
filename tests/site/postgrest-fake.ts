@@ -25,6 +25,14 @@ export class PostgrestFake {
   calls: { method: string; url: string; body: unknown }[] = [];
   /** Set to force a transport-level failure, for the "database is down" path. */
   failNext: { status: number; body: string } | null = null;
+  /**
+   * Fail every request using this method.
+   *
+   * `failNext` fails whichever request happens to come first, which is usually a
+   * lookup — so it cannot express "the read worked and the WRITE did not", which
+   * is the interesting half of a partial failure.
+   */
+  failMethod: { method: string; status: number; body: string } | null = null;
 
   private seq = 0;
 
@@ -81,6 +89,9 @@ export class PostgrestFake {
       const f = this.failNext;
       this.failNext = null;
       return json(f.body, f.status, false);
+    }
+    if (this.failMethod && this.failMethod.method === method) {
+      return json(this.failMethod.body, this.failMethod.status, false);
     }
 
     const parsed = new URL(url);

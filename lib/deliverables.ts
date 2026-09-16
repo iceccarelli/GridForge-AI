@@ -225,6 +225,93 @@ export async function updateByToken(
 }
 
 /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */
+/**
+ * Compare supplier responses against the capacity model.
+ *
+ * The third of the three things a Procurement Specification's catalogue entry
+ * promises — "a bid comparison against the capacity model showing what each
+ * response does to the energisation date" — and the one that had no surface. The
+ * engine has done it all along; nothing called it.
+ *
+ * Judged against the relief the specification was WRITTEN for, carried on the
+ * engagement, not against whatever binds the hall today. Four quotes answered one
+ * requirement; comparing them against a different one would be worse than not
+ * comparing them.
+ */
+export async function compareBids(
+  row: DeliverableRecord,
+  responses: unknown[]
+): Promise<
+  | { ok: true; ranked: unknown[]; leading: unknown; relief: string; sized_for_racks: number; note?: unknown }
+  | { ok: false; error: string; status: number }
+> {
+  const base = process.env.GRIDFORGE_API_URL;
+  const key = process.env.GRIDFORGE_API_KEY;
+  if (!base || !key) {
+    return { ok: false, status: 503, error: "The capacity engine is not connected to this deployment." };
+  }
+  const intake = (row.intake ?? null) as Record<string, unknown> | null;
+  if (!intake) {
+    return { ok: false, status: 409, error: "This engagement has no intake yet." };
+  }
+  const meta = (intake._gridforge ?? {}) as { spec?: { constraint_id?: string } };
+  const constraint = meta.spec?.constraint_id ?? "";
+
+  // The customer's own numbers only. `_gridforge` is ours.
+  const engineIntake = { ...intake };
+  delete (engineIntake as Record<string, unknown>)._gridforge;
+
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/bids`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify({ intake: engineIntake, responses, constraint }),
+      signal: AbortSignal.timeout(120_000),
+      cache: "no-store",
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const detail = typeof body?.error === "string" ? body.error : `engine ${res.status}`;
+      console.error("[GridForge] bid comparison refused:", res.status, detail);
+      // 422 from the engine is the customer's responses being wrong, which they
+      // can fix. Anything else is ours.
+      return { ok: false, status: res.status === 422 ? 422 : 502, error: detail };
+    }
+    return {
+      ok: true,
+      ranked: Array.isArray(body.ranked) ? body.ranked : [],
+      leading: body.leading ?? null,
+      relief: typeof body.relief === "string" ? body.relief : "",
+      sized_for_racks: Number(body.sized_for_racks) || 0,
+      note: body.note,
+    };
+  } catch (err) {
+    console.error("[GridForge] bid comparison unreachable:", err);
+    return { ok: false, status: 502, error: "The capacity engine could not be reached." };
+  }
+}
+
+/** The relief a Procurement Specification was written for, from its own bundle. */
+function specFrom(
+  files: Record<string, string> | null
+): { constraint_id: string; constraint: string; relief: string; sized_for_racks: number } | null {
+  const raw = files?.["specification.json"];
+  if (!raw) return null;
+  try {
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    const id = typeof d.constraint_id === "string" ? d.constraint_id : "";
+    if (!id) return null;
+    return {
+      constraint_id: id,
+      constraint: typeof d.constraint === "string" ? d.constraint : id,
+      relief: typeof d.relief === "string" ? d.relief : "",
+      sized_for_racks: Number(d.sized_for_racks) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function renderDeliverable(
   intake: Record<string, unknown>,
   endpoint: "screen" | "study" | "spec"
@@ -238,6 +325,15 @@ export async function renderDeliverable(
       working: Record<string, string> | null;
       /** What binds the hall as found, straight from the engine's own payload. */
       binding: string | null;
+      /**
+       * For a Procurement Specification: which relief it was written for.
+       *
+       * Kept because the bid comparison has to be judged against the SAME relief
+       * the suppliers quoted. Re-deriving it later would let a library revision
+       * move what binds and silently compare four quotes against a different
+       * requirement than the one they answered.
+       */
+      spec: { constraint_id: string; constraint: string; relief: string; sized_for_racks: number } | null;
     }
   | { ok: false; error: string }
 > {
@@ -336,11 +432,20 @@ export async function renderDeliverable(
           cache: "no-store",
         });
         if (!res.ok) return null;
-        const body = (await res.json()) as { response_template?: unknown };
+        const body = (await res.json()) as {
+          response_template?: unknown;
+          specification?: Record<string, unknown>;
+        };
         if (!body.response_template) return null;
-        return {
+        const out: Record<string, string> = {
           "response_template.json": JSON.stringify(body.response_template, null, 2),
         };
+        // The relief this specification was written for, kept with it. The bid
+        // comparison is judged against this and not against whatever binds later.
+        if (body.specification) {
+          out["specification.json"] = JSON.stringify(body.specification, null, 2);
+        }
+        return out;
       }
       const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
         method: "POST",
@@ -373,6 +478,7 @@ export async function renderDeliverable(
       deck: deckHtml,
       working: files,
       binding,
+      spec: specFrom(files),
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };

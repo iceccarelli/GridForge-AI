@@ -399,6 +399,80 @@ async function main() {
      })(),
      "duties on a purchase order may not rest on our assumptions");
 
+  // --- the third thing the EUR 18,000 product promises -----------------------
+  head("Procurement Specification — the bid comparison it has always promised");
+  await hook(checkout("procurement_spec", {
+    id: "cs_spec", amount_total: 1800000,
+    metadata: { kind: "procurement_spec", company: "North Hall" },
+  }));
+  const specRow = (await (await sb(`deliverables?stripe_session_id=eq.cs_spec&select=*`)).json())[0];
+  ok("the engagement opens", Boolean(specRow?.token));
+
+  const specGen = await fetch(`${SITE}/api/intake/${specRow.intake_token}`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(HALL),
+  });
+  ok("the specification generates", specGen.status === 200, `HTTP ${specGen.status}`);
+
+  let specAfter = (await (await sb(`deliverables?token=eq.${specRow.token}&select=*`)).json())[0];
+  const template = specAfter?.working_files?.["response_template.json"];
+  ok("a machine-readable response schedule comes with it", Boolean(template));
+  ok("and the relief it was written for is kept with the engagement",
+     Boolean(specAfter?.intake?._gridforge?.spec?.constraint_id),
+     specAfter?.intake?._gridforge?.spec?.constraint_id);
+
+  // The customer cannot compare bids against a specification nobody has released.
+  const early = await fetch(`${SITE}/api/deliverable/${specRow.token}/bids`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ responses: [{ supplier: "Alpha" }] }),
+  });
+  ok("bids are refused before the specification is released", early.status === 409);
+
+  await fetch(`${SITE}/api/admin/deliverables`, {
+    method: "PATCH", headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ token: specRow.token, action: "release" }),
+  });
+
+  // Three suppliers answer the schedule. The cheapest has the longest lead time.
+  const tmpl = JSON.parse(template);
+  const responses = [
+    ["Alpha", 480000, 20],
+    ["Beta", 392000, 44],
+    ["Gamma", 455000, 26],
+  ].map(([supplier, capex, lead]) => {
+    const r = JSON.parse(JSON.stringify(tmpl));
+    r.supplier = supplier;
+    r.received_on = "2026-10-01";
+    r.valid_until = "2099-12-31";
+    r.values = { ...(r.values ?? {}), capex_eur: capex, lead_time_weeks: lead, install_weeks: 6 };
+    r.compliance = Object.fromEntries(Object.keys(r.compliance ?? {}).map((k) => [k, "C"]));
+    return r;
+  });
+
+  const cmp = await fetch(`${SITE}/api/deliverable/${specRow.token}/bids`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ responses }),
+  });
+  const cmpBody = await cmp.json();
+  ok("the customer can compare the bids they collected", cmp.status === 200 && cmpBody.ok === true,
+     `HTTP ${cmp.status} ${JSON.stringify(cmpBody).slice(0, 140)}`);
+  ok("ranked against the capacity model", (cmpBody.ranked ?? []).length === 3,
+     (cmpBody.ranked ?? []).map((r) => `${r.supplier} ${r.weeks_to_energised}wk`).join(", "));
+  ok("in weeks as well as euros — the cheapest need not win",
+     (cmpBody.ranked ?? []).every((r) => typeof r.weeks_to_energised === "number"),
+     `leading: ${cmpBody.ranked?.[0]?.headline ?? "-"}`);
+  ok("and it refuses to score what an engineer must",
+     JSON.stringify(cmpBody).includes("scored by the engineer"));
+  ok("the comparison is kept as a working file they can download",
+     cmpBody.saved === true &&
+       (await fetch(`${SITE}/api/deliverable/${specRow.token}?format=csv&file=bid_comparison.json`)).status === 200);
+
+  ok("a Density Screen cannot be used for it",
+     (await fetch(`${SITE}/api/deliverable/${token}/bids`, {
+       method: "POST", headers: { "content-type": "application/json" },
+       body: JSON.stringify({ responses }),
+     })).status === 409);
+
   // --- the recurring products ------------------------------------------------
   head("Hall Watch — the subscription has to keep delivering, and stop when it ends");
   await hook(checkout("hall_watch", { id: "cs_hall_watch", metadata: { kind: "hall_watch", company: "North Hall" } }));

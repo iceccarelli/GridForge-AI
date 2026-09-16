@@ -136,10 +136,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // all the Study used to have and all a Screen never had.
   const binding = rendered.binding ?? bindingFrom(rendered.working);
 
+  // The relief the specification was written for, kept beside the intake so the
+  // bid comparison is judged against the requirement the suppliers answered — not
+  // against whatever binds the hall by the time their quotes come back.
+  const meta: Record<string, unknown> = {};
+  if (binding) meta.binding = binding;
+  if (rendered.spec) meta.spec = rendered.spec;
+
   await updateByToken(row.token, {
     status: "draft",
     title: rendered.title,
-    intake: binding ? { ...doc, _gridforge: { binding } } : doc,
+    intake: Object.keys(meta).length ? { ...doc, _gridforge: meta } : doc,
     document_html: rendered.html,
     document_md: rendered.md,
     ...(rendered.deck ? { deck_html: rendered.deck } : {}),

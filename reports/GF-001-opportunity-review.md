@@ -120,7 +120,31 @@ already sold unfulfilled.
 
 ---
 
-## 5. Recommendation
+## 5. Recommendation — **built**
+
+**Status: implemented.** The recommendation below was acted on in the same pass;
+what follows is the reasoning as it stood when the decision was taken.
+
+`POST /api/deliverable/<token>/bids` accepts the completed response schedules and
+returns the ranking, judged against the relief the specification was **written
+for** — carried on the engagement — rather than whatever binds the hall by the time
+the quotes come back. Four quotes answered one requirement; re-deriving it could
+have compared them against a different one.
+
+Verified end to end against the real engine: Procurement Specification purchased →
+specification generated → response schedule issued → relief recorded
+(`busway_ampacity`) → bids refused before release → released → three suppliers
+compared → **Alpha €480,000 / 26 weeks beats Beta €392,000 / 50 weeks** → the
+comparison kept as a downloadable working file → a Density Screen refused (409).
+
+The stated assumption, which has not been confirmed: that bid comparisons are not
+already being run by hand via `gridforge bids` as declared manual work. If they
+are, this was still worth building — it turns an undeclared manual step into
+product — but it was not the most urgent thing.
+
+---
+
+## 5a. The reasoning at the time
 
 **Build A.** It is the only candidate that makes an already-priced, already-sellable
 product able to deliver what its own catalogue entry promises, and the engine work
