@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from gridforge.api.server import ROUTES
+from gridforge.api.tiers import Tier
 from gridforge.api.tools import TOOLS_BY_NAME
 from gridforge.api.metering import UNIT_COST
 from gridforge.commercial import API_PLANS, ENGAGEMENTS
@@ -146,10 +147,34 @@ def test_every_api_plan_is_on_the_developers_surface(cat):
             f"{pid} is an API plan but is sold as {cat[pid]['surface']}")
 
 
+#: Routes that exist for US, not for a customer. Tier.INTERNAL was declared in
+#: gridforge/api/tiers.py from the start and unused until /v1/revoke. These two
+#: guards were written when every route was PUBLIC or CLIENT, and "every paid
+#: route" was the same set as "every route". It no longer is.
+def _customer_routes() -> list[str]:
+    return [p for p, (_, tier) in ROUTES.items() if tier is not Tier.INTERNAL]
+
+
 def test_every_paid_route_is_metered(cat):
     """An endpoint with no unit rate bills nothing and cannot be sold."""
-    for path in ROUTES:
+    for path in _customer_routes():
         assert path in UNIT_COST, f"{path} is routable but has no published unit rate"
+
+
+def test_an_operator_route_is_not_part_of_the_customer_surface():
+    """The other half of the exemption above, asserted rather than assumed.
+
+    An operator route must not be metered — billing somebody for our own
+    administration is nonsense — and must not appear in the tool catalogue, because
+    a customer-facing agent discovering `revoke` is exactly the thing the 404 in
+    the auth gate exists to prevent.
+    """
+    internal = [p for p, (_, tier) in ROUTES.items() if tier is Tier.INTERNAL]
+    assert internal, "Tier.INTERNAL is declared; if nothing uses it, say so here"
+    advertised = {t["endpoint"] for t in TOOLS_BY_NAME.values()}
+    for path in internal:
+        assert path not in UNIT_COST, f"{path} is an operator route and must not be billed"
+        assert path not in advertised, f"{path} is an operator route and must not be discoverable"
 
 
 def test_every_tool_points_at_a_real_route():
@@ -164,7 +189,7 @@ def test_every_paid_route_is_reachable_by_a_machine():
     # /v1/deck is the one deliberate omission: the walkthrough is a human session
     # artefact and an agent calling it in a loop has misunderstood what it is for.
     deliberate = {"/v1/deck"}
-    missing = {p for p in ROUTES if p not in advertised} - deliberate
+    missing = {p for p in _customer_routes() if p not in advertised} - deliberate
     assert not missing, f"paid routes no agent can discover: {sorted(missing)}"
 
 

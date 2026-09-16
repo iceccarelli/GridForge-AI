@@ -37,6 +37,8 @@ import hmac
 import json
 import os
 import secrets
+import threading
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
@@ -120,9 +122,84 @@ def issue(account: str, *, quota: int = 0, scope: str = "machine",
     return f"{body}.{sig}"
 
 
+# --- revocation ---------------------------------------------------------------
+# Keys expire on their own, and for a lapsed subscription that is the whole answer:
+# the webhook stops reissuing and the key dies inside the period the customer paid
+# for. A LEAKED key is the case that cannot wait, and until now the only lever was
+# GRIDFORGE_REVOKED_KEYS — an environment variable, which means a redeploy, which
+# means the leaked key kept working until somebody did one by hand.
+#
+# The fix must not cost the thing the whole key design exists to buy. Verification
+# stays offline: no database, no network call, no lookup per request. What is added
+# is a local file the engine owns, read through an mtime check so a request pays a
+# stat and nothing more, and one authenticated write at the moment of revocation.
+_REVOKED_LOCK = threading.Lock()
+_revoked_cache: tuple[float, frozenset[str]] = (-1.0, frozenset())
+
+
+def _revoked_file() -> Path | None:
+    raw = os.environ.get("GRIDFORGE_REVOKED_FILE")
+    return Path(raw) if raw else None
+
+
+def _stored_revoked() -> frozenset[str]:
+    """Revoked ids from the local store, cached until the file changes."""
+    global _revoked_cache
+    path = _revoked_file()
+    if path is None:
+        return frozenset()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return frozenset()
+    cached_at, cached = _revoked_cache
+    if cached_at == mtime:
+        return cached
+    try:
+        data = json.loads(path.read_text())
+        ids = frozenset(str(x).strip() for x in data.get("revoked", []) if str(x).strip())
+    except Exception:
+        # An unreadable store must not silently un-revoke a leaked key. Keep what
+        # we last read and let the operator see the file is wrong.
+        return _revoked_cache[1]
+    with _REVOKED_LOCK:
+        _revoked_cache = (mtime, ids)
+    return ids
+
+
 def revoked_ids() -> set[str]:
+    """Both sources. The environment variable keeps working exactly as before."""
     raw = os.environ.get("GRIDFORGE_REVOKED_KEYS", "")
-    return {x.strip() for x in raw.split(",") if x.strip()}
+    env = {x.strip() for x in raw.split(",") if x.strip()}
+    return env | set(_stored_revoked())
+
+
+def revoke(key_id: str) -> bool:
+    """Add a key id to the local store. Idempotent.
+
+    Returns False when there is nowhere to write, so a caller can say "not
+    persisted" rather than report a revocation that did not happen — the failure
+    mode this whole file is careful about.
+    """
+    key_id = (key_id or "").strip()
+    if not key_id:
+        return False
+    path = _revoked_file()
+    if path is None:
+        return False
+    global _revoked_cache
+    with _REVOKED_LOCK:
+        try:
+            current = set(_stored_revoked())
+            current.add(key_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(json.dumps({"revoked": sorted(current)}, indent=2))
+            tmp.replace(path)
+            _revoked_cache = (path.stat().st_mtime, frozenset(current))
+            return True
+        except Exception:
+            return False
 
 
 def looks_signed(token: str) -> bool:

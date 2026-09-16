@@ -282,6 +282,51 @@ export async function findBySubscription(subscriptionId: string): Promise<ApiAcc
  * key that keeps working until it expires is not rotated, it is duplicated. The
  * revoked ids go into GRIDFORGE_REVOKED_KEYS on the engine.
  */
+/**
+ * Tell the engine to stop honouring a key now, rather than at expiry.
+ *
+ * The account row records which ids we have revoked; the ENGINE is what has to
+ * refuse them, and until it had a local revocation store the only lever was an
+ * environment variable — a redeploy, done by hand, while a leaked key kept
+ * working.
+ *
+ * Best-effort on purpose. This runs inside the Stripe webhook, and a webhook that
+ * fails because the engine is briefly unreachable would be redelivered and re-run
+ * a cancellation that already happened. A failure here is logged with the id so it
+ * can be pushed by hand, and the key still dies at expiry as it always did.
+ */
+export async function revokeOnEngine(keyId: string | null | undefined): Promise<boolean> {
+  const id = (keyId ?? "").trim();
+  if (!id) return false;
+  const base = process.env.GRIDFORGE_API_URL;
+  const admin = process.env.GRIDFORGE_ADMIN_KEY;
+  if (!base || !admin) {
+    console.warn(
+      "[GridForge] cannot revoke key id on the engine (GRIDFORGE_API_URL / GRIDFORGE_ADMIN_KEY unset):",
+      id
+    );
+    return false;
+  }
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": admin },
+      body: JSON.stringify({ key_id: id }),
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.error("[GridForge] engine refused a revocation:", res.status, await res.text(), id);
+      return false;
+    }
+    console.log("[GridForge] key id revoked on the engine:", id);
+    return true;
+  } catch (err) {
+    console.error("[GridForge] could not reach the engine to revoke:", err, id);
+    return false;
+  }
+}
+
 export async function mintForAccount(
   row: ApiAccount,
   opts: { rotate?: boolean } = {}

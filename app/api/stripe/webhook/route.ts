@@ -8,6 +8,7 @@ import {
   createApiAccount,
   findBySubscription,
   keyLife,
+  revokeOnEngine,
   updateApiAccount,
   type ApiAccount,
 } from "@/lib/api-access";
@@ -198,8 +199,12 @@ export async function POST(req: Request) {
         status: "cancelled",
         revoked_key_ids: [...(row.revoked_key_ids ?? []), ...(row.key_id ? [row.key_id] : [])],
       });
+      // And tell the engine, rather than recording the intention and waiting for
+      // somebody to edit an environment variable. Best-effort: a failure is logged
+      // with the id and the key still dies at expiry as it always did.
+      await revokeOnEngine(row.key_id);
       console.log(
-        `[GridForge] api account ${row.account} cancelled; revoke key id ${row.key_id ?? "-"}`
+        `[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`
       );
     }
     const watch = await watchBySubscription(sub.id);
