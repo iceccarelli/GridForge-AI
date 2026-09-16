@@ -14,6 +14,7 @@
 // and the page says so.
 
 import crypto from "node:crypto";
+import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -107,6 +108,56 @@ export async function deliverableBySession(
   }
   const rows = (await res.json()) as DeliverableRecord[];
   return rows[0] ?? null;
+}
+
+/**
+ * What this customer has already paid that credits against an engagement.
+ *
+ * Two customer-facing surfaces promise the Density Screen "credits in full against
+ * the full study", and `lib/products.ts` declares `creditsAgainst`. Nothing read
+ * it, so honouring the credit depended on whoever raised the invoice remembering a
+ * purchase that might be months old. Forgetting it breaks a written promise;
+ * remembering it twice gives the money away twice.
+ *
+ * A deliverable row exists only because a checkout completed, so its existence is
+ * the payment. Engagements are named without the `_deposit` suffix, which is what
+ * `creditsAgainst` points at.
+ */
+export async function creditsToward(
+  email: string,
+  engagement: string
+): Promise<{ cents: number; from: { kind: string; token: string; amount_cents: number }[] }> {
+  const empty = { cents: 0, from: [] };
+  const e = (email ?? "").trim().toLowerCase();
+  if (!e || !engagement) return empty;
+
+  const crediting = Object.values(PRODUCTS).filter(
+    (p) => p.creditsAgainst && p.creditsAgainst.replace(/_deposit$/, "") === engagement
+  );
+  if (!crediting.length) return empty;
+
+  const c = creds();
+  if (!c) return empty;
+  const kinds = crediting.map((p) => p.kind);
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?email=eq.${encodeURIComponent(e)}` +
+      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=kind,token,amount_cents`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    // Never guess a credit. Reporting none is recoverable by a human reading the
+    // pipeline; inventing one is money given away on our own arithmetic.
+    console.error("[GridForge] credit lookup failed:", res.status, await res.text());
+    return empty;
+  }
+  const rows = (await res.json()) as { kind: string; token: string; amount_cents: number | null }[];
+  const from = rows.map((r) => ({
+    kind: r.kind,
+    token: r.token,
+    // Fall back to the catalogue price when the row did not record one.
+    amount_cents: r.amount_cents ?? PRODUCT_BY_KIND[r.kind]?.amountCents ?? 0,
+  }));
+  return { cents: from.reduce((a, r) => a + r.amount_cents, 0), from };
 }
 
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
