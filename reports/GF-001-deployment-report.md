@@ -107,6 +107,7 @@ keys.
 #      supabase/migrations/0009_subscriptions.sql         # new in GF-001
 #      supabase/migrations/0010_scenarios.sql             # new in GF-001
 #      supabase/migrations/0011_one_fulfilment_per_payment.sql   # new in GF-001
+#      supabase/migrations/0012_intake_token.sql          # new in GF-001
 
 # 2. Engine (unchanged by this mission; skip if already deployed)
 bash scripts/deploy-engine.sh
@@ -170,7 +171,9 @@ PARTIAL, whatever CI says.
 
 ## NEXT ACTION
 
-1. Apply `0009_subscriptions.sql`, `0010_scenarios.sql` and `0011_one_fulfilment_per_payment.sql` to the hosted project.
+1. Apply `0009_subscriptions.sql`, `0010_scenarios.sql`,
+   `0011_one_fulfilment_per_payment.sql` and `0012_intake_token.sql` to the hosted
+   project, in that order.
 2. `node scripts/verify-entitlement.mjs --schema` → expect 14/14.
 3. Deploy the branch.
 4. `node scripts/verify-entitlement.mjs --full --yes-write-to-this-database` →
@@ -178,6 +181,13 @@ PARTIAL, whatever CI says.
 5. One real purchase in Stripe **test mode** through `/intelligence`, to exercise
    Checkout Session creation — the one link no script here can stand in for.
 
+
+## A note on `0012`
+
+`0012_intake_token.sql` is additive and nullable: it adds `deliverables.intake_token`
+so that "fill this in" and "read the document" stop being the same credential.
+Engagements created before it keep working — the intake route accepts either token
+and only ever discloses the new one. Nothing needs backfilling.
 
 ## A note on `0011`
 

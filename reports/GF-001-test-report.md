@@ -25,15 +25,15 @@ named with them.
 
 | Suite | Command | Result |
 |---|---|---|
-| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **399 passed** |
-| Site route handlers | `npm test` (`vitest run`) | **171 passed, 11 files** |
+| Engine, architecture, provenance, commercial joins | `python -m pytest tests -q` | **410 passed** |
+| Site route handlers | `npm test` (`vitest run`) | **205 passed, 13 files** |
 | Types | `npx tsc --noEmit` | clean |
 | Lint | `npx next lint` | clean (1 pre-existing warning in `BackgroundReel.tsx`, untouched) |
 | Production build | `npm run build` | compiled successfully; 44 routes; `/q/[token]` present, `/infrastructure` gone |
-| **Full stack, end to end** | `npm run verify:local` | **54 criteria passed**, in CI as well as locally |
+| **Full stack, end to end** | `npm run verify:local` | **70 criteria passed**, in CI as well as locally |
 
 Baseline at `ea1f62d` was **348 passed, 3 failed**. Every one of those three is now
-green, and the suite has grown to 399 + 171, plus 54 end-to-end.
+green, and the suite has grown to 410 + 205, plus 70 end-to-end.
 
 ### The mission's testing checklist
 

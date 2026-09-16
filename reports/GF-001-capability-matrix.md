@@ -38,6 +38,8 @@ at the joins around it.
 | **Hall Watch delivery** (recurring) | WIRED | **VERIFIED** | Baseline → "nothing moved" → a real input change → *"-19 racks (28 to 9); -4 weeks to full capacity"* → cancellation stops the cron |
 | **Density Screen accepts thin data** | **BLOCKED (form demanded 12, free tier asked 7)** | **VERIFIED** | The product the engine recommends for thin data now accepts it; the €18,000 Specification still does not. 9 e2e criteria |
 | **Screen → Study follow-on offer** | **PARTIAL (always generic)** | **VERIFIED** | Named the customer's own constraint only if working files existed, which a Screen never produces. Now renders *"…relieves rack feed / tap-off rating"* on the live page |
+| **Procurement Specification — bid comparison** | **PROMISED, NO SURFACE** | **VERIFIED** | The third of its three stated deliverables. Nothing called `/v1/bids`; the buyer had nowhere to put supplier responses. Now on the page: 3 suppliers ranked, Alpha €480k/26wk beating Beta €392k/50wk |
+| **Early revocation of a leaked API key** | **needed a redeploy** | **VERIFIED** | Operator endpoint + local store; verification stays offline. Key → 401 immediately, no restart |
 | Metered API accounts, self-serve keys | **VERIFIED** | **VERIFIED** | `tests/test_api_keys.py`; cross-language key agreement in CI |
 | **GridForge Intelligence subscription** | **SHELL** | **VERIFIED** | Was: money in, nothing stored. Now: full lifecycle driven over HTTP — see §3 |
 | **Saved scenarios (paid surface)** | **SHELL** | **VERIFIED** | Was: no table, `ok:true` on every write. Now: save → list → cross-tenant refusal → delete, live |
@@ -70,4 +72,5 @@ at the joins around it.
 | Stripe API calls (session creation) | **WIRED** | Signature verification and every webhook branch are verified, as is the price being catalogue-driven. Creating a real Checkout Session needs live keys. |
 | Transactional email (Resend) | **WIRED** | Deliberately unset during testing; no outbound mail was sent. |
 | Anthropic-backed chat / analyst answers | **WIRED** | Gates verified; the model was never called. |
+| Feeding won quotes back into the cost library | **human-gated** | `gridforge bids --ingest` prints the commands and says "Review before you run it". A customer's quoted price entering our own library is a confidentiality and provenance decision, not an automation. |
 | Any engine output against a real site | **E0–E1** | The repository's own position, unchanged: nothing is field-validated, and the calibration ledger says so. |
