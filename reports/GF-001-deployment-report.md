@@ -182,6 +182,31 @@ PARTIAL, whatever CI says.
    Checkout Session creation — the one link no script here can stand in for.
 
 
+## The deploy window, and why the order no longer matters
+
+Code ships before its migration runs. That is the ordinary order of things, and the
+standing order deploys before applying `0009`–`0012`.
+
+`createDeliverable` writes `deliverables.intake_token`, which `0012` adds.
+**PostgREST does not ignore an unknown column — it refuses the whole insert with
+400 PGRST204.** With the fulfilment fix in place a failed write returns 500 and
+Stripe retries until it gives up. So for as long as `0012` was unapplied, every
+Density Screen sold would have been a payment taken and an engagement never
+opened — on the **primary cash product**.
+
+Reproduced before it was fixed: with the column absent, `createDeliverable`
+returned `null`.
+
+The fix is not a rule about deploy order, because a rule is only as good as the
+person remembering it at 2am. The write degrades: without the column the engagement
+still opens on the document token and the intake link still resolves, exactly as it
+does for rows created before `0012`. Once the migration lands, new rows get the
+split credential with no further change.
+
+**Deploy and migrate in either order.** Apply the migrations promptly anyway — until
+they land, GridForge Intelligence still fails loud (there is no table to degrade
+to) and engagements carry one credential instead of two.
+
 ## A note on `0012`
 
 `0012_intake_token.sql` is additive and nullable: it adds `deliverables.intake_token`

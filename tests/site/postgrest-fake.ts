@@ -33,6 +33,16 @@ export class PostgrestFake {
    * is the interesting half of a partial failure.
    */
   failMethod: { method: string; status: number; body: string } | null = null;
+  /**
+   * Columns a table does NOT have yet, by table.
+   *
+   * The mirror of dropTable, for the window between deploying code and applying
+   * its migration. PostgREST refuses an insert that names an unknown column with
+   * 400 PGRST204 — it does not ignore it — so code written against a column that
+   * is not there yet fails every write, and with the fulfilment fix in place that
+   * is a paid purchase Stripe retries until it gives up.
+   */
+  missingColumns: Map<string, Set<string>> = new Map();
 
   private seq = 0;
 
@@ -46,6 +56,13 @@ export class PostgrestFake {
 
   dropTable(name: string): void {
     this.tables.delete(name);
+  }
+
+  /** Pretend a migration has not been applied yet. */
+  dropColumn(table: string, column: string): void {
+    const cols = this.missingColumns.get(table) ?? new Set<string>();
+    cols.add(column);
+    this.missingColumns.set(table, cols);
   }
 
   rows(name: string): Row[] {
@@ -139,6 +156,22 @@ export class PostgrestFake {
 
     if (method === "POST") {
       const incoming = Array.isArray(body) ? body : [body];
+      const absent = this.missingColumns.get(table);
+      if (absent) {
+        for (const raw of incoming as Row[]) {
+          const named = Object.keys(raw ?? {}).find((k) => absent.has(k));
+          if (named) {
+            // Verbatim shape of PostgREST refusing an unknown column.
+            return json(
+              JSON.stringify({
+                code: "PGRST204",
+                message: `Could not find the '${named}' column of '${table}' in the schema cache`,
+              }),
+              400
+            );
+          }
+        }
+      }
       const created: Row[] = [];
       for (const raw of incoming as Row[]) {
         const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };

@@ -84,14 +84,46 @@ export async function createDeliverable(
     console.log("[GridForge] deliverable (not persisted — Supabase unset):", JSON.stringify(record));
     return { ...(record as DeliverableRecord), id: "local" };
   }
-  const res = await fetch(`${c.url}/rest/v1/deliverables`, {
-    method: "POST",
-    headers: { ...c.headers, Prefer: "return=representation" },
-    body: JSON.stringify(record),
-  });
+  const insert = (payload: Record<string, unknown>) =>
+    fetch(`${c.url}/rest/v1/deliverables`, {
+      method: "POST",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify(payload),
+    });
+
+  let res = await insert(record);
+
+  // The deploy window.
+  //
+  // Code ships before its migration runs — that is the ordinary order of things,
+  // and the standing order deploys before applying 0009-0012. PostgREST does not
+  // ignore an unknown column, it refuses the whole insert with PGRST204. So for as
+  // long as 0012 is unapplied, EVERY purchase would fail to open an engagement,
+  // the webhook would return 500, and Stripe would retry until it gave up: a
+  // payment taken and nothing delivered, on the primary cash product.
+  //
+  // So the separate intake credential degrades. Without the column the engagement
+  // still opens and the intake link still resolves — getByIntakeToken falls back to
+  // `token`, which is exactly how rows created before 0012 are already handled.
+  // Once the migration lands, new rows get the split credential with no further
+  // change. The deploy order stops mattering, which is better than getting it right.
   if (!res.ok) {
-    console.error("[GridForge] deliverable insert failed:", await res.text());
-    return null;
+    const detail = await res.text();
+    if (detail.includes("PGRST204") && detail.includes("intake_token")) {
+      console.warn(
+        "[GridForge] deliverables.intake_token is missing — apply migration 0012. " +
+          "Opening the engagement on the document token alone."
+      );
+      const { intake_token: _omitted, ...withoutIntakeToken } = record;
+      res = await insert(withoutIntakeToken);
+      if (!res.ok) {
+        console.error("[GridForge] deliverable insert failed:", await res.text());
+        return null;
+      }
+    } else {
+      console.error("[GridForge] deliverable insert failed:", detail);
+      return null;
+    }
   }
   const rows = (await res.json()) as DeliverableRecord[];
   return rows[0] ?? null;
