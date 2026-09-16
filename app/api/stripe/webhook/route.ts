@@ -415,10 +415,15 @@ async function openDeliverable(p: {
     return false;
   }
   const base = SITE_URL;
+  // The INTAKE token, not the document token. They are different credentials now
+  // (migration 0012): this one only submits the hall's numbers, so it is safe to
+  // put in an email and on /commissioned, while reading the released document
+  // still needs the token we never publish.
+  const intakeToken = record.intake_token ?? record.token;
   console.log(
-    `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${record.token}`
+    `[GridForge] deliverable opened (${p.kind}) for ${p.email || "unknown"} — intake link: ${base}/intake/${intakeToken}`
   );
-  await emailIntakeLink({ email: p.email, kind: p.kind, url: `${base}/intake/${record.token}` });
+  await emailIntakeLink({ email: p.email, kind: p.kind, url: `${base}/intake/${intakeToken}` });
   return true;
 }
 

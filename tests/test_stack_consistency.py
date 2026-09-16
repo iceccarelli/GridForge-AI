@@ -498,7 +498,8 @@ def test_no_route_reaches_supabase_without_checking_whether_it_worked():
 #: app/<x>/[token]/ is reachable by anyone who types a URL; the token IS the
 #: credential, so a page that never looks it up is not addressed by a token at
 #: all, it is public with a decorative path segment.
-TOKEN_LOOKUPS = ("getByToken", "getQualification", "getWatch", "getApiAccount")
+TOKEN_LOOKUPS = ("getByToken", "getByIntakeToken", "getQualification",
+                 "getWatch", "getApiAccount")
 
 
 def test_every_token_addressed_page_resolves_its_token_server_side():

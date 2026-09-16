@@ -428,6 +428,72 @@ describe("the numbers they already gave us follow them into what they paid for",
   });
 });
 
+describe("two credentials, because they grant different things", () => {
+  /**
+   * `token` reads the released engineering opinion. `intake_token` submits the
+   * hall's numbers. They used to be the same string, which is why /commissioned
+   * could not show the intake link: publishing it on a page keyed by a Stripe
+   * session id would have made that session id a document credential, and put it
+   * in browser history and referrer headers.
+   */
+  it("resolves an engagement by its intake token", async () => {
+    seedEngagement("density_screen", { intake_token: "intake-tok" });
+    const { GET } = await route();
+    const res = await GET(new Request(siteUrl("/api/intake/intake-tok")), {
+      params: Promise.resolve({ token: "intake-tok" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("still resolves rows created before the split", async () => {
+    // Migration 0012 is additive; rows written before it have only `token`.
+    seedEngagement("density_screen", { intake_token: null });
+    const { GET } = await route();
+    const res = await GET(new Request(siteUrl("/api/intake/engagement-token")), {
+      params: Promise.resolve({ token: "engagement-token" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("writes the generated document against the DOCUMENT token, not the intake one", async () => {
+    // updateByToken addresses `token`. Passing the intake token would silently
+    // update nothing and the customer's document would never appear.
+    seedEngagement("density_screen", { intake_token: "intake-tok" });
+    const { POST } = await route();
+    const res = await POST(post("intake-tok"), { params: Promise.resolve({ token: "intake-tok" }) });
+    expect(res.status).toBe(200);
+    const row = db.rows("deliverables")[0] as Record<string, any>;
+    expect(row.status).toBe("draft");
+    expect(row.document_html).toBeTruthy();
+  });
+
+  it("refuses a token that is neither", async () => {
+    seedEngagement("density_screen", { intake_token: "intake-tok" });
+    const { POST } = await route();
+    const res = await POST(post("neither-token"), {
+      params: Promise.resolve({ token: "neither-token" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("an intake token does not open the document", async () => {
+    // The whole point of the split. /api/deliverable resolves `token` only.
+    db.seed("deliverables", [
+      { token: "doc-tok", intake_token: "intake-tok", kind: "density_screen",
+        status: "released", document_html: "<p>the opinion</p>" },
+    ]);
+    const { GET } = await import("@/app/api/deliverable/[token]/route");
+    const asIntake = await GET(new Request(siteUrl("/api/deliverable/intake-tok")), {
+      params: Promise.resolve({ token: "intake-tok" }),
+    });
+    expect(asIntake.status).toBe(404);
+    const asDoc = await GET(new Request(siteUrl("/api/deliverable/doc-tok")), {
+      params: Promise.resolve({ token: "doc-tok" }),
+    });
+    expect(asDoc.status).toBe(200);
+  });
+});
+
 describe("generation", () => {
   it("leaves the document as a DRAFT — release is a human act", async () => {
     seedEngagement();

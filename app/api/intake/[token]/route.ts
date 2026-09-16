@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { getByToken, renderDeliverable, updateByToken } from "@/lib/deliverables";
+import {
+  getByIntakeToken,
+  renderDeliverable,
+  updateByToken,
+} from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -21,7 +25,7 @@ export const maxDuration = 120;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
-  const row = await getByToken(token);
+  const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   const product = PRODUCT_BY_KIND[row.kind];
 
@@ -54,7 +58,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
-  const row = await getByToken(token);
+  const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   if (row.status === "released") {
     return NextResponse.json(
@@ -86,7 +90,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const assumed = assumedFields(parsed.data as Record<string, unknown>);
 
   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
-  await updateByToken(token, { intake: doc, status: "generating" });
+  await updateByToken(row.token, { intake: doc, status: "generating" });
 
   // From the catalogue, not from a conditional here. Branching on the kind inline
   // is how a EUR 18,000 Procurement Specification purchase generated a Density
@@ -94,7 +98,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // and nothing objected.
   const endpoint = deliverableEndpoint(row.kind);
   if (!endpoint) {
-    await updateByToken(token, {
+    await updateByToken(row.token, {
       status: "awaiting_intake",
       title: null,
     });
@@ -111,7 +115,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const rendered = await renderDeliverable(doc, endpoint);
 
   if (!rendered.ok) {
-    await updateByToken(token, { status: "engine_unavailable" });
+    await updateByToken(row.token, { status: "engine_unavailable" });
     return NextResponse.json(
       {
         ok: false,
@@ -132,7 +136,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // all the Study used to have and all a Screen never had.
   const binding = rendered.binding ?? bindingFrom(rendered.working);
 
-  await updateByToken(token, {
+  await updateByToken(row.token, {
     status: "draft",
     title: rendered.title,
     intake: binding ? { ...doc, _gridforge: { binding } } : doc,

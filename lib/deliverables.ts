@@ -34,6 +34,14 @@ export interface DeliverableRecord {
   email: string | null;
   company: string | null;
   qualification_id: string | null;
+  /**
+   * Grants one thing: submit this engagement's numbers.
+   *
+   * Separate from `token`, which reads the released document. Splitting them is
+   * what lets /commissioned show the intake link at the moment of payment without
+   * turning a Stripe session id into a document credential.
+   */
+  intake_token: string | null;
   stripe_session_id: string | null;
   amount_cents: number | null;
   intake: Record<string, unknown> | null;
@@ -64,7 +72,13 @@ export async function createDeliverable(
   row: Partial<DeliverableRecord> & { kind: string }
 ): Promise<DeliverableRecord | null> {
   const token = row.token ?? newToken();
-  const record = { status: "awaiting_intake" as DeliverableStatus, ...row, token };
+  const intakeToken = row.intake_token ?? newToken();
+  const record = {
+    status: "awaiting_intake" as DeliverableStatus,
+    ...row,
+    token,
+    intake_token: intakeToken,
+  };
   const c = creds();
   if (!c) {
     console.log("[GridForge] deliverable (not persisted — Supabase unset):", JSON.stringify(record));
@@ -170,6 +184,30 @@ export async function getByToken(token: string): Promise<DeliverableRecord | nul
   if (!res.ok) return null;
   const rows = (await res.json()) as DeliverableRecord[];
   return rows[0] ?? null;
+}
+
+/**
+ * The engagement an intake link addresses.
+ *
+ * Tries `intake_token` first, then `token` — rows created before 0012 have only
+ * the latter and must keep working. Only `intake_token` is ever disclosed by
+ * anything that did not already hold the document credential.
+ */
+export async function getByIntakeToken(token: string): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !token) return null;
+  const q = encodeURIComponent(token);
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?intake_token=eq.${q}&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (res.ok) {
+    const rows = (await res.json()) as DeliverableRecord[];
+    if (rows[0]) return rows[0];
+  } else {
+    console.error("[GridForge] intake token lookup failed:", res.status, await res.text());
+  }
+  return getByToken(token);
 }
 
 export async function updateByToken(

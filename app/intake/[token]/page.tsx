@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EngagementIntake } from "@/components/EngagementIntake";
-import { getByToken } from "@/lib/deliverables";
+import { getByIntakeToken } from "@/lib/deliverables";
 
 export const metadata: Metadata = {
   title: "Engagement intake | GridForge AI",
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 export default async function IntakePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const row = await getByToken(token);
+  const row = await getByIntakeToken(token);
   if (!row) notFound();
   return (
     <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">

@@ -256,6 +256,23 @@ async function main() {
 
   const token = row.token;
 
+  // Email was the single point of failure between a five-figure purchase and its
+  // fulfilment. /commissioned now resolves the Stripe session and hands over the
+  // intake link — and what it discloses is the INTAKE credential, not the document
+  // one, so a session id in browser history is not a way to read the opinion.
+  const commissioned = await (
+    await fetch(`${SITE}/commissioned?session_id=cs_density_screen`)
+  ).text();
+  ok("the post-payment page hands over the intake link, without waiting on email",
+     commissioned.includes(`/intake/${row.intake_token}`),
+     row.intake_token ? "intake link present" : "no intake token minted");
+  ok("and does NOT disclose the document credential",
+     Boolean(row.intake_token) && row.intake_token !== token && !commissioned.includes(token),
+     "document token absent from the page");
+  ok("the intake credential cannot read the document",
+     (await fetch(`${SITE}/api/deliverable/${row.intake_token}`)).status === 404);
+
+
   // The seven numbers they typed into the FREE qualifier must follow them into
   // the thing they paid for. Re-typing them after the money is taken is where an
   // abandoned intake becomes revenue collected for a document nobody receives.
