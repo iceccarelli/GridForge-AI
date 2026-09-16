@@ -34,6 +34,55 @@ export function checkPassword(input: string): boolean {
   return !!pw && safeEqual(input, pw);
 }
 
+/**
+ * A throttle on password attempts.
+ *
+ * ADMIN_PASSWORD is the only thing between a stranger and the lead pipeline —
+ * every prospect, their site, their contracted megawatts and their score — plus
+ * the button that releases a deliverable. There was nothing at all slowing an
+ * attacker down, so the password's strength was the entire defence and a guess
+ * cost nothing to try.
+ *
+ * Deliberately modest and deliberately honest about it: this is in-memory, so on
+ * a serverless platform it is per-instance and resets on a cold start. That makes
+ * it a cost multiplier on a guessing attack, not a lockout. The real defence is
+ * still a long random ADMIN_PASSWORD, and this exists so that a merely decent one
+ * is not brute-forced in an afternoon. A distributed lockout belongs with real
+ * client logins, which is when this whole gate gets replaced.
+ */
+const ATTEMPTS_PER_WINDOW = 8;
+const WINDOW_MS = 10 * 60 * 1000;
+const attempts = new Map<string, number[]>();
+
+/** Who is asking, as well as we can tell behind a proxy. */
+export function requestKey(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for") || "";
+  const first = fwd.split(",")[0]?.trim();
+  return first || req.headers.get("x-real-ip") || "unknown";
+}
+
+/**
+ * Record an attempt. Returns how long to wait, in seconds, or 0 to proceed.
+ *
+ * Counts the attempt whatever the outcome — a throttle that only counts failures
+ * lets an attacker reset it by interleaving a request it will answer.
+ */
+export function throttleLogin(key: string, now = Date.now()): number {
+  const seen = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (seen.length >= ATTEMPTS_PER_WINDOW) {
+    attempts.set(key, seen);
+    return Math.ceil((WINDOW_MS - (now - seen[0])) / 1000);
+  }
+  seen.push(now);
+  attempts.set(key, seen);
+  return 0;
+}
+
+/** Test seam. Never called in a request path. */
+export function resetLoginThrottle(): void {
+  attempts.clear();
+}
+
 /** Request check: is this cookie a valid admin session? */
 export function verifyAdminCookie(value: string | undefined): boolean {
   const token = adminToken();

@@ -8,6 +8,10 @@ engineering engagements, as a metered API, and as a machine-callable MCP endpoin
 
 No equipment is sold. No margin is taken on hardware. No physical asset is owned.
 
+> **Picking this up cold?** Read [`HANDOFF.md`](HANDOFF.md) first. It is the brief: the
+> rules that govern every change, what is built, what each guard exists to prevent, and
+> the complete list of what is still open.
+
 ---
 
 ## The honesty kernel
@@ -137,10 +141,15 @@ mints one in Node, verifies it in Python, and asserts both produce the identical
 ## The site
 
 Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
+Served at **timetopower.ai**. `SITE_URL` in `lib/site.ts` is the only definition of
+that — a test fails on any hardcoded domain elsewhere, because canonical URLs once
+pointed at a preview deployment while every email pointed at the real one.
 
 ```
 /                      the argument, and the free qualifier
 /qualify               seven numbers in, the binding constraint out
+/q/<token>             that read on a permanent link, with how the hall compares —
+                       the engineer runs it, the director signs the study
 /llms.txt              the machine index: what this site contains, where the
                        canonical JSON lives, and how to read an evidence class
 /constraints           all thirteen, each with the governing relation, a worked example

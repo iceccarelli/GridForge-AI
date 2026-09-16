@@ -1,13 +1,24 @@
 # inbox — where a patch arrives
 
-Drop a `.patch` file here, then run:
+Drop a `.patch` file here — or anywhere in the repository, including the root —
+then run:
 
 ```bash
 bash scripts/apply-inbox.sh
 ```
 
-It applies each patch in order, runs the tests, and commits the result **with the
-patch file removed in the same commit**. The repository never accumulates them.
+It sweeps any `.patch` off the repository root into this folder, applies each patch
+in order, runs the tests, and commits the result **with the patch file removed in
+the same commit**. The repository never accumulates them.
+
+**You do not have to put the file here by hand.** The GitHub web uploader has no
+usable folder picker and drops everything at the root, so the script moves it for
+you and commits the move. That is a workflow; `git mv` every time was not.
+
+**A pre-existing failure will not revert your patch.** The script records which
+tests are already red before it applies anything and rolls back only on *new*
+failures. Anything already red is printed by name, at the start and at the end, and
+still has to be fixed — it just is not your patch's fault.
 
 ## Why this exists rather than the repository root
 

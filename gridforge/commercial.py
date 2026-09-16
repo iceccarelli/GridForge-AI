@@ -18,6 +18,10 @@ class Engagement:
     turnaround_days: int
     question: str
     deliverable: str
+    #: The top of the scoped band, where the engagement is quoted as a range. The
+    #: site used to print "EUR 22k-45k" with the 45 typed into a component, which
+    #: made the upper half of every quoted range unsourceable.
+    price_eur_max: int = 0
     scope_in: tuple[str, ...] = ()
     scope_out: tuple[str, ...] = ()
     credits_against: str | None = None
@@ -58,6 +62,7 @@ ENGAGEMENTS: dict[str, Engagement] = {
         id="envelope_study",
         name="Capacity & Density Envelope Study",
         price_eur=22_000,
+        price_eur_max=45_000,
         turnaround_days=25,
         question=("How much AI compute can this hall carry, what binds first, and what does each "
                   "step of density cost?"),
@@ -112,6 +117,7 @@ ENGAGEMENTS: dict[str, Engagement] = {
         id="portfolio_screen",
         name="Portfolio Screen",
         price_eur=60_000,
+        price_eur_max=140_000,
         turnaround_days=45,
         question="Which of these halls should carry the compute, and in what order?",
         deliverable="Portfolio Screen document and one model pack per hall.",

@@ -14,6 +14,7 @@
 // and the page says so.
 
 import crypto from "node:crypto";
+import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -33,6 +34,14 @@ export interface DeliverableRecord {
   email: string | null;
   company: string | null;
   qualification_id: string | null;
+  /**
+   * Grants one thing: submit this engagement's numbers.
+   *
+   * Separate from `token`, which reads the released document. Splitting them is
+   * what lets /commissioned show the intake link at the moment of payment without
+   * turning a Stripe session id into a document credential.
+   */
+  intake_token: string | null;
   stripe_session_id: string | null;
   amount_cents: number | null;
   intake: Record<string, unknown> | null;
@@ -63,23 +72,138 @@ export async function createDeliverable(
   row: Partial<DeliverableRecord> & { kind: string }
 ): Promise<DeliverableRecord | null> {
   const token = row.token ?? newToken();
-  const record = { status: "awaiting_intake" as DeliverableStatus, ...row, token };
+  const intakeToken = row.intake_token ?? newToken();
+  const record = {
+    status: "awaiting_intake" as DeliverableStatus,
+    ...row,
+    token,
+    intake_token: intakeToken,
+  };
   const c = creds();
   if (!c) {
     console.log("[GridForge] deliverable (not persisted — Supabase unset):", JSON.stringify(record));
     return { ...(record as DeliverableRecord), id: "local" };
   }
-  const res = await fetch(`${c.url}/rest/v1/deliverables`, {
-    method: "POST",
-    headers: { ...c.headers, Prefer: "return=representation" },
-    body: JSON.stringify(record),
-  });
+  const insert = (payload: Record<string, unknown>) =>
+    fetch(`${c.url}/rest/v1/deliverables`, {
+      method: "POST",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify(payload),
+    });
+
+  let res = await insert(record);
+
+  // The deploy window.
+  //
+  // Code ships before its migration runs — that is the ordinary order of things,
+  // and the standing order deploys before applying 0009-0012. PostgREST does not
+  // ignore an unknown column, it refuses the whole insert with PGRST204. So for as
+  // long as 0012 is unapplied, EVERY purchase would fail to open an engagement,
+  // the webhook would return 500, and Stripe would retry until it gave up: a
+  // payment taken and nothing delivered, on the primary cash product.
+  //
+  // So the separate intake credential degrades. Without the column the engagement
+  // still opens and the intake link still resolves — getByIntakeToken falls back to
+  // `token`, which is exactly how rows created before 0012 are already handled.
+  // Once the migration lands, new rows get the split credential with no further
+  // change. The deploy order stops mattering, which is better than getting it right.
   if (!res.ok) {
-    console.error("[GridForge] deliverable insert failed:", await res.text());
+    const detail = await res.text();
+    if (detail.includes("PGRST204") && detail.includes("intake_token")) {
+      console.warn(
+        "[GridForge] deliverables.intake_token is missing — apply migration 0012. " +
+          "Opening the engagement on the document token alone."
+      );
+      const { intake_token: _omitted, ...withoutIntakeToken } = record;
+      res = await insert(withoutIntakeToken);
+      if (!res.ok) {
+        console.error("[GridForge] deliverable insert failed:", await res.text());
+        return null;
+      }
+    } else {
+      console.error("[GridForge] deliverable insert failed:", detail);
+      return null;
+    }
+  }
+  const rows = (await res.json()) as DeliverableRecord[];
+  return rows[0] ?? null;
+}
+
+/**
+ * The engagement already opened for a Stripe checkout session, if there is one.
+ *
+ * Stripe redelivers a webhook until it gets a 2xx, and the handler now returns a
+ * 500 when it cannot open the engagement — which is the only way a four-figure payment
+ * stops being silently orphaned. That makes a replay certain rather than unlikely,
+ * so the insert has to be safe to repeat: without this lookup a retry would hand
+ * one customer two intake links for one payment.
+ */
+export async function deliverableBySession(
+  sessionId: string
+): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !sessionId) return null;
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?stripe_session_id=eq.${encodeURIComponent(sessionId)}` +
+      `&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
     return null;
   }
   const rows = (await res.json()) as DeliverableRecord[];
   return rows[0] ?? null;
+}
+
+/**
+ * What this customer has already paid that credits against an engagement.
+ *
+ * Two customer-facing surfaces promise the Density Screen "credits in full against
+ * the full study", and `lib/products.ts` declares `creditsAgainst`. Nothing read
+ * it, so honouring the credit depended on whoever raised the invoice remembering a
+ * purchase that might be months old. Forgetting it breaks a written promise;
+ * remembering it twice gives the money away twice.
+ *
+ * A deliverable row exists only because a checkout completed, so its existence is
+ * the payment. Engagements are named without the `_deposit` suffix, which is what
+ * `creditsAgainst` points at.
+ */
+export async function creditsToward(
+  email: string,
+  engagement: string
+): Promise<{ cents: number; from: { kind: string; token: string; amount_cents: number }[] }> {
+  const empty = { cents: 0, from: [] };
+  const e = (email ?? "").trim().toLowerCase();
+  if (!e || !engagement) return empty;
+
+  const crediting = Object.values(PRODUCTS).filter(
+    (p) => p.creditsAgainst && p.creditsAgainst.replace(/_deposit$/, "") === engagement
+  );
+  if (!crediting.length) return empty;
+
+  const c = creds();
+  if (!c) return empty;
+  const kinds = crediting.map((p) => p.kind);
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?email=eq.${encodeURIComponent(e)}` +
+      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=kind,token,amount_cents`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (!res.ok) {
+    // Never guess a credit. Reporting none is recoverable by a human reading the
+    // pipeline; inventing one is money given away on our own arithmetic.
+    console.error("[GridForge] credit lookup failed:", res.status, await res.text());
+    return empty;
+  }
+  const rows = (await res.json()) as { kind: string; token: string; amount_cents: number | null }[];
+  const from = rows.map((r) => ({
+    kind: r.kind,
+    token: r.token,
+    // Fall back to the catalogue price when the row did not record one.
+    amount_cents: r.amount_cents ?? PRODUCT_BY_KIND[r.kind]?.amountCents ?? 0,
+  }));
+  return { cents: from.reduce((a, r) => a + r.amount_cents, 0), from };
 }
 
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
@@ -92,6 +216,30 @@ export async function getByToken(token: string): Promise<DeliverableRecord | nul
   if (!res.ok) return null;
   const rows = (await res.json()) as DeliverableRecord[];
   return rows[0] ?? null;
+}
+
+/**
+ * The engagement an intake link addresses.
+ *
+ * Tries `intake_token` first, then `token` — rows created before 0012 have only
+ * the latter and must keep working. Only `intake_token` is ever disclosed by
+ * anything that did not already hold the document credential.
+ */
+export async function getByIntakeToken(token: string): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !token) return null;
+  const q = encodeURIComponent(token);
+  const res = await fetch(
+    `${c.url}/rest/v1/deliverables?intake_token=eq.${q}&select=*&limit=1`,
+    { headers: c.headers, cache: "no-store" }
+  );
+  if (res.ok) {
+    const rows = (await res.json()) as DeliverableRecord[];
+    if (rows[0]) return rows[0];
+  } else {
+    console.error("[GridForge] intake token lookup failed:", res.status, await res.text());
+  }
+  return getByToken(token);
 }
 
 export async function updateByToken(
@@ -109,6 +257,93 @@ export async function updateByToken(
 }
 
 /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */
+/**
+ * Compare supplier responses against the capacity model.
+ *
+ * The third of the three things a Procurement Specification's catalogue entry
+ * promises — "a bid comparison against the capacity model showing what each
+ * response does to the energisation date" — and the one that had no surface. The
+ * engine has done it all along; nothing called it.
+ *
+ * Judged against the relief the specification was WRITTEN for, carried on the
+ * engagement, not against whatever binds the hall today. Four quotes answered one
+ * requirement; comparing them against a different one would be worse than not
+ * comparing them.
+ */
+export async function compareBids(
+  row: DeliverableRecord,
+  responses: unknown[]
+): Promise<
+  | { ok: true; ranked: unknown[]; leading: unknown; relief: string; sized_for_racks: number; note?: unknown }
+  | { ok: false; error: string; status: number }
+> {
+  const base = process.env.GRIDFORGE_API_URL;
+  const key = process.env.GRIDFORGE_API_KEY;
+  if (!base || !key) {
+    return { ok: false, status: 503, error: "The capacity engine is not connected to this deployment." };
+  }
+  const intake = (row.intake ?? null) as Record<string, unknown> | null;
+  if (!intake) {
+    return { ok: false, status: 409, error: "This engagement has no intake yet." };
+  }
+  const meta = (intake._gridforge ?? {}) as { spec?: { constraint_id?: string } };
+  const constraint = meta.spec?.constraint_id ?? "";
+
+  // The customer's own numbers only. `_gridforge` is ours.
+  const engineIntake = { ...intake };
+  delete (engineIntake as Record<string, unknown>)._gridforge;
+
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/bids`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify({ intake: engineIntake, responses, constraint }),
+      signal: AbortSignal.timeout(120_000),
+      cache: "no-store",
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const detail = typeof body?.error === "string" ? body.error : `engine ${res.status}`;
+      console.error("[GridForge] bid comparison refused:", res.status, detail);
+      // 422 from the engine is the customer's responses being wrong, which they
+      // can fix. Anything else is ours.
+      return { ok: false, status: res.status === 422 ? 422 : 502, error: detail };
+    }
+    return {
+      ok: true,
+      ranked: Array.isArray(body.ranked) ? body.ranked : [],
+      leading: body.leading ?? null,
+      relief: typeof body.relief === "string" ? body.relief : "",
+      sized_for_racks: Number(body.sized_for_racks) || 0,
+      note: body.note,
+    };
+  } catch (err) {
+    console.error("[GridForge] bid comparison unreachable:", err);
+    return { ok: false, status: 502, error: "The capacity engine could not be reached." };
+  }
+}
+
+/** The relief a Procurement Specification was written for, from its own bundle. */
+function specFrom(
+  files: Record<string, string> | null
+): { constraint_id: string; constraint: string; relief: string; sized_for_racks: number } | null {
+  const raw = files?.["specification.json"];
+  if (!raw) return null;
+  try {
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    const id = typeof d.constraint_id === "string" ? d.constraint_id : "";
+    if (!id) return null;
+    return {
+      constraint_id: id,
+      constraint: typeof d.constraint === "string" ? d.constraint : id,
+      relief: typeof d.relief === "string" ? d.relief : "",
+      sized_for_racks: Number(d.sized_for_racks) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function renderDeliverable(
   intake: Record<string, unknown>,
   endpoint: "screen" | "study" | "spec"
@@ -120,6 +355,17 @@ export async function renderDeliverable(
       md: string;
       deck: string | null;
       working: Record<string, string> | null;
+      /** What binds the hall as found, straight from the engine's own payload. */
+      binding: string | null;
+      /**
+       * For a Procurement Specification: which relief it was written for.
+       *
+       * Kept because the bid comparison has to be judged against the SAME relief
+       * the suppliers quoted. Re-deriving it later would let a library revision
+       * move what binds and silently compare four quotes against a different
+       * requirement than the one they answered.
+       */
+      spec: { constraint_id: string; constraint: string; relief: string; sized_for_racks: number } | null;
     }
   | { ok: false; error: string }
 > {
@@ -162,6 +408,45 @@ export async function renderDeliverable(
     }
   };
 
+  /**
+   * The binding constraint, from the engine's structured answer.
+   *
+   * It used to be read only out of `scenarios.csv` in the working-file bundle —
+   * and a Density Screen does not produce one. Its catalogue entry promises the
+   * document, the ladder and the data request, and no working files; `/v1/screen`
+   * has no csv format at all and is right not to.
+   *
+   * So for the Density Screen — the EUR 4,500 entry product whose whole commercial
+   * purpose is to credit against the Envelope Study — the follow-on offer named a
+   * generic constraint instead of the customer's own. That is the single most
+   * valuable upsell in the business and it was running blind on every screen ever
+   * sold. The figure was there the whole time, one field away, in the payload the
+   * engine already returns.
+   */
+  const structured = async (): Promise<string | null> => {
+    if (endpoint === "spec") return null;
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": key },
+        body: JSON.stringify({ intake }),
+        signal: AbortSignal.timeout(120_000),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error("[GridForge] binding lookup failed:", res.status, await res.text());
+        return null;
+      }
+      const body = (await res.json()) as {
+        scenarios?: { as_found?: { binding_name?: string } }[];
+      };
+      return body.scenarios?.[0]?.as_found?.binding_name ?? null;
+    } catch (err) {
+      console.error("[GridForge] binding lookup error:", err);
+      return null;
+    }
+  };
+
   const working = async (): Promise<Record<string, string> | null> => {
     // The tables behind the document, so the client's own engineers can check the
     // arithmetic. A failed bundle never fails the document.
@@ -179,11 +464,20 @@ export async function renderDeliverable(
           cache: "no-store",
         });
         if (!res.ok) return null;
-        const body = (await res.json()) as { response_template?: unknown };
+        const body = (await res.json()) as {
+          response_template?: unknown;
+          specification?: Record<string, unknown>;
+        };
         if (!body.response_template) return null;
-        return {
+        const out: Record<string, string> = {
           "response_template.json": JSON.stringify(body.response_template, null, 2),
         };
+        // The relief this specification was written for, kept with it. The bid
+        // comparison is judged against this and not against whatever binds later.
+        if (body.specification) {
+          out["specification.json"] = JSON.stringify(body.specification, null, 2);
+        }
+        return out;
       }
       const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
         method: "POST",
@@ -201,11 +495,12 @@ export async function renderDeliverable(
   };
 
   try {
-    const [html, md, deckHtml, files] = await Promise.all([
+    const [html, md, deckHtml, files, binding] = await Promise.all([
       call("html"),
       call("md"),
       deck(),
       working(),
+      structured(),
     ]);
     return {
       ok: true,
@@ -214,6 +509,8 @@ export async function renderDeliverable(
       md: md.document,
       deck: deckHtml,
       working: files,
+      binding,
+      spec: specFrom(files),
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };

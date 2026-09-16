@@ -49,6 +49,53 @@ function isoDate(d: Date): string {
 }
 
 /**
+ * How close a subscription's key is to going silent.
+ *
+ * Signed keys are stateless, which is what lets the engine verify them with no
+ * database and no network call. The price of that is a fixed expiry baked into
+ * the token: 35 days, against a subscription that renews every ~30. Nothing can
+ * extend a key in place — a new expiry means a new signature means a new key.
+ *
+ * So the renewal has to be a thing the customer DOES, which means we have to tell
+ * them, in time, in the one place they can act on it. A paying customer whose
+ * agents stop at 3am because a credential quietly aged out is the most expensive
+ * failure this product has: it looks like our engine broke, and they churn.
+ */
+export const ROTATION_WINDOW_DAYS = 7;
+
+export interface KeyLife {
+  has_key: boolean;
+  expires: string | null;
+  /** Negative once the key is dead. Null when there is no key at all. */
+  days_left: number | null;
+  expired: boolean;
+  /** Expired, or inside the window where the customer should mint a fresh one. */
+  needs_rotation: boolean;
+}
+
+export function keyLife(row: Pick<ApiAccount, "key_id" | "key_expires_at">): KeyLife {
+  if (!row.key_id || !row.key_expires_at) {
+    return { has_key: false, expires: null, days_left: null, expired: false, needs_rotation: true };
+  }
+  const expires = new Date(`${row.key_expires_at}T00:00:00Z`);
+  if (Number.isNaN(expires.getTime())) {
+    // An unreadable date is not a healthy key. Treat it as needing replacement
+    // rather than silently reporting it as live.
+    return { has_key: true, expires: row.key_expires_at, days_left: null, expired: true, needs_rotation: true };
+  }
+  const today = new Date(`${isoDate(new Date())}T00:00:00Z`);
+  const days_left = Math.round((expires.getTime() - today.getTime()) / 86_400_000);
+  const expired = days_left < 0;
+  return {
+    has_key: true,
+    expires: row.key_expires_at,
+    days_left,
+    expired,
+    needs_rotation: expired || days_left <= ROTATION_WINDOW_DAYS,
+  };
+}
+
+/**
  * Mint a signed key. 35 days, not 30: a subscription renewing on the 1st must not
  * leave a customer's agents dark for the hours between the renewal and the webhook.
  * The overlap is the difference between a renewal nobody notices and a support ticket.
@@ -235,6 +282,51 @@ export async function findBySubscription(subscriptionId: string): Promise<ApiAcc
  * key that keeps working until it expires is not rotated, it is duplicated. The
  * revoked ids go into GRIDFORGE_REVOKED_KEYS on the engine.
  */
+/**
+ * Tell the engine to stop honouring a key now, rather than at expiry.
+ *
+ * The account row records which ids we have revoked; the ENGINE is what has to
+ * refuse them, and until it had a local revocation store the only lever was an
+ * environment variable — a redeploy, done by hand, while a leaked key kept
+ * working.
+ *
+ * Best-effort on purpose. This runs inside the Stripe webhook, and a webhook that
+ * fails because the engine is briefly unreachable would be redelivered and re-run
+ * a cancellation that already happened. A failure here is logged with the id so it
+ * can be pushed by hand, and the key still dies at expiry as it always did.
+ */
+export async function revokeOnEngine(keyId: string | null | undefined): Promise<boolean> {
+  const id = (keyId ?? "").trim();
+  if (!id) return false;
+  const base = process.env.GRIDFORGE_API_URL;
+  const admin = process.env.GRIDFORGE_ADMIN_KEY;
+  if (!base || !admin) {
+    console.warn(
+      "[GridForge] cannot revoke key id on the engine (GRIDFORGE_API_URL / GRIDFORGE_ADMIN_KEY unset):",
+      id
+    );
+    return false;
+  }
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": admin },
+      body: JSON.stringify({ key_id: id }),
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.error("[GridForge] engine refused a revocation:", res.status, await res.text(), id);
+      return false;
+    }
+    console.log("[GridForge] key id revoked on the engine:", id);
+    return true;
+  } catch (err) {
+    console.error("[GridForge] could not reach the engine to revoke:", err, id);
+    return false;
+  }
+}
+
 export async function mintForAccount(
   row: ApiAccount,
   opts: { rotate?: boolean } = {}

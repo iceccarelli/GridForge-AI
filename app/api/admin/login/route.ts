@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { checkPassword, adminToken, adminConfigured, ADMIN_COOKIE } from "@/lib/admin";
+import {
+  checkPassword,
+  adminToken,
+  adminConfigured,
+  requestKey,
+  throttleLogin,
+  ADMIN_COOKIE,
+} from "@/lib/admin";
 
 export const runtime = "nodejs";
 
@@ -12,6 +19,16 @@ export async function POST(req: Request) {
       { status: 503 }
     );
   }
+  // Before reading the body, and before comparing anything: a guess must cost
+  // something. This gate fronts the whole lead pipeline and the release button.
+  const wait = throttleLogin(requestKey(req));
+  if (wait > 0) {
+    return NextResponse.json(
+      { ok: false, error: "Too many attempts. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(wait) } }
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();

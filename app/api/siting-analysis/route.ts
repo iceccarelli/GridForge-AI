@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 import Anthropic from "@anthropic-ai/sdk";
 import { SITING_REGIONS, sitingScore } from "@/lib/siting";
 
@@ -20,24 +21,30 @@ export async function POST(req: Request) {
   const brief = (body.brief || "").trim();
   if (!email || !brief) return NextResponse.json({ ok: false, error: "Missing input" }, { status: 400 });
 
-  // Verify active subscription server-side.
-  const url = process.env.SUPABASE_URL;
-  const skey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (url && skey) {
-    const auth: Record<string, string> = skey.startsWith("sb_secret_")
-      ? { apikey: skey } : { apikey: skey, Authorization: `Bearer ${skey}` };
-    try {
-      const r = await fetch(
-        `${url}/rest/v1/subscriptions?email=eq.${encodeURIComponent(email)}&status=eq.active&select=plan&limit=1`,
-        { headers: { ...auth, Accept: "application/json" } }
-      );
-      const rows = await r.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return NextResponse.json({ ok: false, error: "No active subscription" }, { status: 403 });
-      }
-    } catch {
-      return NextResponse.json({ ok: false, error: "Auth check failed" }, { status: 500 });
-    }
+  // Verify the subscription server-side, through the one module that knows how.
+  //
+  // This gate used to be wrapped in `if (url && skey)`, which meant that with
+  // Supabase unconfigured it was not a gate at all: the paid analyst answered
+  // anybody who posted an email address. A gate that disappears when its
+  // dependency is missing is worse than no gate, because the surface still reads
+  // as protected. It fails closed now.
+  if (!subscriptionsConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "Analyst unavailable" },
+      { status: 503 }
+    );
+  }
+  const found = await lookupSubscription(email);
+  if (!found.reachable) {
+    // Denied either way, but 402 would be a claim about this customer and the
+    // fault is ours.
+    return NextResponse.json({ ok: false, error: "Analyst unavailable" }, { status: 503 });
+  }
+  if (!found.subscription) {
+    return NextResponse.json(
+      { ok: false, error: "An active GridForge Intelligence subscription is required." },
+      { status: 402 }
+    );
   }
 
   const ranked = [...SITING_REGIONS]

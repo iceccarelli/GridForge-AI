@@ -51,6 +51,13 @@ export interface Product {
   /** Position on the engagement ladder. Lower first. */
   ladderOrder?: number;
   /**
+   * For a deposit, the scoped band it opens, in EUR cents. Mirrors
+   * Engagement.price_eur / price_eur_max in gridforge/commercial.py. The upper
+   * half of every range used to be typed into a component, which made it a number
+   * nothing could check.
+   */
+  opensBandCents?: [number, number];
+  /**
    * Which engine endpoint generates this deliverable. Required whenever
    * producesDeliverable is true — the intake route reads it rather than
    * branching on the kind, which is how a EUR 18,000 specification purchase
@@ -96,6 +103,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     surface: "ladder",
     ladderOrder: 20,
     endpoint: "study",
+    opensBandCents: [2_200_000, 4_500_000],
   },
   hall_watch: {
     id: "hall_watch",
@@ -130,6 +138,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     surface: "ladder",
     ladderOrder: 40,
+    opensBandCents: [6_000_000, 14_000_000],
   },
   procurement_spec: {
     id: "procurement_spec",
@@ -254,4 +263,80 @@ export function eurFromCents(cents: number): string {
 
 export function isProductId(v: unknown): v is ProductId {
   return typeof v === "string" && v in PRODUCTS;
+}
+
+// --- GridForge Intelligence ---------------------------------------------------
+//
+// The third recurring product, and the one that was not in this file.
+//
+// Its prices lived in lib/subscriptions.ts as `priceCents` and reached the page
+// through a formatter, so no `€` ever appeared in that file and the one-price-list
+// guard — which looks for the character — could not see them. A price the checks
+// cannot see is a price that can drift, and this repository has already paid for
+// that once: "deposit against EUR 22k–45k" had the 22 in the engine and the 45
+// typed into a React component, which made the upper half of every quoted range
+// unsourceable.
+//
+// This is not a different category of thing from the rest of the catalogue. The
+// file already prices recurring products (hall_watch) and metered software
+// subscriptions that involve no engineering hours at all (api_triage, api_scale,
+// api_platform). Intelligence is the same shape as those and simply was not here.
+//
+// It stays a separate table rather than joining PRODUCTS because the three tiers
+// share one Stripe metadata.kind and are dispatched by `plan`, where every entry
+// in PRODUCTS is dispatched by a unique `kind` through PRODUCT_BY_KIND. Merging
+// them would mean either three new kinds or a collision in that map. What matters
+// commercially is that the euro figures are in the file that owns euro figures.
+//
+// lib/subscriptions.ts now holds only presentation — tagline, features, which tier
+// is highlighted — and reads name and price from here.
+
+export type IntelligencePlanId = "developer" | "team" | "enterprise";
+
+export interface IntelligencePlan {
+  id: IntelligencePlanId;
+  name: string;
+  priceCents: number;
+  interval: "month";
+  /** Stripe metadata.kind. One family; the tier travels as metadata.plan. */
+  kind: "intelligence_subscription";
+  /** null means unlimited. */
+  seats: number | null;
+}
+
+export const INTELLIGENCE_PLANS: Record<IntelligencePlanId, IntelligencePlan> = {
+  developer: {
+    id: "developer",
+    name: "Developer",
+    priceCents: 49_900,
+    interval: "month",
+    kind: "intelligence_subscription",
+    seats: 1,
+  },
+  team: {
+    id: "team",
+    name: "Team",
+    priceCents: 199_900,
+    interval: "month",
+    kind: "intelligence_subscription",
+    seats: 5,
+  },
+  enterprise: {
+    id: "enterprise",
+    name: "Enterprise",
+    priceCents: 499_900,
+    interval: "month",
+    kind: "intelligence_subscription",
+    seats: null,
+  },
+};
+
+export const INTELLIGENCE_PLAN_IDS: IntelligencePlanId[] = [
+  "developer",
+  "team",
+  "enterprise",
+];
+
+export function isIntelligencePlanId(v: unknown): v is IntelligencePlanId {
+  return typeof v === "string" && v in INTELLIGENCE_PLANS;
 }

@@ -34,7 +34,14 @@ export function EngagementIntake({
 }) {
   const url = endpoint ?? `/api/intake/${token}`;
   const [loading, setLoading] = useState(true);
-  const [meta, setMeta] = useState<{ product?: { name: string }; status?: string } | null>(null);
+  const [meta, setMeta] = useState<{
+    product?: { name: string };
+    status?: string;
+    kind?: string;
+    prefill?: Record<string, string>;
+  } | null>(null);
+  /** Which fields arrived from the qualification, so the form can say so. */
+  const [carried, setCarried] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -50,6 +57,28 @@ export function EngagementIntake({
     residualAirKWPerRack: "", designDrybulbC: "",
     platform: "gb300_nvl72", utilisation: "0.75",
   });
+  /**
+   * A Density Screen may proceed without three of these.
+   *
+   * The free qualifier answers on seven numbers. Demanding the firm connection
+   * capacity, the floor loading and the plant capacity AFTER the customer has paid
+   * asked them for a DSO agreement, a structural record and a mechanical schedule
+   * that an operations engineer does not have on their desk — and the Density
+   * Screen is the product the engine recommends precisely when those are missing.
+   * Its deliverable is the binding constraint and the list of what to go measure.
+   *
+   * Nothing is invented: each blank becomes a library default and is named as an
+   * assumption in the document, and the panel below says so before they submit.
+   */
+  const screen = meta?.kind === "density_screen";
+  const assumable = ["firmCapacityMVA", "floorLoadingKPa", "plantCapacityKW"] as const;
+  const willAssume = screen ? assumable.filter((k) => (f[k] ?? "").trim() === "") : [];
+  const ASSUMED_SOURCE: Record<string, string> = {
+    firmCapacityMVA: "firm connection capacity — your DSO connection agreement",
+    floorLoadingKPa: "floor loading — the structural record for the hall",
+    plantCapacityKW: "plant capacity — the mechanical schedule for the chilled-water plant",
+  };
+
   const [transformers, setTransformers] = useState<Row[]>([
     { id: "TX-1", rating: "", units: "", redundancy: "N+1" },
   ]);
@@ -61,8 +90,27 @@ export function EngagementIntake({
       .then((r) => r.json())
       .then((b) => {
         if (!alive) return;
-        if (!b.ok) setError("This link is not valid.");
-        else setMeta(b);
+        if (!b.ok) {
+          setError("This link is not valid.");
+          return;
+        }
+        setMeta(b);
+        // Seed from the qualification this engagement was bought from. Only
+        // fields the form actually has, and only where the customer has not
+        // already typed something — a reload must never overwrite their work.
+        const pre = (b.prefill ?? {}) as Record<string, string>;
+        const used: string[] = [];
+        setF((cur) => {
+          const next = { ...cur };
+          for (const [k, v] of Object.entries(pre)) {
+            if (!(k in next)) continue;
+            if (String(next[k] ?? "").trim() !== "") continue;
+            next[k] = String(v);
+            used.push(k);
+          }
+          return next;
+        });
+        setCarried(used);
       })
       .catch(() => alive && setError("Could not load this engagement."))
       .finally(() => alive && setLoading(false));
@@ -228,8 +276,8 @@ export function EngagementIntake({
             <option value="slab">Slab</option>
           </select>
         </Field>
-        <Field label="Floor loading · kPa" required hint="Design value from the structural record.">
-          <input className={inputCls} type="number" step="0.5" value={f.floorLoadingKPa} onChange={set("floorLoadingKPa")} required />
+        <Field label="Floor loading · kPa" required={!screen} hint="Design value from the structural record.">
+          <input className={inputCls} type="number" step="0.5" value={f.floorLoadingKPa} onChange={set("floorLoadingKPa")} required={!screen} />
         </Field>
         <Field label="Rack positions available" required><input className={inputCls} type="number" value={f.positionsAvailable} onChange={set("positionsAvailable")} required /></Field>
         <Field label="Rack positions total"><input className={inputCls} type="number" value={f.rackPositions} onChange={set("rackPositions")} /></Field>
@@ -242,7 +290,7 @@ export function EngagementIntake({
 
       <Section title="Supply" note="The ceiling on everything downstream. Peak from metered data, not a nameplate.">
         <Field label="DSO"><input className={inputCls} value={f.dso} onChange={set("dso")} /></Field>
-        <Field label="Firm connection · MVA" required><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required /></Field>
+        <Field label="Firm connection · MVA" required={!screen}><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required={!screen} /></Field>
         <Field label="Contracted · MW" required><input className={inputCls} type="number" step="0.1" value={f.contractedMW} onChange={set("contractedMW")} required /></Field>
         <Field label="Current site peak · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentPeakMW} onChange={set("currentPeakMW")} required /></Field>
         <Field label="Current IT load · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentItLoadMW} onChange={set("currentItLoadMW")} required /></Field>
@@ -257,7 +305,7 @@ export function EngagementIntake({
       </Section>
 
       <Section title="Cooling" note="Legacy 6–7 °C plant against a 27–32 °C loop requirement governs the scheme.">
-        <Field label="Plant capacity · kW" required><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required /></Field>
+        <Field label="Plant capacity · kW" required={!screen}><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required={!screen} /></Field>
         <Field label="Supply temperature · °C" required><input className={inputCls} type="number" step="0.5" value={f.plantSupplyC} onChange={set("plantSupplyC")} required /></Field>
         <Field label="Return temperature · °C"><input className={inputCls} type="number" step="0.5" value={f.plantReturnC} onChange={set("plantReturnC")} /></Field>
         <Field label="Available pumped flow · l/min"><input className={inputCls} type="number" value={f.pumpFlowLPerMin} onChange={set("pumpFlowLPerMin")} /></Field>
@@ -295,6 +343,50 @@ export function EngagementIntake({
         <div className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" />
           <p>{error}</p>
+        </div>
+      ) : null}
+
+      {carried.length > 0 ? (
+        <div
+          data-testid="carried-over"
+          className="rounded border border-line bg-panel/60 p-4 text-[12px] leading-relaxed text-mute"
+        >
+          <div className="eyebrow mb-2 text-power">
+            {carried.length} carried over from your qualification
+          </div>
+          <p>
+            These are the numbers you gave the qualifier, filled in for you. They are treated as
+            your measured data, so it is worth a glance before you submit — if anything has moved
+            since, change it here and the document follows what you enter now.
+          </p>
+        </div>
+      ) : null}
+
+      {willAssume.length > 0 ? (
+        <div
+          data-testid="will-assume"
+          className="rounded border border-line bg-panel/60 p-4 text-[12px] leading-relaxed text-mute"
+        >
+          <div className="eyebrow mb-2 text-power">
+            {willAssume.length} of these we will assume
+          </div>
+          <p className="mb-2">
+            You can submit without them and the screen still names what binds your hall — that is
+            what it is for. Each one below is filled from a library default, marked as an
+            assumption in the document, and listed in the data request you can send to your own
+            engineers verbatim.
+          </p>
+          <ul className="space-y-1">
+            {willAssume.map((k) => (
+              <li key={k} className="data text-[11px] text-faint">
+                · {ASSUMED_SOURCE[k]}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">
+            If any of them is to hand, it is worth the minute: a supplied number is your measured
+            data and an assumed one is ours.
+          </p>
         </div>
       ) : null}
 

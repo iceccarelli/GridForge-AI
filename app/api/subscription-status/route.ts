@@ -1,39 +1,45 @@
 import { NextResponse } from "next/server";
+import { lookupSubscription, normaliseEmail, subscriptionsConfigured } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
 
-// Returns whether a given email has an active GridForge Intelligence subscription.
-// Used by the /account dashboard to gate the live intelligence view.
+// Whether a given email has an active GridForge Intelligence subscription.
+// /account gates the paid view on this.
+//
+// The distinction that matters: `active: false` means "this person is not a
+// subscriber", and it is what the page shows an upgrade prompt for. It must never
+// also mean "we could not reach the store" — for two patches it did, because the
+// `subscriptions` table had no migration and a 404 from PostgREST was swallowed
+// into a plain false. A paying customer was shown the upgrade prompt.
+//
+// So a store we cannot reach is a 503 and the page can say so, rather than
+// telling a subscriber they have not subscribed.
 export async function POST(req: Request) {
   let body: { email?: string } = {};
   try {
-    body = await req.json();
+    body = (await req.json()) as { email?: string };
   } catch {
-    return NextResponse.json({ ok: false, active: false }, { status: 400 });
+    return NextResponse.json({ ok: false, active: false, error: "Invalid payload" }, { status: 400 });
   }
-  const email = (body.email || "").trim().toLowerCase();
+  const email = normaliseEmail(body?.email);
   if (!email) return NextResponse.json({ ok: true, active: false });
 
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return NextResponse.json({ ok: true, active: false });
-
-  const auth: Record<string, string> = key.startsWith("sb_secret_")
-    ? { apikey: key }
-    : { apikey: key, Authorization: `Bearer ${key}` };
-
-  try {
-    const res = await fetch(
-      `${url}/rest/v1/subscriptions?email=eq.${encodeURIComponent(email)}&status=eq.active&select=plan&limit=1`,
-      { headers: { ...auth, Accept: "application/json" } }
+  if (!subscriptionsConfigured()) {
+    return NextResponse.json(
+      { ok: false, active: false, error: "Subscription store unavailable" },
+      { status: 503 }
     );
-    if (!res.ok) return NextResponse.json({ ok: true, active: false });
-    const rows = (await res.json()) as { plan: string }[];
-    if (Array.isArray(rows) && rows.length > 0) {
-      return NextResponse.json({ ok: true, active: true, plan: rows[0].plan });
-    }
-    return NextResponse.json({ ok: true, active: false });
-  } catch {
-    return NextResponse.json({ ok: true, active: false });
   }
+
+  const found = await lookupSubscription(email);
+  if (!found.reachable) {
+    // A store we could not ask says nothing about this customer. Answering
+    // `active: false` here is what showed a paying subscriber the upgrade prompt.
+    return NextResponse.json(
+      { ok: false, active: false, error: "Subscription store unavailable" },
+      { status: 503 }
+    );
+  }
+  if (!found.subscription) return NextResponse.json({ ok: true, active: false });
+  return NextResponse.json({ ok: true, active: true, plan: found.subscription.plan });
 }

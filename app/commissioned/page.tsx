@@ -1,23 +1,77 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { deliverableBySession } from "@/lib/deliverables";
 
 export const metadata: Metadata = {
   title: "Engagement commissioned | GridForge AI",
   robots: { index: false, follow: false },
 };
 
-export default function CommissionedPage() {
+/**
+ * Resolved per request from the Stripe session, so the customer can start the
+ * intake here instead of waiting for an email.
+ *
+ * Email was the single point of failure between a four- to five-figure purchase
+ * and its fulfilment: if Resend refused, or the message landed in spam, the only
+ * route to the product the customer had just bought existed solely in a server
+ * log. Stripe hands this page the session id, `deliverables.stripe_session_id` is
+ * uniquely indexed, and the webhook has already written the row.
+ *
+ * What is disclosed here is the INTAKE token, never the document token. Since
+ * migration 0012 those are different credentials: this one submits the hall's
+ * numbers for an engagement that has already been paid for, which is the thing the
+ * person who just paid is trying to do. Reading the released engineering opinion
+ * still requires the token we only ever send to the customer directly — so a
+ * session id in browser history or a referrer header is not a document credential.
+ */
+export const dynamic = "force-dynamic";
+
+export default async function CommissionedPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session_id?: string }>;
+}) {
+  const { session_id: sessionId } = await searchParams;
+  const row = sessionId ? await deliverableBySession(sessionId) : null;
+  const intakeToken = row?.intake_token ?? null;
+
   return (
     <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
         The engagement is open. Next we need the hall&apos;s numbers.
       </h1>
+
+      {intakeToken ? (
+        <div className="mt-6 rounded border border-power/40 bg-panel p-5">
+          <p className="text-mute text-sm">
+            You can start now — no need to wait for the email.
+          </p>
+          <Link
+            href={`/intake/${intakeToken}`}
+            className="mt-4 inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+          >
+            Open the intake
+          </Link>
+          <p className="mt-3 text-[11px] text-faint">
+            This link is private to this engagement. A copy is on its way to the email you paid
+            with, so you can also pick it up later or forward it to whoever holds the hall&apos;s
+            figures.
+          </p>
+        </div>
+      ) : null}
+
       <div className="mt-6 grid gap-4 text-mute">
         <p>
-          An intake link is on its way to the email you paid with. It asks for thirteen numbers a
-          facilities engineer already has: the connection and contracted capacity, what the site
+          {intakeToken ? "The intake" : "An intake link is on its way to the email you paid with. It"}{" "}
+          asks for the hall&apos;s own numbers: the connection and contracted capacity, what the site
           actually draws, the busway and tap-off ratings, the floor loading, the plant capacity and
           its supply temperature, and the transformer and UPS schedules.
+        </p>
+        <p>
+          If you came from the free qualifier, the numbers you typed there are already filled in —
+          check them rather than re-enter them. A Density Screen needs no more than the qualifier
+          asked for; the rest it will assume and tell you it assumed.
         </p>
         <p>
           Anything you cannot supply is filled from a library default and named as an assumption in
@@ -28,9 +82,11 @@ export default function CommissionedPage() {
           Once submitted, the document is generated and reviewed by a senior engineer before it is
           released to you. We do not publish an engineering opinion nobody has read.
         </p>
-        <p className="text-faint text-sm">
-          No email after a few minutes? Reply to the Stripe receipt and we will resend the link.
-        </p>
+        {intakeToken ? null : (
+          <p className="text-faint text-sm">
+            No email after a few minutes? Reply to the Stripe receipt and we will resend the link.
+          </p>
+        )}
       </div>
     </main>
   );

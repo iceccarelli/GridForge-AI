@@ -1,0 +1,357 @@
+# GF-001 — Money Leak Report
+
+**Question asked of every paid surface:** can value be obtained without paying, and
+can a paying customer be denied what they bought? Both directions cost money; the
+second one costs more, because it churns a customer who had already decided to buy.
+
+Every finding below was reproduced against running code before it was fixed, and
+every fix was re-run against the pre-fix version to confirm the test fails on it.
+
+---
+
+## Surfaces attacked
+
+| Surface | What it protects | Verdict |
+|---|---|---|
+| `/api/scenarios` | Intelligence subscriber's saved work | **Was leaking both ways** — fixed |
+| `/api/subscription-status` | The paid view on `/account` | **Was denying paying customers** — fixed |
+| `/api/stripe/webhook` | Every entitlement in the product | **Took money, recorded nothing** — fixed |
+| `/api/siting-analysis` | The subscriber-only AI analyst | **Was free when Supabase was unset** — fixed |
+| `/api/keys` | Metered API keys, recurring revenue | **Stranded paying customers at day 35** — fixed |
+| `/api/admin/login` | The entire lead pipeline + deliverable release | **Unlimited free guesses** — fixed |
+| `/api/insights` | Published aggregates over customer halls | **Published unanswered enquiries' metros** — fixed |
+| `/api/stripe/webhook` — fulfilment | A €4,500–€95,000 engagement | **Paid, never fulfilled, reported to Stripe as delivered** — fixed |
+| `/intake/[token]` | The buyer's next step | Rendered a live form for **any** token — fixed |
+| `/api/deliverable/[token]` | A €4,500–€95,000 artifact | Draft never served; hardened a prototype lookup |
+| `/api/cron/watches` | Scheduled paid work | Bearer secret, fails closed — **no finding** |
+| `/api/checkout`, `/api/subscribe` | Payment initiation | Price catalogue-driven — **verified**. But the post-payment redirect was caller-controlled — fixed |
+| `/api/market`, `/grid`, `/queue`, `/constraints` | Public data | Free by design (distribution) — **no finding** |
+| Engine `/v1/*` | Metered compute | 401 unkeyed, 402 over quota, offline-verified keys — **no finding** |
+
+---
+
+## L1 — A paying customer's API access died every 35 days *(highest value)*
+
+**The loop.** Signed keys are stateless — that is what lets the engine verify them
+with no database and no network call — and the price of that is a fixed 35-day
+expiry baked into the token. The subscription renews monthly. Nothing reissued the
+key: the webhook's own comment said *"Reissue silently"* and the code only set a
+status field. `mintForAccount` was imported into that file and never called.
+
+So on day 35 a paying customer's agents stopped. The engine's expiry message told
+them to *"reissue from your account page"*. The account page's own docstring
+promised to mint *"when the current one is near expiry"*. The code implemented
+neither, and answered **"A key is already live for this account"** to somebody
+holding a dead one.
+
+That is the exact failure the webhook was written to prevent — its comment reads
+*"the difference between 'it renewed and nobody noticed' and 'my agents stopped at
+3am'"* — happening to the customers who paid every month.
+
+**Fixed.** `keyLife()` in `lib/api-access.ts` is now the one place that knows
+whether a key is alive. `/api/keys` mints on expiry or inside a 7-day window, and
+reports `expired` / `days_left` / `needs_rotation` so the portal can warn while
+there is still a working key. A dead key is revoked when replaced; a *near-expiry*
+key is deliberately **not**, so the customer can deploy the new one before the old
+one lapses and nothing stops in between. `invoice.paid` now emails the portal link
+when rotation is due — the link, never the key, matching the existing rule.
+
+**Verified live:** a key expired three days ago → portal reported `expired: true,
+days_left: -3` → self-serve mint → old id on the revocation list → **the new key
+verified on the real engine** with the right account and quota.
+
+## L2 — The paid AI analyst was free whenever Supabase was unset
+
+`app/api/siting-analysis` wrapped its subscription check in `if (url && skey)`.
+With Supabase unconfigured the gate was not open — it was **not executed**. The
+subscriber-only analyst answered anybody who posted an email address and a
+sentence. A surface that reads as protected and is not is worse than one that is
+openly free, because nobody goes looking. Now fails closed.
+
+## L3 — Money in, nothing out *(covered in the gap analysis)*
+
+`subscriptions` and `scenarios` had no migration. Fixed with migrations `0009` and
+`0010`, one canonical data layer, and all three lifecycle events resolving the
+third recurring product.
+
+## L4 — Unlimited free guesses at the commercial asset
+
+Behind `ADMIN_PASSWORD` sit every lead the business has — name, company, site,
+contracted megawatts, score, pipeline status — and the button that releases a paid
+deliverable. There was no throttle of any kind, so the password's strength was the
+entire defence and a guess cost nothing.
+
+Now 8 attempts per 10 minutes per caller, counted **before** the comparison and
+counted on success too — a throttle that only counts failures can be reset by
+interleaving a request it will answer.
+
+**Stated honestly:** this is in-memory, therefore per-instance on a serverless
+platform, and resets on a cold start. It is a cost multiplier on a guessing attack,
+not a lockout. The real defence is still a long random `ADMIN_PASSWORD`. A
+distributed lockout belongs with real client logins, which is when this whole gate
+gets replaced.
+
+## L5 — The published record included halls it never answered
+
+`/api/insights` is the growth loop and the moat in one. Its small-sample floor
+counted halls that produced a result, but the medians and the metro list were
+computed over **every row** — so an enquiry the engine could not answer still had
+its metro published, in a distribution its owner was never part of, and the
+medians were drawn from a different population than the published basis statement
+describes.
+
+The second half is the one that matters commercially. This practice sells numbers
+that carry their evidence; a published figure whose stated basis does not match its
+own arithmetic is the single claim that would cost more than it earns. The public
+route now summarises only the solved halls. The admin view still sees everything,
+because internally "how many came in and how many did we answer" is the right
+question.
+
+## L6 — A checkout could send the customer somewhere else afterwards
+
+`unit_amount` is read from the catalogue and the Founding credit is applied
+server-side, so the **price** cannot be manipulated from the client. That part was
+checked rather than assumed, and it holds.
+
+What did not hold: both checkout routes built `success_url` and `cancel_url` from
+the request's own `Origin` header. Anyone could mint a genuine Checkout Session
+against this merchant whose success page was their own domain — the payment still
+arrived here, but the customer finished their purchase somewhere else, wearing our
+credibility on the way out.
+
+`session_id` is in that URL, so the next question was whether it is a credential.
+It is not: nothing in the repository accepts one, which was traced rather than
+assumed. So this is a phishing and brand vector, not theft — and two lines to
+close. `checkoutOrigin()` in `lib/site.ts`, the domain registry, honours the
+request origin only when it is the site's own and otherwise falls back to
+`SITE_URL`, which a preview deployment already sets correctly through
+`NEXT_PUBLIC_SITE_URL`.
+
+Eight tests, including lookalike hosts (`<our-host>.evil.example`), a scheme
+downgrade, a port change, `javascript:` and `data:`, and a final invariant that the
+function can only ever return an origin we chose. The lookalike is built from the
+registry rather than written out, because a test that hardcodes the domain is the
+same drift as a page that does — the repository's own guard caught that while this
+was being written.
+
+---
+
+## L7 — Three paid purchases could be taken and never fulfilled *(highest value found)*
+
+The same defect as L3, on the **flagship transaction** rather than the subscription.
+
+`openDeliverable`, `openApiAccount` and `openWatch` each did this: attempt the
+write, and if it failed, `console.error` and `return`. Control fell through to the
+handler's closing `200`. **Stripe treats a 2xx as delivered and never redelivers.**
+
+So a customer paid between €4,500 and €95,000 for an engagement, the insert failed,
+and there was no engagement row, no intake link, and nothing in the admin
+dashboard. The founder still got the "you have a sale" email. The only trace of the
+customer was a log line nobody was watching. Same for a metered API account and a
+Hall Watch.
+
+**The fix has two halves, and one without the other is worse than neither.**
+Returning 500 makes Stripe redeliver — but none of these writes was idempotent, so
+a retry after a write that had actually succeeded (insert landed, response lost)
+would fulfil the same payment twice and hand one customer two intake links. So each
+helper now looks for its own prior row first — `deliverableBySession` on the
+checkout session, `watchBySubscription` and `findBySubscription` on the
+subscription — and only then inserts.
+
+`0011_one_fulfilment_per_payment.sql` makes that a database guarantee rather than a
+check that can lose a race with Stripe's own concurrent retry: partial unique
+indexes on `deliverables(stripe_session_id)`, `watches(stripe_subscription_id)` and
+`api_accounts(stripe_subscription_id)`.
+
+Also fixed alongside: `emailIntakeLink` never checked Resend's status. That message
+carries an engagement's only intake link. It now logs the failure **and the link**,
+so it is recoverable.
+
+**Verified over HTTP:** free qualification → real engine read → purchase → engagement
+opened carrying the qualification id → redelivery opens no second engagement →
+intake link resolves → unknown token 404s → document withheld until released →
+release refuses without an admin session. Against the pre-fix webhook, **6 of the 8
+new tests fail** — all three orphan paths and all three duplicate paths.
+
+## L8 — The intake page rendered for any token at all
+
+`/intake/anything` returned 200 and a complete, live-looking form. The API behind it
+*does* check the token, so nothing could be submitted and no engine work could be
+had for free — this was never a compute leak.
+
+It is a conversion one. The person most likely to arrive with a token that does not
+resolve is the customer whose link is stale or mistyped, on a four-figure
+engagement, and handing them a form that fails on submit is a worse answer than
+telling them the link is not live. Every other token page already resolved
+server-side; this was the only one that did not, and nothing could see the
+difference.
+
+Two guards added: every `app/*/[token]/page.tsx` must resolve its token through a
+server-side lookup, and must be `force-dynamic` — a token page rendered at build
+time would serve one customer's read to whoever asked next.
+
+## L9 — The most valuable upsell in the business was running blind
+
+Not a leak — a conversion defect, and it had been live on **every Density Screen
+ever sold**.
+
+When an engagement is generated the route stores the hall's binding constraint so
+the follow-on offer names *that* rather than a generic one. It read the figure out
+of `scenarios.csv` in the working-file bundle. **A Density Screen does not produce
+one.** Its catalogue entry promises the document, the ladder and the data request
+and no working files, and `/v1/screen` has no csv format at all — correctly,
+because none was sold.
+
+So `_gridforge.binding` was never set for a Screen. The Density Screen is the
+€4,500 entry product whose entire commercial purpose is to `creditsAgainst` the
+Envelope Study, which makes screen → study the most valuable upsell in the
+business; and it was offering every customer a generic constraint while the
+customer's own sat one field away in the payload the engine already returns.
+
+Now read from `scenarios[0].as_found.binding_name`, with the CSV kept as the
+fallback so the Study path is unchanged. **Verified live:** a Density Screen now
+captures *"Rack feed / tap-off rating"* — the hall's actual constraint. Two of the
+nine new tests fail against the pre-fix code.
+
+**Corrected in the same pass:** an earlier draft of this report listed missing
+working files on a Density Screen as a defect. It is not — the catalogue does not
+promise them, and the engine is right to withhold them. The test that asserted
+otherwise was wrong and was removed.
+
+---
+
+## L10 — The page built for the buyer could not take their money
+
+Patch 0024 built `/q/<token>` for one stated reason: *"The person who types seven
+numbers into a capacity qualifier is an operations engineer. The person who signs
+off a five-figure study is a director. The distance between them is a link."*
+
+That page carried a private read of the director's own hall, with the binding
+constraint named on it, under a button reading **"€4,500 — commission it"**.
+
+The button linked to **`/pricing`**.
+
+So the one person on the site with the budget, at the moment of highest intent,
+clicked to buy and landed on a generic price list — the hall gone, the constraint
+gone, the qualification gone. Every share was a conversion handed back to the top
+of the funnel. The qualifier in the engineer's own tab had a real checkout call;
+the page built for the payer did not.
+
+Now a `CommissionScreen` control that starts checkout in place, carrying the
+qualification id so the engagement opens joined to the read it was bought from.
+
+**And a hazard closed in the same pass.** `deliverables.qualification_id` is a
+`uuid` with a foreign key. Anything else fails the insert — and because a failed
+fulfilment now correctly returns 500 so Stripe redelivers, a malformed id from the
+client would have turned a **real payment** into one that could never be fulfilled
+and would be retried until Stripe gave up. This is a risk my own earlier fix
+created. The checkout route now drops an id that could never be stored and lets the
+sale proceed unattached: the id is a convenience, the payment is not.
+
+17 checkout tests, 7 of which fail against the pre-fix code, covering
+`'; drop table--`, `../../etc/passwd`, an over-length uuid, a non-string, and an
+uppercase uuid (which Postgres accepts, so we must too). Plus three end-to-end
+criteria: the share page offers the engagement at its price, commissions it in
+place rather than linking to the price list, and carries the qualification.
+
+---
+
+## L11 — A paid customer had to type the same seven numbers twice
+
+The friction that costs most is not the one before the sale. It is the one **after
+the money is taken and before the product exists** — because an intake abandoned
+there is revenue collected for a document nobody ever receives, and it looks to the
+customer like they were charged for nothing.
+
+A buyer typed seven numbers into the free qualifier, saw a real read, and paid.
+The intake form then opened **empty**, and asked for the same seven again.
+
+The join was already in the database: `deliverables.qualification_id`, a uuid
+foreign key set by our own webhook and verified end to end. Nothing read it.
+
+`intakePrefill()` now seeds the form from the qualification the engagement was
+bought from — **eleven fields carried**, verified live. The form says so, because a
+number filled in for the customer is still treated as their measured data and is
+worth a glance before submit.
+
+**Carried through an allowlist, never a spread.** The qualification row also holds
+the name, company and email of whoever ran it, and the engagement link may be held
+by somebody else entirely — that is the whole point of the shareable read. A test
+asserts no contact detail reaches the form, and another asserts a reload never
+overwrites what the customer has already typed.
+
+**Fails soft.** A deleted qualification or a refusing store returns an empty
+prefill and the form still opens: the customer types the numbers, which is exactly
+where they were before.
+
+7 unit tests (6 fail against the pre-fix code) and 2 end-to-end criteria.
+
+## L12 — The commonest path of all was the one still missing the join
+
+L11 seeded the intake from the qualification a purchase was bought from. It worked
+for the shareable read, and not for the tab the read was produced in.
+
+`/api/qualify` never returned the qualification id, and `CapacityQualifier`'s own
+"commission it" posted `{ product, capacityMW }` and nothing else. So an engineer
+who qualified and bought in the same tab — the shortest and commonest route to a
+sale there is — got an engagement with `qualification_id: null`, **no prefill, and
+no provenance from the read to the money**.
+
+A fix that only covers the longer path is worse than none, because it reads as
+done. The route now returns the id alongside the share link, the qualifier carries
+it into checkout, and both paths behave the same.
+
+**Held to the same rule as the share link:** the id is offered *only* when the row
+actually landed. A share link to a row that was never written is a 404 sent to
+somebody's director; an id that references nothing would fail the foreign key on
+the deliverable later, and — with the fulfilment fix in place — that is a paid
+engagement retried by Stripe until it gives up. Both are null together, or neither.
+
+10 tests on the qualifier (3 fail against the pre-fix code), which also pin the
+free tier's own invariants: no priced content, a named field on a missing number, a
+peak above contracted capacity refused with the reason, and an unreachable engine
+inventing nothing while still keeping the enquiry.
+
+---
+
+## The checklist, and where each case is exercised
+
+| Case | Result |
+|---|---|
+| anonymous / free user | 402 on every paid surface |
+| paid user | full cycle verified over HTTP |
+| expired user | **key now reissuable** — was a dead end |
+| cancelled user | entitlement withdrawn; paid surfaces close; key minting refused |
+| failed payment + retry | `past_due` still entitles; `invoice.paid` reinstates |
+| webhook failure | 500, Stripe redelivers, write idempotent on session id |
+| subscription lookup failure | 503 — a claim about us, never about the customer |
+| database failure / missing table | 503 / 500, loudly, with a log line |
+| missing configuration | fails closed everywhere; analyst 503, webhook 503 |
+| direct API calls / alternate routes | handlers gate themselves; no UI-only checks |
+| duplicate requests | idempotent on the Stripe session id |
+| cross-tenant access | list empty, delete 404, owner's row intact |
+| quota exhaustion | engine returns 402, not 429 |
+| brute force | 429 with `Retry-After` |
+| client-supplied price | impossible — catalogue-driven, verified |
+| attacker-chosen redirect | refused; falls back to the registry |
+| paid but unfulfillable | 500 — Stripe redelivers, never silently orphaned |
+| webhook redelivered after success | one fulfilment, enforced by a unique index |
+| unknown token on any addressed page | 404 |
+
+**171 executable site tests**, plus 397 engine tests.
+
+---
+
+## Residual, declared rather than fixed
+
+1. **Early revocation of a leaked API key still needs a manual env sync.** The
+   engine reads revoked ids from `GRIDFORGE_REVOKED_KEYS`; `/api/keys` records them
+   in Supabase. For an *expired* key this is moot — expiry does the work. For a key
+   rotated early because it leaked, the old one keeps working until it expires
+   unless that variable is updated. Fixing it properly means giving the engine a
+   network dependency, which would undo the stateless design the whole key scheme
+   is built on. **This is an architecture decision, not a bug fix, and it is the
+   founder's to take.** Documented in `gridforge/api/keys.py` already.
+2. **The admin throttle is per-instance.** See L4.
+3. **Stripe's own API is still unexercised.** Signature verification and every
+   webhook branch are verified; creating a live Checkout Session needs live keys.

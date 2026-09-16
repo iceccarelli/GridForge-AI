@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getApiAccount, mintForAccount, signingConfigured } from "@/lib/api-access";
+import { getApiAccount, keyLife, mintForAccount, signingConfigured } from "@/lib/api-access";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,10 @@ export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("token") || "";
   const row = token ? await getApiAccount(token) : null;
   if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
+  // has_key alone reported a dead credential as a live one. The portal needs to
+  // be able to say "this stops working on Thursday" while there is still time to
+  // act, which is the difference between a rotation and an outage.
+  const life = keyLife(row);
   return NextResponse.json({
     ok: true,
     account: {
@@ -31,7 +35,10 @@ export async function GET(req: Request) {
       status: row.status,
       key_id: row.key_id,
       key_expires_at: row.key_expires_at,
-      has_key: Boolean(row.key_id),
+      has_key: life.has_key,
+      expired: life.expired,
+      days_left: life.days_left,
+      needs_rotation: life.needs_rotation,
       revoked: (row.revoked_key_ids ?? []).length,
       company: row.company,
       email: row.email,
@@ -69,19 +76,32 @@ export async function POST(req: Request) {
       { status: 402 }
     );
   }
-  if (row.key_id && !rotate) {
+  // Three reasons to mint, and only the first and third were implemented. The
+  // second is the one a paying customer hits: the key aged out under them, the
+  // engine told them to "reissue from your account page", and this answered "a
+  // key is already live for this account". A closed loop with a live
+  // subscription on the far side of it.
+  const life = keyLife(row);
+  if (!rotate && !life.needs_rotation) {
     return NextResponse.json({
       ok: true,
       issued: false,
       key_id: row.key_id,
       expires: row.key_expires_at,
+      days_left: life.days_left,
       note:
         "A key is already live for this account. We do not store it, so it cannot be " +
         "shown again — rotate to replace it, which revokes the current one.",
     });
   }
 
-  const minted = await mintForAccount(row, { rotate });
+  // Revoke what we replace ONLY when it is already dead, or when rotation was
+  // asked for explicitly. A key inside the rotation window is still deployed and
+  // still working: killing it the moment we mint its successor would turn a
+  // warning into the outage the warning exists to prevent. The two overlap until
+  // the old one expires on its own.
+  const supersede = rotate || life.expired;
+  const minted = await mintForAccount(row, { rotate: supersede });
   if (!minted) {
     return NextResponse.json({ ok: false, error: "Could not issue a key" }, { status: 500 });
   }
@@ -90,7 +110,8 @@ export async function POST(req: Request) {
     issued: true,
     key: minted.token,
     expires: minted.expires,
-    revoked_previous: rotate && Boolean(row.key_id),
+    replaced_expired_key: life.expired,
+    revoked_previous: supersede && Boolean(row.key_id),
     warning:
       "Copy this now. It is shown once and is not stored anywhere we can read it back.",
   });

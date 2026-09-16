@@ -36,7 +36,22 @@ export async function GET() {
     });
   }
 
-  const s = summariseQualifications(rows);
+  // Summarise the SCORED halls, not every row.
+  //
+  // The gate above counts halls that produced a result; the medians and the metro
+  // list were computed over all rows, which put two things into a published
+  // document that do not belong there. An enquiry the engine could not answer
+  // still stored its metro, so a hall that never got a read was published in a
+  // distribution its owner was never part of. And the medians were drawn from a
+  // different population than the basis statement below describes.
+  //
+  // The second one matters more than it looks. This practice sells numbers that
+  // carry their evidence, and a published figure whose stated basis does not match
+  // its own arithmetic is the one claim that would cost more than it earns.
+  //
+  // The admin view still calls this with every row — internally, "how many came in
+  // and how many did we answer" is exactly the question worth asking.
+  const s = summariseQualifications(scored);
   return NextResponse.json({
     ok: true,
     published: true,

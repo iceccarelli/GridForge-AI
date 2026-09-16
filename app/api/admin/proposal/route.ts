@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
-import { createDeliverable } from "@/lib/deliverables";
+import { createDeliverable, creditsToward } from "@/lib/deliverables";
 import { toEngineBody, type QualifyInput } from "@/lib/qualify";
 
 export const runtime = "nodejs";
@@ -77,11 +77,18 @@ export async function POST(req: Request) {
       released_at: new Date().toISOString(),
     });
 
+    // What this customer has already paid that credits against what was just
+    // quoted. The catalogue has always declared it and two customer-facing pages
+    // promise it; until now honouring it depended on whoever raised the invoice
+    // remembering a purchase that could be months old.
+    const credit = await creditsToward(String(body.email ?? ""), String(engagement));
+
     return NextResponse.json({
       ok: true,
       title: html.title,
       token: row?.token ?? null,
       url: row?.token ? `/deliverable/${row.token}` : null,
+      credit,
     });
   } catch (err) {
     return NextResponse.json(

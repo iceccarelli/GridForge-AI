@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, ExternalLink, Loader2 } from "lucide-react";
+import { eurFromCents } from "@/lib/products";
 import type {
   AdminDeliverable,
   AdminQualification,
@@ -49,6 +50,8 @@ export function EngagementPipeline({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<Record<string, string>>({});
+  /** Credits already paid that apply to a quote just generated, by qualification. */
+  const [credits, setCredits] = useState<Record<string, number>>({});
 
   const waiting = useMemo(() => rows.filter((r) => r.status === "draft"), [rows]);
   const revenue = useMemo(
@@ -132,6 +135,12 @@ export function EngagementPipeline({
         return;
       }
       setProposals((p) => ({ ...p, [q.id]: body.url as string }));
+      // A credit the catalogue promises is worth nothing if the person raising the
+      // invoice never hears about it. Said at the moment the quote is produced.
+      const cents = Number(body?.credit?.cents ?? 0);
+      if (cents > 0) {
+        setCredits((c) => ({ ...c, [q.id]: cents }));
+      }
       window.open(body.url as string, "_blank");
     } catch {
       setError("Could not reach the server.");
@@ -518,13 +527,23 @@ export function EngagementPipeline({
                     </Td>
                     <Td>
                       {proposals[q.id] ? (
-                        <Link
-                          href={proposals[q.id]}
-                          target="_blank"
-                          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-verified hover:underline"
-                        >
-                          Proposal <ExternalLink className="h-3 w-3" />
-                        </Link>
+                        <span className="inline-flex flex-col gap-0.5">
+                          <Link
+                            href={proposals[q.id]}
+                            target="_blank"
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-verified hover:underline"
+                          >
+                            Proposal <ExternalLink className="h-3 w-3" />
+                          </Link>
+                          {credits[q.id] ? (
+                            <span
+                              title="Already paid by this customer and promised to credit against this engagement. Deduct it when you invoice."
+                              className="data whitespace-nowrap text-[10px] text-power"
+                            >
+                              credit {eurFromCents(credits[q.id])}
+                            </span>
+                          ) : null}
+                        </span>
                       ) : (
                         <button
                           type="button"

@@ -38,6 +38,7 @@ agent told to retry a call it can never afford will retry it forever.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import threading
@@ -65,6 +66,7 @@ from ..reporting.study import Objective
 from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
+from .keys import revoke, revoked_ids
 from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier
@@ -343,6 +345,31 @@ def handle_spec(body: dict, tier: Tier) -> dict:
     return out
 
 
+def handle_revoke(body: dict, tier: Tier) -> dict:
+    """Kill a leaked key now, rather than at expiry.
+
+    Keys expire on their own and a lapsed subscription needs nothing more — the
+    webhook stops reissuing and the key dies inside the period the customer paid
+    for. A LEAKED key is the case that cannot wait, and the only lever used to be
+    an environment variable, which means a redeploy, which means the key kept
+    working until a human did one.
+
+    Verification is untouched: still offline, still no database and no network call
+    per request. This writes to a local file the engine owns; `revoked_ids()` picks
+    it up through an mtime check.
+    """
+    key_id = str(body.get("key_id") or "").strip()
+    if not key_id:
+        raise ApiError(422, "key_id is required")
+    stored = revoke(key_id)
+    if not stored:
+        # Never report a revocation that did not happen. A caller told "revoked"
+        # stops looking for the leaked key.
+        raise ApiError(503, "revocation is not persistable on this deployment",
+                       fix="set GRIDFORGE_REVOKED_FILE to a writable path on a volume")
+    return {"revoked": key_id, "count": len(revoked_ids())}
+
+
 def handle_bids(body: dict, tier: Tier) -> dict:
     from ..procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
     from ..procurement.evaluate import schedule_impact
@@ -432,6 +459,7 @@ ROUTES = {
     "/v1/diff": (handle_diff, Tier.CLIENT),
     "/v1/spec": (handle_spec, Tier.CLIENT),
     "/v1/bids": (handle_bids, Tier.CLIENT),
+    "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
 GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
@@ -607,7 +635,20 @@ class Handler(BaseHTTPRequestHandler):
     def _plan(self):
         return plan_for(self._supplied_key())
 
+    def _is_operator(self) -> bool:
+        """Us, not a customer.
+
+        A separate secret from GRIDFORGE_API_KEYS on purpose: a paying customer's
+        key must never be able to revoke anybody's credential, including their own
+        competitor's. Unset means the operator surface does not exist at all.
+        """
+        admin = os.environ.get("GRIDFORGE_ADMIN_KEY") or ""
+        supplied = self._supplied_key() or ""
+        return bool(admin) and hmac.compare_digest(admin, supplied)
+
     def _tier(self) -> Tier:
+        if self._is_operator():
+            return Tier.INTERNAL
         return Tier.CLIENT if self._plan() else Tier.PUBLIC
 
     def do_OPTIONS(self) -> None:  # noqa: N802
@@ -732,6 +773,10 @@ class Handler(BaseHTTPRequestHandler):
         # tool — so the only thing the gate was protecting was the free tier from
         # being used.
         required = Tier.PUBLIC if path == "/mcp" else ROUTES[path][1]
+        if required is Tier.INTERNAL and tier is not Tier.INTERNAL:
+            # 404, not 401: an operator surface should not confirm it exists to a
+            # caller who cannot use it.
+            return self._send(404, {"error": "not found"})
         if required is Tier.CLIENT and tier is Tier.PUBLIC:
             if not _auth_configured():
                 return self._send(503, {

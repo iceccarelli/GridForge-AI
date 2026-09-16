@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { constraintReference } from "@/lib/constraints";
+import { SITE_URL } from "@/lib/site";
 
 /**
  * Every public page, including the generated ones.
@@ -9,7 +10,7 @@ import { constraintReference } from "@/lib/constraints";
  * remembering to add it — the same reason the engagement ladder is derived.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = "https://gridforge-ai.vercel.app";
+  const base = SITE_URL;
   const now = new Date();
   const ref = await constraintReference();
   const constraintPages: MetadataRoute.Sitemap = (ref?.constraints ?? []).map((c) => ({
@@ -27,7 +28,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...constraintPages,
     { url: `${base}/developers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/pricing`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${base}/infrastructure`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/intelligence`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     { url: `${base}/legal/privacy`, lastModified: now, priority: 0.3 },
     { url: `${base}/legal/terms`, lastModified: now, priority: 0.3 },
