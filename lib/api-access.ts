@@ -242,10 +242,15 @@ export async function createApiAccount(input: {
 export async function getApiAccount(token: string): Promise<ApiAccount | null> {
   const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}&limit=1`);
   if (!r) return null;
-  const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
-  if (!res.ok) return null;
-  const rows = (await res.json()) as ApiAccount[];
-  return rows[0] ?? null;
+  try {
+    const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+    if (!res.ok) return null;
+    const rows = (await res.json()) as ApiAccount[];
+    return rows[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] api account lookup unreachable:", err);
+    return null;
+  }
 }
 
 export async function updateApiAccount(
