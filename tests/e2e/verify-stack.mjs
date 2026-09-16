@@ -467,6 +467,21 @@ async function main() {
      cmpBody.saved === true &&
        (await fetch(`${SITE}/api/deliverable/${specRow.token}?format=csv&file=bid_comparison.json`)).status === 200);
 
+  // The route is only half the fix. The buyer is a procurement manager who has
+  // just collected four filled-in schedules, not somebody who will POST JSON.
+  const specPage = await (await fetch(`${SITE}/deliverable/${specRow.token}`)).text();
+  // The button reads "Choose the completed schedules" until a comparison exists
+  // and "Compare again" after, so accept either — what matters is that there is a
+  // file input on the page and not an instruction to POST JSON.
+  ok("the customer has somewhere on the page to put the supplier responses",
+     specPage.includes("Compare the bids") &&
+       /type="file"/.test(specPage) &&
+       (specPage.includes("Choose the completed schedules") || specPage.includes("Compare again")),
+     "file input present");
+  ok("and reopening it shows the comparison already run, not an empty box",
+     specPage.includes("Compare again") || specPage.includes("Alpha"),
+     "prior comparison restored");
+
   ok("a Density Screen cannot be used for it",
      (await fetch(`${SITE}/api/deliverable/${token}/bids`, {
        method: "POST", headers: { "content-type": "application/json" },

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getByToken } from "@/lib/deliverables";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
+import { BidComparison } from "@/components/BidComparison";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const metadata: Metadata = {
@@ -114,6 +115,12 @@ export default async function DeliverablePage({
           </div>
         </section>
       ) : null}
+      {/* A Procurement Specification is only two thirds delivered without this:
+          its catalogue entry promises the comparison, and until now there was
+          nowhere for the supplier responses to go. */}
+      {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" && row.status === "released" ? (
+        <BidComparison token={token} initial={priorComparison(row)} />
+      ) : null}
       {row.kind === "proposal" ? null : (
         <>
           {/* A specification is already the next step; offering it under itself
@@ -140,6 +147,23 @@ function bindingConstraint(row: { intake?: unknown }): string | null {
     const meta = (row.intake as Record<string, unknown> | undefined)?.["_gridforge"];
     const t = (meta as Record<string, unknown> | undefined)?.["binding"];
     return typeof t === "string" && t.trim() ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A comparison already run for this engagement.
+ *
+ * Kept as a working file when it was produced, so reopening the page shows the
+ * ranking rather than an empty upload box and a customer wondering whether it
+ * worked. Unreadable means "none yet", never a guess.
+ */
+function priorComparison(row: { working_files?: Record<string, string> | null }) {
+  const raw = row.working_files?.["bid_comparison.json"];
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
   } catch {
     return null;
   }
