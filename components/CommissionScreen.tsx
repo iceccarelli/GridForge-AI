@@ -41,7 +41,7 @@ export function CommissionScreen({
   qualificationId?: string | null;
   company?: string | null;
   capacityMW?: number | null;
-  /** Defaults to the catalogue-built "Density Screen — €4,500 · 5 days". */
+  /** Defaults to DENSITY_SCREEN_CTA, which is built from the catalogue. */
   label?: string;
   context?: string;
   size?: "md" | "lg";

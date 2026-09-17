@@ -144,17 +144,34 @@ def test_the_second_price_list_is_gone():
 
 def test_the_services_list_matches_what_can_be_bought():
     """SERVICES advertised hybrid microgrids, HVDC distribution and an EMS. A
-    services list describing a different company is a claim, not an aspiration."""
+    services list describing a different company is a claim, not an aspiration.
+
+    It then advertised the four real engagements but TYPED their names, fees and
+    turnarounds, so "5 working days" lived here and `turnaroundDays: 5` lived in
+    the catalogue and nothing compared them. Each card now names a catalogue id
+    and serviceCards() resolves the rest out of lib/products.ts, which is the
+    stronger property: a card can only describe something genuinely for sale, at
+    the price checkout genuinely charges.
+    """
     src = REGISTRY.read_text()
-    m = re.search(r"export const SERVICES\s*=\s*\[(.*?)\n\];", src, re.S)
+    m = re.search(r"export const SERVICES(?:\s*:\s*[\w\[\]]+)?\s*=\s*\[(.*?)\n\];",
+                  src, re.S)
     assert m, "SERVICES not found"
     block = m.group(1)
     for gone in ["Hybrid Behind-the-Meter Microgrid", "High-Voltage DC Distribution",
                  "Physics-Informed EMS", "Power Audit", "Commissioning & EMS Tuning"]:
         assert gone not in block, f"SERVICES still offers {gone!r}"
-    for real in ["Density Screen", "Envelope Study", "Procurement Specification",
-                 "Hall Watch"]:
+    for real in ["density_screen", "envelope_study_deposit", "procurement_spec",
+                 "hall_watch"]:
         assert real in block, f"SERVICES omits {real!r}"
+
+    # And the ids are resolved against the catalogue rather than decorated with a
+    # second, hand-typed copy of the name and the fee.
+    assert "PRODUCTS[s.productId]" in src, (
+        "serviceCards() must resolve each card out of lib/products.ts")
+    for typed in ["title:", "deliverable:", "timeline:"]:
+        assert typed not in block, (
+            f"SERVICES types {typed!r} again — it belongs in the catalogue")
 
 
 # --- nothing we do not own or build ----------------------------------------

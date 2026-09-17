@@ -28,10 +28,12 @@ const SCREEN = PRODUCTS.density_screen;
 export const DENSITY_SCREEN: ProductId = SCREEN.id;
 
 /**
- * "Density Screen — €4,500 · 5 days", assembled from the catalogue.
+ * The primary CTA's label: the product's name, its fee and its turnaround, joined.
  *
- * Never type this string. The whole point of lib/products.ts is that the figure a
- * buyer reads on a button and the figure Stripe charges come from one place.
+ * Never type the figure. The whole point of lib/products.ts is that the amount a
+ * buyer reads on a button and the amount Stripe charges come from one place — and
+ * a euro figure typed into a comment here drifts exactly like one typed into code,
+ * which is why the architecture guard refuses both.
  */
 export const DENSITY_SCREEN_CTA = `${SCREEN.name} — ${eurFromCents(
   SCREEN.amountCents
