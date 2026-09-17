@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { Activity, Zap, Leaf, Gauge } from "lucide-react";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 /* ----------------------------- data contracts ----------------------------- */
 type MarketOk = {
@@ -261,8 +261,8 @@ export function LiveConsole() {
             <p className="text-xs text-faint data">
               EPEX Spot via aWATTar · Fraunhofer ISE Energy-Charts · auto-refresh {REFRESH_MS / 1000}s
             </p>
-            <button onClick={() => openAudit("live-console")} className="btn-primary px-4 py-2 rounded-lg text-sm">
-              Run this on my site →
+            <button onClick={() => commissionDensityScreen({ context: "live-console" })} className="btn-primary px-4 py-2 rounded-lg text-sm">
+              {DENSITY_SCREEN_CTA} →
             </button>
           </div>
         </div>

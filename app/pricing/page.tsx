@@ -5,8 +5,6 @@ import { ArrowRight, Check, Shield } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { SERVICES, SITE } from "@/lib/site";
-import { openAudit } from "@/lib/ui";
-import { startDeposit } from "@/lib/checkout";
 import { EngagementLadder } from "@/components/EngagementLadder";
 import { COMMERCE, foundingSlotsRemaining, eur } from "@/lib/commerce";
 
@@ -26,8 +24,8 @@ export default function PricingPage() {
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
               Every engagement is a concrete deliverable a senior power-systems engineer
-              produces for your site — not retainer hours. Most clients begin with the
-              Power Audit, then scope deeper work from its findings.
+              produces for your site — not retainer hours. Most halls begin with the
+              Density Screen, which credits in full against the study it usually leads to.
             </p>
           </div>
 

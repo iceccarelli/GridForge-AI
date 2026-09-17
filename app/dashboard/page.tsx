@@ -11,7 +11,7 @@ import { m, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { Logo } from "@/components/Navbar";
 import { useMarket, arbPerDay, type MarketSnapshot } from "@/lib/market";
 
@@ -153,7 +153,7 @@ export default function Dashboard() {
             <div className="eyebrow">SAMPLE WORKSPACE</div>
             <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight mt-1">Good to see you, {user.name.split(" ")[0]}.</h1>
           </div>
-          <button onClick={() => openAudit("dashboard")} className="btn-primary px-6 py-3 rounded-xl text-sm flex items-center gap-2 self-start md:self-auto">
+          <button onClick={() => commissionDensityScreen({ context: "dashboard" })} className="btn-primary px-6 py-3 rounded-xl text-sm flex items-center gap-2 self-start md:self-auto">
             <Plus size={16} /> New consultation
           </button>
         </div>

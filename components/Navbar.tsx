@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { m, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 const navLinks = [
   { href: "#problem", label: "Problem" },
@@ -102,10 +102,11 @@ export function Navbar() {
               Client portal
             </button>
             <button
-              onClick={() => openAudit("navbar")}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2"
+              onClick={() => commissionDensityScreen({ context: "navbar" })}
+              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
+              title={DENSITY_SCREEN_CTA}
             >
-              Request audit <ArrowRight size={15} />
+              {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
             </button>
           </div>
 
@@ -150,11 +151,11 @@ export function Navbar() {
                   <button
                     onClick={() => {
                       setIsOpen(false);
-                      openAudit("mobile-nav");
+                      commissionDensityScreen({ context: "mobile-nav" });
                     }}
                     className="btn-primary w-full py-3.5 rounded-xl text-base"
                   >
-                    Request audit
+                    {DENSITY_SCREEN_CTA}
                   </button>
                 </div>
               </div>
