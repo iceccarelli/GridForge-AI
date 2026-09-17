@@ -69,7 +69,7 @@ Rules:
 - Give a clear recommendation: rank the top 2-3 regions for THIS specific brief and say why.
 - Always frame BTM as the queue-bypass: compare the modeled interconnection-queue wait vs the BTM time-to-energized.
 - Distinguish LIVE vs MODELED figures explicitly where it matters ("Germany's cost is live EPEX; US figures are modeled estimates").
-- This is DIRECTIONAL, not bankable. End by pointing to a paid Power Audit for site-specific confirmation.
+- This is DIRECTIONAL, not bankable. End by pointing to the paid Density Screen for hall-specific confirmation.
 - Be concise and technical: ~4-6 short paragraphs. You are an engineer, not a marketer.`;
 
   try {

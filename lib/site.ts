@@ -244,7 +244,7 @@ export const FAQ = [
   },
   {
     q: "What can I actually buy today?",
-    a: "Engineering services: Power Audits, Feasibility Studies, Integration Design packages, and commissioning support. These are concrete, fixed-scope deliverables a senior power-systems engineer produces for your specific site.",
+    a: "Four fixed-fee engagements, all priced on the pricing page before we start. Most halls begin with the Density Screen: one hall, five working days, what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
   },
   {
     q: "How is on-site power faster than the grid?",

@@ -1,16 +1,30 @@
-// Lead model, validation schema, and scoring — the shared contract between the
-// audit form (client) and the /api/audit route (server). Keeping it in one
-// place means the form and the API can never disagree about the shape or the
-// score, and the scoring stays a pure, unit-testable function.
+// Lead model, validation schema, and scoring.
+//
+// NO LONGER A SELL SURFACE. This was the contract between the Power Audit form
+// and /api/audit. The form is gone and the audit route is closed to the public:
+// everything a visitor can press now commissions the Density Screen through
+// Stripe, because that is the only thing on this site that is actually for sale.
+//
+// What survives is enquiry classification for the scoping assistant, which still
+// wants to know whether the person it is talking to has a site or is browsing.
+// The service list below is the catalogue, not the old consultancy's menu — an
+// assistant that classifies an enquiry into "Feasibility Study & Financial Model"
+// is classifying it into something nobody can buy.
 
 import * as z from "zod";
+import { LADDER_PRODUCTS, PRODUCTS } from "@/lib/products";
 
-/** The four real, sellable services (mirrors SERVICES in lib/site.ts). */
+/**
+ * What can actually be bought, for classifying an enquiry.
+ *
+ * Derived from the catalogue rather than typed, so a product added to
+ * lib/products.ts is one the assistant can classify an enquiry into. The previous
+ * list named four engagements — Power Audit, Feasibility Study, Integration
+ * Design, Commissioning & EMS Tuning — none of which has a price, an intake, an
+ * engine endpoint or a deliverable anywhere in this repository.
+ */
 export const SERVICE_OPTIONS = [
-  "Power Audit & Site Assessment",
-  "Feasibility Study & Financial Model",
-  "Integration Design & Engineering",
-  "Commissioning & EMS Tuning",
+  ...LADDER_PRODUCTS.map((p) => p.name),
   "Not sure yet — need a recommendation",
 ] as const;
 
@@ -124,16 +138,20 @@ export function scoreLead(input: LeadInput): {
       break;
   }
 
-  // Service fit — design/feasibility intent is closer to revenue than browsing.
-  if (input.services.some((s) => s.startsWith("Integration Design"))) {
+  // Service fit, against the catalogue. Named interest in a deeper engagement is
+  // closer to revenue than interest in the entry product, which is closer than
+  // "not sure yet".
+  const wants = (id: keyof typeof PRODUCTS) =>
+    input.services.some((s) => s.startsWith(PRODUCTS[id].name));
+  if (wants("procurement_spec") || wants("portfolio_screen_deposit")) {
     score += 10;
-    reasons.push("Wants integration design (near-build)");
-  } else if (input.services.some((s) => s.startsWith("Feasibility"))) {
+    reasons.push("Wants a tender-stage or portfolio engagement");
+  } else if (wants("envelope_study_deposit")) {
     score += 8;
-    reasons.push("Wants a bankable feasibility model");
-  } else if (input.services.some((s) => s.startsWith("Power Audit"))) {
+    reasons.push("Wants the full envelope study");
+  } else if (wants("density_screen")) {
     score += 6;
-    reasons.push("Entry-point audit interest");
+    reasons.push("Entry-point screen interest");
   }
 
   score = Math.min(100, score);

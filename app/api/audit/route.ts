@@ -4,7 +4,15 @@ import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/l
 
 export const runtime = "nodejs";
 
-// Lead-capture route. Validates with the shared schema, scores server-side
+// Enquiry-logging route. NOT a sell surface any more.
+//
+// It used to receive the Power Audit form — the site's primary CTA, pointed at an
+// engagement with no price, no intake and no deliverable. That form is deleted and
+// every CTA now commissions the Density Screen through Stripe. What still posts
+// here is the Intelligence portal recording that a subscriber generated a board
+// brief, which is an internal note, not a sale.
+//
+// Validates with the shared schema, scores server-side
 // (never trusts a client-supplied score for routing), then:
 //   • persists to Supabase if SUPABASE_* env vars are set, and
 //   • notifies via Resend / Slack for hot leads if configured.
@@ -153,8 +161,8 @@ async function notify(record: LeadRecord): Promise<void> {
           from,
           to: [to],
           reply_to: record.email,
-          subject: `[${record.tier.toUpperCase()}] Audit — ${record.company} (${record.capacity})`,
-          text: `New audit request via timetopower.ai\n\n${lines}`,
+          subject: `[${record.tier.toUpperCase()}] Enquiry — ${record.company} (${record.capacity})`,
+          text: `New enquiry via timetopower.ai\n\n${lines}`,
         }),
       });
     } catch (err) {
@@ -169,9 +177,11 @@ async function notify(record: LeadRecord): Promise<void> {
     !record.email.endsWith("@scoping-agent.local");
   if (apiKey && realEmail) {
     const hot = record.tier === "hot";
+    // Template literals, not the double-quoted strings this used to be: those
+    // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
     const nextSteps = hot
-      ? "Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nYou can reserve your Power Audit now \u2014 a fully-credited deposit secures senior engineering capacity, and the Founding Partner credit applies while slots remain:\n${siteUrl('/pricing')}"
-      : "We will review your site and respond within 1 business day.\n\nThe entry point is a Power Audit & Site Assessment (10\u201314 days): a clear go / no-go plus preliminary sizing. Details and pricing:\n${siteUrl('/pricing')}";
+      ? `Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nThe entry point is the Density Screen \u2014 one hall, five working days, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
+      : `We will review your site and respond within 1 business day.\n\nThe entry point is the Density Screen (five working days): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
     try {
       await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -180,7 +190,7 @@ async function notify(record: LeadRecord): Promise<void> {
           from,
           to: [record.email],
           reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
-          subject: `GridForge AI \u2014 audit request received (${record.capacity} site)`,
+          subject: `GridForge AI \u2014 enquiry received (${record.capacity} site)`,
           text:
             `Thank you for your request.\n\n` +
             `We received your submission for a ${record.capacity} site in ${record.location}.\n\n` +

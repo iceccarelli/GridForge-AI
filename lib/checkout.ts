@@ -18,9 +18,9 @@ export async function startDeposit(opts: {
     if (data.ok && data.url) {
       window.location.href = data.url;
     } else {
-      alert("Could not start checkout. Please try the audit form instead.");
+      alert("Could not start checkout. Run the free qualifier at /qualify, or email us and we will invoice.");
     }
   } catch {
-    alert("Could not start checkout. Please try the audit form instead.");
+    alert("Could not start checkout. Run the free qualifier at /qualify, or email us and we will invoice.");
   }
 }

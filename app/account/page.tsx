@@ -10,6 +10,7 @@ import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siti
 import { snapshotFor, asOfLabel } from "@/lib/queue-data";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
+import { PRODUCTS } from "@/lib/products";
 
 type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
 
@@ -293,7 +294,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
           location: region.region,
           urgency: "exploratory",
           gridStatus: "unknown",
-          services: ["Power Audit & Site Assessment"],
+          services: [PRODUCTS.density_screen.name],
           message: "Generated a board brief for " + mw + " MW in " + region.region + " (" + eurCompact(d.avoidedEur) + " unlocked).",
           name: "Intelligence subscriber",
           company: briefCompany || "Intelligence subscriber",

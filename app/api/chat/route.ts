@@ -161,9 +161,11 @@ export async function POST(req: Request) {
       const leadEmail = extracted.email;
       if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
         const hot = tier === "hot";
+        // Template literals, not the double-quoted strings this used to be: those
+        // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
         const next = hot
-          ? "Your site qualifies as a priority engagement. We will respond within 1 business day. Reserve your Power Audit now: ${siteUrl('/pricing')}"
-          : "We will review your site and respond within 1 business day. Start with a Power Audit: ${siteUrl('/pricing')}";
+          ? `Your site qualifies as a priority engagement. We will respond within 1 business day. Commission the Density Screen now: ${siteUrl('/pricing')}`
+          : `We will review your site and respond within 1 business day. Start with the Density Screen: ${siteUrl('/pricing')}`;
         try {
           await fetch("https://api.resend.com/emails", {
             method: "POST",
