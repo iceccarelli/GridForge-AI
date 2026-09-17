@@ -7,7 +7,6 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BackgroundReel } from "@/components/BackgroundReel";
 import { MotionProvider } from "@/components/MotionProvider";
-import { AuditModal } from "@/components/AuditModal";
 import { ScopingAgent } from "@/components/ScopingAgent";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
@@ -43,7 +42,7 @@ export const metadata: Metadata = {
     template: "%s · GridForge AI",
   },
   description:
-    "Independent power-systems engineering for AI data centers. Behind-the-meter generation, DC distribution architecture, and physics-informed EMS that close the gap between a multi-year grid queue and an energized site. Start with a Power Audit.",
+    "Independent power-systems engineering for AI data centers. Behind-the-meter generation, DC distribution architecture, and physics-informed EMS that close the gap between a multi-year grid queue and an energized site. Start with a Density Screen: one hall, five working days, EUR 4,500.",
   keywords: [
     "behind-the-meter power",
     "AI data center power",
@@ -91,7 +90,6 @@ export default function RootLayout({
         <main className="relative">{children}</main>
         <Footer />
         <ScopingAgent />
-        <AuditModal />
         <Toaster position="top-center" theme="dark" richColors closeButton />
         </MotionProvider>
       </body>
