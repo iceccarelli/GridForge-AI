@@ -32,7 +32,7 @@ const SystemFlow = dynamic(() => import("@/components/SystemFlow").then(m => m.S
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
-  SERVICES,
+  serviceCards,
   TECH,
   FAQ,
   SITE,
@@ -324,16 +324,16 @@ export default function Home() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div className="max-w-xl">
             <div className="eyebrow mb-3">WHAT YOU CAN BUY TODAY</div>
-            <h2 className="section-title">Engineering services, fixed scope.</h2>
+            <h2 className="section-title">Fixed fee, named artefact, no hourly billing.</h2>
           </div>
           <p className="max-w-sm text-mute">
-            Real deliverables a senior power-systems engineer produces for your
-            specific site. This is where engagements start.
+            Four engagements, every one priced before it starts. The fee on each card
+            is the fee checkout charges — both are read from the same catalogue.
           </p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-5">
-          {SERVICES.map((s, i) => {
+          {serviceCards().map((s, i) => {
             const Icon = serviceIcons[s.icon] ?? Search;
             return (
               <div
@@ -350,9 +350,15 @@ export default function Home() {
                     <span className="pill pill-progress">START HERE</span>
                   )}
                 </div>
-                <h3 className="text-xl font-semibold tracking-tight mb-3">
-                  {s.title}
-                </h3>
+                <div className="flex items-baseline justify-between gap-4 mb-3">
+                  <h3 className="text-xl font-semibold tracking-tight">{s.title}</h3>
+                  <span className="data font-mono text-power whitespace-nowrap">
+                    {s.price}
+                    {s.recurring ? (
+                      <span className="text-faint"> {s.recurring}</span>
+                    ) : null}
+                  </span>
+                </div>
                 <p className="text-ghost/80 text-[15px] leading-relaxed flex-1">
                   {s.desc}
                 </p>
@@ -371,6 +377,14 @@ export default function Home() {
                     </div>
                     <div className="data text-sm text-ghost">{s.timeline}</div>
                   </div>
+                </div>
+                <div className="mt-5">
+                  <CommissionScreen
+                    productId={s.productId}
+                    context={`services-${s.productId}`}
+                    tone={s.flagship ? "primary" : "outline"}
+                    label={`${s.recurring ? "Start" : "Commission"} — ${s.price}`}
+                  />
                 </div>
               </div>
             );

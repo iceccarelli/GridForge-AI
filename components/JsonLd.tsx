@@ -1,4 +1,4 @@
-import { SITE, SITE_URL, SERVICES, FAQ } from "@/lib/site";
+import { SITE, SITE_URL, serviceCards, FAQ } from "@/lib/site";
 import { LADDER_PRODUCTS } from "@/lib/products";
 
 /**
@@ -43,7 +43,7 @@ export function JsonLd() {
     "@context": "https://schema.org",
     "@type": "OfferCatalog",
     name: "GridForge AI — Engineering Services",
-    itemListElement: SERVICES.map((s) => ({
+    itemListElement: serviceCards().map((s) => ({
       "@type": "Offer",
       itemOffered: {
         "@type": "Service",

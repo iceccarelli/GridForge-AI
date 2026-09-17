@@ -6,6 +6,8 @@
 // stage engineering practice. Do not add fabricated customers or metrics.
 // ============================================================================
 
+import { PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
+
 /**
  * The site's own address, in one place.
  *
@@ -138,44 +140,77 @@ export const PROBLEM_CARDS = [
  * A services list describing a different company is not an aspiration. It is a
  * claim, and the first competent buyer to ask for a reference finds out.
  *
- * Prices are deliberately NOT here. They live in lib/products.ts, parity-tested
- * against gridforge/commercial.py, so a fee cannot be quoted on a page the engine
- * has never heard of.
+ * Prices are deliberately NOT typed here. Each card names a catalogue id and
+ * serviceCards() resolves the name, the fee, the turnaround and what the buyer
+ * receives out of lib/products.ts, which is parity-tested against
+ * gridforge/commercial.py. A card can therefore describe only something that is
+ * genuinely for sale, at the price checkout genuinely charges.
  */
-export const SERVICES = [
+export interface ServiceCard {
+  productId: ProductId;
+  icon: "search" | "trending" | "ruler" | "check";
+  desc: string;
+  flagship: boolean;
+}
+
+export const SERVICES: ServiceCard[] = [
   {
+    productId: "density_screen",
     icon: "search",
-    title: "Density Screen",
-    desc: "One hall, five working days. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
-    deliverable: "Screening document, the first six rungs of the ladder, and a data request",
-    timeline: "5 working days",
+    desc:
+      "One hall, five working days. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
     flagship: true,
   },
   {
+    productId: "envelope_study_deposit",
     icon: "trending",
-    title: "Capacity & Density Envelope Study",
-    desc: "Five cooling architectures compared under one model, the full headroom ladder with costs and lead times, time to power, sensitivity, economics, and the provenance of every figure.",
-    deliverable: "Envelope Study, a walkthrough with your engineers, and a model pack you keep",
-    timeline: "25 working days",
+    desc:
+      "Five cooling architectures compared under one model, the full headroom ladder with costs and lead times, time to power, sensitivity, economics, and the provenance of every figure.",
     flagship: false,
   },
   {
+    productId: "procurement_spec",
     icon: "ruler",
-    title: "Procurement Specification",
-    desc: "The tender document the study implies: every duty derived from a constraint in your hall and quoted at your site's own conditions, never at a manufacturer's reference condition. We name no make and no model.",
-    deliverable: "Specification, a response schedule, and your bids ranked in racks and weeks",
-    timeline: "12 working days",
+    desc:
+      "The tender document the study implies: every duty derived from a constraint in your hall and quoted at your site's own conditions, never at a manufacturer's reference condition. We name no make and no model.",
     flagship: false,
   },
   {
+    productId: "hall_watch",
     icon: "check",
-    title: "Hall Watch",
-    desc: "The model stays live. Re-solved on a cadence and whenever you change an input, with a change note naming what moved and which input moved it — including when the movement came from our side.",
-    deliverable: "A quarterly change note, and an unlimited re-run when your numbers change",
-    timeline: "Continuous",
+    desc:
+      "The model stays live. Re-solved on a cadence and whenever you change an input, with a change note naming what moved and which input moved it — including when the movement came from our side.",
     flagship: false,
   },
 ];
+
+/**
+ * A service card, resolved against the catalogue.
+ *
+ * `title`, `deliverable`, the fee and the turnaround all come from
+ * lib/products.ts. They used to be typed here as well, which meant the home page
+ * said "5 working days" in one file and `turnaroundDays: 5` in another, and the
+ * only thing keeping them equal was that nobody had edited either recently.
+ */
+export function serviceCards() {
+  return SERVICES.map((s) => {
+    const p = PRODUCTS[s.productId];
+    return {
+      ...s,
+      title: p.name,
+      deliverable: p.deliverable,
+      price: eurFromCents(p.amountCents),
+      recurring: p.recurring
+        ? p.recurring.intervalCount === 3
+          ? "per quarter"
+          : `per ${p.recurring.interval}`
+        : null,
+      timeline: p.recurring
+        ? "Continuous"
+        : `${p.turnaroundDays} working days`,
+    };
+  });
+}
 
 // Reference ARCHITECTURES — engineering designs and capabilities, explicitly
 // not delivered customer projects. Honest, and still demonstrates depth.

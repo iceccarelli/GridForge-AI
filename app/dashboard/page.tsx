@@ -30,11 +30,15 @@ const projects: Project[] = [
   { id: 3, name: "Frankfurt pilot site", location: "Frankfurt, DE", capacity: "35 MW", status: "Planning", progress: 18, nextMilestone: "Final design review", eta: "Q3 2026" },
 ];
 
+// Sample rows. The artefacts named here are the ones in lib/products.ts, because
+// a demo that shows a customer artefacts we do not produce — a Power Audit, a
+// feasibility study, an integration design package — is advertising the practice
+// this repository stopped being.
 const reports = [
-  { id: 101, title: "Power audit — Texas site", date: "2025-12-18", type: "Audit", status: "Final", summary: "Site-level read on interconnection position, available behind-the-meter capacity, and a first-pass firm-power topology. Identifies a ~4.5-year time-to-power gap and the BTM path that closes it." },
-  { id: 102, title: "Feasibility study — Ashburn expansion", date: "2026-01-09", type: "Feasibility", status: "Final", summary: "Bankable sizing for a 22 MW expansion: gas + BESS firming mix, phased capex aligned to the cluster ramp, and an arbitrage-inclusive operating model against regional wholesale prices." },
-  { id: 103, title: "Integration design package v2.1", date: "2026-02-03", type: "Engineering", status: "Final", summary: "Single-line, protection coordination, and EMS control narrative for the hybrid plant. Includes islanding logic and grid-services interface at the POI." },
-  { id: 104, title: "Performance validation — Phase 1", date: "2026-02-28", type: "Commissioning", status: "Draft", summary: "Draft commissioning results: measured transient absorption, round-trip efficiency, and uptime against SLA targets. Pending final sign-off." },
+  { id: 101, title: "Density Screen — Texas site, hall A", date: "2025-12-18", type: "Screen", status: "Final", summary: "Five-day screening opinion on one hall: what binds first, how many racks of the target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured." },
+  { id: 102, title: "Capacity & Density Envelope Study — Ashburn expansion", date: "2026-01-09", type: "Study", status: "Final", summary: "The complete constraint ladder with costs and lead times, five cooling architectures compared under one model, time to power, sensitivity, economics, and a machine-readable model pack retained by the client." },
+  { id: 103, title: "Procurement Specification — chilled-water uprate", date: "2026-02-03", type: "Specification", status: "Final", summary: "Tender-ready technical specification for one relief, every duty derived from the capacity model and quoted at site conditions, with a machine-readable response schedule. No make and no model named." },
+  { id: 104, title: "Hall Watch — Q1 change note", date: "2026-02-28", type: "Watch", status: "Draft", summary: "Draft quarterly change note: which inputs moved since the last solve, which of them moved the answer, and whether the decision changes. Pending sign-off." },
 ];
 
 const pilot = { current: "Texas Phase 1 — 48 MW hybrid", efficiency: "99.1%", uptime: "99.87%", lastOptimized: "2 hours ago", savings: "$1.84M" };
