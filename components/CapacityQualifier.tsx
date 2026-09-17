@@ -5,7 +5,7 @@ import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen } from "@/lib/ui";
 
 /**
  * Capacity qualifier.
@@ -416,10 +416,10 @@ function CommissionPanel({
         </button>
         <button
           type="button"
-          onClick={() => openAudit("capacity-qualifier", { capacityMW, summary })}
+          onClick={() => commissionDensityScreen({ context: "capacity-qualifier", capacityMW })}
           className="inline-flex items-center gap-2 rounded border border-line px-4 py-2 text-sm text-mute hover:text-ghost"
         >
-          Talk it through first <ArrowRight className="h-4 w-4" />
+          Commission the screen <ArrowRight className="h-4 w-4" />
         </button>
       </div>
       {error ? <p className="mt-3 text-sm text-flag">{error}</p> : null}

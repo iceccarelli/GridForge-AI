@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Loader2 } from "lucide-react";
-import { openAudit } from "@/lib/ui";
-import { startDeposit } from "@/lib/checkout";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { ArrowRight } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -50,13 +49,13 @@ export function ScopingAgent() {
       } else {
         setMessages([
           ...next,
-          { role: "assistant", content: "I'm having trouble right now — try the Request audit form and we'll respond within a day." },
+          { role: "assistant", content: "I'm having trouble right now — the free qualifier at /qualify still works and needs no account." },
         ]);
       }
     } catch {
       setMessages([
         ...next,
-        { role: "assistant", content: "Connection issue — please use the Request audit form instead." },
+        { role: "assistant", content: "Connection issue — try the free qualifier at /qualify instead." },
       ]);
     } finally {
       setLoading(false);
@@ -120,25 +119,25 @@ export function ScopingAgent() {
                     Your site qualifies · priority
                   </div>
                   <button
-                    onClick={() => startDeposit({ service: "Power Audit & Site Assessment", founding: true })}
+                    onClick={() => commissionDensityScreen({ context: "scoping-agent-hot" })}
                     className="w-full rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all"
                   >
-                    Reserve your engagement <ArrowRight size={14} />
+                    {DENSITY_SCREEN_CTA} <ArrowRight size={14} />
                   </button>
                 </>
               ) : lead.tier === "warm" ? (
                 <button
-                  onClick={() => openAudit("scoping-agent")}
+                  onClick={() => commissionDensityScreen({ context: "scoping-agent-warm" })}
                   className="w-full rounded-lg border border-power/50 text-power px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center gap-2 hover:bg-power/10 transition-all"
                 >
-                  Request your full audit <ArrowRight size={14} />
+                  {DENSITY_SCREEN_CTA} <ArrowRight size={14} />
                 </button>
               ) : (
                 <button
-                  onClick={() => openAudit("scoping-agent")}
+                  onClick={() => commissionDensityScreen({ context: "scoping-agent-cold" })}
                   className="w-full rounded-lg border border-line text-mute px-4 py-2.5 text-sm font-medium hover:text-white hover:border-power/40 transition-all"
                 >
-                  Get a written assessment →
+                  {DENSITY_SCREEN_CTA} →
                 </button>
               )}
             </div>
@@ -167,12 +166,12 @@ export function ScopingAgent() {
                 <Send size={16} />
               </button>
             </div>
-            <button
-              onClick={() => openAudit("scoping-agent")}
-              className="mt-2 w-full data text-[10px] uppercase tracking-[0.1em] text-mute hover:text-power transition-colors"
+            <a
+              href="/qualify"
+              className="mt-2 block w-full text-center data text-[10px] uppercase tracking-[0.1em] text-mute hover:text-power transition-colors"
             >
-              Or request a full audit →
-            </button>
+              Or run the free qualifier →
+            </a>
           </div>
         </div>
       )}

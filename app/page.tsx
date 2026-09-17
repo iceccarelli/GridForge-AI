@@ -14,7 +14,8 @@ import {
   PencilRuler,
   Rocket,
 } from "lucide-react";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
+import { CommissionScreen } from "@/components/CommissionScreen";
 import { HeroReel } from "@/components/HeroReel";
 import dynamic from "next/dynamic";
 import { TimeToPower } from "@/components/TimeToPower";
@@ -31,7 +32,7 @@ const SystemFlow = dynamic(() => import("@/components/SystemFlow").then(m => m.S
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
-  SERVICES,
+  serviceCards,
   TECH,
   FAQ,
   SITE,
@@ -78,28 +79,24 @@ export default function Home() {
               stops waiting on the grid.
             </p>
             <p className="text-mute max-w-xl mb-9">
-              Start with a Power Audit. You get a real engineer's read on your
-              site, not a sales deck.
+              Start with a Density Screen: one hall, five working days, a document
+              that names what binds it. Fixed fee, and it credits in full against
+              the full study.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => openAudit("hero")}
-                className="btn-primary px-8 py-4 text-base rounded-xl flex items-center justify-center gap-2 group"
-              >
-                Request a power audit
-                <ArrowRight
-                  size={18}
-                  className="group-hover:translate-x-0.5 transition"
-                />
-              </button>
-              <a
-                href="#architectures"
+              <CommissionScreen productId="density_screen" context="hero" size="lg" />
+              <Link
+                href="/qualify"
                 className="btn-secondary px-7 py-4 text-base rounded-xl flex items-center justify-center gap-2"
               >
-                See the architectures
-              </a>
+                Or run the free qualifier
+              </Link>
             </div>
+            <p className="data text-[11px] text-faint mt-4">
+              Seven numbers, no card, no call. It names your binding constraint before
+              you decide whether to buy anything.
+            </p>
           </div>
 
           {/* Signature */}
@@ -180,10 +177,10 @@ export default function Home() {
 
         <div className="mt-10">
           <button
-            onClick={() => openAudit("problem")}
+            onClick={() => commissionDensityScreen({ context: "problem" })}
             className="btn-primary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
           >
-            Stop waiting on the queue <ArrowRight size={16} />
+            {DENSITY_SCREEN_CTA} <ArrowRight size={16} />
           </button>
         </div>
       </section>
@@ -327,16 +324,16 @@ export default function Home() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div className="max-w-xl">
             <div className="eyebrow mb-3">WHAT YOU CAN BUY TODAY</div>
-            <h2 className="section-title">Engineering services, fixed scope.</h2>
+            <h2 className="section-title">Fixed fee, named artefact, no hourly billing.</h2>
           </div>
           <p className="max-w-sm text-mute">
-            Real deliverables a senior power-systems engineer produces for your
-            specific site. This is where engagements start.
+            Four engagements, every one priced before it starts. The fee on each card
+            is the fee checkout charges — both are read from the same catalogue.
           </p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-5">
-          {SERVICES.map((s, i) => {
+          {serviceCards().map((s, i) => {
             const Icon = serviceIcons[s.icon] ?? Search;
             return (
               <div
@@ -353,9 +350,15 @@ export default function Home() {
                     <span className="pill pill-progress">START HERE</span>
                   )}
                 </div>
-                <h3 className="text-xl font-semibold tracking-tight mb-3">
-                  {s.title}
-                </h3>
+                <div className="flex items-baseline justify-between gap-4 mb-3">
+                  <h3 className="text-xl font-semibold tracking-tight">{s.title}</h3>
+                  <span className="data font-mono text-power whitespace-nowrap">
+                    {s.price}
+                    {s.recurring ? (
+                      <span className="text-faint"> {s.recurring}</span>
+                    ) : null}
+                  </span>
+                </div>
                 <p className="text-ghost/80 text-[15px] leading-relaxed flex-1">
                   {s.desc}
                 </p>
@@ -375,6 +378,14 @@ export default function Home() {
                     <div className="data text-sm text-ghost">{s.timeline}</div>
                   </div>
                 </div>
+                <div className="mt-5">
+                  <CommissionScreen
+                    productId={s.productId}
+                    context={`services-${s.productId}`}
+                    tone={s.flagship ? "primary" : "outline"}
+                    label={`${s.recurring ? "Start" : "Commission"} — ${s.price}`}
+                  />
+                </div>
               </div>
             );
           })}
@@ -382,10 +393,10 @@ export default function Home() {
 
         <div className="mt-10">
           <button
-            onClick={() => openAudit("services")}
+            onClick={() => commissionDensityScreen({ context: "services" })}
             className="btn-secondary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
           >
-            Scope an engagement <ArrowRight size={16} />
+            {DENSITY_SCREEN_CTA} <ArrowRight size={16} />
           </button>
         </div>
       </section>
@@ -517,17 +528,14 @@ export default function Home() {
             Let's pressure-test your<br />time-to-power.
           </h2>
           <p className="text-lg text-mute max-w-md mx-auto">
-            Send the site details. You'll hear back from the engineer within one
-            business day.
+            One hall, five working days, a fixed fee. You get the constraint that
+            binds it and the list of inputs nobody has measured.
           </p>
-          <button
-            onClick={() => openAudit("final")}
-            className="mt-9 btn-primary text-base px-10 py-5 rounded-xl inline-flex items-center gap-2"
-          >
-            Request a power audit <ArrowRight size={18} />
-          </button>
+          <div className="mt-9 flex justify-center">
+            <CommissionScreen productId="density_screen" context="final" size="lg" />
+          </div>
           <div className="data text-[11px] text-faint mt-6">
-            No obligation · NDA on request · {SITE.email}
+            Credits in full against the full study · NDA on request · {SITE.email}
           </div>
         </div>
       </section>

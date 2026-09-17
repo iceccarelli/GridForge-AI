@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Linkedin, Github, ArrowUpRight } from "lucide-react";
 import { Logo } from "@/components/Navbar";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { SITE } from "@/lib/site";
 
 // X (Twitter) glyph — lucide's Twitter icon is the old bird; use the wordmark.
@@ -89,10 +89,10 @@ export function Footer() {
               </a>
               <div className="text-mute">{SITE.baseLocation}</div>
               <button
-                onClick={() => openAudit("footer")}
-                className="data text-xs uppercase tracking-[0.12em] font-medium text-power hover:underline inline-flex items-center gap-1"
+                onClick={() => commissionDensityScreen({ context: "footer" })}
+                className="data text-xs uppercase tracking-[0.12em] font-medium text-power hover:underline inline-flex items-center gap-1 text-left"
               >
-                Request a power audit →
+                {DENSITY_SCREEN_CTA} →
               </button>
             </div>
           </div>

@@ -40,7 +40,7 @@ export function TimeToPower() {
       { title: "Training cluster · Texas", sub: "ERCOT — deregulated, fast behind-the-meter", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
       { title: "Sovereign AI · Germany", sub: "Live EPEX — bypass grid fees entirely", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
       { title: "Inference fleet · Kansas", sub: "SPP — wind-rich, low cost, lighter queue", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
-      { title: "Your site · modeled by GridForge", sub: "This is what a Power Audit confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
+      { title: "Your site · modeled by GridForge", sub: "This is what a Density Screen confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
     ],
     []
   );
@@ -207,7 +207,7 @@ export function TimeToPower() {
         </div>
         <div className="text-[10px] text-faint mt-3 leading-relaxed">
           Planning estimate on your inputs — value = capacity × revenue/MW-yr × years recovered.
-          Queue, timeline and revenue are editable assumptions, not guarantees. A Power Audit
+          Queue, timeline and revenue are editable assumptions, not guarantees. A Density Screen
           replaces them with your site&apos;s real numbers.
         </div>
       </div>

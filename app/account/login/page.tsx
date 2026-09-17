@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Navbar } from "@/components/Navbar";
 import { getSupabase } from "@/lib/supabase-client";
 import { Mail, Loader2, CheckCircle } from "lucide-react";
 
@@ -20,9 +19,7 @@ export default function LoginPage() {
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="bg-ink min-h-screen pt-32 pb-24 flex items-start justify-center">
+    <main className="bg-ink min-h-screen pt-32 pb-24 flex items-start justify-center">
         <div className="w-full max-w-md px-6">
           <div className="eyebrow text-power mb-3">GridForge Intelligence</div>
           <h1 className="text-3xl font-semibold tracking-tight mb-2">Sign in</h1>
@@ -72,7 +69,6 @@ export default function LoginPage() {
             </div>
           )}
         </div>
-      </main>
-    </>
+    </main>
   );
 }

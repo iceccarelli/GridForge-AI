@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Play, Pause, ChevronLeft, ChevronRight } from "lucide-react";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 /**
  * System-flow explainer. Walks a buyer through the full operating envelope of a
@@ -419,16 +419,11 @@ export function SystemFlow() {
 
         <button
           onClick={() =>
-            openAudit("system-flow", {
-              service: "Commissioning & EMS Tuning",
-              summary: `Reviewing the EMS load-response flow (was on "${
-                STEPS[step]?.title ?? "the walkthrough"
-              }"). Want the dispatch logic and N+1 response designed and tuned for our site.`,
-            })
+            commissionDensityScreen({ context: "system-flow" })
           }
           className="btn-primary px-4 py-2 rounded-lg text-sm ml-auto shrink-0"
         >
-          Design this for my site →
+          {DENSITY_SCREEN_CTA} →
         </button>
       </div>
 

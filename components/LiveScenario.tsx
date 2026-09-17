@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { Activity, BatteryCharging, Zap } from "lucide-react";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 /**
  * Interactive scenario panel. Pulls today's real EPEX day-ahead curve and lets
@@ -317,21 +317,15 @@ export function LiveScenario() {
         <p className="text-xs text-faint max-w-lg leading-relaxed">
           Computed on today&apos;s real EPEX curve. Arbitrage assumes {cycles} cycle{cycles > 1 ? "s" : ""}/day
           at {Math.round(rte * 100)}% round-trip efficiency; grid fees are your editable estimate —
-          all planning inputs, not guarantees. A Power Audit replaces them with your measured load.
+          all planning inputs, not guarantees. A Density Screen replaces them with your hall’s own numbers.
         </p>
         <button
           onClick={() =>
-            openAudit("scenario", {
-              capacityMW: mw,
-              service: "Feasibility Study & Financial Model",
-              summary: `BESS arbitrage scenario: ${mw} MW load with a ${bess} MWh battery${
-                arb ? `, arbitrage on (${cycles}× cycle/day, ${Math.round(rte * 100)}% RTE)` : ""
-              }, modeled on the live EPEX curve. Want this run against our measured load and local market.`,
-            })
+            commissionDensityScreen({ context: "scenario", capacityMW: mw })
           }
           className="btn-primary px-4 py-2 rounded-lg text-sm shrink-0"
         >
-          Model my real site →
+          {DENSITY_SCREEN_CTA} →
         </button>
       </div>
     </div>

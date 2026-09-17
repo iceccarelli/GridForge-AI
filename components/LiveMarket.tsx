@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { Activity } from "lucide-react";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 type MarketOk = {
   ok: true;
@@ -156,8 +156,8 @@ export function LiveMarket() {
               {ok.market} · {ok.source} · as of{" "}
               {new Date(ok.asOf).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </p>
-            <button onClick={() => openAudit("live-market")} className="btn-secondary px-4 py-2 rounded-lg text-sm">
-              Model this against my load →
+            <button onClick={() => commissionDensityScreen({ context: "live-market" })} className="btn-secondary px-4 py-2 rounded-lg text-sm">
+              {DENSITY_SCREEN_CTA} →
             </button>
           </div>
         </>

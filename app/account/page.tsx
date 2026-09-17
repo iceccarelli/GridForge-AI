@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Navbar } from "@/components/Navbar";
 import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
 import { snapshotFor, asOfLabel } from "@/lib/queue-data";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
+import { PRODUCTS } from "@/lib/products";
 
 type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
 
@@ -68,13 +68,11 @@ export default function AccountPage() {
   }
 
   if (loading) {
-    return (<><Navbar /><main className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></main></>);
+    return (<main className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></main>);
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="bg-ink min-h-screen pt-28 pb-24">
+    <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -86,8 +84,7 @@ export default function AccountPage() {
           </div>
           {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : <Gate />}
         </div>
-      </main>
-    </>
+    </main>
   );
 }
 
@@ -293,7 +290,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
           location: region.region,
           urgency: "exploratory",
           gridStatus: "unknown",
-          services: ["Power Audit & Site Assessment"],
+          services: [PRODUCTS.density_screen.name],
           message: "Generated a board brief for " + mw + " MW in " + region.region + " (" + eurCompact(d.avoidedEur) + " unlocked).",
           name: "Intelligence subscriber",
           company: briefCompany || "Intelligence subscriber",

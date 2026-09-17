@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { m } from "framer-motion";
 import { COMPARATOR } from "@/lib/site";
-import { openAudit } from "@/lib/ui";
+import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 /**
  * Interactive Time-to-Power comparator.
@@ -115,22 +115,16 @@ export function TimeToPowerComparator() {
       <div className="mt-5 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-faint max-w-lg leading-relaxed">
           Revenue assumption is editable ({COMPARATOR.revSource}). On-site figure
-          is a planning timeline, not a guarantee — a Power Audit replaces it with
+          is a planning timeline, not a guarantee — a Density Screen replaces it with
           a defensible date for your site.
         </p>
         <button
           onClick={() =>
-            openAudit("comparator", {
-              capacityMW: mw,
-              service: "Feasibility Study & Financial Model",
-              summary: `Time-to-power model: ${mw} MW, grid queue at ${queueMonths} months vs ~${m.onSite} months on-site — ${m.saved} months saved, ~$${Math.round(
-                m.revAtRisk / 1_000_000
-              )}M revenue at risk. Want this validated against our real interconnection position.`,
-            })
+            commissionDensityScreen({ context: "comparator", capacityMW: mw })
           }
           className="btn-primary px-4 py-2 rounded-lg text-sm"
         >
-          Pressure-test my timeline →
+          {DENSITY_SCREEN_CTA} →
         </button>
       </div>
     </div>
