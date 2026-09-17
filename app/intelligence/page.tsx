@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Navbar } from "@/components/Navbar";
-import { Footer } from "@/components/Footer";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
@@ -32,9 +30,7 @@ export default function IntelligencePage() {
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="bg-ink min-h-screen pt-28 pb-24">
+    <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
             <div className="eyebrow text-power mb-4">GridForge Intelligence</div>
@@ -112,8 +108,6 @@ export default function IntelligencePage() {
             <span>Secure payment via Stripe</span>
           </div>
         </div>
-      </main>
-      <Footer />
-    </>
+    </main>
   );
 }

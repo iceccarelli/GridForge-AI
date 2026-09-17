@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Navbar } from "@/components/Navbar";
 import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
@@ -69,13 +68,11 @@ export default function AccountPage() {
   }
 
   if (loading) {
-    return (<><Navbar /><main className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></main></>);
+    return (<main className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></main>);
   }
 
   return (
-    <>
-      <Navbar />
-      <main className="bg-ink min-h-screen pt-28 pb-24">
+    <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -87,8 +84,7 @@ export default function AccountPage() {
           </div>
           {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : <Gate />}
         </div>
-      </main>
-    </>
+    </main>
   );
 }
 
