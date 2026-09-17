@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { m, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 const navLinks = [
@@ -24,7 +23,6 @@ const navLinks = [
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -95,12 +93,12 @@ export function Navbar() {
           </div>
 
           <div className="hidden lg:flex items-center gap-3">
-            <button
-              onClick={() => setShowLogin(true)}
+            <Link
+              href="/dashboard"
               className="btn-ghost px-4 py-2.5 rounded-full text-sm"
             >
               Client portal
-            </button>
+            </Link>
             <button
               onClick={() => commissionDensityScreen({ context: "navbar" })}
               className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
@@ -139,15 +137,13 @@ export function Navbar() {
                   </button>
                 ))}
                 <div className="pt-4 border-t border-line flex flex-col gap-3">
-                  <button
-                    onClick={() => {
-                      setIsOpen(false);
-                      setShowLogin(true);
-                    }}
-                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line"
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setIsOpen(false)}
+                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
                   >
                     Client portal
-                  </button>
+                  </Link>
                   <button
                     onClick={() => {
                       setIsOpen(false);
@@ -164,9 +160,6 @@ export function Navbar() {
         </AnimatePresence>
       </nav>
 
-      <AnimatePresence>
-        {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
-      </AnimatePresence>
     </>
   );
 }
@@ -191,116 +184,5 @@ export function Logo({ size = 36 }: { size?: number }) {
         />
       </svg>
     </div>
-  );
-}
-
-function LoginModal({ onClose }: { onClose: () => void }) {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    await new Promise((r) => setTimeout(r, 650));
-    if (email === "demo@gridforge.ai" && password === "demo2026") {
-      sessionStorage.setItem("gridforge_demo", "true");
-      sessionStorage.setItem(
-        "gridforge_user",
-        JSON.stringify({ email, name: "Sample Client", company: "Demo HyperScale" })
-      );
-      router.push("/dashboard");
-    } else {
-      setError("Use the demo credentials below to preview the portal.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <m.div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <m.div
-        initial={{ opacity: 0, scale: 0.96, y: 18 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 18 }}
-        transition={{ ease: [0.23, 1, 0.32, 1], duration: 0.22 }}
-        className="glass w-full max-w-md rounded-2xl p-7"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Client portal preview"
-      >
-        <div className="flex justify-between items-start mb-6">
-          <div className="flex items-center gap-3">
-            <Logo size={32} />
-            <div>
-              <div className="font-semibold text-xl">Client portal</div>
-              <div className="data text-[10px] text-faint tracking-[0.16em] mt-0.5">
-                INTERACTIVE PREVIEW
-              </div>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-mute hover:text-white p-1" aria-label="Close">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="pill pill-progress inline-block mb-5">SAMPLE DATA — NOT A LIVE ACCOUNT</div>
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="eyebrow text-[10px] text-mute block mb-2">Work email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="field w-full px-4 py-3 rounded-xl"
-              required
-            />
-          </div>
-          <div>
-            <label className="eyebrow text-[10px] text-mute block mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="field w-full px-4 py-3 rounded-xl"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="text-queue text-sm bg-queue/10 border border-queue/30 px-4 py-3 rounded-xl">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn-primary w-full py-3.5 rounded-xl text-base disabled:opacity-60"
-          >
-            {loading ? "Opening preview…" : "Open portal preview"}
-          </button>
-        </form>
-
-        <div className="mt-5 text-center">
-          <p className="text-xs text-faint">
-            Demo: <span className="data text-power">demo@gridforge.ai</span> /{" "}
-            <span className="data text-power">demo2026</span>
-          </p>
-        </div>
-      </m.div>
-    </m.div>
   );
 }
