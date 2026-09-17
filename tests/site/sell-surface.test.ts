@@ -126,6 +126,83 @@ describe("the price on a button is the price checkout charges", () => {
   });
 });
 
+describe("no fabricated customer, project or metric reaches the product UI", () => {
+  const files = sourceFiles();
+
+  /**
+   * The names and figures that stood in app/dashboard/page.tsx.
+   *
+   * Three invented customers, a pilot with an invented efficiency and uptime, and
+   * metric tiles reading 105 MW and $2.9M — each with a sparkline generated from a
+   * seeded PRNG so the invented numbers moved convincingly. A PREVIEW ribbon sat
+   * over all of it, which is not a defence: a screenshot does not carry the ribbon,
+   * and this practice has no delivered projects, no uptime record and no savings.
+   */
+  const FABRICATIONS = [
+    "Texas AI training cluster",
+    "Northern Virginia expansion",
+    "Frankfurt pilot site",
+    "Demo HyperScale",
+    "Sample Client",
+    "demo@gridforge.ai",
+    "demo2026",
+    "gridforge_demo",
+    "99.87%",
+    "99.99%",
+    "$1.84M",
+    "$2.9M",
+  ];
+
+  it("none of the retired fabrications is anywhere in app/ or components/", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = code(f);
+      for (const lie of FABRICATIONS) {
+        if (src.includes(lie)) offenders.push(`${path.relative(ROOT, f)}: ${lie}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("no currency figure in dollars appears in the product UI at all", () => {
+    // Everything this business charges is in euro and comes from lib/products.ts.
+    // A dollar figure on a page is, by construction, one nothing can check —
+    // which is exactly what "$2.9M energy savings YTD" was.
+    const offenders: string[] = [];
+    for (const f of files) {
+      for (const m of code(f).matchAll(/\$\s?\d[\d,.]*\s?[kKmMbB]?/g)) {
+        offenders.push(`${path.relative(ROOT, f)}: ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the portal renders no hardcoded engagement — every row comes from the API", () => {
+    const src = code(path.join(ROOT, "app/dashboard/page.tsx"));
+    // It reads its rows from the route and nowhere else.
+    expect(src).toContain('fetch("/api/engagements"');
+    // And it says the honest thing when there are none.
+    expect(src).toContain("No engagements yet");
+    // A literal array of engagements or projects is how the fiction got in.
+    expect(src).not.toMatch(/const\s+(projects|reports|pilot|metricCards)\s*[:=]/);
+  });
+
+  it("the portal is gated on a verified identity, not a client-side flag", () => {
+    const page = code(path.join(ROOT, "app/dashboard/page.tsx"));
+    expect(page).not.toContain("sessionStorage");
+    const route = code(path.join(ROOT, "app/api/engagements/route.ts"));
+    // The email is taken from the verified session, never from the request.
+    expect(route).toContain("identify(req)");
+    expect(route).not.toMatch(/body\.email|body\?\.email/);
+  });
+
+  it("the navbar no longer ships a hardcoded password", () => {
+    const src = code(path.join(ROOT, "components/Navbar.tsx"));
+    expect(src).not.toContain("LoginModal");
+    expect(src).not.toContain("password");
+  });
+});
+
 describe("private surfaces stay out of the index", () => {
   const required = [
     "/intake/",

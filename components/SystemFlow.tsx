@@ -141,7 +141,7 @@ const STEPS: Step[] = [
   {
     title: "Decarbonization glide path",
     caption:
-      "Gas today gives you firm power now. The same plant is hydrogen-ready and blends contracted renewables, so carbon intensity falls on a planned glide path — meeting the uptime SLA and the ESG commitment at the same time.",
+      "Gas today gives you firm power now. The same plant can be specified hydrogen-ready and blended with contracted renewables, so carbon intensity falls on a planned glide path rather than a cliff. What that path costs, and what it does to the energisation date, is what a study prices.",
     nodes: ["gas", "fuel", "bess", "dc", "racks"],
     edges: ["gas-dc", "fuel-dc", "dc-racks"],
     rackLoad: "steady",
@@ -153,14 +153,14 @@ const STEPS: Step[] = [
   {
     title: "Observability & SLA",
     caption:
-      "Every asset is telemetered, audit-logged, and reported against an uptime SLA — integrated into your DCIM and secured to your standards. Not a black box: a governed system your operations, compliance, and security teams can sign off on.",
+      "Every asset is telemetered and audit-logged into your DCIM, secured to your standards. Not a black box: a governed system your operations, compliance and security teams can sign off on. The availability figure belongs to the plant you procure and to the supplier who warrants it — we do not quote one.",
     nodes: ["grid", "gas", "fuel", "bess", "dc", "racks", "ems"],
     edges: ["gas-dc", "fuel-dc", "bess-dc", "dc-racks", "ems-gas", "ems-fuel", "ems-bess", "ems-dc"],
     rackLoad: "steady",
     gridActive: true,
     badges: [
       { node: "ems", text: "SCADA", tone: "violet" },
-      { node: "dc", text: "99.99% SLA", tone: "power" },
+      { node: "dc", text: "AUDIT LOG", tone: "power" },
     ],
   },
 ];
