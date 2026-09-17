@@ -52,6 +52,10 @@ export const metadata: Metadata = {
     "BESS",
     "energy management system",
     "data center feasibility study",
+    "data hall rack density",
+    "GB300 NVL72 retrofit",
+    "binding constraint",
+    "density screen",
   ],
   authors: [{ name: "Vincenzo Grimaldi" }],
   icons: { icon: "/icon.svg", apple: "/icon.svg" },
@@ -60,7 +64,7 @@ export const metadata: Metadata = {
     url: siteUrl,
     title: "GridForge AI — Speed to Power for AI Data Centers",
     description:
-      "The bottleneck isn't chips — it's power. Independent engineering for behind-the-meter generation, DC distribution, and physics-informed EMS. Pilot-stage, founder-led.",
+      "The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured. EUR 4,500, five working days.",
     siteName: "GridForge AI",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "GridForge AI" }],
   },
@@ -68,7 +72,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "GridForge AI — Speed to Power for AI Data Centers",
     description:
-      "Behind-the-meter power, DC distribution, and EMS for AI data centers. The bottleneck isn't chips — it's power.",
+      "What stops your hall taking AI racks, named in five working days. Density Screen, EUR 4,500 — or run the free qualifier first.",
     images: ["/og.png"],
   },
   robots: { index: true, follow: true },

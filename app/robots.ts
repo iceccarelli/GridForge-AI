@@ -31,15 +31,30 @@ const AI_CRAWLERS = [
   "cohere-ai",
 ];
 
+/**
+ * Closed to every crawler, including the friendly ones.
+ *
+ * Two kinds of thing. The token-addressed pages (/deliverable/, /intake/,
+ * /watch/, /api-access/, /q/, /commissioned) are private by their URL alone: a
+ * crawler that indexes one has published a customer's engineering opinion, or
+ * their intake credential, to anyone who can run a search. The rest (/admin,
+ * /account, /dashboard, /api/) are operator and customer surfaces with nothing
+ * to offer a search result.
+ *
+ * /account was missing. It is the Intelligence subscriber's portal and it renders
+ * their saved scenarios.
+ */
 const PRIVATE_PATHS = [
   "/dashboard",
   "/admin",
+  "/account",
   "/api/",
   "/api-access/",
   "/deliverable/",
   "/watch/",
   "/intake/",
   "/q/",
+  "/commissioned",
 ];
 
 export default function robots(): MetadataRoute.Robots {
