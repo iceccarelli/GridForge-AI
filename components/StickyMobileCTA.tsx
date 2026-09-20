@@ -23,6 +23,7 @@ const HIDDEN_ON = ["/dashboard", "/checkout"];
 export function StickyMobileCTA() {
   const pathname = usePathname();
   const [pastHero, setPastHero] = useState(false);
+  const [atFinalCta, setAtFinalCta] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setPastHero(window.scrollY > 420);
@@ -31,8 +32,26 @@ export function StickyMobileCTA() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // A page's own final CTA section (id="final-cta", currently only on home)
+  // already makes this exact offer full-width and in context. Once it is on
+  // screen, the fixed bar below it would just repeat the same button.
+  useEffect(() => {
+    const el = document.getElementById("final-cta");
+    if (!el) {
+      setAtFinalCta(false);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setAtFinalCta(entry.isIntersecting),
+      { rootMargin: "0px 0px -10% 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pathname]);
+
   if (HIDDEN_ON.some((p) => pathname?.startsWith(p))) return null;
   if (!pastHero) return null;
+  if (atFinalCta) return null;
 
   return (
     <div
