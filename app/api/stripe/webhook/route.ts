@@ -533,7 +533,7 @@ async function remindToRotate(row: ApiAccount): Promise<void> {
 async function notifySubscriber(p: { email: string; plan: string }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <power@timetopower.ai>";
+  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <power@timetopower.ai>";
   if (!apiKey) return;
   if (to) {
     try {
@@ -564,7 +564,7 @@ async function notifySubscriber(p: { email: string; plan: string }): Promise<voi
           text:
             `Your ${p.plan} subscription is active.\n\n` +
             `Sign in to your live dashboard: ${siteUrl('/account/login')}\n\n` +
-            `\u2014 GridForge AI`,
+            `\u2014 Time to Power`,
         }),
       });
     } catch (err) {
@@ -609,7 +609,7 @@ async function markDepositPaid(p: {
 async function notifyFounder(p: { email: string; company: string; amount: number }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <onboarding@resend.dev>";
+  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <onboarding@resend.dev>";
   if (!apiKey || !to) return;
   const eur = (c: number) => `€${(c / 100).toLocaleString("en-IE")}`;
   try {

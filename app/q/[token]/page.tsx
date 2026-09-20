@@ -10,7 +10,7 @@ import { eur } from "@/lib/commerce";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Capacity read | GridForge AI",
+  title: "Capacity read | Time to Power",
   // Somebody's hall, shared by them, with whoever they choose. Not for indexing.
   robots: { index: false, follow: false },
 };

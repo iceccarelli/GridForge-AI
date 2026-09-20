@@ -17,18 +17,18 @@ export async function GET() {
   const year = new Date().getUTCFullYear();
   return NextResponse.json(
     {
-      title: "GridForge AI — capacity and density constraint reference",
-      author: "GridForge AI",
+      title: "Time to Power — capacity and density constraint reference",
+      author: "Time to Power",
       year,
       url: siteUrl("/constraints"),
       machine_readable: siteUrl("/reference/constraints.json"),
       constraints: ref?.count ?? 0,
       how_to_cite:
-        `GridForge AI (${year}). Capacity and density constraint reference for existing ` +
+        `Time to Power (${year}). Capacity and density constraint reference for existing ` +
         `data halls. ${siteUrl("/constraints")}`,
       bibtex:
-        `@misc{gridforge_constraints_${year},\n` +
-        `  author = {{GridForge AI}},\n` +
+        `@misc{timetopower_constraints_${year},\n` +
+        `  author = {{Time to Power}},\n` +
         `  title  = {Capacity and density constraint reference for existing data halls},\n` +
         `  year   = {${year}},\n` +
         `  url    = {${siteUrl("/constraints")}}\n}`,

@@ -3,9 +3,10 @@ import path from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
-  title: "The deliverable, in full — worked example | GridForge AI",
+  title: "The deliverable, in full — worked example | Time to Power",
   description:
     "Read the exact document a Capacity & Density Envelope Study produces, on a synthetic European colocation hall. The headroom ladder, time to power, the economics, and the working files behind every number.",
 };
@@ -85,6 +86,11 @@ export default async function ReferencePage() {
           </p>
         </div>
       </header>
+
+      <TtpPhoto
+        id="ttp-12"
+        className="rounded-xl overflow-hidden border border-line aspect-[16/9] mt-8 max-w-2xl"
+      />
 
       {best && gridOnly ? (
         <section className="mt-10 grid gap-3 sm:grid-cols-3">

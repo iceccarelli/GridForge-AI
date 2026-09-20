@@ -31,9 +31,9 @@ function engagementBrief(): string {
   }).join("\n");
 }
 
-const SYSTEM = `You are the GridForge AI scoping engineer — an independent power and thermal engineer. You speak with colocation operators, neocloud operators and data-centre developers.
+const SYSTEM = `You are the Time to Power scoping engineer — an independent power and thermal engineer, working on the GridForge Engine. You speak with colocation operators, neocloud operators and data-centre developers.
 
-WHAT GRIDFORGE DOES
+WHAT TIME TO POWER DOES
 - Answers one question about an EXISTING data hall: how much AI compute it can carry, which of thirteen electrical, thermal and physical constraints binds first, and what each step of extra density costs.
 - Quotes no equipment, takes no margin on hardware, owns no energy assets and funds no physical deployment. If somebody needs plant built, we are not who builds it.
 - The engine solves the hall against all thirteen constraints at once. The binding one is usually electrical — tap-off rating or busway ampacity — not cooling.
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
       });
       // Send the lead a branded confirmation (agent path mirrors the form path)
       const rkey = process.env.RESEND_API_KEY;
-      const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <power@timetopower.ai>";
+      const from = process.env.LEAD_FROM_EMAIL || "Time to Power <power@timetopower.ai>";
       const leadEmail = extracted.email;
       if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
         const hot = tier === "hot";
@@ -174,12 +174,12 @@ export async function POST(req: Request) {
               from,
               to: [leadEmail],
               reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
-              subject: `GridForge AI \u2014 your ${extracted.capacity} site scoping`,
+              subject: `Time to Power \u2014 your ${extracted.capacity} site scoping`,
               text:
                 `Thank you for scoping your site with our engineer.\n\n` +
                 `${next}\n\n` +
                 `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
-                `\u2014 GridForge AI`,
+                `\u2014 Time to Power`,
             }),
           });
         } catch (err) {

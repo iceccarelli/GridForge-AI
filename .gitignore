@@ -28,6 +28,10 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# scratch extraction of the committed time-to-power-image-pack-v1.zip; only
+# the production-used files under public/images/ttp/ are committed.
+/time-to-power-image-pack-v1/
 next-env.d.ts
 
 # local install scripts

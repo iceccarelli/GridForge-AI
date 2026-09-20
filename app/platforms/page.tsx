@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Ban } from "lucide-react";
 import { platformLibrary } from "@/lib/constraints";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
   title: "AI rack platforms — power, liquid fraction, flow and floor loading",
@@ -49,6 +50,19 @@ export default async function PlatformsPage() {
           such in the provenance of every study they appear in.
         </p>
       </header>
+
+      <div className="mt-8 grid sm:grid-cols-2 gap-4 max-w-3xl">
+        <TtpPhoto
+          id="ttp-02"
+          className="rounded-xl overflow-hidden border border-line aspect-[16/9]"
+          hideCaption
+        />
+        <TtpPhoto
+          id="ttp-10"
+          className="rounded-xl overflow-hidden border border-line aspect-[4/3]"
+          hideCaption
+        />
+      </div>
 
       <div className="mt-10 overflow-x-auto rounded border border-line">
         <table className="w-full min-w-[820px] text-sm">

@@ -10,7 +10,7 @@ type Msg = { role: "user" | "assistant"; content: string };
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "I'm the GridForge scoping engineer. Tell me about your site — approximate MW, location, timeline, and where you are with the grid — and I'll give you a directional read on whether behind-the-meter power can get you energized faster.",
+    "I'm the Time to Power scoping engineer. Tell me about your existing or proposed AI site — approximate MW, hall size, and where you are with the grid connection — and I'll give you a directional read on how much of that power can actually become useful AI compute, and what's likely to bind first.",
 };
 
 export function ScopingAgent() {
@@ -81,7 +81,7 @@ export function ScopingAgent() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-ink/60">
             <div>
               <div className="font-semibold text-sm">Scoping engineer</div>
-              <div className="data text-[10px] text-power">GridForge AI · directional reads</div>
+              <div className="data text-[10px] text-power">Time to Power · directional reads</div>
             </div>
             <button onClick={() => setOpen(false)} className="text-mute hover:text-white" aria-label="Close">
               <X size={18} />

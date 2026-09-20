@@ -3,7 +3,7 @@ import Link from "next/link";
 import { deliverableBySession } from "@/lib/deliverables";
 
 export const metadata: Metadata = {
-  title: "Engagement commissioned | GridForge AI",
+  title: "Engagement commissioned | Time to Power",
   robots: { index: false, follow: false },
 };
 

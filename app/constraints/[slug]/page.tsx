@@ -3,6 +3,33 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, Calculator } from "lucide-react";
 import { DOMAIN_LABEL, constraintBySlug, constraintReference } from "@/lib/constraints";
+import { TtpPhoto } from "@/components/TtpPhoto";
+import { TtpImageId } from "@/lib/ttp-images";
+
+// Constraint -> reference photograph, per time-to-power-image-pack-v1's own
+// manifest/CONSTRAINT_MAP.json. Matched by keyword against the slug/id so we
+// don't need to hand-map all thirteen constraints; falls back to a sensible
+// domain default when no keyword hits.
+const SLUG_KEYWORD_IMAGE: [RegExp, TtpImageId][] = [
+  [/tap.?off|busway/, "ttp-05"],
+  [/transformer|switchgear|ups/, "ttp-04"],
+  [/grid|firm.?supply|interconnect/, "ttp-09"],
+  [/chiller|chilled.?water|cooling.?water/, "ttp-08"],
+  [/cdu|liquid.?cooling.?flow/, "ttp-07"],
+  [/residual.?air|per.?rack.?cooling/, "ttp-02"],
+  [/floor.?load/, "ttp-10"],
+  [/rack.?position|clearance/, "ttp-03"],
+];
+const DOMAIN_DEFAULT_IMAGE: Record<string, TtpImageId> = {
+  electrical: "ttp-04",
+  thermal: "ttp-08",
+  physical: "ttp-10",
+};
+function imageForConstraint(slug: string, id: string, domain: string): TtpImageId {
+  const key = `${slug} ${id}`.toLowerCase();
+  for (const [re, img] of SLUG_KEYWORD_IMAGE) if (re.test(key)) return img;
+  return DOMAIN_DEFAULT_IMAGE[domain] ?? "ttp-04";
+}
 
 export async function generateStaticParams() {
   const ref = await constraintReference();
@@ -64,7 +91,7 @@ export default async function ConstraintPage({
         about: c.name,
         articleSection: DOMAIN_LABEL[c.domain] ?? c.domain,
         isAccessibleForFree: true,
-        publisher: { "@type": "Organization", name: "GridForge AI" },
+        publisher: { "@type": "Organization", name: "Time to Power" },
       })}
 
       <nav className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
@@ -79,6 +106,12 @@ export default async function ConstraintPage({
         {c.name}
       </h1>
       <p className="mt-4 text-lg text-mute">{c.headline}</p>
+
+      <TtpPhoto
+        id={imageForConstraint(c.slug, c.id, c.domain)}
+        className="rounded-xl overflow-hidden border border-line aspect-[16/9] mt-6"
+        hideCaption
+      />
 
       <Block title="What runs out">{c.limits}</Block>
       <Block title="The relation that governs it">{c.relation}</Block>
