@@ -6,7 +6,7 @@ import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucid
 import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
-  title: "The deliverable, in full — worked example | Time to Power",
+  title: "The deliverable, in full — worked example",
   description:
     "Read the exact document a Capacity & Density Envelope Study produces, on a synthetic European colocation hall. The headroom ladder, time to power, the economics, and the working files behind every number.",
 };

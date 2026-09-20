@@ -3,7 +3,7 @@ import { EngagementIntake } from "@/components/EngagementIntake";
 import { getWatch, notesFor } from "@/lib/watches";
 
 export const metadata: Metadata = {
-  title: "Hall Watch | Time to Power",
+  title: "Hall Watch",
   robots: { index: false, follow: false },
 };
 
