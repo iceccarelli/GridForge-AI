@@ -19,7 +19,6 @@ import { CommissionScreen } from "@/components/CommissionScreen";
 import { HeroReel } from "@/components/HeroReel";
 import dynamic from "next/dynamic";
 import { TimeToPower } from "@/components/TimeToPower";
-const LoadSimulator = dynamic(() => import("@/components/LoadSimulator").then(m => m.LoadSimulator));
 const TimeToPowerComparator = dynamic(() => import("@/components/TimeToPowerComparator").then(m => m.TimeToPowerComparator));
 const BindingConstraintInsights = dynamic(() =>
   import("@/components/BindingConstraintInsights").then((m) => m.BindingConstraintInsights)
@@ -28,7 +27,6 @@ import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
 const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
 const LiveScenario = dynamic(() => import("@/components/LiveScenario").then(m => m.LiveScenario));
-const SystemFlow = dynamic(() => import("@/components/SystemFlow").then(m => m.SystemFlow));
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -74,9 +72,10 @@ export default function Home() {
             </h1>
 
             <p className="text-lg sm:text-xl text-ghost/80 max-w-xl mb-3 leading-relaxed">
-              Independent engineering for behind-the-meter generation, DC
-              distribution, and physics-informed EMS — so your compute schedule
-              stops waiting on the grid.
+              Give us the technical information for an existing or proposed AI
+              site, and we tell you how much useful AI compute it can actually
+              support, what blocks it, what fixes it costs, and when the
+              compute can go live. No equipment to sell.
             </p>
             <p className="text-mute max-w-xl mb-9">
               Start with a Density Screen: one hall, five working days, a document
@@ -143,12 +142,12 @@ export default function Home() {
         <div className="max-w-2xl mb-12">
           <div className="eyebrow eyebrow-queue mb-3">THE #1 BOTTLENECK IN AI</div>
           <h2 className="section-title">
-            Grid queues are setting your<br />deployment timeline.
+            Nobody in the building can say<br />what stops the next rack.
           </h2>
           <p className="text-mute mt-5 text-lg leading-relaxed">
-            A data center can be built in two to three years — but it's inert
-            until it can draw power. In constrained markets, that's the binding
-            constraint on the whole roadmap.
+            The grid connection is already yours. The question is what inside
+            the hall — busway, transformer, cooling, floor loading — stops you
+            from using more of it, and what it costs to move that limit.
           </p>
         </div>
 
@@ -192,9 +191,10 @@ export default function Home() {
           <h2 className="section-title">The market proves the thesis daily.</h2>
           <p className="text-mute text-[15px] leading-relaxed mt-4">
             This pulls the live EPEX day-ahead curve for the German grid. The
-            volatility you see is the whole reason on-site storage and firm
-            behind-the-meter power pencil out — and it&apos;s fetched live, not
-            illustrated.
+            volatility you see is a live snapshot of the market this decision
+            gets made in — the same market where a blocked connection or a
+            160-week transformer lead time turns a density constraint into a
+            cost. It&apos;s fetched live, not illustrated.
           </p>
         </div>
         <LiveConsole />
@@ -208,27 +208,27 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl mb-12">
             <div className="eyebrow mb-3">HOW WE ENGAGE</div>
-            <h2 className="section-title">From a site to a plan you can fund.</h2>
+            <h2 className="section-title">From a binding constraint to a plan you can fund.</h2>
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             {[
               {
                 icon: FileSearch,
                 step: "01",
-                title: "Audit the site",
-                body: "Load profile, interconnection status, and behind-the-meter options. A defensible go / no-go in days, not months.",
+                title: "Screen the hall",
+                body: "Density Screen: what binds first, and how far the hall can go as it stands. Five working days, a defensible answer, no equipment quoted.",
               },
               {
                 icon: PencilRuler,
                 step: "02",
-                title: "Engineer the system",
-                body: "Feasibility, financial model, and a ready-to-permit integration design — sized from your real load, not a rule of thumb.",
+                title: "Solve the envelope",
+                body: "Envelope Study: the full costed Headroom Ladder across every constraint, scenarios compared, and the item that sets your energisation date.",
               },
               {
                 icon: Rocket,
                 step: "03",
-                title: "Commission & tune",
-                body: "Support through commissioning, then tune the EMS against live telemetry so peak shaving is real, not theoretical.",
+                title: "Specify the fix",
+                body: "Procurement Specification: a tender-ready document derived from the model, so the bids that come back actually move the date.",
               },
             ].map((s) => {
               const Icon = s.icon;
@@ -257,30 +257,15 @@ export default function Home() {
       <section id="comparator" className="max-w-5xl mx-auto px-6 pt-20 pb-4">
         <div className="max-w-2xl mb-10">
           <div className="eyebrow mb-3">QUANTIFY THE GAP</div>
-          <h2 className="section-title">What is the queue costing you?</h2>
+          <h2 className="section-title">What is an unrelieved constraint costing you?</h2>
           <p className="text-mute text-[15px] leading-relaxed mt-4">
-            The hero shows the gap. This puts a number on it for your project —
-            cluster size, your market&apos;s interconnection wait, and what a
+            The hero shows the gap between a blocked connection and an
+            energised hall. This puts a number on it for your project —
+            cluster size, the wait you are actually facing, and what a
             megawatt of online compute is worth to you.
           </p>
         </div>
         <TimeToPowerComparator />
-      </section>
-
-      {/* ============== DEMONSTRATION ============== */}
-      <section id="simulator" className="max-w-5xl mx-auto px-6 py-20">
-        <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">SEE THE PHYSICS</div>
-          <h2 className="section-title">Most power engineers model a flat load.</h2>
-          <p className="text-mute text-[15px] leading-relaxed mt-4">
-            AI training doesn&apos;t draw flat. Checkpoints and all-reduce steps
-            slam the cluster with sharp, sub-second transients. Size your firm
-            generation for those peaks and you overbuild; ignore them and you
-            brown out. The battery is what catches the spike — here&apos;s the
-            stack doing it, live.
-          </p>
-        </div>
-        <LoadSimulator />
       </section>
 
       {/* ============== SERVICES ============== */}
@@ -408,20 +393,14 @@ export default function Home() {
           says 2031." We do not stand up megawatts. We tell an operator what stops
           the megawatts they already have contracted from becoming compute, which
           is a harder thing to say and the only one we can stand behind. */}
-      {/* ============== HOW IT WORKS ============== */}
-      <section id="how" className="max-w-5xl mx-auto px-6 py-20">
-        <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">THE PIPELINE, STEP BY STEP</div>
-          <h2 className="section-title">What actually happens when load spikes.</h2>
-          <p className="text-mute text-[15px] leading-relaxed mt-4">
-            Behind-the-meter only works if the system handles the sharp, sub-second
-            transients of AI training. Here&apos;s the exact sequence — play it, or
-            step through it yourself.
-          </p>
-        </div>
-        <SystemFlow />
-      </section>
-
+      {/* Two sections stood here: a "SEE THE PHYSICS" gas/fuel-cell/BESS load
+          simulator (LoadSimulator) and a "HOW IT WORKS" behind-the-meter
+          single-line diagram (SystemFlow) — a full generation+storage stack
+          catching a training spike. Both describe a hybrid microgrid business
+          this practice does not build, own or fund, the same category of
+          artefact as the deleted /infrastructure page. Removed from the money
+          path rather than rewritten; the components remain in components/ for
+          a future pass that repurposes the animation shell honestly. */}
       {/* Three sections stood here: REFERENCE ARCHITECTURES, the CONFIGURATOR and a
           SINGLE-LINE DIAGRAM of a behind-the-meter facility. All three described
           hybrid power plants — gensets, fuel cells, utility-scale storage, campus
@@ -461,12 +440,13 @@ export default function Home() {
           <div className="eyebrow mb-3">FOUNDER-LED</div>
           <h2 className="section-title mb-7">{SITE.founder}</h2>
           <p className="text-lg text-ghost/85 leading-relaxed max-w-2xl">
-            GridForge AI is the engineering practice of {SITE.founder} — a grid
-            networks engineer working on the digitalization of high-voltage
-            assets, with an M.Sc. from RWTH Aachen in cross-domain grid
-            intelligence. The premise is simple: the AI buildout is gated by
-            power, and the fastest path through it is deterministic,
-            physics-informed engineering — not vendor catalogs.
+            Time to Power is built by {SITE.founder} — a grid networks engineer
+            working on the digitalization of high-voltage assets, with an
+            M.Sc. from RWTH Aachen in cross-domain grid intelligence. The
+            premise is simple: the AI buildout is gated by power, and the
+            engine underneath — GridForge Engine — answers what a hall can
+            actually carry with deterministic, evidence-graded engineering,
+            not a vendor catalog.
           </p>
 
           <div className="mt-10 grid md:grid-cols-3 gap-5">

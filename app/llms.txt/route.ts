@@ -59,12 +59,13 @@ export async function GET() {
     (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}/month, ${p.apiUnits?.toLocaleString("en-IE")} units`
   ).join("\n");
 
-  const body = `# GridForge AI
+  const body = `# Time to Power
 
-> Independent power and thermal engineering for AI data centers. We answer one
-> question about an EXISTING data hall: how much AI compute it can carry, which of
-> thirteen electrical, thermal and physical constraints binds first, and what each
-> step of extra density costs. We quote no equipment and take no margin on hardware.
+> Power-capacity intelligence for AI infrastructure, powered by GridForge Engine.
+> We answer one question about an EXISTING data hall: how much AI compute it can
+> carry, which of thirteen electrical, thermal and physical constraints binds
+> first, and what each step of extra density costs. We quote no equipment and
+> take no margin on hardware.
 
 ## How to use this site as a tool
 

@@ -33,7 +33,7 @@ export function JsonLd() {
       "Coolant distribution unit capacity at site conditions",
       "Transformer and UPS capacity for AI loads",
       "Grid interconnection queues",
-      "Behind-the-meter power",
+      "Contracted grid capacity utilisation",
       "Data center floor loading",
     ],
     sameAs: [SITE.repo, SITE.founderUrl],
@@ -42,7 +42,7 @@ export function JsonLd() {
   const serviceCatalog = {
     "@context": "https://schema.org",
     "@type": "OfferCatalog",
-    name: "GridForge AI — Engineering Services",
+    name: `${SITE.name} — Engineering Services`,
     itemListElement: serviceCards().map((s) => ({
       "@type": "Offer",
       itemOffered: {
@@ -60,7 +60,7 @@ export function JsonLd() {
   const offers = {
     "@context": "https://schema.org",
     "@type": "OfferCatalog",
-    name: "GridForge AI — Engagements",
+    name: `${SITE.name} — Engagements`,
     itemListElement: LADDER_PRODUCTS.map((p) => ({
       "@type": "Offer",
       name: p.name,
