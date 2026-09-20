@@ -520,7 +520,7 @@ export default function Home() {
       </section>
 
       {/* ============== FINAL CTA ============== */}
-      <section className="bg-[#060912] border-t border-line py-20">
+      <section id="final-cta" className="bg-[#060912] border-t border-line py-20">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <div className="eyebrow mb-3">READY WHEN YOU ARE</div>
           <h2 className="section-title mb-5">
