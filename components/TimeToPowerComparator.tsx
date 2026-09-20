@@ -54,7 +54,7 @@ export function TimeToPowerComparator() {
       {/* Bars */}
       <div className="relative mb-7">
         <Bar
-          label="Grid interconnection queue"
+          label="New grid connection"
           sub="wait on the utility"
           frac={m.queueFrac}
           marker={`energized · month ${queueMonths}`}
@@ -62,10 +62,10 @@ export function TimeToPowerComparator() {
         />
         <div className="h-4" />
         <Bar
-          label="On-site behind-the-meter"
-          sub="GridForge approach"
+          label="Density unlocked in your existing hall"
+          sub="Headroom Ladder"
           frac={m.onSiteFrac}
-          marker={`energized · month ${m.onSite}`}
+          marker={`unlocked · month ${m.onSite}`}
           tone="power"
         />
         <div className="data text-[10px] text-faint mt-2 px-1 text-right">

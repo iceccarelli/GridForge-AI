@@ -30,15 +30,16 @@ export function Footer() {
             <div className="flex items-center gap-3 mb-4">
               <Logo size={36} />
               <span className="font-semibold text-2xl tracking-tight">
-                GridForge<span className="text-power"> AI</span>
+                Time<span className="text-power"> to Power</span>
               </span>
             </div>
             <p className="text-mute max-w-sm text-[15px] leading-relaxed">
-              Independent power-systems engineering for AI data centers. We close
-              the gap between a multi-year grid queue and an energized site.
+              We tell the owner of an AI site how much useful compute it can
+              actually support, what blocks it, what fixes it, what the fix
+              costs, and when the compute can go live. No equipment to sell.
             </p>
             <p className="data text-xs text-faint mt-4">
-              Pilot-stage · founder-led · {SITE.baseLocation}
+              Pilot-stage · founder-led · powered by GridForge Engine · {SITE.baseLocation}
             </p>
             <div className="mt-6 flex gap-2">
               {socials.map(({ icon: Icon, href, label }) => (
@@ -57,11 +58,12 @@ export function Footer() {
           </div>
 
           <div className="lg:col-span-2">
-            <div className="eyebrow text-mute mb-4">Engineering</div>
+            <div className="eyebrow text-mute mb-4">Product</div>
             <div className="space-y-3 text-sm text-mute">
-              <FooterLink href="/#services">Services</FooterLink>
-              <FooterLink href="/#architectures">Architectures</FooterLink>
-              <FooterLink href="/#technology">Technology</FooterLink>
+              <FooterLink href="/qualify">Free capacity check</FooterLink>
+              <FooterLink href="/#services">Engagement ladder</FooterLink>
+              <FooterLink href="/#technology">How it works</FooterLink>
+              <FooterLink href="/pricing">Pricing</FooterLink>
             </div>
           </div>
 
@@ -100,8 +102,8 @@ export function Footer() {
 
         <div className="mt-14 pt-7 border-t border-line flex flex-col md:flex-row justify-between items-center gap-y-4 text-xs text-faint">
           <div className="text-center md:text-left">
-            © {new Date().getFullYear()} GridForge AI. Engineering by{" "}
-            {SITE.founder}.
+            © {new Date().getFullYear()} Time to Power. Powered by GridForge
+            Engine. Engineering by {SITE.founder}.
           </div>
           <div className="flex gap-x-6">
             <Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link>

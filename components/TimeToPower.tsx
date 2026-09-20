@@ -34,13 +34,15 @@ export function TimeToPower() {
   // Five critical buyer stories. The reel glides the four knobs to each target
   // every 10s; because it calls the real setters, every bar + headline figure
   // animates for free. Grabbing a knob pauses autoplay for 20s, then it resumes.
+  // Illustrative scenarios — none is a named customer or a delivered result.
+  // Each names the kind of constraint that binds a hall, not a place or a deal.
   const SCENARIOS = useMemo(
     () => [
-      { title: "Hyperscaler · Northern Virginia", sub: "PJM — the most congested grid on earth", mw: 200, queueYrs: 6.0, onsiteMo: 16, revPerMW: 2.4 },
-      { title: "Training cluster · Texas", sub: "ERCOT — deregulated, fast behind-the-meter", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
-      { title: "Sovereign AI · Germany", sub: "Live EPEX — bypass grid fees entirely", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
-      { title: "Inference fleet · Kansas", sub: "SPP — wind-rich, low cost, lighter queue", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
-      { title: "Your site · modeled by GridForge", sub: "This is what a Density Screen confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
+      { title: "Illustrative — busway-bound retrofit", sub: "200 MW contracted, tap-off ampacity binds first", mw: 200, queueYrs: 6.0, onsiteMo: 16, revPerMW: 2.4 },
+      { title: "Illustrative — transformer-bound hall", sub: "100 MW contracted, 160-week lead time on the fix", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
+      { title: "Illustrative — grid-queue-blocked site", sub: "New connection years out, existing hall under-used", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
+      { title: "Illustrative — floor-loading-bound hall", sub: "300 MW contracted, structural limit sets the ceiling", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
+      { title: "Your site — modelled by the engine", sub: "This is what a Density Screen confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
     ],
     []
   );
@@ -150,13 +152,13 @@ export function TimeToPower() {
         </div>
 
         <Track
-          label="Grid interconnection queue" sub="wait on the utility" tone="queue"
+          label="New grid connection" sub="wait on the utility" tone="queue"
           fraction={m.qFrac} markerLabel={`energized · year ${queueYrs.toFixed(1).replace(/\.0$/, "")}`}
         />
         <div className="h-4" />
         <Track
-          label="On-site behind-the-meter" sub="GridForge approach" tone="power"
-          fraction={m.oFrac} markerLabel={`energized · month ${Math.round(onsiteMo)}`}
+          label="Density unlocked in your existing hall" sub="Headroom Ladder" tone="power"
+          fraction={m.oFrac} markerLabel={`unlocked · month ${Math.round(onsiteMo)}`}
         />
 
         <div className="data text-[10px] text-faint mt-2 px-1 flex justify-between">
@@ -169,7 +171,7 @@ export function TimeToPower() {
       <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4">
         <Knob label="Capacity" value={mw} unit="MW" min={10} max={500} step={10} onChange={setMW} onNudge={nudge} />
         <Knob label="Queue wait" value={queueYrs} unit="yr" min={2} max={8} step={0.5} onChange={setQueueYrs} fixed={1} onNudge={nudge} />
-        <Knob label="On-site time-to-power" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
+        <Knob label="Headroom Ladder time-to-power" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
         <Knob label="Revenue / MW-yr" value={revPerMW} unit="$M" min={0.5} max={4} step={0.1} onChange={setRevPerMW} fixed={1} assumption onNudge={nudge} />
 
         {/* Scene dots — show the reel is alive and progressing */}

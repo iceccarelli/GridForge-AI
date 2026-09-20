@@ -7,18 +7,13 @@ import { m, AnimatePresence } from "framer-motion";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
 const navLinks = [
-  { href: "#problem", label: "Problem" },
-  { href: "#services", label: "Services" },
-  { href: "#deploy", label: "Deploy" },
-  { href: "/qualify", label: "Qualifier", route: true },
+  { href: "#services", label: "Product" },
+  { href: "#technology", label: "How it works" },
+  { href: "/reference", label: "Reference", route: true },
   { href: "/constraints", label: "Constraints", route: true },
   { href: "/platforms", label: "Platforms", route: true },
-  { href: "/reference", label: "Example", route: true },
-  { href: "/developers", label: "API", route: true },
+  { href: "/developers", label: "Developers", route: true },
   { href: "/pricing", label: "Pricing", route: true },
-  { href: "#architectures", label: "Architectures" },
-  { href: "#technology", label: "Technology" },
-  { href: "#about", label: "About" },
 ];
 
 export function Navbar() {
@@ -62,10 +57,10 @@ export function Navbar() {
             <Logo />
             <div className="leading-none">
               <div className="font-semibold text-lg sm:text-xl tracking-tight">
-                GridForge<span className="text-power"> AI</span>
+                Time<span className="text-power"> to Power</span>
               </div>
               <div className="data text-[9px] text-faint tracking-[0.18em] mt-0.5">
-                SPEED TO POWER
+                POWERED BY GRIDFORGE ENGINE
               </div>
             </div>
           </Link>
@@ -93,19 +88,19 @@ export function Navbar() {
           </div>
 
           <div className="hidden lg:flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              className="btn-ghost px-4 py-2.5 rounded-full text-sm"
-            >
-              Client portal
-            </Link>
             <button
               onClick={() => commissionDensityScreen({ context: "navbar" })}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
+              className="btn-ghost px-4 py-2.5 rounded-full text-sm whitespace-nowrap"
               title={DENSITY_SCREEN_CTA}
             >
-              {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
+              Buy Density Screen
             </button>
+            <Link
+              href="/qualify"
+              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
+            >
+              Run free capacity check <ArrowRight size={15} />
+            </Link>
           </div>
 
           <button
@@ -138,21 +133,28 @@ export function Navbar() {
                 ))}
                 <div className="pt-4 border-t border-line flex flex-col gap-3">
                   <Link
-                    href="/dashboard"
+                    href="/qualify"
                     onClick={() => setIsOpen(false)}
-                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
+                    className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
                   >
-                    Client portal
+                    Run free capacity check
                   </Link>
                   <button
                     onClick={() => {
                       setIsOpen(false);
                       commissionDensityScreen({ context: "mobile-nav" });
                     }}
-                    className="btn-primary w-full py-3.5 rounded-xl text-base"
+                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line"
                   >
-                    {DENSITY_SCREEN_CTA}
+                    Buy — {DENSITY_SCREEN_CTA}
                   </button>
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setIsOpen(false)}
+                    className="text-center text-xs text-mute hover:text-white transition-colors py-1"
+                  >
+                    Client portal
+                  </Link>
                 </div>
               </div>
             </m.div>
