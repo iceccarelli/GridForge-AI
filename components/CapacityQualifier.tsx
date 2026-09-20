@@ -5,7 +5,6 @@ import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
-import { commissionDensityScreen } from "@/lib/ui";
 
 /**
  * Capacity qualifier.
@@ -409,18 +408,18 @@ function CommissionPanel({
           type="button"
           onClick={commission}
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded bg-power px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Commission the {screen.name} · {eur(screen.amountCents)}
         </button>
-        <button
-          type="button"
-          onClick={() => commissionDensityScreen({ context: "capacity-qualifier", capacityMW })}
-          className="inline-flex items-center gap-2 rounded border border-line px-4 py-2 text-sm text-mute hover:text-ghost"
+        <a
+          href="/reference"
+          className="inline-flex items-center gap-1.5 text-sm text-mute hover:text-power"
         >
-          Commission the screen <ArrowRight className="h-4 w-4" />
-        </button>
+          See what {eur(screen.amountCents)} buys, worked in full
+          <ArrowRight className="h-3.5 w-3.5" />
+        </a>
       </div>
       {error ? <p className="mt-3 text-sm text-flag">{error}</p> : null}
     </div>
