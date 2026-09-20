@@ -28,7 +28,6 @@ import { JsonLd } from "@/components/JsonLd";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { REFERENCE_PHOTO_NOTICE as TTP_HERO_CAPTION } from "@/lib/ttp-images";
 const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
-const LiveScenario = dynamic(() => import("@/components/LiveScenario").then(m => m.LiveScenario));
 import {
   MARKET_STATS,
   PROBLEM_CARDS,
@@ -206,8 +205,38 @@ export default function Home() {
           </p>
         </div>
         <LiveConsole />
-        <div className="mt-6">
-          <LiveScenario />
+        <div className="mt-10 grid sm:grid-cols-3 gap-4">
+          <Link
+            href="/qualify"
+            className="panel panel-hover p-5 flex flex-col gap-1.5"
+          >
+            <span className="eyebrow-queue text-[10px]">FREE · 90 SECONDS</span>
+            <span className="font-semibold text-ghost">Run the qualifier</span>
+            <span className="text-sm text-mute leading-relaxed">
+              Seven numbers on your hall, no card. It names what binds first.
+            </span>
+          </Link>
+          <button
+            onClick={() => commissionDensityScreen({ context: "proof" })}
+            className="panel panel-hover p-5 flex flex-col gap-1.5 text-left"
+          >
+            <span className="eyebrow text-[10px]">EUR 4,500 · 5 DAYS</span>
+            <span className="font-semibold text-ghost">Commission a Density Screen</span>
+            <span className="text-sm text-mute leading-relaxed">
+              One hall, a defensible answer on what stops the next rack.
+            </span>
+          </button>
+          <Link
+            href="/intelligence"
+            className="panel panel-hover p-5 flex flex-col gap-1.5"
+          >
+            <span className="eyebrow text-[10px]">BUILDING TOWARD</span>
+            <span className="font-semibold text-ghost">Market economics lab</span>
+            <span className="text-sm text-mute leading-relaxed">
+              Wholesale-price context for an existing site&apos;s operating cost —
+              not equipment we sell.
+            </span>
+          </Link>
         </div>
       </section>
 

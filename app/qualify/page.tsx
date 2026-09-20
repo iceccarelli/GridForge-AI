@@ -4,7 +4,7 @@ import { CapacityQualifier } from "@/components/CapacityQualifier";
 import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
-  title: "Capacity qualifier — what actually stops your hall | Time to Power",
+  title: "Capacity qualifier — what actually stops your hall",
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
 };

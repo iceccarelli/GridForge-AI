@@ -6,7 +6,7 @@ import ApiKeyPanel from "@/components/ApiKeyPanel";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Your API access | Time to Power",
+  title: "Your API access",
   robots: { index: false, follow: false },
 };
 
