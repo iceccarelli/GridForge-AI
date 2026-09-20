@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
-import { LADDER_PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
+import { LADDER_PRODUCTS, eurFromCents, type Product, type ProductId } from "@/lib/products";
 
 /**
  * The engagement ladder: what can be bought now, in the order clients climb it.
@@ -23,6 +23,76 @@ const NOTE: Partial<Record<ProductId, string>> = {
   portfolio_screen_deposit: "five to fifteen halls.",
   hall_watch: "Cancel any time; no minimum term.",
 };
+
+function FeaturedRung({
+  product,
+  busy,
+  onBuy,
+}: {
+  product: Product;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  return (
+    <div className="panel relative overflow-hidden border-power/50 bg-panel-2 p-7 sm:p-8">
+      <div className="absolute right-0 top-0 rounded-bl-lg bg-power px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ink">
+        Start here
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr] lg:items-center">
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-ghost">{product.name}</h3>
+          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-mute">
+            {product.description}
+          </p>
+        </div>
+
+        {/* Term-sheet row: artefact / turnaround / price / next step — each
+            field read from the catalogue, none typed here. */}
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 lg:border-l lg:border-t-0 lg:border-line lg:pl-6 lg:pt-0">
+          <div>
+            <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Artefact
+            </dt>
+            <dd className="mt-1 text-sm text-ghost">{product.deliverable}</dd>
+          </div>
+          <div>
+            <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Turnaround
+            </dt>
+            <dd className="mt-1 text-sm text-ghost">{product.turnaroundDays} working days</dd>
+          </div>
+          <div className="col-span-2">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Price
+            </dt>
+            <dd className="mt-1 font-mono text-3xl font-semibold text-power">
+              {eur(product.amountCents)}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <div className="mt-7 flex flex-wrap items-center gap-4 border-t border-line pt-6">
+        <button
+          type="button"
+          onClick={onBuy}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-lg bg-power px-6 py-3 text-sm font-semibold text-ink transition-all hover:bg-power/90 disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Commission the {product.name} <ArrowRight size={16} />
+        </button>
+        <span className="text-[12px] text-faint">
+          {NOTE[product.id]} Not sure yet? Read the{" "}
+          <Link href="/reference" className="text-power hover:underline">
+            full worked example
+          </Link>{" "}
+          first.
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function EngagementLadder() {
   const [busy, setBusy] = useState<ProductId | null>(null);
@@ -69,8 +139,21 @@ export function EngagementLadder() {
         </p>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        {LADDER_PRODUCTS.map((p) => {
+      {/* The Density Screen is the primary SKU and the entry point every other
+          rung is reached through — it leads the ladder in its own row, sized
+          and bordered to read first, term-sheet style: artefact, turnaround,
+          price, next step. Everything below is still derived from the
+          catalogue, never hand-ranked past what ladderOrder already says. */}
+      {LADDER_PRODUCTS[0] ? (
+        <FeaturedRung
+          product={LADDER_PRODUCTS[0]}
+          busy={busy === LADDER_PRODUCTS[0].id}
+          onBuy={() => buy(LADDER_PRODUCTS[0].id)}
+        />
+      ) : null}
+
+      <div className="mt-5 grid gap-5 md:grid-cols-2">
+        {LADDER_PRODUCTS.slice(1).map((p) => {
           const id = p.id;
           // The band a deposit opens comes from the catalogue, not from a string
           // in this file. The upper figure used to be typed here, which made half

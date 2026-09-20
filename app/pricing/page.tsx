@@ -1,9 +1,14 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
 import { EngagementLadder } from "@/components/EngagementLadder";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { PRODUCTS, eurFromCents } from "@/lib/products";
 
+export const metadata: Metadata = {
+  title: "Pricing — fixed-fee engineering engagements",
+  description:
+    `Every engagement priced before it starts, from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen up to the full Capacity & Density Envelope Study. No retainer hours, no second price list.`,
+};
 
 export default function PricingPage() {
   return (
