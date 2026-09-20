@@ -1,250 +1,1046 @@
-# GridForge-AI
+# Time to Power
 
-**How much AI compute can an existing data hall actually carry, what binds first, and what does each step of extra density cost?**
+## Power-Capacity Intelligence for AI Infrastructure
 
-A zero-dependency Python engine that solves that question against thirteen electrical,
-thermal and physical constraints, and a Next.js site that sells the answer — as fixed-fee
-engineering engagements, as a metered API, and as a machine-callable MCP endpoint.
+**Know how much AI compute a site can actually support, what blocks it, what fixes it, what the fix costs, and when the compute can go live.**
 
-No equipment is sold. No margin is taken on hardware. No physical asset is owned.
+Time to Power is the commercial product and category.
 
-> **Picking this up cold?** Read [`HANDOFF.md`](HANDOFF.md) first. It is the brief: the
-> rules that govern every change, what is built, what each guard exists to prevent, and
-> the complete list of what is still open.
+**GridForge Engine** is the deterministic engineering engine underneath it.
 
----
+`GridForge-AI` is the engineering repository.
 
-## The honesty kernel
+The company does **not** sell GPUs, generators, cooling equipment, batteries, data centers, or hardware.
 
-Every number the engine produces carries an **evidence class** and a **provenance
-digest**, and arithmetic propagates the *weakest* class of its inputs. A figure computed
-from an assumption is an assumption, whatever else went into it.
-
-```
-E0 assumed          E4 validated against test data
-E1 modelled         E5 measured at site (customer data)
-E2 simulated        E6 field-validated (our model reconciled against site performance)
-E3 estimated        E7 observed in operation
-```
-
-This is enforced, not intended. Report gates run before any document leaves the engine
-and refuse to emit one that carries an un-provenanced number, an evidence class above
-its inputs, or measurement language it has not earned. `gridforge/reporting/gates.py`.
-
-**The engine also publishes how wrong it is.** `gridforge/calibration/` holds a ledger of
-what the model predicted next to what instrumented sites turned out to be. Today it is
-empty, and every study says so in section 14, `/v1/calibration` says so in public, and
-the block rides on every API response. A report that omits its accuracy record when the
-record is empty has told the reader the question does not matter.
+It sells the **decision about the infrastructure**.
 
 ---
 
-## What can be bought
+## The problem
 
-| | | |
-|---|---|---|
-| **Density Screen** | €4,500 · 5 days | What binds, racks as found and after the ladder, the item that sets the date |
-| **Capacity & Density Envelope Study** | €22k–€45k · 25 days | Five architectures compared, the full ladder, time to power, sensitivity, economics, model pack |
-| **Procurement Specification** | €18,000 · 12 days | The tender document the study implies, and your bids ranked in racks and weeks |
-| **Portfolio Screen** | €60k–€140k · 45 days | Five to fifteen halls under one methodology |
-| **Hall Watch** | €6,000 / quarter | The model stays live; a change note names the input that moved the answer |
-| **API — Triage** | €900 / month | Metered access for software: 600 units |
-| **API — Scale** | €2,900 / month | 2,500 units; portfolio billed per hall |
-| **API — Platform** | €7,500 / month | 10,000 units, a named engineer, redistribution terms |
+AI infrastructure is no longer constrained only by chips.
 
-Prices live in `gridforge/commercial.py` (what proposals quote) and `lib/products.ts`
-(what checkout charges). `tests/test_catalogue_parity.py` fails the build if they
-disagree, and `tests/test_stack_consistency.py` fails if anything priced cannot be
-bought, generated or delivered.
+It is constrained by:
+
+* electrical capacity;
+* grid connection and interconnection timing;
+* transformer and switchgear limits;
+* UPS and distribution topology;
+* rack power density;
+* liquid-cooling capability;
+* floor loading and physical limits;
+* equipment lead times;
+* capital cost;
+* and, ultimately, the date on which useful compute can actually be energized.
+
+The economic question is simple:
+
+> **What useful AI compute can this site deliver, under which architecture, at what cost, and on what date?**
+
+That is the question Time to Power is built to answer.
 
 ---
 
-## The engine
+# What Time to Power does
 
-```bash
-python3 -m gridforge init -o intake.json          # the blank intake a client fills in
-python3 -m gridforge gaps intake.json             # what is missing and why it binds
-python3 -m gridforge screen intake.json -o out    # the Density Screen
-python3 -m gridforge study intake.json -o out --csv   # the Study, with working files
-python3 -m gridforge deck intake.json -o out      # the walkthrough for the client session
-python3 -m gridforge proposal intake.json -o out  # a proposal that opens with a real finding
-python3 -m gridforge portfolio halls/*.json -o out
-python3 -m gridforge diff before.json after.json -o out   # what moved, and which input moved it
-python3 -m gridforge spec intake.json --list      # what on this ladder can be tendered
-python3 -m gridforge bids intake.json a.json b.json --ingest
-python3 -m gridforge cost list                    # the cost library and its evidence
-python3 -m gridforge calibrate show               # the accuracy record, honest either way
-python3 -m gridforge key issue --account acme --plan api_scale
-python3 -m gridforge reference                    # the thirteen constraints, published
-python3 -m gridforge reference platforms          # the platform library and its absences
-python3 -m gridforge tools                        # the machine-callable surface
-python3 -m gridforge serve --port 8080            # the HTTP API
+Give the system the technical information for an existing or proposed AI site.
+
+The engine determines:
+
+**site envelope → deployable AI capacity → binding constraint → relief options → cost → lead time → time-to-power → procurement → validation**
+
+The output is not a generic “AI readiness” score.
+
+It is an engineering decision with:
+
+* a binding constraint;
+* a deployable rack / compute envelope;
+* a costed Headroom Ladder;
+* time-to-power implications;
+* scenarios;
+* uncertainty;
+* provenance;
+* evidence class;
+* and, where available, measured and field-validated outcomes.
+
+---
+
+# The core product
+
+## Time to Power Capacity OS
+
+The long-term product is a decision system for AI infrastructure capacity.
+
+It answers:
+
+### 1. What can the site support now?
+
+### 2. What binds first?
+
+### 3. How much additional AI capacity can be unlocked?
+
+### 4. Which intervention unlocks it?
+
+### 5. What does that intervention cost?
+
+### 6. How long does it take?
+
+### 7. Which supplier response actually changes the date?
+
+### 8. Did the model eventually match reality?
+
+The final question is the moat.
+
+A model without field feedback is an engineering model.
+
+A model continuously reconciled against reality becomes infrastructure intelligence.
+
+---
+
+# What can be bought today
+
+The current catalogue is deliberately narrow.
+
+## 1. Density Screen
+
+**€4,500 · 5 working days**
+
+One hall.
+
+The answer to:
+
+> What binds this hall first, how many target-platform racks does it support, and what determines the date?
+
+Includes:
+
+* binding constraint;
+* deployable racks as found;
+* first headroom steps;
+* item setting the energisation date;
+* cooling architecture screen;
+* assumptions and missing data.
+
+The screen is credited in full against the full study.
+
+---
+
+## 2. Capacity & Density Envelope Study
+
+**€22,000–€45,000 · approximately 25 working days**
+
+The core engineering engagement.
+
+Includes:
+
+* complete capacity envelope;
+* thirteen constraint families;
+* power + thermal + physical interaction;
+* Headroom Ladder;
+* scenario comparison;
+* sensitivity analysis;
+* time-to-power;
+* screening economics;
+* uncertainty;
+* provenance;
+* engineering risk register;
+* machine-readable model pack;
+* engineering walkthrough.
+
+This is the high-value answer to:
+
+> **How much AI compute can this site actually carry, and what is the cheapest/fastest path to more?**
+
+---
+
+## 3. Procurement Specification
+
+**€18,000 · approximately 12 working days**
+
+The step between an engineering conclusion and a purchase decision.
+
+The system turns a binding constraint into:
+
+* a tender-ready technical specification;
+* numeric requirements derived from the model;
+* a structured supplier response schedule;
+* bid comparison;
+* cost per rack / capacity unlocked;
+* and the effect of each response on the energisation date.
+
+The product does not sell the equipment.
+
+It evaluates whether the supplier response actually relieves the constraint.
+
+---
+
+## 4. Portfolio Screen
+
+**€60,000–€140,000**
+
+Five to fifteen halls under one methodology.
+
+The output compares:
+
+* deployable compute;
+* time-to-power;
+* capital requirements;
+* binding constraints;
+* and portfolio-level bottlenecks.
+
+This is the beginning of infrastructure investment intelligence.
+
+---
+
+## 5. Hall Watch
+
+**€6,000 per quarter**
+
+A previously analysed site remains live.
+
+When an input changes, the model is re-solved and the customer receives a change note explaining:
+
+* what changed;
+* which input changed;
+* what constraint moved;
+* how the capacity moved;
+* and whether the energisation date changed.
+
+Recurring revenue is earned by solving a recurring decision.
+
+It is not a subscription bolted onto a one-off report.
+
+---
+
+# The three products Time to Power is building toward
+
+## Product 1 — Capacity OS
+
+**Site → capacity → constraints → headroom → cost → time**
+
+This is the primary product.
+
+The existing Density Screen, Envelope Study, solver, scenario engine, provenance layer and time-to-power engine are the foundation.
+
+---
+
+## Product 2 — Verified Powered-Site Intelligence
+
+**Which sites can actually support my AI deployment?**
+
+The future site layer combines:
+
+* location;
+* grid connection;
+* firm capacity;
+* available capacity;
+* transformers;
+* electrical distribution;
+* cooling;
+* AI rack density;
+* time-to-power;
+* intervention cost;
+* evidence;
+* confidence;
+* historical changes;
+* and eventually observed operating performance.
+
+This is not a generic real-estate map.
+
+It is a **physical infrastructure verification layer**.
+
+The long-term unit of value is the **verified site**.
+
+---
+
+## Product 3 — Procurement & Bid Intelligence
+
+**Which intervention actually gets me powered?**
+
+The system converts:
+
+**constraint → specification → supplier responses → comparison → procurement intelligence → actual result**
+
+Every procurement engagement creates potentially reusable information about:
+
+* equipment cost;
+* region;
+* capacity;
+* lead time;
+* intervention type;
+* supplier response;
+* installed result;
+* and model accuracy.
+
+That transaction history is a compounding asset.
+
+---
+
+# The moat
+
+The moat is not the word “AI”.
+
+The moat is not the website.
+
+The moat is not the Python solver alone.
+
+The moat is:
+
+# Verified infrastructure data + calibrated models + transaction history
+
+The intended data loop is:
+
+```text
+SITE
+  ↓
+ENGINEERING INPUTS
+  ↓
+MODEL
+  ↓
+CAPACITY DECISION
+  ↓
+CONSTRAINT
+  ↓
+INTERVENTION
+  ↓
+PROCUREMENT
+  ↓
+SUPPLIER RESPONSE
+  ↓
+DEPLOYMENT
+  ↓
+MEASURED OUTCOME
+  ↓
+CALIBRATION
+  ↓
+BETTER MODEL
+  ↓
+BETTER DECISION
+  ↓
+MORE CUSTOMERS
 ```
 
-Python 3.11+. **No third-party packages**, enforced by `tests/test_architecture.py` —
-which also enforces the dependency rule that stops the domain packages growing into each
-other.
+Every customer should make the next customer cheaper, faster or more accurate.
 
+---
+
+# Evidence is a product feature
+
+Every number carries an evidence class and provenance.
+
+```text
+E0  assumed
+E1  modelled
+E2  simulated
+E3  engineering estimate
+E4  validated against test data
+E5  measured at site
+E6  field-validated
+E7  observed in operation
 ```
+
+The engine propagates the weakest evidence class through calculations.
+
+A number cannot become more trustworthy merely because it passed through more software.
+
+A customer report must never imply measurement where only a model exists.
+
+A future platform decision should be able to answer:
+
+> Where did this number come from?
+
+and:
+
+> How wrong has this model historically been?
+
+---
+
+# Calibration
+
+The calibration ledger is intentionally honest.
+
+At the current stage the field-validation dataset is empty or insufficient.
+
+That means:
+
+**UNVALIDATED ≠ BAD**
+
+but also:
+
+**UNVALIDATED ≠ PROVEN**
+
+The first objective is therefore not another feature.
+
+The first objective is:
+
+# Get real projects and measure what happened.
+
+Every paid project should create the opportunity for a future field-validation record.
+
+---
+
+# The engineering engine
+
+The engine is Python 3.11+ and intentionally has no third-party runtime dependencies.
+
+```text
 gridforge/
-  validation/      evidence classes, provenance DAG, interval arithmetic, units
-  constraints.py   the constraint protocol and registry          ← kernel
-  costs.py         the cost library and its evidence ladder       ← kernel
-  site/ power/ compute/ thermal/     schemas, libraries, constraints
-  envelope/        the solver, the headroom ladder, time to power
-  scenario/        architectures compared under one objective
-  economics/       capex, energy, AACE accuracy class
-  calibration/     what the model said vs what sites turned out to be
-  procurement/     specifications, bid evaluation, cost-library ingest
-  reference/       the public constraint reference: authored prose, engine numbers
-  reporting/       documents, report gates, deck, proposal, change note, specification
-  api/             HTTP, metering, signed keys, tool schemas, MCP
-  integrations/    ports for GridOS / ThermalForge / DERIM, each raising NotWired
-                   until it is genuinely wired. An adapter that quietly returns a
-                   plausible number is the worst possible failure in this product.
+  validation/       evidence, provenance, interval arithmetic, units
+  constraints.py    shared constraint protocol
+  costs.py          cost library
+  site/             site schemas and physical constraints
+  power/            electrical schemas and constraints
+  compute/          workload and platform definitions
+  thermal/          cooling schemas and constraints
+  envelope/         solver, Headroom Ladder, time-to-power
+  scenario/         architecture/scenario comparison
+  economics/        CAPEX/OPEX and estimating logic
+  calibration/      predicted vs observed outcomes
+  procurement/      specifications and bid evaluation
+  reference/        generated engineering reference
+  reporting/        reports, proposals, decks, specifications
+  api/              HTTP, metering, authentication, MCP
+  integrations/     explicit integration ports
+```
+
+The central algorithm is deliberately explainable:
+
+```text
+solve site
+    ↓
+evaluate constraints
+    ↓
+find binding constraint
+    ↓
+apply relief
+    ↓
+solve again
+    ↓
+repeat
+    ↓
+produce Headroom Ladder
+```
+
+The explanation is part of the product.
+
+---
+
+# Current machine interface
+
+The engine already exposes a machine-callable surface.
+
+## Core HTTP surfaces
+
+```text
+GET  /v1/tools
+GET  /v1/version
+GET  /v1/usage
+GET  /v1/calibration
+
+POST /v1/qualify
+POST /v1/screen
+POST /v1/study
+POST /v1/portfolio
+POST /v1/diff
+POST /v1/spec
+POST /v1/bids
+POST /v1/proposal
+```
+
+## MCP
+
+```text
+POST /mcp
+```
+
+Protocol:
+
+```text
+JSON-RPC 2.0
+Model Context Protocol
+```
+
+The intended model is:
+
+> an AI agent can ask the deterministic engineering engine questions, but it cannot manufacture physical truth.
+
+---
+
+# Available machine tools
+
+```text
+gridforge_qualify
+gridforge_screen
+gridforge_study
+gridforge_portfolio
+gridforge_diff
+gridforge_spec
+gridforge_bids
+gridforge_proposal
+```
+
+The free qualifier returns a screening result without requiring an account.
+
+Paid tools are metered.
+
+The distinction is deliberate:
+
+```text
+free → discovery / qualification
+
+paid screen → engineering screening
+
+paid study → engineering opinion
+
+paid procurement → decision execution
+
+API → machine-scale screening / monitoring
 ```
 
 ---
 
-## The machine interface
+# Current API commercial model
 
-```
-GET  /v1/tools        every callable, in OpenAI function shape and MCP shape
-POST /mcp             Model Context Protocol over JSON-RPC 2.0
-GET  /v1/calibration  the accuracy record, public
-GET  /v1/usage        this key's metered usage and remaining allowance
-GET  /v1/version      the rate card
+```text
+API — Triage       €900 / month
+API — Scale        €2,900 / month
+API — Platform     €7,500 / month
 ```
 
-**The transport is open; each tool keeps its own tier.** `gridforge_qualify` works
-over MCP with no key and no account — one paste into an AI client and an operator has
-the binding constraint for their own hall. Every paid tool refuses without a key and
-names the free one when it does. The paid tiers sell because the free one already
-answered something true.
+The API is not an issued engineering opinion.
 
-```bash
-claude mcp add --transport http gridforge https://gridforge-engine.fly.dev/mcp
-```
+It is a machine-scale screening and intelligence interface.
 
-Metered in **units, not calls** — a qualify and a forty-hall portfolio run are not the
-same work. Rates are published, because a meter whose rate is secret is a meter nobody
-integrates against. Over quota returns **402, not 429**: to a machine those are different
-instructions, and an agent told to retry a call it can never afford will retry it forever.
-
-Keys are signed (`gfk1.<payload>.<signature>`) and verified offline, so self-serve
-subscriptions issue working keys in seconds without giving the engine a database. The
-website mints and the engine verifies with no shared runtime, so `tests/test_api_keys.py`
-mints one in Node, verifies it in Python, and asserts both produce the identical string.
+A named engineering opinion remains a separate commercial product.
 
 ---
 
-## The site
+# Current technical stack
 
-Next.js 15 App Router, Tailwind, Supabase (REST, service-role), Stripe, Resend.
-Served at **timetopower.ai**. `SITE_URL` in `lib/site.ts` is the only definition of
-that — a test fails on any hardcoded domain elsewhere, because canonical URLs once
-pointed at a preview deployment while every email pointed at the real one.
+## Engineering
 
-```
-/                      the argument, and the free qualifier
-/qualify               seven numbers in, the binding constraint out
-/q/<token>             that read on a permanent link, with how the hall compares —
-                       the engineer runs it, the director signs the study
-/llms.txt              the machine index: what this site contains, where the
-                       canonical JSON lives, and how to read an evidence class
-/constraints           all thirteen, each with the governing relation, a worked example
-                       you can check by hand, what relieves it and how many weeks
-/constraints/<slug>    one constraint in full
-/platforms             rack power, liquid fraction, residual air, flow, floor loading —
-                       and what is deliberately absent, because nobody published it
-/reference             the complete deliverable, published — study, deck, proposal,
-                       specification, model pack, and the CSVs behind every number
-/developers            the machine interface, and metered plans you can buy
-/pricing               the engagement ladder, derived from the catalogue
-/intake/<token>        a client fills in the hall
-/deliverable/<token>   what they bought, plus the working files to check it
-/api-access/<token>    a customer's API key, shown once
-/watch/<token>         a watched hall and its change notes
-/admin/pipeline        engagements, watched halls, API accounts, and what binds across all of them
+```text
+Python 3.11+
+Zero third-party runtime dependencies
+Deterministic constraint engine
 ```
 
-`/reference` is regenerated by `scripts/build-reference.sh` and CI fails on
-`git diff --exit-code public/reference`. A published worked example that has quietly
-drifted from the engine is worse than none: it is a specific, checkable promise, in
-public, that we are no longer keeping.
+## Web
+
+```text
+Next.js 15
+React
+TypeScript
+Tailwind
+Framer Motion
+Recharts
+```
+
+## Infrastructure
+
+```text
+Supabase
+Stripe
+Resend
+Fly.io
+Vercel
+```
+
+The repository contains CI and tests that enforce catalogue parity, provenance rules, architecture boundaries, API consistency, deliverable consistency and production-stack behavior.
 
 ---
 
-## Receiving a change
+# Current website product surfaces
 
-Patches land in `inbox/`, never at the repository root:
-
-```bash
-# drop 00NN-something.patch into inbox/, then
-bash scripts/apply-inbox.sh
+```text
+/                       company argument + free qualifier
+/qualify                seven-input free qualifier
+/q/<token>              shareable qualification result
+/constraints            public engineering reference
+/constraints/<slug>     individual constraint
+/platforms              platform capability/reference data
+/reference              generated deliverables/reference corpus
+/developers             API/MCP machine interface
+/pricing                commercial catalogue
+/intake/<token>         paid engagement intake
+/deliverable/<token>   customer deliverable
+/watch/<token>          monitored site
+/api-access/<token>    API credentials
+/admin/pipeline         internal operational pipeline
 ```
 
-It applies each patch in order, runs the tests, and commits the result **with the
-patch removed in the same commit** — rolling back if the tests fail. A patch is an
-instruction, not a source file.
+The public website is a commercial interface to the engine, not a separate product.
 
-`.gitignore` is no defence here and never was: a GitHub web upload commits directly,
-and an ignore rule only stops an *untracked* file being added. So the guard is a
-test — `tests/test_stack_consistency.py` declares every file allowed at the root and
-fails on anything else, on any committed `.patch`, and on a patch left in `inbox/`.
+---
 
-## Running it
+# The market
 
-```bash
-python3 -m pytest tests -q        # the engine, the gates, the catalogue, the deploy script
-npm ci && npx tsc --noEmit && npm run build
-bash scripts/build-reference.sh   # must leave public/reference unchanged
-bash scripts/deploy-engine.sh --check   # dry run; touches nothing
+The market is large enough to justify building the company.
+
+Current external evidence includes:
+
+### Global data-center expansion
+
+JLL forecasts approximately:
+
+```text
+~100 GW of new data-center capacity by 2030
+~14% CAGR through 2030
+~$3T of combined sector expenditure through 2030
 ```
 
-Environment, engine side: `GRIDFORGE_API_KEYS`, `GRIDFORGE_KEY_SECRET`,
-`GRIDFORGE_USAGE_FILE` (on a mounted volume), `GRIDFORGE_ALLOWED_ORIGINS`,
-`GRIDFORGE_COST_LIBRARY`, `GRIDFORGE_CALIBRATION_LEDGER`, `GRIDFORGE_REPORT_DATE`.
+JLL identifies **speed to power** as the primary site-selection criterion.
 
-Environment, site side: `GRIDFORGE_API_URL`, `GRIDFORGE_API_KEY`,
-`GRIDFORGE_KEY_SECRET` (the same value as the engine), `SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-`RESEND_API_KEY`, `RESEND_FROM`, `ADMIN_PASSWORD`, `CRON_SECRET`.
+### Electricity demand
 
-`scripts/deploy-engine.sh` **never rotates a credential.** Minting requires
-`--bootstrap`, and when the secret list cannot be read it refuses to write rather than
-guessing. Two earlier versions did guess, and each one silently invalidated the live key
-on every deploy. `tests/test_deploy_script.py` runs it against a fake `fly` and proves it.
+The IEA's 2026 outlook projects:
+
+```text
+485 TWh data-center electricity consumption in 2025
+950 TWh in 2030
+```
+
+AI-focused electricity consumption grows substantially faster than the overall data-center market.
+
+### European AI demand
+
+CBRE reported:
+
+```text
+420 MW
+AI-focused European colocation signings
+H1 2026
+
+vs.
+
+89 MW
+H1 2025
+```
+
+### Density reality
+
+Uptime Institute's 2025 survey reports approximately:
+
+```text
+82%    highest-density rack below 30 kW
+17%    highest-density rack at 30–49 kW
+9%     facilities reporting ≥50 kW
+```
+
+The consequence is important:
+
+> Do not sell “AI-ready.”
+
+Sell the **defensible maximum under actual infrastructure constraints**.
 
 ---
 
-## What is deliberately not here
+# What these statistics do NOT prove
 
-- **No owned assets.** No cooling inventory, no energy assets, no hardware, no
-  warehouses, no speculative installations. Physical deployment is customer-funded.
-- **No equipment sold and no margin on hardware.** Specifications state duty and
-  interfaces; the supplier proposes the equipment. That is why a client can hand our
-  document to their own procurement without a conflict to declare.
-- **No platform whose rack power the manufacturer has not published.** Absent by design;
-  `/v1/platforms` lists what is missing and why. An invented number in a capacity study
-  is how an engineering reputation ends.
-- **No quotation in the committed cost library.** Supplier prices are confidential and
-  live in a gitignored local library. The same rule applies to the calibration ledger:
-  client site data never enters the repository.
+They do not prove Time to Power has product-market fit.
 
----
+They do not prove that customers will pay €4,500.
 
-## Documentation
+They do not prove that customers will pay €30,000.
 
-`docs/00_COMMERCIAL_SPINE.md` (the strategy and the ICP) ·
-`docs/01_PRODUCT_SPEC` · `docs/02_ENGINEERING_REFERENCE` (the physics and its sources) ·
-`docs/03_TARGET_ARCHITECTURE` · `docs/04_MARKET_EVIDENCE` ·
-`docs/06_AUDIT_FINDINGS` · **`docs/07_DELIVERY_RUNBOOK.md`** — how the work is actually
-delivered, and the one to read first.
+They do not prove the API will be used.
+
+They do not prove that the model is accurate in the field.
+
+They do not prove that Time to Power will become a large company.
+
+They prove that the underlying infrastructure problem is economically important.
+
+Customer behavior must prove the rest.
 
 ---
 
-© GridForge AI · Founder: [Vincenzo Grimaldi](https://igrimaldi.engineering) · Frankfurt, DE · Toronto, CA
+# PMF test
 
-Legal pages (`/legal/*`) are honest templates and flag where real entity details and
-counsel review are still required before relying on them.
+The primary PMF metric is:
+
+# money received from an external customer for the actual product
+
+Not:
+
+```text
+website traffic
+GitHub stars
+AI agent calls
+demo requests
+newsletter subscribers
+social engagement
+```
+
+The commercial progression we need to prove is:
+
+```text
+visitor
+  ↓
+free qualifier
+  ↓
+€4,500 screen
+  ↓
+€22k–€45k study
+  ↓
+€18k procurement
+  ↓
+portfolio / watch
+  ↓
+recurring account
+  ↓
+API / machine integration
+```
+
+The key question is:
+
+> **Does the customer continue buying after the first answer?**
+
+---
+
+# Operating benchmarks
+
+The following are company targets, not forecasts.
+
+## 2026
+
+Prove:
+
+```text
+external paying customers
+repeatable paid screen
+first full studies
+first procurement engagement
+first calibrated observation
+first real case study
+```
+
+The company should optimize:
+
+```text
+cash collected / founder-hour
+```
+
+before optimizing software valuation.
+
+---
+
+## 2027
+
+Target:
+
+```text
+repeat customers
+multi-site engagements
+measured site outcomes
+supplier quote ingestion
+first meaningful recurring revenue
+first enterprise/API contracts
+```
+
+The software should increasingly reduce founder-hours per delivered euro.
+
+---
+
+## 2028
+
+Target:
+
+```text
+capacity model becomes a reusable customer system
+monitored sites become recurring revenue
+portfolio intelligence becomes a product
+data acquisition happens automatically during customer workflows
+```
+
+Services should increasingly exist to create and validate the software/data layer.
+
+---
+
+## 2029
+
+Target:
+
+```text
+verified site registry
+regional cost/lead-time intelligence
+API-first infrastructure intelligence
+agent-readable site and capacity records
+enterprise data contracts
+```
+
+The company begins selling information about infrastructure, not just engineering hours.
+
+---
+
+## 2030
+
+Target state:
+
+```text
+high recurring revenue
+high gross margin
+high net retention
+hundreds of economically important customers/sites
+large proprietary site/constraint/procurement/outcome dataset
+machine-readable infrastructure graph
+strong field-validation record
+```
+
+The system should be capable of answering:
+
+> Which sites can support this AI workload?
+
+> How much capacity can they actually deliver?
+
+> What blocks deployment?
+
+> What intervention fixes it?
+
+> What will it cost?
+
+> Who can supply it?
+
+> When will it be powered?
+
+> How reliable is that answer?
+
+---
+
+# SaaS economics benchmark
+
+The software business must eventually be judged against software economics.
+
+Current 2026 private B2B SaaS benchmarks show approximately:
+
+```text
+22% median annual growth across the surveyed population
+20% median growth for bootstrapped companies
+103% median NRR for bootstrapped companies in the $3M–$20M ARR band
+42.3% 90th-percentile growth for that bootstrapped ARR band
+```
+
+The lesson is not to copy a benchmark.
+
+The lesson is:
+
+> **Recurring revenue without retention is not a moat.**
+
+The long-term company should target:
+
+```text
+strong gross margin
+>100% NRR
+high enterprise ACV
+low founder involvement per account
+repeatable customer acquisition
+```
+
+---
+
+# Valuation reality
+
+As of August 2026, the median SaaS EV/revenue multiple in Aventis' benchmark was approximately:
+
+```text
+4.6× revenue
+```
+
+This is a market benchmark, not a valuation promise.
+
+Therefore:
+
+```text
+€1M ARR at 4.6× ≈ €4.6M EV
+€5M ARR at 4.6× ≈ €23M EV
+€10M ARR at 4.6× ≈ €46M EV
+€20M ARR at 4.6× ≈ €92M EV
+```
+
+Higher multiples require evidence of:
+
+* stronger growth;
+* retention;
+* margin;
+* differentiation;
+* category leadership;
+* and defensibility.
+
+The objective is therefore not:
+
+> “Build a €100M website.”
+
+The objective is:
+
+> **Build a business whose economics justify a high software/data multiple.**
+
+---
+
+# What not to build
+
+Do not become:
+
+```text
+a generic AI consultancy
+a generic data-center map
+a generic DCIM product
+a GPU marketplace
+a hardware reseller
+an EPC
+a generator owner
+a BESS owner
+a data-center owner
+```
+
+Do not build features solely because they look impressive in a demo.
+
+Do not publish synthetic metrics as customer results.
+
+Do not publish AI-generated “accuracy” without measurements.
+
+Do not create a second pricing system.
+
+Do not create a second API for the same engine.
+
+Do not build parallel databases for the same object.
+
+Do not allow marketing claims to drift away from actual purchasable products.
+
+---
+
+# Product doctrine
+
+Every new feature must answer:
+
+```text
+WHO PAYS?
+WHAT DECISION DOES IT IMPROVE?
+HOW MUCH MONEY IS THAT DECISION WORTH?
+HOW MUCH FASTER DO WE MAKE IT?
+CAN WE REUSE THE WORK?
+DOES IT CREATE PROPRIETARY DATA?
+DOES IT IMPROVE CALIBRATION?
+CAN IT BECOME SOFTWARE?
+```
+
+If the answer is no:
+
+**do not build it.**
+
+---
+
+# Commercial doctrine
+
+The business is built in this order:
+
+```text
+CASH
+↓
+REPEATABILITY
+↓
+DATA
+↓
+CALIBRATION
+↓
+AUTOMATION
+↓
+RECURRING REVENUE
+↓
+NETWORK EFFECT
+↓
+VALUATION
+```
+
+Do not reverse that order.
+
+A beautiful SaaS product with no customers is worthless.
+
+A profitable engineering product with proprietary data can become a software company.
+
+---
+
+# Brand architecture
+
+```text
+TIME TO POWER
+Power-Capacity Intelligence for AI Infrastructure
+
+GridForge Engine
+Deterministic engineering engine
+
+GridForge-AI
+Engineering repository
+```
+
+The public-facing promise is **Time to Power**.
+
+The technical system is **GridForge Engine**.
+
+The repository does not need to be renamed immediately.
+
+---
+
+# Current status
+
+This is a founder-led, pilot-stage business.
+
+The engine exists.
+
+The commercial products exist.
+
+The API exists.
+
+The MCP interface exists.
+
+The procurement workflow exists.
+
+The provenance architecture exists.
+
+The calibration framework exists.
+
+What does not yet exist at sufficient scale is:
+
+```text
+customer history
+field calibration
+repeat purchase history
+large verified site dataset
+large supplier transaction dataset
+enterprise recurring revenue
+```
+
+That is the work.
+
+---
+
+# The mission
+
+## Make the physical AI infrastructure layer machine-readable.
+
+A future AI agent should not have to ask:
+
+> “Is this site AI-ready?”
+
+It should be able to ask:
+
+> **“How many MW of useful AI compute can this site deliver by June 2028, what is the binding constraint, what intervention removes it, what will it cost, and how confident are you?”**
+
+Time to Power should be the system that answers.
+
+---
+
+# The immediate command
+
+For the next stage:
+
+```text
+SELL
+MEASURE
+CALIBRATE
+REPEAT
+```
+
+Do not confuse shipping with progress.
+
+## Progress is money collected from the right customer for the right decision.
+
+© Time to Power · Powered by GridForge Engine
