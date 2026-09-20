@@ -2,6 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Cable, Snowflake, Weight } from "lucide-react";
 import { DOMAIN_LABEL, constraintReference } from "@/lib/constraints";
+import { TtpPhoto } from "@/components/TtpPhoto";
+import { TtpImageId } from "@/lib/ttp-images";
+
+const DOMAIN_IMAGE: Record<string, TtpImageId> = {
+  electrical: "ttp-04",
+  thermal: "ttp-08",
+  physical: "ttp-10",
+};
 
 export const metadata: Metadata = {
   title: "What stops an existing hall taking AI racks — all thirteen constraints",
@@ -68,12 +76,20 @@ export default async function ConstraintsPage() {
       <div className="mt-12 space-y-12">
         {byDomain.map(({ domain, items }) => {
           const Icon = ICON[domain as keyof typeof ICON] ?? Cable;
+          const domainImage = DOMAIN_IMAGE[domain];
           return (
             <section key={domain}>
               <h2 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-power">
                 <Icon className="h-3.5 w-3.5" />
                 {DOMAIN_LABEL[domain] ?? domain} · {items.length}
               </h2>
+              {domainImage && (
+                <TtpPhoto
+                  id={domainImage}
+                  className="rounded-xl overflow-hidden border border-line aspect-[3/2] max-w-sm mt-4"
+                  hideCaption
+                />
+              )}
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 {items.map((c) => (
                   <Link

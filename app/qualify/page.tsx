@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
-  title: "Capacity qualifier — what actually stops your hall | GridForge AI",
+  title: "Capacity qualifier — what actually stops your hall | Time to Power",
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
 };
@@ -26,15 +27,31 @@ export default function QualifyPage() {
         </p>
       </header>
 
-      <CapacityQualifier />
+      <div className="grid lg:grid-cols-[1.5fr_1fr] gap-8 items-start">
+        <div>
+          <CapacityQualifier />
 
-      <p className="mt-6 text-sm text-mute">
-        Want to see what the paid study looks like before you ask?{" "}
-        <a href="/reference" className="text-power hover:underline">
-          Read one in full
-        </a>{" "}
-        — the whole document, the deck, and the tables behind every number.
-      </p>
+          <p className="mt-6 text-sm text-mute">
+            Want to see what the paid study looks like before you ask?{" "}
+            <a href="/reference" className="text-power hover:underline">
+              Read one in full
+            </a>{" "}
+            — the whole document, the deck, and the tables behind every number.
+          </p>
+        </div>
+
+        <div className="hidden lg:flex flex-col gap-5">
+          <TtpPhoto
+            id="ttp-04"
+            className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+          />
+          <TtpPhoto
+            id="ttp-05"
+            className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+            hideCaption
+          />
+        </div>
+      </div>
 
       <section className="mt-12 panel p-6 sm:p-8">
         <BindingConstraintInsights />

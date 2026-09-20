@@ -5,9 +5,10 @@ import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
 import McpInstall from "@/components/McpInstall";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 export const metadata: Metadata = {
-  title: "Machine interface — call the engine | GridForge AI",
+  title: "Machine interface — call the engine | Time to Power",
   description:
     "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
 };
@@ -107,6 +108,11 @@ export default async function DevelopersPage() {
           </a>
         </div>
       </header>
+
+      <TtpPhoto
+        id="ttp-16"
+        className="rounded-xl overflow-hidden border border-line aspect-[16/9] mt-8 max-w-2xl"
+      />
 
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         <Pill

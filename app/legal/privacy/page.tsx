@@ -7,7 +7,7 @@ export default function Privacy() {
   return (
     <LegalShell title="Privacy" updated="June 2026">
       <p>
-        GridForge AI collects only the information you choose to share with us —
+        Time to Power collects only the information you choose to share with us —
         typically your name, work email, company, and details about a prospective
         site — for the sole purpose of responding to your request and scoping
         engineering work.

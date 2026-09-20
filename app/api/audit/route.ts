@@ -151,7 +151,7 @@ async function notify(record: LeadRecord): Promise<void> {
 
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || "GridForge AI <onboarding@resend.dev>";
+  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <onboarding@resend.dev>";
   if (apiKey && to) {
     try {
       await fetch("https://api.resend.com/emails", {
@@ -190,13 +190,13 @@ async function notify(record: LeadRecord): Promise<void> {
           from,
           to: [record.email],
           reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
-          subject: `GridForge AI \u2014 enquiry received (${record.capacity} site)`,
+          subject: `Time to Power \u2014 enquiry received (${record.capacity} site)`,
           text:
             `Thank you for your request.\n\n` +
             `We received your submission for a ${record.capacity} site in ${record.location}.\n\n` +
             `${nextSteps}\n\n` +
             `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
-            `\u2014 GridForge AI\nIndependent \u00b7 physics-first behind-the-meter power for AI`,
+            `\u2014 Time to Power\nIndependent power-and-thermal engineering for existing AI sites`,
         }),
       });
     } catch (err) {

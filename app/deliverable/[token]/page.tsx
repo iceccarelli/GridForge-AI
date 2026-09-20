@@ -7,7 +7,7 @@ import { BidComparison } from "@/components/BidComparison";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const metadata: Metadata = {
-  title: "Your engineering deliverable | GridForge AI",
+  title: "Your engineering deliverable | Time to Power",
   robots: { index: false, follow: false },
 };
 

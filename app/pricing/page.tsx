@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { EngagementLadder } from "@/components/EngagementLadder";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 
 export default function PricingPage() {
@@ -21,6 +22,11 @@ export default function PricingPage() {
               Density Screen, which credits in full against the study it usually leads to.
             </p>
           </div>
+
+          <TtpPhoto
+            id="ttp-11"
+            className="rounded-xl overflow-hidden border border-line aspect-[21/9] max-h-[280px] my-10"
+          />
 
           {/* One price list. It used to render PACKAGES above this — a second,
               unsourced fee structure from the practice this repository used to be,

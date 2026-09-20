@@ -7,7 +7,7 @@ export default function Terms() {
   return (
     <LegalShell title="Terms of use" updated="June 2026">
       <p>
-        This website is provided for information about GridForge AI's engineering
+        This website is provided for information about Time to Power's engineering
         services. Nothing here is a binding offer, warranty, or guarantee of any
         specific outcome, efficiency figure, or timeline.
       </p>
@@ -15,7 +15,7 @@ export default function Terms() {
       <p>
         Statistics on this site describe the broader AI data-center power market
         and are attributed to their public sources. They are not representations of
-        GridForge AI's own track record.
+        Time to Power's own track record.
       </p>
       <h2 className="text-xl font-semibold text-ghost pt-2">Reference designs</h2>
       <p>

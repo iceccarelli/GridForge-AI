@@ -25,6 +25,8 @@ const BindingConstraintInsights = dynamic(() =>
 );
 import { SectionNav } from "@/components/SectionNav";
 import { JsonLd } from "@/components/JsonLd";
+import { TtpPhoto } from "@/components/TtpPhoto";
+import { REFERENCE_PHOTO_NOTICE as TTP_HERO_CAPTION } from "@/lib/ttp-images";
 const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
 const LiveScenario = dynamic(() => import("@/components/LiveScenario").then(m => m.LiveScenario));
 import {
@@ -96,6 +98,9 @@ export default function Home() {
               Seven numbers, no card, no call. It names your binding constraint before
               you decide whether to buy anything.
             </p>
+            <p className="data text-[10px] text-faint/70 mt-8">
+              {TTP_HERO_CAPTION}
+            </p>
           </div>
 
           {/* Signature */}
@@ -139,16 +144,19 @@ export default function Home() {
 
       {/* ============== PROBLEM ============== */}
       <section id="problem" className="max-w-7xl mx-auto px-6 pt-20 pb-16">
-        <div className="max-w-2xl mb-12">
-          <div className="eyebrow eyebrow-queue mb-3">THE #1 BOTTLENECK IN AI</div>
-          <h2 className="section-title">
-            Nobody in the building can say<br />what stops the next rack.
-          </h2>
-          <p className="text-mute mt-5 text-lg leading-relaxed">
-            The grid connection is already yours. The question is what inside
-            the hall — busway, transformer, cooling, floor loading — stops you
-            from using more of it, and what it costs to move that limit.
-          </p>
+        <div className="grid lg:grid-cols-2 gap-10 items-center mb-12">
+          <div className="max-w-2xl">
+            <div className="eyebrow eyebrow-queue mb-3">THE #1 BOTTLENECK IN AI</div>
+            <h2 className="section-title">
+              Nobody in the building can say<br />what stops the next rack.
+            </h2>
+            <p className="text-mute mt-5 text-lg leading-relaxed">
+              The grid connection is already yours. The question is what inside
+              the hall — busway, transformer, cooling, floor loading — stops you
+              from using more of it, and what it costs to move that limit.
+            </p>
+          </div>
+          <TtpPhoto id="ttp-03" className="rounded-2xl overflow-hidden border border-line aspect-[16/9]" />
         </div>
 
         <div className="grid md:grid-cols-3 gap-5">
@@ -206,9 +214,16 @@ export default function Home() {
       {/* ============== APPROACH ============== */}
       <section className="bg-[#060912] border-y border-line py-20">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="max-w-2xl mb-12">
-            <div className="eyebrow mb-3">HOW WE ENGAGE</div>
-            <h2 className="section-title">From a binding constraint to a plan you can fund.</h2>
+          <div className="grid lg:grid-cols-[1.3fr_1fr] gap-8 items-end mb-12">
+            <div className="max-w-2xl">
+              <div className="eyebrow mb-3">HOW WE ENGAGE</div>
+              <h2 className="section-title">From a binding constraint to a plan you can fund.</h2>
+            </div>
+            <TtpPhoto
+              id="ttp-11"
+              className="rounded-xl overflow-hidden border border-line aspect-[3/2] hidden lg:block"
+              hideCaption
+            />
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             {[
@@ -289,19 +304,25 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="panel p-6 sm:p-8">
-          <BindingConstraintInsights compact />
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Link
-              href="/qualify"
-              className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
-            >
-              Find the binding constraint <ArrowRight className="h-4 w-4" />
-            </Link>
-            <span className="text-[11px] text-faint font-mono">
-              solved server-side · capital cost and programme duration are the paid engagement
-            </span>
+        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6 items-start">
+          <div className="panel p-6 sm:p-8">
+            <BindingConstraintInsights compact />
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Link
+                href="/qualify"
+                className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
+              >
+                Find the binding constraint <ArrowRight className="h-4 w-4" />
+              </Link>
+              <span className="text-[11px] text-faint font-mono">
+                solved server-side · capital cost and programme duration are the paid engagement
+              </span>
+            </div>
           </div>
+          <TtpPhoto
+            id="ttp-04"
+            className="rounded-2xl overflow-hidden border border-line aspect-[3/2] hidden lg:block"
+          />
         </div>
       </section>
 
@@ -416,6 +437,10 @@ export default function Home() {
           <div className="eyebrow mb-3">DETERMINISTIC · PHYSICS-INFORMED</div>
           <h2 className="section-title">Technology rooted in first principles.</h2>
         </div>
+        <TtpPhoto
+          id="ttp-02"
+          className="rounded-2xl overflow-hidden border border-line aspect-[16/9] mb-12"
+        />
         <div className="grid md:grid-cols-2 gap-x-14 gap-y-10">
           {TECH.map((t, i) => (
             <div key={i} className="border-l-2 border-line pl-6">
@@ -428,6 +453,33 @@ export default function Home() {
               <p className="text-ghost/75 text-[15px] leading-relaxed">{t.body}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ============== EVIDENCE / CALIBRATION ============== */}
+      <section id="evidence" className="bg-[#060912] border-y border-line py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
+            <div className="max-w-xl">
+              <div className="eyebrow mb-3">MODEL VS FIELD</div>
+              <h2 className="section-title mb-5">
+                Every number carries its evidence class.
+              </h2>
+              <p className="text-mute text-[15px] leading-relaxed">
+                Assumed, modelled, simulated and estimated figures are labelled
+                as such — E0 through E3. Nothing here is presented as measured
+                or field-validated (E4&ndash;E7) until it actually is. The
+                calibration ledger comparing modelled results against
+                instrumented field data is empty today, and every study and API
+                response says so. That is the honest starting point for a
+                future track record, not a gap we hide.
+              </p>
+            </div>
+            <TtpPhoto
+              id="ttp-14"
+              className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+            />
+          </div>
         </div>
       </section>
 
@@ -517,6 +569,10 @@ export default function Home() {
           <div className="data text-[11px] text-faint mt-6">
             Credits in full against the full study · NDA on request · {SITE.email}
           </div>
+          <TtpPhoto
+            id="ttp-17"
+            className="rounded-2xl overflow-hidden border border-line aspect-[16/9] mt-12"
+          />
         </div>
       </section>
     </div>

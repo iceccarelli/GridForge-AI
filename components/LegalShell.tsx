@@ -16,7 +16,7 @@ export function LegalShell({
         href="/"
         className="inline-flex items-center gap-2 text-sm text-mute hover:text-white mb-8"
       >
-        <ArrowLeft size={15} /> Back to GridForge AI
+        <ArrowLeft size={15} /> Back to Time to Power
       </Link>
       <div className="eyebrow mb-3">LEGAL</div>
       <h1 className="text-4xl font-semibold tracking-tight mb-2">{title}</h1>

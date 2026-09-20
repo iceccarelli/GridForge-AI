@@ -4,7 +4,7 @@ import { EngagementIntake } from "@/components/EngagementIntake";
 import { getByIntakeToken } from "@/lib/deliverables";
 
 export const metadata: Metadata = {
-  title: "Engagement intake | GridForge AI",
+  title: "Engagement intake | Time to Power",
   robots: { index: false, follow: false },
 };
 

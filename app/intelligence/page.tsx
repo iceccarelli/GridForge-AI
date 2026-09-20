@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
+import { TtpPhoto } from "@/components/TtpPhoto";
 
 export default function IntelligencePage() {
   const [loading, setLoading] = useState<string | null>(null);
@@ -33,18 +34,26 @@ export default function IntelligencePage() {
     <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
-            <div className="eyebrow text-power mb-4">GridForge Intelligence</div>
+            <div className="eyebrow text-power mb-4">Building toward · GridForge Intelligence</div>
             <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
-              Know where to energize
+              Comparing markets
               <br />
-              <span className="text-power">before anyone else.</span>
+              <span className="text-power">by time to power, not just queue position.</span>
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
-              Live behind-the-meter siting intelligence — real-time market signals,
-              interconnection-queue insight, and fastest-to-energize scoring across regions.
-              The intelligence layer for teams racing to power AI.
+              A siting layer, in progress: interconnection-queue signal and modelled
+              time-to-energize across regions, with behind-the-meter supply scored as one
+              named relief option, priced and lead-timed like any other — not as
+              equipment we sell or own. This is an intelligence subscription, not a
+              verified-site portfolio; every figure is modelled, and the calibration
+              ledger against instrumented sites is still empty.
             </p>
           </div>
+
+          <TtpPhoto
+            id="ttp-15"
+            className="rounded-2xl overflow-hidden border border-line aspect-[16/9] mt-10 max-w-4xl"
+          />
 
           <div className="mt-12">
             <DelayDemo />
