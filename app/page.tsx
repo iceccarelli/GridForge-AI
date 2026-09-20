@@ -10,9 +10,11 @@ import {
   Ruler,
   CheckCircle2,
   ChevronDown,
-  FileSearch,
-  PencilRuler,
-  Rocket,
+  Building2,
+  ShieldAlert,
+  Gauge,
+  Coins,
+  Clock,
 } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { CommissionScreen } from "@/components/CommissionScreen";
@@ -30,7 +32,6 @@ import { REFERENCE_PHOTO_NOTICE as TTP_HERO_CAPTION } from "@/lib/ttp-images";
 const LiveConsole = dynamic(() => import("@/components/LiveConsole").then(m => m.LiveConsole));
 import {
   MARKET_STATS,
-  PROBLEM_CARDS,
   serviceCards,
   TECH,
   FAQ,
@@ -119,92 +120,101 @@ export default function Home() {
         </m.a>
       </section>
 
-      {/* ============== MARKET REALITY ============== */}
-      <section id="market" className="border-y border-line bg-[#060912] py-10">
+      {/* ============== DECISION STRIP ============== */}
+      {/* One spine, stated once. SITE -> BINDING CONSTRAINT -> HEADROOM -> COST ->
+          TIME is the whole pitch; the market stats and the three problem claims
+          that used to be two separate full-bleed sections here now support this
+          one, rather than repeating it under different headings. See
+          reports/TTP-CONVERSION-AUDIT.md section 1 for why the old Approach
+          section (three sections telling the same "screen -> study -> spec"
+          story) was removed rather than kept alongside this. */}
+      <section id="market" className="border-y border-line bg-[#060912] py-16">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="data text-[10px] tracking-[0.18em] text-faint mb-7 text-center lg:text-left">
-            THE MARKET YOU'RE ALREADY OPERATING IN
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-8">
-            {MARKET_STATS.map((s, i) => (
-              <div key={i}>
-                <div className="data text-3xl sm:text-4xl font-semibold tracking-tight text-white">
-                  {s.value}
-                </div>
-                <div className="text-sm text-mute mt-1.5 leading-snug">
-                  {s.label}
-                </div>
-                <div className="data text-[10px] text-faint mt-2">{s.source}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+          <div className="eyebrow eyebrow-queue mb-3">HOW THE ANSWER IS BUILT</div>
+          <h2 className="section-title max-w-2xl">
+            Nobody in the building can say<br />what stops the next rack. This does.
+          </h2>
 
-      {/* ============== PROBLEM ============== */}
-      <section id="problem" className="max-w-7xl mx-auto px-6 pt-20 pb-16">
-        <div className="grid lg:grid-cols-2 gap-10 items-center mb-12">
-          <div className="max-w-2xl">
-            <div className="eyebrow eyebrow-queue mb-3">THE #1 BOTTLENECK IN AI</div>
-            <h2 className="section-title">
-              Nobody in the building can say<br />what stops the next rack.
-            </h2>
-            <p className="text-mute mt-5 text-lg leading-relaxed">
-              The grid connection is already yours. The question is what inside
-              the hall — busway, transformer, cooling, floor loading — stops you
-              from using more of it, and what it costs to move that limit.
-            </p>
+          <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-5 gap-px bg-line rounded-xl overflow-hidden border border-line">
+            {[
+              { icon: Building2, label: "SITE", body: "The hall you already have — racks, cooling, busway, transformer, grid connection. The facts, assembled once." },
+              { icon: ShieldAlert, label: "BINDING CONSTRAINT", body: "Thirteen constraint families solved jointly. One sets the ceiling, named and given its evidence class." },
+              { icon: Gauge, label: "HEADROOM", body: "The costed ladder of relief: each rung a limit removed, priced, lead-timed, with the racks it unlocks." },
+              { icon: Coins, label: "COST", body: "What each rung of relief actually costs, quoted at your site's own conditions, not a vendor's reference case." },
+              { icon: Clock, label: "TIME", body: "The single item that sets your energisation date. Not a typical lead time — yours." },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={s.label} className="bg-ink p-6 flex flex-col gap-3 relative">
+                  <div className="flex items-center justify-between">
+                    <Icon className="w-4 h-4 text-power" />
+                    <span className="data text-[10px] text-faint">{String(i + 1).padStart(2, "0")}</span>
+                  </div>
+                  <div className="data text-[11px] tracking-[0.12em] text-power font-semibold">{s.label}</div>
+                  <p className="text-[13px] text-mute leading-relaxed">{s.body}</p>
+                </div>
+              );
+            })}
           </div>
-          <TtpPhoto id="ttp-03" className="rounded-2xl overflow-hidden border border-line aspect-[16/9]" />
-        </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
-          {PROBLEM_CARDS.map((c, i) => (
-            <div
-              key={i}
-              className={`panel panel-hover sweep p-7 ${
-                c.kind === "power" ? "border-power/30" : ""
-              }`}
-            >
-              <div
-                className={`eyebrow ${
-                  c.kind === "queue" ? "eyebrow-queue" : ""
-                } mb-3`}
-              >
-                {c.label}
-              </div>
-              <p className="text-ghost/85 leading-relaxed text-[15px]">{c.body}</p>
-              <div className="data text-[10px] text-faint mt-5 pt-4 border-t border-line">
-                {c.source}
+          <div className="mt-12 grid lg:grid-cols-2 gap-10 items-center">
+            <div className="max-w-xl">
+              <p className="text-mute text-lg leading-relaxed">
+                The grid connection is already yours. What actually stops the
+                next rack — busway, transformer, cooling, floor loading — is
+                rarely the constraint people expect, and today nobody in the
+                building has it in writing.
+              </p>
+              <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-6">
+                {MARKET_STATS.map((s, i) => (
+                  <div key={i}>
+                    <div className="data text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+                      {s.value}
+                    </div>
+                    <div className="text-xs text-mute mt-1 leading-snug">{s.label}</div>
+                    <div className="data text-[9px] text-faint mt-1.5">{s.source}</div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+            <TtpPhoto id="ttp-03" className="rounded-2xl overflow-hidden border border-line aspect-[16/9]" />
+          </div>
 
-        <div className="mt-10">
-          <button
-            onClick={() => commissionDensityScreen({ context: "problem" })}
-            className="btn-primary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
-          >
-            {DENSITY_SCREEN_CTA} <ArrowRight size={16} />
-          </button>
+          <div className="mt-10">
+            <button
+              onClick={() => commissionDensityScreen({ context: "problem" })}
+              className="btn-primary px-7 py-3.5 rounded-xl text-sm inline-flex items-center gap-2"
+            >
+              {DENSITY_SCREEN_CTA} <ArrowRight size={16} />
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* ============== LIVE MARKET ============== */}
-      <section id="intelligence" className="max-w-5xl mx-auto px-6 pt-4 pb-16">
+      {/* ============== PROOF OF METHOD ============== */}
+      {/* LiveConsole (real EPEX feed) and the comparator, under one heading —
+          both exist to show the engine is live and deterministic, not to argue
+          the thesis a second time. */}
+      <section id="intelligence" className="max-w-5xl mx-auto px-6 pt-20 pb-16">
         <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">REAL DATA, NOT A MOCKUP</div>
-          <h2 className="section-title">The market proves the thesis daily.</h2>
+          <div className="eyebrow mb-3">PROOF OF METHOD — REAL DATA, NOT A MOCKUP</div>
+          <h2 className="section-title">Live, deterministic, and quantified — not illustrated.</h2>
           <p className="text-mute text-[15px] leading-relaxed mt-4">
-            This pulls the live EPEX day-ahead curve for the German grid. The
-            volatility you see is a live snapshot of the market this decision
-            gets made in — the same market where a blocked connection or a
-            160-week transformer lead time turns a density constraint into a
-            cost. It&apos;s fetched live, not illustrated.
+            This pulls the live EPEX day-ahead curve for the German grid, fetched
+            live rather than illustrated — the same market where a blocked
+            connection or a 160-week transformer lead time turns a density
+            constraint into a cost. Below it, put a number on what an unrelieved
+            constraint is costing your own project.
           </p>
         </div>
         <LiveConsole />
+
+        <div className="mt-14 mb-10">
+          <div className="eyebrow mb-3">QUANTIFY THE GAP</div>
+          <h3 className="section-title">What is an unrelieved constraint costing you?</h3>
+        </div>
+        <TimeToPowerComparator />
+
         <div className="mt-10 grid sm:grid-cols-3 gap-4">
           <Link
             href="/qualify"
@@ -238,78 +248,6 @@ export default function Home() {
             </span>
           </Link>
         </div>
-      </section>
-
-      {/* ============== APPROACH ============== */}
-      <section className="bg-[#060912] border-y border-line py-20">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid lg:grid-cols-[1.3fr_1fr] gap-8 items-end mb-12">
-            <div className="max-w-2xl">
-              <div className="eyebrow mb-3">HOW WE ENGAGE</div>
-              <h2 className="section-title">From a binding constraint to a plan you can fund.</h2>
-            </div>
-            <TtpPhoto
-              id="ttp-11"
-              className="rounded-xl overflow-hidden border border-line aspect-[3/2] hidden lg:block"
-              hideCaption
-            />
-          </div>
-          <div className="grid md:grid-cols-3 gap-5">
-            {[
-              {
-                icon: FileSearch,
-                step: "01",
-                title: "Screen the hall",
-                body: "Density Screen: what binds first, and how far the hall can go as it stands. Five working days, a defensible answer, no equipment quoted.",
-              },
-              {
-                icon: PencilRuler,
-                step: "02",
-                title: "Solve the envelope",
-                body: "Envelope Study: the full costed Headroom Ladder across every constraint, scenarios compared, and the item that sets your energisation date.",
-              },
-              {
-                icon: Rocket,
-                step: "03",
-                title: "Specify the fix",
-                body: "Procurement Specification: a tender-ready document derived from the model, so the bids that come back actually move the date.",
-              },
-            ].map((s) => {
-              const Icon = s.icon;
-              return (
-                <div key={s.step} className="panel p-7 relative">
-                  <div className="flex items-center justify-between mb-5">
-                    <div className="w-11 h-11 rounded-xl bg-power/10 flex items-center justify-center">
-                      <Icon className="w-5 h-5 text-power" />
-                    </div>
-                    <span className="data text-2xl text-line font-semibold">
-                      {s.step}
-                    </span>
-                  </div>
-                  <h3 className="text-xl font-semibold tracking-tight mb-3">
-                    {s.title}
-                  </h3>
-                  <p className="text-mute text-[15px] leading-relaxed">{s.body}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ============== COMPARATOR ============== */}
-      <section id="comparator" className="max-w-5xl mx-auto px-6 pt-20 pb-4">
-        <div className="max-w-2xl mb-10">
-          <div className="eyebrow mb-3">QUANTIFY THE GAP</div>
-          <h2 className="section-title">What is an unrelieved constraint costing you?</h2>
-          <p className="text-mute text-[15px] leading-relaxed mt-4">
-            The hero shows the gap between a blocked connection and an
-            energised hall. This puts a number on it for your project —
-            cluster size, the wait you are actually facing, and what a
-            megawatt of online compute is worth to you.
-          </p>
-        </div>
-        <TimeToPowerComparator />
       </section>
 
       {/* ============== SERVICES ============== */}

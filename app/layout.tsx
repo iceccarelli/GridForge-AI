@@ -8,6 +8,7 @@ import { Footer } from "@/components/Footer";
 import { BackgroundReel } from "@/components/BackgroundReel";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ScopingAgent } from "@/components/ScopingAgent";
+import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -85,8 +86,9 @@ export default function RootLayout({
         <MotionProvider>
         <Navbar />
         <BackgroundReel />
-        <main className="relative">{children}</main>
+        <main className="relative pb-16 lg:pb-0">{children}</main>
         <Footer />
+        <StickyMobileCTA />
         <ScopingAgent />
         <Toaster position="top-center" theme="dark" richColors closeButton />
         </MotionProvider>

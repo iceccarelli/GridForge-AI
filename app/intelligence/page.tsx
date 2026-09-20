@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
+import { LiveScenario } from "@/components/LiveScenario";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
 
@@ -57,6 +58,28 @@ export default function IntelligencePage() {
 
           <div className="mt-12">
             <DelayDemo />
+          </div>
+
+          <div className="mt-14">
+            <div className="eyebrow text-power mb-3">MARKET ECONOMICS LAB</div>
+            <h2 className="text-2xl font-semibold tracking-tight text-ghost">
+              Operating-cost context for a site you already run.
+            </h2>
+            <div className="mt-4 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost max-w-2xl">
+              <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-queue">
+                Not equipment we sell
+              </span>
+              <p className="mt-1 text-mute">
+                This is a wholesale-price scenario tool, not a verified-site
+                portfolio and not a battery we sell, install or own. Every figure
+                is computed live from the real EPEX curve against inputs you
+                dial in — a planning estimate, never a guarantee, and not backed
+                by the calibration ledger, which is empty today.
+              </p>
+            </div>
+            <div className="mt-6">
+              <LiveScenario />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-14">
