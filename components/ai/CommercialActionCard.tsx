@@ -72,7 +72,7 @@ export function CommercialActionCard({ block }: { block: CommercialActionBlock }
           className="btn-primary px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-60"
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-          Proceed
+          Commission {product.name} — {eurFromCents(product.amountCents)}
         </button>
       </div>
     </div>

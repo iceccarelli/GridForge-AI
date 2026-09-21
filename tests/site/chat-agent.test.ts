@@ -169,6 +169,60 @@ describe("a real tool call binds the reply to a real engine result", () => {
     expect(metric.sourceTool).toBe("gridforge_qualify");
   });
 
+  it("a successful qualify that names a binding constraint always offers the Density Screen", async () => {
+    engineHandler = (path) => {
+      expect(path).toBe("/v1/qualify");
+      return {
+        status: 200,
+        body: {
+          platform: { id: "gb300_nvl72", name: "NVIDIA GB300 NVL72" },
+          as_found: {
+            racks: 12,
+            binding_constraint: "Rack feed / tap-off rating",
+            domain: "electrical",
+            basis: "Installed tap-off rating vs required current.",
+          },
+          after_relief: { racks: 30, architecture: "full_dlc", then_binds_on: null, sets_the_date: "plant" },
+        },
+      };
+    };
+    anthropicScript = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "call_1",
+            name: "gridforge_qualify",
+            input: {
+              contracted_MW: 40,
+              current_site_peak_MW: 20,
+              busway_ampacity_A: 4000,
+              tapoff_max_A: 630,
+            },
+          },
+        ],
+      },
+      { content: [{ type: "text", text: "About 12 racks today, rising to 30 once the tap-off is relieved." }] },
+    ];
+
+    const { POST } = await route();
+    const res = await POST(post({ messages: [{ role: "user", content: "40 MW contracted, 20 MW peak" }] }));
+    const body = await res.json();
+
+    const constraint = body.blocks.find((b: { type: string }) => b.type === "constraint");
+    expect(constraint).toBeDefined();
+    expect(constraint.name).toBe("Rack feed / tap-off rating");
+    expect(constraint.binds).toBe(true);
+
+    const offer = body.blocks.find(
+      (b: { type: string; reason?: string }) => b.type === "commercialAction" && b.reason === "engagement_offer"
+    );
+    expect(offer).toBeDefined();
+    expect(offer.href).toBe("/pricing");
+    expect(offer.label).toContain("Density Screen");
+    expect(offer.label).toContain("€4,500");
+  });
+
   it("a missing required input produces a missingInput block, never a guessed engine call", async () => {
     let engineCalled = false;
     engineHandler = () => {

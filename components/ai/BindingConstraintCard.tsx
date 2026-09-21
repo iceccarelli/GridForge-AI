@@ -27,24 +27,26 @@ export function BindingConstraintCard({ block }: { block: ConstraintBlock }) {
         <span className="pill pill-progress shrink-0">{DOMAIN_LABEL[block.domain]}</span>
       </div>
 
-      <p className="text-[13px] text-mute leading-relaxed mb-3">{block.basis}</p>
+      {block.basis && <p className="text-[13px] text-mute leading-relaxed mb-3">{block.basis}</p>}
 
-      <div className="rounded-lg border border-line bg-ink/40 p-3 mb-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[11px] text-faint uppercase tracking-wide">Racks permitted</span>
-          <EvidenceBadge evidenceClass={block.maxRacks.evidenceClass} provenance={block.maxRacks.provenance} />
+      {block.maxRacks && (
+        <div className="rounded-lg border border-line bg-ink/40 p-3 mb-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[11px] text-faint uppercase tracking-wide">Racks permitted</span>
+            <EvidenceBadge evidenceClass={block.maxRacks.evidenceClass} provenance={block.maxRacks.provenance} />
+          </div>
+          <div className="data text-2xl font-semibold text-ghost mt-1">
+            {block.maxRacks.value.toLocaleString()}
+            <span className="text-sm text-faint ml-1">{block.maxRacks.unit}</span>
+            {block.maxRacks.low != null && block.maxRacks.high != null && (
+              <span className="text-xs text-faint ml-2">
+                ({block.maxRacks.low.toLocaleString()}–{block.maxRacks.high.toLocaleString()})
+              </span>
+            )}
+          </div>
+          <ProvenanceLine provenance={block.maxRacks.provenance} />
         </div>
-        <div className="data text-2xl font-semibold text-ghost mt-1">
-          {block.maxRacks.value.toLocaleString()}
-          <span className="text-sm text-faint ml-1">{block.maxRacks.unit}</span>
-          {block.maxRacks.low != null && block.maxRacks.high != null && (
-            <span className="text-xs text-faint ml-2">
-              ({block.maxRacks.low.toLocaleString()}–{block.maxRacks.high.toLocaleString()})
-            </span>
-          )}
-        </div>
-        <ProvenanceLine provenance={block.maxRacks.provenance} />
-      </div>
+      )}
 
       {block.relief && (
         <div className="text-[13px] text-ghost border-t border-line pt-3">

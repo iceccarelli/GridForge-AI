@@ -144,8 +144,11 @@ export const constraintBlockSchema = z.object({
   id: z.string(),
   name: z.string(),
   domain: z.enum(["electrical", "thermal", "physical", "economic"]),
-  basis: z.string(),
-  maxRacks: quantitySchema,
+  /** Not every source can name the physical basis for the limit, or the max
+   *  racks it permits with its own evidence-tagged quantity — render without
+   *  either rather than inventing one. */
+  basis: z.string().optional(),
+  maxRacks: quantitySchema.optional(),
   binding: z.boolean(),
   relief: z
     .object({
