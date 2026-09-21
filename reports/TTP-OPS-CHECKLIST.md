@@ -1,8 +1,9 @@
 # Ops smoke checklist — Time to Power (timetopower.ai)
 
-Refreshed 2026-09-21 alongside `chore/prune-stale-branches`. No code changes
-in this pass unless a real prod bug was found (none was — this is docs +
-branch deletes only).
+Refreshed 2026-09-21 alongside `chore/prune-stale-branches` (docs + branch
+deletes only) and again 2026-09-22 against tip `43b96e6` as part of the
+post-prune money-path verification (`reports/TTP-POST-PRUNE-STATUS.md`). No
+code changes in either pass — no real prod bug was found in the code path.
 
 Mark each row PASS (measured by an agent with live/Dashboard access) or
 HUMAN (Vincenzo must click through the Vercel/Stripe/Resend dashboards —
@@ -60,12 +61,31 @@ Exact names the code reads (verified in repo, not invented):
       `product=density_screen` returns a Stripe-hosted checkout URL
       (stop before completing payment)
 
+## 6) Founder watches intake after payment
+
+On `checkout.session.completed`, `app/api/stripe/webhook/route.ts` writes a
+deliverable row (`lib/deliverables.ts`, status `awaiting_intake`) and emails
+the buyer their intake link via Resend (`emailIntakeLink`). There is no
+separate "founder notified" email in this code path — visibility is via the
+admin dashboard (`ADMIN_PASSWORD`-gated) or the buyer's inbox.
+
+- [ ] HUMAN — Vincenzo confirms he can see a new `awaiting_intake`
+      deliverable row (admin dashboard or Supabase) within minutes of a
+      real Density Screen payment, and that the buyer actually receives
+      the intake-link email
+
 ## Notes
 
 - This session verified the code paths above by reading the repository
   (`lib/products.ts`, `app/api/checkout/route.ts`,
-  `app/api/stripe/webhook/route.ts`, `app/workspace/page.tsx`) and confirmed
-  `components/ai/mock.ts` does not exist on `main` — the real `/api/chat`
-  path is live in source. It did not have live Dashboard or production
-  network access, so every row above that requires observing production
-  behavior is marked HUMAN, not PASS, until Vincenzo confirms it directly.
+  `app/api/stripe/webhook/route.ts`, `app/workspace/page.tsx`,
+  `lib/ai/responses.ts`) and confirmed `components/ai/mock.ts` does not
+  exist on `main` — the real `/api/chat` path is live in source, driven by
+  `PRODUCTS.density_screen` from the single catalogue file
+  (`lib/products.ts`), not a hardcoded price.
+- 2026-09-22: outbound egress to `timetopower.ai` from this session is
+  blocked by organization policy (agent-proxy: `connect_rejected`,
+  "gateway answered 403 to CONNECT"), confirmed on every route/chat/checkout
+  attempt — not a transient failure. Every row above that requires
+  observing production behavior stays HUMAN, not PASS, until Vincenzo
+  confirms it directly.
