@@ -5,7 +5,7 @@ import { FolderOpen, MessageSquare, PanelsTopLeft } from "lucide-react";
 import { Canvas } from "@/components/ai/Canvas";
 import { Conversation } from "@/components/ai/Conversation";
 import { ProjectPanel } from "@/components/ai/ProjectPanel";
-import { getAssistantTurn } from "@/components/ai/mock";
+import { getAssistantTurn } from "@/components/ai/chat";
 import type { ChatMessage } from "@/components/ai/types";
 
 type MobileTab = "chat" | "canvas" | "project";
@@ -27,9 +27,7 @@ export function WorkspaceClient() {
     setLoading(true);
     setMobileTab("canvas");
     try {
-      // See components/ai/mock.ts — getAssistantTurn() is the one call to swap
-      // for a real fetch("/api/chat") once agent/ttp-ai-core lands.
-      const turn = await getAssistantTurn(text);
+      const turn = await getAssistantTurn(next);
       const summary =
         turn.blocks.find((b) => b.type === "answer")?.text ??
         "Here's what the engine returned — see the canvas.";

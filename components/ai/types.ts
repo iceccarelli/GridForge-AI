@@ -2,13 +2,10 @@ import { z } from "zod";
 
 // The shared response-block contract.
 //
-// This mirrors reports/TTP-AI-AGENT-PLAN.md's "shared contract" section, which
-// Agent 2 (branch agent/ttp-ai-core, not merged yet) implements on the server as
-// the producer, and this file implements as the consumer. It is deliberately a
-// local copy rather than an import from lib/ai/** — that directory is owned by
-// the parallel core agent and out of scope here. When PR1 (core) lands, the real
-// /api/chat route should emit JSON matching these shapes; only components/ai/mock.ts
-// and the fetch call in Conversation.tsx need to change, not the card components.
+// This mirrors the shapes app/api/chat/route.ts (lib/ai/**) emits on the
+// server as producer; this file is the client-side consumer. Kept as a local
+// copy rather than importing lib/ai/schemas.ts so this directory has no
+// server-only dependency.
 //
 // Non-negotiable rules encoded in these types (see reports/TTP-AI-AUDIT.md and
 // the gridforge honesty-kernel skill):

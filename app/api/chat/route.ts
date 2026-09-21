@@ -72,6 +72,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "No messages" }, { status: 400 });
   }
 
+  // ai_session_started fires on the first turn of a conversation — the
+  // workspace and the scoping widget share this route, so this is the one
+  // place to log it regardless of which surface is calling.
+  if (messages.length === 1) {
+    console.log("[GridForge] ai_session_started", { surface: "chat" });
+  }
+
   // 1) Run the tool-calling loop. Every number in `reply` is bound to a real
   // engine call recorded in `toolCalls` — see lib/ai/agent.ts.
   let reply = "";
@@ -82,6 +89,12 @@ export async function POST(req: Request) {
     reply = turn.reply;
     blocks = turn.blocks;
     toolCalls = turn.toolCalls;
+    for (const call of toolCalls) {
+      console.log("[GridForge] ai_tool_call", { tool: call.tool, ok: call.ok, status: call.status });
+      if (call.tool === "gridforge_qualify" && call.ok) {
+        console.log("[GridForge] ai_qualify_completed", { digestOf: call.digestOf ?? null });
+      }
+    }
   } catch (err) {
     console.error("[GridForge] chat agent error:", err);
     return NextResponse.json({ ok: false, error: "Agent unavailable" }, { status: 500 });
