@@ -1,3 +1,4 @@
+import { adaptServerBlocks } from "./adaptBlocks";
 import type { AssistantTurn, ChatMessage } from "./types";
 
 /**
@@ -26,7 +27,10 @@ export async function getAssistantTurn(messages: ChatMessage[]): Promise<Assista
   }
 
   const toolCalls = Array.isArray(json.toolCalls) ? (json.toolCalls as AssistantTurn["toolCalls"]) : [];
-  const blocks = Array.isArray(json.blocks) ? (json.blocks as AssistantTurn["blocks"]) : [];
+  // The route's `blocks` are the server's own AgentBlock contract
+  // (lib/ai/schemas.ts) — adapt them into this directory's ResponseBlock
+  // contract (./types.ts) before any card ever sees them.
+  const blocks = adaptServerBlocks(json.blocks);
 
   // The route's `blocks` are engine-derived metric/refusal/missing-input
   // blocks only — it never emits an "answer" block itself. Every card in

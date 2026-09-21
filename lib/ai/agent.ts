@@ -13,7 +13,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { checkEntitlement, type EntitlementContext } from "./entitlements";
 import { isOutOfScope, MAX_TOOL_CALLS_PER_TURN, OUT_OF_SCOPE_REPLY } from "./policy";
 import { buildSystemPrompt } from "./prompts/system";
-import { blockFromRefusal, metricsFromEngineResponse, missingInputBlock } from "./responses";
+import {
+  blockFromRefusal,
+  constraintFromQualify,
+  engagementOfferBlock,
+  evidenceSummary,
+  metricsFromEngineResponse,
+  missingInputBlock,
+} from "./responses";
 import {
   agentTurnResultSchema,
   type AgentBlock,
@@ -170,9 +177,23 @@ async function runOneToolCall(
     .map((b) => (b.type === "metric" ? b.quantity.digest : null))
     .filter((d): d is string => typeof d === "string");
 
+  // The commercial handoff: a successful free qualify that named a binding
+  // constraint always gets an offer for the paid next step (Density Screen),
+  // never left as an essay with no way to buy. Other tools never generate
+  // this block — they either already produced their own paid deliverable
+  // (entitlement allowed it) or were refused above.
+  const constraintBlocks = tool.name === "gridforge_qualify" ? constraintFromQualify(tool.name, outcome.body) : [];
+  const resultBlocks: AgentBlock[] = [...metricBlocks, ...constraintBlocks];
+  if (constraintBlocks.length > 0) {
+    resultBlocks.push(engagementOfferBlock(tool.name));
+  }
+  // Standing calibration disclosure: every reply carrying a number must say
+  // where it stands on the evidence ladder, and that the ledger is empty.
+  resultBlocks.push(...evidenceSummary(tool.name, outcome.body));
+
   return {
     record: { tool: tool.name, args, ok: true, status: outcome.status, digestOf },
-    block: metricBlocks,
+    block: resultBlocks,
     resultText: JSON.stringify(outcome.body),
   };
 }

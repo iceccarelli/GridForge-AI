@@ -55,6 +55,8 @@ export const constraintBlockSchema = z.object({
   id: z.string(),
   name: z.string(),
   domain: z.string(),
+  /** The physical basis for the limit, straight from the engine's own catalogue entry. */
+  basis: z.string().optional(),
   binds: z.boolean(),
   evidence: evidenceClassSchema.optional(),
   sourceTool: z.string(),
