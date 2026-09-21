@@ -138,6 +138,49 @@ describe("provenance: evidence class and digest pass through unchanged", () => {
     },
   };
 
+  // The real engine's EvidenceClass (gridforge/validation/evidence.py) is a
+  // Python IntEnum whose members serialize as their full name — _q() in
+  // gridforge/serialize.py writes q.evidence.name, e.g. "E0_ASSUMPTION" —
+  // never the short "E0" this contract's own schema uses. A fixture built
+  // with the short form (as mockEngineResponse above is) cannot catch a
+  // regression here; this one is shaped exactly as gridforge/api/server.py's
+  // handle_qualify() actually returns it.
+  const realEngineResponse = {
+    platform: {
+      id: "gb300_nvl72",
+      name: "NVIDIA GB300 NVL72",
+      rack_kW: {
+        value: 135, low: 132, high: 142, unit: "kW",
+        evidence: "E0_ASSUMPTION", label: "GB300 NVL72 rack TDP",
+        model: "input@0.1", digest: "e6476e7cd728",
+      },
+      gpus_per_rack: 72,
+    },
+    as_found: {
+      racks: 0,
+      it_load_kW: {
+        value: 0, low: 0, high: 0, unit: "kW",
+        evidence: "E0_ASSUMPTION", label: "deployable IT load",
+        model: "envelope.it_load@0.1", digest: "a4e3fd845acb",
+      },
+      binding_constraint: "Residual air load removal per rack",
+      domain: "thermal",
+      basis: "13.5 kW of air-side load per rack against 8 kW the hall can remove per position",
+    },
+  };
+
+  it("extracts quantities from a real engine response, not just a short-form fixture", () => {
+    const found = extractQuantities(realEngineResponse);
+    expect(found).toHaveLength(2);
+    expect(found.find((f) => f.path === "platform.rack_kW")!.quantity.evidence).toBe("E0");
+    expect(found.find((f) => f.path === "as_found.it_load_kW")!.quantity.digest).toBe("a4e3fd845acb");
+  });
+
+  it("metricsFromEngineResponse is never empty on a real successful qualify", () => {
+    const blocks = metricsFromEngineResponse("gridforge_qualify", realEngineResponse);
+    expect(blocks.length).toBeGreaterThan(0);
+  });
+
   it("extracts every quantity-shaped leaf with its own evidence class", () => {
     const found = extractQuantities(mockEngineResponse);
     expect(found).toHaveLength(2);

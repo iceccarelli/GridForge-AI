@@ -8,8 +8,24 @@ import { EVIDENCE_CLASSES, type EvidenceClass, type Quantity } from "./schemas";
 
 const EVIDENCE_SET = new Set<string>(EVIDENCE_CLASSES);
 
+/**
+ * The engine's own evidence enum (gridforge/validation/evidence.py's
+ * EvidenceClass) serializes over the wire as its full Python member name —
+ * `_q()` in gridforge/serialize.py writes `q.evidence.name`, e.g.
+ * "E0_ASSUMPTION", not the short "E0" this contract's own schema
+ * (lib/ai/schemas.ts's EVIDENCE_CLASSES) uses. Every member name starts with
+ * its short code followed by "_", so the code is always the text before the
+ * first underscore — normalize to that before validating. A string that
+ * isn't one of E0..E7 after normalizing is never coerced into one.
+ */
+function shortEvidenceCode(v: unknown): EvidenceClass | null {
+  if (typeof v !== "string") return null;
+  const short = v.split("_", 1)[0];
+  return EVIDENCE_SET.has(short) ? (short as EvidenceClass) : null;
+}
+
 function isEvidenceClass(v: unknown): v is EvidenceClass {
-  return typeof v === "string" && EVIDENCE_SET.has(v);
+  return shortEvidenceCode(v) !== null;
 }
 
 /** Does this object look like one of the engine's own quantity DTOs
@@ -21,14 +37,16 @@ function looksLikeQuantity(v: unknown): v is Record<string, unknown> {
 }
 
 /** Normalize one engine quantity object into the block-ready shape. Passes
- *  digest and label through unchanged; never fills a missing digest. */
+ *  digest and label through unchanged; never fills a missing digest. The
+ *  evidence class is normalized to its short E0..E7 code (see
+ *  shortEvidenceCode above) — everything else is passed through unchanged. */
 export function toQuantity(raw: Record<string, unknown>): Quantity {
   return {
     value: raw.value as number,
     low: typeof raw.low === "number" ? raw.low : null,
     high: typeof raw.high === "number" ? raw.high : null,
     unit: typeof raw.unit === "string" ? raw.unit : "",
-    evidence: raw.evidence as EvidenceClass,
+    evidence: shortEvidenceCode(raw.evidence) as EvidenceClass,
     digest: typeof raw.digest === "string" ? raw.digest : null,
     label: typeof raw.label === "string" ? raw.label : undefined,
   };
