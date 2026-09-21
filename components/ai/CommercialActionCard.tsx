@@ -36,7 +36,15 @@ export function CommercialActionCard({ block }: { block: CommercialActionBlock }
 
   async function go() {
     setLoading(true);
-    const outcome = await startCommission(block.productId, { context: `workspace-${block.productId}` });
+    console.log("[GridForge] ai_checkout_started", { productId: block.productId, reason: block.reason });
+    // block.context (see components/ai/types.ts) is the attribution tag the
+    // response block itself asked to carry into Stripe metadata.service — honour
+    // it when the server set one, and fall back to a workspace-scoped tag
+    // otherwise so every AI-originated checkout is still identifiable at the
+    // webhook (see the ai_checkout_started/ai_checkout_completed logging in
+    // app/api/checkout/route.ts and app/api/stripe/webhook/route.ts).
+    const context = block.context ?? `workspace-${block.productId}`;
+    const outcome = await startCommission(block.productId, { context });
     if (!outcome.ok) {
       toast.error(outcome.error);
       setLoading(false);

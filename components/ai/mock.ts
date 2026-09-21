@@ -43,6 +43,38 @@ async function delay(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+// --- event logging (best-effort, minimal) -----------------------------------
+//
+// reports/TTP-AI-AGENT-PLAN.md asks for ai_session_started / ai_tool_call /
+// ai_qualify_completed at the point the assistant loop starts a session, calls a
+// gridforge_* tool, and finishes a qualify. The real call site for those is
+// lib/ai/agent.ts (Agent 2 / branch agent/ttp-ai-core), which has not merged
+// here — see the module comment above. Until that lands, getAssistantTurn() is
+// this workspace's only stand-in for "the assistant loop", so the events are
+// logged here, with the same "[GridForge]" prefix convention used server-side in
+// app/api/chat/route.ts and lib/deliverables.ts. Move this logging into
+// lib/ai/agent.ts's real tool-calling loop when PR1 lands — do not keep both.
+let sessionLogged = false;
+
+function logSessionStarted() {
+  if (sessionLogged) return;
+  sessionLogged = true;
+  console.log("[GridForge] ai_session_started", { surface: "workspace" });
+}
+
+function logToolCalls(turn: AssistantTurn) {
+  for (const call of turn.toolCalls) {
+    console.log("[GridForge] ai_tool_call", {
+      tool: call.tool,
+      status: call.status,
+      durationMs: call.durationMs ?? null,
+    });
+    if (call.tool === "gridforge_qualify" && call.status === "ok") {
+      console.log("[GridForge] ai_qualify_completed", { detail: call.detail ?? null });
+    }
+  }
+}
+
 function capacityTurn(hallLabel: string): AssistantTurn {
   return {
     toolCalls: [{ tool: "gridforge_qualify", status: "ok", detail: hallLabel, durationMs: 640 }],
@@ -302,14 +334,18 @@ function landingSuggestions(): AssistantTurn {
  * none of them know this is a mock.
  */
 export async function getAssistantTurn(userText: string): Promise<AssistantTurn> {
+  logSessionStarted();
   await delay(500 + Math.random() * 400);
   const t = userText.toLowerCase();
 
-  if (/headroom|ladder|rung/.test(t)) return headroomLadderTurn("Hall A — Ashburn");
-  if (/time to power|queue|months|when.*(online|live)/.test(t)) return timeToPowerTurn("Hall A — Ashburn");
-  if (/missing|don't know|dont know|not sure|unknown/.test(t)) return missingDataTurn();
-  if (/binding|what.*binds|constraint/.test(t)) return bindingConstraintTurn();
-  if (/capacity|racks|how much|mw|power/.test(t)) return capacityTurn("Hall A — Ashburn");
+  let turn: AssistantTurn;
+  if (/headroom|ladder|rung/.test(t)) turn = headroomLadderTurn("Hall A — Ashburn");
+  else if (/time to power|queue|months|when.*(online|live)/.test(t)) turn = timeToPowerTurn("Hall A — Ashburn");
+  else if (/missing|don't know|dont know|not sure|unknown/.test(t)) turn = missingDataTurn();
+  else if (/binding|what.*binds|constraint/.test(t)) turn = bindingConstraintTurn();
+  else if (/capacity|racks|how much|mw|power/.test(t)) turn = capacityTurn("Hall A — Ashburn");
+  else turn = landingSuggestions();
 
-  return landingSuggestions();
+  logToolCalls(turn);
+  return turn;
 }
