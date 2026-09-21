@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MessageSquare, X, Send, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { MessageSquare, X, Send, Loader2, PanelsTopLeft } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { ArrowRight } from "lucide-react";
 
@@ -83,9 +84,19 @@ export function ScopingAgent() {
               <div className="font-semibold text-sm">Scoping engineer</div>
               <div className="data text-[10px] text-power">Time to Power · directional reads</div>
             </div>
-            <button onClick={() => setOpen(false)} className="text-mute hover:text-white" aria-label="Close">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              <Link
+                href="/workspace"
+                className="text-mute hover:text-power p-1.5 rounded-md transition-colors"
+                aria-label="Open full workspace"
+                title="Open full workspace"
+              >
+                <PanelsTopLeft size={16} />
+              </Link>
+              <button onClick={() => setOpen(false)} className="text-mute hover:text-white p-1.5" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
