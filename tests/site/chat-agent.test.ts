@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
+import { PRODUCTS, eurFromCents } from "@/lib/products";
 
 const ENGINE = "http://engine.test";
 
@@ -220,7 +221,7 @@ describe("a real tool call binds the reply to a real engine result", () => {
     expect(offer).toBeDefined();
     expect(offer.href).toBe("/pricing");
     expect(offer.label).toContain("Density Screen");
-    expect(offer.label).toContain("€4,500");
+    expect(offer.label).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
   });
 
   it("a missing required input produces a missingInput block, never a guessed engine call", async () => {
