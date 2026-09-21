@@ -11,6 +11,13 @@ export const metadata: Metadata = {
   title: "Machine interface — call the engine",
   description:
     "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
+  alternates: { canonical: "/developers" },
+  openGraph: {
+    title: "Machine interface — call the GridForge engine",
+    description:
+      "JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number the engine returns.",
+    url: "/developers",
+  },
 };
 
 /**

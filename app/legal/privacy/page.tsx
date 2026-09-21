@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalShell, Note } from "@/components/LegalShell";
+import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = { title: "Privacy" };
 
@@ -27,7 +28,7 @@ export default function Privacy() {
       <h2 className="text-xl font-semibold text-ghost pt-2">Your rights</h2>
       <p>
         You can request access to, correction of, or deletion of your data at any
-        time by emailing power@gridforge.ai. Where GDPR applies, you also have the
+        time by emailing {SITE.email}. Where GDPR applies, you also have the
         right to object to processing and to lodge a complaint with a supervisory
         authority.
       </p>

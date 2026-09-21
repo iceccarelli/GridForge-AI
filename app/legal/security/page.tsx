@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalShell, Note } from "@/components/LegalShell";
+import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = { title: "Security" };
 
@@ -19,7 +20,7 @@ export default function Security() {
       <h2 className="text-xl font-semibold text-ghost pt-2">Disclosure</h2>
       <p>
         If you believe you've found a security issue with this site, please email
-        power@gridforge.ai. We'll acknowledge responsible reports promptly.
+        {" "}{SITE.email}. We'll acknowledge responsible reports promptly.
       </p>
       <Note />
     </LegalShell>

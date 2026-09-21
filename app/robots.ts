@@ -43,6 +43,12 @@ const AI_CRAWLERS = [
  *
  * /account was missing. It is the Intelligence subscriber's portal and it renders
  * their saved scenarios.
+ *
+ * /workspace stays here too: it is a chat shell whose content is per-visitor
+ * conversation state, not a page with anything of its own to say to a search
+ * result — reachable from the header and footer nav for a human, but not a
+ * page a crawler should index (see app/workspace/page.tsx's robots meta,
+ * which this list backs up rather than duplicates).
  */
 const PRIVATE_PATHS = [
   "/dashboard",
@@ -55,6 +61,7 @@ const PRIVATE_PATHS = [
   "/intake/",
   "/q/",
   "/commissioned",
+  "/workspace",
 ];
 
 export default function robots(): MetadataRoute.Robots {

@@ -5,6 +5,7 @@ import { Linkedin, Github, ArrowUpRight } from "lucide-react";
 import { Logo } from "@/components/Navbar";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { SITE } from "@/lib/site";
+import { NAV_LINKS, QUALIFY_LINK } from "@/lib/nav";
 
 // X (Twitter) glyph — lucide's Twitter icon is the old bird; use the wordmark.
 function XIcon({ size = 16 }: { size?: number }) {
@@ -26,7 +27,7 @@ export function Footer() {
     <footer className="bg-[#060912] border-t border-line pt-16 pb-10">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-x-8 gap-y-12">
-          <div className="lg:col-span-5">
+          <div className="lg:col-span-4">
             <div className="flex items-center gap-3 mb-4">
               <Logo size={36} />
               <span className="font-semibold text-2xl tracking-tight">
@@ -57,13 +58,15 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <div className="eyebrow text-mute mb-4">Product</div>
             <div className="space-y-3 text-sm text-mute">
-              <FooterLink href="/qualify">Free capacity check</FooterLink>
-              <FooterLink href="/#services">Engagement ladder</FooterLink>
-              <FooterLink href="/#technology">How it works</FooterLink>
-              <FooterLink href="/pricing">Pricing</FooterLink>
+              <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label}</FooterLink>
+              {NAV_LINKS.map((link) => (
+                <FooterLink key={link.href} href={link.hash ? `/${link.href}` : link.href}>
+                  {link.label}
+                </FooterLink>
+              ))}
             </div>
           </div>
 

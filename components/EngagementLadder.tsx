@@ -34,7 +34,10 @@ function FeaturedRung({
   onBuy: () => void;
 }) {
   return (
-    <div className="panel relative overflow-hidden border-power/50 bg-panel-2 p-7 sm:p-8">
+    <div
+      id="density-screen"
+      className="panel relative overflow-hidden border-power/50 bg-panel-2 p-7 sm:p-8 scroll-mt-24"
+    >
       <div className="absolute right-0 top-0 rounded-bl-lg bg-power px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ink">
         Start here
       </div>

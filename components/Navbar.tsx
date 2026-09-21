@@ -5,16 +5,7 @@ import Link from "next/link";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { m, AnimatePresence } from "framer-motion";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
-
-const navLinks = [
-  { href: "#services", label: "Product" },
-  { href: "#technology", label: "How it works" },
-  { href: "/reference", label: "Reference", route: true },
-  { href: "/constraints", label: "Constraints", route: true },
-  { href: "/platforms", label: "Platforms", route: true },
-  { href: "/developers", label: "Developers", route: true },
-  { href: "/pricing", label: "Pricing", route: true },
-];
+import { NAV_LINKS, QUALIFY_LINK } from "@/lib/nav";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,17 +56,9 @@ export function Navbar() {
             </div>
           </Link>
 
-          <div className="hidden lg:flex items-center gap-8 text-sm font-medium">
-            {navLinks.map((link) =>
-              "route" in link && link.route ? (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-mute hover:text-white transition-colors"
-                >
-                  {link.label}
-                </Link>
-              ) : (
+          <div className="hidden lg:flex items-center gap-7 text-sm font-medium">
+            {NAV_LINKS.map((link) =>
+              link.hash ? (
                 <button
                   key={link.href}
                   onClick={() => scrollTo(link.href)}
@@ -83,24 +66,32 @@ export function Navbar() {
                 >
                   {link.label}
                 </button>
+              ) : (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-mute hover:text-white transition-colors"
+                >
+                  {link.label}
+                </Link>
               )
             )}
           </div>
 
           <div className="hidden lg:flex items-center gap-3">
+            <Link
+              href={QUALIFY_LINK.href}
+              className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
+            >
+              {QUALIFY_LINK.label}
+            </Link>
             <button
               onClick={() => commissionDensityScreen({ context: "navbar" })}
-              className="btn-ghost px-4 py-2.5 rounded-full text-sm whitespace-nowrap"
+              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
               title={DENSITY_SCREEN_CTA}
             >
-              Buy Density Screen
+              {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
             </button>
-            <Link
-              href="/qualify"
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
-            >
-              Run free capacity check <ArrowRight size={15} />
-            </Link>
           </div>
 
           <button
@@ -122,7 +113,7 @@ export function Navbar() {
               className="lg:hidden border-t border-line bg-ink overflow-hidden"
             >
               <div className="px-6 py-7 flex flex-col gap-5 text-lg">
-                {navLinks.map((link) => (
+                {NAV_LINKS.map((link) => (
                   <button
                     key={link.href}
                     onClick={() => scrollTo(link.href)}
@@ -132,22 +123,22 @@ export function Navbar() {
                   </button>
                 ))}
                 <div className="pt-4 border-t border-line flex flex-col gap-3">
-                  <Link
-                    href="/qualify"
-                    onClick={() => setIsOpen(false)}
-                    className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
-                  >
-                    Run free capacity check
-                  </Link>
                   <button
                     onClick={() => {
                       setIsOpen(false);
                       commissionDensityScreen({ context: "mobile-nav" });
                     }}
-                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line"
+                    className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
                   >
-                    Buy — {DENSITY_SCREEN_CTA}
+                    {DENSITY_SCREEN_CTA}
                   </button>
+                  <Link
+                    href={QUALIFY_LINK.href}
+                    onClick={() => setIsOpen(false)}
+                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
+                  >
+                    {QUALIFY_LINK.label}
+                  </Link>
                   <Link
                     href="/dashboard"
                     onClick={() => setIsOpen(false)}

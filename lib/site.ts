@@ -75,7 +75,11 @@ export const SITE = {
   },
   name: "Time to Power",
   tagline: "Power-Capacity Intelligence for AI Infrastructure",
-  email: "power@gridforge.ai",
+  // The domain of record is timetopower.ai; power@timetopower.ai is already
+  // the fallback LEAD_TO_EMAIL/LEAD_FROM_EMAIL read by app/api/chat,
+  // app/api/audit and app/api/stripe/webhook, so this is not a new inbox —
+  // it is the address the backend already treats as real, made visible.
+  email: "power@timetopower.ai",
   founder: "Vincenzo Grimaldi",
   founderUrl: "https://igrimaldi.engineering",
   repo: "https://github.com/iceccarelli/GridForge-AI",

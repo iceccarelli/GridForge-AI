@@ -4,10 +4,17 @@ import { EngagementLadder } from "@/components/EngagementLadder";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 
+const PRICING_DESCRIPTION = `Every engagement priced before it starts, from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen up to the full Capacity & Density Envelope Study. No retainer hours, no second price list.`;
+
 export const metadata: Metadata = {
   title: "Pricing — fixed-fee engineering engagements",
-  description:
-    `Every engagement priced before it starts, from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen up to the full Capacity & Density Envelope Study. No retainer hours, no second price list.`,
+  description: PRICING_DESCRIPTION,
+  alternates: { canonical: "/pricing" },
+  openGraph: {
+    title: "Pricing — fixed-fee engineering engagements",
+    description: PRICING_DESCRIPTION,
+    url: "/pricing",
+  },
 };
 
 export default function PricingPage() {
