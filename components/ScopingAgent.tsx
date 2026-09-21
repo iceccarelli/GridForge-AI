@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { MessageSquare, X, Send, Loader2, PanelsTopLeft } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
@@ -15,6 +16,7 @@ const GREETING: Msg = {
 };
 
 export function ScopingAgent() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
   const [input, setInput] = useState("");
@@ -63,22 +65,29 @@ export function ScopingAgent() {
     }
   }
 
+  // Redundant on the full workspace — the whole page is already this
+  // conversation — and on mobile the corner launcher overlapped the
+  // workspace's own bottom tab bar (Chat/Canvas/Project).
+  if (pathname?.startsWith("/workspace")) return null;
+
   return (
     <>
       {/* Launcher */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-[60] flex items-center gap-2.5 rounded-full bg-power text-ink pl-4 pr-5 py-3.5 shadow-[0_8px_30px_-6px_rgba(0,229,255,0.5)] hover:scale-105 transition-transform font-medium text-sm"
+          className="fixed z-[60] flex items-center gap-2.5 rounded-full bg-power text-ink pl-4 pr-5 py-3.5 shadow-[0_8px_30px_-6px_rgba(0,229,255,0.5)] hover:scale-105 transition-transform font-medium text-sm bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-4 lg:bottom-6 lg:right-6"
           aria-label="Open scoping engineer"
         >
           <MessageSquare size={18} /> Scope my site
         </button>
       )}
 
-      {/* Panel */}
+      {/* Panel — same mobile-safe bottom offset as the launcher above, so
+          opening the panel never sits the header bar under StickyMobileCTA's
+          fixed bottom bar. */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-[60] w-[min(92vw,400px)] h-[min(80vh,600px)] flex flex-col rounded-2xl border border-line bg-panel shadow-2xl overflow-hidden">
+        <div className="fixed z-[60] w-[min(92vw,400px)] h-[min(75vh,600px)] flex flex-col rounded-2xl border border-line bg-panel shadow-2xl overflow-hidden bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-3 lg:bottom-6 lg:right-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-ink/60">
             <div>
               <div className="font-semibold text-sm">Scoping engineer</div>

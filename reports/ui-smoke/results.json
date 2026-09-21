@@ -1,0 +1,74 @@
+[
+  {
+    "path": "/",
+    "viewport": "390x844",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "ctaVisible": true,
+    "screenshot": "home-390x844.png"
+  },
+  {
+    "path": "/pricing",
+    "viewport": "390x844",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "ctaVisible": true,
+    "screenshot": "pricing-390x844.png"
+  },
+  {
+    "path": "/qualify",
+    "viewport": "390x844",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "ctaVisible": true,
+    "screenshot": "qualify-390x844.png"
+  },
+  {
+    "path": "/workspace",
+    "viewport": "390x844",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "ctaVisible": true,
+    "screenshot": "workspace-390x844.png"
+  },
+  {
+    "path": "/",
+    "viewport": "1440x900",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "ctaVisible": null,
+    "screenshot": "home-1440x900.png"
+  },
+  {
+    "path": "/pricing",
+    "viewport": "1440x900",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "ctaVisible": null,
+    "screenshot": "pricing-1440x900.png"
+  },
+  {
+    "path": "/qualify",
+    "viewport": "1440x900",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "ctaVisible": null,
+    "screenshot": "qualify-1440x900.png"
+  },
+  {
+    "path": "/workspace",
+    "viewport": "1440x900",
+    "hasHorizontalScroll": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "ctaVisible": null,
+    "screenshot": "workspace-1440x900.png"
+  }
+]

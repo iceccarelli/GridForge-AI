@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   title: "Capacity qualifier — what actually stops your hall",
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
+  alternates: { canonical: "/qualify" },
+  openGraph: {
+    title: "Free capacity qualifier — what stops your hall taking AI racks",
+    description:
+      "Seven numbers in, the binding constraint out. No card, no call, no contact details required.",
+    url: "/qualify",
+  },
 };
 
 export default function QualifyPage() {
