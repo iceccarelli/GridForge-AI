@@ -66,6 +66,21 @@ export async function POST(req: Request) {
     const amount = session.amount_total ?? 0;
 
     const kind = (session.metadata?.kind as string) || "engagement_deposit";
+
+    // Same best-effort AI-origin tag as app/api/checkout/route.ts's
+    // ai_checkout_started: `service` carries the `workspace-<productId>` context
+    // the AI workspace's commercialAction CTA set at checkout start, so a
+    // completion can be attributed back to that same session without any new
+    // session-tracking infrastructure.
+    const service = (session.metadata?.service as string) || "";
+    if (service.startsWith("workspace-")) {
+      console.log("[GridForge] ai_checkout_completed", {
+        kind,
+        service,
+        sessionId: session.id,
+        amount,
+      });
+    }
     const product = PRODUCT_BY_KIND[kind];
     if (isApiProduct(kind)) {
       // Metered API access. No intake, no engineering work, no human: the

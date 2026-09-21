@@ -1,63 +1,31 @@
-import { LADDER_PRODUCTS, eurFromCents } from "@/lib/products";
-import { SITE_URL, siteUrl } from "@/lib/site";
+import { siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
 import { extractLead } from "@/lib/extract";
+import { runTurn } from "@/lib/ai/agent";
+import { normalizeTranscript } from "@/lib/ai/context";
+import type { AgentBlock, ToolCallRecord } from "@/lib/ai/schemas";
 
 export const runtime = "nodejs";
 
 /**
- * The scoping engineer's brief, built from the catalogue.
+ * The scoping engineer, now bound to the real engine.
  *
- * This was a confident, detailed briefing for a company that no longer exists:
- * containerised hybrid microgrids to 120 MW, a 400-800 V DC bus, an EMS doing
- * FCR/aFRR, and a fee list — Power Audit EUR 25k-45k, Feasibility Study EUR
- * 45k-95k — that appears nowhere in the engine's commercial catalogue.
+ * This used to call Anthropic directly with a hand-written system prompt and
+ * return raw prose — every "directional read" was LLM narration, never a
+ * tool result, which is exactly the honesty-kernel violation this product
+ * exists to prevent everyone else from committing. It now runs the same
+ * tool-calling orchestration loop as lib/ai/agent.ts: the model chooses a
+ * GridForge tool, we call the real engine over HTTP (lib/ai/tools.ts,
+ * following the callEngine() pattern in lib/qualify.ts), and only a real
+ * tool result can produce a numeric claim in the reply.
  *
- * An assistant is the worst place for a stale claim. A page can be skimmed; an
- * assistant answers the specific question a buyer actually asked, in a tone that
- * sounds like it knows. Every engagement it could quote is now generated from
- * lib/products.ts, so the prompt cannot drift from what checkout charges.
+ * The response contract is unchanged: { ok, reply, lead }. ScopingAgent.tsx
+ * (the corner widget) only reads those three fields and must keep working
+ * without modification. `blocks` and `toolCalls` are additive — structured
+ * data for a future or parallel surface to render, never required by the
+ * widget.
  */
-function engagementBrief(): string {
-  return LADDER_PRODUCTS.map((p) => {
-    const band = p.opensBandCents
-      ? `${eurFromCents(p.opensBandCents[0])}–${eurFromCents(p.opensBandCents[1])} ` +
-        `(deposit ${eurFromCents(p.amountCents)})`
-      : eurFromCents(p.amountCents) + (p.recurring ? " recurring" : "");
-    const days = p.turnaroundDays ? `, ${p.turnaroundDays} working days` : "";
-    return `- ${p.name} — ${band}${days} — ${p.deliverable}`;
-  }).join("\n");
-}
-
-const SYSTEM = `You are the Time to Power scoping engineer — an independent power and thermal engineer, working on the GridForge Engine. You speak with colocation operators, neocloud operators and data-centre developers.
-
-WHAT TIME TO POWER DOES
-- Answers one question about an EXISTING data hall: how much AI compute it can carry, which of thirteen electrical, thermal and physical constraints binds first, and what each step of extra density costs.
-- Quotes no equipment, takes no margin on hardware, owns no energy assets and funds no physical deployment. If somebody needs plant built, we are not who builds it.
-- The engine solves the hall against all thirteen constraints at once. The binding one is usually electrical — tap-off rating or busway ampacity — not cooling.
-
-WHAT WE DO NOT DO
-- We do not build, own, finance or operate microgrids, gensets, fuel cells, batteries or DC distribution. Do not offer any of it, even if the caller asks. Say plainly that it is out of scope and that we specify duty and interfaces only.
-- No behind-the-meter capacity is sold by the megawatt here. Behind-the-meter supply appears in a study only as one relief option for a grid constraint, priced and lead-timed like any other rung.
-
-ENGAGEMENTS (this is what they buy)
-${engagementBrief()}
-
-THE FREE THING TO OFFER FIRST
-- /qualify takes seven numbers they already know and names the constraint that binds their hall, free, no account. Offer it before any fee. It also produces a link they can send to whoever owns the capital budget.
-- /constraints publishes all thirteen in full, and /reference publishes a complete worked study. Point at those rather than describing them.
-
-HOW YOU HELP (max value, honest boundary)
-- Give genuine DIRECTIONAL reads: what is likely to bind given what they have said, why, and what it would take to move. Real engineering value — that is what makes them choose us over a contact form.
-- NEVER give a bankable number, a capital cost or a programme date for free. Those are the paid engagement, and the engine enforces it server-side.
-- Every figure is modelled, not measured. Our accuracy record against instrumented sites is currently empty and we say so on every response; if you quote a number, carry that with it.
-- If the honest answer is that their hall cannot take the density they want, say so. A credible no is worth as much as a yes, and it is the reason to trust the yes.
-- Move toward a next step: get platform, contracted MW, current site peak, busway ampacity and tap-off rating, then send them to /qualify. Ask for name, company and work email only once there is something worth following up.
-
-Keep replies short (2–4 sentences usually). You are an engineer, not a marketer.`;
-
 async function persistLead(record: Record<string, unknown>): Promise<void> {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -93,29 +61,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Agent not configured" }, { status: 503 });
   }
 
-  let body: { messages?: { role: "user" | "assistant"; content: string }[]; captured?: boolean } = {};
+  let body: { messages?: unknown; captured?: boolean } = {};
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
-  const messages = Array.isArray(body.messages) ? body.messages.slice(-20) : [];
+  const messages = normalizeTranscript(body.messages);
   if (messages.length === 0) {
     return NextResponse.json({ ok: false, error: "No messages" }, { status: 400 });
   }
 
-  const anthropic = new Anthropic({ apiKey: key });
+  // ai_session_started fires on the first turn of a conversation — the
+  // workspace and the scoping widget share this route, so this is the one
+  // place to log it regardless of which surface is calling.
+  if (messages.length === 1) {
+    console.log("[GridForge] ai_session_started", { surface: "chat" });
+  }
 
-  // 1) Generate the engineer's reply
+  // 1) Run the tool-calling loop. Every number in `reply` is bound to a real
+  // engine call recorded in `toolCalls` — see lib/ai/agent.ts.
   let reply = "";
+  let blocks: AgentBlock[] = [];
+  let toolCalls: ToolCallRecord[] = [];
   try {
-    const resp = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: SYSTEM,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
-    reply = resp.content.map((b) => (b.type === "text" ? b.text : "")).filter(Boolean).join("\n");
+    const turn = await runTurn({ apiKey: key, messages });
+    reply = turn.reply;
+    blocks = turn.blocks;
+    toolCalls = turn.toolCalls;
+    for (const call of toolCalls) {
+      console.log("[GridForge] ai_tool_call", { tool: call.tool, ok: call.ok, status: call.status });
+      if (call.tool === "gridforge_qualify" && call.ok) {
+        console.log("[GridForge] ai_qualify_completed", { digestOf: call.digestOf ?? null });
+      }
+    }
   } catch (err) {
     console.error("[GridForge] chat agent error:", err);
     return NextResponse.json({ ok: false, error: "Agent unavailable" }, { status: 500 });
@@ -174,12 +153,12 @@ export async function POST(req: Request) {
               from,
               to: [leadEmail],
               reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
-              subject: `Time to Power \u2014 your ${extracted.capacity} site scoping`,
+              subject: `Time to Power — your ${extracted.capacity} site scoping`,
               text:
                 `Thank you for scoping your site with our engineer.\n\n` +
                 `${next}\n\n` +
                 `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
-                `\u2014 Time to Power`,
+                `— Time to Power`,
             }),
           });
         } catch (err) {
@@ -190,5 +169,5 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, reply, lead });
+  return NextResponse.json({ ok: true, reply, lead, blocks, toolCalls });
 }

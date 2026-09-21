@@ -17,8 +17,9 @@ import { PRODUCTS, eurFromCents } from "@/lib/products";
 const SCREEN = PRODUCTS[DENSITY_SCREEN];
 
 // Routes with their own dedicated bottom-of-page CTA, checkout flow, or no
-// room for a fixed bar (the client portal).
-const HIDDEN_ON = ["/dashboard", "/checkout"];
+// room for a fixed bar (the client portal, and the full-screen workspace app,
+// whose own conversation input already sits at the bottom of the screen).
+const HIDDEN_ON = ["/dashboard", "/checkout", "/workspace"];
 
 export function StickyMobileCTA() {
   const pathname = usePathname();
