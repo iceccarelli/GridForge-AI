@@ -126,6 +126,19 @@ export async function POST(req: Request) {
       cancel_url: product ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
     });
 
+    // Best-effort AI-origin tag: the workspace's CommercialActionCard passes
+    // context: `workspace-${productId}` (see components/ai/CommercialActionCard.tsx),
+    // which lands here as `service` and is carried into Stripe metadata.service so
+    // the webhook can recognise the same session on completion. This is a tag, not
+    // session tracking — no new infrastructure, no new identifiers.
+    if (service?.startsWith("workspace-")) {
+      console.log("[GridForge] ai_checkout_started", {
+        productId: productId ?? null,
+        service,
+        sessionId: session.id,
+      });
+    }
+
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err) {
     console.error("[GridForge] Stripe checkout error:", err);
