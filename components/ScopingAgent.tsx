@@ -6,6 +6,7 @@ import Link from "next/link";
 import { MessageSquare, X, Send, Loader2, PanelsTopLeft } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { ArrowRight } from "lucide-react";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -187,10 +188,10 @@ export function ScopingAgent() {
               </button>
             </div>
             <a
-              href="/qualify"
+              href={QUALIFY_LINK.href}
               className="mt-2 block w-full text-center data text-[10px] uppercase tracking-[0.1em] text-mute hover:text-power transition-colors"
             >
-              Or run the free qualifier →
+              Or {QUALIFY_LINK.label.toLowerCase()} →
             </a>
           </div>
         </div>

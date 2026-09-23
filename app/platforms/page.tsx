@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Ban } from "lucide-react";
 import { platformLibrary } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 export const metadata: Metadata = {
   title: "AI rack platforms — power, liquid fraction, flow and floor loading",
@@ -166,7 +167,7 @@ export default async function PlatformsPage() {
           href="/qualify"
           className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
         >
-          Run your hall <ArrowRight className="h-4 w-4" />
+          {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
           href="/constraints"

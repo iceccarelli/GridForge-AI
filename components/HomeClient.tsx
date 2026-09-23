@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { QUALIFY_LINK } from "@/lib/nav";
 import { CommissionScreen } from "@/components/CommissionScreen";
 import { HeroReel } from "@/components/HeroReel";
 import dynamic from "next/dynamic";
@@ -89,10 +90,10 @@ export function HomeClient() {
             <div className="flex flex-col sm:flex-row gap-3">
               <CommissionScreen productId="density_screen" context="hero" size="lg" />
               <Link
-                href="/qualify"
+                href={QUALIFY_LINK.href}
                 className="btn-secondary px-7 py-4 text-base rounded-xl flex items-center justify-center gap-2"
               >
-                Or run the free qualifier
+                Or {QUALIFY_LINK.label.toLowerCase()}
               </Link>
             </div>
             <p className="data text-[11px] text-faint mt-4">
@@ -218,11 +219,11 @@ export function HomeClient() {
 
         <div className="mt-10 grid sm:grid-cols-3 gap-4">
           <Link
-            href="/qualify"
+            href={QUALIFY_LINK.href}
             className="panel panel-hover p-5 flex flex-col gap-1.5"
           >
             <span className="eyebrow-queue text-[10px]">FREE · 90 SECONDS</span>
-            <span className="font-semibold text-ghost">Run the qualifier</span>
+            <span className="font-semibold text-ghost">{QUALIFY_LINK.label}</span>
             <span className="text-sm text-mute leading-relaxed">
               Seven numbers on your hall, no card. It names what binds first.
             </span>
@@ -279,10 +280,10 @@ export function HomeClient() {
             <BindingConstraintInsights compact />
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Link
-                href="/qualify"
+                href={QUALIFY_LINK.href}
                 className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
               >
-                Find the binding constraint <ArrowRight className="h-4 w-4" />
+                {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
               </Link>
               <span className="text-[11px] text-faint font-mono">
                 solved server-side · capital cost and programme duration are the paid engagement

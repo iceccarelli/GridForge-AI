@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { commissionDensityScreen, DENSITY_SCREEN } from "@/lib/ui";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 const SCREEN = PRODUCTS[DENSITY_SCREEN];
 
@@ -60,10 +61,10 @@ export function StickyMobileCTA() {
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}
     >
       <Link
-        href="/qualify"
+        href={QUALIFY_LINK.href}
         className="flex-1 text-center rounded-lg border border-line py-2.5 text-[13px] font-medium text-ghost"
       >
-        Free capacity check
+        {QUALIFY_LINK.label}
       </Link>
       <button
         onClick={() => commissionDensityScreen({ context: "sticky-mobile" })}
