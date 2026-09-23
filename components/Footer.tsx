@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Linkedin, Github, ArrowUpRight } from "lucide-react";
+import { Linkedin, Github } from "lucide-react";
 import { Logo } from "@/components/Navbar";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { SITE } from "@/lib/site";
-import { NAV_LINKS, QUALIFY_LINK } from "@/lib/nav";
+import { FOOTER_GROUPS, QUALIFY_LINK } from "@/lib/nav";
 
 // X (Twitter) glyph — lucide's Twitter icon is the old bird; use the wordmark.
 function XIcon({ size = 16 }: { size?: number }) {
@@ -16,11 +16,18 @@ function XIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+/**
+ * Only a destination this repository can actually verify goes in the
+ * footer. SITE.social holds LinkedIn/X/etc as empty strings until a real
+ * account exists — this used to hardcode generic platform homepages
+ * (linkedin.com/, x.com/) instead, which look like company links but go
+ * nowhere specific. GitHub is always real: it's the repository itself.
+ */
 const socials = [
-  { icon: Linkedin, href: "https://www.linkedin.com/", label: "LinkedIn" },
-  { icon: XIcon, href: "https://x.com/", label: "X" },
+  { icon: Linkedin, href: SITE.social.linkedin, label: "LinkedIn" },
+  { icon: XIcon, href: SITE.social.x, label: "X" },
   { icon: Github, href: SITE.repo, label: "GitHub" },
-];
+].filter((s) => s.href);
 
 export function Footer() {
   return (
@@ -58,52 +65,45 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="lg:col-span-3">
-            <div className="eyebrow text-mute mb-4">Product</div>
-            <div className="space-y-3 text-sm text-mute">
-              <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label}</FooterLink>
-              {NAV_LINKS.map((link) => (
-                <FooterLink key={link.href} href={link.hash ? `/${link.href}` : link.href}>
-                  {link.label}
-                </FooterLink>
-              ))}
+          {FOOTER_GROUPS.map((group) => (
+            <div key={group.heading} className="lg:col-span-2">
+              <div className="eyebrow text-mute mb-4">{group.heading}</div>
+              <div className="space-y-3 text-sm text-mute">
+                {group.links.map((link) => (
+                  <FooterLink
+                    key={`${group.heading}-${link.href}-${link.label}`}
+                    href={link.hash ? `/${link.href}` : link.href}
+                  >
+                    {link.label}
+                  </FooterLink>
+                ))}
+              </div>
             </div>
-          </div>
+          ))}
 
-          <div className="lg:col-span-2">
-            <div className="eyebrow text-mute mb-4">Company</div>
-            <div className="space-y-3 text-sm text-mute">
-              <FooterLink href="/#about">About</FooterLink>
-              <FooterLink href="/#faq">FAQ</FooterLink>
-              <a
-                href={SITE.founderUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-white transition-colors inline-flex items-center gap-1"
-              >
-                Founder <ArrowUpRight size={13} />
-              </a>
-            </div>
-          </div>
+        </div>
 
-          <div className="lg:col-span-3">
-            <div className="eyebrow text-mute mb-4">Contact</div>
-            <div className="space-y-3 text-sm">
-              <a href={`mailto:${SITE.email}`} className="block text-power hover:underline">
-                {SITE.email}
-              </a>
-              <div className="text-mute">{SITE.baseLocation}</div>
-              <button
-                onClick={() => commissionDensityScreen({ context: "footer" })}
-                className="data text-xs uppercase tracking-[0.12em] font-medium text-power hover:underline inline-flex items-center gap-1 text-left"
-              >
-                {DENSITY_SCREEN_CTA} →
-              </button>
-            </div>
+        <div className="mt-14 pt-10 border-t border-line flex flex-col lg:flex-row lg:items-center lg:justify-between gap-y-6">
+          <div className="text-sm">
+            <a href={`mailto:${SITE.email}`} className="text-power hover:underline">
+              {SITE.email}
+            </a>
+            <span className="text-faint mx-2">·</span>
+            <span className="text-mute">{SITE.baseLocation}</span>
+          </div>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5">
+            <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label} →</FooterLink>
+            <button
+              onClick={() => commissionDensityScreen({ context: "footer" })}
+              className="btn-primary px-5 py-2.5 rounded-full text-sm whitespace-nowrap"
+              title={DENSITY_SCREEN_CTA}
+            >
+              {DENSITY_SCREEN_CTA}
+            </button>
           </div>
         </div>
 
-        <div className="mt-14 pt-7 border-t border-line flex flex-col md:flex-row justify-between items-center gap-y-4 text-xs text-faint">
+        <div className="mt-10 pt-7 border-t border-line flex flex-col md:flex-row justify-between items-center gap-y-4 text-xs text-faint">
           <div className="text-center md:text-left">
             © {new Date().getFullYear()} Time to Power. Powered by GridForge
             Engine. Engineering by {SITE.founder}.
