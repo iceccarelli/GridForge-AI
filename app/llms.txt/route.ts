@@ -123,6 +123,34 @@ Metered API access:
 
 ${api}
 
+## How to buy
+
+Every price above is the checkout price — read from the same catalogue, so
+there is no separate machine price list.
+
+- Start an engagement: \`POST ${SITE}/api/checkout\` with JSON body
+  \`{"product": "<id>"}\` where \`<id>\` is one of: ${LADDER_PRODUCTS.map((p) => p.id).join(", ")}.
+  Returns \`{"ok": true, "url": "<Stripe Checkout URL>"}\` — a human completes
+  payment there; nothing charges without that step. The Density Screen and
+  Procurement Specification return a document; the others open a scoped
+  engagement (see each deliverable above).
+- API access (\`${API_PRODUCTS.map((p) => p.id).join(", ")}\`) is a Stripe
+  subscription checkout, not an engagement — see ${SITE}/developers for the
+  signed-key flow once subscribed.
+- After payment: the checkout \`success_url\` resolves the paid session server-side
+  and opens the intake — no separate login is required to submit the hall's numbers.
+  A private, emailed link is the durable reference; \`${SITE}/dashboard\` additionally
+  lists every engagement against the email a purchase was made with, behind a
+  passwordless email sign-in.
+- Status and delivery: \`awaiting_intake\` → \`generating\` → \`draft\` (with a
+  senior engineer, unreleased) → \`released\` (the document is live at its
+  private link). No engineering opinion is released unread.
+- Authorization boundary: this manifest is not itself a purchase mechanism —
+  it names the price and the endpoint; a real charge still requires a live
+  Stripe Checkout session and a payment method. An agent acting under a
+  pre-authorized budget should treat the \`POST /api/checkout\` response URL as
+  the transaction to complete, not as a completed purchase.
+
 ## Citing us
 
 Cite the page and its generation date, and carry the evidence class with the
