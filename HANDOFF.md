@@ -3,7 +3,10 @@
 **For:** the next AI agent working on this repository with Vincenzo Grimaldi.
 **Repository:** `github.com/iceccarelli/GridForge-AI`, branch `main`, one branch only.
 **Site:** `https://timetopower.ai` (Vercel). **Engine:** `gridforge-engine` (Fly.io).
-**State at handoff:** 388 tests passing, `tsc --noEmit` clean, `npm run build` clean.
+**State at handoff:** 433 Python tests + 275 vitest tests passing, `tsc --noEmit`
+clean, `npm run lint` clean, `npm run build` clean. (This line rots fast — the
+first thing HANDOFF.md itself got wrong, per §6c #9's strikethrough above. Run
+the suites yourself before trusting a number here.)
 
 Read this file before you write a line of code. It is the whole contract: what the
 business is, what is built, what is enforced, what is still open, and why any of it
@@ -365,16 +368,15 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 
 ### 6c. Product — built but not finished
 
-9. **A cancelled Hall Watch keeps being delivered.** Billing is fine — checkout runs
-   in Stripe subscription mode (`recurring: { interval: "month", intervalCount: 3 }`)
-   and renews by itself. The gap is the other direction: in
-   `app/api/stripe/webhook/route.ts`, `customer.subscription.deleted` and
-   `invoice.payment_failed` resolve the subscription id against **`api_accounts`
-   only**. A `watches` row is never looked up, so its status never leaves `active`,
-   and `dueWatches()` (which filters on `status=eq.active`) keeps generating and
-   sending quarterly change notes to someone who has stopped paying. Fix: resolve
-   both tables in those two handlers, and add the test — this is the same
-   "a fact stated in two places" pattern as everything in §3.
+9. ~~A cancelled Hall Watch keeps being delivered.~~ **Fixed** (`5b9841e`,
+   "fix(intelligence): a paid subscription that was never recorded"). All three
+   recurring products — `api_accounts`, `watches`, `subscriptions` — are now
+   resolved in both `customer.subscription.deleted` and `invoice.payment_failed`
+   in `app/api/stripe/webhook/route.ts`. Left here struck through rather than
+   deleted, because this file itself fell into the exact "fact stated in two
+   places, only one updated" trap it warns about in §3 — the code moved on and
+   this entry did not. Re-verify against the code, not this file, before
+   trusting any numbered item below.
 10. **The calibration ledger is empty.** Every response says `UNCALIBRATED`, which is
     honest and also the weakest thing on the site. The first paid engagement must end
     with `gridforge calibrate` and a real observation. Nothing else on this list
@@ -389,8 +391,14 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 13. **The Procurement Specification's bid comparison has no supplier-facing artefact.**
     We hand the client a response schedule; we do not hand the supplier a form. That
     is one generator away and it makes the product land better.
-14. **`/api/chat` (the scoping agent) has no conversation persistence.** A buyer who
-    reloads loses the scoping conversation that was about to become a lead.
+14. ~~`/api/chat` (the scoping agent) has no conversation persistence.~~ **Fixed.**
+    `/workspace`'s transcript now round-trips through `lib/ai/session.ts` to
+    `window.localStorage` (`WorkspaceClient.tsx`), restored on mount and cleared
+    by the new "New conversation" control in `Conversation.tsx`. `/api/chat`
+    itself is still stateless by design — the client sends the full transcript
+    each turn — this just stops the browser from discarding it on reload.
+    `tests/site/workspace-session.test.ts` covers the round trip and the
+    fail-closed cases (corrupt JSON, storage unavailable).
 15. **No email sequence.** Resend is wired for transactional mail only. A `/q/<token>`
     read that nobody follows up on is a lead we paid for and discarded.
 
@@ -434,11 +442,9 @@ In order, and the order is the founder's sequence from §0, not a preference:
    REPEATABILITY before AUTOMATION. The assets only compound if they are fed.
 3. Answer **6b #7** before the next push. It is the only item here where delay is
    irreversible.
-4. Then **6c #9** (Hall Watch renewal), because recurring revenue that does not
-   recur is the single largest gap between what the price list claims and what the
-   code does.
+4. ~~Then **6c #9** (Hall Watch renewal)~~ — already fixed, see §6c #9.
 
-Everything else is real work and none of it is urgent before those four.
+Everything else is real work and none of it is urgent before those three.
 
 ---
 

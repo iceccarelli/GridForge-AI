@@ -16,10 +16,12 @@ export function Conversation({
   messages,
   loading,
   onSend,
+  onReset,
 }: {
   messages: ChatMessage[];
   loading: boolean;
   onSend: (text: string) => void;
+  onReset?: () => void;
 }) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -37,9 +39,19 @@ export function Conversation({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-4 py-3.5 border-b border-line">
-        <div className="text-sm font-semibold text-ghost">Conversation</div>
-        <div className="data text-[10px] text-power">Time to Power · engineering workspace</div>
+      <div className="px-4 py-3.5 border-b border-line flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-ghost">Conversation</div>
+          <div className="data text-[10px] text-power">Time to Power · engineering workspace</div>
+        </div>
+        {onReset && messages.length > 0 && (
+          <button
+            onClick={onReset}
+            className="text-[11px] text-faint hover:text-ghost transition-colors shrink-0 pt-0.5"
+          >
+            New conversation
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
