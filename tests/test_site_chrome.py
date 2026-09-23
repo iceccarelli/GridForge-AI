@@ -147,6 +147,53 @@ def test_section_nav_targets_all_exist_in_home_client():
     assert not offenders, f"SectionNav targets with no matching section id in HomeClient.tsx: {offenders}"
 
 
+def test_nav_labels_never_wrap():
+    # Multi-word nav labels ("How it works") wrapped to two lines while
+    # single-word siblings didn't, because only the CTA buttons carried
+    # whitespace-nowrap. Every rendered label in the desktop bar — brand,
+    # NAV_LINKS, and the two utility links — must carry it so none of them
+    # is the one that silently absorbs overflow by wrapping.
+    navbar = read("components/Navbar.tsx")
+    assert navbar.count("whitespace-nowrap") >= 5, (
+        "expected the brand, each NAV_LINKS item, and the utility links to all be whitespace-nowrap"
+    )
+
+
+def test_desktop_nav_and_mobile_menu_share_one_breakpoint():
+    # The desktop nav row's content (brand + 5 links + 2 utility links + the
+    # full CTA text) does not actually fit before 1280px — at 1024-1279px it
+    # used to overflow the viewport and clip the primary CTA off-screen
+    # entirely, invisible from static source but obvious once rendered.
+    # xl (1280px) is the first width the row was measured to fit without
+    # overflow; the mobile hamburger must hand off at the exact same
+    # breakpoint the desktop group turns on at, or there's a gap (or overlap)
+    # between "mobile menu" and "desktop nav".
+    navbar = read("components/Navbar.tsx")
+    desktop_on = re.search(r'hidden (\w+):flex items-center gap-\d+"', navbar)
+    assert desktop_on, "expected the desktop nav group's breakpoint to be findable"
+    breakpoint_ = desktop_on.group(1)
+    assert breakpoint_ == "xl", (
+        f"desktop nav now turns on at '{breakpoint_}:' — re-measure in a real browser at that "
+        "breakpoint's minimum width before changing this; 1024px (lg) was measured to overflow"
+    )
+    assert navbar.count(f"{breakpoint_}:hidden") == 2, (
+        "the hamburger button and the mobile drawer must both hide at the same breakpoint the desktop nav appears at"
+    )
+
+
+def test_scoping_agent_launcher_stays_clear_of_the_hero_ctas_on_mobile():
+    # ScopingAgent's floating launcher is fixed bottom-right on every route.
+    # On mobile, before any scroll, that's the same quadrant the homepage
+    # hero's second CTA ("Or run free capacity check") sits in — the
+    # launcher rendered on top of it, covering part of the button. It must
+    # stay hidden until the visitor has scrolled past the hero, the same
+    # scroll-gated pattern StickyMobileCTA already uses for the same reason.
+    agent = read("components/ScopingAgent.tsx")
+    assert "pastHero" in agent, "the launcher must gate its visibility on scroll position, not always render"
+    assert '"invisible"' in agent and '"visible"' in agent
+    assert "lg:visible" in agent, "the scroll-gate must not apply above the mobile breakpoint"
+
+
 def test_desktop_nav_groups_share_one_flex_container_with_a_gap():
     # justify-between on the outer nav row only guarantees space between
     # brand/links/CTA when there is leftover width — at exactly the content's
@@ -158,7 +205,7 @@ def test_desktop_nav_groups_share_one_flex_container_with_a_gap():
     # leftover space between them.
     navbar = read("components/Navbar.tsx")
     m = re.search(
-        r'<div className="hidden lg:flex items-center (gap-\d+)">(.*?)\n          </div>\n\n          <button',
+        r'<div className="hidden xl:flex items-center (gap-\d+)">(.*?)\n          </div>\n\n          <button',
         navbar, re.S,
     )
     assert m, "expected one wrapper div holding both the NAV_LINKS group and the CTA group"

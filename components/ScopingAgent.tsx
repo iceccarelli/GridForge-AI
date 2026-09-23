@@ -24,11 +24,24 @@ export function ScopingAgent() {
   const [loading, setLoading] = useState(false);
   const [lead, setLead] = useState<{ tier: string; score: number } | null>(null);
   const [captured, setCaptured] = useState(false);
+  const [pastHero, setPastHero] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  // On mobile, the hero's own two CTAs (Density Screen + free qualifier)
+  // sit in the same bottom-right quadrant the launcher is fixed to — before
+  // any scroll, the launcher covers the second button. StickyMobileCTA below
+  // solves the same problem the same way: stay out of the way until the
+  // visitor has scrolled past the hero's own CTAs.
+  useEffect(() => {
+    const onScroll = () => setPastHero(window.scrollY > 420);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   async function send() {
     const text = input.trim();
@@ -77,7 +90,9 @@ export function ScopingAgent() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed z-[60] flex items-center gap-2.5 rounded-full bg-power text-ink pl-4 pr-5 py-3.5 shadow-[0_8px_30px_-6px_rgba(0,229,255,0.5)] hover:scale-105 transition-transform font-medium text-sm bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-4 lg:bottom-6 lg:right-6"
+          className={`fixed z-[60] flex items-center gap-2.5 rounded-full bg-power text-ink pl-4 pr-5 py-3.5 shadow-[0_8px_30px_-6px_rgba(0,229,255,0.5)] hover:scale-105 transition-transform font-medium text-sm bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-4 lg:bottom-6 lg:right-6 ${
+            pastHero ? "visible" : "invisible"
+          } lg:visible`}
           aria-label="Open scoping engineer"
         >
           <MessageSquare size={18} /> Scope my site

@@ -53,9 +53,9 @@ export function Navbar() {
         }`}
       >
         <div className="max-w-7xl mx-auto px-5 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
+          <Link href="/" className="flex items-center gap-3 group shrink-0">
             <Logo />
-            <div className="leading-none">
+            <div className="leading-none whitespace-nowrap">
               <div className="font-semibold text-lg sm:text-xl tracking-tight">
                 Time<span className="text-power"> to Power</span>
               </div>
@@ -65,14 +65,14 @@ export function Navbar() {
             </div>
           </Link>
 
-          <div className="hidden lg:flex items-center gap-8">
-            <div className="flex items-center gap-7 text-sm font-medium">
+          <div className="hidden xl:flex items-center gap-6">
+            <div className="flex items-center gap-5 text-sm font-medium">
               {NAV_LINKS.map((link) =>
                 link.hash ? (
                   <button
                     key={link.href}
                     onClick={() => scrollTo(link.href)}
-                    className="text-mute hover:text-white transition-colors"
+                    className="whitespace-nowrap text-mute hover:text-white transition-colors"
                   >
                     {link.label}
                   </button>
@@ -80,7 +80,7 @@ export function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="text-mute hover:text-white transition-colors"
+                    className="whitespace-nowrap text-mute hover:text-white transition-colors"
                   >
                     {link.label}
                   </Link>
@@ -88,7 +88,7 @@ export function Navbar() {
               )}
             </div>
 
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-4">
               <Link
                 href={CLIENT_PORTAL_LINK.href}
                 className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
@@ -113,7 +113,7 @@ export function Navbar() {
 
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="lg:hidden p-2 text-mute hover:text-white"
+            className="xl:hidden p-2 text-mute hover:text-white"
             aria-label="Toggle menu"
             aria-controls="mobile-nav"
             aria-expanded={isOpen}
@@ -129,7 +129,7 @@ export function Navbar() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="lg:hidden border-t border-line bg-ink overflow-hidden"
+              className="xl:hidden border-t border-line bg-ink overflow-hidden"
             >
               <div className="px-6 py-7 flex flex-col gap-5 text-lg">
                 {NAV_LINKS.map((link) => (
