@@ -9,16 +9,13 @@ import React, { useEffect, useState } from "react";
  * Rendered only on the home page, where these section ids exist.
  */
 const SECTIONS = [
-  { id: "problem", label: "Problem" },
+  { id: "market", label: "Problem" },
   { id: "intelligence", label: "Live data" },
-  { id: "comparator", label: "Comparator" },
-  { id: "simulator", label: "Simulator" },
   { id: "qualify", label: "Qualifier" },
   { id: "services", label: "Services" },
-  { id: "how", label: "How it works" },
-  { id: "architectures", label: "Architectures" },
-  { id: "configure", label: "Configure" },
-  { id: "single-line", label: "Architecture" },
+  { id: "technology", label: "How it works" },
+  { id: "evidence", label: "Evidence" },
+  { id: "about", label: "About" },
   { id: "faq", label: "FAQ" },
 ];
 

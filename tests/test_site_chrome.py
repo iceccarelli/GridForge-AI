@@ -133,6 +133,20 @@ def test_footer_secondary_cta_is_the_free_qualifier():
     assert "QUALIFY_LINK" in footer
 
 
+def test_section_nav_targets_all_exist_in_home_client():
+    # SectionNav.tsx's go() silently no-ops when document.getElementById()
+    # finds nothing — so a stale id here isn't a crash, it's a button that
+    # visibly does nothing when clicked. Previously 7 of 11 entries pointed
+    # at ids that had been removed from HomeClient.tsx in an earlier content
+    # pass; this guards that class of drift going forward.
+    section_nav = read("components/SectionNav.tsx")
+    home = read("components/HomeClient.tsx")
+    ids = re.findall(r'\{\s*id:\s*"([^"]+)"', section_nav)
+    assert ids, "expected at least one entry in SectionNav's SECTIONS list"
+    offenders = [i for i in ids if f'id="{i}"' not in home]
+    assert not offenders, f"SectionNav targets with no matching section id in HomeClient.tsx: {offenders}"
+
+
 def test_desktop_nav_groups_share_one_flex_container_with_a_gap():
     # justify-between on the outer nav row only guarantees space between
     # brand/links/CTA when there is leftover width — at exactly the content's
