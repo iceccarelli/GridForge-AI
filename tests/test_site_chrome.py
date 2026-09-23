@@ -131,3 +131,25 @@ def test_footer_primary_cta_reads_the_price_from_the_catalogue():
 def test_footer_secondary_cta_is_the_free_qualifier():
     footer = read("components/Footer.tsx")
     assert "QUALIFY_LINK" in footer
+
+
+def test_desktop_nav_groups_share_one_flex_container_with_a_gap():
+    # justify-between on the outer nav row only guarantees space between
+    # brand/links/CTA when there is leftover width — at exactly the content's
+    # natural width it collapses to zero, and "Pricing" (last NAV_LINKS item)
+    # butts directly against "Client portal" (first CTA item) with no visible
+    # gap: "PricingClient portal", one fused word. Caught by rendering the
+    # real page in a browser, not by reading the JSX. The fix is an explicit
+    # gap on a wrapper that holds both groups, not relying on justify-between
+    # leftover space between them.
+    navbar = read("components/Navbar.tsx")
+    m = re.search(
+        r'<div className="hidden lg:flex items-center (gap-\d+)">(.*?)\n          </div>\n\n          <button',
+        navbar, re.S,
+    )
+    assert m, "expected one wrapper div holding both the NAV_LINKS group and the CTA group"
+    assert m.group(1) != "gap-0", "the wrapper must carry a real gap"
+    inner = m.group(2)
+    assert inner.count('className="flex items-center gap-') >= 2, (
+        "NAV_LINKS and the CTA group must both be inside the gapped wrapper, not siblings of it"
+    )

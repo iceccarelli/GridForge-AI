@@ -65,48 +65,50 @@ export function Navbar() {
             </div>
           </Link>
 
-          <div className="hidden lg:flex items-center gap-7 text-sm font-medium">
-            {NAV_LINKS.map((link) =>
-              link.hash ? (
-                <button
-                  key={link.href}
-                  onClick={() => scrollTo(link.href)}
-                  className="text-mute hover:text-white transition-colors"
-                >
-                  {link.label}
-                </button>
-              ) : (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-mute hover:text-white transition-colors"
-                >
-                  {link.label}
-                </Link>
-              )
-            )}
-          </div>
+          <div className="hidden lg:flex items-center gap-8">
+            <div className="flex items-center gap-7 text-sm font-medium">
+              {NAV_LINKS.map((link) =>
+                link.hash ? (
+                  <button
+                    key={link.href}
+                    onClick={() => scrollTo(link.href)}
+                    className="text-mute hover:text-white transition-colors"
+                  >
+                    {link.label}
+                  </button>
+                ) : (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="text-mute hover:text-white transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                )
+              )}
+            </div>
 
-          <div className="hidden lg:flex items-center gap-5">
-            <Link
-              href={CLIENT_PORTAL_LINK.href}
-              className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
-            >
-              {CLIENT_PORTAL_LINK.label}
-            </Link>
-            <Link
-              href={QUALIFY_LINK.href}
-              className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
-            >
-              {QUALIFY_LINK.label}
-            </Link>
-            <button
-              onClick={() => commissionDensityScreen({ context: "navbar" })}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
-              title={DENSITY_SCREEN_CTA}
-            >
-              {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
-            </button>
+            <div className="flex items-center gap-5">
+              <Link
+                href={CLIENT_PORTAL_LINK.href}
+                className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
+              >
+                {CLIENT_PORTAL_LINK.label}
+              </Link>
+              <Link
+                href={QUALIFY_LINK.href}
+                className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
+              >
+                {QUALIFY_LINK.label}
+              </Link>
+              <button
+                onClick={() => commissionDensityScreen({ context: "navbar" })}
+                className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
+                title={DENSITY_SCREEN_CTA}
+              >
+                {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
+              </button>
+            </div>
           </div>
 
           <button
