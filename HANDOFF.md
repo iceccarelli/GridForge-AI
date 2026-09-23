@@ -341,9 +341,14 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 1. **Vercel:** set `NEXT_PUBLIC_SITE_URL=https://timetopower.ai`. Until this is set,
    `lib/site.ts` falls back to the literal default and any preview deployment emits
    canonical URLs for production.
-2. **Supabase:** run migrations `0002_qualifications.sql` … `0008_qualification_token.sql`.
+2. **Supabase:** run migrations `0002_qualifications.sql` … `0013_qualification_follow_up.sql`
+   (the full set in `supabase/migrations/`, applied in order — this line was last
+   updated when 0013 landed and will go stale again the next time a migration is
+   added; check the directory, not this number).
    **`0008` gates the `/q/<token>` share link** — the share surface shipped in 0021
-   does not function until it is applied.
+   does not function until it is applied. **`0013` gates the follow-up request
+   button** on the same page (§6c #15) — without it, submitting the form 400s on
+   the missing columns.
 3. **Vercel:** set `CRON_SECRET` (the weekly Hall Watch cron in `vercel.json` is
    unauthenticated without it).
 4. **Rotate `GRIDFORGE_API_KEYS`.** A key was pasted into a chat transcript. Mint a
@@ -399,8 +404,18 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
     each turn — this just stops the browser from discarding it on reload.
     `tests/site/workspace-session.test.ts` covers the round trip and the
     fail-closed cases (corrupt JSON, storage unavailable).
-15. **No email sequence.** Resend is wired for transactional mail only. A `/q/<token>`
-    read that nobody follows up on is a lead we paid for and discarded.
+15. ~~No email sequence.~~ **Partly fixed.** `/q/<token>` now has one explicit,
+    user-initiated "request a follow-up" action (`RequestFollowUp` component,
+    `app/api/qualify/[token]/follow-up/route.ts`, migration `0013`). It is
+    deliberately **not** a drip sequence: one request sends exactly one
+    acknowledgment to the buyer and one notice to the desk, both grounded only in
+    the stored qualification row and the product catalogue, and the write is
+    idempotent (`follow_up_requested_at is null` on the update) so a retried
+    request or two open tabs never produce a second email. Still open: there is no
+    automated nudge for a read that was *viewed* but never asked for a follow-up
+    (`RESULT_VIEWED → NO_RESPONSE` in the funnel language above) — that would be
+    the next increment, and it should stay this sparse rather than growing into a
+    newsletter. See `tests/site/qualify-followup.test.ts`.
 
 ### 6d. Engineering — known gaps in the model itself
 

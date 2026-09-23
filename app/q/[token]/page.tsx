@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CommissionScreen } from "@/components/CommissionScreen";
+import { RequestFollowUp } from "@/components/RequestFollowUp";
 import { AlertTriangle, ArrowRight, Users } from "lucide-react";
 import { BENCHMARK_MIN_HALLS, benchmark, getQualification } from "@/lib/qualify";
 import { constraintReference } from "@/lib/constraints";
@@ -162,10 +163,11 @@ export default async function QualificationPage({
             Find out what it costs to move, and by when.
           </h2>
           <p className="mt-1 text-sm text-mute">
-            A {screen.name} turns this read into a document: the first six rungs of the costed
-            ladder, the item that sets the energisation date, and a data request you can hand
-            your own engineers verbatim. {screen.turnaroundDays} working days, fixed fee, and it
-            credits in full against the full study.
+            This read is a free, directional indication. The {screen.name} is the paid
+            engineering step: it turns the read into a document — the first six rungs of the
+            costed ladder, the item that sets the energisation date, and a data request you can
+            hand your own engineers verbatim. {screen.turnaroundDays} working days, fixed fee, and
+            it credits in full against the full study.
           </p>
         </div>
         <CommissionScreen
@@ -183,6 +185,20 @@ export default async function QualificationPage({
         >
           Read one in full first
         </Link>
+      </section>
+
+      <section className="mt-6 rounded border border-line bg-panel-2 p-6">
+        <h2 className="text-lg font-semibold text-ghost">Not ready to commission yet?</h2>
+        <p className="mt-1 text-sm text-mute">
+          Ask an engineer to walk through this read with you before you decide anything.
+        </p>
+        <div className="mt-4">
+          <RequestFollowUp
+            token={q.token}
+            defaultEmail={q.email}
+            alreadyRequested={Boolean(q.follow_up_requested_at)}
+          />
+        </div>
       </section>
 
       <p className="mt-6 text-[11px] text-faint">

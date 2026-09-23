@@ -178,7 +178,9 @@ export interface StoredQualification {
   binding_constraint: string | null;
   intake_completeness: number | null;
   company: string | null;
+  email: string | null;
   status: string;
+  follow_up_requested_at: string | null;
 }
 
 function sbAuth(): { url: string; headers: Record<string, string> } | null {
@@ -203,7 +205,8 @@ export async function getQualification(token: string): Promise<StoredQualificati
   if (!c || !token) return null;
   const cols =
     "id,created_at,token,site_name,hall_id,metro,country,platform,inputs," +
-    "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,status";
+    "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,email," +
+    "status,follow_up_requested_at";
   try {
     const res = await fetch(
       `${c.url}/rest/v1/qualifications?select=${cols}&token=eq.${encodeURIComponent(token)}&limit=1`,
@@ -331,5 +334,54 @@ export async function benchmark(constraint: string | null): Promise<Benchmark> {
     };
   } catch {
     return { published: false, halls: 0, sameConstraint: 0, sharePct: null, blockedAsFound: null };
+  }
+}
+
+// --- follow-up: the read asking for a human, once --------------------------
+
+export type FollowUpOutcome =
+  | { ok: true; already: false }
+  | { ok: true; already: true }
+  | { ok: false; reason: "unconfigured" | "store_error" };
+
+/**
+ * Record a follow-up request against a qualification, exactly once.
+ *
+ * The `follow_up_requested_at is.null` filter on the PATCH is the whole
+ * idempotency mechanism: a second click, a retried fetch, or two tabs racing each
+ * other all land on the same row, and only the write that actually finds it still
+ * null flips it. Everyone else gets `already: true` and no second email goes out
+ * — see the route for why that matters (one honest message beats a sequence).
+ */
+export async function requestFollowUp(
+  token: string,
+  email: string,
+  note: string | null
+): Promise<FollowUpOutcome> {
+  const c = sbAuth();
+  if (!c || !token) return { ok: false, reason: "unconfigured" };
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/qualifications?token=eq.${encodeURIComponent(token)}` +
+        "&follow_up_requested_at=is.null",
+      {
+        method: "PATCH",
+        headers: { ...c.headers, Prefer: "return=representation" },
+        body: JSON.stringify({
+          follow_up_requested_at: new Date().toISOString(),
+          follow_up_email: email,
+          follow_up_note: note,
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] follow-up update failed:", res.status, await res.text());
+      return { ok: false, reason: "store_error" };
+    }
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    return { ok: true, already: rows.length === 0 };
+  } catch (err) {
+    console.error("[GridForge] follow-up update error:", err);
+    return { ok: false, reason: "store_error" };
   }
 }
