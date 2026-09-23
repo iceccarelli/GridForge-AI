@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, MessageSquare, PanelsTopLeft } from "lucide-react";
 import { Canvas } from "@/components/ai/Canvas";
 import { Conversation } from "@/components/ai/Conversation";
 import { ProjectPanel } from "@/components/ai/ProjectPanel";
 import { getAssistantTurn } from "@/components/ai/chat";
 import type { ChatMessage } from "@/components/ai/types";
+import { clearWorkspaceSession, loadWorkspaceSession, saveWorkspaceSession } from "@/lib/ai/session";
 
 type MobileTab = "chat" | "canvas" | "project";
 
@@ -20,6 +21,29 @@ export function WorkspaceClient() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore a conversation left behind by a reload. Runs after the first
+  // render (not in useState's initializer) so the server-rendered markup and
+  // the client's first paint always agree — a scoping conversation is
+  // client-only state and must never desync hydration.
+  useEffect(() => {
+    const restored = loadWorkspaceSession(typeof window === "undefined" ? undefined : window.localStorage);
+    if (restored.length > 0) setMessages(restored);
+    setHydrated(true);
+  }, []);
+
+  // Persist on every change, once restore has had its turn — otherwise the
+  // empty initial state would race the restore and clear a real session.
+  useEffect(() => {
+    if (!hydrated) return;
+    saveWorkspaceSession(typeof window === "undefined" ? undefined : window.localStorage, messages);
+  }, [messages, hydrated]);
+
+  function handleReset() {
+    setMessages([]);
+    clearWorkspaceSession(typeof window === "undefined" ? undefined : window.localStorage);
+  }
 
   async function handleSend(text: string) {
     const next: ChatMessage[] = [...messages, { role: "user", content: text }];
@@ -42,7 +66,7 @@ export function WorkspaceClient() {
       {/* Desktop / tablet: three panes side by side */}
       <div className="hidden md:grid flex-1 min-h-0 grid-cols-[340px_1fr_280px] lg:grid-cols-[380px_1fr_300px]">
         <div className="border-r border-line min-h-0 bg-panel/40">
-          <Conversation messages={messages} loading={loading} onSend={handleSend} />
+          <Conversation messages={messages} loading={loading} onSend={handleSend} onReset={handleReset} />
         </div>
         <div className="min-h-0 min-w-0 blueprint">
           <Canvas messages={messages} onQuickAction={handleSend} />
@@ -57,7 +81,7 @@ export function WorkspaceClient() {
         <div className="flex-1 min-h-0">
           {mobileTab === "chat" && (
             <div className="h-full bg-panel/40">
-              <Conversation messages={messages} loading={loading} onSend={handleSend} />
+              <Conversation messages={messages} loading={loading} onSend={handleSend} onReset={handleReset} />
             </div>
           )}
           {mobileTab === "canvas" && (
