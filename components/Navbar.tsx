@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { m, AnimatePresence } from "framer-motion";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
-import { NAV_LINKS, QUALIFY_LINK } from "@/lib/nav";
+import { NAV_LINKS, QUALIFY_LINK, CLIENT_PORTAL_LINK } from "@/lib/nav";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -17,6 +17,15 @@ export function Navbar() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen]);
 
   const scrollTo = (href: string) => {
     setIsOpen(false);
@@ -78,7 +87,13 @@ export function Navbar() {
             )}
           </div>
 
-          <div className="hidden lg:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-5">
+            <Link
+              href={CLIENT_PORTAL_LINK.href}
+              className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
+            >
+              {CLIENT_PORTAL_LINK.label}
+            </Link>
             <Link
               href={QUALIFY_LINK.href}
               className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
@@ -98,6 +113,7 @@ export function Navbar() {
             onClick={() => setIsOpen(!isOpen)}
             className="lg:hidden p-2 text-mute hover:text-white"
             aria-label="Toggle menu"
+            aria-controls="mobile-nav"
             aria-expanded={isOpen}
           >
             {isOpen ? <X size={22} /> : <Menu size={22} />}
@@ -107,6 +123,7 @@ export function Navbar() {
         <AnimatePresence>
           {isOpen && (
             <m.div
+              id="mobile-nav"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
@@ -140,11 +157,11 @@ export function Navbar() {
                     {QUALIFY_LINK.label}
                   </Link>
                   <Link
-                    href="/dashboard"
+                    href={CLIENT_PORTAL_LINK.href}
                     onClick={() => setIsOpen(false)}
                     className="text-center text-xs text-mute hover:text-white transition-colors py-1"
                   >
-                    Client portal
+                    {CLIENT_PORTAL_LINK.label}
                   </Link>
                 </div>
               </div>

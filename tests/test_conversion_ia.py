@@ -18,12 +18,19 @@ def test_navbar_and_footer_import_the_same_nav_config():
     assert 'from "@/lib/nav"' in navbar, "Navbar must source its links from lib/nav.ts"
     assert 'from "@/lib/nav"' in footer, "Footer must source its links from lib/nav.ts"
     assert "NAV_LINKS.map(" in navbar
-    assert "NAV_LINKS.map(" in footer
+    # The footer no longer dumps NAV_LINKS into one column — it groups
+    # commercial destinations (product, how-it-works, customer, company)
+    # under lib/nav.ts's FOOTER_GROUPS, still one shared source.
+    assert "FOOTER_GROUPS.map(" in footer
 
 
-def test_workspace_is_in_the_shared_nav():
+def test_workspace_is_reachable_but_not_in_primary_nav():
+    # Workspace is an application/customer surface, not ordinary public
+    # navigation — it stays reachable (the dashboard/portal surfaces link to
+    # it) and noindexed, but it no longer competes with the five-item
+    # commercial header for a visitor's attention.
     nav = read("lib/nav.ts")
-    assert '"/workspace"' in nav, "Workspace must be reachable from the shared nav config"
+    assert '"/workspace"' not in nav, "Workspace must not overload the primary commercial nav"
 
 
 def test_workspace_stays_noindex_but_reachable():
@@ -31,8 +38,13 @@ def test_workspace_stays_noindex_but_reachable():
     assert "index: false" in page, "Workspace's own robots meta must still say noindex"
     robots = read("app/robots.ts")
     assert '"/workspace"' in robots, "robots.txt should back up the page-level noindex"
-    # Reachability is covered by test_navbar_and_footer_import_the_same_nav_config
-    # plus test_workspace_is_in_the_shared_nav — noindex must not mean unlinked.
+    # Workspace is deliberately out of the primary nav (see
+    # test_workspace_is_reachable_but_not_in_primary_nav) but noindex must
+    # not mean unlinked — it stays reachable from ScopingAgent's "open full
+    # workspace" affordance, present on every page.
+    assert 'href="/workspace"' in read(
+        "components/ScopingAgent.tsx"
+    ), "Workspace must still be linked from somewhere a real visitor reaches"
 
 
 CANONICAL_PAGES = [
