@@ -44,7 +44,7 @@ export function WorkspaceClient() {
         <div className="border-r border-line min-h-0 bg-panel/40">
           <Conversation messages={messages} loading={loading} onSend={handleSend} />
         </div>
-        <div className="min-h-0 blueprint">
+        <div className="min-h-0 min-w-0 blueprint">
           <Canvas messages={messages} onQuickAction={handleSend} />
         </div>
         <div className="border-l border-line min-h-0 bg-panel/40">

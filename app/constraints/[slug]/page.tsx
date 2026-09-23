@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, Calculator } from "lucide-react";
 import { DOMAIN_LABEL, constraintBySlug, constraintReference } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 // Constraint -> reference photograph, per time-to-power-image-pack-v1's own
 // manifest/CONSTRAINT_MAP.json. Matched by keyword against the slug/id so we
@@ -215,7 +216,7 @@ export default async function ConstraintPage({
           href="/qualify"
           className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
         >
-          Run your hall <ArrowRight className="h-4 w-4" />
+          {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
     </main>

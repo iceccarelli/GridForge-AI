@@ -6,6 +6,7 @@ import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
 import McpInstall from "@/components/McpInstall";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 export const metadata: Metadata = {
   title: "Machine interface — call the engine",
@@ -181,7 +182,7 @@ export default async function DevelopersPage() {
       </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="rounded border border-line bg-panel-2 p-6">
+        <div className="min-w-0 rounded border border-line bg-panel-2 p-6">
           <h3 className="text-lg font-semibold text-ghost">Try it without a key</h3>
           <p className="mt-2 text-sm text-mute">
             Seven numbers about an existing air-cooled hall. The answer names the constraint that
@@ -199,7 +200,7 @@ export default async function DevelopersPage() {
        "positions_available":180}'`}
           </pre>
         </div>
-        <div className="rounded border border-line bg-panel-2 p-6">
+        <div className="min-w-0 rounded border border-line bg-panel-2 p-6">
           <h3 className="text-lg font-semibold text-ghost">Point an agent at it</h3>
           <p className="mt-2 text-sm text-mute">
             MCP over JSON-RPC 2.0 at{" "}
@@ -269,7 +270,7 @@ export default async function DevelopersPage() {
       <section id="plans" className="mt-12 scroll-mt-24">
         <h2 className="text-xl font-semibold text-ghost">Metered access</h2>
         <p className="mt-2 max-w-3xl text-sm text-mute">
-          Run the free qualifier first — if it answers your question you do not need a key. If
+          Run a free capacity check first — if it answers your question you do not need a key. If
           you have two hundred halls and a model that needs re-running every time a tariff or a
           platform spec moves, this is what that costs.
         </p>
@@ -287,10 +288,10 @@ export default async function DevelopersPage() {
           </p>
         </div>
         <Link
-          href="/qualify"
+          href={QUALIFY_LINK.href}
           className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
         >
-          Run the free qualifier <ArrowRight className="h-4 w-4" />
+          {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
           href="/reference"

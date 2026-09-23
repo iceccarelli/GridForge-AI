@@ -4,6 +4,7 @@ import { ArrowRight, Cable, Snowflake, Weight } from "lucide-react";
 import { DOMAIN_LABEL, constraintReference } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 const DOMAIN_IMAGE: Record<string, TtpImageId> = {
   electrical: "ttp-04",
@@ -130,7 +131,7 @@ export default async function ConstraintsPage() {
           href="/qualify"
           className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
         >
-          Find out <ArrowRight className="h-4 w-4" />
+          {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
     </main>

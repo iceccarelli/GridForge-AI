@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 export const metadata: Metadata = {
   title: "The deliverable, in full — worked example",
@@ -235,7 +236,7 @@ export default async function ReferencePage() {
           href="/qualify"
           className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
         >
-          Find the binding constraint <ArrowRight className="h-4 w-4" />
+          {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
     </main>

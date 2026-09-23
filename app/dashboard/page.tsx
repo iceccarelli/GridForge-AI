@@ -6,6 +6,7 @@ import { ArrowRight, FileText, Loader2, LogOut, Radar } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-client";
 import { eurFromCents } from "@/lib/products";
 import { CommissionScreen } from "@/components/CommissionScreen";
+import { QUALIFY_LINK } from "@/lib/nav";
 
 /**
  * The client portal. Real rows or an honest empty state — nothing else.
@@ -216,8 +217,8 @@ export default function Dashboard() {
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-4">
                 <CommissionScreen productId="density_screen" context="portal-empty" />
-                <Link href="/qualify" className="text-sm text-power hover:underline">
-                  Or run the free qualifier first →
+                <Link href={QUALIFY_LINK.href} className="text-sm text-power hover:underline">
+                  Or {QUALIFY_LINK.label.toLowerCase()} →
                 </Link>
               </div>
             </div>
