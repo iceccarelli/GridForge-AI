@@ -150,6 +150,13 @@ export default function Dashboard() {
         {state.phase === "ready" ? (
           <div className="flex items-center gap-4 text-sm">
             <span className="text-faint">{state.email}</span>
+            <Link
+              href="/account"
+              className="text-mute transition-colors hover:text-white"
+              title="GridForge Intelligence subscription, if you have one"
+            >
+              Intelligence portal →
+            </Link>
             <button
               onClick={signOut}
               className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2 text-mute transition-colors hover:border-power/40 hover:text-white"

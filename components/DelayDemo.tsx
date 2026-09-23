@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
 
 // Public cost-of-delay demo for the /intelligence sales page. Same model as the
@@ -65,7 +66,7 @@ export function DelayDemo() {
       </div>
       <p className="data text-[10px] text-faint mt-4">
         Subscribe for live + published ISO queue data across all markets, an AI siting analyst,
-        saved scenarios, and downloadable board briefs. Directional; a paid Audit confirms.
+        saved scenarios, and downloadable board briefs. Directional; a <Link href="/pricing" className="text-power hover:underline">Density Screen</Link> confirms figures for one hall.
       </p>
     </div>
   );

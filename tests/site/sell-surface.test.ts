@@ -83,6 +83,15 @@ describe("no CTA leads to a product that does not exist", () => {
     expect(offenders.map((f) => path.relative(ROOT, f))).toEqual([]);
   });
 
+  it("no user-facing copy promises 'a paid Audit' — that product does not exist", () => {
+    // Caught the "Power Audit" phrase but missed "a paid Audit confirms..." in
+    // the Intelligence dashboard and its public demo — three references to a
+    // next paid product a customer could never actually buy. Same defect,
+    // different wording; guard the general phrase, not just the old brand name.
+    const offenders = files.filter((f) => /paid audit/i.test(code(f)));
+    expect(offenders.map((f) => path.relative(ROOT, f))).toEqual([]);
+  });
+
   it("every product named in a CTA is one checkout can actually charge for", () => {
     const sellable = new Set(Object.keys(PRODUCTS));
     const quoted = new Set<string>();
