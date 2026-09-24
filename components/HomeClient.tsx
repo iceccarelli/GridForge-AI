@@ -258,11 +258,16 @@ export function HomeClient() {
       {/* The qualifier. Everything above this is argument; this is the engine
           answering a question about the reader's own hall, for nothing. It is also
           where the binding-constraint dataset comes from. */}
-      <section id="qualify" className="max-w-5xl mx-auto px-6 py-20">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+      {/* This is the page's one real "big moment" — the free qualifier is the
+          actual lead-gen mechanism, not another argument for the thesis, so it
+          gets the loudest type on the page (section-title-hero) and extra air
+          around it, instead of stating it at the same volume as everything
+          else. */}
+      <section id="qualify" className="max-w-5xl mx-auto px-6 py-28 sm:py-32">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
           <div className="max-w-xl">
             <div className="eyebrow mb-3 text-power">RUN IT ON YOUR OWN HALL</div>
-            <h2 className="section-title">
+            <h2 className="section-title-hero">
               Most halls don&rsquo;t fail on cooling.
               <br />
               They fail on a 63&nbsp;A tap-off.
@@ -455,13 +460,17 @@ export function HomeClient() {
       </section>
 
       {/* ============== ABOUT / FOUNDER ============== */}
+      {/* Trust/support material, not the pitch — quieter type and tighter
+          rhythm than the commercial sections around it, so it reads as
+          supporting context rather than competing with the qualifier above
+          or the FAQ's "no overclaiming" close below at the same volume. */}
       <section
         id="about"
-        className="bg-[#060912] border-y border-line py-20"
+        className="bg-[#060912] border-y border-line py-16"
       >
         <div className="max-w-4xl mx-auto px-6">
           <div className="eyebrow mb-3">FOUNDER-LED</div>
-          <h2 className="section-title mb-7">{SITE.founder}</h2>
+          <h2 className="section-title-quiet mb-7">{SITE.founder}</h2>
           <p className="text-lg text-ghost/85 leading-relaxed max-w-2xl">
             Time to Power is built by {SITE.founder} — a grid networks engineer
             working on the digitalization of high-voltage assets, with an
@@ -513,9 +522,9 @@ export function HomeClient() {
       </section>
 
       {/* ============== FAQ ============== */}
-      <section id="faq" className="max-w-3xl mx-auto px-6 py-20">
+      <section id="faq" className="max-w-3xl mx-auto px-6 py-16">
         <div className="eyebrow mb-3">STRAIGHT ANSWERS</div>
-        <h2 className="section-title mb-10">No overclaiming.</h2>
+        <h2 className="section-title-quiet mb-10">No overclaiming.</h2>
         <div className="divide-y divide-line border-y border-line">
           {FAQ.map((f, i) => (
             <FaqItem key={i} q={f.q} a={f.a} />

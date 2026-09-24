@@ -190,6 +190,26 @@ body {
   font-weight: 600;
 }
 
+/* Every section on the homepage used .section-title at the same weight —
+   ten identical-scale headlines in a row, no editorial hierarchy between
+   the page's one genuine conversion moment (the free qualifier) and its
+   supporting/trust material (About, FAQ). These two variants exist so the
+   page can actually vary loudness section to section instead of stating
+   everything at the same volume. */
+.section-title-hero {
+  font-size: clamp(2.75rem, 7vw, 5rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  font-weight: 600;
+}
+
+.section-title-quiet {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
 /* Sweep highlight on cards */
 .sweep {
   position: relative;
