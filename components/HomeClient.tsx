@@ -5,10 +5,6 @@ import Link from "next/link";
 import { m, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
-  Search,
-  TrendingUp,
-  Ruler,
-  CheckCircle2,
   ChevronDown,
   Building2,
   ShieldAlert,
@@ -40,13 +36,6 @@ import {
   SITE,
 } from "@/lib/site";
 
-
-const serviceIcons: Record<string, React.ElementType> = {
-  search: Search,
-  trending: TrendingUp,
-  ruler: Ruler,
-  check: CheckCircle2,
-};
 
 export function HomeClient() {
 
@@ -316,7 +305,6 @@ export function HomeClient() {
 
         <div className="grid md:grid-cols-2 gap-5">
           {serviceCards().map((s, i) => {
-            const Icon = serviceIcons[s.icon] ?? Search;
             return (
               <div
                 key={i}
@@ -325,9 +313,9 @@ export function HomeClient() {
                 }`}
               >
                 <div className="flex items-start justify-between mb-5">
-                  <div className="w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-power" />
-                  </div>
+                  <span className="data text-[11px] text-faint tracking-[0.12em]">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                   {s.flagship && (
                     <span className="pill pill-progress">START HERE</span>
                   )}
