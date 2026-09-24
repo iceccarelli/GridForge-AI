@@ -94,3 +94,29 @@ def test_contact_email_is_on_the_domain_of_record():
     assert 'email: "power@timetopower.ai"' in site
     assert "gridforge.ai" not in read("app/legal/privacy/page.tsx")
     assert "gridforge.ai" not in read("app/legal/security/page.tsx")
+
+
+def test_homepage_has_real_typographic_hierarchy_not_one_uniform_scale():
+    # Every one of the homepage's ~10 sections used .section-title at
+    # identical weight — no scale variation anywhere on the page. This
+    # doesn't assert exact pixel values (a future redesign is free to
+    # change those), only that the page keeps using more than one register:
+    # the free qualifier (the actual lead-gen mechanism) reads louder than
+    # the page's default, and the trust/support material (About, FAQ) reads
+    # quieter — not all ten sections stated at the same volume again.
+    css = read("app/globals.css")
+    assert ".section-title-hero" in css
+    assert ".section-title-quiet" in css
+
+    home = read("components/HomeClient.tsx")
+    assert 'id="qualify"' in home
+    qualify_section = home.split('id="qualify"', 1)[1].split("</section>", 1)[0]
+    assert "section-title-hero" in qualify_section, (
+        "the free qualifier is the homepage's real conversion moment and should read louder than the page default"
+    )
+
+    for section_id in ["about", "faq"]:
+        section = home.split(f'id="{section_id}"', 1)[1].split("</section>", 1)[0]
+        assert "section-title-quiet" in section, (
+            f"#{section_id} is trust/support material and should read quieter than the page default"
+        )
