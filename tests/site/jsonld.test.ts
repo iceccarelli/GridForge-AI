@@ -18,6 +18,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { constraintCatalogueJsonLd, constraintRecordJsonLd } from "@/lib/jsonld";
 import type { ConstraintReference } from "@/lib/constraints";
+import { siteUrl } from "@/lib/site";
 
 const REF: ConstraintReference = JSON.parse(
   fs.readFileSync(
@@ -39,8 +40,8 @@ describe("constraintCatalogueJsonLd", () => {
 
   it("points at the machine-readable copies this site actually serves", () => {
     const urls = ld.distribution.map((d) => d.contentUrl);
-    expect(urls).toContain("https://timetopower.ai/reference/constraints.json");
-    expect(urls).toContain("https://timetopower.ai/api/constraints");
+    expect(urls).toContain(siteUrl("/reference/constraints.json"));
+    expect(urls).toContain(siteUrl("/api/constraints"));
   });
 
   it("lists every constraint by name, once", () => {
@@ -48,7 +49,7 @@ describe("constraintCatalogueJsonLd", () => {
   });
 
   it("cites the citation endpoint rather than restating its own licence text", () => {
-    expect(ld.citation).toBe("https://timetopower.ai/api/cite");
+    expect(ld.citation).toBe(siteUrl("/api/cite"));
   });
 });
 
@@ -59,16 +60,16 @@ describe("constraintRecordJsonLd", () => {
   it("is a Dataset scoped to this one constraint", () => {
     expect(ld["@type"]).toBe("Dataset");
     expect(ld.identifier).toBe(c.id);
-    expect(ld.url).toBe(`https://timetopower.ai/constraints/${c.slug}`);
+    expect(ld.url).toBe(siteUrl(`/constraints/${c.slug}`));
   });
 
   it("is part of the catalogue dataset, not a free-standing page", () => {
-    expect(ld.isPartOf.url).toBe("https://timetopower.ai/constraints");
+    expect(ld.isPartOf.url).toBe(siteUrl("/constraints"));
   });
 
   it("distributes through the per-slug machine-readable endpoint", () => {
     expect(ld.distribution.contentUrl).toBe(
-      `https://timetopower.ai/api/constraints?slug=${c.slug}`
+      siteUrl(`/api/constraints?slug=${c.slug}`)
     );
   });
 

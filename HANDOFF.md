@@ -427,9 +427,16 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 ### 6d. Engineering — known gaps in the model itself
 
 16. **No CFD and no intention to add one** — it is scoped out of every engagement.
-    But `residual_air_removal` is the constraint most likely to be wrong without one,
-    and we should know by how much. A sensitivity study against published hall data
-    would tell us whether the scope-out is safe or whether it is exposure.
+    **First-cut answer, not a closed one:** `docs/08_RESIDUAL_AIR_EXPOSURE_ANALYSIS.md`
+    sweeps the one input `residual_air_removal` depends on across a defensible band
+    on the four bundled example halls. Finding: on all four, something else always
+    binds first with margin — the scope-out is not currently costing accuracy on
+    these examples. That is a fact about these four halls, not a general licence;
+    the document says so, and `tests/test_residual_air_exposure.py` turns the
+    finding into a guardrail that fails the moment it stops being true (a library
+    change, a new example hall, or a real instrumented site with different margins
+    could all flip it). "Published hall data" beyond the bundled examples is still
+    not available — that part of the original ask still needs a real engagement.
 17. **`floor_loading` is a screening calculation only** and says so. If a client ever
     acts on it structurally we have a problem the disclaimer may not cover.
 18. **Thirteen constraints, no thermal transient.** Everything is steady-state. A hall
@@ -445,13 +452,15 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 ### 6e. Distribution
 
 21. **`/llms.txt` and `/api/cite` are live but nothing points at them.** No submission
-    to any model-facing index. **Partially stale:** the constraint pages
-    (`app/constraints/[slug]/page.tsx`) already emit `schema.org/TechArticle`
-    JSON-LD, canonical URLs and OpenGraph metadata — what is still missing is
-    structured markup for the *numeric claims themselves* (a `Dataset` /
-    `Claim`-shaped block per worked example, so a crawler can cite the number, not
-    just the article) and any actual outreach/submission, which needs a person, not
-    a patch.
+    to any model-facing index — that half needs a person, not a patch. The
+    structured-data half is **done**: `app/constraints/page.tsx` and
+    `app/constraints/[slug]/page.tsx` now carry `schema.org/Dataset` JSON-LD
+    (`lib/jsonld.ts`) alongside the existing `TechArticle` block — per-constraint
+    lead time, cost-basis evidence class and worked example each as a
+    `PropertyValue`, pointing at `/api/constraints` and `/api/cite`. Deliberately
+    never `Claim` or `QuantitativeValue` — those imply a fact-check or measurement
+    we have not done. Tested in `tests/site/jsonld.test.ts` against the real
+    generated reference file.
 22. **The benchmark needs 8 halls and we have fewer.** Until then `benchmark()`
     returns nothing, and the qualifier's best hook is dark.
 23. **No case study.** The published worked example is synthetic and labelled as such.
