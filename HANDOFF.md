@@ -390,9 +390,17 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
     are E0/E1 throughout. The first Procurement Specification should ingest real bids
     through `gridforge/procurement/ingest.py` and upgrade the library. Build the
     habit into the delivery runbook so it is not optional.
-12. **No portfolio deliverable template.** `/v1/portfolio` returns a ranking; the
-    €60k–€140k engagement promises "one model pack per hall" and that packaging step
-    is manual.
+12. ~~No portfolio deliverable template.~~ **Stale.** `gridforge/reporting/portfolio.py`
+    builds the full ranking report (deployable racks, time to power, capex per rack,
+    shared-constraint programme, where-to-start), and `cli.py`'s `cmd_portfolio`
+    already writes one `model_pack_<hall>.json` per hall alongside it — exactly
+    what the €60k–€140k engagement promises. What is genuinely still manual is the
+    self-serve *site* path: `portfolio_screen_deposit` has `producesDeliverable:
+    false` in `lib/products.ts` on purpose (it is a deposit against a bespoke,
+    45-day engagement, same as the Envelope Study deposit) — a human runs the CLI
+    command, not the checkout webhook. That may be the correct design for a
+    five-figure-deposit bespoke engagement rather than a gap; re-verify against the
+    founder's intent before treating it as OPEN.
 13. ~~The Procurement Specification's bid comparison has no supplier-facing artefact.~~
     **Fixed, and already was by the time this line was last true.** `gridforge/reporting/spec.py`
     builds a full tender document — scope, obligation-worded requirements each naming
