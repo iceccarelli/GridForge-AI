@@ -96,3 +96,25 @@ def get_platform(platform_id: str) -> GPUPlatform:
             "Refusing to supply a number for paid engineering work."
         )
     return PLATFORMS[platform_id]
+
+
+def newest_source_year(platform: GPUPlatform) -> int | None:
+    """The most recent year cited anywhere on this platform's fields.
+
+    HANDOFF.md §6d #20: the library hardcodes accelerator families with no refresh
+    cadence, and "it needs an owner or it silently ages into wrongness." This is
+    the mechanism a cadence needs to check against — `tests/test_platform_freshness.py`
+    fails when a shipping platform's newest citation falls outside the review
+    window, which is the difference between "ages silently" and "fails loudly."
+    None means no field on this platform carries a dated source at all.
+    """
+    from dataclasses import fields
+    from ..validation import Quantity
+    years = [
+        src.year
+        for f in fields(platform)
+        if isinstance(getattr(platform, f.name), Quantity)
+        for src in getattr(platform, f.name).prov.sources
+        if src.year is not None
+    ]
+    return max(years) if years else None

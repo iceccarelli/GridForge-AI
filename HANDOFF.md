@@ -453,9 +453,12 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 19. **ThermalForge integration is still selective and undocumented.** Nobody but the
     founder knows which parts were taken and which were rejected. Write that down
     before the knowledge is lost.
-20. **The platform library** (`gridforge/platforms.py`) hardcodes accelerator
-    families. It needs a refresh cadence and an owner, or it silently ages into
-    wrongness — and it is the input a buyer is most likely to check first.
+20. **The platform library** (`gridforge/compute/library.py`) hardcodes accelerator
+    families. **The "silently" half is fixed:** `tests/test_platform_freshness.py`
+    fails the build when a shipping platform's newest cited source falls outside a
+    24-month window, naming exactly which field to re-check and what to do about
+    it (`newest_source_year()` in `library.py`). **The "owner" half is still
+    open** — that is the founder's name on a calendar reminder, not a patch.
 
 ### 6e. Distribution
 
