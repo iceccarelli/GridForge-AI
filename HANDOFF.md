@@ -390,9 +390,17 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
     are E0/E1 throughout. The first Procurement Specification should ingest real bids
     through `gridforge/procurement/ingest.py` and upgrade the library. Build the
     habit into the delivery runbook so it is not optional.
-12. **No portfolio deliverable template.** `/v1/portfolio` returns a ranking; the
-    €60k–€140k engagement promises "one model pack per hall" and that packaging step
-    is manual.
+12. ~~No portfolio deliverable template.~~ **Stale.** `gridforge/reporting/portfolio.py`
+    builds the full ranking report (deployable racks, time to power, capex per rack,
+    shared-constraint programme, where-to-start), and `cli.py`'s `cmd_portfolio`
+    already writes one `model_pack_<hall>.json` per hall alongside it — exactly
+    what the €60k–€140k engagement promises. What is genuinely still manual is the
+    self-serve *site* path: `portfolio_screen_deposit` has `producesDeliverable:
+    false` in `lib/products.ts` on purpose (it is a deposit against a bespoke,
+    45-day engagement, same as the Envelope Study deposit) — a human runs the CLI
+    command, not the checkout webhook. That may be the correct design for a
+    five-figure-deposit bespoke engagement rather than a gap; re-verify against the
+    founder's intent before treating it as OPEN.
 13. ~~The Procurement Specification's bid comparison has no supplier-facing artefact.~~
     **Fixed, and already was by the time this line was last true.** `gridforge/reporting/spec.py`
     builds a full tender document — scope, obligation-worded requirements each naming
@@ -427,9 +435,16 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 ### 6d. Engineering — known gaps in the model itself
 
 16. **No CFD and no intention to add one** — it is scoped out of every engagement.
-    But `residual_air_removal` is the constraint most likely to be wrong without one,
-    and we should know by how much. A sensitivity study against published hall data
-    would tell us whether the scope-out is safe or whether it is exposure.
+    **First-cut answer, not a closed one:** `docs/08_RESIDUAL_AIR_EXPOSURE_ANALYSIS.md`
+    sweeps the one input `residual_air_removal` depends on across a defensible band
+    on the four bundled example halls. Finding: on all four, something else always
+    binds first with margin — the scope-out is not currently costing accuracy on
+    these examples. That is a fact about these four halls, not a general licence;
+    the document says so, and `tests/test_residual_air_exposure.py` turns the
+    finding into a guardrail that fails the moment it stops being true (a library
+    change, a new example hall, or a real instrumented site with different margins
+    could all flip it). "Published hall data" beyond the bundled examples is still
+    not available — that part of the original ask still needs a real engagement.
 17. **`floor_loading` is a screening calculation only** and says so. If a client ever
     acts on it structurally we have a problem the disclaimer may not cover.
 18. **Thirteen constraints, no thermal transient.** Everything is steady-state. A hall
@@ -438,20 +453,25 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 19. **ThermalForge integration is still selective and undocumented.** Nobody but the
     founder knows which parts were taken and which were rejected. Write that down
     before the knowledge is lost.
-20. **The platform library** (`gridforge/platforms.py`) hardcodes accelerator
-    families. It needs a refresh cadence and an owner, or it silently ages into
-    wrongness — and it is the input a buyer is most likely to check first.
+20. **The platform library** (`gridforge/compute/library.py`) hardcodes accelerator
+    families. **The "silently" half is fixed:** `tests/test_platform_freshness.py`
+    fails the build when a shipping platform's newest cited source falls outside a
+    24-month window, naming exactly which field to re-check and what to do about
+    it (`newest_source_year()` in `library.py`). **The "owner" half is still
+    open** — that is the founder's name on a calendar reminder, not a patch.
 
 ### 6e. Distribution
 
 21. **`/llms.txt` and `/api/cite` are live but nothing points at them.** No submission
-    to any model-facing index. **Partially stale:** the constraint pages
-    (`app/constraints/[slug]/page.tsx`) already emit `schema.org/TechArticle`
-    JSON-LD, canonical URLs and OpenGraph metadata — what is still missing is
-    structured markup for the *numeric claims themselves* (a `Dataset` /
-    `Claim`-shaped block per worked example, so a crawler can cite the number, not
-    just the article) and any actual outreach/submission, which needs a person, not
-    a patch.
+    to any model-facing index — that half needs a person, not a patch. The
+    structured-data half is **done**: `app/constraints/page.tsx` and
+    `app/constraints/[slug]/page.tsx` now carry `schema.org/Dataset` JSON-LD
+    (`lib/jsonld.ts`) alongside the existing `TechArticle` block — per-constraint
+    lead time, cost-basis evidence class and worked example each as a
+    `PropertyValue`, pointing at `/api/constraints` and `/api/cite`. Deliberately
+    never `Claim` or `QuantitativeValue` — those imply a fact-check or measurement
+    we have not done. Tested in `tests/site/jsonld.test.ts` against the real
+    generated reference file.
 22. **The benchmark needs 8 halls and we have fewer.** Until then `benchmark()`
     returns nothing, and the qualifier's best hook is dark.
 23. **No case study.** The published worked example is synthetic and labelled as such.

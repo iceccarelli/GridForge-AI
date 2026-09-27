@@ -128,6 +128,35 @@ def _run(intake):
     return run_all(intake.context, intake.scenarios)
 
 
+def cmd_power_assess(args) -> int:
+    from .reporting.readiness import assess
+    intake = load(args.intake)
+    results = _run(intake)
+    case = assess(intake, results, objective=OBJECTIVES[args.objective],
+                  target_racks=args.target_racks)
+    if args.out:
+        Path(args.out).write_text(json.dumps(case, indent=2, default=str) + "\n")
+        print(f"wrote {args.out}")
+    cap = case["capacity"]
+    bind = case["binding_constraint"]
+    ttp = case["time_to_power"]
+    print(f"Power Readiness Case — {intake.client}")
+    print(f"  Current deployable : {cap['current_deployable_racks']} racks "
+          f"({cap['current_deployable_MW']} MW)")
+    if cap["requested_target_given"]:
+        print(f"  Target             : {cap['target_racks']} racks "
+              f"(gap {cap['gap_racks']} racks)")
+    print(f"  Binding constraint : {bind['name']} ({bind['domain']})")
+    print(f"  Headroom ladder    : {len(case['headroom_ladder'])} rungs to "
+          f"{case['capacity']['racks_after_full_headroom_ladder']} racks")
+    if ttp["weeks_to_full"] is not None:
+        print(f"  Time to full power : {ttp['weeks_to_full']:.0f} weeks "
+              f"(critical: {ttp['critical_item']})")
+    print(f"  Calibration        : {case['evidence']['calibration']['state']}")
+    print(f"  Next action        : {case['next_action']['action']}")
+    return 0
+
+
 def cmd_screen(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
@@ -743,6 +772,17 @@ def main(argv: list[str] | None = None) -> int:
                        help="also write the working files, so the client's engineers can check "
                             "the arithmetic in a spreadsheet")
         s.set_defaults(func=fn)
+
+    s = sub.add_parser("power-assess",
+                       help="the Power Readiness Case: current capacity, binding constraint, "
+                            "priced headroom ladder, time to power, evidence and next action")
+    s.add_argument("intake")
+    s.add_argument("-o", "--out")
+    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--target-racks", type=int, default=None,
+                   help="the rack count the customer needs; omit to size the gap against "
+                        "what the full headroom ladder itself can reach")
+    s.set_defaults(func=cmd_power_assess)
 
     s = sub.add_parser("diff", help="what changed between two intakes, and which input changed it")
     s.add_argument("before")

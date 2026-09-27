@@ -6,6 +6,7 @@ import { DOMAIN_LABEL, constraintBySlug, constraintReference } from "@/lib/const
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { constraintRecordJsonLd } from "@/lib/jsonld";
 
 // Constraint -> reference photograph, per time-to-power-image-pack-v1's own
 // manifest/CONSTRAINT_MAP.json. Matched by keyword against the slug/id so we
@@ -94,6 +95,7 @@ export default async function ConstraintPage({
         isAccessibleForFree: true,
         publisher: { "@type": "Organization", name: "Time to Power" },
       })}
+      {jsonLd(constraintRecordJsonLd(c, ref))}
 
       <nav className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
         <Link href="/constraints" className="hover:text-power">

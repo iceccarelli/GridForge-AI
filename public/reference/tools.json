@@ -358,6 +358,43 @@
       }
     },
     {
+      "name": "gridforge_power_assess",
+      "description": "The Power Readiness Case: what is stopping this site reaching the target capacity, what fixes it, what that costs, what it does to the schedule, and what to do next. Composes the same solved scenario as gridforge_screen/gridforge_study into one decision object: current deployable racks vs. the target, the binding constraint, every priced and dated rung on the headroom ladder, the critical-path dependencies that set the earliest credible energisation date, the calibration state behind every number, and one deterministic next action. Never invents a price, a lead time or a date \u2014 every figure traces to the engine or an explicit input, with its evidence class attached.",
+      "endpoint": "/v1/power/assess",
+      "method": "POST",
+      "tier": "client",
+      "units": 5,
+      "returns": "capacity (current/target/gap), binding_constraint, headroom_ladder (every relief priced and dated), time_to_power (critical item and dependencies), evidence (calibration state, evidence classes used), and next_action.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "target_racks": {
+            "type": "integer",
+            "description": "the rack count the customer actually needs; omit to size the gap against what the full headroom ladder itself can reach"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_capex_per_rack",
+              "fastest_to_power"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "gridforge_proposal",
       "description": "A priced proposal for a named engagement, built from what the engine already found.",
       "endpoint": "/v1/proposal",
@@ -735,6 +772,41 @@
             },
             "region": {
               "type": "string"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_power_assess",
+        "description": "The Power Readiness Case: what is stopping this site reaching the target capacity, what fixes it, what that costs, what it does to the schedule, and what to do next. Composes the same solved scenario as gridforge_screen/gridforge_study into one decision object: current deployable racks vs. the target, the binding constraint, every priced and dated rung on the headroom ladder, the critical-path dependencies that set the earliest credible energisation date, the calibration state behind every number, and one deterministic next action. Never invents a price, a lead time or a date \u2014 every figure traces to the engine or an explicit input, with its evidence class attached.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "target_racks": {
+              "type": "integer",
+              "description": "the rack count the customer actually needs; omit to size the gap against what the full headroom ladder itself can reach"
             },
             "objective": {
               "type": "string",
@@ -1159,6 +1231,43 @@
           "gridforge/units": 2,
           "gridforge/tier": "client",
           "gridforge/endpoint": "/v1/bids"
+        }
+      },
+      {
+        "name": "gridforge_power_assess",
+        "description": "The Power Readiness Case: what is stopping this site reaching the target capacity, what fixes it, what that costs, what it does to the schedule, and what to do next. Composes the same solved scenario as gridforge_screen/gridforge_study into one decision object: current deployable racks vs. the target, the binding constraint, every priced and dated rung on the headroom ladder, the critical-path dependencies that set the earliest credible energisation date, the calibration state behind every number, and one deterministic next action. Never invents a price, a lead time or a date \u2014 every figure traces to the engine or an explicit input, with its evidence class attached.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "target_racks": {
+              "type": "integer",
+              "description": "the rack count the customer actually needs; omit to size the gap against what the full headroom ladder itself can reach"
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_capex_per_rack",
+                "fastest_to_power"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 5,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/power/assess"
         }
       },
       {

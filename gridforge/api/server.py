@@ -22,6 +22,7 @@ Endpoints
     POST /v1/diff                       two intakes-> change note           (key)
     POST /v1/spec                       intake     -> tender specification  (key)
     POST /v1/bids                       intake+bids-> ranked comparison     (key)
+    POST /v1/power/assess               intake     -> Power Readiness Case (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
@@ -69,7 +70,7 @@ from ..serialize import csv_bundle, model_pack
 from .keys import revoke, revoked_ids
 from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
-from .tiers import Tier
+from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
 VERSION = "0.9.0"
@@ -345,6 +346,19 @@ def handle_spec(body: dict, tier: Tier) -> dict:
     return out
 
 
+def handle_power_assess(body: dict, tier: Tier) -> dict:
+    """The Power Readiness Case: current deployable capacity, the binding
+    constraint, the priced headroom ladder, time to power, evidence strength and
+    one deterministic next action, composed from the same solved scenario every
+    other endpoint reads. No new physics — see gridforge/power/readiness.py."""
+    from ..reporting.readiness import assess
+    intake, results = _run(body.get("intake") or body)
+    target = body.get("target_racks")
+    case = assess(intake, results, objective=_objective(body),
+                  target_racks=int(target) if target is not None else None)
+    return redact(case, tier)
+
+
 def handle_revoke(body: dict, tier: Tier) -> dict:
     """Kill a leaked key now, rather than at expiry.
 
@@ -459,6 +473,7 @@ ROUTES = {
     "/v1/diff": (handle_diff, Tier.CLIENT),
     "/v1/spec": (handle_spec, Tier.CLIENT),
     "/v1/bids": (handle_bids, Tier.CLIENT),
+    "/v1/power/assess": (handle_power_assess, Tier.CLIENT),
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
