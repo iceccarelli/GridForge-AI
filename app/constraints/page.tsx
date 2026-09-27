@@ -5,6 +5,7 @@ import { DOMAIN_LABEL, constraintReference } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { constraintCatalogueJsonLd } from "@/lib/jsonld";
 
 const DOMAIN_IMAGE: Record<string, TtpImageId> = {
   electrical: "ttp-04",
@@ -30,6 +31,17 @@ const ICON = {
   thermal: Snowflake,
   physical: Weight,
 } as const;
+
+function jsonLd(obj: unknown) {
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify(obj).replace(/</g, "\\u003c"),
+      }}
+    />
+  );
+}
 
 /**
  * The constraint reference index.
@@ -58,6 +70,7 @@ export default async function ConstraintsPage() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      {jsonLd(constraintCatalogueJsonLd(ref))}
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Engineering reference · {ref.count} constraints
