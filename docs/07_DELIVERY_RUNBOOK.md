@@ -15,6 +15,22 @@ One JSON file per hall. Everything else is a command.
 `model_pack.json` is part of the deliverable, not an internal artefact. It is what lets a client
 re-run the conclusion when their inputs change, and it is what makes the next engagement cheap.
 
+## The Power Readiness Case — the decision object underneath every engagement above
+
+`python3 -m gridforge power-assess intake.json --target-racks 300 -o case.json`
+
+Composes the same solved scenario every command above already produces into one object a
+buyer, a lender or an agent asks directly: current deployable capacity vs. the target, the
+binding constraint, every priced and dated rung on the headroom ladder, the distinct critical-
+path dependencies that set the earliest credible energisation date, the calibration state
+behind every number, and one deterministic next action (close the named data gap, get a quote
+for the leading relief, or proceed to procurement — never invented, always read off the intake
+and the ladder as they stand). `gridforge/reporting/readiness.py` computes none of the physics; it
+is composition only, over `envelope`, `procurement.relief_steps`, `envelope.time_to_power` and
+`calibration.accuracy_block`. Also `POST /v1/power/assess` (a full solve, priced the same as a
+Study) and the `gridforge_power_assess` MCP tool — same function, same output, so a client
+integration and an agent see exactly what the CLI does.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

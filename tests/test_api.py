@@ -156,7 +156,7 @@ def test_qualify_assumes_connection_parity_rather_than_headroom():
 
 # --- the paid tier -----------------------------------------------------------
 def test_paid_endpoints_require_a_key(server):
-    for path in ("/v1/screen", "/v1/study", "/v1/portfolio"):
+    for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess"):
         status, body = call(server, path, {"intake": {}})
         assert status == 401, path
         assert body["public_endpoint"] == "/v1/qualify"
@@ -175,6 +175,33 @@ def test_study_with_a_key_returns_a_model_pack(server):
     assert status == 200, body
     assert body["schema"].startswith("gridforge/model-pack")
     assert body["scenarios"]
+
+
+def test_power_assess_with_a_key_returns_a_priced_readiness_case(server):
+    status, body = call(server, "/v1/power/assess",
+                        {"intake": qualify_to_intake(GOOD), "target_racks": 300}, key=KEY)
+    assert status == 200, body
+    assert body["capacity"]["target_racks"] == 300
+    assert body["binding_constraint"]["id"]
+    assert body["headroom_ladder"]
+    assert body["next_action"]["action"]
+    # This is the CLIENT-tier deliverable — the redaction list applies only to
+    # PUBLIC callers, so a paid caller must actually see the priced content.
+    blob = json.dumps(body)
+    assert "capex_eur" in blob
+    assert "lead_time_weeks" in blob
+
+
+def test_power_assess_is_callable_over_mcp(server):
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_assess",
+                   "arguments": {"intake": qualify_to_intake(GOOD), "target_racks": 300}},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["capacity"]["target_racks"] == 300
+    assert structured["next_action"]["action"]
 
 
 def test_portfolio_ranks_several_halls(server):

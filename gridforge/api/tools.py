@@ -186,6 +186,31 @@ TOOLS: list[dict] = [
         returns="ranked bids with scores, schedule impact, and optional cost-library lines.",
     ),
     _tool(
+        "gridforge_power_assess",
+        ("The Power Readiness Case: what is stopping this site reaching the target capacity, "
+         "what fixes it, what that costs, what it does to the schedule, and what to do next. "
+         "Composes the same solved scenario as gridforge_screen/gridforge_study into one "
+         "decision object: current deployable racks vs. the target, the binding constraint, "
+         "every priced and dated rung on the headroom ladder, the critical-path dependencies "
+         "that set the earliest credible energisation date, the calibration state behind every "
+         "number, and one deterministic next action. Never invents a price, a lead time or a "
+         "date — every figure traces to the engine or an explicit input, with its evidence "
+         "class attached."),
+        "/v1/power/assess",
+        {"type": "object", "required": ["intake"],
+         "properties": {"intake": _INTAKE_SCHEMA,
+                        "target_racks": {"type": "integer",
+                                         "description": "the rack count the customer actually "
+                                                        "needs; omit to size the gap against "
+                                                        "what the full headroom ladder itself "
+                                                        "can reach"},
+                        "objective": _OBJECTIVE},
+         "additionalProperties": False},
+        returns=("capacity (current/target/gap), binding_constraint, headroom_ladder (every "
+                 "relief priced and dated), time_to_power (critical item and dependencies), "
+                 "evidence (calibration state, evidence classes used), and next_action."),
+    ),
+    _tool(
         "gridforge_proposal",
         "A priced proposal for a named engagement, built from what the engine already found.",
         "/v1/proposal",
