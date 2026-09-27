@@ -393,9 +393,16 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 12. **No portfolio deliverable template.** `/v1/portfolio` returns a ranking; the
     €60k–€140k engagement promises "one model pack per hall" and that packaging step
     is manual.
-13. **The Procurement Specification's bid comparison has no supplier-facing artefact.**
-    We hand the client a response schedule; we do not hand the supplier a form. That
-    is one generator away and it makes the product land better.
+13. ~~The Procurement Specification's bid comparison has no supplier-facing artefact.~~
+    **Fixed, and already was by the time this line was last true.** `gridforge/reporting/spec.py`
+    builds a full tender document — scope, obligation-worded requirements each naming
+    its constraint, a weighted evaluation matrix, instructions to responders and a
+    machine-readable response schedule (`gridforge spec … --template`) — and it is
+    wired end to end: `procurement_spec`'s `endpoint: "spec"` in `lib/products.ts`
+    drives `app/api/intake/[token]/route.ts` to call `/v1/spec` and store the result
+    as the released deliverable. Re-verify against the code before trusting any
+    numbered item on this list — this file has now fallen into its own "fact stated
+    in two places, only one updated" trap twice (see #9).
 14. ~~`/api/chat` (the scoping agent) has no conversation persistence.~~ **Fixed.**
     `/workspace`'s transcript now round-trips through `lib/ai/session.ts` to
     `window.localStorage` (`WorkspaceClient.tsx`), restored on mount and cleared
@@ -438,7 +445,13 @@ python3 -m gridforge.cli key --help # mint/inspect signed API keys
 ### 6e. Distribution
 
 21. **`/llms.txt` and `/api/cite` are live but nothing points at them.** No submission
-    to any model-facing index, no schema.org dataset markup on the constraint pages.
+    to any model-facing index. **Partially stale:** the constraint pages
+    (`app/constraints/[slug]/page.tsx`) already emit `schema.org/TechArticle`
+    JSON-LD, canonical URLs and OpenGraph metadata — what is still missing is
+    structured markup for the *numeric claims themselves* (a `Dataset` /
+    `Claim`-shaped block per worked example, so a crawler can cite the number, not
+    just the article) and any actual outreach/submission, which needs a person, not
+    a patch.
 22. **The benchmark needs 8 halls and we have fewer.** Until then `benchmark()`
     returns nothing, and the qualifier's best hook is dark.
 23. **No case study.** The published worked example is synthetic and labelled as such.
