@@ -257,7 +257,7 @@ def load_document(doc: dict) -> Intake:
 
     options = []
     for o in r.raw("btm_options", []) or []:
-        options.append(GenerationOption(
+        opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
             kind=str(o.get("kind", "bess")),
             capacity_MW=V(float(o["capacity_MW"]), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
@@ -273,7 +273,22 @@ def load_document(doc: dict) -> Intake:
                                 f"{o.get('id','BTM')} opex", ASSUMED, band=0.4)
                               if o.get("opex_eur_per_MWh") is not None else None),
             permitting_note=str(o.get("permitting_note", "")),
-        ))
+            energy_MWh=(V(float(o["energy_MWh"]), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
+                          band=0.15)
+                       if o.get("energy_MWh") is not None else None),
+        )
+        # A BESS option with both an energy rating and a declared ride-through
+        # requirement gets the real power-vs-energy firm factor computed from
+        # gridforge.power.storage, replacing btm.DEFAULT_FIRM_FACTOR's flat 0.50
+        # guess. An explicit firm_capacity_factor in the intake still wins — a
+        # customer's own site-specific figure outranks either calculation.
+        if (opt.kind == "bess" and opt.energy_MWh is not None
+                and opt.firm_capacity_factor is None and o.get("ride_through_hours") is not None):
+            from ..power.btm import bess_firm_factor_for_duration
+            hours = V(float(o["ride_through_hours"]), "h",
+                     f"{opt.id} required ride-through", ASSUMED)
+            opt.firm_capacity_factor = bess_firm_factor_for_duration(opt, hours)
+        options.append(opt)
 
     power = PowerInput(
         grid=GridConnection(

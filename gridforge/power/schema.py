@@ -65,6 +65,12 @@ class GenerationOption:
     opex_eur_per_MWh: Quantity | None = None
     installed: bool = False   # set True by the ladder when the option is taken
     permitting_note: str = ""
+    #: A "bess" option's energy rating. Optional and additive: an intake that
+    #: omits it (every one that predates this field) keeps using
+    #: `btm.DEFAULT_FIRM_FACTOR`'s flat technology default. Declaring it is what
+    #: lets `btm.bess_firm_factor_for_duration()` replace that flat guess with a
+    #: real power-vs-energy calculation against a stated ride-through duration.
+    energy_MWh: Quantity | None = None
 
 
 @dataclass
