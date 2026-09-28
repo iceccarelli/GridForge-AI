@@ -68,14 +68,35 @@ Also `POST /v1/power/deploy/assess` and the `gridforge_power_deploy_assess` MCP 
 integration and an agent read the same architecture comparison. Priced at 5 units, the same as
 a full Study — a load profile plus up to four architecture solves is comparable engine load.
 
-**What this does not yet do**, stated plainly rather than left to be discovered: it does not
-persist a case (every call is a fresh compose-and-return, no `PowerDeploymentCase` row, no
-revision history, no "what changed since last time"); it does not check interconnection,
-fuel, or permitting readiness; it does not connect a chosen architecture's generation/BESS
-units into a Procurement Specification the way a hall's headroom ladder already does via
-`gridforge spec`; and it does not appear anywhere on the website or in `/workspace`. Each of
-those is a real next slice, not a rounding error — see the session record for why the
-composition came before the persistence layer, not after.
+### The persistent case — `power_deployment_cases`
+
+The engine composition above now persists. `POST /api/power/deploy/cases` runs the engine
+exactly once (same `runDeploymentAssessment()` call the CLI's `power-deploy-assess` and the raw
+`/v1/power/deploy/assess` route make) and writes the request/result pair as **revision 1** of a
+case, keyed by a token — `lib/power-deploy.ts`, migration
+`supabase/migrations/0014_power_deployment_cases.sql`. `GET /api/power/deploy/cases/{token}`
+returns the latest revision (`?history=1` for every revision). `POST` to the same URL merges a
+partial update onto the case's own last request, re-solves, and appends a new row — never
+mutates the old one, the same "never a mutable blob" discipline Hall Watch's `last_state`
+column already follows.
+
+`changedFields()` is the "what changed since last time" a Watch note needs: a shallow,
+top-level diff of the new request against the previous one (`target_MW` moved, `generation`
+moved, and so on), computed once on write rather than re-derived by every reader. It is
+deliberately not a deep field-by-field diff — see the function's own docstring for why a
+coarser note is more useful here than the headroom ladder's fully attributed change engine
+would be for this input shape.
+
+**No entitlement gate on these routes.** There is no Stripe product for the BTM Power
+Deployment Case yet — gating a capability behind a fake paywall would be worse than leaving it
+open, per the rule against inventing billing products ahead of the thing they'd meter.
+
+**What this still does not do**, stated plainly rather than left to be discovered: no
+interconnection, fuel, or permitting readiness check; no connection from a chosen
+architecture's generation/BESS units into a Procurement Specification the way a hall's
+headroom ladder already reaches `gridforge spec`; nothing on the website or in `/workspace` —
+the case can be created and updated over the API today, but no page renders it. Each of those
+is a real next slice, not a rounding error.
 
 ## Rules that do not bend
 
