@@ -50,6 +50,57 @@ def firm_factor(option: GenerationOption) -> Quantity:
              assumptions=[FIRM_FACTOR_ASSUMPTION])
 
 
+def bess_firm_factor_for_duration(option: GenerationOption,
+                                  ride_through_hours: Quantity) -> Quantity:
+    """The duration-aware replacement for `DEFAULT_FIRM_FACTOR["bess"] = 0.50`.
+
+    That flat factor was wrong in both directions: a battery asked to ride through
+    a short utility trip is close to fully firm at its power rating regardless of
+    size, and a battery asked to ride through hours is limited by its usable
+    energy, not by an assumed half of nameplate. This builds a
+    `BatteryEnergyStorageSystem` from the option's own declared power
+    (`capacity_MW`) and energy (`energy_MWh`, added alongside this function) and
+    returns the ratio of duration-aware firm power to nameplate, in the same
+    `Quantity` shape `option.firm_capacity_factor` already expects — a caller with
+    a known ride-through requirement can set
+    `option.firm_capacity_factor = bess_firm_factor_for_duration(option, hours)`
+    to override the flat default, with no change to `GenerationOption`'s shape
+    or to `firm_factor()` above for options that do not use this.
+
+    Raises rather than guessing when the option has no declared `energy_MWh` —
+    a caller that does not know the battery's energy rating should keep using
+    `firm_factor()`'s flat, honestly-labelled technology default instead of a
+    silent fallback here that would look identical to a real calculation.
+    """
+    if option.kind != "bess":
+        raise ValueError(f"{option.id}: not a BESS option (kind={option.kind!r})")
+    if option.energy_MWh is None:
+        raise ValueError(
+            f"{option.id}: no energy_MWh declared — cannot compute a duration-aware firm "
+            f"factor without it. Use firm_factor() for the flat technology default instead.")
+    from .storage import (DEFAULT_ROUND_TRIP_EFFICIENCY, DEFAULT_SOC_MAX, DEFAULT_SOC_MIN,
+                         BatteryEnergyStorageSystem)
+    bess = BatteryEnergyStorageSystem(
+        id=option.id,
+        power_MW=option.capacity_MW,
+        energy_MWh=option.energy_MWh,
+        soc_min=V(DEFAULT_SOC_MIN, "1", f"{option.id} minimum SOC (library default)",
+                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+        soc_max=V(DEFAULT_SOC_MAX, "1", f"{option.id} maximum SOC (library default)",
+                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+        round_trip_efficiency=V(DEFAULT_ROUND_TRIP_EFFICIENCY, "1",
+                                f"{option.id} round-trip efficiency (library default)",
+                                ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+    )
+    firm_MW = bess.firm_MW_for_duration(ride_through_hours)
+    factor = firm_MW.value / option.capacity_MW.value if option.capacity_MW.value else 0.0
+    return V(factor, "1",
+             f"{option.id} firm-capacity factor for {ride_through_hours.render()} "
+             f"ride-through (power-vs-energy calculation, binding on "
+             f"{bess.binding_limit(ride_through_hours)})",
+             min(firm_MW.evidence, option.capacity_MW.evidence, option.energy_MWh.evidence))
+
+
 def firm_contribution_kW(option: GenerationOption) -> Quantity:
     """Firm capacity this option contributes, in kW."""
     if not option.firm:
