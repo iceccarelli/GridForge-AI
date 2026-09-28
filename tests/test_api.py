@@ -156,7 +156,8 @@ def test_qualify_assumes_connection_parity_rather_than_headroom():
 
 # --- the paid tier -----------------------------------------------------------
 def test_paid_endpoints_require_a_key(server):
-    for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess"):
+    for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess",
+                "/v1/power/deploy/assess"):
         status, body = call(server, path, {"intake": {}})
         assert status == 401, path
         assert body["public_endpoint"] == "/v1/qualify"
@@ -202,6 +203,55 @@ def test_power_assess_is_callable_over_mcp(server):
     structured = body["result"]["structuredContent"]
     assert structured["capacity"]["target_racks"] == 300
     assert structured["next_action"]["action"]
+
+
+DEPLOY_REQUEST = {
+    "load_profile": {
+        "csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n2026-01-01T00:15:00,30000\n"
+              "2026-01-01T00:30:00,30000\n",
+        "source": "synthetic-hall.csv",
+    },
+    "grid_firm_MW": 10.0,
+    "target_MW": 35.0,
+    "ride_through_hours": 3.0,
+    "redundancy": "N+1",
+    "generation": [
+        {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
+         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+        {"id": "GEN-B", "kind": "gas_engine", "nameplate_MW": 20.0,
+         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+    ],
+    "bess": [
+        {"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
+         "capex_eur": 7_200_000, "lead_time_weeks": 30},
+    ],
+}
+
+
+def test_power_deploy_assess_compares_real_architectures(server):
+    status, body = call(server, "/v1/power/deploy/assess", DEPLOY_REQUEST, key=KEY)
+    assert status == 200, body
+    labels = {a["label"]: a["status"] for a in body["architectures"]}
+    assert labels["GRID ONLY"] == "fail"
+    assert labels["GRID + BESS + GENERATION"] == "pass"
+    assert body["next_action"]["action"].startswith("Proceed to procurement")
+    assert body["capacity"]["gap_MW"] == 25.0
+
+
+def test_power_deploy_assess_rejects_a_malformed_request(server):
+    status, body = call(server, "/v1/power/deploy/assess",
+                        {"load_profile": {}, "grid_firm_MW": 1, "target_MW": 2}, key=KEY)
+    assert status == 422, body
+
+
+def test_power_deploy_assess_is_callable_over_mcp(server):
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_deploy_assess", "arguments": DEPLOY_REQUEST},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["next_action"]["action"].startswith("Proceed to procurement")
 
 
 def test_portfolio_ranks_several_halls(server):

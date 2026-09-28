@@ -23,6 +23,7 @@ Endpoints
     POST /v1/spec                       intake     -> tender specification  (key)
     POST /v1/bids                       intake+bids-> ranked comparison     (key)
     POST /v1/power/assess               intake     -> Power Readiness Case (key)
+    POST /v1/power/deploy/assess        deployment request -> BTM assessment (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
@@ -359,6 +360,25 @@ def handle_power_assess(body: dict, tier: Tier) -> dict:
     return redact(case, tier)
 
 
+def handle_power_deploy_assess(body: dict, tier: Tier) -> dict:
+    """The BTM Power Deployment Assessment: candidate grid/generation/BESS
+    architectures compared against a real load profile under a real N/N+1/N+2/2N
+    contingency test, each priced and dated where the request declared it, with
+    one deterministic next action. No new physics — see
+    gridforge/reporting/btm_assessment.py. This is a different input shape from
+    every other engine endpoint (a load profile and a hybrid architecture, not a
+    hall intake), so the request body is parsed by `deployment_request()` rather
+    than through `_run()`/`load_document()`."""
+    from ..reporting.btm_assessment import (DeploymentRequestError, assess_deployment,
+                                            deployment_request)
+    try:
+        kwargs = deployment_request(body)
+    except DeploymentRequestError as exc:
+        raise ApiError(422, str(exc))
+    result = assess_deployment(**kwargs)
+    return redact(result, tier)
+
+
 def handle_revoke(body: dict, tier: Tier) -> dict:
     """Kill a leaked key now, rather than at expiry.
 
@@ -474,6 +494,7 @@ ROUTES = {
     "/v1/spec": (handle_spec, Tier.CLIENT),
     "/v1/bids": (handle_bids, Tier.CLIENT),
     "/v1/power/assess": (handle_power_assess, Tier.CLIENT),
+    "/v1/power/deploy/assess": (handle_power_deploy_assess, Tier.CLIENT),
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 

@@ -211,6 +211,55 @@ TOOLS: list[dict] = [
                  "evidence (calibration state, evidence classes used), and next_action."),
     ),
     _tool(
+        "gridforge_power_deploy_assess",
+        ("The BTM Power Deployment Assessment: given a real load profile and the generation/"
+         "BESS units actually on the table, compares GRID ONLY, GRID + GENERATION, GRID + BESS "
+         "and GRID + BESS + GENERATION under one deterministic N/N+1/N+2/2N contingency test "
+         "each, with CAPEX and lead time read from whatever the request declared (never priced "
+         "at zero when a unit is uncosted — that architecture is marked not-yet-comparable "
+         "instead). Answers 'what combination of grid, generation and storage gets this load to "
+         "firm power by this date, and what does each option cost.' Never invents a price, a "
+         "lead time, or a PASS — a generator with no declared availability escalates a would-be "
+         "PASS to REQUIRES_ENGINEERING_STUDY rather than assuming perfect reliability."),
+        "/v1/power/deploy/assess",
+        {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW"],
+         "properties": {
+             "load_profile": {
+                 "type": "object",
+                 "description": "either {csv: 'timestamp,kW\\n...'} from a real interval "
+                                "export, or {flat_kW: n} for a screening-level single-figure "
+                                "assumption (explicitly weaker evidence).",
+                 "properties": {"csv": {"type": "string"}, "source": {"type": "string"},
+                               "flat_kW": {"type": "number"}, "flat_hours": {"type": "number"}},
+             },
+             "grid_firm_MW": {"type": "number", "description": "firm import available from the "
+                                                                "grid connection today"},
+             "target_MW": {"type": "number", "description": "the firm power required"},
+             "ride_through_hours": {"type": "number", "description": "the outage duration a "
+                                                                     "battery must be sized "
+                                                                     "against; defaults to 2h "
+                                                                     "if omitted"},
+             "redundancy": {"type": "string", "enum": ["N", "N+1", "N+2", "2N"], "default": "N"},
+             "generation": {"type": "array", "items": {
+                 "type": "object", "required": ["id", "nameplate_MW"],
+                 "properties": {"id": {"type": "string"}, "kind": {"type": "string"},
+                               "nameplate_MW": {"type": "number"},
+                               "capex_eur": {"type": "number"},
+                               "lead_time_weeks": {"type": "number"}}}},
+             "bess": {"type": "array", "items": {
+                 "type": "object", "required": ["id", "power_MW", "energy_MWh"],
+                 "properties": {"id": {"type": "string"}, "power_MW": {"type": "number"},
+                               "energy_MWh": {"type": "number"},
+                               "capex_eur": {"type": "number"},
+                               "lead_time_weeks": {"type": "number"}}}},
+         },
+         "additionalProperties": False},
+        returns=("load_profile summary (peak/mean/load-factor/ramp/step-events, with its own "
+                 "evidence class), capacity (grid-only vs. target, the gap), architectures "
+                 "(each with contingency status, CAPEX, lead time, and whether it is fully "
+                 "costed), and next_action."),
+    ),
+    _tool(
         "gridforge_proposal",
         "A priced proposal for a named engagement, built from what the engine already found.",
         "/v1/proposal",

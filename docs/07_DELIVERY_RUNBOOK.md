@@ -31,6 +31,52 @@ is composition only, over `envelope`, `procurement.relief_steps`, `envelope.time
 Study) and the `gridforge_power_assess` MCP tool — same function, same output, so a client
 integration and an agent see exactly what the CLI does.
 
+## The BTM Power Deployment Assessment — real hybrid architectures, priced and dated
+
+`python3 -m gridforge power-deploy-assess request.json -o result.json`
+
+A different input shape from every command above: a real load profile (a `timestamp,kW`
+interval CSV, or a `flat_kW` screening assumption) and the generation/BESS units actually on
+the table, not a hall intake. Answers the question a real BTM RFP asks: "what combination of
+grid, generation and storage gets this load to firm power, what does each option cost, and
+what do I do next." Compares every architecture the declared technology allows — GRID ONLY,
+GRID + GENERATION, GRID + BESS, GRID + BESS + GENERATION — each under one deterministic
+N/N+1/N+2/2N contingency test (`gridforge.power.reliability`), with CAPEX and lead time read
+from whatever the request declared. An architecture with even one uncosted unit is marked
+`buildable: false` rather than silently priced as if that unit were free — see
+`_total_capex()` in `gridforge/reporting/btm_assessment.py`, which was itself caught doing
+exactly that during this feature's own test-writing and fixed before it shipped.
+
+Request shape:
+
+```json
+{
+  "load_profile": {"csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n...", "source": "meter export"},
+  "grid_firm_MW": 10.0,
+  "target_MW": 35.0,
+  "ride_through_hours": 3.0,
+  "redundancy": "N+1",
+  "generation": [{"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
+                  "capex_eur": 16000000, "lead_time_weeks": 44}],
+  "bess": [{"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
+            "capex_eur": 7200000, "lead_time_weeks": 30}]
+}
+```
+
+Also `POST /v1/power/deploy/assess` and the `gridforge_power_deploy_assess` MCP tool — same
+`deployment_request()` parser, same `assess_deployment()` function, so the CLI, a client
+integration and an agent read the same architecture comparison. Priced at 5 units, the same as
+a full Study — a load profile plus up to four architecture solves is comparable engine load.
+
+**What this does not yet do**, stated plainly rather than left to be discovered: it does not
+persist a case (every call is a fresh compose-and-return, no `PowerDeploymentCase` row, no
+revision history, no "what changed since last time"); it does not check interconnection,
+fuel, or permitting readiness; it does not connect a chosen architecture's generation/BESS
+units into a Procurement Specification the way a hall's headroom ladder already does via
+`gridforge spec`; and it does not appear anywhere on the website or in `/workspace`. Each of
+those is a real next slice, not a rounding error — see the session record for why the
+composition came before the persistence layer, not after.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

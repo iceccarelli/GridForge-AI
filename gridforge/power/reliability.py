@@ -111,13 +111,18 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
         contributors = [("gen", g.id, g.firm_MW().value) for g in case.generation] + \
                        [("bess", b.id, b.firm_MW_for_duration(case.ride_through_hours).value)
                         for b in case.bess]
-        contributors.sort(key=lambda c: -c[2])
-        n_removed = 1 if case.redundancy is Redundancy.N_PLUS_1 else 2
-        removed = contributors[:n_removed]
-        for kind, cid, _ in removed:
-            (excl_gen if kind == "gen" else excl_bess).add(cid)
-        scenario_name = (f"loss of {' and '.join(cid for _, cid, _ in removed)} "
-                        f"(largest {n_removed} contributor(s), per {case.redundancy.value})")
+        if not contributors:
+            scenario_name = (f"{case.redundancy.value} requested, but no generation or storage "
+                            f"is declared to lose — this policy is only meaningful once at "
+                            f"least one unit exists")
+        else:
+            contributors.sort(key=lambda c: -c[2])
+            n_removed = 1 if case.redundancy is Redundancy.N_PLUS_1 else 2
+            removed = contributors[:n_removed]
+            for kind, cid, _ in removed:
+                (excl_gen if kind == "gen" else excl_bess).add(cid)
+            scenario_name = (f"loss of {' and '.join(cid for _, cid, _ in removed)} "
+                            f"(largest {n_removed} contributor(s), per {case.redundancy.value})")
     elif case.redundancy is Redundancy.TWO_N:
         contributors = [("gen", g.id, g.firm_MW().value) for g in case.generation] + \
                        [("bess", b.id, b.firm_MW_for_duration(case.ride_through_hours).value)
