@@ -91,11 +91,25 @@ would be for this input shape.
 Deployment Case yet — gating a capability behind a fake paywall would be worse than leaving it
 open, per the rule against inventing billing products ahead of the thing they'd meter.
 
+### The web pages — `/power/deploy` and `/power/deploy/[token]`
+
+`/power/deploy` is a narrow, real form (one generator, one battery, a flat load assumption —
+the API accepts a full interval CSV and an arbitrary equipment list; the form exists so the
+capability is visible without a JSON editor, not as the only way in). Submitting it creates a
+case and redirects to `/power/deploy/[token]`, a server component that reads the case straight
+from `lib/power-deploy.ts` (no internal fetch — the same pattern `/deliverable/[token]` uses)
+and renders the architecture comparison, the CAPEX/lead-time honesty (`UNKNOWN — not costed`,
+never a silent zero), the next action, and — from revision 2 onward — a "what changed since
+revision N-1" band sourced from `changed_fields`. `PowerDeployCaseUpdate` posts a partial
+change (today: target MW, grid firm MW) and the page re-renders the new revision.
+
 **What this still does not do**, stated plainly rather than left to be discovered: no
 interconnection, fuel, or permitting readiness check; no connection from a chosen
 architecture's generation/BESS units into a Procurement Specification the way a hall's
-headroom ladder already reaches `gridforge spec`; nothing on the website or in `/workspace` —
-the case can be created and updated over the API today, but no page renders it. Each of those
+headroom ladder already reaches `gridforge spec`; the update form only exposes two of the
+request's fields (target and grid firm capacity — changing the declared generation/BESS list
+or the load profile itself still needs a direct API call); not wired into `/workspace` or the
+free qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
 is a real next slice, not a rounding error.
 
 ## Rules that do not bend
