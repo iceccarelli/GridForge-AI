@@ -1149,6 +1149,33 @@ after every change to the Stripe Dashboard's webhook configuration, and whenever
 Dashboard side recently — a passing handler test and a correctly configured webhook
 endpoint are two different facts, and this is what checks the second one.
 
+## The capability registry — one map of what exists, what is priced, what is sellable
+
+`lib/capability-registry.ts` is the cross-layer answer `lib/products.ts` was never meant to
+give. `PRODUCTS` and `INTELLIGENCE_PLANS` stay the single source of truth for PRICE — this file
+duplicates no euro figure, referencing them by id instead — but neither file says which REST
+endpoint, MCP tool, CLI command, web route or database table actually implements a given
+capability, or whether one even exists. The registry does: one row per commercially meaningful
+capability, naming its engine function, every interface surface, its entitlement mechanism
+exactly as implemented (not as intended), and an honest `status` —
+`commercial` / `metered_only` / `free` / `internal_only`.
+
+This is what makes "priced but unsellable," "sellable but invisible on the site," and
+"implemented but never monetized" answerable in one place instead of by grepping five files.
+The registry itself is held honest by `tests/site/capability-registry.test.ts`: every
+`product_id`/`intelligence_plan_id` it references must exist in `lib/products.ts`, and every
+product/plan actually sold must have a registry row — a product can be added to the ladder and
+forgotten here exactly the way products used to be forgotten from a hand-written ladder before
+`LADDER_PRODUCTS` was derived.
+
+`GET /api/admin/capability-audit` (admin-gated) prints the live report; a summary renders on
+`/admin`. It found one real, already-honestly-documented gap on first run: `btm_deploy_assess`
+and `btm_deploy_spec` are priced and sellable today through API unit metering (5 and 3 units,
+the same basis as `/v1/study` and `/v1/spec`) but have no dedicated one-off web checkout SKU —
+marked `metered_only`, `stripe_product_or_price: "none"`, deliberately, rather than inventing a
+price with no basis. See "The BTM Power Deployment Assessment" above for what pricing evidence
+would need to exist before that changes.
+
 ## The whole stack, before a deploy
 
 ```bash

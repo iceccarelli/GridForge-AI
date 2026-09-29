@@ -10,6 +10,13 @@ import {
 } from "@/lib/admin";
 import { AdminDashboard } from "@/components/AdminDashboard";
 import { StripeHealthPanel } from "@/components/StripeHealthPanel";
+import {
+  CAPABILITY_REGISTRY,
+  priceableButNotOnWeb,
+  unmonetized,
+  productsMissingFromRegistry,
+  intelligencePlansMissingFromRegistry,
+} from "@/lib/capability-registry";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -45,14 +52,40 @@ export default async function AdminPage() {
   }
 
   const leads = await fetchLeads();
+  const gaps = [
+    ...productsMissingFromRegistry().map((id) => `product ${id} has no registry entry`),
+    ...intelligencePlansMissingFromRegistry().map((id) => `plan ${id} has no registry entry`),
+    ...priceableButNotOnWeb().map((c) => `${c.capability_id} is priced but not on the website`),
+    ...unmonetized().map((c) => `${c.capability_id} has no commercial path`),
+  ];
   return (
     <>
       <div className="mx-auto w-full max-w-7xl px-5 pt-24 sm:px-8">
         <Link href="/admin/pipeline" className="text-sm text-mute underline hover:text-ghost">
           Engagements and qualified halls →
         </Link>
-        <div className="mt-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <StripeHealthPanel />
+          <div className="rounded border border-line bg-panel-2 p-4">
+            <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+              Capability registry — {CAPABILITY_REGISTRY.length} capabilities
+            </h3>
+            {gaps.length === 0 ? (
+              <p className="mt-2 text-[12px] text-ghost">
+                No orphaned products, unpriced-and-invisible capabilities, or unmonetized engine
+                capability found.
+              </p>
+            ) : (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-flag">
+                {gaps.map((g) => (
+                  <li key={g}>{g}</li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[11px] text-faint">
+              Full map: GET /api/admin/capability-audit
+            </p>
+          </div>
         </div>
       </div>
       <AdminDashboard initial={leads} supabaseReady={supabaseConfigured()} />
