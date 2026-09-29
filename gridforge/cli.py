@@ -128,6 +128,68 @@ def _run(intake):
     return run_all(intake.context, intake.scenarios)
 
 
+def cmd_power_deploy_assess(args) -> int:
+    from .reporting.btm_assessment import DeploymentRequestError, assess_deployment, deployment_request
+    doc = json.loads(Path(args.request).read_text())
+    try:
+        kwargs = deployment_request(doc)
+    except DeploymentRequestError as exc:
+        print(f"invalid deployment request: {exc}", file=sys.stderr)
+        return 1
+    result = assess_deployment(**kwargs)
+    if args.out:
+        Path(args.out).write_text(json.dumps(result, indent=2, default=str) + "\n")
+        print(f"wrote {args.out}")
+    lp = result["load_profile"]
+    cap = result["capacity"]
+    print(f"BTM Power Deployment Assessment")
+    print(f"  Load profile       : {lp['source']} ({lp['evidence']}), peak {lp['peak_MW']} MW, "
+          f"load factor {lp['load_factor']}")
+    if lp["warnings"]:
+        for w in lp["warnings"]:
+            print(f"  ! {w}")
+    print(f"  Grid-only firm     : {cap['grid_firm_MW']} MW vs target {cap['target_MW']} MW "
+          f"(gap {cap['gap_MW']} MW)")
+    print(f"  Redundancy policy  : {cap['redundancy']}, ride-through {cap['ride_through_hours']} h")
+    print(f"  Architectures compared:")
+    for a in result["architectures"]:
+        capex = f"EUR {a['capex_eur']:,.0f}" if a["capex_eur"] is not None else "UNKNOWN"
+        lead = f"{a['lead_time_weeks']:.0f}w" if a["lead_time_weeks"] is not None else "UNKNOWN"
+        print(f"    {a['status'].upper():25s} {a['label']:28s} capex={capex:>16s}  lead={lead}")
+    print(f"  Next action        : {result['next_action']['action']}")
+    return 0
+
+
+def cmd_power_deploy_spec(args) -> int:
+    from .procurement.schema import ProcurementError
+    from .reporting.btm_assessment import DeploymentRequestError, deployment_request
+    from .reporting.btm_spec import build_equipment_spec
+    from .reporting.btm_spec_report import build as build_spec_report
+    from .reporting import to_markdown, to_html
+    doc = json.loads(Path(args.request).read_text())
+    try:
+        kwargs = deployment_request(doc)
+    except DeploymentRequestError as exc:
+        print(f"invalid deployment request: {exc}", file=sys.stderr)
+        return 1
+    try:
+        spec = build_equipment_spec(args.architecture, project=args.project,
+                                    generation=kwargs["generation"], bess=kwargs["bess"])
+    except ProcurementError as exc:
+        print(f"cannot build a specification: {exc}", file=sys.stderr)
+        return 1
+    report = build_spec_report(spec, reference=args.reference or "")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "specification.md").write_text(to_markdown(report))
+    (out / "specification.html").write_text(to_html(report, full_document=True))
+    print(f"BTM Equipment Specification — {args.project} / {args.architecture}")
+    print(f"  Units covered      : {', '.join(spec.units)}")
+    print(f"  Requirements       : {len(spec.requirements)} ({len(spec.mandatory())} mandatory)")
+    print(f"  wrote {out}/specification.md and {out}/specification.html")
+    return 0
+
+
 def cmd_power_assess(args) -> int:
     from .reporting.readiness import assess
     intake = load(args.intake)
@@ -783,6 +845,28 @@ def main(argv: list[str] | None = None) -> int:
                    help="the rack count the customer needs; omit to size the gap against "
                         "what the full headroom ladder itself can reach")
     s.set_defaults(func=cmd_power_assess)
+
+    s = sub.add_parser("power-deploy-assess",
+                       help="the BTM Power Deployment Assessment: architectures (grid/BESS/"
+                            "generation) compared under a real load profile and a real "
+                            "contingency test, each priced and dated where declared")
+    s.add_argument("request", help="a deployment request JSON file — see "
+                                   "docs/07_DELIVERY_RUNBOOK.md for the shape")
+    s.add_argument("-o", "--out")
+    s.set_defaults(func=cmd_power_deploy_assess)
+
+    s = sub.add_parser("power-deploy-spec",
+                       help="a tender-ready specification for a BTM architecture's "
+                            "generation and storage units — what 'proceed to procurement' "
+                            "in power-deploy-assess's next action produces")
+    s.add_argument("request", help="a deployment request JSON file (same shape as "
+                                   "power-deploy-assess)")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--architecture", default="Declared architecture",
+                   help="label for the document title only")
+    s.add_argument("--project", default="Power Deployment Case")
+    s.add_argument("--reference", default="")
+    s.set_defaults(func=cmd_power_deploy_spec)
 
     s = sub.add_parser("diff", help="what changed between two intakes, and which input changed it")
     s.add_argument("before")

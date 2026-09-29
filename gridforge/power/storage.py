@@ -43,6 +43,11 @@ class BatteryEnergyStorageSystem:
     grid_forming: bool = False
     grid_following: bool = True
     black_start: bool = False
+    #: Commercial fields, optional and additive. None means "not costed yet" —
+    #: an architecture comparison that includes this unit reports its CAPEX/lead
+    #: time as UNKNOWN rather than silently pricing it at zero.
+    capex_eur: Quantity | None = None
+    lead_time_weeks: Quantity | None = None
 
     def usable_energy_MWh(self) -> Quantity:
         """Energy actually available between the operating SOC bounds, after

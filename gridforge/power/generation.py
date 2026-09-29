@@ -36,6 +36,11 @@ class GenerationUnit:
     reactive_power_capability_MVAR: Quantity | None = None
     operating_cost_eur_per_MWh: Quantity | None = None
     black_start: bool = False
+    #: Commercial fields, optional and additive. None means "not costed yet" —
+    #: an architecture comparison that includes this unit reports its CAPEX/lead
+    #: time as UNKNOWN rather than silently pricing it at zero.
+    capex_eur: Quantity | None = None
+    lead_time_weeks: Quantity | None = None
 
     def _availability(self) -> Quantity:
         if self.availability is not None:

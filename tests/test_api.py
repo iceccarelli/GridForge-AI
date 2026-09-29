@@ -156,7 +156,8 @@ def test_qualify_assumes_connection_parity_rather_than_headroom():
 
 # --- the paid tier -----------------------------------------------------------
 def test_paid_endpoints_require_a_key(server):
-    for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess"):
+    for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess",
+                "/v1/power/deploy/assess", "/v1/power/deploy/spec"):
         status, body = call(server, path, {"intake": {}})
         assert status == 401, path
         assert body["public_endpoint"] == "/v1/qualify"
@@ -202,6 +203,111 @@ def test_power_assess_is_callable_over_mcp(server):
     structured = body["result"]["structuredContent"]
     assert structured["capacity"]["target_racks"] == 300
     assert structured["next_action"]["action"]
+
+
+DEPLOY_REQUEST = {
+    "load_profile": {
+        "csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n2026-01-01T00:15:00,30000\n"
+              "2026-01-01T00:30:00,30000\n",
+        "source": "synthetic-hall.csv",
+    },
+    "grid_firm_MW": 10.0,
+    "target_MW": 35.0,
+    "ride_through_hours": 3.0,
+    "redundancy": "N+1",
+    "generation": [
+        {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
+        {"id": "GEN-B", "kind": "gas_engine", "nameplate_MW": 20.0,
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
+    ],
+    "bess": [
+        {"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
+         "capex_eur": 7_200_000, "lead_time_weeks": 30},
+    ],
+    "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+    "permitting": {"emissions_status": "application submitted"},
+}
+
+
+def test_power_deploy_assess_compares_real_architectures(server):
+    status, body = call(server, "/v1/power/deploy/assess", DEPLOY_REQUEST, key=KEY)
+    assert status == 200, body
+    labels = {a["label"]: a["status"] for a in body["architectures"]}
+    assert labels["GRID ONLY"] == "fail"
+    assert labels["GRID + BESS + GENERATION"] == "pass"
+    assert body["next_action"]["action"].startswith("Proceed to procurement")
+    assert body["capacity"]["gap_MW"] == 25.0
+    winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    assert winner["ready_for_procurement"] is True
+    gates = {g["gate"]: g["status"] for g in winner["readiness_gates"]}
+    assert gates["reliability"] == "pass"
+    assert gates["protection"] == "requires_licensed_review"  # never a fake PASS
+
+
+def test_power_deploy_assess_flags_technically_feasible_but_not_schedule_credible(server):
+    """A fully-costed, contingency-passing architecture with an undeclared
+    permit must not be told 'proceed to procurement' — that hides exactly the
+    schedule risk this gate exists to surface."""
+    req = {**DEPLOY_REQUEST, "permitting": None, "interconnection": None}
+    del req["permitting"]
+    del req["interconnection"]
+    status, body = call(server, "/v1/power/deploy/assess", req, key=KEY)
+    assert status == 200, body
+    assert "Supply the missing readiness data" in body["next_action"]["action"]
+    winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    assert winner["ready_for_procurement"] is False
+
+
+def test_power_deploy_assess_rejects_a_malformed_request(server):
+    status, body = call(server, "/v1/power/deploy/assess",
+                        {"load_profile": {}, "grid_firm_MW": 1, "target_MW": 2}, key=KEY)
+    assert status == 422, body
+
+
+def test_power_deploy_assess_is_callable_over_mcp(server):
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_deploy_assess", "arguments": DEPLOY_REQUEST},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["next_action"]["action"].startswith("Proceed to procurement")
+
+
+def test_power_deploy_spec_produces_a_traceable_tender(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION",
+          "project": "North Campus", "format": "json"}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 200, body
+    assert body["specification"]["units"] == ["GEN-A", "GEN-B", "BESS-1"]
+    assert body["specification"]["mandatory"] > 0
+    assert "capex_eur" in body["response_template"]
+
+
+def test_power_deploy_spec_renders_a_document(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION", "format": "md"}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 200, body
+    assert "GEN-A" in body["document"]
+    assert "BESS-1" in body["document"]
+
+
+def test_power_deploy_spec_refuses_an_architecture_with_no_units(server):
+    req = {"load_profile": {"flat_kW": 1000}, "grid_firm_MW": 1, "target_MW": 2}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 422, body
+
+
+def test_power_deploy_spec_is_callable_over_mcp(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION", "format": "json"}
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_deploy_spec", "arguments": req},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["specification"]["units"]
 
 
 def test_portfolio_ranks_several_halls(server):

@@ -211,6 +211,111 @@ TOOLS: list[dict] = [
                  "evidence (calibration state, evidence classes used), and next_action."),
     ),
     _tool(
+        "gridforge_power_deploy_assess",
+        ("The BTM Power Deployment Assessment: given a real load profile and the generation/"
+         "BESS units actually on the table, compares GRID ONLY, GRID + GENERATION, GRID + BESS "
+         "and GRID + BESS + GENERATION under one deterministic N/N+1/N+2/2N contingency test "
+         "each, with CAPEX and lead time read from whatever the request declared (never priced "
+         "at zero when a unit is uncosted — that architecture is marked not-yet-comparable "
+         "instead). Answers 'what combination of grid, generation and storage gets this load to "
+         "firm power by this date, and what does each option cost.' Never invents a price, a "
+         "lead time, or a PASS — a generator with no declared availability escalates a would-be "
+         "PASS to REQUIRES_ENGINEERING_STUDY rather than assuming perfect reliability."),
+        "/v1/power/deploy/assess",
+        {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW"],
+         "properties": {
+             "load_profile": {
+                 "type": "object",
+                 "description": "either {csv: 'timestamp,kW\\n...'} from a real interval "
+                                "export, or {flat_kW: n} for a screening-level single-figure "
+                                "assumption (explicitly weaker evidence).",
+                 "properties": {"csv": {"type": "string"}, "source": {"type": "string"},
+                               "flat_kW": {"type": "number"}, "flat_hours": {"type": "number"}},
+             },
+             "grid_firm_MW": {"type": "number", "description": "firm import available from the "
+                                                                "grid connection today"},
+             "target_MW": {"type": "number", "description": "the firm power required"},
+             "ride_through_hours": {"type": "number", "description": "the outage duration a "
+                                                                     "battery must be sized "
+                                                                     "against; defaults to 2h "
+                                                                     "if omitted"},
+             "redundancy": {"type": "string", "enum": ["N", "N+1", "N+2", "2N"], "default": "N"},
+             "generation": {"type": "array", "items": {
+                 "type": "object", "required": ["id", "nameplate_MW"],
+                 "properties": {"id": {"type": "string"}, "kind": {"type": "string"},
+                               "nameplate_MW": {"type": "number"},
+                               "capex_eur": {"type": "number"},
+                               "lead_time_weeks": {"type": "number"},
+                               "fuel_type": {"type": "string",
+                                            "description": "e.g. 'natural gas' — feeds the "
+                                                           "fuel readiness gate; omitting it "
+                                                           "leaves that gate MISSING_DATA"}}}},
+             "bess": {"type": "array", "items": {
+                 "type": "object", "required": ["id", "power_MW", "energy_MWh"],
+                 "properties": {"id": {"type": "string"}, "power_MW": {"type": "number"},
+                               "energy_MWh": {"type": "number"},
+                               "capex_eur": {"type": "number"},
+                               "lead_time_weeks": {"type": "number"},
+                               "grid_forming": {"type": "boolean",
+                                                "description": "feeds the electrical readiness "
+                                                               "gate — more than one grid-"
+                                                               "forming source across the "
+                                                               "architecture requires a "
+                                                               "controls arbitration study"}}}},
+             "interconnection": {"type": "object",
+                                 "description": "utility, pcc_voltage_kV, import_capacity_MW — "
+                                                "feeds the interconnection readiness gate. "
+                                                "Omitting it leaves that gate MISSING_DATA, "
+                                                "never a guessed PASS.",
+                                 "properties": {"utility": {"type": "string"},
+                                               "pcc_voltage_kV": {"type": "number"},
+                                               "import_capacity_MW": {"type": "number"}}},
+             "permitting": {"type": "object",
+                           "description": "e.g. {emissions_status, noise_status} — feeds the "
+                                          "permitting readiness gate.",
+                           "additionalProperties": {"type": "string"}},
+         },
+         "additionalProperties": False},
+        returns=("load_profile summary (peak/mean/load-factor/ramp/step-events, with its own "
+                 "evidence class), capacity (grid-only vs. target, the gap), architectures "
+                 "(each with contingency status, CAPEX, lead time, whether fully costed, "
+                 "readiness_gates — interconnection/protection/fuel/permitting/electrical/"
+                 "reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/"
+                 "REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing "
+                 "— and ready_for_procurement), and next_action, which names a missing "
+                 "readiness field before it ever says 'proceed to procurement'."),
+    ),
+    _tool(
+        "gridforge_power_deploy_spec",
+        ("A tender-ready technical specification for a BTM architecture's generation and "
+         "storage units: every numeric requirement (nameplate rating, availability/forced-"
+         "outage rate, start-up time, ramp rate, fuel, BESS power/energy/SOC window) derived "
+         "from the declared unit and traceable to it, plus a weighted evaluation matrix and a "
+         "machine-readable response schedule. Same request shape as "
+         "gridforge_power_deploy_assess — this is what 'proceed to procurement' in that tool's "
+         "next_action actually produces."),
+        "/v1/power/deploy/spec",
+        {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW"],
+         "properties": {
+             "architecture": {"type": "string", "description": "label for the document title "
+                                                                "only, e.g. 'GRID + BESS + "
+                                                                "GENERATION'"},
+             "project": {"type": "string"},
+             "load_profile": {"type": "object", "description": "unused by this tool but part "
+                                                                "of the shared request shape; "
+                                                                "pass {flat_kW: 0} if omitting "
+                                                                "a real profile"},
+             "grid_firm_MW": {"type": "number"}, "target_MW": {"type": "number"},
+             "generation": {"type": "array", "items": {"type": "object"}},
+             "bess": {"type": "array", "items": {"type": "object"}},
+             "format": {"type": "string", "enum": ["json", "html", "md"], "default": "html"},
+             "reference": {"type": "string"}, "return_by": {"type": "string"},
+             "contact": {"type": "string"},
+         },
+         "additionalProperties": False},
+        returns="the specification document, or its summary and response template as JSON.",
+    ),
+    _tool(
         "gridforge_proposal",
         "A priced proposal for a named engagement, built from what the engine already found.",
         "/v1/proposal",

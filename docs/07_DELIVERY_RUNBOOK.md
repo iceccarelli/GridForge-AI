@@ -31,6 +31,137 @@ is composition only, over `envelope`, `procurement.relief_steps`, `envelope.time
 Study) and the `gridforge_power_assess` MCP tool — same function, same output, so a client
 integration and an agent see exactly what the CLI does.
 
+## The BTM Power Deployment Assessment — real hybrid architectures, priced and dated
+
+`python3 -m gridforge power-deploy-assess request.json -o result.json`
+
+A different input shape from every command above: a real load profile (a `timestamp,kW`
+interval CSV, or a `flat_kW` screening assumption) and the generation/BESS units actually on
+the table, not a hall intake. Answers the question a real BTM RFP asks: "what combination of
+grid, generation and storage gets this load to firm power, what does each option cost, and
+what do I do next." Compares every architecture the declared technology allows — GRID ONLY,
+GRID + GENERATION, GRID + BESS, GRID + BESS + GENERATION — each under one deterministic
+N/N+1/N+2/2N contingency test (`gridforge.power.reliability`), with CAPEX and lead time read
+from whatever the request declared. An architecture with even one uncosted unit is marked
+`buildable: false` rather than silently priced as if that unit were free — see
+`_total_capex()` in `gridforge/reporting/btm_assessment.py`, which was itself caught doing
+exactly that during this feature's own test-writing and fixed before it shipped.
+
+Request shape:
+
+```json
+{
+  "load_profile": {"csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n...", "source": "meter export"},
+  "grid_firm_MW": 10.0,
+  "target_MW": 35.0,
+  "ride_through_hours": 3.0,
+  "redundancy": "N+1",
+  "generation": [{"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
+                  "capex_eur": 16000000, "lead_time_weeks": 44, "fuel_type": "natural gas"}],
+  "bess": [{"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
+            "capex_eur": 7200000, "lead_time_weeks": 30, "grid_forming": false}],
+  "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+  "permitting": {"emissions_status": "application submitted"}
+}
+```
+
+Also `POST /v1/power/deploy/assess` and the `gridforge_power_deploy_assess` MCP tool — same
+`deployment_request()` parser, same `assess_deployment()` function, so the CLI, a client
+integration and an agent read the same architecture comparison. Priced at 5 units, the same as
+a full Study — a load profile plus up to four architecture solves is comparable engine load.
+
+#### Engineering readiness gates
+
+Every architecture in the response now also carries `readiness_gates` — interconnection,
+protection, fuel, permitting, electrical, reliability
+(`gridforge/power/readiness_gates.py`) — each `PASS`, `FAIL`, `UNKNOWN`, `MISSING_DATA`,
+`REQUIRES_ENGINEERING_STUDY`, `REQUIRES_LICENSED_REVIEW` or `NOT_APPLICABLE`, with a reason,
+which declared fields would resolve it, and who has to sign off. **Protection never resolves to
+PASS or FAIL from this tool's own authority, however complete the declared architecture is** —
+short-circuit and relay coordination require a licensed protection engineer and specialist
+software (ETAP, PowerFactory or equivalent), named explicitly rather than pretended away.
+Reliability is the one gate with a real PASS/FAIL, because it is literally the same
+`ContingencyResult` the architecture comparison already computed — not a second opinion.
+
+`ready_for_procurement` on each architecture is `buildable` (passes its contingency test, fully
+costed) AND every gate has at least been screened past `MISSING_DATA`. This is the mechanism
+behind "technically feasible, but not schedule-credible": `next_action` will name the missing
+readiness fields on the cheapest passing architecture before it ever says "proceed to
+procurement" — see `_next_action()` in `gridforge/reporting/btm_assessment.py`.
+
+### From assessment to tender — `power-deploy-spec`
+
+`python3 -m gridforge power-deploy-spec request.json --architecture "GRID + BESS + GENERATION" --project "North Campus" -o out/`
+
+The deployment assessment's "proceed to procurement" next action used to be a dead end — the
+generation and storage units a customer settled on had no path into anything a supplier could
+quote against, unlike a hall's headroom ladder, which already reaches `gridforge spec`. This
+closes it: `gridforge/reporting/btm_spec.py:build_equipment_spec()` takes the same
+`generation`/`bess` lists the deployment request declared and produces a tender covering every
+unit — nameplate rating, availability/forced-outage rate, start-up time, ramp rate and fuel for
+each generator; power, energy, SOC window and round-trip efficiency for each battery — every
+mandatory numeric requirement naming the unit it came from, the same traceability rule
+`gridforge.procurement.build` enforces on the hall side. A unit with no availability or ramp
+data declared simply omits that clause rather than inventing one. Not folded into
+`procurement.schema.SpecPackage` — that class's `racks_before`/`racks_after`/`sized_for_racks`
+fields describe a hall retrofit and have no honest value for a BTM generator; see the module's
+own docstring.
+
+Also `POST /v1/power/deploy/spec` (3 units, the same basis as `/v1/spec`) and the
+`gridforge_power_deploy_spec` MCP tool. `format: "json"` returns a summary and the
+machine-readable response template; `"md"`/`"html"` (the default) render the full tender
+document via `gridforge/reporting/btm_spec_report.py`, the same `Report`/`Section`/`Table`
+model every other rendered deliverable in this codebase uses.
+
+### The persistent case — `power_deployment_cases`
+
+The engine composition above now persists. `POST /api/power/deploy/cases` runs the engine
+exactly once (same `runDeploymentAssessment()` call the CLI's `power-deploy-assess` and the raw
+`/v1/power/deploy/assess` route make) and writes the request/result pair as **revision 1** of a
+case, keyed by a token — `lib/power-deploy.ts`, migration
+`supabase/migrations/0014_power_deployment_cases.sql`. `GET /api/power/deploy/cases/{token}`
+returns the latest revision (`?history=1` for every revision). `POST` to the same URL merges a
+partial update onto the case's own last request, re-solves, and appends a new row — never
+mutates the old one, the same "never a mutable blob" discipline Hall Watch's `last_state`
+column already follows.
+
+`changedFields()` is the "what changed since last time" a Watch note needs: a shallow,
+top-level diff of the new request against the previous one (`target_MW` moved, `generation`
+moved, and so on), computed once on write rather than re-derived by every reader. It is
+deliberately not a deep field-by-field diff — see the function's own docstring for why a
+coarser note is more useful here than the headroom ladder's fully attributed change engine
+would be for this input shape.
+
+**No entitlement gate on these routes.** There is no Stripe product for the BTM Power
+Deployment Case yet — gating a capability behind a fake paywall would be worse than leaving it
+open, per the rule against inventing billing products ahead of the thing they'd meter.
+
+### The web pages — `/power/deploy` and `/power/deploy/[token]`
+
+`/power/deploy` is a narrow, real form (one generator, one battery, a flat load assumption —
+the API accepts a full interval CSV and an arbitrary equipment list; the form exists so the
+capability is visible without a JSON editor, not as the only way in). Submitting it creates a
+case and redirects to `/power/deploy/[token]`, a server component that reads the case straight
+from `lib/power-deploy.ts` (no internal fetch — the same pattern `/deliverable/[token]` uses)
+and renders the architecture comparison, the CAPEX/lead-time honesty (`UNKNOWN — not costed`,
+never a silent zero), the next action, and — from revision 2 onward — a "what changed since
+revision N-1" band sourced from `changed_fields`. `PowerDeployCaseUpdate` posts a partial
+change (today: target MW, grid firm MW) and the page re-renders the new revision.
+
+**What this still does not do**, stated plainly rather than left to be discovered: the case page
+now shows readiness gates (interconnection/protection/fuel/permitting/electrical/reliability),
+and the create form accepts fuel type, utility, PCC voltage, import capacity and emissions
+status — but civil/site and thermal gates have no input to check yet, and there is no path from
+a gate's `missing` field list back into a form the customer can fill in inline (they see what's
+missing, not a button that opens the right input). The page has no "generate procurement
+package" action yet, even though `power-deploy-spec`/`/v1/power/deploy/spec` exist and could be
+called with this case's own `request` column — that button is the next small, real piece, not
+built this cycle; the update form only exposes two of the request's fields (target and grid
+firm capacity — changing the declared generation/BESS list, fuel/interconnection/permitting
+data, or the load profile itself still needs a direct API call); not wired into `/workspace` or the
+free qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
+is a real next slice, not a rounding error.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

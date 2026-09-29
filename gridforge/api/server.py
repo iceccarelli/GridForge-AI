@@ -23,6 +23,8 @@ Endpoints
     POST /v1/spec                       intake     -> tender specification  (key)
     POST /v1/bids                       intake+bids-> ranked comparison     (key)
     POST /v1/power/assess               intake     -> Power Readiness Case (key)
+    POST /v1/power/deploy/assess        deployment request -> BTM assessment (key)
+    POST /v1/power/deploy/spec          deployment request -> equipment tender (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
@@ -359,6 +361,69 @@ def handle_power_assess(body: dict, tier: Tier) -> dict:
     return redact(case, tier)
 
 
+def handle_power_deploy_assess(body: dict, tier: Tier) -> dict:
+    """The BTM Power Deployment Assessment: candidate grid/generation/BESS
+    architectures compared against a real load profile under a real N/N+1/N+2/2N
+    contingency test, each priced and dated where the request declared it, with
+    one deterministic next action. No new physics — see
+    gridforge/reporting/btm_assessment.py. This is a different input shape from
+    every other engine endpoint (a load profile and a hybrid architecture, not a
+    hall intake), so the request body is parsed by `deployment_request()` rather
+    than through `_run()`/`load_document()`."""
+    from ..reporting.btm_assessment import (DeploymentRequestError, assess_deployment,
+                                            deployment_request)
+    try:
+        kwargs = deployment_request(body)
+    except DeploymentRequestError as exc:
+        raise ApiError(422, str(exc))
+    result = assess_deployment(**kwargs)
+    return redact(result, tier)
+
+
+def handle_power_deploy_spec(body: dict, tier: Tier) -> dict:
+    """A tender package for one architecture's generation and storage units —
+    the dead end `gridforge_power_deploy_assess`'s "proceed to procurement"
+    next action used to be. Same request shape as `/v1/power/deploy/assess`
+    (a deployment request), plus `architecture` (a label, for the document
+    title only — the units tendered are whatever `generation`/`bess` the
+    request declared) and `project`. No new physics — see
+    gridforge/reporting/btm_spec.py."""
+    from ..procurement.schema import ProcurementError
+    from ..reporting.btm_assessment import DeploymentRequestError, deployment_request
+    from ..reporting.btm_spec import build_equipment_spec
+    from ..reporting.btm_spec_report import build as build_spec_report
+    try:
+        kwargs = deployment_request(body)
+    except DeploymentRequestError as exc:
+        raise ApiError(422, str(exc))
+    label = str(body.get("architecture") or "Declared architecture")
+    project = str(body.get("project") or "Power Deployment Case")
+    try:
+        spec = build_equipment_spec(label, project=project, generation=kwargs["generation"],
+                                    bess=kwargs["bess"])
+    except ProcurementError as exc:
+        raise ApiError(422, str(exc))
+    fmt = str(body.get("format") or "html").lower()
+    if fmt in ("html", "md"):
+        report = build_spec_report(spec, reference=str(body.get("reference") or ""),
+                                   return_by=str(body.get("return_by") or ""),
+                                   contact=str(body.get("contact") or ""))
+        if fmt == "md":
+            return {"format": "md", "title": report.title, "document": to_markdown(report)}
+        return {"format": "html", "title": report.title,
+               "document": to_html(report, full_document=False),
+               "document_full": to_html(report, full_document=True)}
+    return {
+        "specification": {
+            "architecture": spec.architecture_label, "units": spec.units,
+            "requirements": len(spec.requirements), "mandatory": len(spec.mandatory()),
+        },
+        "response_template": {
+            f.key: None for f in spec.response_fields
+        },
+    }
+
+
 def handle_revoke(body: dict, tier: Tier) -> dict:
     """Kill a leaked key now, rather than at expiry.
 
@@ -474,6 +539,8 @@ ROUTES = {
     "/v1/spec": (handle_spec, Tier.CLIENT),
     "/v1/bids": (handle_bids, Tier.CLIENT),
     "/v1/power/assess": (handle_power_assess, Tier.CLIENT),
+    "/v1/power/deploy/assess": (handle_power_deploy_assess, Tier.CLIENT),
+    "/v1/power/deploy/spec": (handle_power_deploy_spec, Tier.CLIENT),
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
