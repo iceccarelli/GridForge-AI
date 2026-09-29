@@ -106,6 +106,37 @@ green light to prepare an RFQ, NOT a green light to build" — see `_next_action
 full reasoning, including why the earlier single-field version was wrong by name rather than by
 arithmetic.
 
+### Objective-driven ranking — never a silent lowest-cost winner
+
+`power-deploy-assess` accepts an optional `objective` field — one of `max_compute`,
+`min_cost` (`min_cost_per_rack`'s BTM equivalent), or `fastest` (`fastest_to_power`) — using the
+same `gridforge.scenario.objective.Objective` enum the hall-side headroom ladder already uses.
+No second objective system was created: this is that enum, threaded one layer further, through
+`deployment_request()` → `assess_deployment()` → `_rank()` → `_next_action()` → CLI/API/MCP.
+It defaults to `max_compute` when omitted, and an unrecognised value is rejected with a 422
+naming the valid choices — never silently coerced to a default.
+
+Two architectures can both pass their contingency test, cost different amounts, and take
+different lead times to build. An earlier version of this code always recommended the cheapest
+one, without ever saying that "cheapest" was the criterion — a customer optimising for time to
+power or for maximum firm capacity would have been silently steered toward the wrong answer.
+Now the result states all three things explicitly:
+
+- **`capacity.objective`** / **`next_action.objective`** — the objective actually used, echoed
+  back so a customer or an automated caller can confirm what was asked for.
+- **`next_action.objective_rationale`** — one sentence on why that objective is the right lens
+  (`_BTM_OBJECTIVE_RATIONALE` in `gridforge/reporting/btm_assessment.py`), not just its name.
+- **`next_action.trade_offs`** — present whenever a cheaper-or-faster-but-not-chosen
+  architecture also passed its contingency test, naming the runner-up, the capex or lead-time
+  delta, and the objective that kept it from winning (`_trade_offs()`). Empty only when there
+  was no viable alternative to trade off against.
+
+The CLI (`gridforge power-deploy-assess`) prints the objective and every trade-off line;
+`gridforge_power_deploy_assess` (MCP) documents the `objective` enum and the new response
+fields in its schema (`gridforge/api/tools.py`); the REST endpoint inherits all of this for
+free because it shares the same `deployment_request()`/`assess_deployment()` call chain as the
+CLI and MCP — there is exactly one parser and one ranking function, not three.
+
 ### From assessment to tender — `power-deploy-spec`
 
 `python3 -m gridforge power-deploy-spec request.json --architecture "GRID + BESS + GENERATION" --project "North Campus" -o out/`

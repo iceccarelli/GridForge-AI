@@ -282,6 +282,71 @@ def test_power_deploy_assess_is_callable_over_mcp(server):
     assert structured["next_action"]["action"].startswith("Proceed to RFQ")
 
 
+# Requires generation (30 MW, EUR 20M, 50wk) to close the gap that BESS alone
+# (10 MW, EUR 9M, 20wk) cannot — so MAX_COMPUTE and MIN_COST_PER_RACK disagree
+# on which architecture wins, and the API/MCP must expose which one was asked
+# for and why, never a silent lowest-cost default.
+OBJECTIVE_REQUEST = {
+    "load_profile": DEPLOY_REQUEST["load_profile"],
+    "grid_firm_MW": 5.0,
+    "target_MW": 30.0,
+    "ride_through_hours": 3.0,
+    "redundancy": "N",
+    "generation": [
+        {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 30.0,
+         "capex_eur": 20_000_000, "lead_time_weeks": 50, "fuel_type": "natural gas"},
+    ],
+    "bess": [
+        {"id": "BESS-1", "power_MW": 10.0, "energy_MWh": 40.0,
+         "capex_eur": 9_000_000, "lead_time_weeks": 20},
+    ],
+    "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+    "permitting": {"emissions_status": "application submitted"},
+}
+
+
+def test_power_deploy_assess_never_silently_optimises_for_lowest_cost(server):
+    max_compute_status, max_compute_body = call(
+        server, "/v1/power/deploy/assess", OBJECTIVE_REQUEST, key=KEY)
+    assert max_compute_status == 200, max_compute_body
+    assert max_compute_body["capacity"]["objective"] == "max_compute"
+    assert max_compute_body["next_action"]["objective"] == "max_compute"
+    assert max_compute_body["next_action"]["objective_rationale"]
+
+    min_cost_status, min_cost_body = call(
+        server, "/v1/power/deploy/assess",
+        {**OBJECTIVE_REQUEST, "objective": "min_cost"}, key=KEY)
+    assert min_cost_status == 200, min_cost_body
+    assert min_cost_body["capacity"]["objective"] == "min_cost"
+    assert min_cost_body["next_action"]["objective"] == "min_cost"
+
+    # Different objectives over the same inputs must be allowed to pick
+    # different winners — that is the entire point of exposing the parameter.
+    assert (max_compute_body["next_action"]["action"]
+            != min_cost_body["next_action"]["action"])
+    # And the loser's trade-off must be named explicitly, never hidden.
+    assert max_compute_body["next_action"].get("trade_offs")
+
+
+def test_power_deploy_assess_rejects_an_unknown_objective(server):
+    status, body = call(
+        server, "/v1/power/deploy/assess",
+        {**OBJECTIVE_REQUEST, "objective": "cheapest_possible"}, key=KEY)
+    assert status == 422, body
+
+
+def test_power_deploy_assess_objective_is_callable_over_mcp(server):
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_deploy_assess",
+                   "arguments": {**OBJECTIVE_REQUEST, "objective": "min_cost"}},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["capacity"]["objective"] == "min_cost"
+    assert structured["next_action"]["objective"] == "min_cost"
+
+
 def test_power_deploy_spec_produces_a_traceable_tender(server):
     req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION",
           "project": "North Campus", "format": "json"}

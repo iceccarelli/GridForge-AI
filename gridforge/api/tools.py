@@ -240,6 +240,16 @@ TOOLS: list[dict] = [
                                                                      "against; defaults to 2h "
                                                                      "if omitted"},
              "redundancy": {"type": "string", "enum": ["N", "N+1", "N+2", "2N"], "default": "N"},
+             "objective": {"type": "string",
+                          "enum": ["max_compute", "min_cost", "fastest"],
+                          "default": "max_compute",
+                          "description": "What the architecture ranking optimises for: "
+                                         "max_compute (most firm capacity), min_cost (lowest "
+                                         "CAPEX among architectures that pass their own "
+                                         "contingency test), or fastest (shortest critical-path "
+                                         "lead time). The winner is never chosen by lowest cost "
+                                         "silently — next_action always states which objective "
+                                         "was used and the trade-off against the runner-up."},
              "generation": {"type": "array", "items": {
                  "type": "object", "required": ["id", "nameplate_MW"],
                  "properties": {"id": {"type": "string"}, "kind": {"type": "string"},
@@ -287,7 +297,9 @@ TOOLS: list[dict] = [
                  "and execution_ready [cleared to build, which on-site generation/storage "
                  "architectures will almost never show as true from screening alone]), and "
                  "next_action, which names a missing readiness field before it ever says "
-                 "'proceed to RFQ', and always separates RFQ-readiness from build clearance."),
+                 "'proceed to RFQ', always separates RFQ-readiness from build clearance, and "
+                 "states which objective was used, why, and the trade-off against the "
+                 "runner-up architecture — never a silent 'cheapest wins'."),
     ),
     _tool(
         "gridforge_power_deploy_spec",
