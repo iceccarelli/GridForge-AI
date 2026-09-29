@@ -401,7 +401,7 @@
       "method": "POST",
       "tier": "client",
       "units": 5,
-      "returns": "load_profile summary (peak/mean/load-factor/ramp/step-events, with its own evidence class), capacity (grid-only vs. target, the gap), architectures (each with contingency status, CAPEX, lead time, and whether it is fully costed), and next_action.",
+      "returns": "load_profile summary (peak/mean/load-factor/ramp/step-events, with its own evidence class), capacity (grid-only vs. target, the gap), architectures (each with contingency status, CAPEX, lead time, whether fully costed, readiness_gates \u2014 interconnection/protection/fuel/permitting/electrical/reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing \u2014 and ready_for_procurement), and next_action, which names a missing readiness field before it ever says 'proceed to procurement'.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -473,6 +473,10 @@
                 },
                 "lead_time_weeks": {
                   "type": "number"
+                },
+                "fuel_type": {
+                  "type": "string",
+                  "description": "e.g. 'natural gas' \u2014 feeds the fuel readiness gate; omitting it leaves that gate MISSING_DATA"
                 }
               }
             }
@@ -501,8 +505,34 @@
                 },
                 "lead_time_weeks": {
                   "type": "number"
+                },
+                "grid_forming": {
+                  "type": "boolean",
+                  "description": "feeds the electrical readiness gate \u2014 more than one grid-forming source across the architecture requires a controls arbitration study"
                 }
               }
+            }
+          },
+          "interconnection": {
+            "type": "object",
+            "description": "utility, pcc_voltage_kV, import_capacity_MW \u2014 feeds the interconnection readiness gate. Omitting it leaves that gate MISSING_DATA, never a guessed PASS.",
+            "properties": {
+              "utility": {
+                "type": "string"
+              },
+              "pcc_voltage_kV": {
+                "type": "number"
+              },
+              "import_capacity_MW": {
+                "type": "number"
+              }
+            }
+          },
+          "permitting": {
+            "type": "object",
+            "description": "e.g. {emissions_status, noise_status} \u2014 feeds the permitting readiness gate.",
+            "additionalProperties": {
+              "type": "string"
             }
           }
         },
@@ -1081,6 +1111,10 @@
                   },
                   "lead_time_weeks": {
                     "type": "number"
+                  },
+                  "fuel_type": {
+                    "type": "string",
+                    "description": "e.g. 'natural gas' \u2014 feeds the fuel readiness gate; omitting it leaves that gate MISSING_DATA"
                   }
                 }
               }
@@ -1109,8 +1143,34 @@
                   },
                   "lead_time_weeks": {
                     "type": "number"
+                  },
+                  "grid_forming": {
+                    "type": "boolean",
+                    "description": "feeds the electrical readiness gate \u2014 more than one grid-forming source across the architecture requires a controls arbitration study"
                   }
                 }
+              }
+            },
+            "interconnection": {
+              "type": "object",
+              "description": "utility, pcc_voltage_kV, import_capacity_MW \u2014 feeds the interconnection readiness gate. Omitting it leaves that gate MISSING_DATA, never a guessed PASS.",
+              "properties": {
+                "utility": {
+                  "type": "string"
+                },
+                "pcc_voltage_kV": {
+                  "type": "number"
+                },
+                "import_capacity_MW": {
+                  "type": "number"
+                }
+              }
+            },
+            "permitting": {
+              "type": "object",
+              "description": "e.g. {emissions_status, noise_status} \u2014 feeds the permitting readiness gate.",
+              "additionalProperties": {
+                "type": "string"
               }
             }
           },
@@ -1704,6 +1764,10 @@
                   },
                   "lead_time_weeks": {
                     "type": "number"
+                  },
+                  "fuel_type": {
+                    "type": "string",
+                    "description": "e.g. 'natural gas' \u2014 feeds the fuel readiness gate; omitting it leaves that gate MISSING_DATA"
                   }
                 }
               }
@@ -1732,8 +1796,34 @@
                   },
                   "lead_time_weeks": {
                     "type": "number"
+                  },
+                  "grid_forming": {
+                    "type": "boolean",
+                    "description": "feeds the electrical readiness gate \u2014 more than one grid-forming source across the architecture requires a controls arbitration study"
                   }
                 }
+              }
+            },
+            "interconnection": {
+              "type": "object",
+              "description": "utility, pcc_voltage_kV, import_capacity_MW \u2014 feeds the interconnection readiness gate. Omitting it leaves that gate MISSING_DATA, never a guessed PASS.",
+              "properties": {
+                "utility": {
+                  "type": "string"
+                },
+                "pcc_voltage_kV": {
+                  "type": "number"
+                },
+                "import_capacity_MW": {
+                  "type": "number"
+                }
+              }
+            },
+            "permitting": {
+              "type": "object",
+              "description": "e.g. {emissions_status, noise_status} \u2014 feeds the permitting readiness gate.",
+              "additionalProperties": {
+                "type": "string"
               }
             }
           },

@@ -41,6 +41,15 @@ interface DeploymentResult {
     capex_eur: number | null;
     lead_time_weeks: number | null;
     buildable: boolean;
+    ready_for_procurement: boolean;
+    readiness_gates: {
+      gate: string;
+      status: string;
+      reason: string;
+      missing: string[];
+      review_requirement: string;
+      blocking: boolean;
+    }[];
   }[];
   next_action: { action: string; why: string };
 }
@@ -49,6 +58,25 @@ const STATUS_LABEL: Record<string, string> = {
   pass: "PASS",
   fail: "FAIL",
   requires_engineering_study: "NEEDS ENGINEERING STUDY",
+};
+
+const GATE_LABEL: Record<string, string> = {
+  pass: "PASS",
+  fail: "FAIL",
+  unknown: "UNKNOWN",
+  missing_data: "MISSING DATA",
+  requires_engineering_study: "ENGINEERING STUDY REQUIRED",
+  requires_licensed_review: "LICENSED REVIEW REQUIRED",
+  not_applicable: "N/A",
+};
+
+const GATE_NAME: Record<string, string> = {
+  interconnection: "Interconnection",
+  protection: "Protection",
+  fuel: "Fuel",
+  permitting: "Permitting",
+  electrical: "Electrical",
+  reliability: "Reliability",
 };
 
 export default async function PowerDeployCasePage({
@@ -145,6 +173,31 @@ export default async function PowerDeployCasePage({
                   ⚠ {b}
                 </p>
               ))}
+              {a.readiness_gates.length > 0 && (
+                <div className="mt-3 border-t border-line pt-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
+                    Readiness gates{" "}
+                    {a.ready_for_procurement ? (
+                      <span className="text-power">— nothing missing</span>
+                    ) : (
+                      <span className="text-flag">— not yet schedule-credible</span>
+                    )}
+                  </p>
+                  <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    {a.readiness_gates.map((g) => (
+                      <div key={g.gate} className="text-[12px]">
+                        <span className="text-ghost">{GATE_NAME[g.gate] ?? g.gate}: </span>
+                        <span className={g.status === "pass" ? "text-power" : "text-faint"}>
+                          {GATE_LABEL[g.status] ?? g.status}
+                        </span>
+                        {g.review_requirement && (
+                          <span className="text-faint"> ({g.review_requirement})</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

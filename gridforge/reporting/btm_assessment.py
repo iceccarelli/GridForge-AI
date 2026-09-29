@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from ..common import ASSUMED, V
 from ..power.generation import GenerationUnit
 from ..power.load_profile import LoadProfile
+from ..power.readiness_gates import GateResult, evaluate_gates
 from ..power.reliability import ContingencyCase, ContingencyStatus, Redundancy, evaluate
 from ..power.storage import BatteryEnergyStorageSystem
 from ..validation import Quantity
@@ -87,6 +88,7 @@ class ArchitectureAssessment:
     capex_uncosted_units: list[str]
     lead_time_weeks: Quantity | None
     lead_time_undated_units: list[str]
+    gates: list[GateResult] = field(default_factory=list)
 
     @property
     def buildable(self) -> bool:
@@ -97,25 +99,43 @@ class ArchitectureAssessment:
         return (self.contingency.status == ContingencyStatus.PASS
                 and self.capex_eur is not None)
 
+    @property
+    def ready_for_procurement(self) -> bool:
+        """Buildable AND every readiness gate has at least been screened — not
+        stuck on missing data. Still requires engineering studies and licensed
+        review (those gates deliberately never resolve to PASS from this tool
+        alone); it means nothing here is blocked for lack of an input the
+        customer could have simply supplied."""
+        return self.buildable and not any(
+            g.status.value == "missing_data" for g in self.gates)
+
 
 def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quantity,
                         critical_load_MW: Quantity, ride_through_hours: Quantity,
-                        redundancy: Redundancy) -> ArchitectureAssessment:
+                        redundancy: Redundancy, interconnection: dict | None = None,
+                        permitting: dict | None = None) -> ArchitectureAssessment:
     case = ContingencyCase(critical_load_MW=critical_load_MW, grid_firm_MW=grid_firm_MW,
                            generation=candidate.generation, bess=candidate.bess,
                            ride_through_hours=ride_through_hours, redundancy=redundancy)
     result = evaluate(case)
     capex, uncosted = _total_capex(candidate.generation + candidate.bess)
     lead_time, undated = _critical_path_weeks(candidate.generation + candidate.bess)
-    return ArchitectureAssessment(candidate.label, result, capex, uncosted, lead_time, undated)
+    gates = evaluate_gates(generation=candidate.generation, bess=candidate.bess,
+                          interconnection=interconnection, permitting=permitting,
+                          contingency=result)
+    return ArchitectureAssessment(candidate.label, result, capex, uncosted, lead_time, undated,
+                                  gates)
 
 
 def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                  gap_MW: float) -> dict:
     """One deterministic recommendation, in priority order: fix the data before
-    trusting any comparison; then close a missing quote before ranking; then, if
-    everything needed to compare is present, point at the winner or say plainly
-    that nothing declared clears the bar."""
+    trusting any comparison; then close a missing quote before ranking; then
+    close a missing-data readiness gate before recommending procurement — a
+    technically passing, fully-costed architecture with an unpermitted
+    generator is "technically feasible, not yet schedule-credible", and saying
+    "proceed to procurement" would hide that; only then point at the winner, or
+    say plainly that nothing declared clears the bar."""
     if not load_profile_report.usable:
         return {"action": "Resolve the load profile's duplicate timestamps before "
                           "trusting any architecture comparison built on it.",
@@ -134,10 +154,21 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
         return {"action": f"Obtain a budgetary or firm quote for: {names}",
                "why": f"'{u.label}' passes its contingency test but cannot be compared on "
                       f"cost or schedule until every unit in it is priced."}
-    winner = min((a for a in passing if a.buildable), key=lambda a: a.capex_eur.value)
+    buildable = [a for a in passing if a.buildable]
+    winner = min(buildable, key=lambda a: a.capex_eur.value)
+    if not winner.ready_for_procurement:
+        missing_gates = [g for g in winner.gates if g.status.value == "missing_data"]
+        fields = sorted({m for g in missing_gates for m in g.missing})
+        return {"action": f"Supply the missing readiness data for '{winner.label}': "
+                          f"{', '.join(fields) if fields else 'see readiness_gates'}",
+               "why": f"'{winner.label}' is the cheapest architecture that passes its own "
+                      f"contingency test, fully costed — but it is technically feasible, "
+                      f"not yet schedule-credible: "
+                      + "; ".join(g.reason for g in missing_gates)}
     return {"action": f"Proceed to procurement for: {winner.label}",
            "why": "The cheapest architecture that passes its own declared contingency test, "
-                  "among those with every unit costed."}
+                  "fully costed, with every readiness gate screened (engineering studies and "
+                  "licensed review may still be required — see readiness_gates)."}
 
 
 class DeploymentRequestError(ValueError):
@@ -153,6 +184,8 @@ def _generation_from_request(d: dict) -> GenerationUnit:
     if d.get("lead_time_weeks") is not None:
         unit.lead_time_weeks = V(float(d["lead_time_weeks"]), "weeks",
                                  f"{unit.id} lead time", ASSUMED, band=0.35)
+    if d.get("fuel_type"):
+        unit.fuel_type = str(d["fuel_type"])
     return unit
 
 
@@ -165,6 +198,8 @@ def _bess_from_request(d: dict) -> BatteryEnergyStorageSystem:
     if d.get("lead_time_weeks") is not None:
         unit.lead_time_weeks = V(float(d["lead_time_weeks"]), "weeks",
                                  f"{unit.id} lead time", ASSUMED, band=0.35)
+    if d.get("grid_forming") is not None:
+        unit.grid_forming = bool(d["grid_forming"])
     return unit
 
 
@@ -196,9 +231,11 @@ def deployment_request(doc: dict) -> dict:
     ride_through_hours = (V(float(doc["ride_through_hours"]), "h", "ride-through window", ASSUMED)
                           if doc.get("ride_through_hours") is not None else None)
     redundancy = Redundancy(doc.get("redundancy", Redundancy.N.value))
+    interconnection = doc.get("interconnection") if isinstance(doc.get("interconnection"), dict) else None
+    permitting = doc.get("permitting") if isinstance(doc.get("permitting"), dict) else None
     return dict(load_profile=load_profile, grid_firm_MW=grid_firm_MW, generation=generation,
                bess=bess, target_MW=target_MW, ride_through_hours=ride_through_hours,
-               redundancy=redundancy)
+               redundancy=redundancy, interconnection=interconnection, permitting=permitting)
 
 
 def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
@@ -206,11 +243,17 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                       bess: list[BatteryEnergyStorageSystem],
                       target_MW: Quantity, ride_through_hours: Quantity | None = None,
                       redundancy: Redundancy = Redundancy.N,
-                      critical_load_MW: Quantity | None = None) -> dict:
+                      critical_load_MW: Quantity | None = None,
+                      interconnection: dict | None = None,
+                      permitting: dict | None = None) -> dict:
     """The Power Deployment Assessment: current grid-only capacity vs. target,
     every declared hybrid architecture compared under the same contingency test,
-    and one next action. `critical_load_MW` defaults to the load profile's own
-    peak — the load a real contingency test has to survive, not its average."""
+    each screened against the engineering readiness gates it can actually be
+    screened against, and one next action. `critical_load_MW` defaults to the
+    load profile's own peak — the load a real contingency test has to survive,
+    not its average. `interconnection`/`permitting` are optional declared data
+    for the readiness gates (gridforge.power.readiness_gates) — omitting them
+    is honest: the gates read MISSING_DATA rather than guessing."""
     report = load_profile.validate()
     peak_MW = V(load_profile.peak_kW().value / 1000.0, "MW",
                "load profile peak", load_profile.evidence)
@@ -222,7 +265,8 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
     architectures = candidate_architectures(generation, bess)
     assessments = [
         assess_architecture(c, grid_firm_MW=grid_firm_MW, critical_load_MW=critical,
-                            ride_through_hours=ride, redundancy=redundancy)
+                            ride_through_hours=ride, redundancy=redundancy,
+                            interconnection=interconnection, permitting=permitting)
         for c in architectures
     ]
 
@@ -260,6 +304,15 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                 "lead_time_weeks": a.lead_time_weeks.rounded() if a.lead_time_weeks is not None else None,
                 "lead_time_undated_units": a.lead_time_undated_units,
                 "buildable": a.buildable,
+                "ready_for_procurement": a.ready_for_procurement,
+                "readiness_gates": [
+                    {
+                        "gate": g.gate, "status": g.status.value, "reason": g.reason,
+                        "evidence": g.evidence, "missing": g.missing,
+                        "review_requirement": g.review_requirement, "blocking": g.blocking,
+                    }
+                    for g in a.gates
+                ],
             }
             for a in assessments
         ],

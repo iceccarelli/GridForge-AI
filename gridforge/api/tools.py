@@ -245,19 +245,45 @@ TOOLS: list[dict] = [
                  "properties": {"id": {"type": "string"}, "kind": {"type": "string"},
                                "nameplate_MW": {"type": "number"},
                                "capex_eur": {"type": "number"},
-                               "lead_time_weeks": {"type": "number"}}}},
+                               "lead_time_weeks": {"type": "number"},
+                               "fuel_type": {"type": "string",
+                                            "description": "e.g. 'natural gas' — feeds the "
+                                                           "fuel readiness gate; omitting it "
+                                                           "leaves that gate MISSING_DATA"}}}},
              "bess": {"type": "array", "items": {
                  "type": "object", "required": ["id", "power_MW", "energy_MWh"],
                  "properties": {"id": {"type": "string"}, "power_MW": {"type": "number"},
                                "energy_MWh": {"type": "number"},
                                "capex_eur": {"type": "number"},
-                               "lead_time_weeks": {"type": "number"}}}},
+                               "lead_time_weeks": {"type": "number"},
+                               "grid_forming": {"type": "boolean",
+                                                "description": "feeds the electrical readiness "
+                                                               "gate — more than one grid-"
+                                                               "forming source across the "
+                                                               "architecture requires a "
+                                                               "controls arbitration study"}}}},
+             "interconnection": {"type": "object",
+                                 "description": "utility, pcc_voltage_kV, import_capacity_MW — "
+                                                "feeds the interconnection readiness gate. "
+                                                "Omitting it leaves that gate MISSING_DATA, "
+                                                "never a guessed PASS.",
+                                 "properties": {"utility": {"type": "string"},
+                                               "pcc_voltage_kV": {"type": "number"},
+                                               "import_capacity_MW": {"type": "number"}}},
+             "permitting": {"type": "object",
+                           "description": "e.g. {emissions_status, noise_status} — feeds the "
+                                          "permitting readiness gate.",
+                           "additionalProperties": {"type": "string"}},
          },
          "additionalProperties": False},
         returns=("load_profile summary (peak/mean/load-factor/ramp/step-events, with its own "
                  "evidence class), capacity (grid-only vs. target, the gap), architectures "
-                 "(each with contingency status, CAPEX, lead time, and whether it is fully "
-                 "costed), and next_action."),
+                 "(each with contingency status, CAPEX, lead time, whether fully costed, "
+                 "readiness_gates — interconnection/protection/fuel/permitting/electrical/"
+                 "reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/"
+                 "REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing "
+                 "— and ready_for_procurement), and next_action, which names a missing "
+                 "readiness field before it ever says 'proceed to procurement'."),
     ),
     _tool(
         "gridforge_power_deploy_spec",

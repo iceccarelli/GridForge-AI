@@ -57,9 +57,11 @@ Request shape:
   "ride_through_hours": 3.0,
   "redundancy": "N+1",
   "generation": [{"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
-                  "capex_eur": 16000000, "lead_time_weeks": 44}],
+                  "capex_eur": 16000000, "lead_time_weeks": 44, "fuel_type": "natural gas"}],
   "bess": [{"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
-            "capex_eur": 7200000, "lead_time_weeks": 30}]
+            "capex_eur": 7200000, "lead_time_weeks": 30, "grid_forming": false}],
+  "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+  "permitting": {"emissions_status": "application submitted"}
 }
 ```
 
@@ -67,6 +69,25 @@ Also `POST /v1/power/deploy/assess` and the `gridforge_power_deploy_assess` MCP 
 `deployment_request()` parser, same `assess_deployment()` function, so the CLI, a client
 integration and an agent read the same architecture comparison. Priced at 5 units, the same as
 a full Study — a load profile plus up to four architecture solves is comparable engine load.
+
+#### Engineering readiness gates
+
+Every architecture in the response now also carries `readiness_gates` — interconnection,
+protection, fuel, permitting, electrical, reliability
+(`gridforge/power/readiness_gates.py`) — each `PASS`, `FAIL`, `UNKNOWN`, `MISSING_DATA`,
+`REQUIRES_ENGINEERING_STUDY`, `REQUIRES_LICENSED_REVIEW` or `NOT_APPLICABLE`, with a reason,
+which declared fields would resolve it, and who has to sign off. **Protection never resolves to
+PASS or FAIL from this tool's own authority, however complete the declared architecture is** —
+short-circuit and relay coordination require a licensed protection engineer and specialist
+software (ETAP, PowerFactory or equivalent), named explicitly rather than pretended away.
+Reliability is the one gate with a real PASS/FAIL, because it is literally the same
+`ContingencyResult` the architecture comparison already computed — not a second opinion.
+
+`ready_for_procurement` on each architecture is `buildable` (passes its contingency test, fully
+costed) AND every gate has at least been screened past `MISSING_DATA`. This is the mechanism
+behind "technically feasible, but not schedule-credible": `next_action` will name the missing
+readiness fields on the cheapest passing architecture before it ever says "proceed to
+procurement" — see `_next_action()` in `gridforge/reporting/btm_assessment.py`.
 
 ### From assessment to tender — `power-deploy-spec`
 
@@ -127,13 +148,17 @@ never a silent zero), the next action, and — from revision 2 onward — a "wha
 revision N-1" band sourced from `changed_fields`. `PowerDeployCaseUpdate` posts a partial
 change (today: target MW, grid firm MW) and the page re-renders the new revision.
 
-**What this still does not do**, stated plainly rather than left to be discovered: no
-interconnection, fuel, or permitting readiness check; the page has no "generate procurement
+**What this still does not do**, stated plainly rather than left to be discovered: the case page
+now shows readiness gates (interconnection/protection/fuel/permitting/electrical/reliability),
+and the create form accepts fuel type, utility, PCC voltage, import capacity and emissions
+status — but civil/site and thermal gates have no input to check yet, and there is no path from
+a gate's `missing` field list back into a form the customer can fill in inline (they see what's
+missing, not a button that opens the right input). The page has no "generate procurement
 package" action yet, even though `power-deploy-spec`/`/v1/power/deploy/spec` exist and could be
 called with this case's own `request` column — that button is the next small, real piece, not
 built this cycle; the update form only exposes two of the request's fields (target and grid
-firm capacity — changing the declared generation/BESS list or the load profile itself still
-needs a direct API call); not wired into `/workspace` or the
+firm capacity — changing the declared generation/BESS list, fuel/interconnection/permitting
+data, or the load profile itself still needs a direct API call); not wired into `/workspace` or the
 free qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
 is a real next slice, not a rounding error.
 

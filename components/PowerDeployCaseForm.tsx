@@ -20,9 +20,14 @@ export function PowerDeployCaseForm() {
   const [gridFirmMW, setGridFirmMW] = useState("10");
   const [flatKW, setFlatKW] = useState("30000");
   const [genMW, setGenMW] = useState("20");
+  const [fuelType, setFuelType] = useState("natural gas");
   const [bessPowerMW, setBessPowerMW] = useState("8");
   const [bessEnergyMWh, setBessEnergyMWh] = useState("32");
   const [redundancy, setRedundancy] = useState("N+1");
+  const [utility, setUtility] = useState("");
+  const [pccVoltageKV, setPccVoltageKV] = useState("");
+  const [importCapacityMW, setImportCapacityMW] = useState("");
+  const [emissionsStatus, setEmissionsStatus] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -40,11 +45,26 @@ export function PowerDeployCaseForm() {
           target_MW: Number(targetMW),
           redundancy,
           generation: Number(genMW) > 0
-            ? [{ id: "GEN-A", kind: "gas_engine", nameplate_MW: Number(genMW) }]
+            ? [{
+                id: "GEN-A", kind: "gas_engine", nameplate_MW: Number(genMW),
+                ...(fuelType.trim() ? { fuel_type: fuelType.trim() } : {}),
+              }]
             : [],
           bess: Number(bessPowerMW) > 0
             ? [{ id: "BESS-1", power_MW: Number(bessPowerMW), energy_MWh: Number(bessEnergyMWh) }]
             : [],
+          ...(utility.trim() && pccVoltageKV.trim() && importCapacityMW.trim()
+            ? {
+                interconnection: {
+                  utility: utility.trim(),
+                  pcc_voltage_kV: Number(pccVoltageKV),
+                  import_capacity_MW: Number(importCapacityMW),
+                },
+              }
+            : {}),
+          ...(emissionsStatus.trim()
+            ? { permitting: { emissions_status: emissionsStatus.trim() } }
+            : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -82,13 +102,31 @@ export function PowerDeployCaseForm() {
           </select>
         </div>
         <Field label="Candidate generator, nameplate (MW)" value={genMW} onChange={setGenMW} />
+        <TextField label="Generator fuel type" value={fuelType} onChange={setFuelType}
+          placeholder="natural gas" />
         <Field label="Candidate battery, power (MW)" value={bessPowerMW} onChange={setBessPowerMW} />
         <Field label="Candidate battery, energy (MWh)" value={bessEnergyMWh} onChange={setBessEnergyMWh} />
+      </div>
+      <div>
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
+          Readiness data (optional — leave blank and the engine reports it as missing rather
+          than guessing)
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField label="Interconnecting utility" value={utility} onChange={setUtility}
+            placeholder="e.g. TenneT" />
+          <Field label="PCC voltage (kV)" value={pccVoltageKV} onChange={setPccVoltageKV} />
+          <Field label="Import capacity at PCC (MW)" value={importCapacityMW}
+            onChange={setImportCapacityMW} />
+          <TextField label="Emissions permit status" value={emissionsStatus}
+            onChange={setEmissionsStatus} placeholder="e.g. application submitted" />
+        </div>
       </div>
       <p className="text-[11px] text-faint">
         A flat load assumption is a screening-level figure, not a measurement — the assessment
         says so on every reading it produces. Upload a real interval export via the API for a
-        customer-measured evidence class instead.
+        customer-measured evidence class instead. Protection coordination always requires a
+        licensed engineer, whatever is entered above — no field here can clear that gate.
       </p>
       <button
         type="submit"
@@ -120,6 +158,31 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
+      />
+    </div>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint"
       />
     </div>
   );

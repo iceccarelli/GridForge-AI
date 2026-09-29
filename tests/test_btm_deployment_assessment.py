@@ -32,13 +32,19 @@ def _units():
     gen = default_generation_unit("GEN-A", "gas_engine", 20.0)
     gen.capex_eur = V(16_000_000, "EUR", "GEN-A capex", ASSUMED)
     gen.lead_time_weeks = V(44, "weeks", "GEN-A lead time", ASSUMED)
+    gen.fuel_type = "natural gas"
     gen2 = default_generation_unit("GEN-B", "gas_engine", 20.0)
     gen2.capex_eur = V(16_000_000, "EUR", "GEN-B capex", ASSUMED)
     gen2.lead_time_weeks = V(44, "weeks", "GEN-B lead time", ASSUMED)
+    gen2.fuel_type = "natural gas"
     bess = default_bess("BESS-1", power_MW=8.0, energy_MWh=32.0)
     bess.capex_eur = V(7_200_000, "EUR", "BESS-1 capex", ASSUMED)
     bess.lead_time_weeks = V(30, "weeks", "BESS-1 lead time", ASSUMED)
     return [gen, gen2], [bess]
+
+
+INTERCONNECTION = {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15}
+PERMITTING = {"emissions_status": "application submitted"}
 
 
 def _assess(**overrides):
@@ -48,6 +54,7 @@ def _assess(**overrides):
         grid_firm_MW=V(10.0, "MW", "grid firm", ASSUMED),
         generation=gens, bess=bess,
         target_MW=V(35.0, "MW", "target", ASSUMED),
+        interconnection=INTERCONNECTION, permitting=PERMITTING,
         ride_through_hours=V(3.0, "h", "ride-through", ASSUMED),
         redundancy=Redundancy.N_PLUS_1,
     )
@@ -161,12 +168,14 @@ DEPLOY_REQUEST = {
     "redundancy": "N+1",
     "generation": [
         {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
-         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
         {"id": "GEN-B", "kind": "gas_engine", "nameplate_MW": 20.0,
-         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
     ],
     "bess": [{"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
              "capex_eur": 7_200_000, "lead_time_weeks": 30}],
+    "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+    "permitting": {"emissions_status": "application submitted"},
 }
 
 

@@ -217,14 +217,16 @@ DEPLOY_REQUEST = {
     "redundancy": "N+1",
     "generation": [
         {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0,
-         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
         {"id": "GEN-B", "kind": "gas_engine", "nameplate_MW": 20.0,
-         "capex_eur": 16_000_000, "lead_time_weeks": 44},
+         "capex_eur": 16_000_000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
     ],
     "bess": [
         {"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0,
          "capex_eur": 7_200_000, "lead_time_weeks": 30},
     ],
+    "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+    "permitting": {"emissions_status": "application submitted"},
 }
 
 
@@ -236,6 +238,25 @@ def test_power_deploy_assess_compares_real_architectures(server):
     assert labels["GRID + BESS + GENERATION"] == "pass"
     assert body["next_action"]["action"].startswith("Proceed to procurement")
     assert body["capacity"]["gap_MW"] == 25.0
+    winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    assert winner["ready_for_procurement"] is True
+    gates = {g["gate"]: g["status"] for g in winner["readiness_gates"]}
+    assert gates["reliability"] == "pass"
+    assert gates["protection"] == "requires_licensed_review"  # never a fake PASS
+
+
+def test_power_deploy_assess_flags_technically_feasible_but_not_schedule_credible(server):
+    """A fully-costed, contingency-passing architecture with an undeclared
+    permit must not be told 'proceed to procurement' — that hides exactly the
+    schedule risk this gate exists to surface."""
+    req = {**DEPLOY_REQUEST, "permitting": None, "interconnection": None}
+    del req["permitting"]
+    del req["interconnection"]
+    status, body = call(server, "/v1/power/deploy/assess", req, key=KEY)
+    assert status == 200, body
+    assert "Supply the missing readiness data" in body["next_action"]["action"]
+    winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    assert winner["ready_for_procurement"] is False
 
 
 def test_power_deploy_assess_rejects_a_malformed_request(server):
