@@ -83,11 +83,78 @@ software (ETAP, PowerFactory or equivalent), named explicitly rather than preten
 Reliability is the one gate with a real PASS/FAIL, because it is literally the same
 `ContingencyResult` the architecture comparison already computed — not a second opinion.
 
-`ready_for_procurement` on each architecture is `buildable` (passes its contingency test, fully
-costed) AND every gate has at least been screened past `MISSING_DATA`. This is the mechanism
-behind "technically feasible, but not schedule-credible": `next_action` will name the missing
-readiness fields on the cheapest passing architecture before it ever says "proceed to
-procurement" — see `_next_action()` in `gridforge/reporting/btm_assessment.py`.
+Three fields, not one, because they answer three different questions and an earlier version of
+this code answered only the first while naming the field as if it answered the third:
+
+- **`rfq_ready`** — "GridForge has enough information to prepare an RFQ": `buildable` (passes
+  its contingency test, fully costed) AND no gate is stuck on `MISSING_DATA` or `UNKNOWN`. A
+  protection gate reading `REQUIRES_LICENSED_REVIEW` does **not** block this — a supplier can be
+  asked to quote while a protection engineer works in parallel.
+- **`external_clearances_required`** — every gate still standing between this architecture and
+  physical construction (`REQUIRES_ENGINEERING_STUDY` / `REQUIRES_LICENSED_REVIEW` / `FAIL`),
+  each naming who owns clearing it. For any architecture with on-site generation or storage this
+  is never empty — protection coordination always requires a licensed engineer, by design.
+- **`execution_ready`** — cleared to build: every gate `PASS` or `NOT_APPLICABLE`. Honestly
+  almost never true for a hybrid architecture from a screening tool alone, and that is correct,
+  not a bug to fix later.
+
+`next_action` uses this distinction directly: it names the missing readiness fields on the
+cheapest passing architecture before it ever says anything about RFQ, and once it does say
+"proceed to RFQ" it names every outstanding external clearance in the same sentence — "this is a
+green light to prepare an RFQ, NOT a green light to build" — see `_next_action()` and
+`ArchitectureAssessment`'s own docstrings in `gridforge/reporting/btm_assessment.py` for the
+full reasoning, including why the earlier single-field version was wrong by name rather than by
+arithmetic.
+
+### Objective-driven ranking — never a silent lowest-cost winner
+
+`power-deploy-assess` accepts an optional `objective` field — one of `max_compute`,
+`min_cost` (`min_cost_per_rack`'s BTM equivalent), or `fastest` (`fastest_to_power`) — using the
+same `gridforge.scenario.objective.Objective` enum the hall-side headroom ladder already uses.
+No second objective system was created: this is that enum, threaded one layer further, through
+`deployment_request()` → `assess_deployment()` → `_rank()` → `_next_action()` → CLI/API/MCP.
+It defaults to `max_compute` when omitted, and an unrecognised value is rejected with a 422
+naming the valid choices — never silently coerced to a default.
+
+Two architectures can both pass their contingency test, cost different amounts, and take
+different lead times to build. An earlier version of this code always recommended the cheapest
+one, without ever saying that "cheapest" was the criterion — a customer optimising for time to
+power or for maximum firm capacity would have been silently steered toward the wrong answer.
+Now the result states all three things explicitly:
+
+- **`capacity.objective`** / **`next_action.objective`** — the objective actually used, echoed
+  back so a customer or an automated caller can confirm what was asked for.
+- **`next_action.objective_rationale`** — one sentence on why that objective is the right lens
+  (`_BTM_OBJECTIVE_RATIONALE` in `gridforge/reporting/btm_assessment.py`), not just its name.
+- **`next_action.trade_offs`** — present whenever a cheaper-or-faster-but-not-chosen
+  architecture also passed its contingency test, naming the runner-up, the capex or lead-time
+  delta, and the objective that kept it from winning (`_trade_offs()`). Empty only when there
+  was no viable alternative to trade off against.
+
+The CLI (`gridforge power-deploy-assess`) prints the objective and every trade-off line;
+`gridforge_power_deploy_assess` (MCP) documents the `objective` enum and the new response
+fields in its schema (`gridforge/api/tools.py`); the REST endpoint inherits all of this for
+free because it shares the same `deployment_request()`/`assess_deployment()` call chain as the
+CLI and MCP — there is exactly one parser and one ranking function, not three.
+
+### Case ownership — a token is read access, not edit authority
+
+`power_deployment_cases.case_token` is a 192-bit random value — computationally unguessable,
+but a bare token shared by any means (a forwarded email, a browser history entry, a referrer
+header on an outbound link) is possession, not identity. A case created with an email
+(`createDeploymentCase({ email, ... })`) now requires that same email, case-insensitively, on
+every `POST /api/power/deploy/cases/[token]` revision — see the ownership check in
+`app/api/power/deploy/cases/[token]/route.ts`. The token still grants read access (`GET`), matching
+the magic-link model the rest of the site (Watches, deliverables) already uses; what changed is
+that mutating a registered case now also needs the registered email, so a leaked link alone can
+no longer let a third party silently rewrite someone else's committed capacity or architecture
+inputs. A case created without an email is unchanged — the token remains its only access control,
+the same as before, and that is a documented limitation of an anonymous case, not an oversight.
+
+This is a real, bounded improvement, not a claim of full multi-tenant authentication: there is no
+account system, session, or org-level isolation on this site yet. `PowerDeployCaseUpdate.tsx`
+collects and sends the confirmation email only when the case is registered to one; the engine
+never sees it — it is stripped from the request before `assess_deployment()` is called.
 
 ### From assessment to tender — `power-deploy-spec`
 
@@ -1057,6 +1124,57 @@ SITE_URL=… SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRE
 
 `--schema` exits non-zero and names the missing table. Both modes print PASS/FAIL
 per criterion, so "we checked" is a transcript rather than a memory.
+
+### `verify-entitlement.mjs` proves the handler; it cannot prove the Dashboard
+
+`--full` sends a correctly signed event straight to the route handler — it proves
+`app/api/stripe/webhook/route.ts` does the right thing with `checkout.session.completed`,
+`invoice.paid`, `customer.subscription.deleted` and `invoice.payment_failed` when it
+receives them. It cannot prove Stripe's own Dashboard is configured to *send* them: a
+webhook endpoint pointed at a stale URL, missing one of the four event types, or simply
+disabled produces the exact same green CI and the exact same working code — and a
+customer whose card is declined next month just quietly keeps working forever, or a
+cancelled subscription never stops billing being noticed, because the event that would
+have told this app so never arrived.
+
+`GET /api/admin/stripe-health` (admin-gated, surfaced on `/admin` as "Stripe webhook
+health") asks the live Stripe account directly — `lib/stripe-health.ts`'s
+`checkStripeWebhookHealth()` — whether an *enabled* webhook endpoint exists for this
+deployment's `/api/stripe/webhook` URL and has all four required events turned on. It
+never reports healthy without asking Stripe first: no `STRIPE_SECRET_KEY` means "cannot
+verify," not "assumed fine," and every other failure mode (wrong URL, disabled endpoint,
+missing event) is named explicitly rather than folded into a generic error. Run this
+after every change to the Stripe Dashboard's webhook configuration, and whenever
+`verify-entitlement.mjs --full` passes but you have not independently confirmed the
+Dashboard side recently — a passing handler test and a correctly configured webhook
+endpoint are two different facts, and this is what checks the second one.
+
+## The capability registry — one map of what exists, what is priced, what is sellable
+
+`lib/capability-registry.ts` is the cross-layer answer `lib/products.ts` was never meant to
+give. `PRODUCTS` and `INTELLIGENCE_PLANS` stay the single source of truth for PRICE — this file
+duplicates no euro figure, referencing them by id instead — but neither file says which REST
+endpoint, MCP tool, CLI command, web route or database table actually implements a given
+capability, or whether one even exists. The registry does: one row per commercially meaningful
+capability, naming its engine function, every interface surface, its entitlement mechanism
+exactly as implemented (not as intended), and an honest `status` —
+`commercial` / `metered_only` / `free` / `internal_only`.
+
+This is what makes "priced but unsellable," "sellable but invisible on the site," and
+"implemented but never monetized" answerable in one place instead of by grepping five files.
+The registry itself is held honest by `tests/site/capability-registry.test.ts`: every
+`product_id`/`intelligence_plan_id` it references must exist in `lib/products.ts`, and every
+product/plan actually sold must have a registry row — a product can be added to the ladder and
+forgotten here exactly the way products used to be forgotten from a hand-written ladder before
+`LADDER_PRODUCTS` was derived.
+
+`GET /api/admin/capability-audit` (admin-gated) prints the live report; a summary renders on
+`/admin`. It found one real, already-honestly-documented gap on first run: `btm_deploy_assess`
+and `btm_deploy_spec` are priced and sellable today through API unit metering (5 and 3 units,
+the same basis as `/v1/study` and `/v1/spec`) but have no dedicated one-off web checkout SKU —
+marked `metered_only`, `stripe_product_or_price: "none"`, deliberately, rather than inventing a
+price with no basis. See "The BTM Power Deployment Assessment" above for what pricing evidence
+would need to exist before that changes.
 
 ## The whole stack, before a deploy
 

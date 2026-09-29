@@ -179,6 +179,46 @@ describe("GET/POST /api/power/deploy/cases/[token]", () => {
     expect(res.status).toBe(404);
   });
 
+  it("POST refuses to revise an email-registered case without the matching email", async () => {
+    const { POST: createRoute } = await import("@/app/api/power/deploy/cases/route");
+    const createRes = await createRoute(postCase({ ...REQUEST, email: "owner@example.com" }));
+    const token = (await createRes.json()).case_token as string;
+
+    const { POST } = await import("@/app/api/power/deploy/cases/[token]/route");
+    const res = await POST(
+      new Request(siteUrl(`/api/power/deploy/cases/${token}`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_MW: 45 }),
+      }),
+      ctx(token)
+    );
+    expect(res.status).toBe(403);
+    // Never re-solved or persisted — the engine must not have been called a second time.
+    expect(engineCalls).toHaveLength(1);
+  });
+
+  it("POST revises an email-registered case when the email matches, case-insensitively", async () => {
+    const { POST: createRoute } = await import("@/app/api/power/deploy/cases/route");
+    const createRes = await createRoute(postCase({ ...REQUEST, email: "Owner@Example.com" }));
+    const token = (await createRes.json()).case_token as string;
+
+    const { POST } = await import("@/app/api/power/deploy/cases/[token]/route");
+    const res = await POST(
+      new Request(siteUrl(`/api/power/deploy/cases/${token}`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_MW: 45, email: "owner@example.com" }),
+      }),
+      ctx(token)
+    );
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.revision).toBe(2);
+    // The email confirmation field must never leak into the engine request.
+    expect(engineCalls[1].body.email).toBeUndefined();
+  });
+
   it("GET ?history=1 returns every revision, oldest first", async () => {
     const token = await createCase();
     const { POST } = await import("@/app/api/power/deploy/cases/[token]/route");

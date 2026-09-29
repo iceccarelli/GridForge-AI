@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PowerDeployCaseUpdate } from "@/components/PowerDeployCaseUpdate";
+import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 
 export const metadata: Metadata = {
   title: "Power Deployment Case",
@@ -29,6 +30,7 @@ interface DeploymentResult {
     critical_load_MW: number;
     ride_through_hours: number;
     redundancy: string;
+    objective?: string;
   };
   architectures: {
     label: string;
@@ -41,7 +43,9 @@ interface DeploymentResult {
     capex_eur: number | null;
     lead_time_weeks: number | null;
     buildable: boolean;
-    ready_for_procurement: boolean;
+    rfq_ready: boolean;
+    execution_ready: boolean;
+    external_clearances_required: { gate: string; review_requirement: string; reason: string }[];
     readiness_gates: {
       gate: string;
       status: string;
@@ -51,8 +55,20 @@ interface DeploymentResult {
       blocking: boolean;
     }[];
   }[];
-  next_action: { action: string; why: string };
+  next_action: {
+    action: string;
+    why: string;
+    objective?: string;
+    objective_rationale?: string;
+    trade_offs?: string[];
+  };
 }
+
+const OBJECTIVE_LABEL: Record<string, string> = {
+  max_compute: "Maximum firm capacity",
+  min_cost: "Lowest capital cost",
+  fastest: "Fastest time to power",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   pass: "PASS",
@@ -177,8 +193,8 @@ export default async function PowerDeployCasePage({
                 <div className="mt-3 border-t border-line pt-3">
                   <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
                     Readiness gates{" "}
-                    {a.ready_for_procurement ? (
-                      <span className="text-power">— nothing missing</span>
+                    {a.rfq_ready ? (
+                      <span className="text-power">— data complete, RFQ-ready</span>
                     ) : (
                       <span className="text-flag">— not yet schedule-credible</span>
                     )}
@@ -196,6 +212,26 @@ export default async function PowerDeployCasePage({
                       </div>
                     ))}
                   </div>
+                  {a.rfq_ready && (
+                    <p className="mt-2 text-[11px] text-faint">
+                      {a.execution_ready ? (
+                        "Cleared to build — no outstanding external clearance from this screening."
+                      ) : (
+                        <>
+                          RFQ-ready is <strong className="text-ghost">not</strong> build clearance.
+                          Still required before construction: {" "}
+                          {Array.from(
+                            new Set(
+                              a.external_clearances_required
+                                .map((c) => c.review_requirement)
+                                .filter(Boolean)
+                            )
+                          ).join(", ")}
+                          .
+                        </>
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -209,13 +245,57 @@ export default async function PowerDeployCasePage({
         </h2>
         <p className="mt-2 font-semibold text-ghost">{next_action.action}</p>
         <p className="mt-1 text-sm text-mute">{next_action.why}</p>
+        {next_action.objective && (
+          <p className="mt-3 text-[12px] text-faint">
+            Objective used: {" "}
+            <strong className="text-ghost">
+              {OBJECTIVE_LABEL[next_action.objective] ?? next_action.objective}
+            </strong>
+            {next_action.objective_rationale ? ` — ${next_action.objective_rationale}` : null}
+          </p>
+        )}
+        {next_action.trade_offs && next_action.trade_offs.length > 0 && (
+          <div className="mt-3 border-t border-power/20 pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Trade-offs considered
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-[12px] text-mute">
+              {next_action.trade_offs.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="mt-8">
         <h2 className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
           Update this case
         </h2>
-        <PowerDeployCaseUpdate token={token} />
+        <PowerDeployCaseUpdate token={token} ownerEmail={row.email} />
+      </section>
+
+      <section className="mt-8 rounded border border-line bg-panel-2 p-6">
+        <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+          Run this at scale or inside your own tooling
+        </h2>
+        <p className="mt-2 text-sm text-mute">
+          This same architecture comparison — <code className="text-ghost">gridforge_power_deploy_assess</code> /{" "}
+          <code className="text-ghost">gridforge_power_deploy_spec</code> — is callable directly over REST and
+          MCP with a signed API key, metered the same as a full Envelope Study solve. Useful once you are
+          running this across more than a handful of sites, or calling it from an agent rather than this form.
+        </p>
+        <ul className="mt-3 space-y-1 text-[13px] text-mute">
+          {API_PRODUCTS.map((p) => (
+            <li key={p.id}>
+              <span className="text-ghost">{p.name}</span> — {eurFromCents(p.amountCents)}/month,{" "}
+              {p.apiUnits?.toLocaleString("en-IE")} units
+            </li>
+          ))}
+        </ul>
+        <Link href="/developers" className="mt-3 inline-block text-sm text-power underline">
+          See API access →
+        </Link>
       </section>
     </main>
   );

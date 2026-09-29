@@ -112,7 +112,7 @@ def test_an_uncosted_unit_reports_unknown_capex_not_zero():
 
 def test_next_action_picks_the_cheapest_passing_fully_costed_architecture():
     result = _assess()
-    assert result["next_action"]["action"].startswith("Proceed to procurement")
+    assert result["next_action"]["action"].startswith("Proceed to RFQ")
     assert "GRID + BESS + GENERATION" in result["next_action"]["action"]
 
 
@@ -160,6 +160,112 @@ def test_load_profile_warnings_surface_into_the_assessment():
     assert result["load_profile"]["warnings"]
 
 
+# --- rfq_ready vs. execution_ready: the semantic bug this session fixed ------
+#
+# An earlier version of this code had a single field, `ready_for_procurement`,
+# that only excluded MISSING_DATA gates -- so an architecture with protection
+# at REQUIRES_LICENSED_REVIEW (which is EVERY architecture with any on-site
+# generation or storage, by design) could read as "ready for procurement" in a
+# way a customer or another engineer would reasonably parse as "cleared to
+# build". These tests exist so that conflation cannot silently return.
+
+def test_rfq_ready_is_true_once_data_is_complete_even_though_licensed_review_is_still_required():
+    result = _assess()  # full fixture: fuel_type, interconnection, permitting all declared
+    winner = next(a for a in result["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    assert winner["rfq_ready"] is True
+    assert winner["execution_ready"] is False, (
+        "execution_ready must never be true while protection sits at "
+        "REQUIRES_LICENSED_REVIEW -- that is exactly the bug this field exists to prevent")
+
+
+def test_execution_ready_requires_every_gate_to_be_pass_or_not_applicable():
+    result = _assess()
+    for a in result["architectures"]:
+        gates_by_status = {g["status"] for g in a["readiness_gates"]}
+        all_clear = gates_by_status <= {"pass", "not_applicable"}
+        assert a["execution_ready"] == (a["rfq_ready"] and all_clear)
+
+
+def test_external_clearances_required_always_names_protection_for_a_hybrid_architecture():
+    result = _assess()
+    winner = next(a for a in result["architectures"] if a["label"] == "GRID + BESS + GENERATION")
+    gates = {c["gate"] for c in winner["external_clearances_required"]}
+    assert "protection" in gates
+    protection = next(c for c in winner["external_clearances_required"] if c["gate"] == "protection")
+    assert protection["review_requirement"] == "Licensed protection engineer"
+
+
+def test_objective_changes_which_architecture_wins():
+    """A cheaper-but-smaller battery-only architecture and a bigger-but-pricier
+    hybrid one must rank differently depending on what the customer is
+    optimising -- the exact silent-lowest-cost-wins bug this test guards
+    against. Uses assess_deployment directly (not the _assess() fixture) so
+    every objective is exercised against the same declared units."""
+    from gridforge.power.load_profile import flat
+    from gridforge.scenario.objective import Objective
+    from gridforge.reporting.btm_assessment import assess_deployment
+
+    gen = default_generation_unit("GEN-A", "gas_engine", 30.0)
+    gen.capex_eur = V(20_000_000, "EUR", "capex", ASSUMED)
+    gen.lead_time_weeks = V(50, "weeks", "lead", ASSUMED)
+    bess = default_bess("BESS-1", power_MW=10.0, energy_MWh=40.0)
+    bess.capex_eur = V(9_000_000, "EUR", "capex", ASSUMED)
+    bess.lead_time_weeks = V(20, "weeks", "lead", ASSUMED)
+
+    def winner_label(objective):
+        r = assess_deployment(load_profile=flat(15000), grid_firm_MW=V(5.0, "MW", "g", ASSUMED),
+                              generation=[gen], bess=[bess], target_MW=V(30.0, "MW", "t", ASSUMED),
+                              redundancy=Redundancy.N, objective=objective)
+        # both winners land on the missing-data branch (no interconnection/fuel/
+        # permitting declared) -- the architecture NAME in the action is what
+        # this test is checking, not the RFQ/procurement wording.
+        return r["next_action"]["action"]
+
+    max_compute_action = winner_label(Objective.MAX_COMPUTE)
+    min_cost_action = winner_label(Objective.MIN_COST_PER_RACK)
+    assert "GRID + BESS + GENERATION" in max_compute_action
+    assert "GRID + BESS + GENERATION" not in min_cost_action
+    assert "GRID + BESS" in min_cost_action
+
+
+def test_result_states_the_objective_and_its_rationale():
+    result = _assess()
+    assert result["capacity"]["objective"] == "max_compute"
+    assert result["next_action"]["objective"] == "max_compute"
+    assert result["next_action"]["objective_rationale"]
+
+
+def test_trade_offs_name_the_runner_up_not_a_hidden_second_ranking():
+    from gridforge.power.load_profile import flat
+    from gridforge.scenario.objective import Objective
+    from gridforge.reporting.btm_assessment import assess_deployment
+
+    gen = default_generation_unit("GEN-A", "gas_engine", 30.0)
+    gen.capex_eur = V(20_000_000, "EUR", "capex", ASSUMED)
+    gen.lead_time_weeks = V(50, "weeks", "lead", ASSUMED)
+    gen.fuel_type = "natural gas"
+    bess = default_bess("BESS-1", power_MW=10.0, energy_MWh=40.0)
+    bess.capex_eur = V(9_000_000, "EUR", "capex", ASSUMED)
+    bess.lead_time_weeks = V(20, "weeks", "lead", ASSUMED)
+    r = assess_deployment(load_profile=flat(15000), grid_firm_MW=V(5.0, "MW", "g", ASSUMED),
+                          generation=[gen], bess=[bess], target_MW=V(30.0, "MW", "t", ASSUMED),
+                          redundancy=Redundancy.N, objective=Objective.MAX_COMPUTE,
+                          interconnection=INTERCONNECTION, permitting=PERMITTING)
+    assert r["next_action"]["action"].startswith("Proceed to RFQ"), r["next_action"]["action"]
+    trade_offs = r["next_action"].get("trade_offs", [])
+    assert trade_offs, "choosing the max-capacity winner over a cheaper alternative must name the trade-off"
+    assert any("max_compute" in t and "costs less" in t for t in trade_offs), trade_offs
+
+
+def test_next_action_never_says_proceed_to_rfq_without_naming_outstanding_clearances():
+    result = _assess()
+    action = result["next_action"]["action"]
+    why = result["next_action"]["why"]
+    assert action.startswith("Proceed to RFQ")
+    assert "NOT a green light to build" in why
+    assert "Licensed protection engineer" in why
+
+
 DEPLOY_REQUEST = {
     "load_profile": {"csv": CSV, "source": "synthetic-hall.csv"},
     "grid_firm_MW": 10.0,
@@ -192,4 +298,4 @@ def test_cli_power_deploy_assess_runs_end_to_end(tmp_path):
     assert "Next action" in result.stdout
     assert "GRID + BESS + GENERATION" in result.stdout
     saved = json.loads(out_path.read_text())
-    assert saved["next_action"]["action"].startswith("Proceed to procurement")
+    assert saved["next_action"]["action"].startswith("Proceed to RFQ")

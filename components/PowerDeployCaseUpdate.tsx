@@ -9,11 +9,25 @@ import { Loader2, RefreshCw } from "lucide-react";
  * input, re-solve, see exactly what moved. `changedFields()`
  * (lib/power-deploy.ts) does the actual comparison — this component only
  * posts a partial update and re-renders on the server's redirect.
+ *
+ * A case registered to an email at creation can only be revised by someone
+ * who knows that email — the token alone (which can leak via a forwarded
+ * link, a referrer header, or shared browser history) is no longer enough to
+ * silently rewrite someone else's committed capacity or architecture inputs.
+ * An anonymous case (no email given at creation) keeps the token as its only
+ * access control, matching the rest of the site's magic-link model.
  */
-export function PowerDeployCaseUpdate({ token }: { token: string }) {
+export function PowerDeployCaseUpdate({
+  token,
+  ownerEmail,
+}: {
+  token: string;
+  ownerEmail: string | null;
+}) {
   const router = useRouter();
   const [targetMW, setTargetMW] = useState("");
   const [gridFirmMW, setGridFirmMW] = useState("");
+  const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -21,12 +35,20 @@ export function PowerDeployCaseUpdate({ token }: { token: string }) {
     e.preventDefault();
     setState("busy");
     setError(null);
-    const patch: Record<string, number> = {};
+    const patch: Record<string, number | string> = {};
     if (targetMW.trim()) patch.target_MW = Number(targetMW);
     if (gridFirmMW.trim()) patch.grid_firm_MW = Number(gridFirmMW);
     if (!Object.keys(patch).length) {
       setState("idle");
       return;
+    }
+    if (ownerEmail) {
+      if (!email.trim()) {
+        setError("This case is registered to an email address — enter it to confirm the change.");
+        setState("error");
+        return;
+      }
+      patch.email = email.trim();
     }
     try {
       const res = await fetch(`/api/power/deploy/cases/${token}`, {
@@ -52,6 +74,20 @@ export function PowerDeployCaseUpdate({ token }: { token: string }) {
 
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded border border-line bg-panel-2 p-4">
+      {ownerEmail && (
+        <div>
+          <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
+            Confirm your email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="registered email"
+            className="w-56 rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint"
+          />
+        </div>
+      )}
       <div>
         <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
           New target (MW)

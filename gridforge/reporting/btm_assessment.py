@@ -21,10 +21,38 @@ from dataclasses import dataclass, field
 from ..common import ASSUMED, V
 from ..power.generation import GenerationUnit
 from ..power.load_profile import LoadProfile
-from ..power.readiness_gates import GateResult, evaluate_gates
+from ..power.readiness_gates import GateResult, GateStatus, evaluate_gates
 from ..power.reliability import ContingencyCase, ContingencyStatus, Redundancy, evaluate
 from ..power.storage import BatteryEnergyStorageSystem
+from ..scenario.objective import Objective
 from ..validation import Quantity
+
+#: Why each objective means what it means for a BTM architecture comparison,
+#: reusing the same `Objective` the hall-side headroom ladder and Power
+#: Readiness Case already use (gridforge/scenario/objective.py) — "what the
+#: customer is optimising" is one concept in this codebase, not one per
+#: product. The values keep their existing meaning; only the English
+#: explanation below is BTM-specific.
+_BTM_OBJECTIVE_RATIONALE = {
+    Objective.MAX_COMPUTE:
+        "Maximum firm capacity. Appropriate when the site's demand is the binding "
+        "constraint and any capacity gained is worth capturing, even at a higher cost "
+        "or a longer lead time.",
+    Objective.MIN_COST_PER_RACK:
+        "Lowest capital cost among architectures that clear the contingency test. "
+        "Appropriate where capital, not capacity or schedule, is the binding constraint.",
+    Objective.FASTEST_TO_POWER:
+        "Shortest critical-path lead time among architectures that clear the "
+        "contingency test. Appropriate where a committed energisation date makes a "
+        "week of delay more expensive than the capex difference.",
+}
+
+_BTM_OBJECTIVE_KEY = {
+    Objective.MAX_COMPUTE: lambda a: -a.contingency.available_MW.value,
+    Objective.MIN_COST_PER_RACK: lambda a: a.capex_eur.value,
+    Objective.FASTEST_TO_POWER: lambda a: (
+        a.lead_time_weeks.value if a.lead_time_weeks is not None else float("inf")),
+}
 
 
 @dataclass
@@ -100,14 +128,44 @@ class ArchitectureAssessment:
                 and self.capex_eur is not None)
 
     @property
-    def ready_for_procurement(self) -> bool:
-        """Buildable AND every readiness gate has at least been screened — not
-        stuck on missing data. Still requires engineering studies and licensed
-        review (those gates deliberately never resolve to PASS from this tool
-        alone); it means nothing here is blocked for lack of an input the
-        customer could have simply supplied."""
+    def rfq_ready(self) -> bool:
+        """"GridForge has enough information to prepare an RFQ" — buildable AND
+        no gate is stuck on MISSING_DATA or UNKNOWN. This is deliberately NOT
+        "cleared to build": a protection gate that reads REQUIRES_LICENSED_REVIEW
+        does not block RFQ preparation (a supplier can be asked to quote while a
+        protection engineer works in parallel) but it absolutely blocks
+        `execution_ready` below. Conflating the two — an earlier version of this
+        property was literally named `ready_for_procurement` and only excluded
+        MISSING_DATA — read as "cleared to build" to anyone skimming the field
+        name, which it never was. Renamed and split rather than patched, because
+        the bug was the name promising more than the check delivered, not the
+        check itself."""
         return self.buildable and not any(
-            g.status.value == "missing_data" for g in self.gates)
+            g.status in (GateStatus.MISSING_DATA, GateStatus.UNKNOWN) for g in self.gates)
+
+    @property
+    def external_clearances_required(self) -> list[GateResult]:
+        """Every gate still standing between this architecture and physical
+        construction, each naming who owns clearing it. Never resolves to empty
+        for an architecture with any on-site generation or storage — protection
+        coordination always requires a licensed engineer, by design (see
+        `readiness_gates._protection_gate`) — and that is the correct, honest
+        answer, not a gap to be closed by this tool."""
+        return [g for g in self.gates
+               if g.status in (GateStatus.REQUIRES_ENGINEERING_STUDY,
+                              GateStatus.REQUIRES_LICENSED_REVIEW, GateStatus.FAIL)]
+
+    @property
+    def execution_ready(self) -> bool:
+        """Cleared to build: every gate is PASS or NOT_APPLICABLE, with no
+        external clearance outstanding. For any architecture with on-site
+        generation or storage this is honestly almost never true from a
+        screening tool alone — protection review in particular cannot resolve
+        to PASS here by construction. It becomes true only once the gates
+        themselves are updated with real external evidence (a licensed
+        engineer's sign-off, a utility's approval letter) — a future capability,
+        not something this property fakes by omission today."""
+        return self.rfq_ready and not self.external_clearances_required
 
 
 def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quantity,
@@ -127,15 +185,51 @@ def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quant
                                   gates)
 
 
+def _rank(buildable: list[ArchitectureAssessment], objective: Objective) -> list[ArchitectureAssessment]:
+    return sorted(buildable, key=_BTM_OBJECTIVE_KEY[objective])
+
+
+def _trade_offs(winner: ArchitectureAssessment, runner_up: ArchitectureAssessment | None,
+                objective: Objective) -> list[str]:
+    """What the customer gives up by taking the winner instead of the next-best
+    alternative, stated in the currency the objective did NOT optimise for —
+    never silent, and never a second hidden ranking."""
+    if runner_up is None:
+        return []
+    out = []
+    if objective is not Objective.MIN_COST_PER_RACK and winner.capex_eur is not None \
+            and runner_up.capex_eur is not None and winner.capex_eur.value != runner_up.capex_eur.value:
+        delta = winner.capex_eur.value - runner_up.capex_eur.value
+        out.append(f"'{runner_up.label}' costs {'less' if delta > 0 else 'more'} "
+                  f"(EUR {abs(delta):,.0f} difference) but was not chosen because the objective "
+                  f"is {objective.value}, not lowest cost.")
+    if objective is not Objective.FASTEST_TO_POWER and winner.lead_time_weeks is not None \
+            and runner_up.lead_time_weeks is not None \
+            and winner.lead_time_weeks.value != runner_up.lead_time_weeks.value:
+        delta = winner.lead_time_weeks.value - runner_up.lead_time_weeks.value
+        out.append(f"'{runner_up.label}' is {'faster' if delta > 0 else 'slower'} "
+                  f"({abs(delta):.0f} week(s) difference) but was not chosen because the "
+                  f"objective is {objective.value}, not fastest to power.")
+    if objective is not Objective.MAX_COMPUTE and (
+            winner.contingency.available_MW.value != runner_up.contingency.available_MW.value):
+        delta = winner.contingency.available_MW.value - runner_up.contingency.available_MW.value
+        out.append(f"'{runner_up.label}' has {'less' if delta > 0 else 'more'} firm capacity "
+                  f"margin ({abs(delta):.1f} MW difference) but was not chosen because the "
+                  f"objective is {objective.value}, not maximum capacity.")
+    return out
+
+
 def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
-                 gap_MW: float) -> dict:
+                 gap_MW: float, objective: Objective) -> dict:
     """One deterministic recommendation, in priority order: fix the data before
     trusting any comparison; then close a missing quote before ranking; then
     close a missing-data readiness gate before recommending procurement — a
     technically passing, fully-costed architecture with an unpermitted
     generator is "technically feasible, not yet schedule-credible", and saying
-    "proceed to procurement" would hide that; only then point at the winner, or
-    say plainly that nothing declared clears the bar."""
+    "proceed to procurement" would hide that; only then point at the winner
+    UNDER THE STATED OBJECTIVE, with the trade-off against the runner-up named
+    explicitly — never a silent "lowest cost wins" default, which is the
+    mistake this function used to make before `objective` existed."""
     if not load_profile_report.usable:
         return {"action": "Resolve the load profile's duplicate timestamps before "
                           "trusting any architecture comparison built on it.",
@@ -155,20 +249,31 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                "why": f"'{u.label}' passes its contingency test but cannot be compared on "
                       f"cost or schedule until every unit in it is priced."}
     buildable = [a for a in passing if a.buildable]
-    winner = min(buildable, key=lambda a: a.capex_eur.value)
-    if not winner.ready_for_procurement:
-        missing_gates = [g for g in winner.gates if g.status.value == "missing_data"]
+    ranked = _rank(buildable, objective)
+    winner = ranked[0]
+    runner_up = ranked[1] if len(ranked) > 1 else None
+    if not winner.rfq_ready:
+        missing_gates = [g for g in winner.gates
+                        if g.status in (GateStatus.MISSING_DATA, GateStatus.UNKNOWN)]
         fields = sorted({m for g in missing_gates for m in g.missing})
         return {"action": f"Supply the missing readiness data for '{winner.label}': "
                           f"{', '.join(fields) if fields else 'see readiness_gates'}",
-               "why": f"'{winner.label}' is the cheapest architecture that passes its own "
-                      f"contingency test, fully costed — but it is technically feasible, "
+               "why": f"'{winner.label}' is the best architecture under the {objective.value} "
+                      f"objective, fully costed — but it is technically feasible, "
                       f"not yet schedule-credible: "
                       + "; ".join(g.reason for g in missing_gates)}
-    return {"action": f"Proceed to procurement for: {winner.label}",
-           "why": "The cheapest architecture that passes its own declared contingency test, "
-                  "fully costed, with every readiness gate screened (engineering studies and "
-                  "licensed review may still be required — see readiness_gates)."}
+    clearances = winner.external_clearances_required
+    clearance_note = (
+        "; ".join(sorted({g.review_requirement for g in clearances if g.review_requirement}))
+        if clearances else "none outstanding from this screening")
+    return {"action": f"Proceed to RFQ for: {winner.label}",
+           "why": f"The best architecture under the {objective.value} objective among those "
+                  f"that pass their own contingency test, fully costed, with every readiness "
+                  f"gate screened. This is a green light to prepare an RFQ, NOT a green light "
+                  f"to build: external clearance still required from: {clearance_note}.",
+           "objective": objective.value,
+           "objective_rationale": _BTM_OBJECTIVE_RATIONALE[objective],
+           "trade_offs": _trade_offs(winner, runner_up, objective)}
 
 
 class DeploymentRequestError(ValueError):
@@ -233,9 +338,16 @@ def deployment_request(doc: dict) -> dict:
     redundancy = Redundancy(doc.get("redundancy", Redundancy.N.value))
     interconnection = doc.get("interconnection") if isinstance(doc.get("interconnection"), dict) else None
     permitting = doc.get("permitting") if isinstance(doc.get("permitting"), dict) else None
+    try:
+        objective = Objective(doc.get("objective", Objective.MAX_COMPUTE.value))
+    except ValueError as exc:
+        raise DeploymentRequestError(
+            f"unknown objective {doc.get('objective')!r} — one of "
+            f"{[o.value for o in Objective]}") from exc
     return dict(load_profile=load_profile, grid_firm_MW=grid_firm_MW, generation=generation,
                bess=bess, target_MW=target_MW, ride_through_hours=ride_through_hours,
-               redundancy=redundancy, interconnection=interconnection, permitting=permitting)
+               redundancy=redundancy, interconnection=interconnection, permitting=permitting,
+               objective=objective)
 
 
 def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
@@ -245,7 +357,8 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                       redundancy: Redundancy = Redundancy.N,
                       critical_load_MW: Quantity | None = None,
                       interconnection: dict | None = None,
-                      permitting: dict | None = None) -> dict:
+                      permitting: dict | None = None,
+                      objective: Objective = Objective.MAX_COMPUTE) -> dict:
     """The Power Deployment Assessment: current grid-only capacity vs. target,
     every declared hybrid architecture compared under the same contingency test,
     each screened against the engineering readiness gates it can actually be
@@ -253,7 +366,14 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
     load profile's own peak — the load a real contingency test has to survive,
     not its average. `interconnection`/`permitting` are optional declared data
     for the readiness gates (gridforge.power.readiness_gates) — omitting them
-    is honest: the gates read MISSING_DATA rather than guessing."""
+    is honest: the gates read MISSING_DATA rather than guessing.
+
+    `objective` is the same `gridforge.scenario.objective.Objective` the hall-
+    side headroom ladder and Power Readiness Case already use — one concept
+    of "what the customer is optimising" for the whole product, not a second
+    ranking system invented for BTM. Defaults to MAX_COMPUTE (most firm
+    capacity) rather than silently ranking by lowest cost, which earlier
+    versions of this function did without ever saying so."""
     report = load_profile.validate()
     peak_MW = V(load_profile.peak_kW().value / 1000.0, "MW",
                "load profile peak", load_profile.evidence)
@@ -289,6 +409,7 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
             "critical_load_MW": round(critical.value, 3),
             "ride_through_hours": round(ride.value, 3),
             "redundancy": redundancy.value,
+            "objective": objective.value,
         },
         "architectures": [
             {
@@ -304,7 +425,18 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                 "lead_time_weeks": a.lead_time_weeks.rounded() if a.lead_time_weeks is not None else None,
                 "lead_time_undated_units": a.lead_time_undated_units,
                 "buildable": a.buildable,
-                "ready_for_procurement": a.ready_for_procurement,
+                # `rfq_ready`: GridForge has enough information to prepare an RFQ.
+                # `execution_ready`: cleared to build — almost never true for an
+                # architecture with on-site generation/storage, and that is correct,
+                # not a bug. See ArchitectureAssessment's own docstrings for why these
+                # are two different questions and were never one field.
+                "rfq_ready": a.rfq_ready,
+                "execution_ready": a.execution_ready,
+                "external_clearances_required": [
+                    {"gate": g.gate, "review_requirement": g.review_requirement,
+                    "reason": g.reason}
+                    for g in a.external_clearances_required
+                ],
                 "readiness_gates": [
                     {
                         "gate": g.gate, "status": g.status.value, "reason": g.reason,
@@ -316,5 +448,5 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
             }
             for a in assessments
         ],
-        "next_action": _next_action(report, assessments, gap_MW),
+        "next_action": _next_action(report, assessments, gap_MW, objective),
     }
