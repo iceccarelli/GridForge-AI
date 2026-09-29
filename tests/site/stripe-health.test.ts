@@ -10,7 +10,10 @@
 import { describe, expect, it } from "vitest";
 import { checkStripeWebhookHealth, REQUIRED_WEBHOOK_EVENTS } from "@/lib/stripe-health";
 
-const EXPECTED_URL = "https://timetopower.ai/api/stripe/webhook";
+// Deliberately not the real domain — tests/test_one_company.py enforces that no file
+// outside lib/site.ts hardcodes the real site URL. Any stand-in works here since this
+// unit only checks URL-string equality inside checkStripeWebhookHealth() itself.
+const EXPECTED_URL = "https://example-deployment.test/api/stripe/webhook";
 
 function fakeClient(endpoints: Array<{ id: string; url: string; status: string; enabled_events: string[] }>) {
   return {
