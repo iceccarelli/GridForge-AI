@@ -307,7 +307,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "web checkout the way density_screen/procurement_spec are. Before adding a one-off SKU, " +
       "the pricing basis must come from somewhere real (e.g. parity with envelope_study_deposit " +
       "or procurement_spec, both human-reviewed engagements this is not) rather than an invented " +
-      "figure. Not yet resolved — see docs/07_DELIVERY_RUNBOOK.md.",
+      "figure. Not yet resolved — see docs/07_DELIVERY_RUNBOOK.md. Partially mitigated: the case " +
+      "page (/power/deploy/[token]) now names the real API tiers as the path to automated/at-scale " +
+      "access, rather than leaving the free self-serve tool as a dead end with no commercial next step.",
   },
   {
     capability_id: "btm_deploy_spec",

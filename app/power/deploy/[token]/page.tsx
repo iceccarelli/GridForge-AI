@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PowerDeployCaseUpdate } from "@/components/PowerDeployCaseUpdate";
+import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 
 export const metadata: Metadata = {
   title: "Power Deployment Case",
@@ -272,6 +273,29 @@ export default async function PowerDeployCasePage({
           Update this case
         </h2>
         <PowerDeployCaseUpdate token={token} ownerEmail={row.email} />
+      </section>
+
+      <section className="mt-8 rounded border border-line bg-panel-2 p-6">
+        <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+          Run this at scale or inside your own tooling
+        </h2>
+        <p className="mt-2 text-sm text-mute">
+          This same architecture comparison — <code className="text-ghost">gridforge_power_deploy_assess</code> /{" "}
+          <code className="text-ghost">gridforge_power_deploy_spec</code> — is callable directly over REST and
+          MCP with a signed API key, metered the same as a full Envelope Study solve. Useful once you are
+          running this across more than a handful of sites, or calling it from an agent rather than this form.
+        </p>
+        <ul className="mt-3 space-y-1 text-[13px] text-mute">
+          {API_PRODUCTS.map((p) => (
+            <li key={p.id}>
+              <span className="text-ghost">{p.name}</span> — {eurFromCents(p.amountCents)}/month,{" "}
+              {p.apiUnits?.toLocaleString("en-IE")} units
+            </li>
+          ))}
+        </ul>
+        <Link href="/developers" className="mt-3 inline-block text-sm text-power underline">
+          See API access →
+        </Link>
       </section>
     </main>
   );
