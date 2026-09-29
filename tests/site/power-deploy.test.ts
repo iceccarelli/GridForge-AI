@@ -14,7 +14,7 @@
  * qualify-followup.test.ts and bids.test.ts use) so this exercises the real
  * insert/select shape, not a hand-rolled stand-in for it.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostgrestFake } from "./postgrest-fake";
 import { changedFields } from "@/lib/power-deploy";
 
@@ -129,6 +129,8 @@ describe("deploymentCaseHistory", () => {
 });
 
 describe("an unreachable store fails closed", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it("createDeploymentCase falls back to a local (unpersisted) row rather than throwing", async () => {
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -138,6 +140,31 @@ describe("an unreachable store fails closed", () => {
     expect(row!.id).toBe("local");
   });
 
+  it("a case created without Supabase can actually be read back and revised — no create-then-404 dead end", async () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const { createDeploymentCase, latestDeploymentCase, appendDeploymentRevision, deploymentCaseHistory } =
+      await import("@/lib/power-deploy");
+    const created = await createDeploymentCase({ request: REQUEST_V1, result: RESULT_V1 });
+    expect(created).not.toBeNull();
+
+    const fetched = await latestDeploymentCase(created!.case_token);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.case_token).toBe(created!.case_token);
+    expect(fetched!.revision).toBe(1);
+
+    const revised = await appendDeploymentRevision(
+      created!.case_token, { ...REQUEST_V1, target_MW: 40 }, RESULT_V1);
+    expect(revised).not.toBeNull();
+    expect(revised!.revision).toBe(2);
+
+    const latest = await latestDeploymentCase(created!.case_token);
+    expect(latest!.revision).toBe(2);
+
+    const history = await deploymentCaseHistory(created!.case_token);
+    expect(history.map((r) => r.revision)).toEqual([1, 2]);
+  });
+
   it("latestDeploymentCase returns null when Supabase is unreachable", async () => {
     const throwing = (async () => {
       throw new TypeError("fetch failed");
@@ -145,5 +172,25 @@ describe("an unreachable store fails closed", () => {
     globalThis.fetch = throwing;
     const { latestDeploymentCase } = await import("@/lib/power-deploy");
     await expect(latestDeploymentCase("any-token")).resolves.toBeNull();
+  });
+
+  it("refuses to fake a case in a production runtime with Supabase unset — fails closed instead", async () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    vi.stubEnv("NODE_ENV", "production");
+    const { createDeploymentCase } = await import("@/lib/power-deploy");
+    const row = await createDeploymentCase({ request: REQUEST_V1, result: RESULT_V1 });
+    expect(row).toBeNull();
+  });
+
+  it("refuses to append a revision in a production runtime with Supabase unset", async () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const { createDeploymentCase, appendDeploymentRevision } = await import("@/lib/power-deploy");
+    const created = await createDeploymentCase({ request: REQUEST_V1, result: RESULT_V1 });
+    expect(created).not.toBeNull(); // created while still non-production
+    vi.stubEnv("NODE_ENV", "production");
+    const revised = await appendDeploymentRevision(created!.case_token, REQUEST_V1, RESULT_V1);
+    expect(revised).toBeNull();
   });
 });

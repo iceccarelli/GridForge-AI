@@ -74,6 +74,29 @@ function creds(): { url: string; headers: Record<string, string> } | null {
   return { url, headers: { ...auth, "Content-Type": "application/json" } };
 }
 
+// Without Supabase configured, createDeploymentCase used to hand back a
+// case_token as if the case were durably saved, while latestDeploymentCase
+// unconditionally returned null for the same token — a customer could create
+// a case, get redirected to /power/deploy/{token}, and find nothing there.
+//
+// This in-memory store makes local development coherent instead: a case
+// created without Supabase configured can actually be read back and revised
+// within the life of this process. It is explicitly NOT a durability
+// guarantee — cleared on restart, never shared across processes or serverless
+// instances — which is why every write through it still logs "not persisted
+// — Supabase unset" rather than pretending to be a database.
+//
+// A deployed environment is not allowed to rely on it: isProductionRuntime()
+// makes creating or revising a case fail explicitly there when Supabase is
+// missing, rather than silently degrade to a per-instance store that would
+// make retrieval succeed or fail depending on which instance happens to
+// serve the next request.
+const localCases = new Map<string, PowerDeploymentCaseRow[]>();
+
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
 /**
  * The names of top-level `request` fields that differ between two revisions —
  * the actual "what changed" a customer or a Watch note reads. Deliberately
@@ -117,8 +140,14 @@ export async function createDeploymentCase(row: {
   };
   const c = creds();
   if (!c) {
+    if (isProductionRuntime()) {
+      console.error("[GridForge] power deployment case NOT created — Supabase is unset in production");
+      return null;
+    }
     console.log("[GridForge] power deployment case (not persisted — Supabase unset)");
-    return { ...(record as PowerDeploymentCaseRow), id: "local" };
+    const row = { ...(record as PowerDeploymentCaseRow), id: "local" };
+    localCases.set(case_token, [row]);
+    return row;
   }
   try {
     const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
@@ -143,8 +172,12 @@ export async function createDeploymentCase(row: {
 export async function latestDeploymentCase(
   case_token: string
 ): Promise<PowerDeploymentCaseRow | null> {
+  if (!case_token) return null;
   const c = creds();
-  if (!c || !case_token) return null;
+  if (!c) {
+    const revisions = localCases.get(case_token);
+    return revisions?.[revisions.length - 1] ?? null;
+  }
   try {
     const res = await fetch(
       `${c.url}/rest/v1/power_deployment_cases?case_token=eq.${encodeURIComponent(case_token)}` +
@@ -164,8 +197,9 @@ export async function latestDeploymentCase(
 export async function deploymentCaseHistory(
   case_token: string
 ): Promise<PowerDeploymentCaseRow[]> {
+  if (!case_token) return [];
   const c = creds();
-  if (!c || !case_token) return [];
+  if (!c) return localCases.get(case_token) ?? [];
   try {
     const res = await fetch(
       `${c.url}/rest/v1/power_deployment_cases?case_token=eq.${encodeURIComponent(case_token)}` +
@@ -206,8 +240,16 @@ export async function appendDeploymentRevision(
   };
   const c = creds();
   if (!c) {
+    if (isProductionRuntime()) {
+      console.error("[GridForge] power deployment revision NOT saved — Supabase is unset in production");
+      return null;
+    }
     console.log("[GridForge] power deployment revision (not persisted — Supabase unset)");
-    return { ...(record as PowerDeploymentCaseRow), id: "local" };
+    const row = { ...(record as PowerDeploymentCaseRow), id: "local" };
+    const revisions = localCases.get(case_token) ?? [];
+    revisions.push(row);
+    localCases.set(case_token, revisions);
+    return row;
   }
   try {
     const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
