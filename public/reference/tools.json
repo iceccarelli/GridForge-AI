@@ -401,7 +401,7 @@
       "method": "POST",
       "tier": "client",
       "units": 5,
-      "returns": "load_profile summary (peak/mean/load-factor/ramp/step-events, with its own evidence class), capacity (grid-only vs. target, the gap), architectures (each with contingency status, CAPEX, lead time, whether fully costed, readiness_gates \u2014 interconnection/protection/fuel/permitting/electrical/reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing \u2014 and ready_for_procurement), and next_action, which names a missing readiness field before it ever says 'proceed to procurement'.",
+      "returns": "load_profile summary (peak/mean/load-factor/ramp/step-events, with its own evidence class), capacity (grid-only vs. target, the gap), architectures (each with contingency status, CAPEX, lead time, whether fully costed, readiness_gates \u2014 interconnection/protection/fuel/permitting/electrical/reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing \u2014 plus rfq_ready [enough data to prepare an RFQ], external_clearances_required [who still has to sign off \u2014 protection, utility, permitting], and execution_ready [cleared to build, which on-site generation/storage architectures will almost never show as true from screening alone]), and next_action, which names a missing readiness field before it ever says 'proceed to RFQ', and always separates RFQ-readiness from build clearance.",
       "inputSchema": {
         "type": "object",
         "required": [

@@ -282,8 +282,12 @@ TOOLS: list[dict] = [
                  "readiness_gates — interconnection/protection/fuel/permitting/electrical/"
                  "reliability, each PASS/FAIL/MISSING_DATA/REQUIRES_ENGINEERING_STUDY/"
                  "REQUIRES_LICENSED_REVIEW/NOT_APPLICABLE with its reason and what's missing "
-                 "— and ready_for_procurement), and next_action, which names a missing "
-                 "readiness field before it ever says 'proceed to procurement'."),
+                 "— plus rfq_ready [enough data to prepare an RFQ], external_clearances_"
+                 "required [who still has to sign off — protection, utility, permitting], "
+                 "and execution_ready [cleared to build, which on-site generation/storage "
+                 "architectures will almost never show as true from screening alone]), and "
+                 "next_action, which names a missing readiness field before it ever says "
+                 "'proceed to RFQ', and always separates RFQ-readiness from build clearance."),
     ),
     _tool(
         "gridforge_power_deploy_spec",

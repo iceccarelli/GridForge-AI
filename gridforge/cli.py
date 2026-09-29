@@ -156,7 +156,15 @@ def cmd_power_deploy_assess(args) -> int:
         capex = f"EUR {a['capex_eur']:,.0f}" if a["capex_eur"] is not None else "UNKNOWN"
         lead = f"{a['lead_time_weeks']:.0f}w" if a["lead_time_weeks"] is not None else "UNKNOWN"
         print(f"    {a['status'].upper():25s} {a['label']:28s} capex={capex:>16s}  lead={lead}")
+        if a["rfq_ready"]:
+            if a["execution_ready"]:
+                print(f"      cleared to build — no outstanding external clearance")
+            else:
+                owners = sorted({c["review_requirement"] for c in a["external_clearances_required"]
+                                 if c["review_requirement"]})
+                print(f"      RFQ-ready, NOT cleared to build — awaiting: {', '.join(owners)}")
     print(f"  Next action        : {result['next_action']['action']}")
+    print(f"                       {result['next_action']['why']}")
     return 0
 
 

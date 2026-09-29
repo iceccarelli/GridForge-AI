@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from ..common import ASSUMED, V
 from ..power.generation import GenerationUnit
 from ..power.load_profile import LoadProfile
-from ..power.readiness_gates import GateResult, evaluate_gates
+from ..power.readiness_gates import GateResult, GateStatus, evaluate_gates
 from ..power.reliability import ContingencyCase, ContingencyStatus, Redundancy, evaluate
 from ..power.storage import BatteryEnergyStorageSystem
 from ..validation import Quantity
@@ -100,14 +100,44 @@ class ArchitectureAssessment:
                 and self.capex_eur is not None)
 
     @property
-    def ready_for_procurement(self) -> bool:
-        """Buildable AND every readiness gate has at least been screened — not
-        stuck on missing data. Still requires engineering studies and licensed
-        review (those gates deliberately never resolve to PASS from this tool
-        alone); it means nothing here is blocked for lack of an input the
-        customer could have simply supplied."""
+    def rfq_ready(self) -> bool:
+        """"GridForge has enough information to prepare an RFQ" — buildable AND
+        no gate is stuck on MISSING_DATA or UNKNOWN. This is deliberately NOT
+        "cleared to build": a protection gate that reads REQUIRES_LICENSED_REVIEW
+        does not block RFQ preparation (a supplier can be asked to quote while a
+        protection engineer works in parallel) but it absolutely blocks
+        `execution_ready` below. Conflating the two — an earlier version of this
+        property was literally named `ready_for_procurement` and only excluded
+        MISSING_DATA — read as "cleared to build" to anyone skimming the field
+        name, which it never was. Renamed and split rather than patched, because
+        the bug was the name promising more than the check delivered, not the
+        check itself."""
         return self.buildable and not any(
-            g.status.value == "missing_data" for g in self.gates)
+            g.status in (GateStatus.MISSING_DATA, GateStatus.UNKNOWN) for g in self.gates)
+
+    @property
+    def external_clearances_required(self) -> list[GateResult]:
+        """Every gate still standing between this architecture and physical
+        construction, each naming who owns clearing it. Never resolves to empty
+        for an architecture with any on-site generation or storage — protection
+        coordination always requires a licensed engineer, by design (see
+        `readiness_gates._protection_gate`) — and that is the correct, honest
+        answer, not a gap to be closed by this tool."""
+        return [g for g in self.gates
+               if g.status in (GateStatus.REQUIRES_ENGINEERING_STUDY,
+                              GateStatus.REQUIRES_LICENSED_REVIEW, GateStatus.FAIL)]
+
+    @property
+    def execution_ready(self) -> bool:
+        """Cleared to build: every gate is PASS or NOT_APPLICABLE, with no
+        external clearance outstanding. For any architecture with on-site
+        generation or storage this is honestly almost never true from a
+        screening tool alone — protection review in particular cannot resolve
+        to PASS here by construction. It becomes true only once the gates
+        themselves are updated with real external evidence (a licensed
+        engineer's sign-off, a utility's approval letter) — a future capability,
+        not something this property fakes by omission today."""
+        return self.rfq_ready and not self.external_clearances_required
 
 
 def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quantity,
@@ -156,8 +186,9 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                       f"cost or schedule until every unit in it is priced."}
     buildable = [a for a in passing if a.buildable]
     winner = min(buildable, key=lambda a: a.capex_eur.value)
-    if not winner.ready_for_procurement:
-        missing_gates = [g for g in winner.gates if g.status.value == "missing_data"]
+    if not winner.rfq_ready:
+        missing_gates = [g for g in winner.gates
+                        if g.status in (GateStatus.MISSING_DATA, GateStatus.UNKNOWN)]
         fields = sorted({m for g in missing_gates for m in g.missing})
         return {"action": f"Supply the missing readiness data for '{winner.label}': "
                           f"{', '.join(fields) if fields else 'see readiness_gates'}",
@@ -165,10 +196,15 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                       f"contingency test, fully costed — but it is technically feasible, "
                       f"not yet schedule-credible: "
                       + "; ".join(g.reason for g in missing_gates)}
-    return {"action": f"Proceed to procurement for: {winner.label}",
+    clearances = winner.external_clearances_required
+    clearance_note = (
+        "; ".join(sorted({g.review_requirement for g in clearances if g.review_requirement}))
+        if clearances else "none outstanding from this screening")
+    return {"action": f"Proceed to RFQ for: {winner.label}",
            "why": "The cheapest architecture that passes its own declared contingency test, "
-                  "fully costed, with every readiness gate screened (engineering studies and "
-                  "licensed review may still be required — see readiness_gates)."}
+                  "fully costed, with every readiness gate screened. This is a green light to "
+                  "prepare an RFQ, NOT a green light to build: external clearance still "
+                  f"required from: {clearance_note}."}
 
 
 class DeploymentRequestError(ValueError):
@@ -304,7 +340,18 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                 "lead_time_weeks": a.lead_time_weeks.rounded() if a.lead_time_weeks is not None else None,
                 "lead_time_undated_units": a.lead_time_undated_units,
                 "buildable": a.buildable,
-                "ready_for_procurement": a.ready_for_procurement,
+                # `rfq_ready`: GridForge has enough information to prepare an RFQ.
+                # `execution_ready`: cleared to build — almost never true for an
+                # architecture with on-site generation/storage, and that is correct,
+                # not a bug. See ArchitectureAssessment's own docstrings for why these
+                # are two different questions and were never one field.
+                "rfq_ready": a.rfq_ready,
+                "execution_ready": a.execution_ready,
+                "external_clearances_required": [
+                    {"gate": g.gate, "review_requirement": g.review_requirement,
+                    "reason": g.reason}
+                    for g in a.external_clearances_required
+                ],
                 "readiness_gates": [
                     {
                         "gate": g.gate, "status": g.status.value, "reason": g.reason,

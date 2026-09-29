@@ -236,10 +236,16 @@ def test_power_deploy_assess_compares_real_architectures(server):
     labels = {a["label"]: a["status"] for a in body["architectures"]}
     assert labels["GRID ONLY"] == "fail"
     assert labels["GRID + BESS + GENERATION"] == "pass"
-    assert body["next_action"]["action"].startswith("Proceed to procurement")
+    assert body["next_action"]["action"].startswith("Proceed to RFQ")
     assert body["capacity"]["gap_MW"] == 25.0
     winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
-    assert winner["ready_for_procurement"] is True
+    assert winner["rfq_ready"] is True
+    # RFQ-ready must never be confused with cleared-to-build: protection always
+    # requires a licensed engineer for an architecture with on-site sources, so
+    # execution_ready must be False even while rfq_ready is True.
+    assert winner["execution_ready"] is False
+    clearance_gates = {c["gate"] for c in winner["external_clearances_required"]}
+    assert "protection" in clearance_gates
     gates = {g["gate"]: g["status"] for g in winner["readiness_gates"]}
     assert gates["reliability"] == "pass"
     assert gates["protection"] == "requires_licensed_review"  # never a fake PASS
@@ -247,7 +253,7 @@ def test_power_deploy_assess_compares_real_architectures(server):
 
 def test_power_deploy_assess_flags_technically_feasible_but_not_schedule_credible(server):
     """A fully-costed, contingency-passing architecture with an undeclared
-    permit must not be told 'proceed to procurement' — that hides exactly the
+    permit must not be told 'proceed to RFQ' — that hides exactly the
     schedule risk this gate exists to surface."""
     req = {**DEPLOY_REQUEST, "permitting": None, "interconnection": None}
     del req["permitting"]
@@ -256,7 +262,8 @@ def test_power_deploy_assess_flags_technically_feasible_but_not_schedule_credibl
     assert status == 200, body
     assert "Supply the missing readiness data" in body["next_action"]["action"]
     winner = next(a for a in body["architectures"] if a["label"] == "GRID + BESS + GENERATION")
-    assert winner["ready_for_procurement"] is False
+    assert winner["rfq_ready"] is False
+    assert winner["execution_ready"] is False
 
 
 def test_power_deploy_assess_rejects_a_malformed_request(server):
@@ -272,7 +279,7 @@ def test_power_deploy_assess_is_callable_over_mcp(server):
     }, key=KEY)
     assert status == 200, body
     structured = body["result"]["structuredContent"]
-    assert structured["next_action"]["action"].startswith("Proceed to procurement")
+    assert structured["next_action"]["action"].startswith("Proceed to RFQ")
 
 
 def test_power_deploy_spec_produces_a_traceable_tender(server):

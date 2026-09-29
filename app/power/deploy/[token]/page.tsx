@@ -41,7 +41,9 @@ interface DeploymentResult {
     capex_eur: number | null;
     lead_time_weeks: number | null;
     buildable: boolean;
-    ready_for_procurement: boolean;
+    rfq_ready: boolean;
+    execution_ready: boolean;
+    external_clearances_required: { gate: string; review_requirement: string; reason: string }[];
     readiness_gates: {
       gate: string;
       status: string;
@@ -177,8 +179,8 @@ export default async function PowerDeployCasePage({
                 <div className="mt-3 border-t border-line pt-3">
                   <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
                     Readiness gates{" "}
-                    {a.ready_for_procurement ? (
-                      <span className="text-power">— nothing missing</span>
+                    {a.rfq_ready ? (
+                      <span className="text-power">— data complete, RFQ-ready</span>
                     ) : (
                       <span className="text-flag">— not yet schedule-credible</span>
                     )}
@@ -196,6 +198,26 @@ export default async function PowerDeployCasePage({
                       </div>
                     ))}
                   </div>
+                  {a.rfq_ready && (
+                    <p className="mt-2 text-[11px] text-faint">
+                      {a.execution_ready ? (
+                        "Cleared to build — no outstanding external clearance from this screening."
+                      ) : (
+                        <>
+                          RFQ-ready is <strong className="text-ghost">not</strong> build clearance.
+                          Still required before construction: {" "}
+                          {Array.from(
+                            new Set(
+                              a.external_clearances_required
+                                .map((c) => c.review_requirement)
+                                .filter(Boolean)
+                            )
+                          ).join(", ")}
+                          .
+                        </>
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

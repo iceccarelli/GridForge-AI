@@ -83,11 +83,28 @@ software (ETAP, PowerFactory or equivalent), named explicitly rather than preten
 Reliability is the one gate with a real PASS/FAIL, because it is literally the same
 `ContingencyResult` the architecture comparison already computed — not a second opinion.
 
-`ready_for_procurement` on each architecture is `buildable` (passes its contingency test, fully
-costed) AND every gate has at least been screened past `MISSING_DATA`. This is the mechanism
-behind "technically feasible, but not schedule-credible": `next_action` will name the missing
-readiness fields on the cheapest passing architecture before it ever says "proceed to
-procurement" — see `_next_action()` in `gridforge/reporting/btm_assessment.py`.
+Three fields, not one, because they answer three different questions and an earlier version of
+this code answered only the first while naming the field as if it answered the third:
+
+- **`rfq_ready`** — "GridForge has enough information to prepare an RFQ": `buildable` (passes
+  its contingency test, fully costed) AND no gate is stuck on `MISSING_DATA` or `UNKNOWN`. A
+  protection gate reading `REQUIRES_LICENSED_REVIEW` does **not** block this — a supplier can be
+  asked to quote while a protection engineer works in parallel.
+- **`external_clearances_required`** — every gate still standing between this architecture and
+  physical construction (`REQUIRES_ENGINEERING_STUDY` / `REQUIRES_LICENSED_REVIEW` / `FAIL`),
+  each naming who owns clearing it. For any architecture with on-site generation or storage this
+  is never empty — protection coordination always requires a licensed engineer, by design.
+- **`execution_ready`** — cleared to build: every gate `PASS` or `NOT_APPLICABLE`. Honestly
+  almost never true for a hybrid architecture from a screening tool alone, and that is correct,
+  not a bug to fix later.
+
+`next_action` uses this distinction directly: it names the missing readiness fields on the
+cheapest passing architecture before it ever says anything about RFQ, and once it does say
+"proceed to RFQ" it names every outstanding external clearance in the same sentence — "this is a
+green light to prepare an RFQ, NOT a green light to build" — see `_next_action()` and
+`ArchitectureAssessment`'s own docstrings in `gridforge/reporting/btm_assessment.py` for the
+full reasoning, including why the earlier single-field version was wrong by name rather than by
+arithmetic.
 
 ### From assessment to tender — `power-deploy-spec`
 
