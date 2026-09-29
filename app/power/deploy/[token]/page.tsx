@@ -29,6 +29,7 @@ interface DeploymentResult {
     critical_load_MW: number;
     ride_through_hours: number;
     redundancy: string;
+    objective?: string;
   };
   architectures: {
     label: string;
@@ -53,8 +54,20 @@ interface DeploymentResult {
       blocking: boolean;
     }[];
   }[];
-  next_action: { action: string; why: string };
+  next_action: {
+    action: string;
+    why: string;
+    objective?: string;
+    objective_rationale?: string;
+    trade_offs?: string[];
+  };
 }
+
+const OBJECTIVE_LABEL: Record<string, string> = {
+  max_compute: "Maximum firm capacity",
+  min_cost: "Lowest capital cost",
+  fastest: "Fastest time to power",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   pass: "PASS",
@@ -231,13 +244,34 @@ export default async function PowerDeployCasePage({
         </h2>
         <p className="mt-2 font-semibold text-ghost">{next_action.action}</p>
         <p className="mt-1 text-sm text-mute">{next_action.why}</p>
+        {next_action.objective && (
+          <p className="mt-3 text-[12px] text-faint">
+            Objective used: {" "}
+            <strong className="text-ghost">
+              {OBJECTIVE_LABEL[next_action.objective] ?? next_action.objective}
+            </strong>
+            {next_action.objective_rationale ? ` — ${next_action.objective_rationale}` : null}
+          </p>
+        )}
+        {next_action.trade_offs && next_action.trade_offs.length > 0 && (
+          <div className="mt-3 border-t border-power/20 pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Trade-offs considered
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-[12px] text-mute">
+              {next_action.trade_offs.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="mt-8">
         <h2 className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
           Update this case
         </h2>
-        <PowerDeployCaseUpdate token={token} />
+        <PowerDeployCaseUpdate token={token} ownerEmail={row.email} />
       </section>
     </main>
   );

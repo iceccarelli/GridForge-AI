@@ -47,11 +47,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       status: 400,
     });
   }
+  const { email: confirmEmail, ...patch } = body as Record<string, unknown>;
+
+  // A token alone is not sufficient authorization to mutate a case someone
+  // registered an email against — a leaked or forwarded link would otherwise
+  // let anyone rewrite the capacity/architecture inputs behind a customer's
+  // back. An anonymous case (no email at creation) keeps the token as its
+  // only access control, matching the rest of the site's magic-link model.
+  if (existing.email) {
+    const given = typeof confirmEmail === "string" ? confirmEmail.trim().toLowerCase() : "";
+    if (given !== existing.email.trim().toLowerCase()) {
+      return NextResponse.json(
+        { ok: false, error: "This case is registered to a different email address." },
+        { status: 403 }
+      );
+    }
+  }
 
   // A partial update merges onto the case's own last request — a customer who
   // is only reporting "the battery quote came in at 30 weeks, not 44" should
   // not have to resend the load profile and every generator to say so.
-  const request = { ...existing.request, ...(body as Record<string, unknown>) };
+  const request = { ...existing.request, ...patch };
 
   const assessed = await runDeploymentAssessment(request);
   if (!assessed.ok) {

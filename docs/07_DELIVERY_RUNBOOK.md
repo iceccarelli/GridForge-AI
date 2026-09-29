@@ -137,6 +137,25 @@ fields in its schema (`gridforge/api/tools.py`); the REST endpoint inherits all 
 free because it shares the same `deployment_request()`/`assess_deployment()` call chain as the
 CLI and MCP — there is exactly one parser and one ranking function, not three.
 
+### Case ownership — a token is read access, not edit authority
+
+`power_deployment_cases.case_token` is a 192-bit random value — computationally unguessable,
+but a bare token shared by any means (a forwarded email, a browser history entry, a referrer
+header on an outbound link) is possession, not identity. A case created with an email
+(`createDeploymentCase({ email, ... })`) now requires that same email, case-insensitively, on
+every `POST /api/power/deploy/cases/[token]` revision — see the ownership check in
+`app/api/power/deploy/cases/[token]/route.ts`. The token still grants read access (`GET`), matching
+the magic-link model the rest of the site (Watches, deliverables) already uses; what changed is
+that mutating a registered case now also needs the registered email, so a leaked link alone can
+no longer let a third party silently rewrite someone else's committed capacity or architecture
+inputs. A case created without an email is unchanged — the token remains its only access control,
+the same as before, and that is a documented limitation of an anonymous case, not an oversight.
+
+This is a real, bounded improvement, not a claim of full multi-tenant authentication: there is no
+account system, session, or org-level isolation on this site yet. `PowerDeployCaseUpdate.tsx`
+collects and sends the confirmation email only when the case is registered to one; the engine
+never sees it — it is stripped from the request before `assess_deployment()` is called.
+
 ### From assessment to tender — `power-deploy-spec`
 
 `python3 -m gridforge power-deploy-spec request.json --architecture "GRID + BESS + GENERATION" --project "North Campus" -o out/`
