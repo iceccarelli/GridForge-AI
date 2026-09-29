@@ -9,6 +9,7 @@ import {
   ADMIN_COOKIE,
 } from "@/lib/admin";
 import { AdminDashboard } from "@/components/AdminDashboard";
+import { StripeHealthPanel } from "@/components/StripeHealthPanel";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -50,6 +51,9 @@ export default async function AdminPage() {
         <Link href="/admin/pipeline" className="text-sm text-mute underline hover:text-ghost">
           Engagements and qualified halls →
         </Link>
+        <div className="mt-4">
+          <StripeHealthPanel />
+        </div>
       </div>
       <AdminDashboard initial={leads} supabaseReady={supabaseConfigured()} />
     </>

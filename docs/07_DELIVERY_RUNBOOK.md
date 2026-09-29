@@ -1125,6 +1125,30 @@ SITE_URL=… SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… STRIPE_WEBHOOK_SECRE
 `--schema` exits non-zero and names the missing table. Both modes print PASS/FAIL
 per criterion, so "we checked" is a transcript rather than a memory.
 
+### `verify-entitlement.mjs` proves the handler; it cannot prove the Dashboard
+
+`--full` sends a correctly signed event straight to the route handler — it proves
+`app/api/stripe/webhook/route.ts` does the right thing with `checkout.session.completed`,
+`invoice.paid`, `customer.subscription.deleted` and `invoice.payment_failed` when it
+receives them. It cannot prove Stripe's own Dashboard is configured to *send* them: a
+webhook endpoint pointed at a stale URL, missing one of the four event types, or simply
+disabled produces the exact same green CI and the exact same working code — and a
+customer whose card is declined next month just quietly keeps working forever, or a
+cancelled subscription never stops billing being noticed, because the event that would
+have told this app so never arrived.
+
+`GET /api/admin/stripe-health` (admin-gated, surfaced on `/admin` as "Stripe webhook
+health") asks the live Stripe account directly — `lib/stripe-health.ts`'s
+`checkStripeWebhookHealth()` — whether an *enabled* webhook endpoint exists for this
+deployment's `/api/stripe/webhook` URL and has all four required events turned on. It
+never reports healthy without asking Stripe first: no `STRIPE_SECRET_KEY` means "cannot
+verify," not "assumed fine," and every other failure mode (wrong URL, disabled endpoint,
+missing event) is named explicitly rather than folded into a generic error. Run this
+after every change to the Stripe Dashboard's webhook configuration, and whenever
+`verify-entitlement.mjs --full` passes but you have not independently confirmed the
+Dashboard side recently — a passing handler test and a correctly configured webhook
+endpoint are two different facts, and this is what checks the second one.
+
 ## The whole stack, before a deploy
 
 ```bash
