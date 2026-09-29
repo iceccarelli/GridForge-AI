@@ -48,6 +48,7 @@ UNIT_COST: dict[str, int] = {
     "/v1/bids": 2,           # a solve plus the comparison against it
     "/v1/power/assess": 5,   # every scenario solved, the full ladder, calibration
     "/v1/power/deploy/assess": 5,  # a load profile plus up to four architectures compared
+    "/v1/power/deploy/spec": 3,    # a derived, tender-ready document, same basis as /v1/spec
     "/v1/calibration": 0,
     "/v1/tools": 0,
     "/v1/usage": 0,

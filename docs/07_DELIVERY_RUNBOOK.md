@@ -68,6 +68,30 @@ Also `POST /v1/power/deploy/assess` and the `gridforge_power_deploy_assess` MCP 
 integration and an agent read the same architecture comparison. Priced at 5 units, the same as
 a full Study — a load profile plus up to four architecture solves is comparable engine load.
 
+### From assessment to tender — `power-deploy-spec`
+
+`python3 -m gridforge power-deploy-spec request.json --architecture "GRID + BESS + GENERATION" --project "North Campus" -o out/`
+
+The deployment assessment's "proceed to procurement" next action used to be a dead end — the
+generation and storage units a customer settled on had no path into anything a supplier could
+quote against, unlike a hall's headroom ladder, which already reaches `gridforge spec`. This
+closes it: `gridforge/reporting/btm_spec.py:build_equipment_spec()` takes the same
+`generation`/`bess` lists the deployment request declared and produces a tender covering every
+unit — nameplate rating, availability/forced-outage rate, start-up time, ramp rate and fuel for
+each generator; power, energy, SOC window and round-trip efficiency for each battery — every
+mandatory numeric requirement naming the unit it came from, the same traceability rule
+`gridforge.procurement.build` enforces on the hall side. A unit with no availability or ramp
+data declared simply omits that clause rather than inventing one. Not folded into
+`procurement.schema.SpecPackage` — that class's `racks_before`/`racks_after`/`sized_for_racks`
+fields describe a hall retrofit and have no honest value for a BTM generator; see the module's
+own docstring.
+
+Also `POST /v1/power/deploy/spec` (3 units, the same basis as `/v1/spec`) and the
+`gridforge_power_deploy_spec` MCP tool. `format: "json"` returns a summary and the
+machine-readable response template; `"md"`/`"html"` (the default) render the full tender
+document via `gridforge/reporting/btm_spec_report.py`, the same `Report`/`Section`/`Table`
+model every other rendered deliverable in this codebase uses.
+
 ### The persistent case — `power_deployment_cases`
 
 The engine composition above now persists. `POST /api/power/deploy/cases` runs the engine
@@ -104,11 +128,12 @@ revision N-1" band sourced from `changed_fields`. `PowerDeployCaseUpdate` posts 
 change (today: target MW, grid firm MW) and the page re-renders the new revision.
 
 **What this still does not do**, stated plainly rather than left to be discovered: no
-interconnection, fuel, or permitting readiness check; no connection from a chosen
-architecture's generation/BESS units into a Procurement Specification the way a hall's
-headroom ladder already reaches `gridforge spec`; the update form only exposes two of the
-request's fields (target and grid firm capacity — changing the declared generation/BESS list
-or the load profile itself still needs a direct API call); not wired into `/workspace` or the
+interconnection, fuel, or permitting readiness check; the page has no "generate procurement
+package" action yet, even though `power-deploy-spec`/`/v1/power/deploy/spec` exist and could be
+called with this case's own `request` column — that button is the next small, real piece, not
+built this cycle; the update form only exposes two of the request's fields (target and grid
+firm capacity — changing the declared generation/BESS list or the load profile itself still
+needs a direct API call); not wired into `/workspace` or the
 free qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
 is a real next slice, not a rounding error.
 

@@ -260,6 +260,36 @@ TOOLS: list[dict] = [
                  "costed), and next_action."),
     ),
     _tool(
+        "gridforge_power_deploy_spec",
+        ("A tender-ready technical specification for a BTM architecture's generation and "
+         "storage units: every numeric requirement (nameplate rating, availability/forced-"
+         "outage rate, start-up time, ramp rate, fuel, BESS power/energy/SOC window) derived "
+         "from the declared unit and traceable to it, plus a weighted evaluation matrix and a "
+         "machine-readable response schedule. Same request shape as "
+         "gridforge_power_deploy_assess — this is what 'proceed to procurement' in that tool's "
+         "next_action actually produces."),
+        "/v1/power/deploy/spec",
+        {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW"],
+         "properties": {
+             "architecture": {"type": "string", "description": "label for the document title "
+                                                                "only, e.g. 'GRID + BESS + "
+                                                                "GENERATION'"},
+             "project": {"type": "string"},
+             "load_profile": {"type": "object", "description": "unused by this tool but part "
+                                                                "of the shared request shape; "
+                                                                "pass {flat_kW: 0} if omitting "
+                                                                "a real profile"},
+             "grid_firm_MW": {"type": "number"}, "target_MW": {"type": "number"},
+             "generation": {"type": "array", "items": {"type": "object"}},
+             "bess": {"type": "array", "items": {"type": "object"}},
+             "format": {"type": "string", "enum": ["json", "html", "md"], "default": "html"},
+             "reference": {"type": "string"}, "return_by": {"type": "string"},
+             "contact": {"type": "string"},
+         },
+         "additionalProperties": False},
+        returns="the specification document, or its summary and response template as JSON.",
+    ),
+    _tool(
         "gridforge_proposal",
         "A priced proposal for a named engagement, built from what the engine already found.",
         "/v1/proposal",

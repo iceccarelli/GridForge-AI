@@ -157,7 +157,7 @@ def test_qualify_assumes_connection_parity_rather_than_headroom():
 # --- the paid tier -----------------------------------------------------------
 def test_paid_endpoints_require_a_key(server):
     for path in ("/v1/screen", "/v1/study", "/v1/portfolio", "/v1/power/assess",
-                "/v1/power/deploy/assess"):
+                "/v1/power/deploy/assess", "/v1/power/deploy/spec"):
         status, body = call(server, path, {"intake": {}})
         assert status == 401, path
         assert body["public_endpoint"] == "/v1/qualify"
@@ -252,6 +252,41 @@ def test_power_deploy_assess_is_callable_over_mcp(server):
     assert status == 200, body
     structured = body["result"]["structuredContent"]
     assert structured["next_action"]["action"].startswith("Proceed to procurement")
+
+
+def test_power_deploy_spec_produces_a_traceable_tender(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION",
+          "project": "North Campus", "format": "json"}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 200, body
+    assert body["specification"]["units"] == ["GEN-A", "GEN-B", "BESS-1"]
+    assert body["specification"]["mandatory"] > 0
+    assert "capex_eur" in body["response_template"]
+
+
+def test_power_deploy_spec_renders_a_document(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION", "format": "md"}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 200, body
+    assert "GEN-A" in body["document"]
+    assert "BESS-1" in body["document"]
+
+
+def test_power_deploy_spec_refuses_an_architecture_with_no_units(server):
+    req = {"load_profile": {"flat_kW": 1000}, "grid_firm_MW": 1, "target_MW": 2}
+    status, body = call(server, "/v1/power/deploy/spec", req, key=KEY)
+    assert status == 422, body
+
+
+def test_power_deploy_spec_is_callable_over_mcp(server):
+    req = {**DEPLOY_REQUEST, "architecture": "GRID + BESS + GENERATION", "format": "json"}
+    status, body = call(server, "/mcp", {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "gridforge_power_deploy_spec", "arguments": req},
+    }, key=KEY)
+    assert status == 200, body
+    structured = body["result"]["structuredContent"]
+    assert structured["specification"]["units"]
 
 
 def test_portfolio_ranks_several_halls(server):

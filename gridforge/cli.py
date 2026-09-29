@@ -160,6 +160,36 @@ def cmd_power_deploy_assess(args) -> int:
     return 0
 
 
+def cmd_power_deploy_spec(args) -> int:
+    from .procurement.schema import ProcurementError
+    from .reporting.btm_assessment import DeploymentRequestError, deployment_request
+    from .reporting.btm_spec import build_equipment_spec
+    from .reporting.btm_spec_report import build as build_spec_report
+    from .reporting import to_markdown, to_html
+    doc = json.loads(Path(args.request).read_text())
+    try:
+        kwargs = deployment_request(doc)
+    except DeploymentRequestError as exc:
+        print(f"invalid deployment request: {exc}", file=sys.stderr)
+        return 1
+    try:
+        spec = build_equipment_spec(args.architecture, project=args.project,
+                                    generation=kwargs["generation"], bess=kwargs["bess"])
+    except ProcurementError as exc:
+        print(f"cannot build a specification: {exc}", file=sys.stderr)
+        return 1
+    report = build_spec_report(spec, reference=args.reference or "")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "specification.md").write_text(to_markdown(report))
+    (out / "specification.html").write_text(to_html(report, full_document=True))
+    print(f"BTM Equipment Specification — {args.project} / {args.architecture}")
+    print(f"  Units covered      : {', '.join(spec.units)}")
+    print(f"  Requirements       : {len(spec.requirements)} ({len(spec.mandatory())} mandatory)")
+    print(f"  wrote {out}/specification.md and {out}/specification.html")
+    return 0
+
+
 def cmd_power_assess(args) -> int:
     from .reporting.readiness import assess
     intake = load(args.intake)
@@ -824,6 +854,19 @@ def main(argv: list[str] | None = None) -> int:
                                    "docs/07_DELIVERY_RUNBOOK.md for the shape")
     s.add_argument("-o", "--out")
     s.set_defaults(func=cmd_power_deploy_assess)
+
+    s = sub.add_parser("power-deploy-spec",
+                       help="a tender-ready specification for a BTM architecture's "
+                            "generation and storage units — what 'proceed to procurement' "
+                            "in power-deploy-assess's next action produces")
+    s.add_argument("request", help="a deployment request JSON file (same shape as "
+                                   "power-deploy-assess)")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--architecture", default="Declared architecture",
+                   help="label for the document title only")
+    s.add_argument("--project", default="Power Deployment Case")
+    s.add_argument("--reference", default="")
+    s.set_defaults(func=cmd_power_deploy_spec)
 
     s = sub.add_parser("diff", help="what changed between two intakes, and which input changed it")
     s.add_argument("before")
