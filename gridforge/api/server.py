@@ -25,6 +25,7 @@ Endpoints
     POST /v1/power/assess               intake     -> Power Readiness Case (key)
     POST /v1/power/deploy/assess        deployment request -> BTM assessment (key)
     POST /v1/power/deploy/spec          deployment request -> equipment tender (key)
+    POST /v1/power/deploy/bids          deployment request+bids -> ranked comparison (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
@@ -380,47 +381,108 @@ def handle_power_deploy_assess(body: dict, tier: Tier) -> dict:
     return redact(result, tier)
 
 
-def handle_power_deploy_spec(body: dict, tier: Tier) -> dict:
-    """A tender package for one architecture's generation and storage units —
-    the dead end `gridforge_power_deploy_assess`'s "proceed to procurement"
-    next action used to be. Same request shape as `/v1/power/deploy/assess`
-    (a deployment request), plus `architecture` (a label, for the document
-    title only — the units tendered are whatever `generation`/`bess` the
-    request declared) and `project`. No new physics — see
-    gridforge/reporting/btm_spec.py."""
+def _btm_spec_from_body(body: dict):
+    """The BTM tender package for a deployment request. `architecture` names one of
+    the candidate architectures the assessment compares; when it does, ONLY that
+    architecture's units are tendered. With `require_rfq_ready`, the request is
+    re-assessed here and refused unless that architecture is RFQ-ready — the engine,
+    not the caller, decides whether an RFQ may be prepared."""
     from ..procurement.schema import ProcurementError
-    from ..reporting.btm_assessment import DeploymentRequestError, deployment_request
+    from ..reporting.btm_assessment import (DeploymentRequestError, assess_deployment,
+                                            candidate_architectures, deployment_request)
     from ..reporting.btm_spec import build_equipment_spec
-    from ..reporting.btm_spec_report import build as build_spec_report
     try:
         kwargs = deployment_request(body)
     except DeploymentRequestError as exc:
         raise ApiError(422, str(exc))
     label = str(body.get("architecture") or "Declared architecture")
+    generation, bess = kwargs["generation"], kwargs["bess"]
+    chosen = next((c for c in candidate_architectures(generation, bess) if c.label == label),
+                  None)
+    if chosen is not None:
+        generation, bess = chosen.generation, chosen.bess
+    if body.get("require_rfq_ready"):
+        if chosen is None:
+            raise ApiError(422, f"architecture {label!r} is not one of the compared "
+                                f"architectures — nothing to check RFQ readiness against")
+        assessed = assess_deployment(**kwargs)
+        row = next(a for a in assessed["architectures"] if a["label"] == label)
+        if not row["rfq_ready"]:
+            raise ApiError(409, f"'{label}' is not RFQ-ready; no RFQ was prepared",
+                           blocking=row["blocking"],
+                           capex_uncosted_units=row["capex_uncosted_units"],
+                           readiness_gates=[g for g in row["readiness_gates"]
+                                            if g["status"] in ("missing_data", "unknown")])
     project = str(body.get("project") or "Power Deployment Case")
     try:
-        spec = build_equipment_spec(label, project=project, generation=kwargs["generation"],
-                                    bess=kwargs["bess"])
+        return build_equipment_spec(label, project=project, generation=generation, bess=bess)
     except ProcurementError as exc:
         raise ApiError(422, str(exc))
+
+
+def _btm_response_template(spec) -> dict:
+    """Same shape as the hall `response_template`: what `SupplierResponse.from_dict` reads."""
+    return {
+        "supplier": "", "received_on": "", "valid_until": "",
+        "values": {f.key: None for f in spec.response_fields},
+        "compliance": {q.id: "" for q in spec.mandatory()},
+    }
+
+
+def handle_power_deploy_spec(body: dict, tier: Tier) -> dict:
+    """A tender package for one architecture's generation and storage units —
+    the dead end `gridforge_power_deploy_assess`'s "proceed to procurement"
+    next action used to be. Same request shape as `/v1/power/deploy/assess`
+    (a deployment request), plus `architecture` (one of the compared architecture
+    labels, which selects the units tendered) and `project`. No new physics — see
+    gridforge/reporting/btm_spec.py."""
+    from ..reporting.btm_spec_report import build as build_spec_report
+    spec = _btm_spec_from_body(body)
+    summary = {
+        "architecture": spec.architecture_label, "units": spec.units,
+        "requirements": len(spec.requirements), "mandatory": len(spec.mandatory()),
+    }
     fmt = str(body.get("format") or "html").lower()
     if fmt in ("html", "md"):
         report = build_spec_report(spec, reference=str(body.get("reference") or ""),
                                    return_by=str(body.get("return_by") or ""),
                                    contact=str(body.get("contact") or ""))
+        extra = {"specification": summary, "response_template": _btm_response_template(spec)}
         if fmt == "md":
-            return {"format": "md", "title": report.title, "document": to_markdown(report)}
+            return {"format": "md", "title": report.title, "document": to_markdown(report),
+                    **extra}
         return {"format": "html", "title": report.title,
                "document": to_html(report, full_document=False),
-               "document_full": to_html(report, full_document=True)}
+               "document_full": to_html(report, full_document=True),
+               "document_md": to_markdown(report), **extra}
     return {
-        "specification": {
-            "architecture": spec.architecture_label, "units": spec.units,
-            "requirements": len(spec.requirements), "mandatory": len(spec.mandatory()),
-        },
-        "response_template": {
-            f.key: None for f in spec.response_fields
-        },
+        "specification": summary,
+        "response_template": {f.key: None for f in spec.response_fields},
+    }
+
+
+def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
+    """Supplier responses to a BTM tender package, ranked by the SAME
+    `procurement.rank_bids` the hall comparison uses. The package is rebuilt from the
+    deployment request exactly as `/v1/power/deploy/spec` builds it, so a response is
+    always judged against the requirements it was written for."""
+    from ..procurement import ProcurementError, SupplierResponse, rank_bids
+    raw = body.get("responses")
+    if not isinstance(raw, list) or not raw:
+        raise ApiError(422, 'expected a deployment request plus {"responses": [ ... ]}')
+    spec = _btm_spec_from_body(body)
+    try:
+        responses = [SupplierResponse.from_dict(d) for d in raw]
+        ranked = rank_bids(spec, responses)
+    except ProcurementError as exc:
+        raise ApiError(422, str(exc))
+    best = next((a for a in ranked if not a.disqualified and a.compliant), None)
+    return {
+        "architecture": spec.architecture_label,
+        "units": spec.units,
+        "ranked": _ranked_rows(spec, ranked),
+        "leading": best.supplier if best else None,
+        "note": _BID_NOTE,
     }
 
 
@@ -449,9 +511,28 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
     return {"revoked": key_id, "count": len(revoked_ids())}
 
 
+_BID_NOTE = ("Installation method and evidence quality carry 15 of the 100 points and "
+             "are scored by an engineer, not by this endpoint. A ranking that claimed "
+             "to have judged them would be inventing the part that needs judgement.")
+
+
+def _ranked_rows(pkg, ranked) -> list[dict]:
+    """The ranked-bid wire shape, shared by the hall (`/v1/bids`) and BTM
+    (`/v1/power/deploy/bids`) comparisons so there is one ranking presentation."""
+    from ..procurement.evaluate import schedule_impact
+    return [{
+        "rank": i, "supplier": a.supplier, "headline": a.headline(),
+        "capex_eur": a.capex_eur, "weeks_to_energised": a.weeks_to_energised,
+        "eur_per_rack": a.eur_per_rack, "compliant": a.compliant,
+        "disqualified": a.disqualified, "score": round(a.total_score, 1),
+        "scores": {k: round(v, 1) for k, v in a.scores.items()},
+        "mandatory_failed": a.mandatory_failed, "notes": a.notes,
+        "schedule_impact": schedule_impact(pkg, a),
+    } for i, a in enumerate(ranked, 1)]
+
+
 def handle_bids(body: dict, tier: Tier) -> dict:
     from ..procurement import ProcurementError, SupplierResponse, build_spec, rank_bids
-    from ..procurement.evaluate import schedule_impact
     from ..procurement.ingest import cost_entries_from
 
     raw = body.get("responses")
@@ -474,19 +555,9 @@ def handle_bids(body: dict, tier: Tier) -> dict:
         "relief": pkg.relief_title,
         "constraint_id": pkg.constraint_id,
         "sized_for_racks": pkg.sized_for_racks,
-        "ranked": [{
-            "rank": i, "supplier": a.supplier, "headline": a.headline(),
-            "capex_eur": a.capex_eur, "weeks_to_energised": a.weeks_to_energised,
-            "eur_per_rack": a.eur_per_rack, "compliant": a.compliant,
-            "disqualified": a.disqualified, "score": round(a.total_score, 1),
-            "scores": {k: round(v, 1) for k, v in a.scores.items()},
-            "mandatory_failed": a.mandatory_failed, "notes": a.notes,
-            "schedule_impact": schedule_impact(pkg, a),
-        } for i, a in enumerate(ranked, 1)],
+        "ranked": _ranked_rows(pkg, ranked),
         "leading": best.supplier if best else None,
-        "note": ("Installation method and evidence quality carry 15 of the 100 points and "
-                 "are scored by an engineer, not by this endpoint. A ranking that claimed "
-                 "to have judged them would be inventing the part that needs judgement."),
+        "note": _BID_NOTE,
     }
     if body.get("ingest") and best is not None:
         winner = next(r for r in responses if r.supplier == best.supplier)
@@ -541,6 +612,7 @@ ROUTES = {
     "/v1/power/assess": (handle_power_assess, Tier.CLIENT),
     "/v1/power/deploy/assess": (handle_power_deploy_assess, Tier.CLIENT),
     "/v1/power/deploy/spec": (handle_power_deploy_spec, Tier.CLIENT),
+    "/v1/power/deploy/bids": (handle_power_deploy_bids, Tier.CLIENT),
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 

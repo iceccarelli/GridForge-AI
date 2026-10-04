@@ -102,6 +102,21 @@ actually cost, and a record of where our predictions landed against instrumented
 neither of which can be bought, scraped or inferred, and both of which accrue one hall at
 a time.
 
+### The project record — a workflow layer, not a rung
+
+Added after v0.2. A **Verified Power Record** ties one project's BTM case, RFQ package, supplier
+responses, comparison, the human supplier selection and an evidence inventory into one record
+with an append-only history. It is **not on the ladder and has no price**: nothing in the
+repository sells it, no checkout or entitlement exists for it, and the BTM assessment and
+specification it builds on remain **metered_only** (API units) with no one-off BTM SKU. It exists
+to give the engagements above one place to hang off (`project_links` has types for deliverables
+and watches, but no route attaches them yet — today only BTM cases and procurement packages
+attach) and to accumulate dated supplier responses and selections. Status, plainly: *commercial* — the rungs above, unchanged; *metered_only* — BTM
+assess/spec/bids over the API; *free* — the project record itself; *manual* — supplier
+selection, evidence review, sending an RFQ to suppliers; *future* — BTM pricing, and calibration
+observations against project predictions (the ledger still reads zero). Detail in
+`07_DELIVERY_RUNBOOK.md`.
+
 ### §5b — the accuracy record (`gridforge/calibration/`)
 
 The second asset nobody can copy. A ledger of what the model predicted next to what

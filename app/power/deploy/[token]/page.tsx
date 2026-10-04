@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PowerDeployCaseUpdate } from "@/components/PowerDeployCaseUpdate";
+import { PowerDeployProcurement } from "@/components/PowerDeployProcurement";
 import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ interface DeploymentResult {
     margin_MW: number;
     basis: string;
     blocking: string[];
+    capex_uncosted_units?: string[];
     capex_eur: number | null;
     lead_time_weeks: number | null;
     buildable: boolean;
@@ -267,6 +269,20 @@ export default async function PowerDeployCasePage({
           </div>
         )}
       </section>
+
+      <PowerDeployProcurement
+        caseToken={row.case_token}
+        ownerEmail={row.email}
+        architectures={architectures.map((a) => ({
+          label: a.label,
+          rfq_ready: a.rfq_ready,
+          status: a.status,
+          basis: a.basis,
+          blocking: a.blocking,
+          capex_uncosted_units: a.capex_uncosted_units,
+          readiness_gates: a.readiness_gates,
+        }))}
+      />
 
       <section className="mt-8">
         <h2 className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">

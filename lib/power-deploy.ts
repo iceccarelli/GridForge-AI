@@ -42,25 +42,56 @@ export function newCaseToken(): string {
 export async function runDeploymentAssessment(
   request: Record<string, unknown>
 ): Promise<{ ok: true; result: Record<string, unknown> } | { ok: false; error: string }> {
+  const out = await callEngine("/v1/power/deploy/assess", request);
+  if (!out.ok) return { ok: false, error: out.error };
+  return { ok: true, result: out.body };
+}
+
+/**
+ * One authenticated POST to the deployed engine. The single place the site talks to
+ * `GRIDFORGE_API_URL`/`GRIDFORGE_API_KEY` for BTM routes, so the assessment, the
+ * tender package and the bid comparison all fail the same way. `status` is the
+ * engine's own HTTP status (0 when it was never reached) and `body` its JSON, so a
+ * caller can pass an engine refusal through rather than flatten it.
+ */
+export async function callEngine(
+  path: string,
+  request: Record<string, unknown>
+): Promise<
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; error: string; status: number; body: Record<string, unknown> }
+> {
   const base = process.env.GRIDFORGE_API_URL;
   const key = process.env.GRIDFORGE_API_KEY;
-  if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
-  if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
+  if (!base) return { ok: false, status: 0, body: {}, error: "GRIDFORGE_API_URL is not set" };
+  if (!key) {
+    return { ok: false, status: 0, body: {}, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
+  }
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/power/deploy/assess`, {
+    const res = await fetch(`${base.replace(/\/$/, "")}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(60_000),
       cache: "no-store",
     });
-    const body = await res.json().catch(() => ({}));
+    const body = ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
     if (!res.ok) {
-      return { ok: false, error: typeof body?.error === "string" ? body.error : `engine ${res.status}` };
+      return {
+        ok: false,
+        status: res.status,
+        body,
+        error: typeof body?.error === "string" ? body.error : `engine ${res.status}`,
+      };
     }
-    return { ok: true, result: body as Record<string, unknown> };
+    return { ok: true, body };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
+    return {
+      ok: false,
+      status: 0,
+      body: {},
+      error: err instanceof Error ? err.message : "engine unreachable",
+    };
   }
 }
 
@@ -190,6 +221,16 @@ export async function latestDeploymentCase(
     console.error("[GridForge] power deployment case lookup unreachable:", err);
     return null;
   }
+}
+
+/** One specific revision of a case, or null. Revision rows are never mutated, so
+ * (case_token, revision) reproduces a past input and result exactly. */
+export async function deploymentCaseRevision(
+  case_token: string,
+  revision: number
+): Promise<PowerDeploymentCaseRow | null> {
+  const all = await deploymentCaseHistory(case_token);
+  return all.find((r) => r.revision === revision) ?? null;
 }
 
 /** Every revision of a case, oldest first — the case's own history, for a

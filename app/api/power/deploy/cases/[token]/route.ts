@@ -5,6 +5,7 @@ import {
   latestDeploymentCase,
   runDeploymentAssessment,
 } from "@/lib/power-deploy";
+import { recordCaseRevision } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -85,8 +86,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
+  // A project this case is attached to gets a history line. The revision above is
+  // already saved and stands either way; `project_history` says what the project
+  // record did and did not capture.
+  const history = await recordCaseRevision(row.case_token, row.revision, row.changed_fields);
+
   return NextResponse.json({
     ok: true, case_token: row.case_token, revision: row.revision,
     result: row.result, changed_fields: row.changed_fields,
+    ...(history.linked ? { project_history: history.recorded === history.linked ? "recorded" : "incomplete" } : {}),
   });
 }

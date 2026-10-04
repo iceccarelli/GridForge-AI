@@ -28,7 +28,7 @@ export type CapabilityStatus =
 
 export interface Capability {
   capability_id: string;
-  family: "engagement" | "recurring" | "api" | "intelligence" | "btm" | "free_tier";
+  family: "engagement" | "recurring" | "api" | "intelligence" | "btm" | "free_tier" | "project";
   name: string;
   description: string;
   /** lib/products.ts ProductId this capability is sold under, if any. Price lives there, not here. */
@@ -331,6 +331,65 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "metered_only",
     production_status: "live",
     notes: "Same open gap as btm_deploy_assess: no dedicated one-off web SKU yet.",
+  },
+  {
+    capability_id: "project_record",
+    family: "project",
+    name: "Verified Power Record (project)",
+    description:
+      "One canonical project joining a BTM case, its RFQ package, supplier responses, the " +
+      "comparison, the human supplier selection and an evidence inventory, with an append-only " +
+      "history. A join layer: the case, the engine results and the prices stay where they live.",
+    engine_capability: "none — a persistence layer; every figure is read from power_deployment_cases.result",
+    rest_endpoint: null,
+    mcp_tool: null,
+    cli_command: null,
+    web_route: "/workspace",
+    workspace_action: "ProjectPanel (?project=<token>)",
+    database_record:
+      "projects, project_links, project_evidence, project_events (append-only, trigger-enforced)",
+    entitlement:
+      "none — bearer project_token (same magic-link model as case_token); attaching a case also " +
+      "needs that case's own token and, when registered, its email. Fails closed (503) without Supabase.",
+    stripe_product_or_price: "none",
+    deliverable: "A persistent project record; not a document and not sold",
+    status: "free",
+    production_status: "live",
+    notes:
+      "Unpriced by design: a workflow and data layer, not a product. No checkout, SKU or " +
+      "entitlement exists for it. Calibration: project_links reserves a typed slot " +
+      "(calibration_observation + prediction_ref) but nothing writes one and the calibration " +
+      "ledger is untouched. Evidence uploads are stored unverified and unclassified; contents " +
+      "are never parsed. Needs migration 0015_projects.sql applied and the private " +
+      "'project-evidence' storage bucket (created by the migration where Storage is installed).",
+  },
+  {
+    capability_id: "btm_rfq_loop",
+    family: "btm",
+    name: "BTM RFQ package, supplier responses and selection",
+    description:
+      "From an attached BTM case: generate the RFQ package for an rfq_ready architecture, take " +
+      "supplier responses, compare them with the existing procurement ranking, and record a " +
+      "person's supplier selection.",
+    engine_capability:
+      "gridforge/reporting/btm_spec.py:build_equipment_spec + gridforge/procurement/evaluate.py:rank_bids",
+    rest_endpoint: "/v1/power/deploy/bids",
+    mcp_tool: "gridforge_power_deploy_bids",
+    cli_command: null,
+    web_route: "/power/deploy/[token]",
+    workspace_action: null,
+    database_record: "procurement_packages, procurement_responses, procurement_comparisons",
+    entitlement:
+      "REST/MCP /v1/power/deploy/bids: API key + unit metering (2 units, same basis as /v1/bids). " +
+      "Web: project_token + attached case; no payment gate, same as btm_deploy_assess.",
+    stripe_product_or_price: "none",
+    deliverable: "RFQ specification (HTML/Markdown), response schedule, persisted comparison, selection event",
+    status: "metered_only",
+    production_status: "live",
+    notes:
+      "No BTM price, SKU or checkout exists and none is implied. Supplier responses are validated " +
+      "by the engine and stored as submitted; selection is a human decision and never rewrites the " +
+      "ranking. Installation method and evidence quality remain engineer-scored.",
   },
 ];
 

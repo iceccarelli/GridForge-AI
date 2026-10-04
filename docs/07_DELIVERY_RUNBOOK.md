@@ -220,14 +220,71 @@ now shows readiness gates (interconnection/protection/fuel/permitting/electrical
 and the create form accepts fuel type, utility, PCC voltage, import capacity and emissions
 status — but civil/site and thermal gates have no input to check yet, and there is no path from
 a gate's `missing` field list back into a form the customer can fill in inline (they see what's
-missing, not a button that opens the right input). The page has no "generate procurement
-package" action yet, even though `power-deploy-spec`/`/v1/power/deploy/spec` exist and could be
-called with this case's own `request` column — that button is the next small, real piece, not
-built this cycle; the update form only exposes two of the request's fields (target and grid
-firm capacity — changing the declared generation/BESS list, fuel/interconnection/permitting
-data, or the load profile itself still needs a direct API call); not wired into `/workspace` or the
-free qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
+missing, not a button that opens the right input). The page's "Generate RFQ package" action now exists — see "The Verified Power Record" below;
+the update form only exposes two of the request's fields (target and grid firm capacity — changing the declared generation/BESS list, fuel/interconnection/permitting
+data, or the load profile itself still needs a direct API call); not wired into the free
+qualifier's funnel; no entitlement gate, so no paid tier sits above it yet. Each of those
 is a real next slice, not a rounding error.
+
+### The Verified Power Record — a project over the BTM case
+
+Migration `0015_projects.sql`, `lib/projects.ts`, `lib/project-procurement.ts`,
+`lib/project-state.ts`, `app/api/projects/*`, `components/ai/ProjectPanel.tsx` (the workspace
+right-hand pane, `/workspace?project=<token>`) and `components/PowerDeployProcurement.tsx` (a
+section of `/power/deploy/[token]`).
+
+A **project** joins what already exists; it owns no engineering. The BTM case (request, result,
+revisions) stays in `power_deployment_cases` and is read from there every time — the project
+holds a `project_links` row, never a copy. The chain it makes durable:
+
+```
+project -> attach BTM case -> RFQ package (rfq_ready architecture only) -> supplier responses
+        -> comparison -> a person selects -> (future) a calibration observation attaches
+```
+
+- **RFQ package**: `POST /api/projects/{token}/packages`. Refused 409, with the engine's own
+  blocking information, unless the architecture is `rfq_ready`; then `/v1/power/deploy/spec` is
+  called with `require_rfq_ready` so the engine re-checks. The document is
+  `gridforge/reporting/btm_spec.py` + `btm_spec_report.py` output, stored verbatim and tied to an
+  immutable `(case_token, case_revision)`. `execution_ready` is untouched: an RFQ is not build
+  clearance.
+- **Responses and comparison**: `/v1/power/deploy/bids` rebuilds the same package and ranks with
+  `gridforge.procurement.rank_bids` — the function behind the hall `/v1/bids`. `BTMEquipmentSpec`
+  gained `sized_for_racks` (0) and `lead_time_weeks` so that function can read it; no ranking
+  arithmetic was copied. A response is validated by that same parsing before it is stored. Every
+  comparison is a new immutable row.
+- **Selection**: a person, named (`actor`), picks a supplier; it is set once on the package and
+  appended as `supplier_selected` with the supplier's rank at that moment. It never edits the
+  comparison — selecting rank 2 does not make it rank 1.
+- **History**: `project_events` is insert/select only. A trigger refuses UPDATE and DELETE even
+  for the service role (verified against real PostgreSQL by `tests/test_projects_migration.py`).
+- **Evidence**: PDF, CSV or JSON, 5 MB, SHA-256 recorded, stored in the private `project-evidence`
+  Supabase Storage bucket, `review_status = unverified`, `evidence_class` null. Contents are not
+  parsed, classified or sent to a model; nothing here produces E5–E7 evidence. There is no review
+  UI yet, so `verified`/`rejected` are reachable only by a database write by a person.
+- **Calibration**: `project_links` reserves `calibration_observation` + `prediction_ref`. Nothing
+  writes it. The ledger still reads zero.
+
+**Authority.** A `project_token` is a bearer token like `case_token` — there is no account
+system. It cannot reach into another object by itself: attaching a case also needs that case's
+token and, if registered, its email; a case already in another project is refused (409).
+Without Supabase every project write returns 503 in every environment — there is deliberately
+no in-memory fallback to mistake for a database.
+
+**Status of each piece:**
+
+| Piece | Status |
+|---|---|
+| Density Screen, Envelope Study, Portfolio Screen, Procurement Specification, Hall Watch, Intelligence, API tiers | commercial (unchanged) |
+| `/v1/power/deploy/assess`, `/spec`, `/bids` | metered_only (API units: 5, 3, 2) — no one-off SKU, no BTM price |
+| Project record, BTM RFQ page action, evidence inventory | free, unpriced — a workflow layer, not a product |
+| Supplier selection, evidence review, release of any engineering opinion | manual — a person |
+| Sending the RFQ to suppliers and collecting their schedules | manual — nothing emails a supplier |
+| Calibration observations tied to a project prediction | future — the slot exists, no data |
+| BTM pricing | future, and not decided: no basis for a figure exists yet |
+
+Apply `0015_projects.sql` before deploying this code: the routes fail with 502 until the tables
+exist. The migration creates the `project-evidence` bucket where Supabase Storage is installed.
 
 ## Rules that do not bend
 
