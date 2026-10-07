@@ -2,7 +2,7 @@ import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
-import { PRODUCTS, isProductId } from "@/lib/products";
+import { PRODUCTS, isProductId, type ProductId } from "@/lib/products";
 
 export const runtime = "nodejs";
 
@@ -44,6 +44,7 @@ export async function POST(req: Request) {
   const selectorKeys = ["product", "productId", "sku", "product_id", "priceId", "price_id"] as const;
   const suppliedSelectors = selectorKeys.filter((key) => key in body);
   const rawProduct = body.product;
+  let productId: ProductId | null = null;
   if (suppliedSelectors.length > 0) {
     if (suppliedSelectors.length !== 1 || !isProductId(rawProduct)) {
       return NextResponse.json(
@@ -51,8 +52,8 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    productId = rawProduct;
   }
-  const productId = suppliedSelectors.length === 1 ? rawProduct : null;
   const product = productId ? PRODUCTS[productId] : null;
   // `deliverables.qualification_id` is a uuid with a foreign key to
   // `qualifications`. Anything else fails the insert — and since a failed

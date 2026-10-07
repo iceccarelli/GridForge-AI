@@ -264,7 +264,6 @@ ROOT_FILES = {
     ".eslintrc.json": "lint config",
     ".gitignore": "",
     "Dockerfile": "the engine image",
-    "HANDOFF.md": "the brief a new agent or engineer starts from",
     "Makefile": "",
     "README.md": "",
     "fly.toml": "engine deployment",
