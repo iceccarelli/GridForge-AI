@@ -21,6 +21,8 @@
 
 import crypto from "node:crypto";
 import { latestDeploymentCase, newCaseToken } from "@/lib/power-deploy";
+import { isProjectAttachable, purchaseObjectType } from "@/lib/project-products";
+export { PROJECT_ATTACHABLE_KINDS, isProjectAttachable, purchaseObjectType } from "@/lib/project-products";
 
 export type Fail = { ok: false; status: number; error: string };
 export type Ok<T> = { ok: true } & T;
@@ -36,7 +38,8 @@ export type ProjectEventType =
   | "supplier_response_received"
   | "comparison_completed"
   | "supplier_selected"
-  | "evidence_attached";
+  | "evidence_attached"
+  | "paid_product_attached";
 
 export interface ProjectRow {
   id: string;
@@ -235,6 +238,41 @@ export async function getProjectByToken(token: string): Promise<Result<{ project
   const project = r.data?.[0];
   if (!project) return { ok: false, status: 404, error: "Not found." };
   return { ok: true, project };
+}
+
+// ---------------------------------------------------------------- paid products
+
+/**
+ * Attach a completed purchase to its project: the link (when the purchase opened an
+ * object) and a `paid_product_attached` event, in one transaction, idempotent per
+ * Stripe session. `permanent` tells the webhook whether retrying can ever help.
+ */
+export async function attachPurchase(input: {
+  project_id: string;
+  kind: string;
+  object_type: "deliverable" | "watch" | null;
+  object_id: string | null;
+  session_id: string;
+  amount_cents: number | null;
+}): Promise<{ ok: true; created: boolean } | { ok: false; permanent: boolean; error: string }> {
+  if (!creds()) return { ok: false, permanent: false, error: STORE_UNCONFIGURED.error };
+  const r = await rpc<{ created: boolean }>("gf_attach_purchase", {
+    p_project: input.project_id,
+    p_object_type: input.object_type,
+    p_object_id: input.object_id,
+    p_event: ev("paid_product_attached", "stripe_webhook", {
+      kind: input.kind,
+      object_type: input.object_type,
+      object_id: input.object_id,
+      amount_cents: input.amount_cents,
+      stripe_session_id: input.session_id,
+    }),
+  });
+  if (r.ok) return { ok: true, created: r.data?.created === true };
+  // 23503: the project does not exist; 22P02: not a uuid; 23505: the object is another
+  // project's. None of these gets better by Stripe redelivering the same event.
+  const permanent = r.code === "23503" || r.code === "22P02" || r.code === "23505" || r.status === 409;
+  return { ok: false, permanent, error: `purchase could not be attached (${r.status})` };
 }
 
 // ---------------------------------------------------------------- links

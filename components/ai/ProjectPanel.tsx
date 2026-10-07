@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Loader2 } from "lucide-react";
 import type { ProjectState } from "@/lib/project-state";
+import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
 
 /**
  * The project record, as stored.
@@ -104,6 +106,57 @@ function EmptyProject({ onToken }: { onToken: (t: string) => void }) {
         {error && <p className="text-[11px] text-flag">{error}</p>}
       </form>
     </div>
+  );
+}
+
+/** Commission an existing paid product FOR this project. Names and prices are read from the
+ * catalogue (lib/products.ts); checkout is the existing /api/checkout, which validates the
+ * project token before any Stripe session is created. */
+function Commission({ projectToken }: { projectToken: string }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+
+  async function go(kind: string) {
+    setBusy(kind);
+    setError(null);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product: kind, project_token: projectToken, email: email.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok && body.url) window.location.href = body.url;
+      else setError(body?.error ?? "Could not start checkout.");
+    } catch {
+      setError("Could not reach the server. Nothing was charged.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card title="COMMISSION FOR THIS PROJECT">
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="billing email (optional)"
+        className="w-full rounded border border-line bg-ink px-2 py-1.5 text-[12px] text-ghost" />
+      {PROJECT_ATTACHABLE_KINDS.map((kind) => {
+        const p = PRODUCTS[kind];
+        return (
+          <button key={kind} onClick={() => void go(kind)} disabled={!!busy}
+            className="mt-1 flex w-full items-center justify-between gap-2 rounded border border-line px-2 py-1.5 text-left text-[12px] text-ghost hover:border-power/60 disabled:opacity-50">
+            <span className="min-w-0 break-words">{p.name}</span>
+            <span className="shrink-0 data text-faint">
+              {busy === kind
+                ? "…"
+                : eurFromCents(p.amountCents) +
+                  ("recurring" in p && p.recurring ? ` / ${p.recurring.intervalCount} ${p.recurring.interval}` : "")}
+            </span>
+          </button>
+        );
+      })}
+      {error && <p className="text-[11px] text-flag">{error}</p>}
+    </Card>
   );
 }
 
@@ -255,14 +308,17 @@ export function ProjectPanel({
             </Card>
 
             <Card title="COMMERCIAL / PROCUREMENT">
-              <Row
-                k="Linked engagements"
-                v={
-                  state.other_links.length
-                    ? state.other_links.map((l) => `${l.object_type} ${l.object_id}`).join(", ")
-                    : NOT_YET
-                }
-              />
+              {state.engagements.length === 0 && <Row k="Paid engagements" v={NOT_YET} />}
+              {state.engagements.map((e, i) => (
+                <div key={i} className="space-y-0.5 border-b border-line pb-2">
+                  <Row k="Engagement" v={e.name ?? e.kind} />
+                  <Row k="Paid" v={e.amount_cents === null ? UNKNOWN : eurFromCents(e.amount_cents)} />
+                  <Row k="Status" v={e.object_type ? e.status ?? UNKNOWN : "Deposit received"} />
+                </div>
+              ))}
+              {state.other_links.length > 0 && (
+                <Row k="Other links" v={state.other_links.map((l) => `${l.object_type} ${l.object_id}`).join(", ")} />
+              )}
               {state.procurement.packages.length === 0 && <Row k="RFQ package" v={NOT_YET} />}
               {state.procurement.packages.map((p) => (
                 <div key={p.package_token} className="space-y-0.5 border-t border-line pt-2">
@@ -277,6 +333,8 @@ export function ProjectPanel({
                 </div>
               ))}
             </Card>
+
+            <Commission projectToken={projectToken!} />
 
             <Card title="EVENTS">
               {state.events.map((e) => (

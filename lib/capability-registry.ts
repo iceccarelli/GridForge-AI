@@ -360,7 +360,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "entitlement exists for it. Calibration: project_links reserves a typed slot " +
       "(calibration_observation + prediction_ref) but nothing writes one and the calibration " +
       "ledger is untouched. Evidence uploads are stored unverified and unclassified; contents " +
-      "are never parsed. Needs migration 0015_projects.sql applied and the private " +
+      "are never parsed. Paid products (density_screen, envelope_study_deposit, procurement_spec, " +
+      "hall_watch) commissioned from a project attach to it through the existing checkout and webhook " +
+      "(0016_project_purchases.sql); no price or SKU is added. Needs migration 0015_projects.sql applied and the private " +
       "'project-evidence' storage bucket (created by the migration where Storage is installed).",
   },
   {

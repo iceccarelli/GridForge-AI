@@ -12,6 +12,7 @@ import { PgError, type PostgrestFake, type Row } from "./postgrest-fake";
 const EVENT_TYPES = new Set([
   "project_created", "btm_case_attached", "btm_case_revised", "rfq_generated",
   "supplier_response_received", "comparison_completed", "supplier_selected", "evidence_attached",
+  "paid_product_attached",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -25,6 +26,24 @@ export function installProjectRpcs(db: PostgrestFake): void {
     });
   };
 
+  db.rpcs.set("gf_attach_purchase", ({ p_project, p_object_type, p_object_id, p_event }) => {
+    if (!db.rows("projects").some((x) => x.id === p_project)) throw new PgError("23503", "project_id foreign key", 409);
+    // This Stripe session was already attached: the SQL catches the unique violation and answers created:false.
+    if (db.rows("project_events").some((e) => e.event_type === "paid_product_attached" && (e.payload as any)?.stripe_session_id === p_event.payload.stripe_session_id)) {
+      return { created: false };
+    }
+    if (p_object_type) {
+      const links = db.rows("project_links");
+      const exact = links.some((l) => l.project_id === p_project && l.object_type === p_object_type && l.object_id === p_object_id);
+      if (exact) return { created: false };
+      if (links.some((l) => l.object_type === p_object_type && l.object_id === p_object_id)) {
+        throw new PgError("23505", "project_links_one_project_per_object", 409);
+      }
+      db.insertRow("project_links", { project_id: p_project, object_type: p_object_type, object_id: p_object_id });
+    }
+    emit(p_project, p_event);
+    return { created: true };
+  });
   db.rpcs.set("gf_create_project", ({ p, p_event }) => {
     const r = db.insertRow("projects", { ...p, status: p.status ?? "draft" });
     emit(r.id, p_event);

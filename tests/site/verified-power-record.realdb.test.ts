@@ -13,6 +13,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import Stripe from "stripe";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 
@@ -209,4 +210,55 @@ describe.skipIf(!enabled)("Verified Power Record — real PostgreSQL via PostgRE
     const anon = await fetch(`${PGRST}/projects?select=*`);
     expect(anon.ok).toBe(false);
   }, 120_000);
+});
+
+
+describe.skipIf(!enabled)("project → existing paid product, against real PostgreSQL", () => {
+  const WH = "whsec_realdb_test_secret_for_signature";
+  const hook = async (sessionId: string, kind: string, projectId: string, extra: Record<string, unknown> = {}) => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    const payload = JSON.stringify({
+      id: `evt_${sessionId}`, type: "checkout.session.completed",
+      data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example",
+        amount_total: 450000, customer: "cus_x", metadata: { kind, company: "Hall Co", project_id: projectId }, ...extra } },
+    });
+    const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+  };
+
+  it("attaches Density Screen, Hall Watch and an Envelope Study deposit exactly once each, through redelivery", async () => {
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `Buyer ${crypto.randomUUID().slice(0, 6)}` })));
+    const [proj] = await rows("projects", `&project_token=eq.${made.project_token}`);
+    const sid = crypto.randomUUID().slice(0, 8);
+
+    for (let i = 0; i < 3; i++) expect((await hook(`cs_ds_${sid}`, "density_screen", proj.id)).status).toBe(200);
+    for (let i = 0; i < 2; i++) expect((await hook(`cs_w_${sid}`, "hall_watch", proj.id, { subscription: `sub_${sid}`, amount_total: 600000 })).status).toBe(200);
+    for (let i = 0; i < 2; i++) expect((await hook(`cs_es_${sid}`, "envelope_study_deposit", proj.id, { amount_total: 900000 })).status).toBe(200);
+
+    const [deliv] = await rows("deliverables", `&stripe_session_id=eq.cs_ds_${sid}`);
+    expect(await rows("deliverables", `&stripe_session_id=eq.cs_ds_${sid}`)).toHaveLength(1);
+    expect(await rows("watches", `&stripe_subscription_id=eq.sub_${sid}`)).toHaveLength(1);
+    const links = await rows("project_links", `&project_id=eq.${proj.id}`);
+    expect(links.map((l) => l.object_type).sort()).toEqual(["deliverable", "watch"]);
+    expect(links.find((l) => l.object_type === "deliverable").object_id).toBe(deliv.id);
+    const bought = await rows("project_events", `&project_id=eq.${proj.id}&event_type=eq.paid_product_attached&order=occurred_at.asc`);
+    expect(bought.map((e) => e.payload.kind)).toEqual(["density_screen", "hall_watch", "envelope_study_deposit"]);
+
+    // an object already owned by this project cannot be taken by another, even through the webhook
+    const other = await j(await mk(post("/api/projects", { project_name: "Thief" })));
+    const [otherProj] = await rows("projects", `&project_token=eq.${other.project_token}`);
+    expect((await hook(`cs_ds_${sid}`, "density_screen", otherProj.id)).status).toBe(200); // fulfilled; attachment refused
+    expect(await rows("project_links", `&project_id=eq.${otherProj.id}`)).toHaveLength(0);
+
+    const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
+    expect(s.engagements.map((e: any) => [e.kind, e.status])).toEqual([
+      ["density_screen", "awaiting_intake"], ["hall_watch", "active"], ["envelope_study_deposit", null],
+    ]);
+    expect(JSON.stringify(s)).not.toMatch(/intake_token/);
+  }, 60_000);
 });

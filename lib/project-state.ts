@@ -6,6 +6,7 @@
 // panel renders it as unknown — never as 0, "" or a sample.
 
 import { latestDeploymentCase } from "@/lib/power-deploy";
+import { PRODUCT_BY_KIND } from "@/lib/products";
 import {
   creds,
   getProjectByToken,
@@ -68,7 +69,18 @@ export interface PackageState {
 export interface ProjectState {
   project: Pick<ProjectRow, "project_token" | "company" | "project_name" | "site_label" | "location" | "status" | "created_at">;
   cases: CaseState[];
-  /** Linked objects that have no read model here yet (deliverables, watches). */
+  /** Paid products commissioned for this project, from the Stripe webhook's own record. */
+  engagements: {
+    kind: string;
+    /** Catalogue name; null if the kind is no longer in the catalogue. */
+    name: string | null;
+    amount_cents: number | null;
+    object_type: "deliverable" | "watch" | null;
+    /** The fulfilment object's current status, read live; null for a deposit that opens none. */
+    status: string | null;
+    attached_at: string;
+  }[];
+  /** Linked objects other than cases, packages and paid products. */
   other_links: { object_type: string; object_id: string }[];
   evidence: {
     total: number;
@@ -169,6 +181,30 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     });
   }
 
+  // Paid products: what the webhook recorded, plus each object's status as it is NOW.
+  const engagements: ProjectState["engagements"] = [];
+  for (const e of events.events.filter((x) => x.event_type === "paid_product_attached")) {
+    const pl = e.payload as Record<string, unknown>;
+    const objectType = pl.object_type === "deliverable" || pl.object_type === "watch" ? pl.object_type : null;
+    const objectId = typeof pl.object_id === "string" ? pl.object_id : null;
+    let status: string | null = null;
+    if (objectType && objectId) {
+      const table = objectType === "deliverable" ? "deliverables" : "watches";
+      const r = await rest<{ status: string }[]>("GET", `${table}?id=eq.${encodeURIComponent(objectId)}&select=status&limit=1`);
+      if (!r.ok) return { ok: false, status: 502, error: "A purchased engagement could not be read." };
+      status = r.data?.[0]?.status ?? null;
+    }
+    const kind = typeof pl.kind === "string" ? pl.kind : "unknown";
+    engagements.push({
+      kind,
+      name: PRODUCT_BY_KIND[kind]?.name ?? null,
+      amount_cents: typeof pl.amount_cents === "number" ? pl.amount_cents : null,
+      object_type: objectType,
+      status,
+      attached_at: e.occurred_at,
+    });
+  }
+
   const evidence = ev.data ?? [];
   return {
     ok: true,
@@ -183,8 +219,9 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
         created_at: project.created_at,
       },
       cases,
+      engagements,
       other_links: links.links
-        .filter((l) => l.object_type !== "power_deployment_case" && l.object_type !== "procurement_package")
+        .filter((l) => !["power_deployment_case", "procurement_package", "deliverable", "watch"].includes(l.object_type))
         .map((l) => ({ object_type: l.object_type, object_id: l.object_id })),
       evidence: {
         total: evidence.length,
