@@ -15,7 +15,8 @@ import crypto from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
-import { PostgrestFake } from "./postgrest-fake";
+import { PgError, PostgrestFake } from "./postgrest-fake";
+import { installProjectRpcs } from "./project-rpc-fake";
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const KEY = "vpr-test-key";
@@ -59,6 +60,7 @@ function installFetch() {
   db.uniqueKeys.set("project_links", [["project_id", "object_type", "object_id"]]);
   db.uniqueKeys.set("procurement_responses", [["package_id", "supplier"]]);
   db.uniqueKeys.set("procurement_packages", [["package_token"]]);
+  installProjectRpcs(db);
   const restoreDb = db.install();
   const dbFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -443,17 +445,20 @@ describe("project creation and the event log", () => {
   });
 
   it("does not return a project whose creation event could not be recorded", async () => {
-    db.dropTable("project_events");
+    db.failEvents = true;
     const r = await createProject();
     expect(r.res.status).toBe(502);
     expect(r.body.project_token).toBeUndefined();
     expect(db.rows("projects")).toHaveLength(0);
+    expect(db.rows("project_events")).toHaveLength(0);
   });
 
   it("has no application path that updates or deletes an event, and the store refuses one", async () => {
     const lib = await import("@/lib/projects");
     const eventFns = Object.keys(lib).filter((k) => /event/i.test(k));
-    expect(eventFns.sort()).toEqual(["appendEvent", "listEvents"]);
+    // The only event function is a read. Events are written solely by the gf_* database
+    // functions, in the same transaction as the record they describe.
+    expect(eventFns).toEqual(["listEvents"]);
     const made = await createProject();
     db.appendOnly.add("project_events");
     const id = db.rows("project_events")[0].id as string;
@@ -465,6 +470,103 @@ describe("project creation and the event log", () => {
     expect(db.rows("project_events")).toHaveLength(1);
     expect(db.rows("project_events")[0].actor).toBe("project_token_holder");
     void made;
+  });
+});
+
+describe("a business action is a record AND its event, or nothing", () => {
+  /** Walk a project to the point where a given action is next, then make events fail. */
+  async function staged() {
+    const project = (await createProject()).body.project_token as string;
+    const c = await createCase();
+    await attach(project, c.body.case_token);
+    return { project, caseToken: c.body.case_token as string };
+  }
+  const tables = ["procurement_packages", "procurement_responses", "procurement_comparisons", "project_evidence"];
+  const counts = () => Object.fromEntries([...tables, "project_events", "project_links"].map((t) => [t, db.rows(t).length]));
+
+  it.skipIf(!hasPython)("attach, RFQ, response, comparison, selection and evidence each leave NO trace when the event cannot be written", async () => {
+    const { project, caseToken } = await staged();
+
+    // attach (a second case)
+    const c2 = await createCase();
+    let before = counts();
+    db.failEvents = true;
+    expect((await attach(project, c2.body.case_token)).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    db.failEvents = false;
+
+    // RFQ: no package, no package link
+    before = counts();
+    db.failEvents = true;
+    expect((await generate(project, caseToken)).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    db.failEvents = false;
+    const g = await generate(project, caseToken);
+    const pkg = g.body.package.package_token as string;
+    const template = (db.rows("procurement_packages")[0] as any).response_template;
+
+    // response
+    const A = supplierResponse(template, "Supplier A", { capex_eur: 41_000_000, lead_time_weeks: 40 });
+    before = counts();
+    db.failEvents = true;
+    expect((await respond(project, pkg, A)).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    db.failEvents = false;
+    expect((await respond(project, pkg, A)).res.status).toBe(201); // and the retry is not blocked by a ghost row
+    expect((await respond(project, pkg, supplierResponse(template, "Supplier B", { capex_eur: 36_000_000, lead_time_weeks: 52 }))).res.status).toBe(201);
+
+    // comparison
+    before = counts();
+    db.failEvents = true;
+    expect((await compare(project, pkg)).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    db.failEvents = false;
+    expect((await compare(project, pkg)).res.status).toBe(201);
+
+    // selection: the package stays unselected, so a retry is possible
+    before = counts();
+    db.failEvents = true;
+    expect((await select(project, pkg, { supplier: "Supplier A", actor: "J. Ortiz" })).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    expect(db.rows("procurement_packages")[0].selected_supplier ?? null).toBeNull();
+    db.failEvents = false;
+    expect((await select(project, pkg, { supplier: "Supplier A", actor: "J. Ortiz" })).res.status).toBe(200);
+
+    // evidence: no row and no orphaned object
+    before = counts();
+    db.failEvents = true;
+    expect((await upload(project, PDF, "application/pdf")).res.status).toBe(502);
+    expect(counts()).toEqual(before);
+    expect(db.objects.size).toBe(0);
+    db.failEvents = false;
+  }, 120_000);
+
+  it.skipIf(!hasPython)("a case revision is not saved if the project's history line cannot be", async () => {
+    const { caseToken } = await staged();
+    const { POST: revise } = await import("@/app/api/power/deploy/cases/[token]/route");
+    db.failEvents = true;
+    const res = await revise(json(`/x`, { target_MW: 40 }), ctx({ token: caseToken }));
+    expect(res.status).toBe(502);
+    expect(db.rows("power_deployment_cases")).toHaveLength(1); // still only revision 1
+    db.failEvents = false;
+    expect((await revise(json(`/x`, { target_MW: 40 }), ctx({ token: caseToken }))).status).toBe(200);
+    expect(db.rows("power_deployment_cases")).toHaveLength(2);
+  }, 60_000);
+});
+
+describe("the project never invents a value the engine did not produce", () => {
+  it("shows absent engineering and site facts as null, never 0, '' or a default", async () => {
+    const project = (await createProject({ project_name: "Bare" })).body.project_token as string;
+    db.seed("power_deployment_cases", [{ case_token: "bare", revision: 1, email: null, request: {}, result: {}, changed_fields: [] }]);
+    expect((await attach(project, "bare")).res.status).toBe(200);
+    const s = await getState(project);
+    expect(s.body.project).toMatchObject({ company: null, site_label: null, location: null });
+    expect(s.body.cases[0]).toMatchObject({
+      target_MW: null, grid_firm_MW: null, gap_MW: null, redundancy: null, objective: null, next_action: null,
+      architectures: [],
+    });
+    expect(s.body.evidence).toMatchObject({ total: 0, items: [] });
+    expect(s.body.procurement.packages).toEqual([]);
   });
 });
 
@@ -520,7 +622,8 @@ describe("evidence upload", () => {
 
   it("removes the stored object when the metadata write fails, so nothing is half-attached", async () => {
     const p = await project();
-    db.dropColumn("project_evidence", "review_status"); // the insert is refused after the object is stored
+    db.dropColumn("project_evidence", "review_status"); // the insert is refused after the object is stored (fake: PGRST204 on direct writes)
+    db.rpcs.set("gf_add_evidence", () => { throw new PgError("23514", "evidence constraint", 400); });
     const r = await upload(p, PDF, "application/pdf");
     expect(r.res.status).toBe(502);
     expect(db.rows("project_evidence")).toHaveLength(0);

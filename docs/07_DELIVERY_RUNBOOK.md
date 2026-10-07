@@ -256,8 +256,17 @@ project -> attach BTM case -> RFQ package (rfq_ready architecture only) -> suppl
 - **Selection**: a person, named (`actor`), picks a supplier; it is set once on the package and
   appended as `supplier_selected` with the supplier's rank at that moment. It never edits the
   comparison — selecting rank 2 does not make it rank 1.
-- **History**: `project_events` is insert/select only. A trigger refuses UPDATE and DELETE even
-  for the service role (verified against real PostgreSQL by `tests/test_projects_migration.py`).
+- **History**: `project_events` is insert/select only — a trigger refuses UPDATE and DELETE even
+  for the service role. Every business write goes through one `gf_*` PostgreSQL function
+  (`gf_create_project`, `gf_attach_case`, `gf_append_case_revision`, `gf_create_package`,
+  `gf_add_response`, `gf_add_comparison`, `gf_select_supplier`, `gf_add_evidence`) that inserts the
+  record and its event in one transaction: if the event is refused the record rolls back, so a
+  completed business state always has its history and a history line always has its record. The
+  application has no function that writes an event on its own. The one thing outside the
+  transaction is the evidence file in Storage; it is deleted if the database write fails.
+  A case revision uses the atomic path only when the case belongs to a project. Verified against
+  real PostgreSQL in `tests/test_projects_migration.py` and, through real PostgREST, in
+  `tests/site/verified-power-record.realdb.test.ts` (needs `GF_PGRST_URL`/`GF_PGRST_JWT`).
 - **Evidence**: PDF, CSV or JSON, 5 MB, SHA-256 recorded, stored in the private `project-evidence`
   Supabase Storage bucket, `review_status = unverified`, `evidence_class` null. Contents are not
   parsed, classified or sent to a model; nothing here produces E5–E7 evidence. There is no review

@@ -131,26 +131,24 @@ const now = () => new Date().toISOString();
 
 // ---------------------------------------------------------------- events
 
-/** The ONLY write this module makes to project_events is an insert. There is no
- * update or delete function anywhere in the application — and the table's own
- * trigger refuses them for the service role too (0015_projects.sql). */
-export async function appendEvent(
-  project_id: string,
+/** One history event, as the atomic write functions in 0015_projects.sql take it.
+ * There is deliberately NO function here that inserts, updates or deletes an event on
+ * its own: every event is written by the same database call (an RPC, one transaction)
+ * that writes the business record it describes — see `rpc` below — so a record and
+ * its history succeed or fail together. The table's trigger additionally refuses
+ * UPDATE and DELETE to every role, the service role included. */
+export function ev(
   event_type: ProjectEventType,
   actor: string,
-  payload: Record<string, unknown>
-): Promise<Result<{ event: ProjectEventRow }>> {
-  const r = await rest<ProjectEventRow[]>("POST", "project_events", {
-    project_id,
-    event_type,
-    occurred_at: now(),
-    actor,
-    payload,
-  });
-  if (!r.ok) return { ok: false, status: 502, error: "The history event could not be recorded." };
-  const event = r.data?.[0];
-  if (!event) return { ok: false, status: 502, error: "The history event could not be recorded." };
-  return { ok: true, event };
+  payload: Record<string, unknown> = {}
+): { event_type: ProjectEventType; actor: string; occurred_at: string; payload: Record<string, unknown> } {
+  return { event_type, actor, occurred_at: now(), payload };
+}
+
+/** Call one of the gf_* functions. The record and its event commit or roll back
+ * together; the caller never has to compensate for half a write. */
+export async function rpc<T = unknown>(name: string, args: Record<string, unknown>): Promise<Rest<T>> {
+  return rest<T>("POST", `rpc/${name}`, args);
 }
 
 export async function listEvents(project_id: string): Promise<Result<{ events: ProjectEventRow[] }>> {
@@ -212,29 +210,21 @@ export async function createProject(input: Record<string, unknown>): Promise<Res
   if (!loc.ok) return loc;
 
   const stamp = now();
-  const inserted = await rest<ProjectRow[]>("POST", "projects", {
-    project_token: newCaseToken(),
-    company: company.value,
-    project_name: name,
-    site_label: site.value,
-    location: loc.value,
-    status: "draft",
-    created_at: stamp,
-    updated_at: stamp,
+  const made = await rpc<ProjectRow>("gf_create_project", {
+    p: {
+      project_token: newCaseToken(),
+      company: company.value,
+      project_name: name,
+      site_label: site.value,
+      location: loc.value,
+      status: "draft",
+      created_at: stamp,
+      updated_at: stamp,
+    },
+    p_event: ev("project_created", "project_token_holder", { project_name: name }),
   });
-  const project = inserted.ok ? inserted.data?.[0] : undefined;
-  if (!project) return { ok: false, status: 502, error: "The project could not be saved." };
-
-  const ev = await appendEvent(project.id, "project_created", "project_token_holder", {
-    project_name: project.project_name,
-  });
-  if (!ev.ok) {
-    // A project with no creation event is not a complete record; remove the orphan
-    // (its token was never disclosed) rather than return a token for half a project.
-    await rest("DELETE", `projects?id=eq.${q(project.id)}`);
-    return { ok: false, status: 502, error: "The project could not be saved: its history could not be started." };
-  }
-  return { ok: true, project };
+  if (!made.ok || !made.data) return { ok: false, status: 502, error: "The project could not be saved." };
+  return { ok: true, project: made.data };
 }
 
 export async function getProjectByToken(token: string): Promise<Result<{ project: ProjectRow }>> {
@@ -267,32 +257,6 @@ export async function projectLinks(project_id: string): Promise<Result<{ links: 
   return { ok: true, links: r.data ?? [] };
 }
 
-/** Link an object to a project exactly once. Returns `created: false` for a link that
- * already exists (the unique key held), so callers append history only for a
- * relationship that was actually created. */
-export async function addLink(
-  project_id: string,
-  object_type: "power_deployment_case" | "procurement_package",
-  object_id: string
-): Promise<Result<{ created: boolean; link: ProjectLinkRow | null }>> {
-  const existing = await projectLinks(project_id);
-  if (!existing.ok) return existing;
-  const dup = existing.links.find((l) => l.object_type === object_type && l.object_id === object_id);
-  if (dup) return { ok: true, created: false, link: dup };
-  const r = await rest<ProjectLinkRow[]>("POST", "project_links", {
-    project_id,
-    object_type,
-    object_id,
-    created_at: now(),
-  });
-  if (!r.ok) {
-    // Lost a race against the unique key: the relationship exists, we did not create it.
-    if (r.code === "23505" || r.status === 409) return { ok: true, created: false, link: null };
-    return { ok: false, status: 502, error: "The link could not be saved." };
-  }
-  return { ok: true, created: true, link: r.data?.[0] ?? null };
-}
-
 /**
  * Attach an existing BTM case to a project. The case stays authoritative where it is;
  * only a link row is written, and `btm_case_attached` is appended only when the link
@@ -322,43 +286,22 @@ export async function attachCase(
     return { ok: false, status: 409, error: "This case is already attached to a different project." };
   }
 
-  const link = await addLink(project.id, "power_deployment_case", case_token);
-  if (!link.ok) return link;
-  if (!link.created) return { ok: true, created: false, revision: row.revision };
-
-  const ev = await appendEvent(project.id, "btm_case_attached", row.email ? row.email : "project_token_holder", {
-    case_token,
-    revision: row.revision,
-  });
-  if (!ev.ok) {
-    if (link.link) await rest("DELETE", `project_links?id=eq.${q(link.link.id)}`);
-    return { ok: false, status: 502, error: "The case could not be attached: its history could not be recorded." };
-  }
-  return { ok: true, created: true, revision: row.revision };
-}
-
-/** After a linked case gains a revision, say so in each linked project's history.
- * Called by the case route AFTER the revision is saved; the revision is the
- * authoritative fact and stands regardless — the returned counts say what the
- * project history did and did not record. */
-export async function recordCaseRevision(
-  case_token: string,
-  revision: number,
-  changed_fields: string[]
-): Promise<{ linked: number; recorded: number }> {
-  if (!creds()) return { linked: 0, recorded: 0 };
-  const links = await linksFor("power_deployment_case", case_token);
-  if (!links.ok) return { linked: 0, recorded: 0 };
-  let recorded = 0;
-  for (const l of links.links) {
-    const ev = await appendEvent(l.project_id, "btm_case_revised", "case_token_holder", {
+  const r = await rpc<{ created: boolean }>("gf_attach_case", {
+    p_project: project.id,
+    p_case_token: case_token,
+    p_event: ev("btm_case_attached", row.email ? row.email : "project_token_holder", {
       case_token,
-      revision,
-      changed_fields,
-    });
-    if (ev.ok) recorded += 1;
+      revision: row.revision,
+    }),
+  });
+  if (!r.ok) {
+    // The unique index on (object_type, object_id) lost a race to another project.
+    if (r.code === "23505" || r.status === 409) {
+      return { ok: false, status: 409, error: "This case is already attached to a different project." };
+    }
+    return { ok: false, status: 502, error: "The case could not be attached. Nothing was recorded." };
   }
-  return { linked: links.links.length, recorded };
+  return { ok: true, created: r.data?.created === true, revision: row.revision };
 }
 
 /** The reference a future calibration observation attaches to. Pure; creates nothing. */
@@ -491,37 +434,33 @@ export async function attachEvidence(
     }
   };
 
-  const meta = await rest<EvidenceRow[]>("POST", "project_evidence", {
-    project_id: project.id,
-    filename,
-    media_type: mediaType,
-    sha256,
-    byte_size: file.bytes.byteLength,
-    storage_ref,
-    source_category: category,
-    evidence_class: null,
-    review_status: "unverified",
-    note,
-    uploaded_at: now(),
+  const added = await rpc<EvidenceRow>("gf_add_evidence", {
+    p: {
+      project_id: project.id,
+      filename,
+      media_type: mediaType,
+      sha256,
+      byte_size: file.bytes.byteLength,
+      storage_ref,
+      source_category: category,
+      evidence_class: null,
+      review_status: "unverified",
+      note,
+      uploaded_at: now(),
+    },
+    p_event: ev("evidence_attached", "project_token_holder", {
+      filename,
+      media_type: mediaType,
+      sha256,
+      byte_size: file.bytes.byteLength,
+      review_status: "unverified",
+    }),
   });
-  const evidence = meta.ok ? meta.data?.[0] : undefined;
-  if (!evidence) {
+  // Row and event were one transaction: if it failed, neither exists. Only the stored
+  // object (outside the database) needs undoing.
+  if (!added.ok || !added.data) {
     await undoObject();
     return { ok: false, status: 502, error: "The file's record could not be saved. Nothing was attached." };
   }
-
-  const ev = await appendEvent(project.id, "evidence_attached", "project_token_holder", {
-    evidence_id: evidence.id,
-    filename,
-    media_type: mediaType,
-    sha256,
-    byte_size: evidence.byte_size,
-    review_status: "unverified",
-  });
-  if (!ev.ok) {
-    await rest("DELETE", `project_evidence?id=eq.${q(evidence.id)}`);
-    await undoObject();
-    return { ok: false, status: 502, error: "The file could not be attached: its history could not be recorded." };
-  }
-  return { ok: true, evidence };
+  return { ok: true, evidence: added.data };
 }

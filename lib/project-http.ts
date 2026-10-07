@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { getProjectByToken, type ProjectRow } from "@/lib/projects";
 
-/** An honest failure body: the status the store/engine/guard gave, the reason, and
- * — when a write half-landed — `stored: true` so nobody reads it as "nothing happened". */
-export function fail(r: { status: number; error: string; stored?: true; details?: unknown }) {
+/** An honest failure body: the status the store/engine/guard gave, and the reason. A write
+ * is atomic with its history event, so a failure here means nothing was recorded. */
+export function fail(r: { status: number; error: string; details?: unknown }) {
   return NextResponse.json(
     {
       ok: false,
       error: r.error,
-      ...(r.stored ? { stored: true } : {}),
       ...(r.details !== undefined ? { details: r.details } : {}),
     },
     { status: r.status }

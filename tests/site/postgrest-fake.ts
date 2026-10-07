@@ -12,6 +12,12 @@
  * A stub that throws would have let that code pass. This one does not.
  */
 
+export class PgError extends Error {
+  constructor(public code: string, message: string, public status = 400) {
+    super(message);
+  }
+}
+
 export interface Row {
   [key: string]: unknown;
 }
@@ -56,6 +62,13 @@ export class PostgrestFake {
   objects: Map<string, { bytes: Uint8Array; contentType: string }> = new Map();
   /** Set to make the Storage API refuse writes, for the "object store is down" path. */
   failStorage: { status: number; body: string } | null = null;
+
+  /** Server-side functions (/rest/v1/rpc/<name>). Each runs as ONE transaction: if it
+   * throws, every table is restored to what it was before the call. */
+  rpcs: Map<string, (args: any, db: PostgrestFake) => unknown> = new Map();
+
+  /** Make every event write inside an rpc fail, to prove the record rolls back with it. */
+  failEvents = false;
 
   private seq = 0;
 
@@ -102,6 +115,37 @@ export class PostgrestFake {
     };
   }
 
+  /** Insert one row as the database would: id/created_at defaults and unique keys. */
+  insertRow(table: string, raw: Row): Row {
+    if (!this.tables.has(table)) throw new PgError("42P01", `relation "public.${table}" does not exist`, 404);
+    const store = this.tables.get(table)!;
+    const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };
+    for (const cols of this.uniqueKeys.get(table) ?? []) {
+      if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+        throw new PgError("23505", `duplicate key value violates unique constraint on ${table}(${cols.join(",")})`, 409);
+      }
+    }
+    store.push(row);
+    return row;
+  }
+
+  private async handleRpc(name: string, body: unknown): Promise<Response> {
+    const fn = this.rpcs.get(name);
+    if (!fn) {
+      return json(JSON.stringify({ code: "PGRST202", message: `Could not find the function public.${name}` }), 404);
+    }
+    const snapshot = new Map([...this.tables].map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
+    try {
+      return json(JSON.stringify(fn(body, this) ?? null), 200);
+    } catch (err) {
+      this.tables = snapshot; // the whole call rolls back
+      if (err instanceof PgError) {
+        return json(JSON.stringify({ code: err.code, message: err.message }), err.status);
+      }
+      throw err;
+    }
+  }
+
   /** Supabase Storage's object API, as far as evidence upload uses it. */
   private async handleStorage(method: string, ref: string, init?: RequestInit): Promise<Response> {
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -145,6 +189,8 @@ export class PostgrestFake {
     }
 
     const parsed = new URL(url);
+    const rp = parsed.pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)$/);
+    if (rp) return this.handleRpc(rp[1], body);
     const so = parsed.pathname.match(/\/storage\/v1\/object\/(.+)$/);
     if (so) return this.handleStorage(method, decodeURIComponent(so[1]), init);
     const m = parsed.pathname.match(/\/rest\/v1\/([A-Za-z0-9_]+)$/);

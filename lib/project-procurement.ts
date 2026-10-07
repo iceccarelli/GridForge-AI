@@ -14,11 +14,11 @@
 import crypto from "node:crypto";
 import { callEngine, deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
 import {
-  addLink,
-  appendEvent,
   creds,
+  ev,
   linksFor,
   rest,
+  rpc,
   STORE_UNCONFIGURED,
   type ProjectRow,
   type Result,
@@ -69,18 +69,6 @@ export interface ComparisonRow {
     [k: string]: unknown;
   };
   created_at: string;
-}
-
-/** A write whose primary record was saved but whose history event was not. The
- * record stands (history tables cannot be rolled back), and the caller says so. */
-function partial(what: string): { ok: false; status: number; error: string; stored: true } {
-  return {
-    ok: false,
-    status: 502,
-    stored: true,
-    error: `${what} was saved, but its project-history event could not be recorded. ` +
-      `The record is real; the history is incomplete.`,
-  };
 }
 
 async function loadPackage(project: ProjectRow, token: string): Promise<Result<{ pkg: PackageRow }>> {
@@ -208,43 +196,31 @@ export async function generateRfqPackage(
   }
 
   const package_token = crypto.randomBytes(18).toString("base64url");
-  const ins = await rest<PackageRow[]>("POST", "procurement_packages", {
-    package_token,
-    project_id: project.id,
-    case_token: row.case_token,
-    case_revision: row.revision,
-    architecture: arch.label,
-    spec_summary: b.specification,
-    response_template: b.response_template,
-    document_md: b.document_md,
-    document_html: b.document_full,
-    created_at: now(),
+  // Package, project link and `rfq_generated` are written by one database function:
+  // all three exist or none do.
+  const made = await rpc<Omit<PackageRow, "document_md" | "document_html">>("gf_create_package", {
+    p: {
+      package_token,
+      project_id: project.id,
+      case_token: row.case_token,
+      case_revision: row.revision,
+      architecture: arch.label,
+      spec_summary: b.specification,
+      response_template: b.response_template,
+      document_md: b.document_md,
+      document_html: b.document_full,
+      created_at: now(),
+    },
+    p_event: ev("rfq_generated", "project_token_holder", {
+      package_token,
+      case_token: row.case_token,
+      case_revision: row.revision,
+      architecture: arch.label,
+      units: b.specification.units,
+    }),
   });
-  const pkg = ins.ok ? ins.data?.[0] : undefined;
-  if (!pkg) return { ok: false, status: 502, error: "The RFQ package could not be saved." };
-
-  const withdraw = () => rest("DELETE", `procurement_packages?id=eq.${q(pkg.id)}`);
-  const link = await addLink(project.id, "procurement_package", package_token);
-  if (!link.ok) {
-    await withdraw();
-    return { ok: false, status: 502, error: "The RFQ package could not be linked to the project. Nothing was saved." };
-  }
-  const ev = await appendEvent(project.id, "rfq_generated", "project_token_holder", {
-    package_token,
-    case_token: row.case_token,
-    case_revision: row.revision,
-    architecture: arch.label,
-    units: pkg.spec_summary.units,
-  });
-  if (!ev.ok) {
-    if (link.link) await rest("DELETE", `project_links?id=eq.${q(link.link.id)}`);
-    await withdraw();
-    return { ok: false, status: 502, error: "The RFQ package could not be saved: its history could not be recorded." };
-  }
-  const { document_md: _md, document_html: _html, ...summary } = pkg;
-  void _md;
-  void _html;
-  return { ok: true, package: summary };
+  if (!made.ok || !made.data) return { ok: false, status: 502, error: "The RFQ package could not be saved. Nothing was recorded." };
+  return { ok: true, package: made.data };
 }
 
 // ---------------------------------------------------------------- responses
@@ -264,7 +240,7 @@ export async function submitSupplierResponse(
   project: ProjectRow,
   package_token: string,
   raw: unknown
-): Promise<Result<{ response: ResponseRow }> & { stored?: true }> {
+): Promise<Result<{ response: ResponseRow }>> {
   const loaded = await loadPackage(project, package_token);
   if (!loaded.ok) return loaded;
   const pkg = loaded.pkg;
@@ -303,29 +279,21 @@ export async function submitSupplierResponse(
       : { ok: false, status: 502, error: `The response could not be validated by the engine: ${check.error}. Nothing was saved.` };
   }
 
-  const ins = await rest<ResponseRow[]>("POST", "procurement_responses", {
-    package_id: pkg.id,
-    project_id: project.id,
-    supplier,
-    response: { ...body, supplier },
-    received_at: now(),
+  const received_at = now();
+  const added = await rpc<ResponseRow>("gf_add_response", {
+    p: { package_id: pkg.id, project_id: project.id, supplier, response: { ...body, supplier }, received_at },
+    p_event: ev("supplier_response_received", "project_token_holder", {
+      package_token,
+      case_token: pkg.case_token,
+      architecture: pkg.architecture,
+      supplier,
+    }),
   });
-  if (!ins.ok && (ins.code === "23505" || ins.status === 409)) {
+  if (!added.ok && (added.code === "23505" || added.status === 409)) {
     return { ok: false, status: 409, error: `A response from ${supplier} is already recorded for this package.` };
   }
-  const response = ins.ok ? ins.data?.[0] : undefined;
-  if (!response) return { ok: false, status: 502, error: "The response could not be saved." };
-
-  const ev = await appendEvent(project.id, "supplier_response_received", "project_token_holder", {
-    package_token,
-    case_token: pkg.case_token,
-    architecture: pkg.architecture,
-    response_id: response.id,
-    supplier,
-    received_at: response.received_at,
-  });
-  if (!ev.ok) return partial(`The response from ${supplier}`);
-  return { ok: true, response };
+  if (!added.ok || !added.data) return { ok: false, status: 502, error: "The response could not be saved. Nothing was recorded." };
+  return { ok: true, response: added.data };
 }
 
 // ---------------------------------------------------------------- comparison
@@ -335,7 +303,7 @@ export async function submitSupplierResponse(
 export async function runPackageComparison(
   project: ProjectRow,
   package_token: string
-): Promise<Result<{ comparison: ComparisonRow }> & { stored?: true }> {
+): Promise<Result<{ comparison: ComparisonRow }>> {
   const loaded = await loadPackage(project, package_token);
   if (!loaded.ok) return loaded;
   const pkg = loaded.pkg;
@@ -361,30 +329,29 @@ export async function runPackageComparison(
     };
   }
 
-  const ins = await rest<ComparisonRow[]>("POST", "procurement_comparisons", {
-    package_id: pkg.id,
-    project_id: project.id,
-    case_token: pkg.case_token,
-    case_revision: pkg.case_revision,
-    architecture: pkg.architecture,
-    response_ids: rs.responses.map((r) => r.id),
-    result: engine.body,
-    created_at: now(),
+  const added = await rpc<ComparisonRow>("gf_add_comparison", {
+    p: {
+      package_id: pkg.id,
+      project_id: project.id,
+      case_token: pkg.case_token,
+      case_revision: pkg.case_revision,
+      architecture: pkg.architecture,
+      response_ids: rs.responses.map((r) => r.id),
+      result: engine.body,
+      created_at: now(),
+    },
+    p_event: ev("comparison_completed", "project_token_holder", {
+      package_token,
+      case_token: pkg.case_token,
+      architecture: pkg.architecture,
+      supplier_count: rs.responses.length,
+      leading: (engine.body as { leading?: string | null }).leading ?? null,
+    }),
   });
-  const comparison = ins.ok ? ins.data?.[0] : undefined;
-  if (!comparison) {
+  if (!added.ok || !added.data) {
     return { ok: false, status: 502, error: "The comparison was produced but could not be saved. It was not persisted." };
   }
-  const ev = await appendEvent(project.id, "comparison_completed", "project_token_holder", {
-    package_token,
-    comparison_id: comparison.id,
-    case_token: pkg.case_token,
-    architecture: pkg.architecture,
-    supplier_count: rs.responses.length,
-    leading: comparison.result.leading ?? null,
-  });
-  if (!ev.ok) return partial("The comparison");
-  return { ok: true, comparison };
+  return { ok: true, comparison: added.data };
 }
 
 // ---------------------------------------------------------------- selection
@@ -399,7 +366,7 @@ export async function selectSupplier(
   project: ProjectRow,
   package_token: string,
   input: { supplier: unknown; actor: unknown }
-): Promise<Result<{ package: PackageRow; rank_at_selection: number | null }> & { stored?: true }> {
+): Promise<Result<{ package: PackageRow; rank_at_selection: number | null }>> {
   const loaded = await loadPackage(project, package_token);
   if (!loaded.ok) return loaded;
   const pkg = loaded.pkg;
@@ -431,37 +398,31 @@ export async function selectSupplier(
   const resp = responses.responses.find((r) => r.supplier.toLowerCase() === row.supplier.toLowerCase());
 
   const selected_at = now();
-  const upd = await rest<PackageRow[]>(
-    "PATCH",
-    `procurement_packages?id=eq.${q(pkg.id)}&selected_supplier=is.null`,
-    {
+  const upd = await rpc<PackageRow | null>("gf_select_supplier", {
+    p_package: pkg.id,
+    p: {
       selected_supplier: row.supplier,
       selected_response_id: resp?.id ?? null,
       selected_comparison_id: cmp.comparison.id,
       selected_at,
       selected_by: actor,
-    }
-  );
-  if (!upd.ok) return { ok: false, status: 502, error: "The selection could not be saved." };
-  const updated = upd.data?.[0];
-  if (!updated) {
-    // Someone else's selection landed between our read and this write.
-    return { ok: false, status: 409, error: "A supplier has already been selected for this package." };
-  }
-
-  const ev = await appendEvent(project.id, "supplier_selected", actor, {
-    supplier: row.supplier,
-    package_token,
-    case_token: pkg.case_token,
-    case_revision: pkg.case_revision,
-    architecture: pkg.architecture,
-    comparison_id: cmp.comparison.id,
-    response_id: resp?.id ?? null,
-    selected_at,
-    rank_at_selection: row.rank,
-    was_leading: cmp.comparison.result.leading === row.supplier,
-    compliant: row.compliant ?? null,
+    },
+    p_event: ev("supplier_selected", actor, {
+      supplier: row.supplier,
+      package_token,
+      case_token: pkg.case_token,
+      case_revision: pkg.case_revision,
+      architecture: pkg.architecture,
+      comparison_id: cmp.comparison.id,
+      response_id: resp?.id ?? null,
+      selected_at,
+      rank_at_selection: row.rank,
+      was_leading: cmp.comparison.result.leading === row.supplier,
+      compliant: row.compliant ?? null,
+    }),
   });
-  if (!ev.ok) return partial(`The selection of ${row.supplier}`);
-  return { ok: true, package: updated, rank_at_selection: row.rank };
+  if (!upd.ok) return { ok: false, status: 502, error: "The selection could not be saved. Nothing was recorded." };
+  // null: another selection landed first; the function wrote nothing.
+  if (!upd.data) return { ok: false, status: 409, error: "A supplier has already been selected for this package." };
+  return { ok: true, package: upd.data, rank_at_selection: row.rank };
 }

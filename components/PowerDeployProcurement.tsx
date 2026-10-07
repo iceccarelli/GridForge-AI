@@ -99,7 +99,7 @@ export function PowerDeployProcurement({
         const d = r.json?.details?.capex_uncosted_units?.length
           ? ` Uncosted: ${r.json.details.capex_uncosted_units.join(", ")}.`
           : "";
-        setError((r.json?.error ?? "That did not go through.") + d + (r.json?.stored ? " (The record itself was saved.)" : ""));
+        setError((r.json?.error ?? "That did not go through.") + d);
       }
       await refresh();
     } catch {

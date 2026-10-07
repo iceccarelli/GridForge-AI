@@ -26,6 +26,8 @@ export interface PowerDeploymentCaseRow {
   request: Record<string, unknown>;
   result: Record<string, unknown>;
   changed_fields: string[];
+  /** Set only when the revision was written together with project history events. */
+  project_events?: number;
 }
 
 export function newCaseToken(): string {
@@ -293,6 +295,31 @@ export async function appendDeploymentRevision(
     return row;
   }
   try {
+    // A case that belongs to a project writes its revision AND the project's
+    // btm_case_revised event in one database transaction. A case with no project (or a
+    // store without the project tables) takes the original single-insert path.
+    if (await caseIsInAProject(c, case_token)) {
+      const res = await fetch(`${c.url}/rest/v1/rpc/gf_append_case_revision`, {
+        method: "POST",
+        headers: c.headers,
+        body: JSON.stringify({
+          p: record,
+          p_event: {
+            event_type: "btm_case_revised",
+            actor: "case_token_holder",
+            occurred_at: new Date().toISOString(),
+            payload: {},
+          },
+        }),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error("[GridForge] power deployment revision (with project history) failed:", await res.text());
+        return null;
+      }
+      const out = (await res.json()) as { row: PowerDeploymentCaseRow; events: number };
+      return { ...out.row, project_events: out.events };
+    }
     const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
       method: "POST",
       headers: { ...c.headers, Prefer: "return=representation" },
@@ -307,5 +334,23 @@ export async function appendDeploymentRevision(
   } catch (err) {
     console.error("[GridForge] power deployment revision insert unreachable:", err);
     return null;
+  }
+}
+
+async function caseIsInAProject(
+  c: { url: string; headers: Record<string, string> },
+  case_token: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/project_links?object_type=eq.power_deployment_case` +
+        `&object_id=eq.${encodeURIComponent(case_token)}&select=id&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    // 404 = the project tables are not deployed yet: no project can own this case.
+    if (!res.ok) return false;
+    return ((await res.json()) as unknown[]).length > 0;
+  } catch {
+    return false;
   }
 }
