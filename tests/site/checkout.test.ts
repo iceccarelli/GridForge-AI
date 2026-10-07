@@ -75,13 +75,22 @@ describe("the price is ours, never the caller's", () => {
     expect(line.price_data.unit_amount).toBe(450_000);
   });
 
-  it("ignores a product id that is not in the catalogue and falls back to the deposit", async () => {
+  it("rejects an explicit product id that is not in the catalogue", async () => {
     const { POST } = await route();
-    await POST(post({ product: "free_everything" }));
-    const line = (created[0].line_items as Record<string, any>[])[0];
-    expect(line.price_data.unit_amount).toBeGreaterThan(0);
-    expect(created[0].metadata).toMatchObject({ kind: "engagement_deposit" });
+    const res = await POST(post({ product: "free_everything" }));
+    expect(res.status).toBe(400);
+    expect(created).toHaveLength(0);
   });
+
+  it.each(["productId", "sku", "product_id", "priceId", "price_id"])(
+    "rejects legacy selector %s instead of silently charging the reservation deposit",
+    async (selector) => {
+      const { POST } = await route();
+      const res = await POST(post({ [selector]: "density_screen" }));
+      expect(res.status).toBe(400);
+      expect(created).toHaveLength(0);
+    }
+  );
 
   it("is unavailable rather than broken when Stripe is not configured", async () => {
     delete process.env.STRIPE_SECRET_KEY;
