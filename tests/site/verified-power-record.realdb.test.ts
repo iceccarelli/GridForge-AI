@@ -215,7 +215,7 @@ describe.skipIf(!enabled)("Verified Power Record — real PostgreSQL via PostgRE
 
 describe.skipIf(!enabled)("project → existing paid product, against real PostgreSQL", () => {
   const WH = "whsec_realdb_test_secret_for_signature";
-  const hook = async (sessionId: string, kind: string, projectId: string, extra: Record<string, unknown> = {}) => {
+  const hook = async (sessionId: string, kind: string, projectId: string | null, extra: Record<string, unknown> = {}) => {
     process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
     process.env.STRIPE_WEBHOOK_SECRET = WH;
     delete process.env.RESEND_API_KEY;
@@ -261,4 +261,86 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
     ]);
     expect(JSON.stringify(s)).not.toMatch(/intake_token/);
   }, 60_000);
+
+  /** Run SQL as the database owner — used only to break and restore a real privilege. */
+  const owner = (statement: string) =>
+    spawnSync("psql", ["-h", process.env.PGHOST ?? "", "-p", process.env.PGPORT ?? "5432", "-U", process.env.PGUSER ?? "postgres",
+      "-d", process.env.GF_PG_DB ?? "gf", "-v", "ON_ERROR_STOP=1", "-q", "-c", statement], { encoding: "utf8" });
+  const canBreakPrivileges = !!process.env.PGHOST && spawnSync("psql", ["--version"]).status === 0;
+  const newProject = async (name: string) => {
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `${name} ${crypto.randomUUID().slice(0, 6)}` })));
+    const [row] = await rows("projects", `&project_token=eq.${made.project_token}`);
+    return { token: made.project_token as string, id: row.id as string };
+  };
+  const eventsOf = (projectId: string) =>
+    rows("project_events", `&project_id=eq.${projectId}&event_type=eq.paid_product_attached`);
+
+  it("every attachable product ends in the identical state after three identical deliveries", async () => {
+    const p = await newProject("Triple");
+    const sid = crypto.randomUUID().slice(0, 8);
+    const buy = [
+      ["density_screen", `cs_ds_${sid}`, {}],
+      ["procurement_spec", `cs_ps_${sid}`, { amount_total: 1_800_000 }],
+      ["hall_watch", `cs_hw_${sid}`, { subscription: `sub_${sid}`, amount_total: 600_000 }],
+      ["envelope_study_deposit", `cs_es_${sid}`, { amount_total: 900_000 }],
+    ] as const;
+    const snapshot = async () => JSON.stringify({
+      deliverables: (await rows("deliverables", `&stripe_session_id=in.(cs_ds_${sid},cs_ps_${sid})`)).length,
+      watches: (await rows("watches", `&stripe_subscription_id=eq.sub_${sid}`)).length,
+      links: (await rows("project_links", `&project_id=eq.${p.id}`)).map((l) => l.object_type).sort(),
+      events: (await eventsOf(p.id)).map((e) => [e.payload.kind, e.payload.stripe_session_id, e.payload.amount_cents]).sort(),
+    });
+    for (const [kind, session, extra] of buy) expect((await hook(session, kind, p.id, extra)).status).toBe(200);
+    const once = await snapshot();
+    for (let i = 0; i < 2; i++) for (const [kind, session, extra] of buy) expect((await hook(session, kind, p.id, extra)).status).toBe(200);
+    expect(await snapshot()).toBe(once);                       // identical final state after 3 deliveries
+    expect(JSON.parse(once)).toEqual({
+      deliverables: 2, watches: 1, links: ["deliverable", "deliverable", "watch"],
+      events: expect.arrayContaining([["procurement_spec", `cs_ps_${sid}`, 1_800_000], ["envelope_study_deposit", `cs_es_${sid}`, 900_000]]),
+    });
+    expect(JSON.parse(once).events).toHaveLength(4);
+  }, 60_000);
+
+  it("a purchase with no project is fulfilled exactly as before and touches no project", async () => {
+    const before = (await rows("project_events", "&event_type=eq.paid_product_attached")).length;
+    const sid = crypto.randomUUID().slice(0, 8);
+    expect((await hook(`cs_plain_${sid}`, "density_screen", null)).status).toBe(200);
+    expect((await hook(`cs_plain_w_${sid}`, "hall_watch", null, { subscription: `sub_plain_${sid}` })).status).toBe(200);
+    expect(await rows("deliverables", `&stripe_session_id=eq.cs_plain_${sid}`)).toHaveLength(1);
+    expect(await rows("watches", `&stripe_subscription_id=eq.sub_plain_${sid}`)).toHaveLength(1);
+    expect((await rows("project_events", "&event_type=eq.paid_product_attached")).length).toBe(before);
+  }, 30_000);
+
+  it("a watch owned by one project is never reassigned to another", async () => {
+    const a = await newProject("Owner");
+    const b = await newProject("Other");
+    const sid = crypto.randomUUID().slice(0, 8);
+    const sub = { subscription: `sub_${sid}`, amount_total: 600_000 };
+    expect((await hook(`cs_w_${sid}`, "hall_watch", a.id, sub)).status).toBe(200);
+    expect((await hook(`cs_w_${sid}`, "hall_watch", b.id, sub)).status).toBe(200);   // fulfilled; attachment refused
+    expect(await rows("project_links", `&project_id=eq.${b.id}`)).toHaveLength(0);
+    expect(await eventsOf(b.id)).toHaveLength(0);
+    expect(await rows("project_links", `&project_id=eq.${a.id}&object_type=eq.watch`)).toHaveLength(1);
+    expect(await rows("watches", `&stripe_subscription_id=eq.sub_${sid}`)).toHaveLength(1);
+  }, 30_000);
+
+  it.skipIf(!canBreakPrivileges)("a real attachment failure asks Stripe to retry, leaves no false attachment, and the retry completes it once", async () => {
+    const p = await newProject("Fails");
+    const sid = crypto.randomUUID().slice(0, 8);
+    expect(owner("revoke execute on function public.gf_attach_purchase(uuid, text, text, jsonb) from service_role").status).toBe(0);
+    try {
+      expect((await hook(`cs_f_${sid}`, "density_screen", p.id)).status).toBe(500);         // Stripe will redeliver
+      expect(await rows("deliverables", `&stripe_session_id=eq.cs_f_${sid}`)).toHaveLength(1); // customer was fulfilled
+      expect(await rows("project_links", `&project_id=eq.${p.id}`)).toHaveLength(0);          // no half-attachment
+      expect(await eventsOf(p.id)).toHaveLength(0);                                           // no false event
+    } finally {
+      expect(owner("grant execute on function public.gf_attach_purchase(uuid, text, text, jsonb) to service_role").status).toBe(0);
+    }
+    expect((await hook(`cs_f_${sid}`, "density_screen", p.id)).status).toBe(200);
+    expect((await hook(`cs_f_${sid}`, "density_screen", p.id)).status).toBe(200);
+    expect(await rows("deliverables", `&stripe_session_id=eq.cs_f_${sid}`)).toHaveLength(1);
+    expect(await rows("project_links", `&project_id=eq.${p.id}`)).toHaveLength(1);
+    expect(await eventsOf(p.id)).toHaveLength(1);
+  }, 30_000);
 });
