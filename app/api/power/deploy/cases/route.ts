@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createDeploymentCase, runDeploymentAssessment } from "@/lib/power-deploy";
+import { attachCase, getProjectByToken } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,7 +32,18 @@ export async function POST(req: Request) {
       status: 400,
     });
   }
-  const { email, company, project_name, ...request } = body as Record<string, unknown>;
+  const { email, company, project_name, project_token, ...request } = body as Record<string, unknown>;
+
+  // Optional: create the case straight into an existing project. Resolved BEFORE the
+  // engine runs, so a wrong project token costs nothing and creates nothing.
+  let project = null;
+  if (project_token !== undefined && project_token !== null && project_token !== "") {
+    const found = await getProjectByToken(typeof project_token === "string" ? project_token : "");
+    if (!found.ok) {
+      return NextResponse.json({ ok: false, error: found.error }, { status: found.status });
+    }
+    project = found.project;
+  }
 
   const assessed = await runDeploymentAssessment(request);
   if (!assessed.ok) {
@@ -58,6 +70,20 @@ export async function POST(req: Request) {
       },
       { status: 502 }
     );
+  }
+
+  if (project) {
+    // The case exists and stands on its own; say explicitly whether the attachment landed.
+    const attached = await attachCase(project, row.case_token, typeof email === "string" ? email : null);
+    if (!attached.ok) {
+      return NextResponse.json(
+        { ok: true, case_token: row.case_token, revision: row.revision, result: row.result,
+          project_attached: false, project_error: attached.error },
+        { status: 207 }
+      );
+    }
+    return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,
+      result: row.result, project_attached: true });
   }
 
   return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,

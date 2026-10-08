@@ -12,6 +12,12 @@
  * A stub that throws would have let that code pass. This one does not.
  */
 
+export class PgError extends Error {
+  constructor(public code: string, message: string, public status = 400) {
+    super(message);
+  }
+}
+
 export interface Row {
   [key: string]: unknown;
 }
@@ -43,6 +49,26 @@ export class PostgrestFake {
    * is a paid purchase Stripe retries until it gives up.
    */
   missingColumns: Map<string, Set<string>> = new Map();
+
+  /**
+   * Tables whose UPDATE and DELETE the database refuses outright (a trigger in
+   * 0015_projects.sql). Answers 403 with Postgres' insufficient_privilege code,
+   * which is what PostgREST returns for that RAISE.
+   */
+  appendOnly: Set<string> = new Set();
+  /** Unique keys by table, as column lists; a clash answers 409 / 23505. */
+  uniqueKeys: Map<string, string[][]> = new Map();
+  /** Objects written through the Storage API, keyed `bucket/path`. */
+  objects: Map<string, { bytes: Uint8Array; contentType: string }> = new Map();
+  /** Set to make the Storage API refuse writes, for the "object store is down" path. */
+  failStorage: { status: number; body: string } | null = null;
+
+  /** Server-side functions (/rest/v1/rpc/<name>). Each runs as ONE transaction: if it
+   * throws, every table is restored to what it was before the call. */
+  rpcs: Map<string, (args: any, db: PostgrestFake) => unknown> = new Map();
+
+  /** Make every event write inside an rpc fail, to prove the record rolls back with it. */
+  failEvents = false;
 
   private seq = 0;
 
@@ -89,6 +115,57 @@ export class PostgrestFake {
     };
   }
 
+  /** Insert one row as the database would: id/created_at defaults and unique keys. */
+  insertRow(table: string, raw: Row): Row {
+    if (!this.tables.has(table)) throw new PgError("42P01", `relation "public.${table}" does not exist`, 404);
+    const store = this.tables.get(table)!;
+    const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };
+    for (const cols of this.uniqueKeys.get(table) ?? []) {
+      if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+        throw new PgError("23505", `duplicate key value violates unique constraint on ${table}(${cols.join(",")})`, 409);
+      }
+    }
+    store.push(row);
+    return row;
+  }
+
+  private async handleRpc(name: string, body: unknown): Promise<Response> {
+    const fn = this.rpcs.get(name);
+    if (!fn) {
+      return json(JSON.stringify({ code: "PGRST202", message: `Could not find the function public.${name}` }), 404);
+    }
+    const snapshot = new Map([...this.tables].map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
+    try {
+      return json(JSON.stringify(fn(body, this) ?? null), 200);
+    } catch (err) {
+      this.tables = snapshot; // the whole call rolls back
+      if (err instanceof PgError) {
+        return json(JSON.stringify({ code: err.code, message: err.message }), err.status);
+      }
+      throw err;
+    }
+  }
+
+  /** Supabase Storage's object API, as far as evidence upload uses it. */
+  private async handleStorage(method: string, ref: string, init?: RequestInit): Promise<Response> {
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    if (method === "POST") {
+      if (this.failStorage) return json(this.failStorage.body, this.failStorage.status, false);
+      if (this.objects.has(ref)) {
+        return json(JSON.stringify({ error: "Duplicate", message: "The resource already exists" }), 409);
+      }
+      const raw = init?.body as Buffer | Uint8Array | string | undefined;
+      const bytes = typeof raw === "string" ? new TextEncoder().encode(raw) : new Uint8Array(raw ?? []);
+      this.objects.set(ref, { bytes, contentType: headers["Content-Type"] ?? "" });
+      return json(JSON.stringify({ Key: ref }), 200);
+    }
+    if (method === "DELETE") {
+      this.objects.delete(ref);
+      return json(JSON.stringify({ message: "Successfully deleted" }), 200);
+    }
+    return json(JSON.stringify({ message: `unsupported ${method}` }), 405);
+  }
+
   private async handle(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -112,6 +189,10 @@ export class PostgrestFake {
     }
 
     const parsed = new URL(url);
+    const rp = parsed.pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)$/);
+    if (rp) return this.handleRpc(rp[1], body);
+    const so = parsed.pathname.match(/\/storage\/v1\/object\/(.+)$/);
+    if (so) return this.handleStorage(method, decodeURIComponent(so[1]), init);
     const m = parsed.pathname.match(/\/rest\/v1\/([A-Za-z0-9_]+)$/);
     if (!m) return json(JSON.stringify({ message: "not a rest path" }), 404);
     const table = m[1];
@@ -134,6 +215,13 @@ export class PostgrestFake {
       const dot = raw.indexOf(".");
       if (dot < 0) continue;
       filters.push({ column: key, op: raw.slice(0, dot), value: raw.slice(dot + 1) });
+    }
+
+    if (this.appendOnly.has(table) && (method === "PATCH" || method === "DELETE")) {
+      return json(
+        JSON.stringify({ code: "42501", message: `${table} is append-only: ${method} is not permitted` }),
+        403
+      );
     }
 
     const store = this.tables.get(table)!;
@@ -185,6 +273,17 @@ export class PostgrestFake {
                 code: "23505",
                 message:
                   'duplicate key value violates unique constraint "subscriptions_one_active_per_email"',
+              }),
+              409
+            );
+          }
+        }
+        for (const cols of this.uniqueKeys.get(table) ?? []) {
+          if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+            return json(
+              JSON.stringify({
+                code: "23505",
+                message: `duplicate key value violates unique constraint on ${table}(${cols.join(",")})`,
               }),
               409
             );

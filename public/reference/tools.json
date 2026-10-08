@@ -567,7 +567,11 @@
         "properties": {
           "architecture": {
             "type": "string",
-            "description": "label for the document title only, e.g. 'GRID + BESS + GENERATION'"
+            "description": "one of the compared architecture labels, e.g. 'GRID + BESS + GENERATION'; selects the units tendered"
+          },
+          "require_rfq_ready": {
+            "type": "boolean",
+            "description": "refuse unless the engine itself finds this architecture RFQ-ready"
           },
           "project": {
             "type": "string"
@@ -611,6 +615,60 @@
           },
           "contact": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_power_deploy_bids",
+      "description": "Rank supplier responses to a BTM tender package (gridforge_power_deploy_spec) with the same comparison rules as gridforge_bids: mandatory non-compliance is never outranked by price, incomplete responses are disqualified not guessed at, and installation method and evidence quality are left to an engineer. Send the same deployment request and architecture the package was built from, plus the completed response schedules.",
+      "endpoint": "/v1/power/deploy/bids",
+      "method": "POST",
+      "tier": "client",
+      "units": 2,
+      "returns": "the ranked comparison, the leading compliant supplier (or null) and the note.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "load_profile",
+          "grid_firm_MW",
+          "target_MW",
+          "responses"
+        ],
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "load_profile": {
+            "type": "object"
+          },
+          "grid_firm_MW": {
+            "type": "number"
+          },
+          "target_MW": {
+            "type": "number"
+          },
+          "generation": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "bess": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "responses": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           }
         },
         "additionalProperties": false
@@ -1213,7 +1271,11 @@
           "properties": {
             "architecture": {
               "type": "string",
-              "description": "label for the document title only, e.g. 'GRID + BESS + GENERATION'"
+              "description": "one of the compared architecture labels, e.g. 'GRID + BESS + GENERATION'; selects the units tendered"
+            },
+            "require_rfq_ready": {
+              "type": "boolean",
+              "description": "refuse unless the engine itself finds this architecture RFQ-ready"
             },
             "project": {
               "type": "string"
@@ -1257,6 +1319,58 @@
             },
             "contact": {
               "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_power_deploy_bids",
+        "description": "Rank supplier responses to a BTM tender package (gridforge_power_deploy_spec) with the same comparison rules as gridforge_bids: mandatory non-compliance is never outranked by price, incomplete responses are disqualified not guessed at, and installation method and evidence quality are left to an engineer. Send the same deployment request and architecture the package was built from, plus the completed response schedules.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "load_profile",
+            "grid_firm_MW",
+            "target_MW",
+            "responses"
+          ],
+          "properties": {
+            "architecture": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "load_profile": {
+              "type": "object"
+            },
+            "grid_firm_MW": {
+              "type": "number"
+            },
+            "target_MW": {
+              "type": "number"
+            },
+            "generation": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "bess": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "responses": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
             }
           },
           "additionalProperties": false
@@ -1878,7 +1992,11 @@
           "properties": {
             "architecture": {
               "type": "string",
-              "description": "label for the document title only, e.g. 'GRID + BESS + GENERATION'"
+              "description": "one of the compared architecture labels, e.g. 'GRID + BESS + GENERATION'; selects the units tendered"
+            },
+            "require_rfq_ready": {
+              "type": "boolean",
+              "description": "refuse unless the engine itself finds this architecture RFQ-ready"
             },
             "project": {
               "type": "string"
@@ -1930,6 +2048,60 @@
           "gridforge/units": 3,
           "gridforge/tier": "client",
           "gridforge/endpoint": "/v1/power/deploy/spec"
+        }
+      },
+      {
+        "name": "gridforge_power_deploy_bids",
+        "description": "Rank supplier responses to a BTM tender package (gridforge_power_deploy_spec) with the same comparison rules as gridforge_bids: mandatory non-compliance is never outranked by price, incomplete responses are disqualified not guessed at, and installation method and evidence quality are left to an engineer. Send the same deployment request and architecture the package was built from, plus the completed response schedules.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "load_profile",
+            "grid_firm_MW",
+            "target_MW",
+            "responses"
+          ],
+          "properties": {
+            "architecture": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "load_profile": {
+              "type": "object"
+            },
+            "grid_firm_MW": {
+              "type": "number"
+            },
+            "target_MW": {
+              "type": "number"
+            },
+            "generation": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "bess": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "responses": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 2,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/power/deploy/bids"
         }
       },
       {

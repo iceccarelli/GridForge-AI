@@ -88,5 +88,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   return NextResponse.json({
     ok: true, case_token: row.case_token, revision: row.revision,
     result: row.result, changed_fields: row.changed_fields,
+    // Written in the same transaction as the revision, so present or absent — never partial.
+    ...(row.project_events ? { project_history: "recorded" } : {}),
   });
 }

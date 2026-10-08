@@ -26,6 +26,8 @@ export interface PowerDeploymentCaseRow {
   request: Record<string, unknown>;
   result: Record<string, unknown>;
   changed_fields: string[];
+  /** Set only when the revision was written together with project history events. */
+  project_events?: number;
 }
 
 export function newCaseToken(): string {
@@ -42,25 +44,56 @@ export function newCaseToken(): string {
 export async function runDeploymentAssessment(
   request: Record<string, unknown>
 ): Promise<{ ok: true; result: Record<string, unknown> } | { ok: false; error: string }> {
+  const out = await callEngine("/v1/power/deploy/assess", request);
+  if (!out.ok) return { ok: false, error: out.error };
+  return { ok: true, result: out.body };
+}
+
+/**
+ * One authenticated POST to the deployed engine. The single place the site talks to
+ * `GRIDFORGE_API_URL`/`GRIDFORGE_API_KEY` for BTM routes, so the assessment, the
+ * tender package and the bid comparison all fail the same way. `status` is the
+ * engine's own HTTP status (0 when it was never reached) and `body` its JSON, so a
+ * caller can pass an engine refusal through rather than flatten it.
+ */
+export async function callEngine(
+  path: string,
+  request: Record<string, unknown>
+): Promise<
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; error: string; status: number; body: Record<string, unknown> }
+> {
   const base = process.env.GRIDFORGE_API_URL;
   const key = process.env.GRIDFORGE_API_KEY;
-  if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
-  if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
+  if (!base) return { ok: false, status: 0, body: {}, error: "GRIDFORGE_API_URL is not set" };
+  if (!key) {
+    return { ok: false, status: 0, body: {}, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
+  }
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/power/deploy/assess`, {
+    const res = await fetch(`${base.replace(/\/$/, "")}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(60_000),
       cache: "no-store",
     });
-    const body = await res.json().catch(() => ({}));
+    const body = ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
     if (!res.ok) {
-      return { ok: false, error: typeof body?.error === "string" ? body.error : `engine ${res.status}` };
+      return {
+        ok: false,
+        status: res.status,
+        body,
+        error: typeof body?.error === "string" ? body.error : `engine ${res.status}`,
+      };
     }
-    return { ok: true, result: body as Record<string, unknown> };
+    return { ok: true, body };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
+    return {
+      ok: false,
+      status: 0,
+      body: {},
+      error: err instanceof Error ? err.message : "engine unreachable",
+    };
   }
 }
 
@@ -192,6 +225,16 @@ export async function latestDeploymentCase(
   }
 }
 
+/** One specific revision of a case, or null. Revision rows are never mutated, so
+ * (case_token, revision) reproduces a past input and result exactly. */
+export async function deploymentCaseRevision(
+  case_token: string,
+  revision: number
+): Promise<PowerDeploymentCaseRow | null> {
+  const all = await deploymentCaseHistory(case_token);
+  return all.find((r) => r.revision === revision) ?? null;
+}
+
 /** Every revision of a case, oldest first — the case's own history, for a
  * "what changed since I last looked" view across more than one step back. */
 export async function deploymentCaseHistory(
@@ -252,6 +295,31 @@ export async function appendDeploymentRevision(
     return row;
   }
   try {
+    // A case that belongs to a project writes its revision AND the project's
+    // btm_case_revised event in one database transaction. A case with no project (or a
+    // store without the project tables) takes the original single-insert path.
+    if (await caseIsInAProject(c, case_token)) {
+      const res = await fetch(`${c.url}/rest/v1/rpc/gf_append_case_revision`, {
+        method: "POST",
+        headers: c.headers,
+        body: JSON.stringify({
+          p: record,
+          p_event: {
+            event_type: "btm_case_revised",
+            actor: "case_token_holder",
+            occurred_at: new Date().toISOString(),
+            payload: {},
+          },
+        }),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error("[GridForge] power deployment revision (with project history) failed:", await res.text());
+        return null;
+      }
+      const out = (await res.json()) as { row: PowerDeploymentCaseRow; events: number };
+      return { ...out.row, project_events: out.events };
+    }
     const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
       method: "POST",
       headers: { ...c.headers, Prefer: "return=representation" },
@@ -266,5 +334,23 @@ export async function appendDeploymentRevision(
   } catch (err) {
     console.error("[GridForge] power deployment revision insert unreachable:", err);
     return null;
+  }
+}
+
+async function caseIsInAProject(
+  c: { url: string; headers: Record<string, string> },
+  case_token: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/project_links?object_type=eq.power_deployment_case` +
+        `&object_id=eq.${encodeURIComponent(case_token)}&select=id&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    // 404 = the project tables are not deployed yet: no project can own this case.
+    if (!res.ok) return false;
+    return ((await res.json()) as unknown[]).length > 0;
+  } catch {
+    return false;
   }
 }

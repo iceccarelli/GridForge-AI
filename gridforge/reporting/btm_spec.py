@@ -43,6 +43,13 @@ class BTMEquipmentSpec:
     criteria: list[EvaluationCriterion] = field(default_factory=list)
     response_fields: list[ResponseField] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    #: Present so `procurement.rank_bids` can score responses to this package with the
+    #: SAME arithmetic the hall side uses, not a copy of it. A BTM package has no rack
+    #: count, so this stays 0 and `eur_per_rack` honestly reports None.
+    sized_for_racks: int = 0
+    #: The architecture's declared critical-path lead time, when every unit declares
+    #: one; None otherwise, in which case `schedule_impact` says it cannot compare.
+    lead_time_weeks: Quantity | None = None
 
     def validate(self) -> None:
         if not self.requirements:
@@ -230,8 +237,11 @@ def build_equipment_spec(architecture_label: str, *, project: str,
                    basis="The evaluation and approval cycle on a capital item of this size.",
                    verification="Stated on the quotation."),
     ])
+    dated = [u.lead_time_weeks for u in list(generation) + list(bess)]
     spec = BTMEquipmentSpec(
         project=project, architecture_label=architecture_label,
+        lead_time_weeks=(max(dated, key=lambda q: q.value) if all(q is not None for q in dated)
+                         else None),
         units=[u.id for u in list(generation) + list(bess)],
         scope=[
             ScopeItem("S-1", "Supply", "Equipment meeting the duties specified."),

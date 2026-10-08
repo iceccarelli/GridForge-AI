@@ -74,6 +74,18 @@ describe("CAPABILITY_REGISTRY", () => {
     expect(spec?.stripe_product_or_price).toBe("none");
   });
 
+  it("declares the project record and BTM RFQ loop without inventing a price, SKU or sale", () => {
+    const project = capabilityById("project_record");
+    const loop = capabilityById("btm_rfq_loop");
+    expect(project?.status).toBe("free");
+    expect(project?.product_id).toBeUndefined();
+    expect(project?.stripe_product_or_price).toBe("none");
+    expect(loop?.status).toBe("metered_only");
+    expect(loop?.product_id).toBeUndefined();
+    expect(loop?.stripe_product_or_price).toBe("none");
+    expect(loop?.mcp_tool).toBe("gridforge_power_deploy_bids");
+  });
+
   it("unmonetized() lists only capabilities truly marked internal_only", () => {
     for (const c of unmonetized()) {
       expect(c.status).toBe("internal_only");

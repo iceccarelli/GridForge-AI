@@ -313,9 +313,14 @@ TOOLS: list[dict] = [
         "/v1/power/deploy/spec",
         {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW"],
          "properties": {
-             "architecture": {"type": "string", "description": "label for the document title "
-                                                                "only, e.g. 'GRID + BESS + "
-                                                                "GENERATION'"},
+             "architecture": {"type": "string", "description": "one of the compared "
+                                                                "architecture labels, e.g. "
+                                                                "'GRID + BESS + GENERATION'; "
+                                                                "selects the units tendered"},
+             "require_rfq_ready": {"type": "boolean", "description": "refuse unless the "
+                                                                       "engine itself finds "
+                                                                       "this architecture "
+                                                                       "RFQ-ready"},
              "project": {"type": "string"},
              "load_profile": {"type": "object", "description": "unused by this tool but part "
                                                                 "of the shared request shape; "
@@ -330,6 +335,26 @@ TOOLS: list[dict] = [
          },
          "additionalProperties": False},
         returns="the specification document, or its summary and response template as JSON.",
+    ),
+    _tool(
+        "gridforge_power_deploy_bids",
+        ("Rank supplier responses to a BTM tender package (gridforge_power_deploy_spec) with the "
+         "same comparison rules as gridforge_bids: mandatory non-compliance is never outranked "
+         "by price, incomplete responses are disqualified not guessed at, and installation "
+         "method and evidence quality are left to an engineer. Send the same deployment request "
+         "and architecture the package was built from, plus the completed response schedules."),
+        "/v1/power/deploy/bids",
+        {"type": "object", "required": ["load_profile", "grid_firm_MW", "target_MW", "responses"],
+         "properties": {
+             "architecture": {"type": "string"}, "project": {"type": "string"},
+             "load_profile": {"type": "object"},
+             "grid_firm_MW": {"type": "number"}, "target_MW": {"type": "number"},
+             "generation": {"type": "array", "items": {"type": "object"}},
+             "bess": {"type": "array", "items": {"type": "object"}},
+             "responses": {"type": "array", "items": {"type": "object"}},
+         },
+         "additionalProperties": False},
+        returns="the ranked comparison, the leading compliant supplier (or null) and the note.",
     ),
     _tool(
         "gridforge_proposal",

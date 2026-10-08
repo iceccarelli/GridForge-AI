@@ -471,6 +471,8 @@ def test_every_table_the_site_reads_or_writes_has_a_migration():
     used: dict[str, str] = {}
     for f in _site_sources():
         for m in re.finditer(r"rest/v1/([A-Za-z0-9_]+)", f.read_text()):
+            if m.group(1) == "rpc":
+                continue          # a function call, not a table: checked just below
             used.setdefault(m.group(1), str(f.relative_to(ROOT)))
 
     missing = {
@@ -485,6 +487,26 @@ def test_every_table_the_site_reads_or_writes_has_a_migration():
           "404, so this fails silently in production rather than loudly."
     )
 
+
+
+def test_every_database_function_the_site_calls_has_a_migration():
+    """The same defect, for `/rest/v1/rpc/<name>`: PostgREST answers a missing function
+    with 404 and a caller that only catches a throw reports success. The Verified Power
+    Record writes every business record and its history event through one of these."""
+    sql = _sql()
+    used: dict[str, str] = {}
+    for f in _site_sources():
+        text = f.read_text()
+        for m in re.finditer(r"rest/v1/rpc/([A-Za-z0-9_]+)", text):
+            used.setdefault(m.group(1), str(f.relative_to(ROOT)))
+        for m in re.finditer(r"""\brpc\b[^(]*\(\s*["']([A-Za-z0-9_]+)["']""", text):
+            used.setdefault(m.group(1), str(f.relative_to(ROOT)))
+    assert used, "the site is expected to call at least one database function"
+    missing = {
+        fn: where for fn, where in sorted(used.items())
+        if not re.search(rf"create (or replace )?function (public\.)?{fn}\b", sql)
+    }
+    assert not missing, f"the site calls database functions no migration creates:\n  {missing}"
 
 def test_no_route_reaches_supabase_without_checking_whether_it_worked():
     """`await fetch(...)` with no `res.ok` is the mechanism behind every bug this

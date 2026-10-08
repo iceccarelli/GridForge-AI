@@ -13,7 +13,7 @@ type MobileTab = "chat" | "canvas" | "project";
 
 /**
  * Three-pane workspace: conversation (left) / engineering canvas (center) /
- * project context (right, stub). Below phone width the panes collapse into
+ * project record (right). Below phone width the panes collapse into
  * tabs instead of a horizontal-scrolling row — see the mobile tab bar at the
  * bottom of this component.
  */
@@ -22,6 +22,23 @@ export function WorkspaceClient() {
   const [loading, setLoading] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
   const [hydrated, setHydrated] = useState(false);
+  // The open project is a bearer token in the URL (?project=...), so a link opens the
+  // same record anywhere. localStorage only remembers the last one for convenience.
+  const [projectToken, setProjectTokenState] = useState<string | null>(null);
+
+  function setProjectToken(token: string | null) {
+    setProjectTokenState(token);
+    try {
+      const url = new URL(window.location.href);
+      if (token) url.searchParams.set("project", token);
+      else url.searchParams.delete("project");
+      window.history.replaceState(null, "", url.toString());
+      if (token) window.localStorage.setItem("gridforge.project", token);
+      else window.localStorage.removeItem("gridforge.project");
+    } catch {
+      /* storage or history unavailable: the in-memory choice still works */
+    }
+  }
 
   // Restore a conversation left behind by a reload. Runs after the first
   // render (not in useState's initializer) so the server-rendered markup and
@@ -30,6 +47,12 @@ export function WorkspaceClient() {
   useEffect(() => {
     const restored = loadWorkspaceSession(typeof window === "undefined" ? undefined : window.localStorage);
     if (restored.length > 0) setMessages(restored);
+    try {
+      const fromUrl = new URL(window.location.href).searchParams.get("project");
+      setProjectTokenState(fromUrl || window.localStorage.getItem("gridforge.project"));
+    } catch {
+      /* no URL/storage access: start with no project open */
+    }
     setHydrated(true);
   }, []);
 
@@ -72,7 +95,7 @@ export function WorkspaceClient() {
           <Canvas messages={messages} onQuickAction={handleSend} />
         </div>
         <div className="border-l border-line min-h-0 bg-panel/40">
-          <ProjectPanel />
+          <ProjectPanel projectToken={projectToken} onProjectToken={setProjectToken} />
         </div>
       </div>
 
@@ -91,7 +114,7 @@ export function WorkspaceClient() {
           )}
           {mobileTab === "project" && (
             <div className="h-full bg-panel/40">
-              <ProjectPanel />
+              <ProjectPanel projectToken={projectToken} onProjectToken={setProjectToken} />
             </div>
           )}
         </div>
