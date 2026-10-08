@@ -12,7 +12,7 @@ import { PgError, type PostgrestFake, type Row } from "./postgrest-fake";
 const EVENT_TYPES = new Set([
   "project_created", "btm_case_attached", "btm_case_revised", "rfq_generated",
   "supplier_response_received", "comparison_completed", "supplier_selected", "evidence_attached",
-  "paid_product_attached",
+  "paid_product_attached", "observation_submitted", "observation_reviewed",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -43,6 +43,33 @@ export function installProjectRpcs(db: PostgrestFake): void {
     }
     emit(p_project, p_event);
     return { created: true };
+  });
+  db.rpcs.set("gf_submit_observation", ({ p, p_event }) => {
+    if (p.evidence_id && !db.rows("project_evidence").some((e) => e.id === p.evidence_id && e.project_id === p.project_id)) {
+      throw new PgError("23503", "that evidence does not belong to this project", 409);
+    }
+    if (!(p.predicted_value > 0)) throw new PgError("23514", "predicted_value > 0", 400);
+    if (db.rows("project_observations").some((o) => o.project_id === p.project_id && o.prediction_ref === p.prediction_ref
+        && o.calibration_key === p.calibration_key && o.observed_on === p.observed_on)) {
+      throw new PgError("23505", "project_observations unique", 409);
+    }
+    const r = db.insertRow("project_observations", {
+      ...p, submitted_at: p.submitted_at ?? new Date().toISOString(),
+      delta_value: p.observed_value - p.predicted_value,
+      delta_pct: (p.observed_value / p.predicted_value - 1) * 100,
+    });
+    emit(r.project_id, p_event, { observation_id: r.id, prediction_ref: r.prediction_ref, calibration_key: r.calibration_key,
+      predicted_value: r.predicted_value, observed_value: r.observed_value, delta_pct: r.delta_pct });
+    return r;
+  });
+  db.rpcs.set("gf_review_observation", ({ p, p_event }) => {
+    const o = db.rows("project_observations").find((x) => x.id === p.observation_id);
+    if (!o) throw new PgError("23503", "no such observation", 409);
+    if (p.decision === "verified" && !o.evidence_id) throw new PgError("23514", "no evidence artifact", 400);
+    if ((p.decision === "verified") !== (p.evidence_class != null)) throw new PgError("23514", "class iff verified", 400);
+    const r = db.insertRow("project_observation_reviews", { observation_id: o.id, project_id: o.project_id, ...p });
+    emit(o.project_id, p_event, { observation_id: o.id, decision: r.decision, evidence_class: r.evidence_class });
+    return r;
   });
   db.rpcs.set("gf_create_project", ({ p, p_event }) => {
     const r = db.insertRow("projects", { ...p, status: p.status ?? "draft" });

@@ -321,6 +321,31 @@ ProjectPanel -> POST /api/checkout {product, project_token}
   a checkout naming a project for one is refused with 400.
 - **No tokens leak.** Links store the deliverable's/watch's row id, not its document or intake token.
 
+### Observed outcomes — the first step from a prediction to reality (migration `0017_project_observations.sql`)
+
+```
+stored engine result  ->  observation submitted  ->  human review (admin)  ->  a person adds it to the ledger
+(case, revision, arch)    (what was measured)        (states the class)        (`gridforge calibrate add`)
+```
+
+- **The expected value is never typed in.** `POST /api/projects/{token}/observations` reads it from
+  `result.architectures[label].available_MW` of an exact immutable case revision; a `predicted_value` in the
+  body is ignored. `prediction_ref` is `power_deployment_case:<case_token>:r<revision>:<architecture>`.
+- **One reconcilable key: `btm.firm_MW`** (added to `gridforge/calibration/keys.py`; the published denominator
+  moves from 19 to 20 model outputs, observations stay 0). An architecture's capex and lead time are echoes of
+  what the customer *declared*, so reconciling them measures a quote, not this model; they belong to supplier
+  history, not this ledger.
+- **A submission has no evidence class.** Only a separate, immutable review (`POST /api/admin/observations/{id}/review`,
+  behind the existing admin cookie) assigns one, once; a class is never inferred or defaulted, a rejection carries
+  none, and verifying requires an attached artifact. Delta (`observed − predicted`, and percent) is computed by the
+  database, not typed.
+- **The ledger is untouched.** Nothing here opens `calibration.local.json`. A verified observation of class E5 or
+  above is what `gridforge calibrate add` accepts; that remains a deliberate human step, so `/v1/calibration`
+  still reads 0 until a person records one. "Verified" is not "reconciled".
+- Submission and review are each written with their history event in one transaction, and are append-only.
+- Review queue for the operator: `GET /api/admin/observations` (`?state=all` for every one). There is deliberately
+  no review UI yet: there are no observations.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

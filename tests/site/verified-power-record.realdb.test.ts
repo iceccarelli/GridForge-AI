@@ -14,8 +14,12 @@ import crypto from "node:crypto";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import Stripe from "stripe";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
+
+// The admin review route reads the signed-in cookie; there is no request scope in a test.
+const jar: { name: string; value: string }[] = [];
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
 
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
@@ -343,4 +347,73 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
     expect(await rows("project_links", `&project_id=eq.${p.id}`)).toHaveLength(1);
     expect(await eventsOf(p.id)).toHaveLength(1);
   }, 30_000);
+});
+
+
+describe.skipIf(!enabled)("observed outcome against a real prediction, on real PostgreSQL", () => {
+  const ledgerCount = () =>
+    Number(spawnSync("python3", ["-c", "from gridforge.calibration import load_ledger; print(len(load_ledger().observations))"],
+      { encoding: "utf8", cwd: process.cwd() }).stdout.trim());
+
+  it("reads the prediction from the engine's own stored result, reviews it once, and never touches the ledger", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const before = ledgerCount();
+    expect(before).toBe(0);
+
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `Observed ${crypto.randomUUID().slice(0, 6)}` })));
+    const [proj] = await rows("projects", `&project_token=eq.${made.project_token}`);
+    const { POST: mkCase } = await import("@/app/api/power/deploy/cases/route");
+    const c = await j(await mkCase(post("/api/power/deploy/cases", REQUEST)));
+    const { POST: attach } = await import("@/app/api/projects/[token]/cases/route");
+    await attach(post("/x", { case_token: c.case_token }), ctx({ token: made.project_token }));
+
+    // the engine's own number for the architecture
+    const engineMW = c.result.architectures.find((a: any) => a.label === ARCH).available_MW as number;
+    expect(engineMW).toBeGreaterThan(0);
+
+    const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
+    const csv = `timestamp,kW\n2026-09-30T00:00:00,${Math.round((engineMW - 3) * 1000)}\n`;
+    const upRes = await j(await up(new Request(siteUrl(`/api/projects/${made.project_token}/evidence?filename=meter.csv&source_category=load_data`),
+      { method: "POST", headers: { "content-type": "text/csv" }, body: csv }), ctx({ token: made.project_token })));
+    const evidenceId = upRes.evidence.id as string;
+
+    const { POST: submit } = await import("@/app/api/projects/[token]/observations/route");
+    const obs = (body: Record<string, unknown>) => submit(post("/x", body), ctx({ token: made.project_token }));
+    const input = { calibration_key: "btm.firm_MW", case_token: c.case_token, architecture: ARCH, observed_value: engineMW - 3,
+      observed_on: "2026-09-30", method: "revenue-meter export, 30-day trend", submitted_by: "A. Rivera", evidence_id: evidenceId };
+    const sub = await j(await obs({ ...input, predicted_value: 12345 }));
+    const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
+    expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's
+    expect(Number(row.delta_value)).toBeCloseTo(-3, 6);
+    expect(sub.observation.state).toBe("submitted");
+    expect((await obs(input)).status).toBe(409);                          // same prediction, same day: once
+    expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+
+    // review: admin only, exactly once, class stated by the reviewer
+    const { POST: rev } = await import("@/app/api/admin/observations/[id]/review/route");
+    const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(401);
+    const { createHash } = await import("node:crypto");
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await decide({ decision: "verified", reviewer: "J. Ortiz" })).status).toBe(422);
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches" })).status).toBe(201);
+    expect((await decide({ decision: "rejected", reviewer: "J. Ortiz" })).status).toBe(409);
+    expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(1);
+
+    const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
+    expect(s.observations).toEqual([expect.objectContaining({ state: "verified", evidence_class: "E5", reviewed_by: "J. Ortiz", ledger_eligible: true })]);
+
+    // the database itself refuses to rewrite either record, even for service_role
+    expect((await sql(`/project_observations?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify({ observed_value: 99 }) })).status).toBe(403);
+    expect((await sql(`/project_observation_reviews?observation_id=eq.${row.id}`, { method: "DELETE" })).status).toBe(403);
+    const events = await rows("project_events", `&project_id=eq.${proj.id}&event_type=in.(observation_submitted,observation_reviewed)&order=occurred_at.asc`);
+    expect(events.map((e) => e.event_type)).toEqual(["observation_submitted", "observation_reviewed"]);
+
+    // calibration is exactly where it was: verified is not the same as reconciled
+    expect(ledgerCount()).toBe(before);
+    expect(await rows("project_links", "&object_type=eq.calibration_observation")).toHaveLength(0);
+  }, 60_000);
 });

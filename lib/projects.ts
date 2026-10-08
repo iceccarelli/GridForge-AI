@@ -39,7 +39,9 @@ export type ProjectEventType =
   | "comparison_completed"
   | "supplier_selected"
   | "evidence_attached"
-  | "paid_product_attached";
+  | "paid_product_attached"
+  | "observation_submitted"
+  | "observation_reviewed";
 
 export interface ProjectRow {
   id: string;

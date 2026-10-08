@@ -41,7 +41,7 @@ def db():
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
-              "0016_project_purchases.sql"):
+              "0016_project_purchases.sql", "0017_project_observations.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -133,7 +133,7 @@ def fresh():
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
-              "0016_project_purchases.sql"):
+              "0016_project_purchases.sql", "0017_project_observations.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -330,3 +330,113 @@ def test_a_purchase_for_a_missing_project_or_a_bad_object_type_writes_nothing(fr
     r = attach_purchase(fresh, p, "power_deployment_case", "c1", "cs_2")
     assert r.returncode != 0
     assert count(fresh, "project_links") == 0 and count(fresh, "project_events", "event_type = 'paid_product_attached'") == 0
+
+
+# --- observed outcomes (0017) ----------------------------------------------------------------
+
+ARCH = "GRID + BESS + GENERATION"
+REF = f"power_deployment_case:c1:r1:{ARCH}"
+
+
+def observation_args(project, **over):
+    d = {"project_id": project, "prediction_ref": REF, "case_token": "c1", "case_revision": 1,
+         "architecture": ARCH, "calibration_key": "btm.firm_MW", "unit": "MW", "predicted_value": 36.4,
+         "predicted_source": 'result.architectures["x"].available_MW', "observed_value": 33,
+         "observed_on": "2026-09-30", "method": "revenue meter", "submitted_by": "A. Rivera"}
+    d.update(over)
+    return __import__("json").dumps(d)
+
+
+def submit_obs(db, project, event=None, **over):
+    ev = event or (GOOD % "observation_submitted")
+    return psql(db, f"select gf_submit_observation('{observation_args(project, **over)}'::jsonb, '{ev}'::jsonb)",
+                check=False)
+
+
+def test_an_observation_computes_its_own_delta_and_is_saved_with_its_event(fresh):
+    p = new_project(fresh)
+    r = submit_obs(fresh, p)
+    assert r.returncode == 0, r.stderr
+    row = __import__("json").loads(r.stdout)
+    assert round(row["delta_value"], 6) == -3.4 and round(row["delta_pct"], 3) == -9.341
+    assert count(fresh, "project_events", "event_type = 'observation_submitted'") == 1
+    assert "delta_pct" in scalar(fresh, "select payload::text from project_events where event_type = 'observation_submitted'")
+
+
+def test_an_observation_is_never_stored_without_its_event_or_with_bad_numbers(fresh):
+    p = new_project(fresh)
+    assert submit_obs(fresh, p, event=BAD_TYPE).returncode != 0
+    assert count(fresh, "project_observations") == 0
+    for over, needle in (({"predicted_value": 0}, "predicted_value"),                 # a ratio needs a denominator
+                         ({"observed_value": -1}, "observed_value"),
+                         ({"method": "  "}, "method"),
+                         ({"submitted_by": ""}, "submitted_by"),
+                         ({"calibration_key": "btm.capex_eur"}, "calibration_key"),     # not a model prediction
+                         ({"prediction_ref": "power_deployment_case:other:r1:x"}, "check")):
+        r = submit_obs(fresh, p, **over)
+        assert r.returncode != 0 and needle in r.stderr, (over, r.stderr)
+    assert count(fresh, "project_observations") == 0
+
+
+def test_the_same_prediction_is_counted_once_per_day(fresh):
+    p = new_project(fresh)
+    assert submit_obs(fresh, p).returncode == 0
+    r = submit_obs(fresh, p, observed_value=34)
+    assert r.returncode != 0 and "duplicate key" in r.stderr
+    assert submit_obs(fresh, p, observed_on="2026-10-01").returncode == 0
+    assert count(fresh, "project_observations") == 2
+
+
+def test_evidence_must_belong_to_the_same_project(fresh):
+    a, b = new_project(fresh, "a"), new_project(fresh, "b")
+    psql(fresh, f"select gf_add_evidence(jsonb_build_object('project_id', '{a}', 'filename', 'f.csv', 'media_type',"
+                f" 'text/csv', 'sha256', repeat('a', 64), 'byte_size', 10, 'storage_ref', 'b/x'),"
+                f" '{GOOD % 'evidence_attached'}'::jsonb)")
+    ev_id = scalar(fresh, "select id from project_evidence")
+    r = submit_obs(fresh, b, evidence_id=ev_id)
+    assert r.returncode != 0 and "does not belong" in r.stderr
+    assert submit_obs(fresh, a, evidence_id=ev_id).returncode == 0
+
+
+def _evidence(db, project):
+    psql(db, f"select gf_add_evidence(jsonb_build_object('project_id', '{project}', 'filename', 'f.csv', 'media_type',"
+             f" 'text/csv', 'sha256', repeat('a', 64), 'byte_size', 10, 'storage_ref', 'b/x'),"
+             f" '{GOOD % 'evidence_attached'}'::jsonb)")
+    return scalar(db, f"select id from project_evidence where project_id = '{project}'")
+
+
+def review_obs(db, oid, decision, cls=None, event=None, reviewer="J. Ortiz"):
+    p = __import__("json").dumps({"observation_id": oid, "decision": decision, "evidence_class": cls,
+                                  "reviewer": reviewer, "reason": "checked"})
+    return psql(db, f"select gf_review_observation('{p}'::jsonb, '{event or GOOD % 'observation_reviewed'}'::jsonb)",
+                check=False)
+
+
+def test_a_review_is_one_immutable_human_decision_with_its_event(fresh):
+    p = new_project(fresh)
+    with_file = __import__("json").loads(submit_obs(fresh, p, evidence_id=_evidence(fresh, p)).stdout)["id"]
+    no_file = __import__("json").loads(submit_obs(fresh, p, observed_on="2026-10-01").stdout)["id"]
+    r = review_obs(fresh, no_file, "verified", "E5")
+    assert r.returncode != 0 and "no evidence artifact" in r.stderr           # cannot verify what has no source
+    assert review_obs(fresh, with_file, "verified", None).returncode != 0      # a class is never defaulted
+    assert review_obs(fresh, with_file, "rejected", "E5").returncode != 0      # a rejection carries none
+    assert review_obs(fresh, with_file, "verified", "E9").returncode != 0
+    assert review_obs(fresh, with_file, "verified", "E5", event=BAD_TYPE).returncode != 0
+    assert count(fresh, "project_observation_reviews") == 0                    # every refusal left nothing
+    assert review_obs(fresh, with_file, "verified", "E5").returncode == 0
+    again = review_obs(fresh, with_file, "rejected")
+    assert again.returncode != 0 and "duplicate key" in again.stderr           # a decision is never flipped
+    assert count(fresh, "project_events", "event_type = 'observation_reviewed'") == 1
+    assert review_obs(fresh, no_file, "rejected").returncode == 0              # a rejection needs no file
+    assert review_obs(fresh, "00000000-0000-4000-8000-00000000dead", "rejected").returncode != 0
+
+
+def test_observations_and_reviews_are_append_only(fresh):
+    p = new_project(fresh)
+    oid = __import__("json").loads(submit_obs(fresh, p, evidence_id=_evidence(fresh, p)).stdout)["id"]
+    review_obs(fresh, oid, "verified", "E5")
+    for sql in ("update project_observations set observed_value = 36.4", "delete from project_observations",
+                "update project_observation_reviews set evidence_class = 'E7'", "delete from project_observation_reviews"):
+        r = psql(fresh, sql, check=False)
+        assert r.returncode != 0 and "append-only" in r.stderr, sql
+    assert scalar(fresh, "select observed_value from project_observations") == "33"

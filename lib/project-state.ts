@@ -7,6 +7,7 @@
 
 import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { LEDGER_MINIMUM_CLASS, type ObservationRow, type ReviewRow } from "@/lib/project-observations";
 import {
   creds,
   getProjectByToken,
@@ -90,6 +91,27 @@ export interface ProjectState {
     items: Pick<EvidenceRow, "id" | "filename" | "media_type" | "sha256" | "byte_size" | "review_status" | "evidence_class" | "source_category" | "uploaded_at">[];
   };
   procurement: { packages: PackageState[] };
+  /** Measured outcomes against stored predictions, each with its human review if one exists. */
+  observations: {
+    id: string;
+    prediction_ref: string;
+    calibration_key: string;
+    unit: string;
+    predicted_value: number;
+    observed_value: number;
+    delta_value: number;
+    delta_pct: number;
+    observed_on: string;
+    method: string;
+    has_evidence: boolean;
+    submitted_by: string;
+    /** submitted = not yet reviewed; the class is the reviewer's, never ours. */
+    state: "submitted" | "verified" | "rejected";
+    evidence_class: string | null;
+    reviewed_by: string | null;
+    /** Verified at or above the class the calibration ledger accepts. A person still adds it. */
+    ledger_eligible: boolean;
+  }[];
   events: Pick<ProjectEventRow, "id" | "event_type" | "occurred_at" | "actor" | "payload">[];
 }
 
@@ -134,16 +156,18 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk] = await Promise.all([
+  const [links, events, ev, pk, ob, rv] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
     rest<PackageRow[]>("GET", `procurement_packages?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=created_at.asc`),
+    rest<ObservationRow[]>("GET", `project_observations?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=submitted_at.asc`),
+    rest<ReviewRow[]>("GET", `project_observation_reviews?project_id=eq.${encodeURIComponent(project.id)}&select=*`),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
   // A failed read is a failed read — never rendered as "no evidence" or "no packages".
-  if (!ev.ok || !pk.ok) return { ok: false, status: 502, error: "The project record could not be read." };
+  if (!ev.ok || !pk.ok || !ob.ok || !rv.ok) return { ok: false, status: 502, error: "The project record could not be read." };
 
   const cases: CaseState[] = [];
   const latestRevision = new Map<string, number>();
@@ -205,6 +229,30 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     });
   }
 
+  const reviewOf = new Map((rv.data ?? []).map((r) => [r.observation_id, r]));
+  const observations: ProjectState["observations"] = (ob.data ?? []).map((o) => {
+    const r = reviewOf.get(o.id);
+    return {
+      id: o.id,
+      prediction_ref: o.prediction_ref,
+      calibration_key: o.calibration_key,
+      unit: o.unit,
+      predicted_value: Number(o.predicted_value),
+      observed_value: Number(o.observed_value),
+      delta_value: Number(o.delta_value),
+      delta_pct: Number(o.delta_pct),
+      observed_on: o.observed_on,
+      method: o.method,
+      has_evidence: o.evidence_id !== null,
+      submitted_by: o.submitted_by,
+      state: r ? r.decision : "submitted",
+      evidence_class: r?.evidence_class ?? null,
+      reviewed_by: r?.reviewer ?? null,
+      ledger_eligible:
+        r?.decision === "verified" && r.evidence_class !== null && r.evidence_class >= LEDGER_MINIMUM_CLASS,
+    };
+  });
+
   const evidence = ev.data ?? [];
   return {
     ok: true,
@@ -241,6 +289,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
         })),
       },
       procurement: { packages },
+      observations,
       events: events.events.map((e) => ({
         id: e.id,
         event_type: e.event_type,

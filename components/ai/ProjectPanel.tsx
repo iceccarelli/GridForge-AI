@@ -109,6 +109,124 @@ function EmptyProject({ onToken }: { onToken: (t: string) => void }) {
   );
 }
 
+const STATE_LABEL: Record<string, string> = {
+  submitted: "Submitted — awaiting review",
+  verified: "Verified",
+  rejected: "Rejected",
+};
+
+/** Measured outcomes against stored predictions. The expected value is the engine's stored result,
+ * shown read-only; a submission has no evidence class — only a human review assigns one — and none
+ * of this adds anything to the calibration ledger. */
+function Observed({ state, projectToken, onSaved }: { state: ProjectState; projectToken: string; onSaved: () => void }) {
+  // The architecture that was actually procured is the one that gets built, so it leads: selected
+  // supplier first, then an RFQ was generated, then one that passes its contingency test, then the rest.
+  const procured = new Map(state.procurement.packages.map((p) => [`${p.case_token}|${p.architecture}`, p]));
+  const options = state.cases
+    .flatMap((c) =>
+      c.architectures
+        .filter((a) => a.available_MW !== null && a.available_MW > 0)
+        .map((a) => {
+          const pkg = procured.get(`${c.case_token}|${a.label}`);
+          const rank = pkg?.selection ? 0 : pkg ? 1 : a.status === "pass" ? 2 : 3;
+          const tag = pkg?.selection ? " · supplier selected" : pkg ? " · RFQ generated" : a.status === "pass" ? "" : " · not built (fails its test)";
+          return { case_token: c.case_token, revision: c.latest_revision, label: a.label, predicted: a.available_MW as number, rank, tag };
+        })
+    )
+    .sort((x, y) => x.rank - y.rank);
+  const [pick, setPick] = useState(0);
+  const [observed, setObserved] = useState("");
+  const [on, setOn] = useState("");
+  const [method, setMethod] = useState("");
+  const [by, setBy] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sel = options[pick];
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sel) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectToken)}/observations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          calibration_key: "btm.firm_MW",
+          case_token: sel.case_token,
+          case_revision: sel.revision,
+          architecture: sel.label,
+          observed_value: Number(observed),
+          observed_on: on,
+          method,
+          submitted_by: by,
+          evidence_id: evidence || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) setError(body?.error ?? "The observation could not be saved.");
+      else {
+        setObserved("");
+        setMethod("");
+        onSaved();
+      }
+    } catch {
+      setError("Could not reach the server. Nothing was recorded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const input = "w-full rounded border border-line bg-ink px-2 py-1.5 text-[12px] text-ghost";
+  return (
+    <Card title="OBSERVED OUTCOMES">
+      {state.observations.length === 0 && <p>{NOT_YET} — nothing has been measured against a prediction.</p>}
+      {state.observations.map((o) => (
+        <div key={o.id} className="space-y-0.5 border-b border-line pb-2">
+          <Row k="Predicted" v={`${o.predicted_value} ${o.unit}`} />
+          <Row k="Observed" v={`${o.observed_value} ${o.unit} (${o.observed_on})`} />
+          <Row k="Delta" v={`${o.delta_value > 0 ? "+" : ""}${o.delta_value.toFixed(2)} ${o.unit} (${o.delta_pct > 0 ? "+" : ""}${o.delta_pct.toFixed(1)}%)`} />
+          <Row k="Review" v={STATE_LABEL[o.state]} />
+          <Row k="Evidence class" v={o.evidence_class ?? "Not assigned"} />
+          {o.state === "verified" && <Row k="Ledger" v={o.ledger_eligible ? "Eligible — a person adds it" : "Below the ledger's minimum (E5)"} />}
+        </div>
+      ))}
+      <p className="text-faint">
+        Not part of the accuracy record until it is reviewed at E5 or above and a person adds it to the
+        calibration ledger.
+      </p>
+      {options.length === 0 ? (
+        <p className="text-faint">Unknown — no attached architecture holds a positive predicted firm MW to compare with.</p>
+      ) : (
+        <form onSubmit={submit} className="space-y-1.5 pt-1">
+          <select value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
+            {options.map((o, i) => (
+              <option key={`${o.case_token}-${o.label}`} value={i}>{`${o.label} · r${o.revision}${o.tag}`}</option>
+            ))}
+          </select>
+          <p className="text-faint">Predicted (engine, stored): {sel?.predicted} MW</p>
+          <input value={observed} onChange={(e) => setObserved(e.target.value)} placeholder="measured firm MW" inputMode="decimal" className={input} />
+          <input type="date" value={on} onChange={(e) => setOn(e.target.value)} className={input} />
+          <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how it was measured" className={input} />
+          <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input}>
+            <option value="">No artifact attached (cannot be verified)</option>
+            {state.evidence.items.map((it) => (
+              <option key={it.id} value={it.id}>{it.filename}</option>
+            ))}
+          </select>
+          <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
+          <button disabled={busy || !observed || !on || !method.trim() || !by.trim()} className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50">
+            {busy ? "Saving" : "Record observation"}
+          </button>
+          {error && <p className="text-[11px] text-flag">{error}</p>}
+        </form>
+      )}
+    </Card>
+  );
+}
+
 /** Commission an existing paid product FOR this project. Names and prices are read from the
  * catalogue (lib/products.ts); checkout is the existing /api/checkout, which validates the
  * project token before any Stripe session is created. */
@@ -333,6 +451,8 @@ export function ProjectPanel({
                 </div>
               ))}
             </Card>
+
+            <Observed state={state} projectToken={projectToken!} onSaved={() => void load()} />
 
             <Commission projectToken={projectToken!} />
 

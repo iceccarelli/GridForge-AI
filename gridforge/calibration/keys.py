@@ -18,6 +18,12 @@ MODEL_KEYS: dict[str, str] = {
     "thermal.pue": "Annualised PUE after the works",
     "schedule.weeks_to_full": "Weeks from go-ahead to full capacity",
     "economics.capex_total_eur": "Delivered capex for the works",
+    # BTM Power Deployment Assessment (gridforge/reporting/btm_assessment.py). One key, on
+    # purpose: `available_MW` is the engine's own contingency result. The architecture's
+    # capex and lead time are echoes of what the customer DECLARED, so reconciling them
+    # measures a quote against reality, not this model, and belongs to supplier history
+    # rather than to this ledger.
+    "btm.firm_MW": "Firm MW a delivered BTM architecture actually holds under its contingency case",
 }
 
 #: Every constraint the engine is willing to be held to, by stable id.

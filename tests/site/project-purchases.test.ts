@@ -49,7 +49,7 @@ beforeEach(() => {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "procurement_packages",
-    "procurement_responses", "procurement_comparisons", "deliverables", "watches", "watch_notes", "leads",
+    "procurement_responses", "procurement_comparisons", "project_observations", "project_observation_reviews", "deliverables", "watches", "watch_notes", "leads",
   ]);
   db.uniqueKeys.set("deliverables", [["stripe_session_id"]]);
   db.uniqueKeys.set("watches", [["stripe_subscription_id"]]);
