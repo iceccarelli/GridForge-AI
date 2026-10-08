@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
 import { PRODUCTS, isProductId, type ProductId } from "@/lib/products";
+import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,25 @@ export async function POST(req: Request) {
     productId = rawProduct;
   }
   const product = productId ? PRODUCTS[productId] : null;
+
+  // Commissioning a paid product FOR a project. The project token is the authority and is
+  // checked here, before Stripe is touched: a wrong token, a product that cannot attach, or a
+  // store that cannot confirm the project all fail with no session created — the same rule as
+  // an invalid product. Only the project's id (not the bearer token) goes into Stripe metadata.
+  let projectId = "";
+  if ("project_token" in body) {
+    if (typeof body.project_token !== "string" || !body.project_token || !product || !isProjectAttachable(product.kind)) {
+      return NextResponse.json(
+        { ok: false, error: "A project can only be named for a Density Screen, Envelope Study deposit, Procurement Specification or Hall Watch" },
+        { status: 400 }
+      );
+    }
+    const found = await getProjectByToken(body.project_token);
+    if (!found.ok) {
+      return NextResponse.json({ ok: false, error: found.error }, { status: found.status === 404 ? 404 : found.status });
+    }
+    projectId = found.project.id;
+  }
   // `deliverables.qualification_id` is a uuid with a foreign key to
   // `qualifications`. Anything else fails the insert — and since a failed
   // fulfilment now (correctly) returns 500 so Stripe redelivers, a malformed id
@@ -120,7 +140,12 @@ export async function POST(req: Request) {
       ...(recurring
         ? {
             subscription_data: {
-              metadata: { company, kind: product?.kind ?? "", qualification_id: qualificationId },
+              metadata: {
+                company,
+                kind: product?.kind ?? "",
+                qualification_id: qualificationId,
+                ...(projectId ? { project_id: projectId } : {}),
+              },
             },
           }
         : {}),
@@ -131,6 +156,7 @@ export async function POST(req: Request) {
         founding_applied: applyFounding ? "yes" : "no",
         kind: product ? product.kind : "engagement_deposit",
         qualification_id: qualificationId,
+        ...(projectId ? { project_id: projectId } : {}),
       },
       success_url: product
         ? `${origin}/commissioned?session_id={CHECKOUT_SESSION_ID}`

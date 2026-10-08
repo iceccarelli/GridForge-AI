@@ -295,6 +295,32 @@ no in-memory fallback to mistake for a database.
 Apply `0015_projects.sql` before deploying this code: the routes fail with 502 until the tables
 exist. The migration creates the `project-evidence` bucket where Supabase Storage is installed.
 
+### Paid products attach to their project (migration `0016_project_purchases.sql`)
+
+A project can commission the existing paid products — Density Screen, Envelope Study deposit,
+Procurement Specification, Hall Watch — through the existing checkout. Nothing new is priced or
+sold: names and amounts come from `lib/products.ts` and the Stripe amount the webhook reports.
+
+```
+ProjectPanel -> POST /api/checkout {product, project_token}
+  -> token validated BEFORE Stripe is touched (wrong token 404, non-attachable product 400, no store 503)
+  -> Stripe session metadata.project_id = the project's id (never its bearer token)
+  -> Stripe webhook (the authoritative payment event) opens the deliverable / watch as it always did
+  -> gf_attach_purchase: project_links row (deliverable | watch) + paid_product_attached event, one transaction
+  -> ProjectPanel "Paid engagements" (status read live from the object)
+```
+
+- **Idempotent.** Redelivery is the normal case. An already-attached object or Stripe session writes
+  nothing (`created:false`); one deliverable, one watch, one link, one event per purchase. Verified against
+  real PostgreSQL, including three redeliveries.
+- **Failure semantics.** A transient failure attaching returns 500 so Stripe redelivers (the retry cannot
+  duplicate the deliverable). A permanent one — the project does not exist, or the object already belongs to
+  another project — is logged and does NOT fail the webhook: the customer has paid and been fulfilled.
+- **Deposits** (Envelope Study) open no object, so they are recorded as the event alone, unique per Stripe session.
+- **Not attachable:** API plans, Intelligence, the portfolio deposit and the generic deposit are not per-project;
+  a checkout naming a project for one is refused with 400.
+- **No tokens leak.** Links store the deliverable's/watch's row id, not its document or intake token.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

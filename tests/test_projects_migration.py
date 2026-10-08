@@ -40,7 +40,8 @@ def db():
     name = f"gf_{uuid.uuid4().hex[:10]}"
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
-    for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql"):
+    for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
+              "0016_project_purchases.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -131,7 +132,8 @@ def fresh():
     name = f"gf_{uuid.uuid4().hex[:10]}"
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
-    for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql"):
+    for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
+              "0016_project_purchases.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -269,3 +271,62 @@ def test_only_the_service_role_may_call_the_write_functions(fresh):
     for fn in ("gf_create_project(jsonb, jsonb)", "gf_add_evidence(jsonb, jsonb)"):
         assert scalar(fresh, f"select has_function_privilege('service_role', 'public.{fn}', 'execute')") == "t"
         assert scalar(fresh, f"select has_function_privilege('anon', 'public.{fn}', 'execute')") == "f"
+
+
+# --- paid products attach to their project (0016) ------------------------------------------
+
+PAID = ('{"event_type": "paid_product_attached", "actor": "stripe_webhook", "payload": '
+        '{"kind": "density_screen", "stripe_session_id": "%s"}}')
+
+
+def attach_purchase(db, project, otype, oid, session):
+    otype_sql = f"'{otype}'" if otype else "null"
+    oid_sql = f"'{oid}'" if oid else "null"
+    return psql(db, f"select gf_attach_purchase('{project}', {otype_sql}, {oid_sql}, '{PAID % session}'::jsonb)",
+                check=False)
+
+
+def test_a_purchase_attaches_once_however_often_stripe_redelivers(fresh):
+    p = new_project(fresh)
+    first = attach_purchase(fresh, p, "deliverable", "d1", "cs_1")
+    assert first.returncode == 0 and '"created": true' in first.stdout
+    for _ in range(3):
+        again = attach_purchase(fresh, p, "deliverable", "d1", "cs_1")
+        assert again.returncode == 0 and '"created": false' in again.stdout
+    assert count(fresh, "project_links", "object_type = 'deliverable'") == 1
+    assert count(fresh, "project_events", "event_type = 'paid_product_attached'") == 1
+
+
+def test_a_deposit_with_no_object_is_recorded_once_by_its_event_alone(fresh):
+    p = new_project(fresh)
+    assert '"created": true' in attach_purchase(fresh, p, None, None, "cs_dep").stdout
+    assert '"created": false' in attach_purchase(fresh, p, None, None, "cs_dep").stdout
+    assert count(fresh, "project_links") == 0
+    assert count(fresh, "project_events", "event_type = 'paid_product_attached'") == 1
+
+
+def test_one_stripe_session_cannot_be_attached_twice_even_with_a_different_object(fresh):
+    p = new_project(fresh)
+    attach_purchase(fresh, p, "deliverable", "d1", "cs_1")
+    r = attach_purchase(fresh, p, "deliverable", "d2", "cs_1")      # same session, other object
+    assert r.returncode == 0 and '"created": false' in r.stdout
+    assert count(fresh, "project_links", "object_type = 'deliverable'") == 1   # the link rolled back with it
+
+
+def test_a_purchased_object_is_never_moved_to_another_project(fresh):
+    a = new_project(fresh, "a")
+    b = new_project(fresh, "b")
+    attach_purchase(fresh, a, "watch", "w1", "cs_1")
+    r = attach_purchase(fresh, b, "watch", "w1", "cs_2")
+    assert r.returncode != 0 and "one_project_per_object" in r.stderr
+    assert scalar(fresh, "select project_id = '%s' from project_links where object_id = 'w1'" % a) == "t"
+    assert count(fresh, "project_events", "event_type = 'paid_product_attached'") == 1
+
+
+def test_a_purchase_for_a_missing_project_or_a_bad_object_type_writes_nothing(fresh):
+    r = attach_purchase(fresh, "00000000-0000-4000-8000-00000000dead", "deliverable", "d1", "cs_1")
+    assert r.returncode != 0 and "foreign key" in r.stderr
+    p = new_project(fresh)
+    r = attach_purchase(fresh, p, "power_deployment_case", "c1", "cs_2")
+    assert r.returncode != 0
+    assert count(fresh, "project_links") == 0 and count(fresh, "project_events", "event_type = 'paid_product_attached'") == 0

@@ -13,6 +13,7 @@ import {
   type ApiAccount,
 } from "@/lib/api-access";
 import { recordSubscription, subscriptionByStripeId, updateSubscription } from "@/lib/subscribers";
+import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,11 @@ export async function POST(req: Request) {
         customerId: typeof session.customer === "string" ? session.customer : null,
       });
       if (!opened) return fulfilmentFailed("hall watch", session.id);
+      const subId = typeof session.subscription === "string" ? session.subscription : null;
+      const attachedWatch = await attachToProject(session, kind, amount, async () =>
+        subId ? (await watchBySubscription(subId))?.id ?? null : null
+      );
+      if (attachedWatch) return attachedWatch;
       await notifyFounder({ email, company, amount });
     } else if (product?.producesDeliverable) {
       // A purchased engineering deliverable. Paying does not produce a document:
@@ -120,6 +126,10 @@ export async function POST(req: Request) {
         qualificationId: (session.metadata?.qualification_id as string) || null,
       });
       if (!opened) return fulfilmentFailed("engagement", session.id);
+      const attachedDeliverable = await attachToProject(session, kind, amount, async () =>
+        (await deliverableBySession(session.id))?.id ?? null
+      );
+      if (attachedDeliverable) return attachedDeliverable;
       await notifyFounder({ email, company, amount });
     } else if (kind === "intelligence_subscription") {
       // The subscription id is what makes cancellation possible later. Storing
@@ -151,6 +161,10 @@ export async function POST(req: Request) {
         );
       }
     } else {
+      // A deposit opens no object; for a project's Envelope Study deposit the event alone
+      // records it. Done BEFORE the deposit bookkeeping so a transient failure retries a clean slate.
+      const attachedDeposit = await attachToProject(session, kind, amount, async () => null);
+      if (attachedDeposit) return attachedDeposit;
       // Mark the most recent matching lead deposit_paid (match by email, newest first).
       await markDepositPaid({ email, company, amount, sessionId: session.id });
       await notifyFounder({ email, company, amount });
@@ -275,6 +289,52 @@ function subscriptionIdOf(inv: Stripe.Invoice): string {
   const candidate = raw.subscription ?? raw.parent?.subscription_details?.subscription;
   if (typeof candidate === "string") return candidate;
   return candidate?.id ?? "";
+}
+
+/**
+ * If the checkout named a project, attach the purchase to it. The payment and its fulfilment
+ * object already exist when this runs; this only adds the link and the history event.
+ *
+ * Returns a Response to send back when the delivery should be RETRIED (a transient failure —
+ * the attachment is idempotent, so a retry is safe), or null to carry on. A permanent failure
+ * (the project does not exist) is logged and does NOT fail the webhook: the customer has paid
+ * and been fulfilled, and redelivery could never fix it.
+ */
+async function attachToProject(
+  session: Stripe.Checkout.Session,
+  kind: string,
+  amount: number,
+  findObjectId: () => Promise<string | null>
+): Promise<NextResponse | null> {
+  const projectId = (session.metadata?.project_id as string) || "";
+  if (!projectId) return null;
+  if (!isProjectAttachable(kind)) {
+    console.error("[GridForge] project_id on a kind that cannot attach; ignored:", kind, session.id);
+    return null;
+  }
+  const objectType = purchaseObjectType(kind);
+  let objectId: string | null = null;
+  if (objectType) {
+    objectId = await findObjectId();
+    if (!objectId) {
+      return NextResponse.json({ ok: false, error: "Purchase object not readable yet" }, { status: 500 });
+    }
+  }
+  const r = await attachPurchase({
+    project_id: projectId,
+    kind,
+    object_type: objectType,
+    object_id: objectId,
+    session_id: session.id,
+    amount_cents: amount || null,
+  });
+  if (r.ok) return null;
+  if (r.permanent) {
+    console.error("[GridForge] purchase NOT attached to its project (permanent):", session.id, r.error);
+    return null;
+  }
+  console.error("[GridForge] purchase attach failed; asking Stripe to retry:", session.id, r.error);
+  return NextResponse.json({ ok: false, error: "Project attachment failed" }, { status: 500 });
 }
 
 async function openApiAccount(p: {
