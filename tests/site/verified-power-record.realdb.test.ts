@@ -680,3 +680,71 @@ describe.skipIf(!enabled)("API plan lifecycle on real PostgreSQL, PostgREST and 
     expect(second[0].status).toBe("active");
   }, 60_000);
 });
+
+
+describe.skipIf(!enabled)("paid Density Screen, payment to released document, on real PostgreSQL + PostgREST + the real engine", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+  const INTAKE = {
+    siteName: "North Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
+    currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180,
+    plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  };
+
+  it("webhook x3 -> one deliverable -> buyer page -> intake -> engine draft -> unreadable until admin release -> customer reads it", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    jar.length = 0;
+    const { createHash } = await import("node:crypto");
+    const sid = `cs_ds_${crypto.randomUUID().slice(0, 8)}`;
+    const send = async () => {
+      const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: {
+        id: sid, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_ds", amount_total: 450_000,
+        currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } } } });
+      const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+      const { POST } = await import("@/app/api/stripe/webhook/route");
+      return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+    };
+    for (let i = 0; i < 3; i++) expect((await send()).status).toBe(200);
+    const mine = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ kind: "density_screen", status: "awaiting_intake", amount_cents: 450_000 });
+    expect(mine[0].intake_token).toBeTruthy();
+    expect(mine[0].intake_token).not.toBe(mine[0].token);
+
+    // the buyer's landing page, from the real record: the intake link, never the document token
+    process.env.STRIPE_SECRET_KEY = "";                                   // no provider call from the page
+    const React = (await import("react")).default;
+    (globalThis as { React?: unknown }).React = React;
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: Page } = await import("@/app/commissioned/page");
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ session_id: sid }) }));
+    expect(html).toContain(`/intake/${mine[0].intake_token}`);
+    expect(html).not.toContain(mine[0].token);
+
+    // intake: validated, then the REAL engine writes a draft
+    const intake = await import("@/app/api/intake/[token]/route");
+    const it = (t: string) => ({ params: Promise.resolve({ token: t }) });
+    expect((await intake.POST(post("/x", { siteName: "x" }), it(mine[0].intake_token))).status).toBe(422);
+    const ok = await intake.POST(post("/x", INTAKE), it(mine[0].intake_token));
+    expect(ok.status, await ok.clone().text()).toBe(200);
+    const [draft] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(draft.status).toBe("draft");
+    expect(String(draft.document_html).length).toBeGreaterThan(500);
+    expect(String(draft.title)).toMatch(/density screen/i);
+
+    // human review: a draft is never served; release needs the admin
+    const read = await import("@/app/api/deliverable/[token]/route");
+    expect((await read.GET(new Request(siteUrl("/x")), it(draft.token))).status).toBe(409);
+    const admin = await import("@/app/api/admin/deliverables/route");
+    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token }) }));
+    expect((await release()).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await release()).status).toBe(200);
+    const [released] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(released.status).toBe("released");
+    expect((await read.GET(new Request(siteUrl("/x")), it(released.token))).status).toBe(200);
+    expect((await read.GET(new Request(siteUrl("/x")), it(released.intake_token))).status).toBe(404);   // the emailed credential cannot open it
+  }, 90_000);
+});
