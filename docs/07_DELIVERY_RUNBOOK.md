@@ -448,6 +448,19 @@ purchase and the old subscription keeps billing until cancelled; (3) a delayed `
 `invoice.paid` leaves a Hall Watch paused until its next payment (event ordering is not tracked); (4) a Stripe-hosted Checkout round
 trip and a real Stripe event stream are unproven (no test-mode credential).
 
+**Stripe-side settings the code depends on (operator checklist; unverifiable from this repository):**
+
+- Webhook events subscribed: `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`.
+- **Cancel the subscription after the final failed retry** (Billing → Subscriptions and emails → Manage failed payments). Intelligence
+  deliberately keeps `past_due` entitled (a card that clears on Thursday must not cost a customer their access), so access ends
+  only when Stripe sends `customer.subscription.deleted`. If Stripe is set to *leave the subscription past due*, unpaid access
+  never ends.
+- **A second Intelligence purchase by the same email supersedes the first in our records; it does not cancel it in Stripe.** There is
+  no in-app plan change, so an upgrade is a second purchase. Every payment that then clears on the superseded subscription sends the
+  operator an email ("Superseded Intelligence subscription is still billing", with the Stripe subscription id) and a log line
+  `OPERATOR ACTION NEEDED`. Cancel that subscription in the Dashboard and decide on a refund. The webhook never cancels or refunds
+  on a customer's behalf. The notice repeats per renewal, and per redelivery, until it is cancelled.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

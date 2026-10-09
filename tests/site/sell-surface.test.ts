@@ -83,6 +83,15 @@ describe("no CTA leads to a product that does not exist", () => {
     expect(offenders.map((f) => path.relative(ROOT, f))).toEqual([]);
   });
 
+  it("no user-facing copy promises 'a paid Audit' — that product does not exist", () => {
+    // Caught the "Power Audit" phrase but missed "a paid Audit confirms..." in
+    // the Intelligence dashboard and its public demo — three references to a
+    // next paid product a customer could never actually buy. Same defect,
+    // different wording; guard the general phrase, not just the old brand name.
+    const offenders = files.filter((f) => /paid audit/i.test(code(f)));
+    expect(offenders.map((f) => path.relative(ROOT, f))).toEqual([]);
+  });
+
   it("every product named in a CTA is one checkout can actually charge for", () => {
     const sellable = new Set(Object.keys(PRODUCTS));
     const quoted = new Set<string>();
@@ -223,5 +232,19 @@ describe("private surfaces stay out of the index", () => {
       const disallow = ([] as string[]).concat(rule.disallow ?? []);
       for (const p of required) expect(disallow).toContain(p);
     }
+  });
+});
+
+describe("the machine purchase path in /llms.txt names only products checkout can charge for", () => {
+  it("every product id listed under 'How to buy' is a catalogue product", async () => {
+    const { GET } = await import("@/app/llms.txt/route");
+    const body = await (await GET()).text();
+    const section = body.split("## How to buy")[1]?.split("\n## ")[0] ?? "";
+    expect(section).toContain("/api/checkout");
+    expect(section).toContain("Authorization boundary"); // the manifest authorises nothing by itself
+    const ids = [...section.matchAll(/one of: ([a-z_, ]+)\./g)].flatMap((m) => m[1].split(",").map((x) => x.trim()));
+    expect(ids.length).toBeGreaterThan(0);
+    const sellable = new Set(Object.keys(PRODUCTS));
+    expect(ids.filter((i) => !sellable.has(i))).toEqual([]);
   });
 });

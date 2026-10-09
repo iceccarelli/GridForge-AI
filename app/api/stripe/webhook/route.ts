@@ -282,6 +282,19 @@ export async function POST(req: Request) {
       if (found.intelligence && found.intelligence.status === "past_due") {
         if (!(await updateSubscription(found.intelligence.id, { status: "active" }))) applied = false;
       }
+      // A payment cleared for a subscription that a NEWER purchase superseded: the buyer re-bought (an upgrade,
+      // or simply a second click) and the old Stripe subscription is still billing them. Nothing here may
+      // cancel it (that is money moved on a customer's behalf), and it must not revive the superseded
+      // entitlement; the operator is told, with the ids, so it is cancelled and refunded deliberately.
+      if (found.intelligence && found.intelligence.status === "superseded") {
+        await notifyOperator(
+          `Superseded Intelligence subscription is still billing — ${found.intelligence.email}`,
+          `A payment cleared on Stripe subscription ${subId} for ${found.intelligence.email}, but a newer Intelligence ` +
+            `purchase replaced it, so it entitles nothing and the customer is paying twice.\n\n` +
+            `Cancel ${subId} in the Stripe Dashboard and decide on a refund for the invoice. ` +
+            `This notice repeats on every renewal until it is cancelled.`
+        );
+      }
       if (!applied) return lifecycleRetry("renewal (write failed)", subId);
       // The payment renewed. The KEY does not — it is a signed token with a fixed expiry, and nothing
       // can extend one in place. Tell the customer while there is still a working key to replace
@@ -690,6 +703,24 @@ async function notifySubscriber(p: { email: string; plan: string }): Promise<voi
     } catch (err) {
       console.error("[GridForge] subscriber welcome error:", err);
     }
+  }
+}
+
+/** A plain operator notice. Best effort, never fails a webhook; without email configured it is logged loudly. */
+async function notifyOperator(subject: string, text: string): Promise<void> {
+  console.error(`[GridForge] OPERATOR ACTION NEEDED: ${subject} — ${text.replace(/\s+/g, " ").slice(0, 400)}`);
+  const apiKey = process.env.RESEND_API_KEY;
+  const to = process.env.LEAD_TO_EMAIL;
+  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <onboarding@resend.dev>";
+  if (!apiKey || !to) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: [to], subject, text }),
+    });
+  } catch (err) {
+    console.error("[GridForge] operator notice error:", err);
   }
 }
 
