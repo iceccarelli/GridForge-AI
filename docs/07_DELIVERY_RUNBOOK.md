@@ -487,6 +487,23 @@ and says plainly that no result was produced; it never invents a number.
 must never be: two versions of the truth is precisely what a provenance-first product cannot
 survive.
 
+### Where a subscription buyer lands (API plans, Hall Watch)
+
+`/commissioned?session_id=...` used to describe a deliverable's intake for every product; an API-plan or Hall Watch buyer's portal link
+reached them only by email, which depends on `RESEND_API_KEY` + `RESEND_FROM` being set in production. The page now asks Stripe
+(`checkout.sessions.retrieve`) about the session in the URL and shows the buyer's account/watch link only when Stripe says the session
+is `complete`, paid, has a subscription, and carries a kind of ours; the entitlement is then found by that subscription id (never by
+email), so one buyer cannot be shown another's link. If the webhook has not recorded the entitlement yet the page says it is being
+set up and shows no link. Stripe unreachable or an unrecognised session falls back to the generic page. This is tested with a stubbed
+session retrieval; a real hosted Checkout redirect is unproven (no test-mode credential).
+
+**Refunds and disputes are manual, and nothing here reacts to them.** There is no `charge.refunded` / `charge.dispute.*` handler:
+refunding or losing a dispute on a subscription payment does not cancel the subscription, revoke a key, pause a watch or end a
+deliverable. To end an entitlement, **cancel the Stripe subscription** (that fires `customer.subscription.deleted`, which cancels
+the account/watch/subscription and revokes the key on the engine). A refunded one-off deliverable or deposit must be marked by the
+operator (`/api/admin/deposits` for deposits). A plan change made in the Stripe Dashboard is likewise not mirrored
+(`customer.subscription.updated` is not handled): the account keeps its original allowance until it is changed by hand.
+
 ## The money loop, once the engine is deployed
 
 ```
