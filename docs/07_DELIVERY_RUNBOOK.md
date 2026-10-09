@@ -363,6 +363,22 @@ trip and a real Stripe event stream are unproven (no test-mode credential).
   `OPERATOR ACTION NEEDED`. Cancel that subscription in the Dashboard and decide on a refund. The webhook never cancels or refunds
   on a customer's behalf. The notice repeats per renewal, and per redelivery, until it is cancelled.
 
+### Reviewing and releasing a paid document (Density Screen, Procurement Specification)
+
+`intake submitted -> the engine writes a DRAFT -> a person reviews and releases it -> the buyer reads it`
+
+- **You are told when a draft is waiting.** When the engine produces the draft (or fails to), the operator (`LEAD_TO_EMAIL`) gets
+  an email — and an `OPERATOR ACTION NEEDED` log line — naming the buyer and pointing at `/admin/pipeline`. The document token is
+  never put in that email. Before this, nothing announced a waiting draft: the buyer had been told "a senior engineer is reviewing it" and
+  it was only seen if someone happened to open the pipeline.
+- **Releasing emails the buyer their private link, once.** The intake page promises "You will get the link once it is released"; release
+  now does that (`RESEND_API_KEY` + `RESEND_FROM`). A repeat click on an already-released document does not email again; releasing again
+  after an un-release does.
+- **A failed send is never assumed away.** The release response says `customer_notified: true|false` with the reason and the private
+  link, and the pipeline shows a banner: "Released, but the buyer was NOT emailed … send them this private link yourself". A buyer with
+  no email on record is reported the same way. `/dashboard` (passwordless sign-in with the purchase email) also lists a released document.
+- Not proven: delivery through the real email provider (the send is intercepted in tests).
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

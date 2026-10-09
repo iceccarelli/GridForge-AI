@@ -97,6 +97,11 @@ export function EngagementPipeline({
         setError(body?.error ?? "Could not update this engagement.");
         return;
       }
+      // Releasing emails the buyer their link. If that did not happen, say so and hand over the link:
+      // the buyer has been promised it, and a released document nobody was told about is not delivered.
+      if (body.status === "released" && body.customer_notified === false && body.link && body.notify_error && !/Already released/.test(body.notify_error)) {
+        setError(`Released, but the buyer was NOT emailed (${body.notify_error}) Send them this private link yourself: ${body.link}`);
+      }
       setRows((prev) =>
         prev.map((r) =>
           r.token === token

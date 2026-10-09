@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
 import { getByToken, updateByToken } from "@/lib/deliverables";
+import { sendMail } from "@/lib/mail";
+import { SITE_URL } from "@/lib/site";
 
 export const runtime = "nodejs";
 
@@ -34,8 +36,32 @@ export async function PATCH(req: Request) {
         { status: 409 }
       );
     }
+    const first = row.status !== "released";
     await updateByToken(token, { status: "released", released_at: new Date().toISOString() });
-    return NextResponse.json({ ok: true, status: "released" });
+    const link = `${SITE_URL}/deliverable/${token}`;
+    // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
+    // the link once it is released". Email it once (never on an idempotent re-click), and report what
+    // actually happened so a failed send is handed to the operator instead of being assumed.
+    if (!first) {
+      return NextResponse.json({ ok: true, status: "released", customer_notified: false, notify_error: "Already released; the buyer was not emailed again.", link });
+    }
+    const sent = await sendMail({
+      to: row.email ?? "",
+      subject: "Your GridForge document is ready",
+      text:
+        "Your document has been reviewed by a senior engineer and released.\n\n" +
+        `${link}\n\n` +
+        "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
+        "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +
+        "own evidence classes and assumptions, and it is not an issued engineering opinion.",
+    });
+    return NextResponse.json({
+      ok: true,
+      status: "released",
+      customer_notified: sent.sent,
+      ...(sent.sent ? {} : { notify_error: sent.reason }),
+      link,
+    });
   }
 
   await updateByToken(token, { status: "draft", released_at: null });
