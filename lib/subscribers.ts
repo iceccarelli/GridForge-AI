@@ -132,23 +132,38 @@ export async function hasActiveSubscription(email: string): Promise<boolean> {
   return (await activeSubscription(email)) !== null;
 }
 
-/** Resolve a Stripe lifecycle event back to the row it belongs to. */
-export async function subscriptionByStripeId(
+/**
+ * Resolve a Stripe lifecycle event back to the row it belongs to, keeping "the store could not be
+ * read" apart from "no such subscription" (acknowledging a cancellation that was never applied is
+ * the failure this distinction exists to prevent).
+ */
+export async function lookupSubscriptionByStripeId(
   subscriptionId: string
-): Promise<SubscriptionRecord | null> {
-  if (!subscriptionId) return null;
+): Promise<{ ok: true; row: SubscriptionRecord | null } | { ok: false }> {
+  if (!subscriptionId) return { ok: true, row: null };
   const r = rest(
     `subscriptions?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}` +
       `&select=*&order=created_at.desc&limit=1`
   );
-  if (!r) return null;
-  const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
-  if (!res.ok) {
-    console.error("[GridForge] subscription by stripe id failed:", res.status, await res.text());
-    return null;
+  if (!r) return { ok: false };
+  try {
+    const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+    if (!res.ok) {
+      console.error("[GridForge] subscription by stripe id failed:", res.status, await res.text());
+      return { ok: false };
+    }
+    return { ok: true, row: ((await res.json()) as SubscriptionRecord[])[0] ?? null };
+  } catch (err) {
+    console.error("[GridForge] subscription by stripe id unreachable:", err);
+    return { ok: false };
   }
-  const rows = (await res.json()) as SubscriptionRecord[];
-  return rows[0] ?? null;
+}
+
+export async function subscriptionByStripeId(
+  subscriptionId: string
+): Promise<SubscriptionRecord | null> {
+  const found = await lookupSubscriptionByStripeId(subscriptionId);
+  return found.ok ? found.row : null;
 }
 
 async function subscriptionBySession(sessionId: string): Promise<SubscriptionRecord | null> {

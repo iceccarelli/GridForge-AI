@@ -16,6 +16,7 @@
  *   NOT proven anywhere in this repository: a live or test-mode Stripe Checkout round trip.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +58,8 @@ const realFetch = globalThis.fetch;
 async function startEngine(): Promise<string> {
   const code = [
     "import os", `os.environ['GRIDFORGE_API_KEYS']='${ENGINE_KEY}'`, "os.environ['GRIDFORGE_RATE_LIMIT']='0'",
+    "os.environ['GRIDFORGE_KEY_SECRET']='truth-table-signing-secret'", "os.environ['GRIDFORGE_ADMIN_KEY']='truth-table-admin'",
+    `os.environ['GRIDFORGE_REVOKED_FILE']=${JSON.stringify(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gf-tt-")), "revoked.json"))}`,
     "from gridforge.api.server import Handler, make_server", "Handler.limiter.per_minute=0",
     "h=make_server('127.0.0.1',0)", "print(h.server_address[1],flush=True)", "h.serve_forever()",
   ].join("\n");
@@ -78,6 +81,7 @@ beforeEach(() => {
   process.env.GRIDFORGE_API_URL = ENGINE;
   process.env.GRIDFORGE_API_KEY = ENGINE_KEY;
   process.env.GRIDFORGE_KEY_SECRET = "truth-table-signing-secret";
+  process.env.GRIDFORGE_ADMIN_KEY = "truth-table-admin";
   process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
   delete process.env.RESEND_API_KEY;
   sent.length = 0;
@@ -103,12 +107,16 @@ interface Row {
   product: string; price: string; mode: string;
   purchasable: Cell; signedWebhook: Cell; idempotent: Cell; fulfilment: string;
   intake: Cell; engine: Cell; humanRelease: Cell; customerAccess: Cell; registry: Cell;
+  /** recurring products only: failed payment restricts, renewal restores, cancellation ends, an unapplied event is retried */
+  lifecycle: Cell;
+  /** what the entitlement actually lets the customer DO, and with which kind of proof */
+  access: string;
 }
 const rows = new Map<string, Row>();
 const row = (id: string, price: string, mode: string): Row => {
   if (!rows.has(id)) {
     rows.set(id, { product: id, price, mode, purchasable: "UNPROVEN", signedWebhook: "UNPROVEN", idempotent: "UNPROVEN",
-      fulfilment: "UNPROVEN", intake: "n/a", engine: "n/a", humanRelease: "n/a", customerAccess: "n/a", registry: "UNPROVEN" });
+      fulfilment: "UNPROVEN", intake: "n/a", engine: "n/a", humanRelease: "n/a", customerAccess: "n/a", registry: "UNPROVEN", lifecycle: mode === "subscription" ? "UNPROVEN" : "n/a", access: "n/a" });
   }
   return rows.get(id)!;
 };
@@ -159,6 +167,43 @@ it.runIf(CI)("the real engine is available in CI (the deliverable cells cannot b
   expect(hasPython).toBe(true);
 });
 
+// ---- recurring lifecycle: the same assertions for every product that renews --------------------------------
+function billing(type: string, object: Record<string, unknown>) {
+  const payload = JSON.stringify({ id: `evt_${type}_${Math.random().toString(36).slice(2)}`, type, data: { object } });
+  const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH_SECRET });
+  return new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload });
+}
+const invoiceEvt = (type: "invoice.paid" | "invoice.payment_failed", sub: string) => billing(type, { id: `in_${sub}`, object: "invoice", subscription: sub });
+const deletedEvt = (sub: string, kind: string) => billing("customer.subscription.deleted", { id: sub, object: "subscription", metadata: { kind } });
+
+/**
+ * failed payment restricts (where the product has a restricted state), renewal restores, cancellation ends,
+ * late invoice events never reopen it, and an event whose write fails is retried — then applied, once.
+ */
+async function proveLifecycle(opts: { kind: string; sub: string; meta: Record<string, string>; table: string; status: () => string | undefined;
+  afterFailure: string; checkoutSession: string }) {
+  expect((await hook(signed(opts.checkoutSession, opts.kind, { subscription: opts.sub }, opts.meta))).status).toBe(200);
+  expect(opts.status()).toBe("active");
+  expect((await hook(invoiceEvt("invoice.payment_failed", opts.sub))).status).toBe(200);
+  expect(opts.status()).toBe(opts.afterFailure);
+  expect((await hook(invoiceEvt("invoice.paid", opts.sub))).status).toBe(200);
+  expect(opts.status()).toBe("active");
+
+  const realFetchNow = globalThis.fetch;
+  globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) =>
+    (init?.method ?? "GET") === "PATCH" && String(i).includes(`/rest/v1/${opts.table}`)
+      ? new Response("{}", { status: 503 }) : realFetchNow(i as RequestInfo, init)) as typeof fetch;
+  try {
+    expect((await hook(deletedEvt(opts.sub, opts.kind))).status).toBe(500);          // not applied -> Stripe must redeliver
+    expect(opts.status()).toBe("active");
+  } finally { globalThis.fetch = realFetchNow; }
+  for (let i = 0; i < 2; i++) expect((await hook(deletedEvt(opts.sub, opts.kind))).status).toBe(200);
+  expect(opts.status()).toBe("cancelled");
+  await hook(invoiceEvt("invoice.payment_failed", opts.sub));
+  await hook(invoiceEvt("invoice.paid", opts.sub));
+  expect(opts.status()).toBe("cancelled");                                            // late events never reopen it
+}
+
 // ---- per product -----------------------------------------------------------------------------------------
 describe.each(Object.values(PRODUCTS))("$id", (p) => {
   const r = () => row(p.id, eur(p.amountCents), p.recurring ? "subscription" : "payment");
@@ -207,6 +252,34 @@ describe.each(Object.values(PRODUCTS))("$id", (p) => {
     r().fulfilment = klass === "manual" ? "manual hand-off: engagement_deposits row ×1, a named person scopes it" : `${klass} ×1 after 3 deliveries`;
     if (klass === "manual") r().idempotent = "proven";   // one hand-off row after 3 deliveries
   });
+
+  it.runIf(Boolean(p.recurring))("lifecycle: failed payment, renewal, cancellation, late events and an unapplied event", async () => {
+    const klass = fulfilmentClass(p);
+    const table = klass === "watch" ? "watches" : "api_accounts";
+    const sub = `sub_lc_${p.id}`;
+    await proveLifecycle({
+      kind: p.kind, sub, table, checkoutSession: `cs_lc_${p.id}`, meta: p.apiUnits ? { plan: p.id } : {},
+      afterFailure: klass === "watch" ? "paused" : "past_due",
+      status: () => (db.rows(table) as any[]).find((x) => x.stripe_subscription_id === sub)?.status,
+    });
+    r().lifecycle = "proven";
+  });
+
+  it.runIf(Boolean(p.apiUnits) && hasPython)("access: the paid plan yields a key the REAL engine accepts, and cancellation revokes it", async () => {
+    const sub = `sub_ax_${p.id}`;
+    await hook(signed(`cs_ax_${p.id}`, p.kind, { subscription: sub }, { plan: p.id }));
+    const acct = (db.rows("api_accounts") as any[]).find((a) => a.stripe_subscription_id === sub);
+    expect(acct).toMatchObject({ plan: p.id, monthly_units: p.apiUnits });                // exactly the catalogue's allowance
+    const { POST } = await import("@/app/api/keys/route");
+    const minted: any = await (await POST(json("/api/keys", { token: acct.token }))).json();
+    expect(minted.issued).toBe(true);
+    const use = async () => (await realFetch(`${ENGINE}/v1/usage`, { headers: { "x-api-key": minted.key } })).status;
+    expect(await use()).toBe(200);
+    expect(await use()).toBe(200);
+    await hook(deletedEvt(sub, p.kind));
+    expect(await use()).not.toBe(200);
+    r().access = "real engine: key accepted, then revoked on cancel";
+  }, 40_000);
 
   it.runIf(Boolean(PRODUCTS.density_screen))("is represented accurately in the capability registry", () => {
     expect(registryProves(p.id), `${p.id}: registry entry missing, internal-only, not live, or its web route does not exist`).toBe(true);
@@ -266,6 +339,7 @@ describe.each(Object.values(INTELLIGENCE_PLANS))("intelligence:$id", (plan) => {
     expect(res.status).toBe(200);
     expect(sent[0].line_items[0].price_data.unit_amount).toBe(plan.priceCents);
     expect(sent[0].metadata).toMatchObject({ kind: "intelligence_subscription", plan: plan.id });
+    expect(sent[0].subscription_data.metadata).toMatchObject({ kind: "intelligence_subscription", plan: plan.id }); // so a cancellation is recognisable as ours
     r().purchasable = "proven";
     for (let i = 0; i < 3; i++) {
       expect((await hook(signed(`cs_intel_${plan.id}`, "intelligence_subscription", { subscription: `sub_i_${plan.id}` }, { plan: plan.id }))).status).toBe(200);
@@ -277,6 +351,18 @@ describe.each(Object.values(INTELLIGENCE_PLANS))("intelligence:$id", (plan) => {
     const cap = CAPABILITY_REGISTRY.find((c) => c.intelligence_plan_id === plan.id);
     expect(cap && cap.production_status === "live" && cap.status !== "internal_only").toBe(true);
     r().registry = "proven";
+  });
+});
+
+describe.each(Object.values(INTELLIGENCE_PLANS))("intelligence lifecycle:$id", (plan) => {
+  it("failed payment, renewal, cancellation, late events and an unapplied event", async () => {
+    const sub = `sub_lci_${plan.id}`;
+    await proveLifecycle({
+      kind: "intelligence_subscription", sub, table: "subscriptions", checkoutSession: `cs_lci_${plan.id}`, meta: { plan: plan.id },
+      afterFailure: "past_due",
+      status: () => (db.rows("subscriptions") as any[]).find((x) => x.stripe_subscription_id === sub)?.status,
+    });
+    row(`intelligence_${plan.id}`, eur(plan.priceCents), "subscription").lifecycle = "proven";
   });
 });
 

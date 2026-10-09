@@ -49,6 +49,9 @@ export async function POST(req: Request) {
       ],
       customer_email: body.email,
       metadata: { plan: plan.id, kind: "intelligence_subscription" },
+      // Stamped on the Stripe SUBSCRIPTION too, so a cancellation event (which carries no session
+      // metadata) can be recognised as ours — and retried if it beats its own checkout event.
+      subscription_data: { metadata: { plan: plan.id, kind: "intelligence_subscription" } },
       success_url: `${origin}/account?sub=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/intelligence?sub=cancelled`,
     });
