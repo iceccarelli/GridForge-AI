@@ -150,19 +150,32 @@ export async function updateWatch(token: string, patch: Partial<WatchRecord>): P
  * dueWatches() — which filters on exactly that — kept generating and sending
  * quarterly change notes to somebody who had stopped paying for them.
  */
-export async function watchBySubscription(subscriptionId: string): Promise<WatchRecord | null> {
+/** The watch behind a subscription; a failed read is reported as such, never as "no watch". */
+export async function lookupWatchBySubscription(
+  subscriptionId: string
+): Promise<{ ok: true; row: WatchRecord | null } | { ok: false }> {
   const c = creds();
-  if (!c || !subscriptionId) return null;
-  const res = await fetch(
-    `${c.url}/rest/v1/watches?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}` +
-      `&select=*&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (!res.ok) {
-    console.error("[GridForge] watchBySubscription failed:", await res.text());
-    return null;
+  if (!c || !subscriptionId) return { ok: false };
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/watches?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}` +
+        `&select=*&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] watchBySubscription failed:", await res.text());
+      return { ok: false };
+    }
+    return { ok: true, row: ((await res.json()) as WatchRecord[])[0] ?? null };
+  } catch (err) {
+    console.error("[GridForge] watchBySubscription unreachable:", err);
+    return { ok: false };
   }
-  return ((await res.json()) as WatchRecord[])[0] ?? null;
+}
+
+export async function watchBySubscription(subscriptionId: string): Promise<WatchRecord | null> {
+  const found = await lookupWatchBySubscription(subscriptionId);
+  return found.ok ? found.row : null;
 }
 
 export async function recordNote(row: Partial<WatchNote> & { watch_id: string }): Promise<boolean> {

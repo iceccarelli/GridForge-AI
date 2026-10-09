@@ -193,14 +193,27 @@ export function newToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
-/** A stable, readable billing identity. Usage aggregates under this, not the key. */
-export function accountIdFor(email: string, company: string): string {
+/**
+ * A readable billing identity, unique PER SUBSCRIPTION. Usage aggregates under this, not the key.
+ *
+ * It used to be derived from email + company alone, and `api_accounts.account` is UNIQUE. So the
+ * second purchase by the same buyer — a re-subscription after a cancellation ("a new sale"), or a
+ * second plan — collided, the insert failed, the webhook answered 500 and Stripe retried for days:
+ * a customer who had paid and never received an account. The subscription id is part of the salt, so
+ * each subscription is its own account with its own quota; the same subscription always maps to the
+ * same account, so a redelivery cannot mint a second one. Existing accounts keep the ids they have.
+ */
+export function accountIdFor(email: string, company: string, subscriptionId?: string | null): string {
   const stem = (company || email.split("@")[0] || "account")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 24);
-  const salt = crypto.createHash("sha256").update(email.toLowerCase()).digest("hex").slice(0, 6);
+  const salt = crypto
+    .createHash("sha256")
+    .update(subscriptionId ? `${email.toLowerCase()}|${subscriptionId}` : email.toLowerCase())
+    .digest("hex")
+    .slice(0, subscriptionId ? 8 : 6);
   return `${stem || "account"}-${salt}`;
 }
 
@@ -214,7 +227,7 @@ export async function createApiAccount(input: {
 }): Promise<{ row: ApiAccount; token: string } | null> {
   const r = rest("api_accounts");
   if (!r) return null;
-  const account = accountIdFor(input.email || "", input.company || "");
+  const account = accountIdFor(input.email || "", input.company || "", input.stripe_subscription_id);
   const token = newToken();
   const res = await fetch(r.url, {
     method: "POST",
@@ -259,25 +272,52 @@ export async function updateApiAccount(
 ): Promise<ApiAccount | null> {
   const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}`);
   if (!r) return null;
-  const res = await fetch(r.url, {
-    method: "PATCH",
-    headers: { ...r.headers, Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
-  if (!res.ok) return null;
-  const rows = (await res.json()) as ApiAccount[];
-  return rows[0] ?? null;
+  try {
+    const res = await fetch(r.url, {
+      method: "PATCH",
+      headers: { ...r.headers, Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] api account update failed:", res.status, await res.text());
+      return null;
+    }
+    const rows = (await res.json()) as ApiAccount[];
+    return rows[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] api account update unreachable:", err);
+    return null;
+  }
 }
 
-export async function findBySubscription(subscriptionId: string): Promise<ApiAccount | null> {
+/**
+ * The account behind a Stripe subscription, with "the store could not be read" kept apart from
+ * "there is no such account". The billing webhook must tell them apart: treating a failed read as
+ * "no account" acknowledges a cancellation that was never applied.
+ */
+export async function lookupBySubscription(
+  subscriptionId: string
+): Promise<{ ok: true; row: ApiAccount | null } | { ok: false }> {
   const r = rest(
     `api_accounts?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}&limit=1`
   );
-  if (!r) return null;
-  const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
-  if (!res.ok) return null;
-  const rows = (await res.json()) as ApiAccount[];
-  return rows[0] ?? null;
+  if (!r) return { ok: false };
+  try {
+    const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+    if (!res.ok) {
+      console.error("[GridForge] api account lookup failed:", res.status, await res.text());
+      return { ok: false };
+    }
+    return { ok: true, row: ((await res.json()) as ApiAccount[])[0] ?? null };
+  } catch (err) {
+    console.error("[GridForge] api account lookup unreachable:", err);
+    return { ok: false };
+  }
+}
+
+export async function findBySubscription(subscriptionId: string): Promise<ApiAccount | null> {
+  const found = await lookupBySubscription(subscriptionId);
+  return found.ok ? found.row : null;
 }
 
 /**
@@ -343,11 +383,15 @@ export async function mintForAccount(
   });
   const revoked = [...(row.revoked_key_ids ?? [])];
   if (opts.rotate && row.key_id) revoked.push(row.key_id);
-  await updateApiAccount(row.token, {
+  // The key is only handed over once the account records which id is live. A key the account does
+  // not know about can be neither rotated nor revoked on cancellation, so a failed write must not
+  // produce a working credential the customer then holds.
+  const saved = await updateApiAccount(row.token, {
     key_id: payload.k,
     key_issued_at: payload.i,
     key_expires_at: payload.e,
     revoked_key_ids: revoked,
   });
+  if (!saved) return null;
   return { token, expires: payload.e, revoked };
 }
