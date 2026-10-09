@@ -338,7 +338,7 @@ export async function attachCase(
   });
   if (!r.ok) {
     // The unique index on (object_type, object_id) lost a race to another project.
-    if (r.code === "23505" || r.status === 409) {
+    if (r.code === "23505") {
       return { ok: false, status: 409, error: "This case is already attached to a different project." };
     }
     return { ok: false, status: 502, error: "The case could not be attached. Nothing was recorded." };
