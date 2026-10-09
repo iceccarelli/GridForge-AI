@@ -395,6 +395,35 @@ or supplier score.
 - Whether any verified figure may later inform a cost line or a ranking is a separate, explicit, human decision that
   this release does not make or prepare.
 
+### Subscription lifecycle: what the billing events guarantee, and what they do not
+
+API plans (`api_accounts`), Hall Watch (`watches`) and Intelligence (`subscriptions`) are all resolved on every billing event
+(`resolveSubscription` in the webhook). The rules, each held by `tests/site/subscription-lifecycle.test.ts` and the
+catalogue-driven truth table (`lifecycle` and `access` columns):
+
+- **An event that could not be applied is retried, never acknowledged.** A failed read or write answers 500 so Stripe
+  redelivers; every write sets an absolute state, so a redelivery is safe. (Before, a store outage was read as "no such account"
+  and a failed write was ignored: a cancelled customer's account stayed `active` and could mint fresh 35-day keys indefinitely.)
+- **A cancellation for a subscription of ours with no record yet is retried** (it may have beaten its checkout event); one that
+  is not ours (no GridForge `kind` on the subscription) is acknowledged. Checkout stamps `kind` on the Stripe subscription itself.
+- **A late event never reopens an ended entitlement.** `invoice.payment_failed` only moves an `active` account; `invoice.paid`
+  never revives `cancelled`.
+- **A key is handed over only once the account records it** (`mintForAccount`): an unrecorded key can be neither rotated nor revoked.
+- **Cancellation revokes the key on the engine** (`/v1/revoke`, best effort: an unreachable engine is logged with the key id and the
+  key still dies at its 35-day expiry; the account row is already `cancelled`, so no new key can be minted).
+- **Each subscription is its own billing identity.** `api_accounts.account` is unique and used to be derived from email + company
+  alone, so a re-subscription or a second plan by the same buyer collided: the webhook answered 500 for days and the customer
+  never got an account. The subscription id is now part of the identity; existing accounts keep theirs.
+- **Access semantics, stated plainly:** keys verify offline by signature. `past_due` therefore does not stop a key that is already
+  deployed (the portal says so); only cancellation (engine revocation) and expiry do.
+
+Known gaps, ranked and deliberately not fixed here: (1) the buyer of an API plan or Hall Watch lands on `/commissioned`, which
+describes a deliverable intake that does not apply to them, and the portal link reaches them only by email (`RESEND_FROM` must be
+set in production; unverifiable from this repository); (2) no in-app plan change or billing portal exists, so an upgrade is a new
+purchase and the old subscription keeps billing until cancelled; (3) a delayed `invoice.payment_failed` that arrives after a later
+`invoice.paid` leaves a Hall Watch paused until its next payment (event ordering is not tracked); (4) a Stripe-hosted Checkout round
+trip and a real Stripe event stream are unproven (no test-mode credential).
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

@@ -11,6 +11,9 @@
  * (a token whose role is service_role) are set — a skip is a gap in what was checked.
  */
 import fs from "node:fs";
+
+import os from "node:os";
+import path from "node:path";
 import crypto from "node:crypto";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -51,6 +54,8 @@ const objects = new Map<string, { bytes: Buffer; type: string }>();
 async function startEngine(): Promise<string> {
   const code = [
     "import os", `os.environ['GRIDFORGE_API_KEYS']='${KEY}'`, "os.environ['GRIDFORGE_RATE_LIMIT']='0'",
+    "os.environ['GRIDFORGE_KEY_SECRET']='realdb-signing-secret'", "os.environ['GRIDFORGE_ADMIN_KEY']='realdb-admin'",
+    `os.environ['GRIDFORGE_REVOKED_FILE']=${JSON.stringify(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gf-rdb-")), "revoked.json"))}`,
     "from gridforge.api.server import Handler, make_server", "Handler.limiter.per_minute=0",
     "h=make_server('127.0.0.1',0)", "print(h.server_address[1],flush=True)", "h.serve_forever()",
   ].join("\n");
@@ -61,12 +66,18 @@ async function startEngine(): Promise<string> {
   });
 }
 
+let gatewayOutage: { method: string; table: string } | null = null;
 async function startGateway(): Promise<string> {
   gateway = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const body = Buffer.concat(chunks);
     const url = req.url ?? "";
+    // Injected outage for lifecycle tests: the method+table named here answers 503 until cleared.
+    if (gatewayOutage && req.method === gatewayOutage.method && url.startsWith(`/rest/v1/${gatewayOutage.table}`)) {
+      res.writeHead(503, { "content-type": "application/json" }).end('{"message":"injected outage"}');
+      return;
+    }
     if (url.startsWith("/rest/v1/")) {
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && k !== "host" && k !== "content-length") headers[k] = v;
@@ -118,6 +129,8 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = JWT;
   process.env.GRIDFORGE_API_URL = engineUrl;
   process.env.GRIDFORGE_API_KEY = KEY;
+  process.env.GRIDFORGE_KEY_SECRET = "realdb-signing-secret";
+  process.env.GRIDFORGE_ADMIN_KEY = "realdb-admin";
 }, 40_000);
 afterAll(() => { engine?.kill(); gateway?.close(); });
 
@@ -544,4 +557,68 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
     // nothing reached the cost library or the calibration data
     expect([fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")]).toEqual(costsBefore);
   }, 90_000);
+});
+
+describe.skipIf(!enabled)("API plan lifecycle on real PostgreSQL, PostgREST and the real engine", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+  const send = async (type: string, object: Record<string, unknown>) => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    const payload = JSON.stringify({ id: `evt_${crypto.randomUUID()}`, type, data: { object } });
+    const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+  };
+  const purchase = (sub: string) => send("checkout.session.completed", {
+    id: `cs_${sub}`, object: "checkout_session", customer_email: "buyer@hall.example", customer: `cus_${sub}`, subscription: sub,
+    amount_total: 90_000, metadata: { kind: "api_triage", company: "Hall Co" },
+  });
+  const onEngine = async (key: string) => (await fetch(`${process.env.GRIDFORGE_API_URL}/v1/usage`, { headers: { "x-api-key": key } })).status;
+
+  it("concurrent deliveries create one account; a cancellation that cannot be written is retried and then ends a key the engine accepted", async () => {
+    const sub = `sub_rdb_${crypto.randomUUID().slice(0, 8)}`;
+    // five simultaneous deliveries of one checkout: the database's unique index, not a cache, makes it one
+    const results = await Promise.all(Array.from({ length: 5 }, () => purchase(sub)));
+    results.forEach((r) => expect([200, 500]).toContain(r.status));            // a lost race asks for a retry...
+    expect((await purchase(sub)).status).toBe(200);                              // ...which then succeeds
+    const accounts = await rows("api_accounts", `&stripe_subscription_id=eq.${sub}`);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ plan: "api_triage", status: "active", monthly_units: 600 });
+
+    const { POST: mint } = await import("@/app/api/keys/route");
+    const minted = await j(await mint(post("/api/keys", { token: accounts[0].token })));
+    expect(minted.issued).toBe(true);
+    expect(await onEngine(minted.key)).toBe(200);                                // the published API accepts it
+    expect((await rows("api_accounts", `&stripe_subscription_id=eq.${sub}`))[0].key_id).toBeTruthy();
+
+    // the store cannot be written: the cancellation is NOT acknowledged and nothing changes
+    gatewayOutage = { method: "PATCH", table: "api_accounts" };
+    try {
+      expect((await send("customer.subscription.deleted", { id: sub, object: "subscription", metadata: { kind: "api_triage" } })).status).toBe(500);
+      expect((await rows("api_accounts", `&stripe_subscription_id=eq.${sub}`))[0].status).toBe("active");
+      expect(await onEngine(minted.key)).toBe(200);
+      // and a key cannot be minted without being recorded
+      expect((await mint(post("/api/keys", { token: accounts[0].token, rotate: true }))).status).toBe(500);
+    } finally { gatewayOutage = null; }
+
+    const redelivered = await send("customer.subscription.deleted", { id: sub, object: "subscription", metadata: { kind: "api_triage" } });
+    expect(redelivered.status).toBe(200);
+    expect((await rows("api_accounts", `&stripe_subscription_id=eq.${sub}`))[0].status).toBe("cancelled");
+    expect(await onEngine(minted.key)).not.toBe(200);                            // the engine now refuses the key
+    expect((await mint(post("/api/keys", { token: accounts[0].token }))).status).toBe(402);
+
+    // a late failure notice does not reopen it
+    expect((await send("invoice.payment_failed", { id: "in_late", object: "invoice", subscription: sub })).status).toBe(200);
+    expect((await rows("api_accounts", `&stripe_subscription_id=eq.${sub}`))[0].status).toBe("cancelled");
+
+    // the same buyer subscribes again (a new sale): the real UNIQUE(account) constraint must not turn a
+    // paid purchase into an endlessly retried webhook
+    const again = `sub_rdb2_${crypto.randomUUID().slice(0, 8)}`;
+    expect((await purchase(again)).status).toBe(200);
+    const second = await rows("api_accounts", `&stripe_subscription_id=eq.${again}`);
+    expect(second).toHaveLength(1);
+    expect(second[0].account).not.toBe(accounts[0].account);
+    expect(second[0].status).toBe("active");
+  }, 60_000);
 });
