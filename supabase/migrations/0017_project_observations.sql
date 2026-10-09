@@ -39,8 +39,15 @@ create table if not exists public.project_observations (
   observed_on date not null,
   -- How it was measured: required, because an observation nobody can trace is not evidence.
   method text not null check (length(btrim(method)) > 0),
-  -- The artifact the measurement came from. Required to VERIFY (checked in gf_review_observation).
-  evidence_id uuid references public.project_evidence (id),
+  -- The artifact the measurement came from. REQUIRED at submission: observations are immutable, so
+  -- accepting one with no source would be an unrepairable dead end (it could never be verified and the
+  -- same prediction/day cannot be resubmitted). Attach the evidence first, then report against it.
+  evidence_id uuid not null references public.project_evidence (id),
+  -- An affirmative, durable statement that this measurement is of the architecture ACTUALLY INSTALLED.
+  -- A generated RFQ, a selected supplier or a passing assessment proves none of that, and equipment
+  -- procured outside Time to Power is equally valid when its installation is attested here.
+  installed_attested boolean not null check (installed_attested),
+  installed_basis text not null check (length(btrim(installed_basis)) > 0),
   note text,
   submitted_by text not null check (length(btrim(submitted_by)) > 0),
   submitted_at timestamptz not null default now(),
@@ -88,30 +95,39 @@ create or replace function public.gf_submit_observation(p jsonb, p_event jsonb) 
 language plpgsql as $$
 declare r public.project_observations;
 begin
-  if p->>'evidence_id' is not null and not exists (
+  if p->>'evidence_id' is null then
+    raise exception 'an observation needs an attached evidence artifact' using errcode = '23502';
+  end if;
+  if (p->>'installed_attested')::boolean is not true then
+    raise exception 'the installed architecture must be attested' using errcode = '23514';
+  end if;
+  if not exists (
        select 1 from public.project_evidence
        where id = (p->>'evidence_id')::uuid and project_id = (p->>'project_id')::uuid) then
     raise exception 'that evidence does not belong to this project' using errcode = '23503';
   end if;
   insert into public.project_observations (project_id, prediction_ref, case_token, case_revision,
         architecture, calibration_key, unit, predicted_value, predicted_source, observed_value,
-        observed_on, method, evidence_id, note, submitted_by, submitted_at)
+        observed_on, method, evidence_id, installed_attested, installed_basis, note,
+        submitted_by, submitted_at)
   values ((p->>'project_id')::uuid, p->>'prediction_ref', p->>'case_token',
           (p->>'case_revision')::int, p->>'architecture', p->>'calibration_key', p->>'unit',
           (p->>'predicted_value')::numeric, p->>'predicted_source', (p->>'observed_value')::numeric,
-          (p->>'observed_on')::date, p->>'method', (p->>'evidence_id')::uuid, p->>'note',
+          (p->>'observed_on')::date, p->>'method', (p->>'evidence_id')::uuid,
+          (p->>'installed_attested')::boolean, p->>'installed_basis', p->>'note',
           p->>'submitted_by', coalesce((p->>'submitted_at')::timestamptz, now()))
   returning * into r;
   perform public.gf_emit(r.project_id, p_event,
       jsonb_build_object('observation_id', r.id, 'prediction_ref', r.prediction_ref,
-                         'calibration_key', r.calibration_key, 'predicted_value', r.predicted_value,
+                         'calibration_key', r.calibration_key, 'installed_attested', r.installed_attested,
+                         'evidence_id', r.evidence_id, 'predicted_value', r.predicted_value,
                          'observed_value', r.observed_value, 'delta_pct', r.delta_pct));
   return to_jsonb(r);
 end;
 $$;
 
--- A human decision on a submission, and its history event, one transaction. Verifying requires
--- an evidence artifact: a measured value with no source file cannot be verified.
+-- A human decision on a submission, and its history event, one transaction. Every observation
+-- already has its evidence artifact (required at submission), so there is nothing to repair.
 create or replace function public.gf_review_observation(p jsonb, p_event jsonb) returns jsonb
 language plpgsql as $$
 declare o public.project_observations; r public.project_observation_reviews;
@@ -119,10 +135,6 @@ begin
   select * into o from public.project_observations where id = (p->>'observation_id')::uuid;
   if not found then
     raise exception 'no such observation' using errcode = '23503';
-  end if;
-  if p->>'decision' = 'verified' and o.evidence_id is null then
-    raise exception 'an observation with no evidence artifact cannot be verified'
-      using errcode = '23514';
   end if;
   insert into public.project_observation_reviews (observation_id, project_id, decision,
         evidence_class, reviewer, reason, reviewed_at)

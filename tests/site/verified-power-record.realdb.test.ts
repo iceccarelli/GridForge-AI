@@ -24,6 +24,23 @@ vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
 const enabled = !!PGRST && !!JWT && spawnSync("python3", ["--version"]).status === 0;
+// In CI the stack is mandatory: with GF_REQUIRE_REALDB=1 a missing or misconfigured database FAILS this file
+// (the guard below) instead of letting every real-database test skip into a green run.
+const required = process.env.GF_REQUIRE_REALDB === "1";
+
+describe("real-database prerequisites", () => {
+  it.runIf(required)("are present when the real database is required", () => {
+    expect(PGRST, "GF_PGRST_URL must point at PostgREST (scripts/realdb-up.sh)").not.toBe("");
+    expect(JWT, "GF_PGRST_JWT must be a service_role token (scripts/realdb-up.sh)").not.toBe("");
+    expect(spawnSync("python3", ["--version"]).status, "python3 (the real engine) must be available").toBe(0);
+    expect(enabled).toBe(true);
+  });
+
+  it.runIf(required && enabled)("answers: PostgREST is up and the project schema is applied", async () => {
+    const r = await fetch(`${PGRST}/project_observations?limit=1`, { headers: { Authorization: `Bearer ${JWT}` } });
+    expect(r.status, "migration 0017 must be applied").toBe(200);
+  });
+});
 const KEY = "realdb-key";
 
 let engine: ChildProcess | null = null;
@@ -382,7 +399,15 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     const { POST: submit } = await import("@/app/api/projects/[token]/observations/route");
     const obs = (body: Record<string, unknown>) => submit(post("/x", body), ctx({ token: made.project_token }));
     const input = { calibration_key: "btm.firm_MW", case_token: c.case_token, architecture: ARCH, observed_value: engineMW - 3,
-      observed_on: "2026-09-30", method: "revenue-meter export, 30-day trend", submitted_by: "A. Rivera", evidence_id: evidenceId };
+      observed_on: "2026-09-30", method: "revenue-meter export, 30-day trend", submitted_by: "A. Rivera", evidence_id: evidenceId,
+      attests_installed_architecture: true, installed_basis: "commissioning certificate CC-114" };
+    // refusals write neither a record nor an event
+    const eventsBefore = (await rows("project_events", `&project_id=eq.${proj.id}`)).length;
+    for (const bad of [{ evidence_id: undefined }, { attests_installed_architecture: false }, { installed_basis: "" }]) {
+      expect((await obs({ ...input, ...bad })).status).toBe(422);
+    }
+    expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
     const sub = await j(await obs({ ...input, predicted_value: 12345 }));
     const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
     expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's

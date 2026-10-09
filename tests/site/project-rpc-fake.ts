@@ -45,7 +45,10 @@ export function installProjectRpcs(db: PostgrestFake): void {
     return { created: true };
   });
   db.rpcs.set("gf_submit_observation", ({ p, p_event }) => {
-    if (p.evidence_id && !db.rows("project_evidence").some((e) => e.id === p.evidence_id && e.project_id === p.project_id)) {
+    if (!p.evidence_id) throw new PgError("23502", "an observation needs an attached evidence artifact", 400);
+    if (p.installed_attested !== true) throw new PgError("23514", "the installed architecture must be attested", 400);
+    if (!String(p.installed_basis ?? "").trim()) throw new PgError("23514", "installed_basis required", 400);
+    if (!db.rows("project_evidence").some((e) => e.id === p.evidence_id && e.project_id === p.project_id)) {
       throw new PgError("23503", "that evidence does not belong to this project", 409);
     }
     if (!(p.predicted_value > 0)) throw new PgError("23514", "predicted_value > 0", 400);
@@ -65,7 +68,6 @@ export function installProjectRpcs(db: PostgrestFake): void {
   db.rpcs.set("gf_review_observation", ({ p, p_event }) => {
     const o = db.rows("project_observations").find((x) => x.id === p.observation_id);
     if (!o) throw new PgError("23503", "no such observation", 409);
-    if (p.decision === "verified" && !o.evidence_id) throw new PgError("23514", "no evidence artifact", 400);
     if ((p.decision === "verified") !== (p.evidence_class != null)) throw new PgError("23514", "class iff verified", 400);
     const r = db.insertRow("project_observation_reviews", { observation_id: o.id, project_id: o.project_id, ...p });
     emit(o.project_id, p_event, { observation_id: o.id, decision: r.decision, evidence_class: r.evidence_class });

@@ -266,7 +266,10 @@ project -> attach BTM case -> RFQ package (rfq_ready architecture only) -> suppl
   transaction is the evidence file in Storage; it is deleted if the database write fails.
   A case revision uses the atomic path only when the case belongs to a project. Verified against
   real PostgreSQL in `tests/test_projects_migration.py` and, through real PostgREST, in
-  `tests/site/verified-power-record.realdb.test.ts` (needs `GF_PGRST_URL`/`GF_PGRST_JWT`).
+  `tests/site/verified-power-record.realdb.test.ts` (needs `GF_PGRST_URL`/`GF_PGRST_JWT`). CI runs both in the
+  mandatory `real-database` job (PostgreSQL service + `scripts/realdb-up.sh`); with `GRIDFORGE_REQUIRE_DB=1` /
+  `GF_REQUIRE_REALDB=1` an unavailable database FAILS the job instead of skipping. It is real PostgreSQL and real
+  PostgREST, not Supabase (no Storage, no gateway).
 - **Evidence**: PDF, CSV or JSON, 5 MB, SHA-256 recorded, stored in the private `project-evidence`
   Supabase Storage bucket, `review_status = unverified`, `evidence_class` null. Contents are not
   parsed, classified or sent to a model; nothing here produces E5–E7 evidence. There is no review
@@ -335,9 +338,16 @@ stored engine result  ->  observation submitted  ->  human review (admin)  ->  a
   moves from 19 to 20 model outputs, observations stay 0). An architecture's capex and lead time are echoes of
   what the customer *declared*, so reconciling them measures a quote, not this model; they belong to supplier
   history, not this ledger.
+- **A submission needs its source artifact and an installed-architecture attestation.** The artifact must already be
+  attached to the same project (observations are immutable, so one accepted without a source could never be
+  verified or resubmitted). `attests_installed_architecture: true` plus an `installed_basis` (commissioning record,
+  site visit, handover) is an explicit, durable statement that the measurement is of the architecture actually
+  installed — a generated RFQ, a selected supplier or a passing assessment proves none of that, and equipment
+  procured outside Time to Power is equally valid when installation is attested. Enforced in the UI, the API and
+  PostgreSQL (`NOT NULL`/`CHECK` columns and the function); a refused submission writes neither record nor event.
 - **A submission has no evidence class.** Only a separate, immutable review (`POST /api/admin/observations/{id}/review`,
-  behind the existing admin cookie) assigns one, once; a class is never inferred or defaulted, a rejection carries
-  none, and verifying requires an attached artifact. Delta (`observed − predicted`, and percent) is computed by the
+  behind the existing admin cookie) assigns one, once; a class is never inferred or defaulted and a rejection carries
+  none. Delta (`observed − predicted`, and percent) is computed by the
   database, not typed.
 - **The ledger is untouched.** Nothing here opens `calibration.local.json`. A verified observation of class E5 or
   above is what `gridforge calibrate add` accepts; that remains a deliberate human step, so `/v1/calibration`

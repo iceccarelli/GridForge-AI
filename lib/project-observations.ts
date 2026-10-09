@@ -57,7 +57,9 @@ export interface ObservationRow {
   observed_value: number;
   observed_on: string;
   method: string;
-  evidence_id: string | null;
+  evidence_id: string;
+  installed_attested: boolean;
+  installed_basis: string;
   note: string | null;
   submitted_by: string;
   submitted_at: string;
@@ -114,9 +116,20 @@ export async function submitObservation(
   if (!submitted_by || submitted_by.length > 120) {
     return { ok: false, status: 422, error: "submitted_by is required: who is reporting this measurement." };
   }
-  const evidence_id = input.evidence_id == null || input.evidence_id === "" ? null : input.evidence_id;
-  if (evidence_id !== null && (typeof evidence_id !== "string" || !UUID.test(evidence_id))) {
-    return { ok: false, status: 422, error: "evidence_id must be the id of an artifact attached to this project." };
+  // The source artifact is required: observations are immutable, so one accepted without a source could
+  // never be verified and could not be resubmitted. Attach the evidence first.
+  const evidence_id = typeof input.evidence_id === "string" ? input.evidence_id : "";
+  if (!UUID.test(evidence_id)) {
+    return { ok: false, status: 422, error: "evidence_id is required: attach the measurement's source artifact to this project first." };
+  }
+  // An affirmative statement that this is the architecture actually installed. A generated RFQ, a selected
+  // supplier or a passing assessment is not evidence of installation, and nothing here infers it.
+  if (input.attests_installed_architecture !== true) {
+    return { ok: false, status: 422, error: "attests_installed_architecture must be true: confirm this measurement is of the architecture actually installed." };
+  }
+  const installed_basis = typeof input.installed_basis === "string" ? input.installed_basis.trim() : "";
+  if (!installed_basis || installed_basis.length > 500) {
+    return { ok: false, status: 422, error: "installed_basis is required: how you know it is installed (commissioning record, site visit, handover) — at most 500 characters." };
   }
   const note = typeof input.note === "string" ? input.note.trim().slice(0, 500) || null : null;
 
@@ -167,6 +180,8 @@ export async function submitObservation(
       observed_on,
       method,
       evidence_id,
+      installed_attested: true,
+      installed_basis,
       note,
       submitted_by,
     },
@@ -175,6 +190,9 @@ export async function submitObservation(
   if (!added.ok || !added.data) {
     if (added.ok === false && (added.code === "23505" || added.status === 409)) {
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
+    }
+    if (added.ok === false && (added.code === "23502" || added.code === "23514")) {
+      return { ok: false, status: 422, error: "The observation was refused: it needs its evidence artifact and the installed-architecture attestation." };
     }
     if (added.ok === false && added.code === "23503") {
       return { ok: false, status: 403, error: "That evidence does not belong to this project." };
@@ -221,9 +239,6 @@ export async function reviewObservation(input: {
   });
   if (!done.ok || !done.data) {
     if (done.ok === false && done.code === "23503") return { ok: false, status: 404, error: "Not found." };
-    if (done.ok === false && done.code === "23514") {
-      return { ok: false, status: 409, error: "An observation with no evidence artifact cannot be verified." };
-    }
     if (done.ok === false && (done.code === "23505" || done.status === 409)) {
       return { ok: false, status: 409, error: "This observation has already been reviewed." };
     }

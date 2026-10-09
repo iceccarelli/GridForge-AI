@@ -103,7 +103,8 @@ export interface ProjectState {
     delta_pct: number;
     observed_on: string;
     method: string;
-    has_evidence: boolean;
+    /** Who attested, and on what basis, that this is the architecture actually installed. */
+    installed_basis: string;
     submitted_by: string;
     /** submitted = not yet reviewed; the class is the reviewer's, never ours. */
     state: "submitted" | "verified" | "rejected";
@@ -243,7 +244,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       delta_pct: Number(o.delta_pct),
       observed_on: o.observed_on,
       method: o.method,
-      has_evidence: o.evidence_id !== null,
+      installed_basis: o.installed_basis,
       submitted_by: o.submitted_by,
       state: r ? r.decision : "submitted",
       evidence_class: r?.evidence_class ?? null,

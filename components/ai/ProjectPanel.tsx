@@ -140,6 +140,8 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
   const [method, setMethod] = useState("");
   const [by, setBy] = useState("");
   const [evidence, setEvidence] = useState("");
+  const [attested, setAttested] = useState(false);
+  const [basis, setBasis] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sel = options[pick];
@@ -163,6 +165,8 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           method,
           submitted_by: by,
           evidence_id: evidence || undefined,
+          attests_installed_architecture: attested,
+          installed_basis: basis,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -170,6 +174,8 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
       else {
         setObserved("");
         setMethod("");
+        setBasis("");
+        setAttested(false);
         onSaved();
       }
     } catch {
@@ -190,6 +196,7 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <Row k="Delta" v={`${o.delta_value > 0 ? "+" : ""}${o.delta_value.toFixed(2)} ${o.unit} (${o.delta_pct > 0 ? "+" : ""}${o.delta_pct.toFixed(1)}%)`} />
           <Row k="Review" v={STATE_LABEL[o.state]} />
           <Row k="Evidence class" v={o.evidence_class ?? "Not assigned"} />
+          <Row k="Installed (attested by)" v={`${o.submitted_by} — ${o.installed_basis}`} />
           {o.state === "verified" && <Row k="Ledger" v={o.ledger_eligible ? "Eligible — a person adds it" : "Below the ledger's minimum (E5)"} />}
         </div>
       ))}
@@ -199,6 +206,11 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
       </p>
       {options.length === 0 ? (
         <p className="text-faint">Unknown — no attached architecture holds a positive predicted firm MW to compare with.</p>
+      ) : state.evidence.items.length === 0 ? (
+        <p className="text-faint">
+          Attach the measurement&apos;s source artifact (PDF, CSV or JSON) to this project first — an observation
+          cannot be recorded without it.
+        </p>
       ) : (
         <form onSubmit={submit} className="space-y-1.5 pt-1">
           <select value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
@@ -210,14 +222,24 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <input value={observed} onChange={(e) => setObserved(e.target.value)} placeholder="measured firm MW" inputMode="decimal" className={input} />
           <input type="date" value={on} onChange={(e) => setOn(e.target.value)} className={input} />
           <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how it was measured" className={input} />
-          <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input}>
-            <option value="">No artifact attached (cannot be verified)</option>
+          <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
+            <option value="">Source artifact (required)</option>
             {state.evidence.items.map((it) => (
               <option key={it.id} value={it.id}>{it.filename}</option>
             ))}
           </select>
+          <label className="flex items-start gap-2 text-faint">
+            <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} className="mt-0.5" />
+            <span>
+              I confirm this measurement is of the architecture actually installed — not a plan, RFQ or assessment.
+            </span>
+          </label>
+          <input value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="how you know it is installed (e.g. commissioning record)" className={input} />
           <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
-          <button disabled={busy || !observed || !on || !method.trim() || !by.trim()} className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50">
+          <button
+            disabled={busy || !observed || !on || !method.trim() || !by.trim() || !evidence || !attested || !basis.trim()}
+            className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50"
+          >
             {busy ? "Saving" : "Record observation"}
           </button>
           {error && <p className="text-[11px] text-flag">{error}</p>}

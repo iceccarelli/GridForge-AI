@@ -59,12 +59,18 @@ async function project(attachCase = true) {
   }
   return { token: made.project_token as string, id: db.rows("projects").find((p) => p.project_token === made.project_token)!.id as string };
 }
-const evidence = (projectId: string) => db.insertRow("project_evidence", {
+const evidence = (projectId: string): string => db.insertRow("project_evidence", {
   project_id: projectId, filename: "meter.csv", media_type: "text/csv", sha256: "a".repeat(64), byte_size: 10,
   storage_ref: "b/x", source_category: "load_data", evidence_class: null, review_status: "unverified",
 }).id as string;
-const GOOD = { calibration_key: "btm.firm_MW", case_token: CASE, architecture: ARCH, observed_value: 33.0,
-  observed_on: "2026-09-30", method: "revenue meter, 30-day export trend", submitted_by: "A. Rivera, site engineer" };
+/** A complete, valid submission: its source artifact is attached to THIS project and the installed
+ * architecture is attested. Evidence is created per project, so a helper rather than a constant. */
+const good = (projectId: string, over: Record<string, unknown> = {}) => ({
+  calibration_key: "btm.firm_MW", case_token: CASE, architecture: ARCH, observed_value: 33.0,
+  observed_on: "2026-09-30", method: "revenue meter, 30-day export trend", submitted_by: "A. Rivera, site engineer",
+  evidence_id: evidence(projectId), attests_installed_architecture: true,
+  installed_basis: "commissioning certificate CC-114, signed 2026-09-12", ...over,
+});
 async function submit(token: string, body: Record<string, unknown>) {
   const { POST } = await import("@/app/api/projects/[token]/observations/route");
   const res = await POST(json("/x", body), ctx({ token }));
@@ -83,7 +89,7 @@ async function state(token: string) {
 describe("submitting an observation", () => {
   it("reads the prediction from the stored engine result and computes the delta from it", async () => {
     const p = await project();
-    const r = await submit(p.token, { ...GOOD, predicted_value: 999 }); // a caller-supplied prediction is ignored
+    const r = await submit(p.token, good(p.id, { predicted_value: 999 })); // a caller-supplied prediction is ignored
     expect(r.res.status).toBe(201);
     const [row] = db.rows("project_observations") as any[];
     expect(row).toMatchObject({
@@ -100,16 +106,17 @@ describe("submitting an observation", () => {
 
   it("shows up in project state as submitted — not verified, not ledger-eligible", async () => {
     const p = await project();
-    await submit(p.token, GOOD);
+    await submit(p.token, good(p.id));
     const s = await state(p.token);
     expect(s.observations).toEqual([expect.objectContaining({
-      state: "submitted", evidence_class: null, reviewed_by: null, ledger_eligible: false, has_evidence: false,
-      predicted_value: 36.4, observed_value: 33,
+      state: "submitted", evidence_class: null, reviewed_by: null, ledger_eligible: false,
+      installed_basis: "commissioning certificate CC-114, signed 2026-09-12", predicted_value: 36.4, observed_value: 33,
     })]);
   });
 
-  it("refuses what it cannot honestly reconcile, writing nothing", async () => {
+  it("refuses what it cannot honestly reconcile, writing neither a record nor an event", async () => {
     const p = await project();
+    const events = db.rows("project_events").length;
     const cases: [Record<string, unknown>, number][] = [
       [{ calibration_key: "btm.capex_eur" }, 422],               // an echo of a declared input, not a model output
       [{ observed_value: -1 }, 422],
@@ -122,67 +129,84 @@ describe("submitting an observation", () => {
       [{ architecture: "GRID ONLY" }, 422],                      // predicted 0 MW: nothing to reconcile against
       [{ case_revision: 7 }, 404],
       [{ evidence_id: "not-a-uuid" }, 422],
+      [{ evidence_id: undefined }, 422],                         // no source artifact: an unrepairable dead end
+      [{ evidence_id: null }, 422],
+      [{ attests_installed_architecture: undefined }, 422],      // installation is attested, never inferred
+      [{ attests_installed_architecture: false }, 422],
+      [{ attests_installed_architecture: "yes" }, 422],
+      [{ installed_basis: "  " }, 422],
+      [{ installed_basis: undefined }, 422],
     ];
-    for (const [over, status] of cases) expect((await submit(p.token, { ...GOOD, ...over })).res.status, JSON.stringify(over)).toBe(status);
+    for (const [over, status] of cases) {
+      const r = await submit(p.token, good(p.id, over));
+      expect(r.res.status, JSON.stringify(over)).toBe(status);
+    }
     expect(db.rows("project_observations")).toHaveLength(0);
+    expect(db.rows("project_events")).toHaveLength(events);
+  });
+
+  it("does not require the equipment to have been procured through Time to Power", async () => {
+    const p = await project();                                  // no RFQ package, no selected supplier
+    expect(db.rows("procurement_packages")).toHaveLength(0);
+    expect((await submit(p.token, good(p.id))).res.status).toBe(201);
   });
 
   it("refuses a case the project does not hold, and evidence that belongs to another project", async () => {
     const holder = await project();
     const stranger = await project(false);
-    expect((await submit(stranger.token, GOOD)).res.status).toBe(403);
+    expect((await submit(stranger.token, good(stranger.id))).res.status).toBe(403);
     const foreign = evidence(holder.id);
-    expect((await submit(stranger.token, { ...GOOD, evidence_id: foreign })).res.status).toBe(403);
-    const other = await project(false);
-    expect((await submit(other.token, { ...GOOD, evidence_id: foreign })).res.status).toBe(403);
+    expect((await submit(stranger.token, good(stranger.id, { evidence_id: foreign }))).res.status).toBe(403);
+    const other = await project();                              // holds the case, but not that artifact
+    expect((await submit(other.token, good(other.id, { evidence_id: foreign }))).res.status).toBe(403);
     expect(db.rows("project_observations")).toHaveLength(0);
   });
 
   it("counts a prediction observed on a given date once", async () => {
     const p = await project();
-    expect((await submit(p.token, GOOD)).res.status).toBe(201);
-    expect((await submit(p.token, { ...GOOD, observed_value: 34 })).res.status).toBe(409);
-    expect((await submit(p.token, { ...GOOD, observed_value: 34, observed_on: "2026-10-01" })).res.status).toBe(201);
+    const ev = evidence(p.id);
+    expect((await submit(p.token, good(p.id, { evidence_id: ev }))).res.status).toBe(201);
+    expect((await submit(p.token, good(p.id, { evidence_id: ev, observed_value: 34 }))).res.status).toBe(409);
+    expect((await submit(p.token, good(p.id, { evidence_id: ev, observed_value: 34, observed_on: "2026-10-01" }))).res.status).toBe(201);
     expect(db.rows("project_observations")).toHaveLength(2);
   });
 
   it("is saved with its event or not at all", async () => {
     const p = await project();
+    const body = good(p.id);
     db.failEvents = true;
-    expect((await submit(p.token, GOOD)).res.status).toBe(502);
+    expect((await submit(p.token, body)).res.status).toBe(502);
     expect(db.rows("project_observations")).toHaveLength(0);
     db.failEvents = false;
-    expect((await submit(p.token, GOOD)).res.status).toBe(201);
+    expect((await submit(p.token, body)).res.status).toBe(201);
   });
 });
 
 describe("the human review", () => {
   it("is admin-only", async () => {
     const p = await project();
-    const o = (await submit(p.token, GOOD)).body.observation.id;
+    const o = (await submit(p.token, good(p.id))).body.observation.id;
     expect((await review(o, { decision: "rejected", reviewer: "x" })).res.status).toBe(401);
     expect(db.rows("project_observation_reviews")).toHaveLength(0);
     const { GET } = await import("@/app/api/admin/observations/route");
     expect((await GET(new Request(siteUrl("/x")))).status).toBe(401);
   });
 
-  it("will not verify a measurement that has no attached artifact, and never infers a class", async () => {
+  it("never infers or defaults a class, and a rejection carries none", async () => {
     signIn();
     const p = await project();
-    const noFile = (await submit(p.token, GOOD)).body.observation.id;
-    expect((await review(noFile, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).res.status).toBe(409);
-    const withFile = (await submit(p.token, { ...GOOD, observed_on: "2026-10-01", evidence_id: evidence(p.id) })).body.observation.id;
-    expect((await review(withFile, { decision: "verified", reviewer: "J. Ortiz" })).res.status).toBe(422);        // no default class
-    expect((await review(withFile, { decision: "verified", evidence_class: "E9", reviewer: "J. Ortiz" })).res.status).toBe(422);
-    expect((await review(withFile, { decision: "verified", evidence_class: "E5", reviewer: "" })).res.status).toBe(422);
-    expect((await review(withFile, { decision: "rejected", evidence_class: "E5", reviewer: "J. Ortiz" })).res.status).toBe(422);
+    const id = (await submit(p.token, good(p.id))).body.observation.id;
+    expect((await review(id, { decision: "verified", reviewer: "J. Ortiz" })).res.status).toBe(422);        // no default class
+    expect((await review(id, { decision: "verified", evidence_class: "E9", reviewer: "J. Ortiz" })).res.status).toBe(422);
+    expect((await review(id, { decision: "verified", evidence_class: "E5", reviewer: "" })).res.status).toBe(422);
+    expect((await review(id, { decision: "rejected", evidence_class: "E5", reviewer: "J. Ortiz" })).res.status).toBe(422);
     expect(db.rows("project_observation_reviews")).toHaveLength(0);
   });
 
   it("records one immutable decision, by a named person, and shows the class the reviewer chose", async () => {
     signIn();
     const p = await project();
-    const id = (await submit(p.token, { ...GOOD, evidence_id: evidence(p.id) })).body.observation.id;
+    const id = (await submit(p.token, good(p.id))).body.observation.id;
     const ok = await review(id, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches the submitted trend" });
     expect(ok.res.status).toBe(201);
     expect((await review(id, { decision: "rejected", reviewer: "J. Ortiz" })).res.status).toBe(409); // never flipped
@@ -196,8 +220,8 @@ describe("the human review", () => {
   it("verified below E5 is recorded honestly but is not ledger-eligible; a rejection carries no class", async () => {
     signIn();
     const p = await project();
-    const a = (await submit(p.token, { ...GOOD, evidence_id: evidence(p.id) })).body.observation.id;
-    const b = (await submit(p.token, { ...GOOD, observed_on: "2026-10-01", evidence_id: evidence(p.id) })).body.observation.id;
+    const a = (await submit(p.token, good(p.id))).body.observation.id;
+    const b = (await submit(p.token, good(p.id, { observed_on: "2026-10-01" }))).body.observation.id;
     await review(a, { decision: "verified", evidence_class: "E3", reviewer: "J. Ortiz" });
     await review(b, { decision: "rejected", reviewer: "J. Ortiz", reason: "export covers a different meter" });
     const s = (await state(p.token)).observations;
@@ -208,8 +232,8 @@ describe("the human review", () => {
   it("lists only the unreviewed in the admin queue by default", async () => {
     signIn();
     const p = await project();
-    const a = (await submit(p.token, GOOD)).body.observation.id;
-    await submit(p.token, { ...GOOD, observed_on: "2026-10-01" });
+    const a = (await submit(p.token, good(p.id))).body.observation.id;
+    await submit(p.token, good(p.id, { observed_on: "2026-10-01" }));
     await review(a, { decision: "rejected", reviewer: "J. Ortiz" });
     const { GET } = await import("@/app/api/admin/observations/route");
     const pending: any = await (await GET(new Request(siteUrl("/x")))).json();
