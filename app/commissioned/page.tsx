@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { deliverableBySession } from "@/lib/deliverables";
+import { accessForSession } from "@/lib/purchase-access";
 
 export const metadata: Metadata = {
   title: "Engagement commissioned",
@@ -34,6 +35,42 @@ export default async function CommissionedPage({
   const { session_id: sessionId } = await searchParams;
   const row = sessionId ? await deliverableBySession(sessionId) : null;
   const intakeToken = row?.intake_token ?? null;
+  // An API plan or Hall Watch has no intake: its entitlement is an account/watch behind a private link.
+  const access = !row && sessionId ? await accessForSession(sessionId) : { state: "unknown" as const };
+  if (access.state !== "unknown") {
+    return (
+      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
+        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
+          {access.name} is {access.state === "ready" ? "open" : "being set up"}.
+        </h1>
+        {access.state === "ready" ? (
+          <div className="mt-6 rounded border border-power/40 bg-panel p-5">
+            <p className="text-mute text-sm">
+              {access.kind === "api"
+                ? `Your account is ready${access.units ? ` with ${access.units.toLocaleString("en-IE")} units a month` : ""}. Mint your key there — it is shown once and never stored.`
+                : "Your hall is watched from here. Give it the hall's numbers once and it is re-solved every quarter."}
+            </p>
+            <Link href={access.path} className="mt-4 inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink">
+              {access.kind === "api" ? "Open your API access" : "Open your watch"}
+            </Link>
+            <p className="mt-3 text-[11px] text-faint">
+              This link is private to you. A copy is also on its way to the email you paid with; keep it,
+              because it is the only way back in.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-3 text-mute">
+            <p>
+              Your payment has cleared and your {access.kind === "api" ? "account" : "watch"} is being recorded. Reload this page in
+              a minute.
+            </p>
+            <p className="text-faint text-sm">Still nothing after a few minutes? Reply to the Stripe receipt and we will resend the link.</p>
+          </div>
+        )}
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">

@@ -360,6 +360,16 @@ and says plainly that no result was produced; it never invents a number.
 must never be: two versions of the truth is precisely what a provenance-first product cannot
 survive.
 
+### Where a subscription buyer lands (API plans, Hall Watch)
+
+`/commissioned?session_id=...` used to describe a deliverable's intake for every product; an API-plan or Hall Watch buyer's portal link
+reached them only by email, which depends on `RESEND_API_KEY` + `RESEND_FROM` being set in production. The page now asks Stripe
+(`checkout.sessions.retrieve`) about the session in the URL and shows the buyer's account/watch link only when Stripe says the session
+is `complete`, paid, has a subscription, and carries a kind of ours; the entitlement is then found by that subscription id (never by
+email), so one buyer cannot be shown another's link. If the webhook has not recorded the entitlement yet the page says it is being
+set up and shows no link. Stripe unreachable or an unrecognised session falls back to the generic page. This is tested with a stubbed
+session retrieval; a real hosted Checkout redirect is unproven (no test-mode credential).
+
 ## The money loop, once the engine is deployed
 
 ```
