@@ -57,7 +57,8 @@ def db():
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
-              "0016_project_purchases.sql", "0017_project_observations.sql"):
+              "0016_project_purchases.sql", "0017_project_observations.sql",
+              "0018_supplier_reality.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -149,7 +150,8 @@ def fresh():
     psql("postgres", f"create database {name}")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
-              "0016_project_purchases.sql", "0017_project_observations.sql"):
+              "0016_project_purchases.sql", "0017_project_observations.sql",
+              "0018_supplier_reality.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -487,3 +489,200 @@ def test_observations_and_reviews_are_append_only(fresh):
         r = psql(fresh, sql, check=False)
         assert r.returncode != 0 and "append-only" in r.stderr, sql
     assert scalar(fresh, "select observed_value from project_observations") == "33"
+
+
+# --- supplier reality (0018) ---------------------------------------------------------------
+
+import json as _json
+
+QUOTE = {"supplier": "Voltek", "values": {"capex_eur": 4000000, "lead_time_weeks": 20, "install_weeks": 6}}
+
+
+def selected_package(db, project, response=QUOTE, select=True):
+    pkg = _package(db, project)
+    psql(db, f"select gf_add_response(jsonb_build_object('package_id', '{pkg}', 'project_id', '{project}',"
+             f" 'supplier', 'Voltek', 'response', '{_json.dumps(response)}'::jsonb), '{GOOD % 'supplier_response_received'}'::jsonb)")
+    rid = scalar(db, "select id from procurement_responses")
+    if select:
+        psql(db, f"select gf_select_supplier('{pkg}', jsonb_build_object('selected_supplier', 'Voltek',"
+                 f" 'selected_response_id', '{rid}', 'selected_at', now()::text, 'selected_by', 'buyer'),"
+                 f" '{GOOD % 'supplier_selected'}'::jsonb)")
+    return pkg, rid
+
+
+def actual_args(project, pkg, evidence_id, **over):
+    d = {"project_id": project, "package_id": pkg, "po_date": "2026-01-12", "on_site_date": "2026-06-22",
+         "energised_date": "2026-08-03", "actual_cost": 4300000, "actual_cost_currency": "EUR",
+         "cost_scope": "same_as_quote", "evidence_id": evidence_id, "method": "PO and handover record",
+         "submitted_by": "A. Rivera"}
+    d.update(over)
+    return _json.dumps({k: v for k, v in d.items() if v is not None})
+
+
+def submit_actual(db, project, pkg, event=None, evidence_id="auto", **over):
+    if evidence_id == "auto":
+        evidence_id = _evidence(db, project)
+    return psql(db, f"select gf_submit_supplier_actual('{actual_args(project, pkg, evidence_id, **over)}'::jsonb,"
+                    f" '{event or GOOD % 'supplier_actual_submitted'}'::jsonb)", check=False)
+
+
+def review_actual(db, aid, decision, fields=(), reason="checked", event=None):
+    p = _json.dumps({"actual_id": aid, "decision": decision, "verified_fields": list(fields),
+                     "reviewer": "J. Ortiz", "reason": reason})
+    return psql(db, f"select gf_review_supplier_actual('{p}'::jsonb, '{event or GOOD % 'supplier_actual_reviewed'}'::jsonb)",
+                check=False)
+
+
+def test_a_delivery_record_copies_its_quote_from_the_selection_and_is_saved_with_its_event(fresh):
+    p = new_project(fresh)
+    pkg, rid = selected_package(fresh, p)
+    # the caller's own idea of the quote is not even a parameter
+    r = submit_actual(fresh, p, pkg, quoted_capex_eur=1, supplier="Someone Else")
+    assert r.returncode == 0, r.stderr
+    row = _json.loads(r.stdout)
+    assert row["supplier"] == "Voltek" and row["selected_response_id"] == rid
+    assert float(row["quoted_capex_eur"]) == 4000000 and float(row["quoted_lead_time_weeks"]) == 20
+    assert count(fresh, "project_events", "event_type = 'supplier_actual_submitted'") == 1
+
+
+def test_nothing_is_recorded_without_a_selection_or_without_its_event(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p, select=False)
+    assert submit_actual(fresh, p, pkg).returncode != 0                      # no selection: no quote to compare
+    assert count(fresh, "supplier_actuals") == 0
+    psql(fresh, f"select gf_select_supplier('{pkg}', jsonb_build_object('selected_supplier', 'Voltek',"
+                f" 'selected_response_id', (select id from procurement_responses), 'selected_at', now()::text,"
+                f" 'selected_by', 'b'), '{GOOD % 'supplier_selected'}'::jsonb)")
+    assert submit_actual(fresh, p, pkg, event=BAD_TYPE).returncode != 0      # a bad event rolls the record back
+    assert submit_actual(fresh, p, pkg, event=NO_ACTOR).returncode != 0
+    assert count(fresh, "supplier_actuals") == 0 and count(fresh, "project_events", "event_type = 'supplier_actual_submitted'") == 0
+    assert submit_actual(fresh, p, pkg).returncode == 0
+
+
+def test_the_database_refuses_impossible_or_ambiguous_facts(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p)
+    bad = [dict(po_date="2026-07-01"),                                       # PO after delivery
+           dict(energised_date="2026-06-01"),                                # energised before on-site
+           dict(actual_cost_currency=None), dict(cost_scope=None),           # cost without currency / scope
+           dict(cost_scope="roughly"), dict(cost_scope="differs"),           # differs needs a note
+           dict(actual_cost_currency="eur"), dict(actual_cost=-1),
+           dict(method=" "), dict(submitted_by=""),
+           dict(po_date=None, on_site_date=None, energised_date=None, actual_cost=None,
+                actual_cost_currency=None, cost_scope=None)]               # no fact at all
+    for over in bad:
+        assert submit_actual(fresh, p, pkg, **over).returncode != 0, over
+    assert count(fresh, "supplier_actuals") == 0
+    # unknown stays unknown: a single date is a valid record, with nothing invented around it
+    ok = submit_actual(fresh, p, pkg, po_date=None, on_site_date=None, actual_cost=None, actual_cost_currency=None, cost_scope=None)
+    assert ok.returncode == 0, ok.stderr
+    row = _json.loads(ok.stdout)
+    assert row["po_date"] is None and row["actual_cost"] is None and row["dispatch_date"] is None
+
+
+def test_evidence_and_package_must_belong_to_the_same_project(fresh):
+    a = new_project(fresh, "ta")
+    b = new_project(fresh, "tb")
+    pkg, _ = selected_package(fresh, a)
+    foreign = _evidence(fresh, b)
+    assert submit_actual(fresh, a, pkg, evidence_id=foreign).returncode != 0
+    assert submit_actual(fresh, b, pkg).returncode != 0                      # package is A's
+    assert count(fresh, "supplier_actuals") == 0
+
+
+def test_a_correction_is_a_new_record_that_supersedes_exactly_one(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p)
+    first = _json.loads(submit_actual(fresh, p, pkg).stdout)["id"]
+    dup = submit_actual(fresh, p, pkg)
+    assert dup.returncode != 0 and "supplier_actuals_one_initial" in dup.stderr   # not a second first record
+    fix = submit_actual(fresh, p, pkg, actual_cost=4350000, supersedes_id=first)
+    assert fix.returncode == 0, fix.stderr
+    second = _json.loads(fix.stdout)["id"]
+    fork = submit_actual(fresh, p, pkg, actual_cost=4360000, supersedes_id=first)
+    assert fork.returncode != 0 and "supplier_actuals_one_correction" in fork.stderr  # no forks
+    assert submit_actual(fresh, p, pkg, supersedes_id="00000000-0000-4000-8000-00000000dead").returncode != 0
+    assert count(fresh, "supplier_actuals") == 2
+    assert scalar(fresh, f"select actual_cost from supplier_actuals where id = '{first}'") == "4300000"   # untouched
+    assert scalar(fresh, f"select supersedes_id from supplier_actuals where id = '{second}'") == first
+
+
+def test_quoted_versus_actual_is_derived_with_basis_and_never_across_scopes(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p)
+    aid = _json.loads(submit_actual(fresh, p, pkg).stdout)["id"]
+    row = scalar(fresh, f"select concat_ws('|', actual_lead_time_weeks, quoted_lead_time_weeks, actual_install_weeks,"
+                        f" cost_delta_eur, cost_basis) from supplier_reality where actual_id = '{aid}'")
+    assert row == "23.0|20|6.0|300000|EUR, same scope as quote"
+    # a different scope, an unknown scope, another currency: the delta is NULL and the basis says why
+    for over, needle in (({"cost_scope": "differs", "cost_scope_note": "incl. grid works"}, "scope is differs"),
+                         ({"cost_scope": "unknown"}, "scope is unknown"),
+                         ({"actual_cost_currency": "USD"}, "in USD")):
+        q = new_project(fresh, "t" + over.get("cost_scope", "usd"))
+        # a fresh project/package each time: one first record per package
+        pk2, _ = selected_package_again(fresh, q)
+        a2 = _json.loads(submit_actual(fresh, q, pk2, **over).stdout)["id"]
+        got = psql(fresh, f"select coalesce(cost_delta_eur::text, 'NULL') || '|' || cost_basis from supplier_reality where actual_id = '{a2}'").stdout.strip()
+        assert got.startswith("NULL|") and needle in got, (over, got)
+
+
+def selected_package_again(db, project):
+    token = "pk" + project[:6]
+    psql(db, f"select gf_create_package(jsonb_build_object('package_token', '{token}', 'project_id', '{project}',"
+             " 'case_token', 'c', 'case_revision', 1, 'architecture', 'A', 'spec_summary', '{}'::jsonb,"
+             " 'response_template', '{}'::jsonb, 'document_md', 'm', 'document_html', 'h'),"
+             f" '{GOOD % 'rfq_generated'}'::jsonb)")
+    pkg = scalar(db, f"select id from procurement_packages where package_token = '{token}'")
+    psql(db, f"select gf_add_response(jsonb_build_object('package_id', '{pkg}', 'project_id', '{project}',"
+             f" 'supplier', 'Voltek', 'response', '{_json.dumps(QUOTE)}'::jsonb), '{GOOD % 'supplier_response_received'}'::jsonb)")
+    rid = scalar(db, f"select id from procurement_responses where package_id = '{pkg}'")
+    psql(db, f"select gf_select_supplier('{pkg}', jsonb_build_object('selected_supplier', 'Voltek',"
+             f" 'selected_response_id', '{rid}', 'selected_at', now()::text, 'selected_by', 'b'),"
+             f" '{GOOD % 'supplier_selected'}'::jsonb)")
+    return pkg, rid
+
+
+def test_a_quote_with_no_install_time_leaves_that_metric_unknown(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p, response={"supplier": "Voltek", "values": {"capex_eur": 4000000}})
+    aid = _json.loads(submit_actual(fresh, p, pkg).stdout)["id"]
+    out = scalar(fresh, f"select coalesce(actual_install_weeks::text, 'NULL') || '|' || install_basis || '|' || lead_time_basis"
+                        f" from supplier_reality where actual_id = '{aid}'")
+    assert out.startswith("6.0|") or out.startswith("NULL|")   # actual elapsed time is a fact; the QUOTE is what is missing
+    assert scalar(fresh, f"select quoted_install_weeks is null from supplier_reality where actual_id = '{aid}'") == "t"
+    assert "unknown: the quote gave no installation time" in out
+
+
+def test_a_review_names_the_facts_it_vouches_for_and_is_immutable(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p)
+    aid = _json.loads(submit_actual(fresh, p, pkg, dispatch_date=None).stdout)["id"]
+    assert review_actual(fresh, aid, "verified", []).returncode != 0                       # nothing named
+    assert review_actual(fresh, aid, "verified", ["dispatch_date"]).returncode != 0         # not supplied
+    assert review_actual(fresh, aid, "verified", ["bogus"]).returncode != 0
+    assert review_actual(fresh, aid, "rejected", [], reason="").returncode != 0             # needs a reason
+    assert review_actual(fresh, aid, "rejected", ["po_date"]).returncode != 0
+    assert review_actual(fresh, aid, "verified", ["po_date"], event=BAD_TYPE).returncode != 0
+    assert count(fresh, "supplier_actual_reviews") == 0
+    assert review_actual(fresh, aid, "verified", ["po_date", "actual_cost"]).returncode == 0
+    again = review_actual(fresh, aid, "rejected", [], reason="no")
+    assert again.returncode != 0 and "duplicate key" in again.stderr
+    assert count(fresh, "project_events", "event_type = 'supplier_actual_reviewed'") == 1
+    assert review_actual(fresh, "00000000-0000-4000-8000-00000000dead", "rejected").returncode != 0
+
+
+def test_actuals_and_reviews_are_append_only_with_rls_and_no_anon_access(fresh):
+    p = new_project(fresh)
+    pkg, _ = selected_package(fresh, p)
+    aid = _json.loads(submit_actual(fresh, p, pkg).stdout)["id"]
+    review_actual(fresh, aid, "verified", ["po_date"])
+    for sql in ("update supplier_actuals set actual_cost = 1", "delete from supplier_actuals",
+                "update supplier_actual_reviews set decision = 'rejected'", "delete from supplier_actual_reviews"):
+        r = psql(fresh, sql, check=False)
+        assert r.returncode != 0 and "append-only" in r.stderr, sql
+    assert count(fresh, "pg_class", "relname in ('supplier_actuals','supplier_actual_reviews') and relrowsecurity") == 2
+    assert count(fresh, "pg_policies", "tablename in ('supplier_actuals','supplier_actual_reviews')") == 0
+    if count(fresh, "pg_roles", "rolname in ('anon', 'service_role')") == 2:
+        assert scalar(fresh, "select has_table_privilege('anon', 'public.supplier_reality', 'select')") == "f"
+        assert scalar(fresh, "select has_function_privilege('anon', 'public.gf_submit_supplier_actual(jsonb, jsonb)', 'execute')") == "f"
+        assert scalar(fresh, "select has_function_privilege('service_role', 'public.gf_submit_supplier_actual(jsonb, jsonb)', 'execute')") == "t"

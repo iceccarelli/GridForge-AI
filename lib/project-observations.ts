@@ -188,7 +188,7 @@ export async function submitObservation(
     p_event: ev("observation_submitted", submitted_by, {}),
   });
   if (!added.ok || !added.data) {
-    if (added.ok === false && (added.code === "23505" || added.status === 409)) {
+    if (added.ok === false && added.code === "23505") {
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
     }
     if (added.ok === false && (added.code === "23502" || added.code === "23514")) {
@@ -239,7 +239,7 @@ export async function reviewObservation(input: {
   });
   if (!done.ok || !done.data) {
     if (done.ok === false && done.code === "23503") return { ok: false, status: 404, error: "Not found." };
-    if (done.ok === false && (done.code === "23505" || done.status === 409)) {
+    if (done.ok === false && done.code === "23505") {
       return { ok: false, status: 409, error: "This observation has already been reviewed." };
     }
     return { ok: false, status: 502, error: "The review could not be saved. Nothing was recorded." };

@@ -249,6 +249,146 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
   );
 }
 
+/** What the selected supplier promised against what the project experienced. A record, not a signal:
+ * the quote is copied by the database from the stored selected response, every fact may be left
+ * unknown, a cost is only compared when it is stated to cover the quote's scope, and nothing here
+ * reaches costs, rankings or the calibration ledger. */
+const DATE_FIELDS: [keyof ProjectState["supplier_reality"][number]["dates"], string][] = [
+  ["po_date", "PO placed"], ["dispatch_date", "Dispatched (supplier-confirmed)"], ["on_site_date", "On site"],
+  ["install_complete_date", "Installation complete"], ["energised_date", "First energised"],
+];
+const wk = (v: number | null) => (v === null ? UNKNOWN : `${v} weeks`);
+
+function SupplierReality({ state, projectToken, onSaved }: { state: ProjectState; projectToken: string; onSaved: () => void }) {
+  const selected = state.procurement.packages.filter((p) => p.selection);
+  const [pick, setPick] = useState(0);
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [cost, setCost] = useState("");
+  const [currency, setCurrency] = useState("EUR");
+  const [scope, setScope] = useState("");
+  const [scopeNote, setScopeNote] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [method, setMethod] = useState("");
+  const [by, setBy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pkg = selected[pick];
+  const records = state.supplier_reality.filter((r) => r.package_token === pkg?.package_token);
+  // The record a new submission would correct: the one nothing supersedes yet.
+  const current = records.find((r) => !r.superseded) ?? null;
+  const input = "w-full rounded border border-line bg-ink px-2 py-1.5 text-[12px] text-ghost";
+  const anyFact = Object.values(dates).some(Boolean) || cost !== "";
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pkg) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectToken)}/packages/${encodeURIComponent(pkg.package_token)}/actuals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...Object.fromEntries(Object.entries(dates).filter(([, v]) => v)),
+          ...(cost !== "" ? { actual_cost: Number(cost), actual_cost_currency: currency, cost_scope: scope || undefined, cost_scope_note: scopeNote || undefined } : {}),
+          evidence_id: evidence || undefined,
+          method,
+          submitted_by: by,
+          supersedes_id: current?.id,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) setError(body?.error ?? "The delivery record could not be saved.");
+      else {
+        setDates({});
+        setCost("");
+        setScope("");
+        setScopeNote("");
+        onSaved();
+      }
+    } catch {
+      setError("Could not reach the server. Nothing was recorded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="SUPPLIER REALITY">
+      {selected.length === 0 ? (
+        <p>{NOT_YET} — no supplier has been selected, so there is no quote to compare delivery against.</p>
+      ) : (
+        <>
+          {state.supplier_reality.length === 0 && <p>{NOT_YET} — no delivery facts have been recorded.</p>}
+          {state.supplier_reality.map((r) => (
+            <div key={r.id} className={`space-y-0.5 border-b border-line pb-2 ${r.superseded ? "opacity-60" : ""}`}>
+              <Row k="Supplier" v={`${r.supplier}${r.superseded ? " (corrected by a later record)" : ""}`} />
+              <Row k="Lead time" v={`quoted ${wk(r.lead_time.quoted_weeks)} · actual ${wk(r.lead_time.actual_weeks)}`} />
+              <p className="text-faint">{r.lead_time.basis}</p>
+              <Row k="Installation" v={`quoted ${wk(r.install.quoted_weeks)} · actual ${wk(r.install.actual_weeks)}`} />
+              <p className="text-faint">{r.install.basis}</p>
+              <Row k="Price vs quote" v={r.price.delta_eur === null ? UNKNOWN : `${r.price.delta_eur > 0 ? "+" : ""}${r.price.delta_eur.toLocaleString("en")} EUR`} />
+              <p className="text-faint">{r.price.basis}</p>
+              <Row k="Review" v={STATE_LABEL[r.state]} />
+              {r.state === "verified" && <Row k="Verified facts" v={r.verified_fields.join(", ")} />}
+              <Row k="Reported by" v={`${r.submitted_by} — ${r.method}`} />
+            </div>
+          ))}
+          <p className="text-faint">
+            A record of one project. It does not change any price, ranking or accuracy figure.
+          </p>
+          {state.evidence.items.length === 0 ? (
+            <p className="text-faint">Attach the source (PO, delivery note, handover record) to this project first.</p>
+          ) : (
+            <form onSubmit={submit} className="space-y-1.5 pt-1">
+              {selected.length > 1 && (
+                <select value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
+                  {selected.map((p, i) => <option key={p.package_token} value={i}>{`${p.architecture} · ${p.selection!.supplier}`}</option>)}
+                </select>
+              )}
+              <p className="text-faint">{current ? "Submitting corrects the current record; the earlier one stays." : "Leave out anything you do not know."}</p>
+              {DATE_FIELDS.map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2 text-faint">
+                  <span className="w-40 shrink-0">{label}</span>
+                  <input type="date" value={dates[k] ?? ""} onChange={(e) => setDates({ ...dates, [k]: e.target.value })} className={input} />
+                </label>
+              ))}
+              <div className="flex gap-1.5">
+                <input value={cost} onChange={(e) => setCost(e.target.value)} placeholder="actual cost" inputMode="decimal" className={input} />
+                <input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} className={`${input} w-20`} aria-label="currency" />
+              </div>
+              {cost !== "" && (
+                <>
+                  <select value={scope} onChange={(e) => setScope(e.target.value)} className={input} required>
+                    <option value="">Does this cost cover what the quote priced? (required)</option>
+                    <option value="same_as_quote">Same scope as the quote</option>
+                    <option value="differs">Different scope</option>
+                    <option value="unknown">I do not know</option>
+                  </select>
+                  {scope === "differs" && <input value={scopeNote} onChange={(e) => setScopeNote(e.target.value)} placeholder="what differs" className={input} />}
+                </>
+              )}
+              <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
+                <option value="">Source artifact (required)</option>
+                {state.evidence.items.map((it) => <option key={it.id} value={it.id}>{it.filename}</option>)}
+              </select>
+              <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how these facts were established" className={input} />
+              <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
+              <button
+                disabled={busy || !anyFact || !evidence || !method.trim() || !by.trim() || (cost !== "" && (!scope || !currency || (scope === "differs" && !scopeNote.trim())))}
+                className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50"
+              >
+                {busy ? "Saving" : current ? "Record correction" : "Record delivery facts"}
+              </button>
+              {error && <p className="text-[11px] text-flag">{error}</p>}
+            </form>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 /** Commission an existing paid product FOR this project. Names and prices are read from the
  * catalogue (lib/products.ts); checkout is the existing /api/checkout, which validates the
  * project token before any Stripe session is created. */
@@ -475,6 +615,8 @@ export function ProjectPanel({
             </Card>
 
             <Observed state={state} projectToken={projectToken!} onSaved={() => void load()} />
+
+            <SupplierReality state={state} projectToken={projectToken!} onSaved={() => void load()} />
 
             <Commission projectToken={projectToken!} />
 

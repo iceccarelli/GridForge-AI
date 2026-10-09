@@ -13,6 +13,7 @@ const EVENT_TYPES = new Set([
   "project_created", "btm_case_attached", "btm_case_revised", "rfq_generated",
   "supplier_response_received", "comparison_completed", "supplier_selected", "evidence_attached",
   "paid_product_attached", "observation_submitted", "observation_reviewed",
+  "supplier_actual_submitted", "supplier_actual_reviewed",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -71,6 +72,67 @@ export function installProjectRpcs(db: PostgrestFake): void {
     if ((p.decision === "verified") !== (p.evidence_class != null)) throw new PgError("23514", "class iff verified", 400);
     const r = db.insertRow("project_observation_reviews", { observation_id: o.id, project_id: o.project_id, ...p });
     emit(o.project_id, p_event, { observation_id: o.id, decision: r.decision, evidence_class: r.evidence_class });
+    return r;
+  });
+  // Supplier Reality. The derived `supplier_reality` VIEW is mirrored here row-for-row on submit; the
+  // real view is exercised only by the real-database suites, which is what proves its arithmetic.
+  const weeks = (a: string | null, b: string | null) =>
+    a && b ? Math.round(((Date.parse(b) - Date.parse(a)) / 86_400_000 / 7) * 10) / 10 : null;
+  db.rpcs.set("gf_submit_supplier_actual", ({ p, p_event }) => {
+    const pk = db.rows("procurement_packages").find((x) => x.id === p.package_id && x.project_id === p.project_id);
+    if (!pk) throw new PgError("23503", "no such package in this project", 409);
+    if (!pk.selected_supplier || !pk.selected_response_id) throw new PgError("23514", "no supplier selected", 400);
+    const rs = db.rows("procurement_responses").find((x) => x.id === pk.selected_response_id);
+    if (!db.rows("project_evidence").some((e) => e.id === p.evidence_id && e.project_id === pk.project_id)) {
+      throw new PgError("23503", "that evidence does not belong to this project", 409);
+    }
+    const all = db.rows("supplier_actuals").filter((x) => x.package_id === pk.id);
+    if (p.supersedes_id) {
+      if (!all.some((x) => x.id === p.supersedes_id)) throw new PgError("23503", "no such record to correct", 409);
+      if (all.some((x) => x.supersedes_id === p.supersedes_id)) throw new PgError("23505", "supplier_actuals_one_correction", 409);
+    } else if (all.some((x) => !x.supersedes_id)) {
+      throw new PgError("23505", "supplier_actuals_one_initial", 409);
+    }
+    const v = ((rs as any)?.response?.values ?? {}) as Record<string, unknown>;
+    const num = (x: unknown) => (typeof x === "number" ? x : null);
+    const r: any = db.insertRow("supplier_actuals", {
+      po_date: null, dispatch_date: null, on_site_date: null, install_complete_date: null, energised_date: null,
+      actual_cost: null, actual_cost_currency: null, cost_scope: null, cost_scope_note: null, supersedes_id: null, note: null,
+      ...p, package_id: pk.id, selected_response_id: rs?.id, supplier: rs?.supplier, case_token: pk.case_token,
+      case_revision: pk.case_revision, architecture: pk.architecture,
+      quoted_capex_eur: num(v.capex_eur), quoted_lead_time_weeks: num(v.lead_time_weeks),
+      quoted_install_weeks: num(v.install_weeks), quoted_snapshot: v,
+      submitted_at: p.submitted_at ?? new Date().toISOString(),
+    });
+    const cmp = r.cost_scope === "same_as_quote" && r.actual_cost_currency === "EUR" && r.quoted_capex_eur !== null;
+    db.insertRow("supplier_reality", {
+      actual_id: r.id, project_id: r.project_id, package_id: r.package_id, supplier: r.supplier,
+      supersedes_id: r.supersedes_id, quoted_lead_time_weeks: r.quoted_lead_time_weeks,
+      actual_lead_time_weeks: weeks(r.po_date, r.on_site_date),
+      lead_time_basis: r.quoted_lead_time_weeks === null ? "unknown: the quote gave no lead time"
+        : !r.po_date ? "unknown: PO date not supplied" : !r.on_site_date ? "unknown: on-site date not supplied" : "fake: weeks PO to on-site",
+      quoted_install_weeks: r.quoted_install_weeks, actual_install_weeks: weeks(r.on_site_date, r.energised_date),
+      install_basis: r.quoted_install_weeks === null ? "unknown: the quote gave no installation time"
+        : !r.on_site_date ? "unknown: on-site date not supplied" : !r.energised_date ? "unknown: first-energised date not supplied" : "fake: weeks on-site to energised",
+      quoted_capex_eur: r.quoted_capex_eur, actual_cost: r.actual_cost, actual_cost_currency: r.actual_cost_currency,
+      cost_scope: r.cost_scope, cost_delta_eur: cmp ? r.actual_cost - r.quoted_capex_eur : null,
+      cost_basis: r.actual_cost === null ? "unknown: no actual cost supplied" : cmp ? "EUR, same scope as quote" : "not compared",
+    });
+    emit(r.project_id, p_event, { actual_id: r.id, package_id: r.package_id, supplier: r.supplier, evidence_id: r.evidence_id });
+    return r;
+  });
+  db.rpcs.set("gf_review_supplier_actual", ({ p, p_event }) => {
+    const a = db.rows("supplier_actuals").find((x) => x.id === p.actual_id);
+    if (!a) throw new PgError("23503", "no such record", 409);
+    const supplied = ["po_date", "dispatch_date", "on_site_date", "install_complete_date", "energised_date", "actual_cost"]
+      .filter((f) => a[f] !== null && a[f] !== undefined);
+    const vf: string[] = p.verified_fields ?? [];
+    if (!vf.every((f) => supplied.includes(f))) throw new PgError("23514", "verify only supplied facts", 400);
+    if ((p.decision === "verified") !== (vf.length > 0)) throw new PgError("23514", "verified iff fields", 400);
+    if (p.decision === "rejected" && !String(p.reason ?? "").trim()) throw new PgError("23514", "rejection needs reason", 400);
+    if (db.rows("supplier_actual_reviews").some((x) => x.actual_id === a.id)) throw new PgError("23505", "unique actual_id", 409);
+    const r = db.insertRow("supplier_actual_reviews", { ...p, project_id: a.project_id, verified_fields: vf });
+    emit(a.project_id, p_event, { actual_id: a.id, decision: r.decision, verified_fields: vf });
     return r;
   });
   db.rpcs.set("gf_create_project", ({ p, p_event }) => {

@@ -356,6 +356,45 @@ stored engine result  ->  observation submitted  ->  human review (admin)  ->  a
 - Review queue for the operator: `GET /api/admin/observations` (`?state=all` for every one). There is deliberately
   no review UI yet: there are no observations.
 
+### Supplier Reality — what the supplier promised against what the project experienced (migration `0018_supplier_reality.sql`)
+
+```
+selected supplier's stored quote  ->  typed delivery record  ->  human review  ->  derived quoted-vs-actual
+(from the package's selection)       (dates, cost+scope,        (names the facts     (a database view, per
+                                      evidence, named person)    it vouches for)      record, never stored)
+```
+
+A **record, not a signal**. Nothing here feeds `gridforge/costs.py`, the cost library, supplier rankings,
+benchmarks or the calibration ledger — a test asserts nothing in `gridforge/` references it and that
+`cost_library.json` / `calibration.json` are byte-identical after a full run. There is no marketplace, supplier CRM
+or supplier score.
+
+- **The quote is never typed by the submitter.** `gf_submit_supplier_actual` copies the supplier, price, lead time
+  and installation time from the stored response that the package's selection points at (and records the case
+  revision and architecture the package was built from). Without a recorded selection there is no quote and
+  nothing is accepted. Quoted fields are `capex_eur`, `lead_time_weeks` and `install_weeks`; a quote that omits
+  one leaves it NULL, never zero.
+- **Every delivery fact may be unknown.** PO date, supplier-confirmed dispatch, on-site, installation-complete and
+  first-energised dates, and an actual cost are all optional (at least one is required). Unknown is stored as
+  NULL. Dates must be possible (not in the future; PO <= dispatch <= on-site <= installation-complete/energised).
+- **Cost scopes are never treated as equivalent.** An actual cost carries an explicit currency and an explicit
+  `cost_scope` against the quote: `same_as_quote`, `differs` (needs a note) or `unknown`. The derived price delta
+  exists only for `same_as_quote` in EUR; otherwise it is NULL and `cost_basis` says why.
+- **Derivation is deterministic and states its basis.** `supplier_reality` (a `security_invoker` view) gives lead time
+  (PO to on-site, weeks) and installation time (on-site to first energised, weeks) against the quote, with a
+  `*_basis` text per metric — `unknown: <field> not supplied` rather than a guess.
+- **Source and person are required.** A record names an attached evidence artifact of the same project (hash and
+  storage reference live on that artifact), a method, and the person reporting it.
+- **Review is separate, human and immutable.** `POST /api/admin/supplier-actuals/{id}/review` (admin cookie) records
+  verified (with the exact `verified_fields` the reviewer vouches for, a subset of what the record supplies) or
+  rejected (reason required), once. Queue: `GET /api/admin/supplier-actuals`.
+- **Corrections are new records.** A submission may name `supersedes_id`; exactly one record per package is the first,
+  and a record can be superseded at most once (no forks). The earlier record and its review stay.
+- Submission and review are each written with their `supplier_actual_submitted` / `supplier_actual_reviewed` event in
+  one transaction; all three tables are append-only, RLS-on with no policy, service-role only.
+- Whether any verified figure may later inform a cost line or a ranking is a separate, explicit, human decision that
+  this release does not make or prepare.
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

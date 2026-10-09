@@ -21,6 +21,11 @@ import {
   type Result,
 } from "@/lib/projects";
 import {
+  realityFor,
+  type ActualReviewRow,
+  type ActualRow,
+} from "@/lib/supplier-reality";
+import {
   latestComparison,
   packageResponses,
   type ComparisonRow,
@@ -113,6 +118,29 @@ export interface ProjectState {
     /** Verified at or above the class the calibration ledger accepts. A person still adds it. */
     ledger_eligible: boolean;
   }[];
+  /**
+   * What each selected supplier promised against what happened. A record, not a signal: nothing here
+   * reaches costs, rankings or calibration. Unknown stays null, with the basis saying why.
+   */
+  supplier_reality: {
+    id: string;
+    package_token: string;
+    supplier: string;
+    supersedes_id: string | null;
+    /** A newer record corrects this one. */
+    superseded: boolean;
+    submitted_by: string;
+    submitted_at: string;
+    method: string;
+    dates: Record<"po_date" | "dispatch_date" | "on_site_date" | "install_complete_date" | "energised_date", string | null>;
+    cost: { actual: number | null; currency: string | null; scope: string | null; scope_note: string | null };
+    state: "submitted" | "verified" | "rejected";
+    verified_fields: string[];
+    reviewed_by: string | null;
+    lead_time: { quoted_weeks: number | null; actual_weeks: number | null; basis: string };
+    install: { quoted_weeks: number | null; actual_weeks: number | null; basis: string };
+    price: { quoted_eur: number | null; delta_eur: number | null; basis: string };
+  }[];
   events: Pick<ProjectEventRow, "id" | "event_type" | "occurred_at" | "actor" | "payload">[];
 }
 
@@ -157,18 +185,21 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk, ob, rv] = await Promise.all([
+  const [links, events, ev, pk, ob, rv, sa, sr, sv] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
     rest<PackageRow[]>("GET", `procurement_packages?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=created_at.asc`),
     rest<ObservationRow[]>("GET", `project_observations?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=submitted_at.asc`),
     rest<ReviewRow[]>("GET", `project_observation_reviews?project_id=eq.${encodeURIComponent(project.id)}&select=*`),
+    rest<ActualRow[]>("GET", `supplier_actuals?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=submitted_at.asc`),
+    rest<ActualReviewRow[]>("GET", `supplier_actual_reviews?project_id=eq.${encodeURIComponent(project.id)}&select=*`),
+    realityFor(project.id),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
   // A failed read is a failed read — never rendered as "no evidence" or "no packages".
-  if (!ev.ok || !pk.ok || !ob.ok || !rv.ok) return { ok: false, status: 502, error: "The project record could not be read." };
+  if (!ev.ok || !pk.ok || !ob.ok || !rv.ok || !sa.ok || !sr.ok || !sv.ok) return { ok: false, status: 502, error: "The project record could not be read." };
 
   const cases: CaseState[] = [];
   const latestRevision = new Map<string, number>();
@@ -254,6 +285,36 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     };
   });
 
+  const packageOf = new Map((pk.data ?? []).map((p) => [p.id, p.package_token]));
+  const reviewOfActual = new Map((sr.data ?? []).map((r) => [r.actual_id, r]));
+  const corrected = new Set((sa.data ?? []).map((a) => a.supersedes_id).filter(Boolean));
+  const supplier_reality: ProjectState["supplier_reality"] = (sa.data ?? []).map((a) => {
+    const r = reviewOfActual.get(a.id);
+    const v = sv.byActual.get(a.id);
+    const n = (x: unknown) => (x === null || x === undefined ? null : Number(x));
+    return {
+      id: a.id,
+      package_token: packageOf.get(a.package_id) ?? "",
+      supplier: a.supplier,
+      supersedes_id: a.supersedes_id,
+      superseded: corrected.has(a.id),
+      submitted_by: a.submitted_by,
+      submitted_at: a.submitted_at,
+      method: a.method,
+      dates: {
+        po_date: a.po_date, dispatch_date: a.dispatch_date, on_site_date: a.on_site_date,
+        install_complete_date: a.install_complete_date, energised_date: a.energised_date,
+      },
+      cost: { actual: n(a.actual_cost), currency: a.actual_cost_currency, scope: a.cost_scope, scope_note: a.cost_scope_note },
+      state: r ? r.decision : "submitted",
+      verified_fields: r?.verified_fields ?? [],
+      reviewed_by: r?.reviewer ?? null,
+      lead_time: { quoted_weeks: n(a.quoted_lead_time_weeks), actual_weeks: n(v?.actual_lead_time_weeks), basis: v?.lead_time_basis ?? "unknown" },
+      install: { quoted_weeks: n(a.quoted_install_weeks), actual_weeks: n(v?.actual_install_weeks), basis: v?.install_basis ?? "unknown" },
+      price: { quoted_eur: n(a.quoted_capex_eur), delta_eur: n(v?.cost_delta_eur), basis: v?.cost_basis ?? "unknown" },
+    };
+  });
+
   const evidence = ev.data ?? [];
   return {
     ok: true,
@@ -291,6 +352,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       },
       procurement: { packages },
       observations,
+      supplier_reality,
       events: events.events.map((e) => ({
         id: e.id,
         event_type: e.event_type,

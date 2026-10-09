@@ -10,6 +10,7 @@
  * Skipped unless GF_PGRST_URL (PostgREST, e.g. http://127.0.0.1:3300) and GF_PGRST_JWT
  * (a token whose role is service_role) are set — a skip is a gap in what was checked.
  */
+import fs from "node:fs";
 import crypto from "node:crypto";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -441,4 +442,106 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(ledgerCount()).toBe(before);
     expect(await rows("project_links", "&object_type=eq.calibration_observation")).toHaveLength(0);
   }, 60_000);
+});
+
+
+describe.skipIf(!enabled)("supplier reality against a real selected quote, on real PostgreSQL", () => {
+  it("copies the quote from the stored selected response, derives the comparison in the database, reviews once, and touches no cost data", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const { createHash } = await import("node:crypto");
+    const fileHash = (f: string) => createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+    const costsBefore = [fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")];
+
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `Reality ${crypto.randomUUID().slice(0, 6)}` })));
+    const pt = made.project_token as string;
+    const [proj] = await rows("projects", `&project_token=eq.${pt}`);
+    const { POST: mkCase } = await import("@/app/api/power/deploy/cases/route");
+    const c = await j(await mkCase(post("/api/power/deploy/cases", REQUEST)));
+    const { POST: attach } = await import("@/app/api/projects/[token]/cases/route");
+    await attach(post("/x", { case_token: c.case_token }), ctx({ token: pt }));
+    const { POST: rfq } = await import("@/app/api/projects/[token]/packages/route");
+    const g = await j(await rfq(post("/x", { case_token: c.case_token, architecture: ARCH }), ctx({ token: pt })));
+    const pkg = g.package.package_token as string;
+    const [pkgRow] = await rows("procurement_packages", `&package_token=eq.${pkg}`);
+    const pctx = ctx({ token: pt, package: pkg });
+
+    const { POST: respond } = await import("@/app/api/projects/[token]/packages/[package]/responses/route");
+    const resp = {
+      supplier: "Supplier B", received_on: "2026-10-01",
+      values: { ...pkgRow.response_template.values, capex_eur: 36.5e6, lead_time_weeks: 52, install_weeks: 10 },
+      compliance: Object.fromEntries(Object.keys(pkgRow.response_template.compliance).map((k) => [k, "C"])),
+    };
+    expect((await respond(post("/x", resp), pctx)).status).toBe(201);
+
+    const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
+    const upRes = await j(await up(new Request(siteUrl(`/api/projects/${pt}/evidence?filename=po.pdf&source_category=supplier_document`),
+      { method: "POST", headers: { "content-type": "application/pdf" }, body: PDF as BodyInit }), ctx({ token: pt })));
+    const evidenceId = upRes.evidence.id as string;
+
+    const { POST: actual } = await import("@/app/api/projects/[token]/packages/[package]/actuals/route");
+    const record = (body: Record<string, unknown>) => actual(post("/x", body), pctx);
+    const facts = { po_date: "2025-06-02", on_site_date: "2026-05-18", energised_date: "2026-07-27", actual_cost: 38e6,
+      actual_cost_currency: "EUR", cost_scope: "same_as_quote", evidence_id: evidenceId,
+      method: "PO, delivery note and handover record", submitted_by: "A. Rivera" };
+
+    // before any selection there is no quote to compare against: refused, nothing written
+    const eventsBefore = (await rows("project_events", `&project_id=eq.${proj.id}`)).length;
+    expect((await record(facts)).status).toBe(409);
+    expect(await rows("supplier_actuals", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
+
+    // selection follows a comparison, as in the product
+    const { POST: compare } = await import("@/app/api/projects/[token]/packages/[package]/comparison/route");
+    expect((await compare(post("/x", {}), pctx)).status).toBeLessThan(300);
+    const { POST: select } = await import("@/app/api/projects/[token]/packages/[package]/selection/route");
+    expect((await select(post("/x", { supplier: "Supplier B", actor: "J. Ortiz" }), pctx)).status).toBe(200);
+
+    // the database copies the quote; the caller's idea of it is ignored
+    expect((await record({ ...facts, quoted_capex_eur: 1, quoted_lead_time_weeks: 1 })).status).toBe(201);
+    const [row] = await rows("supplier_actuals", `&project_id=eq.${proj.id}`);
+    expect(row).toMatchObject({ supplier: "Supplier B", architecture: ARCH });
+    expect(Number(row.quoted_capex_eur)).toBe(36.5e6);
+    expect(Number(row.quoted_lead_time_weeks)).toBe(52);
+    expect((await record(facts)).status).toBe(409);                          // one first record per package
+
+    // the derived view, computed by PostgreSQL
+    const [v] = await rows("supplier_reality", `&actual_id=eq.${row.id}`);
+    expect(Number(v.actual_lead_time_weeks)).toBe(50);
+    expect(Number(v.actual_install_weeks)).toBe(10);
+    expect(Number(v.cost_delta_eur)).toBe(1.5e6);
+    expect(v.cost_basis).toBe("EUR, same scope as quote");
+
+    // a correction supersedes exactly one record; the original stays
+    const fix = await record({ ...facts, actual_cost: 38.2e6, supersedes_id: row.id });
+    expect(fix.status).toBe(201);
+    expect((await record({ ...facts, supersedes_id: row.id })).status).toBe(409);
+    expect(await rows("supplier_actuals", `&project_id=eq.${proj.id}`)).toHaveLength(2);
+
+    // review: admin only, once, naming facts the record supplies
+    const { POST: rev } = await import("@/app/api/admin/supplier-actuals/[id]/review/route");
+    const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
+    expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await decide({ decision: "verified", verified_fields: ["dispatch_date"], reviewer: "J. Ortiz" })).status).toBe(422);
+    expect((await decide({ decision: "verified", verified_fields: ["po_date", "on_site_date"], reviewer: "J. Ortiz" })).status).toBe(201);
+    expect((await decide({ decision: "rejected", reviewer: "J. Ortiz", reason: "no" })).status).toBe(409);
+
+    const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: pt })));
+    expect(s.supplier_reality).toHaveLength(2);
+    expect(s.supplier_reality[0]).toMatchObject({ state: "verified", superseded: true, verified_fields: ["po_date", "on_site_date"],
+      lead_time: expect.objectContaining({ quoted_weeks: 52, actual_weeks: 50 }) });
+    expect(s.supplier_reality[1]).toMatchObject({ state: "submitted", supersedes_id: row.id });
+
+    // the database refuses to rewrite either record, even for service_role
+    expect((await sql(`/supplier_actuals?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify({ actual_cost: 1 }) })).status).toBe(403);
+    expect((await sql(`/supplier_actual_reviews?actual_id=eq.${row.id}`, { method: "DELETE" })).status).toBe(403);
+    const events = await rows("project_events", `&project_id=eq.${proj.id}&event_type=in.(supplier_actual_submitted,supplier_actual_reviewed)&order=occurred_at.asc`);
+    expect(events.map((e) => e.event_type)).toEqual(["supplier_actual_submitted", "supplier_actual_submitted", "supplier_actual_reviewed"]);
+
+    // nothing reached the cost library or the calibration data
+    expect([fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")]).toEqual(costsBefore);
+  }, 90_000);
 });

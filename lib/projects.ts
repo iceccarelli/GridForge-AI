@@ -41,7 +41,9 @@ export type ProjectEventType =
   | "evidence_attached"
   | "paid_product_attached"
   | "observation_submitted"
-  | "observation_reviewed";
+  | "observation_reviewed"
+  | "supplier_actual_submitted"
+  | "supplier_actual_reviewed";
 
 export interface ProjectRow {
   id: string;

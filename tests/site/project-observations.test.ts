@@ -28,7 +28,7 @@ beforeEach(() => {
   process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "project_observations",
-    "project_observation_reviews", "procurement_packages", "procurement_responses",
+    "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "procurement_packages", "procurement_responses",
     "procurement_comparisons", "power_deployment_cases",
   ]);
   db.uniqueKeys.set("project_observation_reviews", [["observation_id"]]);
