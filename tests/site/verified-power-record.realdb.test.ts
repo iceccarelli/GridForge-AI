@@ -545,3 +545,61 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
     expect([fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")]).toEqual(costsBefore);
   }, 90_000);
 });
+
+
+describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+  const hook = async (sessionId: string, kind: string, amount: number, extra: Record<string, string> = {}) => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    const payload = JSON.stringify({
+      id: `evt_${sessionId}`, type: "checkout.session.completed",
+      data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", currency: "eur",
+        amount_total: amount, metadata: { kind, company: "Hall Co", ...extra } } },
+    });
+    const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+  };
+
+  it("records the payment once through redelivery, advances it only with proof, and the database refuses the rest", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const sid = `cs_dep_${crypto.randomUUID().slice(0, 8)}`;
+    for (let i = 0; i < 3; i++) expect((await hook(sid, "envelope_study_deposit", 900_000)).status).toBe(200);
+    const mine = await rows("engagement_deposits", `&stripe_session_id=eq.${sid}`);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ kind: "envelope_study_deposit", amount_cents: 900_000, currency: "eur", status: "paid", owner: null });
+
+    // the customer page, from the real record
+    const { default: Page } = await import("@/app/commissioned/page");
+    const React = (await import("react")).default;
+    (globalThis as { React?: unknown }).React = React;
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ session_id: sid }) }))).toContain("there is no intake form");
+
+    // operator steps: admin only, in order, each with its proof
+    const { createHash } = await import("node:crypto");
+    const { POST: adv } = await import("@/app/api/admin/deposits/[id]/route");
+    const go = (body: Record<string, unknown>) => adv(post("/x", body), ctx({ id: mine[0].id }));
+    expect((await go({ owner: "A. Rivera" })).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await go({})).status).toBe(422);
+    expect((await go({ owner: "A. Rivera" })).status).toBe(200);
+    expect((await go({ owner: "again" })).status).toBe(422);                 // now needs the scope note
+    expect((await go({ scope_note: "Hall A+B, 35 MW" })).status).toBe(200);
+    expect((await go({ delivery_ref: "https://example.test/d/1" })).status).toBe(200);
+    expect((await go({ delivery_ref: "x" })).status).toBe(409);
+    const [done] = await rows("engagement_deposits", `&stripe_session_id=eq.${sid}`);
+    expect(done).toMatchObject({ status: "delivered", owner: "A. Rivera", scope_note: "Hall A+B, 35 MW" });
+
+    // the database, not the route, refuses to rewrite the payment, reverse a step or delete the record
+    const patch = (body: unknown) => sql(`/engagement_deposits?id=eq.${done.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    expect((await patch({ amount_cents: 1 })).status).toBeGreaterThanOrEqual(400);
+    expect((await patch({ status: "paid" })).status).toBeGreaterThanOrEqual(400);
+    expect((await patch({ owner: "someone else" })).status).toBeGreaterThanOrEqual(400);
+    expect((await sql(`/engagement_deposits?id=eq.${done.id}`, { method: "DELETE" })).status).toBeGreaterThanOrEqual(400);
+    expect((await rows("engagement_deposits", `&id=eq.${done.id}`))).toHaveLength(1);
+  }, 60_000);
+});

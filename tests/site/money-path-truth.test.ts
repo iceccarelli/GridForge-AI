@@ -82,7 +82,8 @@ beforeEach(() => {
   delete process.env.RESEND_API_KEY;
   sent.length = 0;
   jar.length = 0;
-  db = new PostgrestFake(["deliverables", "watches", "watch_notes", "api_accounts", "subscriptions", "leads", "qualifications", "scenarios"]);
+  db = new PostgrestFake(["deliverables", "watches", "watch_notes", "api_accounts", "subscriptions", "leads", "qualifications", "scenarios", "engagement_deposits"]);
+  db.uniqueKeys.set("engagement_deposits", [["stripe_session_id"]]);
   db.uniqueKeys.set("deliverables", [["stripe_session_id"]]);
   db.uniqueKeys.set("watches", [["stripe_subscription_id"]]);
   db.uniqueKeys.set("api_accounts", [["stripe_subscription_id"]]);
@@ -193,11 +194,18 @@ describe.each(Object.values(PRODUCTS))("$id", (p) => {
       api_account: db.rows("api_accounts").length,
     };
     const expected = { deliverable: 0, watch: 0, api_account: 0, [klass]: 1 } as Record<string, number>;
-    if (klass === "manual") expect(count).toEqual({ deliverable: 0, watch: 0, api_account: 0 });  // nothing is conjured for a deposit
+    if (klass === "manual") {
+      expect(count).toEqual({ deliverable: 0, watch: 0, api_account: 0 });  // nothing is conjured for a deposit
+      // ...but the payment is a durable, owned hand-off record, once however often Stripe redelivers
+      expect(db.rows("engagement_deposits")).toEqual([
+        expect.objectContaining({ stripe_session_id: session, kind: p.kind, amount_cents: expect.any(Number) }),
+      ]);
+      expect(db.rows("engagement_deposits")).toHaveLength(1);
+    }
     else expect(count).toEqual({ deliverable: expected.deliverable, watch: expected.watch, api_account: expected.api_account });
     r().idempotent = "proven";
-    r().fulfilment = klass === "manual" ? "manual (deposit; a person scopes the work)" : `${klass} ×1 after 3 deliveries`;
-    if (klass === "manual") r().idempotent = "n/a";
+    r().fulfilment = klass === "manual" ? "manual hand-off: engagement_deposits row ×1, a named person scopes it" : `${klass} ×1 after 3 deliveries`;
+    if (klass === "manual") r().idempotent = "proven";   // one hand-off row after 3 deliveries
   });
 
   it.runIf(Boolean(PRODUCTS.density_screen))("is represented accurately in the capability registry", () => {

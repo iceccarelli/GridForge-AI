@@ -395,6 +395,30 @@ or supplier score.
 - Whether any verified figure may later inform a cost line or a ranking is a separate, explicit, human decision that
   this release does not make or prepare.
 
+### Deposits: the Envelope Study and Portfolio Screen hand-off (migration `0019_engagement_deposits.sql`)
+
+The €9,000 Envelope Study and €15,000 Portfolio Screen deposits open no deliverable, intake or account: **a person
+scopes the work with the buyer.** That is by design and is not automated. What the system now guarantees is that the
+payment is never only a log line:
+
+- The webhook writes one `engagement_deposits` row per Stripe session (unique) **before it answers 200**. A failed
+  write answers 500 so Stripe redelivers; redelivery is a no-op and sends no second founder email. (Previously the
+  webhook PATCHed `deposit_paid` / `deposit_amount_cents` / `stripe_session_id` onto the newest lead with the buyer's
+  email; no migration created those columns and a buyer with no lead matched nothing, so on a database built from this
+  repo the payment was recorded nowhere but Stripe. The lead is still marked `status = deposit_paid`, best effort.)
+- **The operator's work list:** `GET /api/admin/deposits` (admin cookie; oldest payment first; `?state=all` includes
+  delivered). It is the responsible-action list: every row not `delivered` is somebody's job.
+- **Steps, each with its proof, in order, once** (`POST /api/admin/deposits/{id}`):
+  `paid` -> `contacted` (`owner`: the named person who contacted the buyer) -> `scoped` (`scope_note`: what was agreed)
+  -> `delivered` (`delivery_ref`: where the delivered work can be found). The database trigger refuses a skipped or
+  reversed step, a missing proof, a changed payment fact, a rewritten earlier step and any delete.
+- **What the buyer sees:** `/commissioned?session_id=...` says the engagement is scoped with them (no intake form), shows
+  what the catalogue says they receive, and shows the recorded step. It states **no response time**: that is the operator's
+  commitment to make by contacting the buyer, not something this page can promise.
+- **Deploy order:** apply `0019` before deploying this code. Until it exists the webhook answers 500 for deposits and
+  Stripe retries (it does not lose them); apply the migration and the retries land.
+- Not proven here: a real Stripe Checkout round trip (no test-mode credential in this environment).
+
 ## Rules that do not bend
 
 - **Never issue on assumptions.** `gaps` tells you whether the intake supports a study

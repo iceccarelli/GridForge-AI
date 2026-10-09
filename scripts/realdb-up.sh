@@ -53,8 +53,8 @@ for f in $(ls supabase/migrations/*.sql | sort); do
   echo "  $(basename "$f")"
 done
 # Belt and braces: the objects the latest migrations create must really exist.
-"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_attach_purchase','gf_submit_observation','gf_submit_supplier_actual')" \
-  | grep -qx 3 || { echo "[realdb] FAILED: expected migration objects are missing"; exit 1; }
+"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_attach_purchase','gf_submit_observation','gf_submit_supplier_actual','gf_deposit_guard')" \
+  | grep -qx 4 || { echo "[realdb] FAILED: expected migration objects are missing"; exit 1; }
 
 "${DBQ[@]}" -c "grant usage on schema public to anon, service_role" \
             -c "grant all on all tables in schema public to service_role" \

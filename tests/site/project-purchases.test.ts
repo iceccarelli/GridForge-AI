@@ -49,8 +49,9 @@ beforeEach(() => {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "procurement_packages",
-    "procurement_responses", "procurement_comparisons", "project_observations", "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "deliverables", "watches", "watch_notes", "leads",
+    "procurement_responses", "procurement_comparisons", "project_observations", "project_observation_reviews", "engagement_deposits", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "deliverables", "watches", "watch_notes", "leads",
   ]);
+  db.uniqueKeys.set("engagement_deposits", [["stripe_session_id"]]);
   db.uniqueKeys.set("deliverables", [["stripe_session_id"]]);
   db.uniqueKeys.set("watches", [["stripe_subscription_id"]]);
   installProjectRpcs(db);
@@ -156,8 +157,9 @@ describe("the webhook attaches the purchase to its project, once", () => {
 
   it("Envelope Study deposit has no object: the event alone, once", async () => {
     const p = await project();
-    for (let i = 0; i < 2; i++) await hook(completed("cs_es_1", "envelope_study_deposit", { project_id: p.id }, { amount_total: 900000 }));
+    for (let i = 0; i < 2; i++) expect((await hook(completed("cs_es_1", "envelope_study_deposit", { project_id: p.id }, { amount_total: 900000 }))).status).toBe(200);
     expect(db.rows("project_links")).toHaveLength(0);
+    expect(db.rows("engagement_deposits")).toEqual([expect.objectContaining({ stripe_session_id: "cs_es_1", amount_cents: 900000, project_id: p.id })]);
     expect(purchaseEvents()).toHaveLength(1);
     expect(purchaseEvents()[0].payload).toMatchObject({ kind: "envelope_study_deposit", object_type: null, amount_cents: 900000 });
   });

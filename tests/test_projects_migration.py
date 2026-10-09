@@ -58,7 +58,7 @@ def db():
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
-              "0018_supplier_reality.sql"):
+              "0018_supplier_reality.sql", "0019_engagement_deposits.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -151,7 +151,7 @@ def fresh():
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
-              "0018_supplier_reality.sql"):
+              "0018_supplier_reality.sql", "0019_engagement_deposits.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -686,3 +686,66 @@ def test_actuals_and_reviews_are_append_only_with_rls_and_no_anon_access(fresh):
         assert scalar(fresh, "select has_table_privilege('anon', 'public.supplier_reality', 'select')") == "f"
         assert scalar(fresh, "select has_function_privilege('anon', 'public.gf_submit_supplier_actual(jsonb, jsonb)', 'execute')") == "f"
         assert scalar(fresh, "select has_function_privilege('service_role', 'public.gf_submit_supplier_actual(jsonb, jsonb)', 'execute')") == "t"
+
+
+# --- the deposit hand-off (0019) -----------------------------------------------------------
+
+def deposit(db, session="cs_1", kind="envelope_study_deposit", amount=900000, **over):
+    cols = {"stripe_session_id": session, "kind": kind, "amount_cents": amount, "email": "b@h.example", **over}
+    names = ", ".join(cols)
+    vals = ", ".join("null" if v is None else (str(v) if isinstance(v, int) else f"'{v}'") for v in cols.values())
+    return psql(db, f"insert into engagement_deposits ({names}) values ({vals})", check=False)
+
+
+def test_a_deposit_is_recorded_once_per_stripe_session_with_real_amounts(fresh):
+    assert deposit(fresh).returncode == 0
+    dup = deposit(fresh)
+    assert dup.returncode != 0 and "duplicate key" in dup.stderr
+    assert deposit(fresh, "cs_2", amount=0).returncode != 0            # a deposit with no amount is not a payment
+    assert deposit(fresh, "cs_3", kind=" ").returncode != 0
+    assert deposit(fresh, "cs_4", email=None).returncode == 0           # still a payment without an email
+    assert count(fresh, "engagement_deposits") == 2
+    assert scalar(fresh, "select status from engagement_deposits where stripe_session_id = 'cs_1'") == "paid"
+
+
+def step_sql(to, sets):
+    return f"update engagement_deposits set status = '{to}', {sets} where stripe_session_id = 'cs_1'"
+
+
+def test_a_deposit_moves_forward_one_proven_step_at_a_time(fresh):
+    deposit(fresh)
+    refused = [
+        step_sql("scoped", "scope_note = 'n', scoped_at = now(), owner = 'o', contacted_at = now()"),   # skipped a step
+        step_sql("delivered", "delivery_ref = 'r', delivered_at = now()"),                              # skipped two
+        step_sql("contacted", "contacted_at = now()"),                                                  # no named owner
+    ]
+    for sql in refused:
+        assert psql(fresh, sql, check=False).returncode != 0, sql
+    assert scalar(fresh, "select status from engagement_deposits") == "paid"
+    assert psql(fresh, step_sql("contacted", "owner = 'A. Rivera', contacted_at = now()"), check=False).returncode == 0
+    assert psql(fresh, step_sql("scoped", "scoped_at = now()"), check=False).returncode != 0            # no scope note
+    assert psql(fresh, step_sql("scoped", "scope_note = 'Hall A+B', scoped_at = now()"), check=False).returncode == 0
+    assert psql(fresh, step_sql("delivered", "delivered_at = now()"), check=False).returncode != 0      # no delivery reference
+    assert psql(fresh, step_sql("delivered", "delivery_ref = 'https://x', delivered_at = now()"), check=False).returncode == 0
+    assert scalar(fresh, "select status from engagement_deposits") == "delivered"
+
+
+def test_the_payment_facts_and_recorded_steps_never_change_and_nothing_is_deleted(fresh):
+    deposit(fresh)
+    psql(fresh, step_sql("contacted", "owner = 'A. Rivera', contacted_at = now()"))
+    for sql in ("update engagement_deposits set amount_cents = 1", "update engagement_deposits set kind = 'x'",
+                "update engagement_deposits set email = 'other@x.example'", "update engagement_deposits set stripe_session_id = 'cs_9'",
+                "update engagement_deposits set paid_at = now() - interval '9 days'",
+                "update engagement_deposits set status = 'paid'",                                       # no going back
+                "update engagement_deposits set owner = 'someone else'",                                # a recorded step is not rewritten
+                "delete from engagement_deposits"):
+        assert psql(fresh, sql, check=False).returncode != 0, sql
+    assert scalar(fresh, "select owner || '/' || amount_cents from engagement_deposits") == "A. Rivera/900000"
+
+
+def test_deposits_are_not_readable_by_anon_and_rls_is_on(fresh):
+    assert count(fresh, "pg_class", "relname = 'engagement_deposits' and relrowsecurity") == 1
+    assert count(fresh, "pg_policies", "tablename = 'engagement_deposits'") == 0
+    if count(fresh, "pg_roles", "rolname in ('anon', 'service_role')") == 2:
+        assert scalar(fresh, "select has_table_privilege('anon', 'public.engagement_deposits', 'select')") == "f"
+        assert scalar(fresh, "select has_table_privilege('service_role', 'public.engagement_deposits', 'update')") == "t"
