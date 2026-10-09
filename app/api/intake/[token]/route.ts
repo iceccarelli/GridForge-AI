@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { notifyOperator } from "@/lib/mail";
+import { SITE_URL } from "@/lib/site";
 import {
   getByIntakeToken,
   renderDeliverable,
@@ -116,6 +118,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   if (!rendered.ok) {
     await updateByToken(row.token, { status: "engine_unavailable" });
+    // The buyer is told "we will pick this up"; nothing else tells anyone, so say it to the operator.
+    await notifyOperator(
+      `Engine could not produce a document — ${row.email ?? "unknown buyer"} (${row.kind})`,
+      `The buyer's numbers are saved (status engine_unavailable) but the engine could not generate the ` +
+        `${row.kind} just now: ${rendered.error}\n\nBuyer: ${row.email ?? "no email on record"}\n` +
+        `Open ${SITE_URL}/admin/pipeline once the engine is back and re-run it. The buyer was told you will come back to them.`
+    );
     return NextResponse.json(
       {
         ok: false,
@@ -152,6 +161,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(rendered.deck ? { deck_html: rendered.deck } : {}),
     ...(rendered.working ? { working_files: rendered.working } : {}),
   });
+
+  // A draft waits for a person. Nothing else announces it, and the buyer has just been told it is with
+  // a senior engineer: tell the engineer. (The document token is never put in an email.)
+  await notifyOperator(
+    `Draft ready for review — ${row.email ?? "unknown buyer"} (${rendered.title})`,
+    `A paid ${row.kind} has been generated and is waiting for your review and release.\n\n` +
+      `Buyer: ${row.email ?? "no email on record"}${row.company ? ` · ${row.company}` : ""}\n` +
+      `Review and release it at ${SITE_URL}/admin/pipeline\n\n` +
+      `Releasing it emails the buyer their private link.`
+  );
 
   return NextResponse.json({
     ok: true,
