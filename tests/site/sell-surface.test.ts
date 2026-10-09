@@ -234,3 +234,17 @@ describe("private surfaces stay out of the index", () => {
     }
   });
 });
+
+describe("the machine purchase path in /llms.txt names only products checkout can charge for", () => {
+  it("every product id listed under 'How to buy' is a catalogue product", async () => {
+    const { GET } = await import("@/app/llms.txt/route");
+    const body = await (await GET()).text();
+    const section = body.split("## How to buy")[1]?.split("\n## ")[0] ?? "";
+    expect(section).toContain("/api/checkout");
+    expect(section).toContain("Authorization boundary"); // the manifest authorises nothing by itself
+    const ids = [...section.matchAll(/one of: ([a-z_, ]+)\./g)].flatMap((m) => m[1].split(",").map((x) => x.trim()));
+    expect(ids.length).toBeGreaterThan(0);
+    const sellable = new Set(Object.keys(PRODUCTS));
+    expect(ids.filter((i) => !sellable.has(i))).toEqual([]);
+  });
+});

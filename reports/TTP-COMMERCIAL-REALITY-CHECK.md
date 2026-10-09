@@ -1,3 +1,5 @@
+> **Historical snapshot (2026-09-23, against commit `a035a2c`).** Preserved from the retired branch `claude/modest-dirac-73cvt3`. Counts, file lines and flows below describe that tip, not today's `main`: the billing lifecycle, deposit hand-off, subscription landing page and project record were changed afterwards. Treat it as evidence of what was found then, not as current state.
+
 # Commercial reality check — attacking the "nothing left to fix" conclusion
 
 Written after the prior session's reports (all dated 2026-09-23, same tip)
