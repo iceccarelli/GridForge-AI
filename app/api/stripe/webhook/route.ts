@@ -14,6 +14,7 @@ import {
   type ApiAccount,
 } from "@/lib/api-access";
 import { lookupSubscriptionByStripeId, recordSubscription, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
+import { recordDeposit } from "@/lib/deposits";
 import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -166,9 +167,27 @@ export async function POST(req: Request) {
       // records it. Done BEFORE the deposit bookkeeping so a transient failure retries a clean slate.
       const attachedDeposit = await attachToProject(session, kind, amount, async () => null);
       if (attachedDeposit) return attachedDeposit;
-      // Mark the most recent matching lead deposit_paid (match by email, newest first).
+      // The durable record comes FIRST and decides the response: a deposit is a EUR 9,000-15,000 promise
+      // to do scoped work, and the lead bookkeeping below can no more be its only trace than the
+      // founder email can. A failed write answers 500 so Stripe redelivers (the unique session id
+      // makes the retry a no-op once it has landed).
+      const recorded = await recordDeposit({
+        sessionId: session.id,
+        kind,
+        amountCents: amount,
+        currency: session.currency ?? null,
+        email,
+        company,
+        projectId: (session.metadata?.project_id as string) || "",
+      });
+      if (!recorded.ok) {
+        console.error("[GridForge] deposit NOT recorded; asking Stripe to retry:", session.id, recorded.error);
+        return NextResponse.json({ ok: false, error: "Deposit could not be recorded" }, { status: 500 });
+      }
+      // Mark the most recent matching lead deposit_paid (match by email, newest first). Best effort.
       await markDepositPaid({ email, company, amount, sessionId: session.id });
-      await notifyFounder({ email, company, amount });
+      // One email per payment, not one per redelivery.
+      if (recorded.created) await notifyFounder({ email, company, amount });
     }
   }
 
@@ -724,12 +743,9 @@ async function markDepositPaid(p: {
       {
         method: "PATCH",
         headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({
-          deposit_paid: true,
-          deposit_amount_cents: p.amount,
-          stripe_session_id: p.sessionId,
-          status: "deposit_paid",
-        }),
+        // `status` is the only deposit-related column leads has; the payment itself lives in
+        // engagement_deposits (0019). This marks the lead a person may be tracking, nothing more.
+        body: JSON.stringify({ status: "deposit_paid" }),
       }
     );
     if (!res.ok) console.error("[GridForge] deposit PATCH failed:", await res.text());
@@ -752,7 +768,7 @@ async function notifyFounder(p: { email: string; company: string; amount: number
         from,
         to: [to],
         subject: `💳 Deposit paid — ${p.company || p.email} (${eur(p.amount)})`,
-        text: `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nThe lead has been marked deposit_paid. Follow up to scope the engagement.`,
+        text: `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nIt is recorded in engagement_deposits (GET /api/admin/deposits). Contact the buyer to scope the engagement and record who did.`,
       }),
     });
   } catch (err) {

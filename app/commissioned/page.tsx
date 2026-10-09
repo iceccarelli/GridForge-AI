@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { deliverableBySession } from "@/lib/deliverables";
+import { depositBySession, type DepositStatus } from "@/lib/deposits";
 import { accessForSession } from "@/lib/purchase-access";
+import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const metadata: Metadata = {
   title: "Engagement commissioned",
@@ -68,6 +70,46 @@ export default async function CommissionedPage({
             <p className="text-faint text-sm">Still nothing after a few minutes? Reply to the Stripe receipt and we will resend the link.</p>
           </div>
         )}
+      </main>
+    );
+  }
+
+  // A deposit opens no intake: a person scopes the work with the buyer. Say so, from the record.
+  const deposit = !row && sessionId ? await depositBySession(sessionId) : null;
+  if (deposit) {
+    const product = PRODUCT_BY_KIND[deposit.kind];
+    const stage: Record<DepositStatus, string> = {
+      paid: "Payment received. We have not contacted you yet.",
+      contacted: "We have contacted you to scope the engagement.",
+      scoped: "The scope has been agreed. The work is under way.",
+      delivered: "Delivered.",
+    };
+    return (
+      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
+        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
+          {product?.name ?? "Your deposit"} is recorded. Next, we scope it with you.
+        </h1>
+        <div className="mt-6 grid gap-4 text-mute">
+          <p>
+            This engagement is scoped with you directly — there is no intake form to fill in first. A
+            member of the team will contact you at the email you paid with to agree what is being
+            studied and what we need from you.
+          </p>
+          {product ? (
+            <p>
+              <span className="text-faint">What you receive: </span>
+              {product.deliverable}
+            </p>
+          ) : null}
+          <p className="rounded border border-line bg-panel p-4 text-sm">
+            <span className="text-faint">Status: </span>
+            {stage[deposit.status]}
+          </p>
+          <p className="text-faint text-sm">
+            No contact from us? Reply to the Stripe receipt and we will pick it up.
+          </p>
+        </div>
       </main>
     );
   }

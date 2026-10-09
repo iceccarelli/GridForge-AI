@@ -266,7 +266,10 @@ project -> attach BTM case -> RFQ package (rfq_ready architecture only) -> suppl
   transaction is the evidence file in Storage; it is deleted if the database write fails.
   A case revision uses the atomic path only when the case belongs to a project. Verified against
   real PostgreSQL in `tests/test_projects_migration.py` and, through real PostgREST, in
-  `tests/site/verified-power-record.realdb.test.ts` (needs `GF_PGRST_URL`/`GF_PGRST_JWT`).
+  `tests/site/verified-power-record.realdb.test.ts` (needs `GF_PGRST_URL`/`GF_PGRST_JWT`). CI runs both in the
+  mandatory `real-database` job (PostgreSQL service + `scripts/realdb-up.sh`); with `GRIDFORGE_REQUIRE_DB=1` /
+  `GF_REQUIRE_REALDB=1` an unavailable database FAILS the job instead of skipping. It is real PostgreSQL and real
+  PostgREST, not Supabase (no Storage, no gateway).
 - **Evidence**: PDF, CSV or JSON, 5 MB, SHA-256 recorded, stored in the private `project-evidence`
   Supabase Storage bucket, `review_status = unverified`, `evidence_class` null. Contents are not
   parsed, classified or sent to a model; nothing here produces E5–E7 evidence. There is no review
@@ -320,6 +323,101 @@ ProjectPanel -> POST /api/checkout {product, project_token}
 - **Not attachable:** API plans, Intelligence, the portfolio deposit and the generic deposit are not per-project;
   a checkout naming a project for one is refused with 400.
 - **No tokens leak.** Links store the deliverable's/watch's row id, not its document or intake token.
+
+### Observed outcomes — the first step from a prediction to reality (migration `0017_project_observations.sql`)
+
+```
+stored engine result  ->  observation submitted  ->  human review (admin)  ->  a person adds it to the ledger
+(case, revision, arch)    (what was measured)        (states the class)        (`gridforge calibrate add`)
+```
+
+- **The expected value is never typed in.** `POST /api/projects/{token}/observations` reads it from
+  `result.architectures[label].available_MW` of an exact immutable case revision; a `predicted_value` in the
+  body is ignored. `prediction_ref` is `power_deployment_case:<case_token>:r<revision>:<architecture>`.
+- **One reconcilable key: `btm.firm_MW`** (added to `gridforge/calibration/keys.py`; the published denominator
+  moves from 19 to 20 model outputs, observations stay 0). An architecture's capex and lead time are echoes of
+  what the customer *declared*, so reconciling them measures a quote, not this model; they belong to supplier
+  history, not this ledger.
+- **A submission needs its source artifact and an installed-architecture attestation.** The artifact must already be
+  attached to the same project (observations are immutable, so one accepted without a source could never be
+  verified or resubmitted). `attests_installed_architecture: true` plus an `installed_basis` (commissioning record,
+  site visit, handover) is an explicit, durable statement that the measurement is of the architecture actually
+  installed — a generated RFQ, a selected supplier or a passing assessment proves none of that, and equipment
+  procured outside Time to Power is equally valid when installation is attested. Enforced in the UI, the API and
+  PostgreSQL (`NOT NULL`/`CHECK` columns and the function); a refused submission writes neither record nor event.
+- **A submission has no evidence class.** Only a separate, immutable review (`POST /api/admin/observations/{id}/review`,
+  behind the existing admin cookie) assigns one, once; a class is never inferred or defaulted and a rejection carries
+  none. Delta (`observed − predicted`, and percent) is computed by the
+  database, not typed.
+- **The ledger is untouched.** Nothing here opens `calibration.local.json`. A verified observation of class E5 or
+  above is what `gridforge calibrate add` accepts; that remains a deliberate human step, so `/v1/calibration`
+  still reads 0 until a person records one. "Verified" is not "reconciled".
+- Submission and review are each written with their history event in one transaction, and are append-only.
+- Review queue for the operator: `GET /api/admin/observations` (`?state=all` for every one). There is deliberately
+  no review UI yet: there are no observations.
+
+### Supplier Reality — what the supplier promised against what the project experienced (migration `0018_supplier_reality.sql`)
+
+```
+selected supplier's stored quote  ->  typed delivery record  ->  human review  ->  derived quoted-vs-actual
+(from the package's selection)       (dates, cost+scope,        (names the facts     (a database view, per
+                                      evidence, named person)    it vouches for)      record, never stored)
+```
+
+A **record, not a signal**. Nothing here feeds `gridforge/costs.py`, the cost library, supplier rankings,
+benchmarks or the calibration ledger — a test asserts nothing in `gridforge/` references it and that
+`cost_library.json` / `calibration.json` are byte-identical after a full run. There is no marketplace, supplier CRM
+or supplier score.
+
+- **The quote is never typed by the submitter.** `gf_submit_supplier_actual` copies the supplier, price, lead time
+  and installation time from the stored response that the package's selection points at (and records the case
+  revision and architecture the package was built from). Without a recorded selection there is no quote and
+  nothing is accepted. Quoted fields are `capex_eur`, `lead_time_weeks` and `install_weeks`; a quote that omits
+  one leaves it NULL, never zero.
+- **Every delivery fact may be unknown.** PO date, supplier-confirmed dispatch, on-site, installation-complete and
+  first-energised dates, and an actual cost are all optional (at least one is required). Unknown is stored as
+  NULL. Dates must be possible (not in the future; PO <= dispatch <= on-site <= installation-complete/energised).
+- **Cost scopes are never treated as equivalent.** An actual cost carries an explicit currency and an explicit
+  `cost_scope` against the quote: `same_as_quote`, `differs` (needs a note) or `unknown`. The derived price delta
+  exists only for `same_as_quote` in EUR; otherwise it is NULL and `cost_basis` says why.
+- **Derivation is deterministic and states its basis.** `supplier_reality` (a `security_invoker` view) gives lead time
+  (PO to on-site, weeks) and installation time (on-site to first energised, weeks) against the quote, with a
+  `*_basis` text per metric — `unknown: <field> not supplied` rather than a guess.
+- **Source and person are required.** A record names an attached evidence artifact of the same project (hash and
+  storage reference live on that artifact), a method, and the person reporting it.
+- **Review is separate, human and immutable.** `POST /api/admin/supplier-actuals/{id}/review` (admin cookie) records
+  verified (with the exact `verified_fields` the reviewer vouches for, a subset of what the record supplies) or
+  rejected (reason required), once. Queue: `GET /api/admin/supplier-actuals`.
+- **Corrections are new records.** A submission may name `supersedes_id`; exactly one record per package is the first,
+  and a record can be superseded at most once (no forks). The earlier record and its review stay.
+- Submission and review are each written with their `supplier_actual_submitted` / `supplier_actual_reviewed` event in
+  one transaction; all three tables are append-only, RLS-on with no policy, service-role only.
+- Whether any verified figure may later inform a cost line or a ranking is a separate, explicit, human decision that
+  this release does not make or prepare.
+
+### Deposits: the Envelope Study and Portfolio Screen hand-off (migration `0019_engagement_deposits.sql`)
+
+The €9,000 Envelope Study and €15,000 Portfolio Screen deposits open no deliverable, intake or account: **a person
+scopes the work with the buyer.** That is by design and is not automated. What the system now guarantees is that the
+payment is never only a log line:
+
+- The webhook writes one `engagement_deposits` row per Stripe session (unique) **before it answers 200**. A failed
+  write answers 500 so Stripe redelivers; redelivery is a no-op and sends no second founder email. (Previously the
+  webhook PATCHed `deposit_paid` / `deposit_amount_cents` / `stripe_session_id` onto the newest lead with the buyer's
+  email; no migration created those columns and a buyer with no lead matched nothing, so on a database built from this
+  repo the payment was recorded nowhere but Stripe. The lead is still marked `status = deposit_paid`, best effort.)
+- **The operator's work list:** `GET /api/admin/deposits` (admin cookie; oldest payment first; `?state=all` includes
+  delivered). It is the responsible-action list: every row not `delivered` is somebody's job.
+- **Steps, each with its proof, in order, once** (`POST /api/admin/deposits/{id}`):
+  `paid` -> `contacted` (`owner`: the named person who contacted the buyer) -> `scoped` (`scope_note`: what was agreed)
+  -> `delivered` (`delivery_ref`: where the delivered work can be found). The database trigger refuses a skipped or
+  reversed step, a missing proof, a changed payment fact, a rewritten earlier step and any delete.
+- **What the buyer sees:** `/commissioned?session_id=...` says the engagement is scoped with them (no intake form), shows
+  what the catalogue says they receive, and shows the recorded step. It states **no response time**: that is the operator's
+  commitment to make by contacting the buyer, not something this page can promise.
+- **Deploy order:** apply `0019` before deploying this code. Until it exists the webhook answers 500 for deposits and
+  Stripe retries (it does not lose them); apply the migration and the retries land.
+- Not proven here: a real Stripe Checkout round trip (no test-mode credential in this environment).
 
 ### Subscription lifecycle: what the billing events guarantee, and what they do not
 

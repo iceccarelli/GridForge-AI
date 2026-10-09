@@ -11,18 +11,40 @@
  * (a token whose role is service_role) are set — a skip is a gap in what was checked.
  */
 import fs from "node:fs";
+
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import Stripe from "stripe";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
+
+// The admin review route reads the signed-in cookie; there is no request scope in a test.
+const jar: { name: string; value: string }[] = [];
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
 
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
 const enabled = !!PGRST && !!JWT && spawnSync("python3", ["--version"]).status === 0;
+// In CI the stack is mandatory: with GF_REQUIRE_REALDB=1 a missing or misconfigured database FAILS this file
+// (the guard below) instead of letting every real-database test skip into a green run.
+const required = process.env.GF_REQUIRE_REALDB === "1";
+
+describe("real-database prerequisites", () => {
+  it.runIf(required)("are present when the real database is required", () => {
+    expect(PGRST, "GF_PGRST_URL must point at PostgREST (scripts/realdb-up.sh)").not.toBe("");
+    expect(JWT, "GF_PGRST_JWT must be a service_role token (scripts/realdb-up.sh)").not.toBe("");
+    expect(spawnSync("python3", ["--version"]).status, "python3 (the real engine) must be available").toBe(0);
+    expect(enabled).toBe(true);
+  });
+
+  it.runIf(required && enabled)("answers: PostgREST is up and the project schema is applied", async () => {
+    const r = await fetch(`${PGRST}/project_observations?limit=1`, { headers: { Authorization: `Bearer ${JWT}` } });
+    expect(r.status, "migration 0017 must be applied").toBe(200);
+  });
+});
 const KEY = "realdb-key";
 
 let engine: ChildProcess | null = null;
@@ -359,6 +381,242 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
 });
 
 
+describe.skipIf(!enabled)("observed outcome against a real prediction, on real PostgreSQL", () => {
+  const ledgerCount = () =>
+    Number(spawnSync("python3", ["-c", "from gridforge.calibration import load_ledger; print(len(load_ledger().observations))"],
+      { encoding: "utf8", cwd: process.cwd() }).stdout.trim());
+
+  it("reads the prediction from the engine's own stored result, reviews it once, and never touches the ledger", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const before = ledgerCount();
+    expect(before).toBe(0);
+
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `Observed ${crypto.randomUUID().slice(0, 6)}` })));
+    const [proj] = await rows("projects", `&project_token=eq.${made.project_token}`);
+    const { POST: mkCase } = await import("@/app/api/power/deploy/cases/route");
+    const c = await j(await mkCase(post("/api/power/deploy/cases", REQUEST)));
+    const { POST: attach } = await import("@/app/api/projects/[token]/cases/route");
+    await attach(post("/x", { case_token: c.case_token }), ctx({ token: made.project_token }));
+
+    // the engine's own number for the architecture
+    const engineMW = c.result.architectures.find((a: any) => a.label === ARCH).available_MW as number;
+    expect(engineMW).toBeGreaterThan(0);
+
+    const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
+    const csv = `timestamp,kW\n2026-09-30T00:00:00,${Math.round((engineMW - 3) * 1000)}\n`;
+    const upRes = await j(await up(new Request(siteUrl(`/api/projects/${made.project_token}/evidence?filename=meter.csv&source_category=load_data`),
+      { method: "POST", headers: { "content-type": "text/csv" }, body: csv }), ctx({ token: made.project_token })));
+    const evidenceId = upRes.evidence.id as string;
+
+    const { POST: submit } = await import("@/app/api/projects/[token]/observations/route");
+    const obs = (body: Record<string, unknown>) => submit(post("/x", body), ctx({ token: made.project_token }));
+    const input = { calibration_key: "btm.firm_MW", case_token: c.case_token, architecture: ARCH, observed_value: engineMW - 3,
+      observed_on: "2026-09-30", method: "revenue-meter export, 30-day trend", submitted_by: "A. Rivera", evidence_id: evidenceId,
+      attests_installed_architecture: true, installed_basis: "commissioning certificate CC-114" };
+    // refusals write neither a record nor an event
+    const eventsBefore = (await rows("project_events", `&project_id=eq.${proj.id}`)).length;
+    for (const bad of [{ evidence_id: undefined }, { attests_installed_architecture: false }, { installed_basis: "" }]) {
+      expect((await obs({ ...input, ...bad })).status).toBe(422);
+    }
+    expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
+    const sub = await j(await obs({ ...input, predicted_value: 12345 }));
+    const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
+    expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's
+    expect(Number(row.delta_value)).toBeCloseTo(-3, 6);
+    expect(sub.observation.state).toBe("submitted");
+    expect((await obs(input)).status).toBe(409);                          // same prediction, same day: once
+    expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+
+    // review: admin only, exactly once, class stated by the reviewer
+    const { POST: rev } = await import("@/app/api/admin/observations/[id]/review/route");
+    const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(401);
+    const { createHash } = await import("node:crypto");
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await decide({ decision: "verified", reviewer: "J. Ortiz" })).status).toBe(422);
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches" })).status).toBe(201);
+    expect((await decide({ decision: "rejected", reviewer: "J. Ortiz" })).status).toBe(409);
+    expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(1);
+
+    const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
+    expect(s.observations).toEqual([expect.objectContaining({ state: "verified", evidence_class: "E5", reviewed_by: "J. Ortiz", ledger_eligible: true })]);
+
+    // the database itself refuses to rewrite either record, even for service_role
+    expect((await sql(`/project_observations?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify({ observed_value: 99 }) })).status).toBe(403);
+    expect((await sql(`/project_observation_reviews?observation_id=eq.${row.id}`, { method: "DELETE" })).status).toBe(403);
+    const events = await rows("project_events", `&project_id=eq.${proj.id}&event_type=in.(observation_submitted,observation_reviewed)&order=occurred_at.asc`);
+    expect(events.map((e) => e.event_type)).toEqual(["observation_submitted", "observation_reviewed"]);
+
+    // calibration is exactly where it was: verified is not the same as reconciled
+    expect(ledgerCount()).toBe(before);
+    expect(await rows("project_links", "&object_type=eq.calibration_observation")).toHaveLength(0);
+  }, 60_000);
+});
+
+
+describe.skipIf(!enabled)("supplier reality against a real selected quote, on real PostgreSQL", () => {
+  it("copies the quote from the stored selected response, derives the comparison in the database, reviews once, and touches no cost data", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const { createHash } = await import("node:crypto");
+    const fileHash = (f: string) => createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+    const costsBefore = [fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")];
+
+    const { POST: mk } = await import("@/app/api/projects/route");
+    const made = await j(await mk(post("/api/projects", { project_name: `Reality ${crypto.randomUUID().slice(0, 6)}` })));
+    const pt = made.project_token as string;
+    const [proj] = await rows("projects", `&project_token=eq.${pt}`);
+    const { POST: mkCase } = await import("@/app/api/power/deploy/cases/route");
+    const c = await j(await mkCase(post("/api/power/deploy/cases", REQUEST)));
+    const { POST: attach } = await import("@/app/api/projects/[token]/cases/route");
+    await attach(post("/x", { case_token: c.case_token }), ctx({ token: pt }));
+    const { POST: rfq } = await import("@/app/api/projects/[token]/packages/route");
+    const g = await j(await rfq(post("/x", { case_token: c.case_token, architecture: ARCH }), ctx({ token: pt })));
+    const pkg = g.package.package_token as string;
+    const [pkgRow] = await rows("procurement_packages", `&package_token=eq.${pkg}`);
+    const pctx = ctx({ token: pt, package: pkg });
+
+    const { POST: respond } = await import("@/app/api/projects/[token]/packages/[package]/responses/route");
+    const resp = {
+      supplier: "Supplier B", received_on: "2026-10-01",
+      values: { ...pkgRow.response_template.values, capex_eur: 36.5e6, lead_time_weeks: 52, install_weeks: 10 },
+      compliance: Object.fromEntries(Object.keys(pkgRow.response_template.compliance).map((k) => [k, "C"])),
+    };
+    expect((await respond(post("/x", resp), pctx)).status).toBe(201);
+
+    const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
+    const upRes = await j(await up(new Request(siteUrl(`/api/projects/${pt}/evidence?filename=po.pdf&source_category=supplier_document`),
+      { method: "POST", headers: { "content-type": "application/pdf" }, body: PDF as BodyInit }), ctx({ token: pt })));
+    const evidenceId = upRes.evidence.id as string;
+
+    const { POST: actual } = await import("@/app/api/projects/[token]/packages/[package]/actuals/route");
+    const record = (body: Record<string, unknown>) => actual(post("/x", body), pctx);
+    const facts = { po_date: "2025-06-02", on_site_date: "2026-05-18", energised_date: "2026-07-27", actual_cost: 38e6,
+      actual_cost_currency: "EUR", cost_scope: "same_as_quote", evidence_id: evidenceId,
+      method: "PO, delivery note and handover record", submitted_by: "A. Rivera" };
+
+    // before any selection there is no quote to compare against: refused, nothing written
+    const eventsBefore = (await rows("project_events", `&project_id=eq.${proj.id}`)).length;
+    expect((await record(facts)).status).toBe(409);
+    expect(await rows("supplier_actuals", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
+
+    // selection follows a comparison, as in the product
+    const { POST: compare } = await import("@/app/api/projects/[token]/packages/[package]/comparison/route");
+    expect((await compare(post("/x", {}), pctx)).status).toBeLessThan(300);
+    const { POST: select } = await import("@/app/api/projects/[token]/packages/[package]/selection/route");
+    expect((await select(post("/x", { supplier: "Supplier B", actor: "J. Ortiz" }), pctx)).status).toBe(200);
+
+    // the database copies the quote; the caller's idea of it is ignored
+    expect((await record({ ...facts, quoted_capex_eur: 1, quoted_lead_time_weeks: 1 })).status).toBe(201);
+    const [row] = await rows("supplier_actuals", `&project_id=eq.${proj.id}`);
+    expect(row).toMatchObject({ supplier: "Supplier B", architecture: ARCH });
+    expect(Number(row.quoted_capex_eur)).toBe(36.5e6);
+    expect(Number(row.quoted_lead_time_weeks)).toBe(52);
+    expect((await record(facts)).status).toBe(409);                          // one first record per package
+
+    // the derived view, computed by PostgreSQL
+    const [v] = await rows("supplier_reality", `&actual_id=eq.${row.id}`);
+    expect(Number(v.actual_lead_time_weeks)).toBe(50);
+    expect(Number(v.actual_install_weeks)).toBe(10);
+    expect(Number(v.cost_delta_eur)).toBe(1.5e6);
+    expect(v.cost_basis).toBe("EUR, same scope as quote");
+
+    // a correction supersedes exactly one record; the original stays
+    const fix = await record({ ...facts, actual_cost: 38.2e6, supersedes_id: row.id });
+    expect(fix.status).toBe(201);
+    expect((await record({ ...facts, supersedes_id: row.id })).status).toBe(409);
+    expect(await rows("supplier_actuals", `&project_id=eq.${proj.id}`)).toHaveLength(2);
+
+    // review: admin only, once, naming facts the record supplies
+    const { POST: rev } = await import("@/app/api/admin/supplier-actuals/[id]/review/route");
+    const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
+    expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await decide({ decision: "verified", verified_fields: ["dispatch_date"], reviewer: "J. Ortiz" })).status).toBe(422);
+    expect((await decide({ decision: "verified", verified_fields: ["po_date", "on_site_date"], reviewer: "J. Ortiz" })).status).toBe(201);
+    expect((await decide({ decision: "rejected", reviewer: "J. Ortiz", reason: "no" })).status).toBe(409);
+
+    const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: pt })));
+    expect(s.supplier_reality).toHaveLength(2);
+    expect(s.supplier_reality[0]).toMatchObject({ state: "verified", superseded: true, verified_fields: ["po_date", "on_site_date"],
+      lead_time: expect.objectContaining({ quoted_weeks: 52, actual_weeks: 50 }) });
+    expect(s.supplier_reality[1]).toMatchObject({ state: "submitted", supersedes_id: row.id });
+
+    // the database refuses to rewrite either record, even for service_role
+    expect((await sql(`/supplier_actuals?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify({ actual_cost: 1 }) })).status).toBe(403);
+    expect((await sql(`/supplier_actual_reviews?actual_id=eq.${row.id}`, { method: "DELETE" })).status).toBe(403);
+    const events = await rows("project_events", `&project_id=eq.${proj.id}&event_type=in.(supplier_actual_submitted,supplier_actual_reviewed)&order=occurred_at.asc`);
+    expect(events.map((e) => e.event_type)).toEqual(["supplier_actual_submitted", "supplier_actual_submitted", "supplier_actual_reviewed"]);
+
+    // nothing reached the cost library or the calibration data
+    expect([fileHash("gridforge/data/cost_library.json"), fileHash("gridforge/data/calibration.json")]).toEqual(costsBefore);
+  }, 90_000);
+});
+
+
+describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+  const hook = async (sessionId: string, kind: string, amount: number, extra: Record<string, string> = {}) => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    const payload = JSON.stringify({
+      id: `evt_${sessionId}`, type: "checkout.session.completed",
+      data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", currency: "eur",
+        amount_total: amount, metadata: { kind, company: "Hall Co", ...extra } } },
+    });
+    const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+  };
+
+  it("records the payment once through redelivery, advances it only with proof, and the database refuses the rest", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    jar.length = 0;
+    const sid = `cs_dep_${crypto.randomUUID().slice(0, 8)}`;
+    for (let i = 0; i < 3; i++) expect((await hook(sid, "envelope_study_deposit", 900_000)).status).toBe(200);
+    const mine = await rows("engagement_deposits", `&stripe_session_id=eq.${sid}`);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ kind: "envelope_study_deposit", amount_cents: 900_000, currency: "eur", status: "paid", owner: null });
+
+    // the customer page, from the real record
+    const { default: Page } = await import("@/app/commissioned/page");
+    const React = (await import("react")).default;
+    (globalThis as { React?: unknown }).React = React;
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    expect(renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ session_id: sid }) }))).toContain("there is no intake form");
+
+    // operator steps: admin only, in order, each with its proof
+    const { createHash } = await import("node:crypto");
+    const { POST: adv } = await import("@/app/api/admin/deposits/[id]/route");
+    const go = (body: Record<string, unknown>) => adv(post("/x", body), ctx({ id: mine[0].id }));
+    expect((await go({ owner: "A. Rivera" })).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await go({})).status).toBe(422);
+    expect((await go({ owner: "A. Rivera" })).status).toBe(200);
+    expect((await go({ owner: "again" })).status).toBe(422);                 // now needs the scope note
+    expect((await go({ scope_note: "Hall A+B, 35 MW" })).status).toBe(200);
+    expect((await go({ delivery_ref: "https://example.test/d/1" })).status).toBe(200);
+    expect((await go({ delivery_ref: "x" })).status).toBe(409);
+    const [done] = await rows("engagement_deposits", `&stripe_session_id=eq.${sid}`);
+    expect(done).toMatchObject({ status: "delivered", owner: "A. Rivera", scope_note: "Hall A+B, 35 MW" });
+
+    // the database, not the route, refuses to rewrite the payment, reverse a step or delete the record
+    const patch = (body: unknown) => sql(`/engagement_deposits?id=eq.${done.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    expect((await patch({ amount_cents: 1 })).status).toBeGreaterThanOrEqual(400);
+    expect((await patch({ status: "paid" })).status).toBeGreaterThanOrEqual(400);
+    expect((await patch({ owner: "someone else" })).status).toBeGreaterThanOrEqual(400);
+    expect((await sql(`/engagement_deposits?id=eq.${done.id}`, { method: "DELETE" })).status).toBeGreaterThanOrEqual(400);
+    expect((await rows("engagement_deposits", `&id=eq.${done.id}`))).toHaveLength(1);
+  }, 60_000);
+});
+
 describe.skipIf(!enabled)("API plan lifecycle on real PostgreSQL, PostgREST and the real engine", () => {
   const WH = "whsec_test_secret_for_signature_generation";
   const send = async (type: string, object: Record<string, unknown>) => {
@@ -421,4 +679,72 @@ describe.skipIf(!enabled)("API plan lifecycle on real PostgreSQL, PostgREST and 
     expect(second[0].account).not.toBe(accounts[0].account);
     expect(second[0].status).toBe("active");
   }, 60_000);
+});
+
+
+describe.skipIf(!enabled)("paid Density Screen, payment to released document, on real PostgreSQL + PostgREST + the real engine", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+  const INTAKE = {
+    siteName: "North Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
+    currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180,
+    plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  };
+
+  it("webhook x3 -> one deliverable -> buyer page -> intake -> engine draft -> unreadable until admin release -> customer reads it", async () => {
+    process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    delete process.env.RESEND_API_KEY;
+    jar.length = 0;
+    const { createHash } = await import("node:crypto");
+    const sid = `cs_ds_${crypto.randomUUID().slice(0, 8)}`;
+    const send = async () => {
+      const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: {
+        id: sid, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_ds", amount_total: 450_000,
+        currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } } } });
+      const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+      const { POST } = await import("@/app/api/stripe/webhook/route");
+      return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+    };
+    for (let i = 0; i < 3; i++) expect((await send()).status).toBe(200);
+    const mine = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ kind: "density_screen", status: "awaiting_intake", amount_cents: 450_000 });
+    expect(mine[0].intake_token).toBeTruthy();
+    expect(mine[0].intake_token).not.toBe(mine[0].token);
+
+    // the buyer's landing page, from the real record: the intake link, never the document token
+    process.env.STRIPE_SECRET_KEY = "";                                   // no provider call from the page
+    const React = (await import("react")).default;
+    (globalThis as { React?: unknown }).React = React;
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: Page } = await import("@/app/commissioned/page");
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({ session_id: sid }) }));
+    expect(html).toContain(`/intake/${mine[0].intake_token}`);
+    expect(html).not.toContain(mine[0].token);
+
+    // intake: validated, then the REAL engine writes a draft
+    const intake = await import("@/app/api/intake/[token]/route");
+    const it = (t: string) => ({ params: Promise.resolve({ token: t }) });
+    expect((await intake.POST(post("/x", { siteName: "x" }), it(mine[0].intake_token))).status).toBe(422);
+    const ok = await intake.POST(post("/x", INTAKE), it(mine[0].intake_token));
+    expect(ok.status, await ok.clone().text()).toBe(200);
+    const [draft] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(draft.status).toBe("draft");
+    expect(String(draft.document_html).length).toBeGreaterThan(500);
+    expect(String(draft.title)).toMatch(/density screen/i);
+
+    // human review: a draft is never served; release needs the admin
+    const read = await import("@/app/api/deliverable/[token]/route");
+    expect((await read.GET(new Request(siteUrl("/x")), it(draft.token))).status).toBe(409);
+    const admin = await import("@/app/api/admin/deliverables/route");
+    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token }) }));
+    expect((await release()).status).toBe(401);
+    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    expect((await release()).status).toBe(200);
+    const [released] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+    expect(released.status).toBe("released");
+    expect((await read.GET(new Request(siteUrl("/x")), it(released.token))).status).toBe(200);
+    expect((await read.GET(new Request(siteUrl("/x")), it(released.intake_token))).status).toBe(404);   // the emailed credential cannot open it
+  }, 90_000);
 });

@@ -1,13 +1,14 @@
 {
   "state": "uncalibrated",
-  "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 19 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+  "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
   "observations": 0,
   "sites": 0,
-  "keys_asserted": 19,
+  "keys_asserted": 20,
   "keys_with_site_observations": 0,
   "coverage": 0.0,
   "keys": [],
   "uncalibrated_keys": [
+    "btm.firm_MW",
     "constraint.architecture_capability.racks",
     "constraint.busway_ampacity.racks",
     "constraint.cdu_capacity.racks",

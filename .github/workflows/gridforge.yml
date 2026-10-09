@@ -550,3 +550,53 @@ jobs:
           assert mine == node, ('the two implementations diverged', mine, node)
           print('cross-language key agreement ok')
           "
+
+  # The database guarantees (append-only history, atomic record+event writes, one-owner uniqueness,
+  # idempotent purchase attachment, RLS) are enforced by PostgreSQL, not by TypeScript. The jobs above
+  # exercise them only against an in-memory fake; THIS job runs the real migrations on a real PostgreSQL
+  # and the real PostgREST + engine path. It is mandatory: GRIDFORGE_REQUIRE_DB / GF_REQUIRE_REALDB turn a
+  # missing or misconfigured database into a FAILURE rather than a skip, so an untested invariant can never
+  # read as green. It is not Supabase: no Storage, no gateway (see scripts/realdb-up.sh).
+  real-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      GRIDFORGE_REQUIRE_DB: "1"
+      GF_REQUIRE_REALDB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: python -m pip install --quiet pytest
+      - run: npm ci
+      - name: Real PostgreSQL + PostgREST, every migration applied in order
+        run: |
+          bash scripts/realdb-up.sh
+          cat /tmp/gf-realdb/realdb.env >> "$GITHUB_ENV"
+      - name: Migration invariants against real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_projects_migration.py -q
+      - name: Real engine + real PostgREST + real PostgreSQL acceptance (fails, never skips)
+        run: npx vitest run tests/site/verified-power-record.realdb.test.ts
+      - name: PostgREST log, for diagnosis
+        if: failure()
+        run: tail -50 /tmp/gf-realdb/pgrst.log || true
