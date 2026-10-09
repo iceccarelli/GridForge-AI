@@ -373,14 +373,18 @@ WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_tex
 #: that resolves a subscription id to a row in it. Add a third recurring product
 #: and it belongs here, or its cancellation will be silently unhandled.
 SUBSCRIPTION_LOOKUPS = {
-    "api_accounts": "findBySubscription",
-    "watches": "watchBySubscription",
+    "api_accounts": "lookupBySubscription",
+    "watches": "lookupWatchBySubscription",
     # The third one. The note above said to add it; it was not added, and the
     # consequence was worse than the Hall Watch bug rather than smaller: the table
     # did not exist either, so a cancelled GridForge Intelligence subscription had
     # nothing to cancel and /account had nothing to gate on.
-    "subscriptions": "subscriptionByStripeId",
+    "subscriptions": "lookupSubscriptionByStripeId",
 }
+
+#: The lookups report "the store could not be read" apart from "no such row" (a failed read must
+#: not be acknowledged as a cancellation that found nothing), and one helper resolves all of them.
+RESOLVER = "resolveSubscription"
 
 #: The events that decide whether we keep doing work for someone.
 LIFECYCLE_EVENTS = ("invoice.paid", "customer.subscription.deleted", "invoice.payment_failed")
@@ -417,11 +421,18 @@ def test_every_subscription_product_is_resolved_on_every_billing_event(event):
     cannot be switched on.
     """
     block = _event_block(event)
-    missing = [table for table, fn in SUBSCRIPTION_LOOKUPS.items() if fn not in block]
+    assert f"{RESOLVER}(" in block, (
+        f'the "{event}" handler must resolve the subscription through {RESOLVER}(), which reads every '
+        f"table that holds a recurring product")
+    helper = WEBHOOK_TS.split(f"async function {RESOLVER}(", 1)[1].split("\n}\n", 1)[0]
+    missing = [table for table, fn in SUBSCRIPTION_LOOKUPS.items() if fn not in helper]
     assert not missing, (
-        f'the "{event}" handler never looks up: {missing}. Every table holding a '
+        f'{RESOLVER}() never looks up: {missing}. Every table holding a '
         f"recurring product must be resolved on every lifecycle event, or that "
         f"product keeps being delivered after it stops being paid for.")
+    # ... and an event whose read or write failed is retried, never acknowledged.
+    assert "lifecycleRetry(" in block, (
+        f'the "{event}" handler must answer 500 (lifecycleRetry) when its read or write failed')
 
 
 def test_a_failed_payment_pauses_a_watch_rather_than_cancelling_it():

@@ -2,17 +2,18 @@ import { SITE_URL, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
-import { createWatch, updateWatch, watchBySubscription } from "@/lib/watches";
+import { createWatch, lookupWatchBySubscription, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import {
   createApiAccount,
   findBySubscription,
   keyLife,
+  lookupBySubscription,
   revokeOnEngine,
   updateApiAccount,
   type ApiAccount,
 } from "@/lib/api-access";
-import { recordSubscription, subscriptionByStripeId, updateSubscription } from "@/lib/subscribers";
+import { lookupSubscriptionByStripeId, recordSubscription, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
 import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -171,106 +172,131 @@ export async function POST(req: Request) {
     }
   }
 
-  // A lapsed subscription must stop working, and a renewed one must not go dark.
-  // Keys expire on their own within days, so these two events are the difference
-  // between "it renewed and nobody noticed" and "my agents stopped at 3am".
-  // THREE things are sold on a Stripe subscription, not one: metered API access
-  // (api_accounts), Hall Watch (watches) and GridForge Intelligence
-  // (subscriptions). Every lifecycle event below has to resolve ALL THREE.
-  // api_accounts alone was resolved here for two patches and
-  // the consequence was that a cancelled Hall Watch went on being delivered —
-  // dueWatches() filters on status=active, the status was never moved off active,
-  // and the cron kept sending quarterly change notes to somebody who had stopped
-  // paying. Free work, sent on a schedule, indefinitely. Intelligence had the same
-  // hole and worse: its table did not exist at all, so nothing was ever recorded
-  // to cancel.
-  if (event.type === "invoice.paid") {
-    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
-    if (subId) {
-      const row = await findBySubscription(subId);
-      if (row && row.status !== "cancelled") {
-        await updateApiAccount(row.token, { status: "active" });
-        // The payment renewed. The KEY does not — it is a signed token with a
-        // fixed expiry, and nothing can extend one in place. This comment used to
-        // say "reissue silently" and nothing reissued anything, so a paying
-        // customer's key aged out on day 35 and their agents stopped at 3am. That
-        // is the exact failure this handler was written to prevent, and it was
-        // happening to the customers who paid every month.
-        //
-        // We cannot mint for them here: a key is shown once and never stored, so
-        // there is nowhere to deliver it except the portal. So the renewal is
-        // where we TELL them, while there is still a working key to replace.
-        await remindToRotate(row);
-      }
-      // A watch paused by a failed payment comes back when the payment clears. A
-      // cancelled one does not come back by itself — that is a new sale.
-      const watch = await watchBySubscription(subId);
-      if (watch && watch.status === "paused") {
-        await updateWatch(watch.token, { status: "active" });
-      }
-      // Same rule for Intelligence: a payment that clears reinstates access that a
-      // failed payment had put past_due. A cancelled one stays cancelled.
-      const sub = await subscriptionByStripeId(subId);
-      if (sub && sub.status === "past_due") {
-        await updateSubscription(sub.id, { status: "active" });
-      }
-    }
-  }
-
+  // ---- subscription lifecycle ------------------------------------------------------------------------
+  // THREE things are sold on a Stripe subscription: metered API access (api_accounts), Hall Watch
+  // (watches) and GridForge Intelligence (subscriptions). Every event below resolves ALL THREE, and it
+  // is acknowledged only once everything it required has been durably applied: a failed read or write
+  // answers 500 so Stripe redelivers. Every write here sets an absolute state, so a redelivery is safe.
+  // (A store outage used to be read as "no such account" and a failed write was ignored, so a
+  // cancellation could be acknowledged without ever being applied — a cancelled customer's account
+  // stayed active and could mint fresh keys indefinitely.)
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
-    const row = await findBySubscription(sub.id);
-    if (row) {
-      // Revoke the live key id and mark the account cancelled. The engine reads
-      // revoked ids from GRIDFORGE_REVOKED_KEYS; until that is synced, the key
-      // dies on its own at expiry, which is inside the period they paid for.
-      await updateApiAccount(row.token, {
-        status: "cancelled",
-        revoked_key_ids: [...(row.revoked_key_ids ?? []), ...(row.key_id ? [row.key_id] : [])],
-      });
-      // And tell the engine, rather than recording the intention and waiting for
-      // somebody to edit an environment variable. Best-effort: a failure is logged
-      // with the id and the key still dies at expiry as it always did.
-      await revokeOnEngine(row.key_id);
-      console.log(
-        `[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`
-      );
+    const found = await resolveSubscription(sub.id);
+    if (!found.ok) return lifecycleRetry("cancellation (lookup failed)", sub.id);
+    if (!found.api && !found.watch && !found.intelligence) {
+      // One of ours with no record yet may simply have arrived before its checkout event: retry.
+      // Anything else is somebody else's subscription on the same Stripe account: acknowledge.
+      if (isOurSubscriptionKind(sub.metadata?.kind)) return lifecycleRetry("cancellation (no record yet)", sub.id);
+      console.warn("[GridForge] cancellation for a subscription that is not ours; ignored:", sub.id);
+      return NextResponse.json({ ok: true, received: true });
     }
-    const watch = await watchBySubscription(sub.id);
-    if (watch) {
-      await updateWatch(watch.token, { status: "cancelled" });
-      console.log(`[GridForge] hall watch ${watch.token} cancelled; scheduled runs stop`);
+    let applied = true;
+    if (found.api) {
+      const row = found.api;
+      // Revoke the live key id and mark the account cancelled. The ENGINE refuses revoked ids, so the
+      // account row is only half of it: tell the engine as well (below).
+      const revoked = new Set(row.revoked_key_ids ?? []);
+      if (row.key_id) revoked.add(row.key_id);
+      const done = await updateApiAccount(row.token, { status: "cancelled", revoked_key_ids: [...revoked] });
+      if (!done) applied = false;
+      else {
+        // Best-effort on purpose (see revokeOnEngine): an engine that is briefly unreachable must not
+        // turn a cancellation that HAS been recorded into an endlessly redelivered event. The id is
+        // logged so it can be pushed by hand, and the key still dies at its expiry.
+        await revokeOnEngine(row.key_id);
+        console.log(`[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`);
+      }
     }
-    const intelligence = await subscriptionByStripeId(sub.id);
-    if (intelligence) {
-      await updateSubscription(intelligence.id, { status: "cancelled" });
-      console.log(
-        `[GridForge] intelligence subscription for ${intelligence.email} cancelled; /account drops to the free view`
-      );
+    if (found.watch) {
+      if (!(await updateWatch(found.watch.token, { status: "cancelled" }))) applied = false;
+      else console.log(`[GridForge] hall watch ${found.watch.token} cancelled; scheduled runs stop`);
     }
+    if (found.intelligence) {
+      if (!(await updateSubscription(found.intelligence.id, { status: "cancelled" }))) applied = false;
+      else console.log(`[GridForge] intelligence subscription for ${found.intelligence.email} cancelled; /account drops to the free view`);
+    }
+    if (!applied) return lifecycleRetry("cancellation (write failed)", sub.id);
   }
 
   if (event.type === "invoice.payment_failed") {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
-      const row = await findBySubscription(subId);
-      if (row) await updateApiAccount(row.token, { status: "past_due" });
-      // "paused", not "cancelled": Stripe retries, and a card that fails on
-      // Tuesday and clears on Thursday should not have cost the client a quarter.
-      const watch = await watchBySubscription(subId);
-      if (watch && watch.status === "active") {
-        await updateWatch(watch.token, { status: "paused" });
+      const found = await resolveSubscription(subId);
+      if (!found.ok) return lifecycleRetry("payment failure (lookup failed)", subId);
+      let applied = true;
+      // Only an ACTIVE entitlement moves. A late failure notice must never reopen a cancelled account
+      // (past_due can still mint keys) or demote something already ended.
+      if (found.api && found.api.status === "active") {
+        if (!(await updateApiAccount(found.api.token, { status: "past_due" }))) applied = false;
       }
-      // past_due, not cancelled — the same retry logic, and invoice.paid above
-      // puts it back. An active subscription is the only one worth moving.
-      const sub = await subscriptionByStripeId(subId);
-      if (sub && sub.status === "active") {
-        await updateSubscription(sub.id, { status: "past_due" });
+      // "paused", not "cancelled": Stripe retries, and a card that fails on Tuesday and clears on
+      // Thursday should not have cost the client a quarter.
+      if (found.watch && found.watch.status === "active") {
+        if (!(await updateWatch(found.watch.token, { status: "paused" }))) applied = false;
       }
+      if (found.intelligence && found.intelligence.status === "active") {
+        if (!(await updateSubscription(found.intelligence.id, { status: "past_due" }))) applied = false;
+      }
+      if (!applied) return lifecycleRetry("payment failure (write failed)", subId);
+    }
+  }
+
+  if (event.type === "invoice.paid") {
+    const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
+    if (subId) {
+      const found = await resolveSubscription(subId);
+      if (!found.ok) return lifecycleRetry("renewal (lookup failed)", subId);
+      let applied = true;
+      let remind: ApiAccount | null = null;
+      if (found.api && found.api.status !== "cancelled") {
+        if (!(await updateApiAccount(found.api.token, { status: "active" }))) applied = false;
+        else remind = found.api;
+      }
+      // A watch paused by a failed payment comes back when the payment clears. A cancelled one does
+      // not come back by itself — that is a new sale.
+      if (found.watch && found.watch.status === "paused") {
+        if (!(await updateWatch(found.watch.token, { status: "active" }))) applied = false;
+      }
+      // Same rule for Intelligence: a payment that clears reinstates access that a failed payment had
+      // put past_due. A cancelled one stays cancelled.
+      if (found.intelligence && found.intelligence.status === "past_due") {
+        if (!(await updateSubscription(found.intelligence.id, { status: "active" }))) applied = false;
+      }
+      if (!applied) return lifecycleRetry("renewal (write failed)", subId);
+      // The payment renewed. The KEY does not — it is a signed token with a fixed expiry, and nothing
+      // can extend one in place. Tell the customer while there is still a working key to replace
+      // (after the writes, so a retried event does not email twice). A key is shown once and never
+      // stored, so the email carries the portal link, not a key.
+      if (remind) await remindToRotate(remind);
     }
   }
 
   return NextResponse.json({ ok: true, received: true });
+}
+
+/** Every table a Stripe subscription can entitle, read in one go; `ok: false` means a read failed. */
+async function resolveSubscription(subId: string): Promise<
+  | { ok: false }
+  | { ok: true; api: ApiAccount | null; watch: WatchRecord | null; intelligence: SubscriptionRecord | null }
+> {
+  const [api, watch, intelligence] = await Promise.all([
+    lookupBySubscription(subId),
+    lookupWatchBySubscription(subId),
+    lookupSubscriptionByStripeId(subId),
+  ]);
+  if (!api.ok || !watch.ok || !intelligence.ok) return { ok: false };
+  return { ok: true, api: api.row, watch: watch.row, intelligence: intelligence.row };
+}
+
+/** A subscription this site sells: its checkout stamped the subscription with one of these kinds. */
+function isOurSubscriptionKind(kind: unknown): boolean {
+  return typeof kind === "string" && (isApiProduct(kind) || kind === "hall_watch" || kind === "intelligence_subscription");
+}
+
+function lifecycleRetry(what: string, subId: string) {
+  console.error(`[GridForge] billing event NOT applied — ${what} for ${subId}; asking Stripe to retry`);
+  return NextResponse.json({ ok: false, error: "Billing event could not be applied" }, { status: 500 });
 }
 
 /**
