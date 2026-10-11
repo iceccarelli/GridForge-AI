@@ -58,7 +58,8 @@ def db():
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
-              "0018_supplier_reality.sql", "0019_engagement_deposits.sql"):
+              "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
+              "0020_function_privileges.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -749,3 +750,29 @@ def test_deposits_are_not_readable_by_anon_and_rls_is_on(fresh):
     if count(fresh, "pg_roles", "rolname in ('anon', 'service_role')") == 2:
         assert scalar(fresh, "select has_table_privilege('anon', 'public.engagement_deposits', 'select')") == "f"
         assert scalar(fresh, "select has_table_privilege('service_role', 'public.engagement_deposits', 'update')") == "t"
+
+
+# --- function privileges (0020) -------------------------------------------------------------
+
+def test_gf_functions_are_not_executable_by_the_api_roles_even_where_the_platform_grants_them(db):
+    """Supabase grants EXECUTE on new public functions to anon/authenticated directly, which
+    `revoke ... from public` does not undo. Simulate that platform default, run 0020, and the
+    API roles must lose every gf_* function while service_role keeps them."""
+    psql(db, "do $$ begin "
+             "if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if; "
+             "end $$")
+    psql(db, "do $$ declare f text; begin for f in select p.oid::regprocedure::text from pg_proc p "
+             "join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'gf\\_%' loop "
+             "execute format('grant execute on function %s to anon, authenticated', f); end loop; end $$")
+    leaked = scalar(db, "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
+                        "where n.nspname='public' and p.proname like 'gf\\_%' and "
+                        "has_function_privilege('anon', p.oid, 'execute')")
+    assert int(leaked) > 0, "the simulated platform default did not take"
+    psql(db, file=MIGRATIONS / "0020_function_privileges.sql")
+    for role in ("anon", "authenticated"):
+        assert scalar(db, "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
+                          "where n.nspname='public' and p.proname like 'gf\\_%' and "
+                          f"has_function_privilege('{role}', p.oid, 'execute')") == "0", role
+    assert scalar(db, "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
+                      "where n.nspname='public' and p.proname like 'gf\\_%' and "
+                      "not has_function_privilege('service_role', p.oid, 'execute')") == "0"
