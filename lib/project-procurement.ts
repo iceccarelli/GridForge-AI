@@ -289,7 +289,8 @@ export async function submitSupplierResponse(
       supplier,
     }),
   });
-  if (!added.ok && (added.code === "23505" || added.status === 409)) {
+  // PostgREST answers HTTP 409 for BOTH a unique and a foreign-key violation: branch on the SQLSTATE.
+  if (!added.ok && added.code === "23505") {
     return { ok: false, status: 409, error: `A response from ${supplier} is already recorded for this package.` };
   }
   if (!added.ok || !added.data) return { ok: false, status: 502, error: "The response could not be saved. Nothing was recorded." };

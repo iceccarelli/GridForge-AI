@@ -243,6 +243,7 @@ export class PostgrestFake {
     }
 
     if (method === "POST") {
+      const ignoreDuplicates = String((init?.headers as Record<string, string> | undefined)?.Prefer ?? "").includes("ignore-duplicates");
       const incoming = Array.isArray(body) ? body : [body];
       const absent = this.missingColumns.get(table);
       if (absent) {
@@ -263,6 +264,7 @@ export class PostgrestFake {
       const created: Row[] = [];
       for (const raw of incoming as Row[]) {
         const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };
+        let dup = false;
         // The one partial unique index the schema declares, enforced here too so a
         // test can prove the supersede actually happened rather than assuming it.
         if (table === "subscriptions" && row.status === "active") {
@@ -280,6 +282,8 @@ export class PostgrestFake {
         }
         for (const cols of this.uniqueKeys.get(table) ?? []) {
           if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+            // `Prefer: resolution=ignore-duplicates`: a conflicting row is skipped, not an error.
+            if (ignoreDuplicates) { dup = true; break; }
             return json(
               JSON.stringify({
                 code: "23505",
@@ -289,6 +293,7 @@ export class PostgrestFake {
             );
           }
         }
+        if (dup) continue;
         store.push(row);
         created.push(row);
       }
