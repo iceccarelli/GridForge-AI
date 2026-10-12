@@ -250,7 +250,8 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         title="What nobody has measured yet",
         lead=(f"Intake is {intake.report.completeness:.0%} complete. Each of these moves the "
               "answer and is currently a library default."
-              if gaps else "Every input below the headline was supplied rather than assumed."),
+              if gaps else "Every site input requested was supplied rather than assumed; prices and "
+              "lead times are covered on the cost slide."),
         table=(["Input", "Assumed", "Where it comes from"],
                [[g.label, g.fallback_description, g.how_to_get_it] for g in gaps[:8]])
         if gaps else None))
