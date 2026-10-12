@@ -1515,7 +1515,7 @@ and getting an empty bundle back. It now runs in CI.
    `verify-backup-restore.py` builds a throwaway database from the repository migrations, loads every exported row in foreign-key order, compares counts and content digests and drops the database;
    it prints counts/OK only (never row contents) and refuses a hosted Supabase host. Exit 0 = `RESTORE VERIFIED`. Scope of that proof: table data only (no `auth` schema, Storage objects, roles or grants).
    Take the export **after** the last applied migration. It does not create platform recovery tooling, so also enable Supabase backups/PITR if the plan allows. Keep the export file private and out of the repository.
-2. Apply `0021_customer_notifications.sql` (additive, idempotent; touches no existing table; service-role-only grants). The code works before and after.
+2. Apply `0021_customer_notifications.sql` (additive, idempotent; touches no existing table; service-role-only grants) with the gated script: `python3 scripts/apply-migration.py 0021` is a dry run that checks the project is healthy, the previous migration is recorded, a fresh export (< 2 h old) matches the live row counts, and the SQL has no destructive statement; add `--yes` to apply it and verify the history. The code works before and after.
 3. Merge/deploy. Set `CRON_SECRET` (and `RESEND_FROM` if desired). Run the reconcile dry run, review, enqueue deliberately.
 4. API plans: see below — independent of the above.
 
