@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { mailSender, sendMail } from "@/lib/mail";
 import { z } from "zod";
 import { getQualification, requestFollowUp, type StoredQualification } from "@/lib/qualify";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
@@ -80,12 +81,10 @@ async function notifyDesk(
 ): Promise<void> {
   const key = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || process.env.RESEND_FROM || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (!key || !to) {
-    console.log(
-      "[GridForge] follow-up requested (no email provider set):",
-      JSON.stringify({ token, email, note })
-    );
+    // The qualification row holds the request; the log carries no bearer token, address or note.
+    console.log("[GridForge] follow-up requested (no email provider set); see the stored qualification");
     return;
   }
   const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "Unnamed hall";
@@ -101,17 +100,13 @@ async function notifyDesk(
     `Read: ${siteUrl(`/q/${token}`)}`,
   ].filter((l): l is string => l !== null);
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await sendMail({
         from,
-        to: [to],
-        reply_to: email,
+        to: to,
+        replyTo: email,
         subject: `Follow-up requested — ${where}`,
         text: lines.join("\n"),
-      }),
-    });
+      });
   } catch (err) {
     console.error("[GridForge] follow-up desk notification error:", err);
   }
@@ -125,7 +120,7 @@ async function notifyDesk(
  */
 async function acknowledgeBuyer(q: StoredQualification, token: string, email: string): Promise<void> {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.LEAD_FROM_EMAIL || process.env.RESEND_FROM || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (!key) return;
   const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "your hall";
   const screen = PRODUCTS.density_screen;
@@ -142,17 +137,13 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
     `Commission the ${screen.name}: ${siteUrl("/pricing")}\n\n` +
     `— Time to Power\nIndependent power-and-thermal engineering for existing AI sites`;
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await sendMail({
         from,
-        to: [email],
-        reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+        to: email,
+        replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
         subject: `Time to Power — we have your follow-up request`,
         text,
-      }),
-    });
+      });
   } catch (err) {
     console.error("[GridForge] follow-up acknowledgment error:", err);
   }

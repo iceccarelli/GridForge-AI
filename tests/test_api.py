@@ -481,3 +481,17 @@ def test_study_renders_a_full_document(server):
 def test_rendering_is_not_available_to_the_public_tier(server):
     status, _ = call(server, "/v1/screen", {"intake": qualify_to_intake(GOOD), "format": "html"})
     assert status == 401, "the rendered deliverable is the product; it needs a key"
+
+
+def test_revocation_persistable_is_reported_to_the_operator_tier_only(server, tmp_path, monkeypatch):
+    """The website uses this (with the admin key, no side effect) to refuse to sell a key it could not kill."""
+    monkeypatch.setenv("GRIDFORGE_ADMIN_KEY", "admin-key-for-test")
+    monkeypatch.delenv("GRIDFORGE_REVOKED_FILE", raising=False)
+    s, body = call(server, "/v1/version", key="admin-key-for-test")
+    assert s == 200 and body["tier"] == "internal" and body["revocation_persistable"] is False
+    monkeypatch.setenv("GRIDFORGE_REVOKED_FILE", str(tmp_path / "sub" / "revoked.json"))
+    s, body = call(server, "/v1/version", key="admin-key-for-test")
+    assert body["revocation_persistable"] is True
+    for who in (None, KEY):                                  # anonymous and a paying customer see neither the tier nor the field
+        s, body = call(server, "/v1/version", key=who)
+        assert "revocation_persistable" not in body

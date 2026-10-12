@@ -776,3 +776,77 @@ def test_gf_functions_are_not_executable_by_the_api_roles_even_where_the_platfor
     assert scalar(db, "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
                       "where n.nspname='public' and p.proname like 'gf\\_%' and "
                       "not has_function_privilege('service_role', p.oid, 'execute')") == "0"
+
+
+# --- the customer notification outbox (0021) -------------------------------------------------
+
+@pytest.fixture(scope="module")
+def outbox():
+    name = f"gf_{uuid.uuid4().hex[:10]}"
+    psql("postgres", f"create database {name}")
+    psql(name, file=MIGRATIONS / "0021_customer_notifications.sql")
+    psql(name, file=MIGRATIONS / "0021_customer_notifications.sql")     # idempotent: a second run is a no-op
+    yield name
+    psql("postgres", f"drop database {name}")
+
+
+SUBJ = "'11111111-1111-1111-1111-111111111111'"
+
+
+def _note(db, key, kind="intake_link", table="deliverables"):
+    return psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) "
+                    f"values ('{key}', '{kind}', '{table}', {SUBJ})", check=False)
+
+
+def test_one_obligation_per_dedupe_key(outbox):
+    assert _note(outbox, "intake_link:a").returncode == 0
+    r = _note(outbox, "intake_link:a")
+    assert r.returncode != 0 and "duplicate key" in r.stderr
+    assert psql(outbox, "insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values "
+                        f"('intake_link:a', 'intake_link', 'deliverables', {SUBJ}) on conflict (dedupe_key) do nothing").returncode == 0
+
+
+def test_kinds_and_subjects_are_closed_sets_and_nothing_sensitive_has_a_column(outbox):
+    assert _note(outbox, "k1", kind="marketing").returncode != 0
+    assert _note(outbox, "k2", table="leads").returncode != 0
+    cols = scalar(outbox, "select string_agg(column_name, ',') from information_schema.columns where table_name='customer_notifications'")
+    for forbidden in ("email", "token", "body", "text", "link", "recipient"):
+        assert forbidden not in cols.split(","), cols
+
+
+def test_status_and_accepted_at_agree_and_identity_never_changes(outbox):
+    assert _note(outbox, "k3").returncode == 0
+    refused(outbox, "update customer_notifications set status='accepted' where dedupe_key='k3'", "check")
+    assert psql(outbox, "update customer_notifications set status='accepted', accepted_at=now() where dedupe_key='k3'").returncode == 0
+    refused(outbox, "update customer_notifications set status='pending', accepted_at=null where dedupe_key='k3'", "cannot be reopened")
+    refused(outbox, "update customer_notifications set origin='operator_reconcile' where dedupe_key='k3'", "identity cannot change")
+    refused(outbox, "update customer_notifications set dedupe_key='other' where dedupe_key='k3'", "identity cannot change")
+    refused(outbox, "update customer_notifications set kind='watch_link' where dedupe_key='k3'", "identity cannot change")
+    refused(outbox, "delete from customer_notifications where dedupe_key='k3'", "never deleted")
+
+
+def test_the_lease_is_a_compare_and_set_so_only_one_runner_wins(outbox):
+    assert _note(outbox, "k4").returncode == 0
+    won = scalar(outbox, "with u as (update customer_notifications set attempts=1, claimed_until=now()+interval '2 min' "
+                         "where dedupe_key='k4' and status='pending' and attempts=0 returning 1) select count(*) from u")
+    lost = scalar(outbox, "with u as (update customer_notifications set attempts=1, claimed_until=now()+interval '2 min' "
+                          "where dedupe_key='k4' and status='pending' and attempts=0 returning 1) select count(*) from u")
+    assert (won, lost) == ("1", "0")
+
+
+def test_rls_is_on_and_the_api_roles_have_nothing(outbox):
+    assert scalar(outbox, "select relrowsecurity from pg_class where relname='customer_notifications'") == "t"
+    for role in ("anon", "authenticated"):
+        if scalar(outbox, f"select count(*) from pg_roles where rolname='{role}'") == "1":
+            assert scalar(outbox, f"select has_table_privilege('{role}', 'public.customer_notifications', 'select')") == "f"
+
+
+def test_ambiguous_and_cancelled_are_states_and_only_people_reopen_ambiguous(outbox):
+    assert _note(outbox, "k5", kind="subscription_welcome", table="subscriptions").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='ambiguous' where dedupe_key='k5'").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='pending', reopened_count=reopened_count+1 where dedupe_key='k5'").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='cancelled' where dedupe_key='k5'").returncode == 0
+    refused(outbox, "update customer_notifications set status='pending' where dedupe_key='k5'", "cannot be reopened")
+    assert _note(outbox, "k6", kind="marketing").returncode != 0
+    assert psql(outbox, "insert into customer_notifications (dedupe_key, kind, subject_table, subject_id, origin) values "
+                        f"('k7', 'intake_link', 'deliverables', {SUBJ}, 'somebody')", check=False).returncode != 0

@@ -8,6 +8,7 @@
 // No date is promised anywhere: how quickly someone answers is the operator's to say.
 
 import { creds, rest, STORE_UNCONFIGURED, type Result } from "@/lib/projects";
+import { storeFault } from "@/lib/safe-log";
 
 export const DEPOSIT_STEPS = ["paid", "contacted", "scoped", "delivered"] as const;
 export type DepositStatus = (typeof DEPOSIT_STEPS)[number];
@@ -68,7 +69,7 @@ export async function recordDeposit(p: {
       cache: "no-store",
     });
     if (!res.ok) {
-      console.error("[GridForge] deposit NOT recorded:", res.status, await res.text());
+      console.error("[GridForge] deposit NOT recorded:", await storeFault(res));
       return { ok: false, error: `store ${res.status}` };
     }
     const rows = (await res.json().catch(() => [])) as unknown[];

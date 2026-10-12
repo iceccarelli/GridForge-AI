@@ -2,7 +2,8 @@ import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
-import { PRODUCTS, isProductId, type ProductId } from "@/lib/products";
+import { apiSalesReadiness } from "@/lib/api-readiness";
+import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -87,6 +88,21 @@ export async function POST(req: Request) {
   const qualificationId = UUID.test(rawQualificationId) ? rawQualificationId : "";
   if (rawQualificationId && !qualificationId) {
     console.warn("[GridForge] checkout ignored a malformed qualificationId:", rawQualificationId.slice(0, 64));
+  }
+
+  // An API plan is a promise: a key the engine accepts, and a way to end it. Prove both against the engine
+  // (lib/api-readiness.ts) before Stripe is touched. Anything short of positive proof -- unset secret, a
+  // secret the engine rejects, an unreachable engine, no working revocation -- sells nothing and takes no
+  // money. The reason category goes to the log; the customer sees a generic, honest message.
+  if (productId && isApiProduct(productId)) {
+    const ready = await apiSalesReadiness();
+    if (!ready.ready) {
+      console.error(`[GridForge] API plan checkout refused: ${ready.category}`);
+      return NextResponse.json(
+        { ok: false, error: "API plans are temporarily unavailable while we finish verifying key issuance. No payment was taken." },
+        { status: 503 }
+      );
+    }
   }
 
   const origin = checkoutOrigin(req.headers.get("origin"));

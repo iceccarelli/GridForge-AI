@@ -58,6 +58,8 @@ export class PostgrestFake {
   appendOnly: Set<string> = new Set();
   /** Unique keys by table, as column lists; a clash answers 409 / 23505. */
   uniqueKeys: Map<string, string[][]> = new Map();
+  /** Column defaults applied to a new row of a table (what the migration's `default`s would supply). */
+  rowDefaults: Map<string, () => Row> = new Map();
   /** Objects written through the Storage API, keyed `bucket/path`. */
   objects: Map<string, { bytes: Uint8Array; contentType: string }> = new Map();
   /** Set to make the Storage API refuse writes, for the "object store is down" path. */
@@ -119,7 +121,7 @@ export class PostgrestFake {
   insertRow(table: string, raw: Row): Row {
     if (!this.tables.has(table)) throw new PgError("42P01", `relation "public.${table}" does not exist`, 404);
     const store = this.tables.get(table)!;
-    const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };
+    const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...(this.rowDefaults.get(table)?.() ?? {}), ...raw };
     for (const cols of this.uniqueKeys.get(table) ?? []) {
       if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
         throw new PgError("23505", `duplicate key value violates unique constraint on ${table}(${cols.join(",")})`, 409);
@@ -263,7 +265,7 @@ export class PostgrestFake {
       }
       const created: Row[] = [];
       for (const raw of incoming as Row[]) {
-        const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...raw };
+        const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...(this.rowDefaults.get(table)?.() ?? {}), ...raw };
         let dup = false;
         // The one partial unique index the schema declares, enforced here too so a
         // test can prove the supersede actually happened rather than assuming it.
@@ -327,6 +329,10 @@ function match(row: Row, f: Filter): boolean {
     case "in": {
       const set = f.value.replace(/^\(|\)$/g, "").split(",").map((s) => s.trim());
       return set.includes(String(actual ?? ""));
+    }
+    case "lt": case "lte": case "gt": case "gte": {
+      const a = String(actual ?? ""), b = f.value;
+      return f.op === "lt" ? a < b : f.op === "lte" ? a <= b : f.op === "gt" ? a > b : a >= b;
     }
     case "is":
       return f.value === "null" ? actual === null || actual === undefined : false;

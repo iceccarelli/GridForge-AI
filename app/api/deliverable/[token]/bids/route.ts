@@ -104,7 +104,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!stored) {
     // The comparison is still correct and still worth returning; say plainly that
     // it was not kept rather than implying they can come back to it.
-    console.error("[GridForge] bid comparison not persisted for", row.token);
+    console.error("[GridForge] bid comparison not persisted for deliverable", row.id);
   }
 
   return NextResponse.json({

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { storeFault } from "@/lib/safe-log";
 
 /**
  * Self-serve API accounts.
@@ -245,7 +246,7 @@ export async function createApiAccount(input: {
     }),
   });
   if (!res.ok) {
-    console.error("[GridForge] could not create api account:", await res.text());
+    console.error("[GridForge] could not create api account:", await storeFault(res));
     return null;
   }
   const rows = (await res.json()) as ApiAccount[];
@@ -279,7 +280,7 @@ export async function updateApiAccount(
       body: JSON.stringify(patch),
     });
     if (!res.ok) {
-      console.error("[GridForge] api account update failed:", res.status, await res.text());
+      console.error("[GridForge] api account update failed:", await storeFault(res));
       return null;
     }
     const rows = (await res.json()) as ApiAccount[];
@@ -305,7 +306,7 @@ export async function lookupBySubscription(
   try {
     const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
     if (!res.ok) {
-      console.error("[GridForge] api account lookup failed:", res.status, await res.text());
+      console.error("[GridForge] api account lookup failed:", await storeFault(res));
       return { ok: false };
     }
     return { ok: true, row: ((await res.json()) as ApiAccount[])[0] ?? null };
@@ -361,7 +362,7 @@ export async function revokeOnEngine(keyId: string | null | undefined): Promise<
       cache: "no-store",
     });
     if (!res.ok) {
-      console.error("[GridForge] engine refused a revocation:", res.status, await res.text(), id);
+      console.error("[GridForge] engine refused a revocation:", await storeFault(res), id);
       return false;
     }
     console.log("[GridForge] key id revoked on the engine:", id);

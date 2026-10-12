@@ -1,4 +1,5 @@
 import { SITE_URL, siteUrl } from "@/lib/site";
+import { sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import {
   dueWatches,
@@ -85,22 +86,16 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
 }
 
 async function notify(w: WatchRecord, headline: string): Promise<void> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from || !w.email) return;
-  const base = SITE_URL;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: w.email,
-        subject: `${w.site_name ?? "Your hall"} ${w.hall_id ?? ""} — the answer moved`.trim(),
-        text: `${headline}\n\nThe change note, with the input that moved it:\n${base}/watch/${w.token}\n`,
-      }),
-    });
-  } catch (err) {
-    console.error("[GridForge] watch notification failed:", err);
+  // The change note itself is stored (watch_notes) and readable on the watch page, so this email is a
+  // courtesy pointer to it, not the only copy: a failure is logged by record id and category only.
+  if (!w.email) {
+    console.error(`[GridForge] watch change NOT emailed: no address on record (watch ${w.id})`);
+    return;
   }
+  const r = await sendMail({
+    to: w.email,
+    subject: `${w.site_name ?? "Your hall"} ${w.hall_id ?? ""} — the answer moved`.trim(),
+    text: `${headline}\n\nThe change note, with the input that moved it:\n${SITE_URL}/watch/${w.token}\n`,
+  });
+  if (!r.sent) console.error(`[GridForge] watch change NOT emailed (watch ${w.id}): ${r.category}${r.status ? ` (HTTP ${r.status})` : ""}`);
 }

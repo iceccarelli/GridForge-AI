@@ -1,3 +1,4 @@
+import { storeFault } from "@/lib/safe-log";
 // Server-only data layer for GridForge Intelligence subscriptions and the
 // scenarios a subscriber saves.
 //
@@ -116,7 +117,7 @@ export async function lookupSubscription(email: string): Promise<SubscriptionLoo
     return UNREACHABLE;
   }
   if (!res.ok) {
-    console.error("[GridForge] subscription lookup failed:", res.status, await res.text());
+    console.error("[GridForge] subscription lookup failed:", await storeFault(res));
     return UNREACHABLE;
   }
   const rows = (await res.json()) as SubscriptionRecord[];
@@ -149,7 +150,7 @@ export async function lookupSubscriptionByStripeId(
   try {
     const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
     if (!res.ok) {
-      console.error("[GridForge] subscription by stripe id failed:", res.status, await res.text());
+      console.error("[GridForge] subscription by stripe id failed:", await storeFault(res));
       return { ok: false };
     }
     return { ok: true, row: ((await res.json()) as SubscriptionRecord[])[0] ?? null };
@@ -166,7 +167,7 @@ export async function subscriptionByStripeId(
   return found.ok ? found.row : null;
 }
 
-async function subscriptionBySession(sessionId: string): Promise<SubscriptionRecord | null> {
+export async function subscriptionBySession(sessionId: string): Promise<SubscriptionRecord | null> {
   if (!sessionId) return null;
   const r = rest(
     `subscriptions?stripe_session_id=eq.${encodeURIComponent(sessionId)}&select=*&limit=1`
@@ -190,7 +191,7 @@ export async function updateSubscription(
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
   });
   if (!res.ok) {
-    console.error("[GridForge] subscription update failed:", res.status, await res.text());
+    console.error("[GridForge] subscription update failed:", await storeFault(res));
     return false;
   }
   return true;
@@ -225,9 +226,7 @@ export async function recordSubscription(p: {
   }
   if (!subscriptionsConfigured()) {
     console.error(
-      "[GridForge] subscription NOT persisted — Supabase unset. Paid subscription for",
-      email,
-      "plan",
+      "[GridForge] subscription NOT persisted — Supabase unset. Paid subscription, plan",
       p.plan,
       "session",
       p.sessionId
@@ -249,7 +248,7 @@ export async function recordSubscription(p: {
       body: JSON.stringify({ status: "superseded", updated_at: new Date().toISOString() }),
     });
     if (!res.ok) {
-      console.error("[GridForge] could not supersede prior subscription:", res.status, await res.text());
+      console.error("[GridForge] could not supersede prior subscription:", await storeFault(res));
       return null;
     }
   }
@@ -270,10 +269,9 @@ export async function recordSubscription(p: {
   });
   if (!res.ok) {
     console.error(
-      "[GridForge] subscription insert FAILED for a paying customer:",
-      email,
-      res.status,
-      await res.text()
+      "[GridForge] subscription insert FAILED for a paying customer: session",
+      p.sessionId,
+      await storeFault(res)
     );
     return null;
   }
@@ -292,7 +290,7 @@ export async function listScenarios(email: string): Promise<ScenarioRecord[] | n
   if (!r) return null;
   const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
   if (!res.ok) {
-    console.error("[GridForge] scenario list failed:", res.status, await res.text());
+    console.error("[GridForge] scenario list failed:", await storeFault(res));
     return null;
   }
   return (await res.json()) as ScenarioRecord[];
@@ -323,7 +321,7 @@ export async function createScenario(row: {
     }),
   });
   if (!res.ok) {
-    console.error("[GridForge] scenario insert failed:", res.status, await res.text());
+    console.error("[GridForge] scenario insert failed:", await storeFault(res));
     return null;
   }
   const rows = (await res.json()) as ScenarioRecord[];
@@ -350,7 +348,7 @@ export async function deleteScenario(email: string, id: string): Promise<boolean
     headers: { ...r.headers, Prefer: "return=representation" },
   });
   if (!res.ok) {
-    console.error("[GridForge] scenario delete failed:", res.status, await res.text());
+    console.error("[GridForge] scenario delete failed:", await storeFault(res));
     return false;
   }
   const rows = (await res.json()) as ScenarioRecord[];

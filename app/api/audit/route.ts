@@ -1,4 +1,6 @@
 import { SITE_URL, siteUrl } from "@/lib/site";
+import { storeFault } from "@/lib/safe-log";
+import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 
@@ -124,7 +126,7 @@ async function persist(record: LeadRecord): Promise<void> {
         status: "new",
       }),
     });
-    if (!res.ok) console.error("[GridForge] Supabase insert failed:", await res.text());
+    if (!res.ok) console.error("[GridForge] Supabase insert failed:", await storeFault(res));
   } catch (err) {
     console.error("[GridForge] Supabase insert error:", err);
   }
@@ -151,20 +153,16 @@ async function notify(record: LeadRecord): Promise<void> {
 
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (apiKey && to) {
     try {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await sendMail({
           from,
-          to: [to],
-          reply_to: record.email,
+          to: to,
+          replyTo: record.email,
           subject: `[${record.tier.toUpperCase()}] Enquiry — ${record.company} (${record.capacity})`,
           text: `New enquiry via timetopower.ai\n\n${lines}`,
-        }),
-      });
+        });
     } catch (err) {
       console.error("[GridForge] Resend error:", err);
     }
@@ -183,13 +181,10 @@ async function notify(record: LeadRecord): Promise<void> {
       ? `Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nThe entry point is the Density Screen \u2014 one hall, five working days, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
       : `We will review your site and respond within 1 business day.\n\nThe entry point is the Density Screen (five working days): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
     try {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await sendMail({
           from,
-          to: [record.email],
-          reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+          to: record.email,
+          replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
           subject: `Time to Power \u2014 enquiry received (${record.capacity} site)`,
           text:
             `Thank you for your request.\n\n` +
@@ -197,8 +192,7 @@ async function notify(record: LeadRecord): Promise<void> {
             `${nextSteps}\n\n` +
             `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
             `\u2014 Time to Power\nIndependent power-and-thermal engineering for existing AI sites`,
-        }),
-      });
+        });
     } catch (err) {
       console.error("[GridForge] Lead confirmation Resend error:", err);
     }

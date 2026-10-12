@@ -1,4 +1,6 @@
 import { siteUrl } from "@/lib/site";
+import { storeFault } from "@/lib/safe-log";
+import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
 import { extractLead } from "@/lib/extract";
@@ -45,8 +47,7 @@ async function persistLead(record: Record<string, unknown>): Promise<void> {
     if (!res.ok) {
       console.error(
         "[GridForge] agent lead NOT persisted:",
-        res.status,
-        await res.text(),
+        await storeFault(res),
         JSON.stringify(record)
       );
     }
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
       });
       // Send the lead a branded confirmation (agent path mirrors the form path)
       const rkey = process.env.RESEND_API_KEY;
-      const from = process.env.LEAD_FROM_EMAIL || "Time to Power <power@timetopower.ai>";
+      const from = mailSender("Time to Power <power@timetopower.ai>");
       const leadEmail = extracted.email;
       if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
         const hot = tier === "hot";
@@ -146,21 +147,17 @@ export async function POST(req: Request) {
           ? `Your site qualifies as a priority engagement. We will respond within 1 business day. Commission the Density Screen now: ${siteUrl('/pricing')}`
           : `We will review your site and respond within 1 business day. Start with the Density Screen: ${siteUrl('/pricing')}`;
         try {
-          await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${rkey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
+          await sendMail({
               from,
-              to: [leadEmail],
-              reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+              to: leadEmail,
+              replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
               subject: `Time to Power — your ${extracted.capacity} site scoping`,
               text:
                 `Thank you for scoping your site with our engineer.\n\n` +
                 `${next}\n\n` +
                 `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
                 `— Time to Power`,
-            }),
-          });
+            });
         } catch (err) {
           console.error("[GridForge] agent lead confirmation error:", err);
         }

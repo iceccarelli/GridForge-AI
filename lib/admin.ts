@@ -5,6 +5,7 @@
 // can't be forged without the password, and we compare in constant time. This
 // is a deliberate, honest "simple gate" for one operator — swap for Supabase
 // Auth / Clerk when real *clients* get portal logins. Never import this file
+import { storeFault } from "@/lib/safe-log";
 // from a client component.
 
 import crypto from "node:crypto";
@@ -153,7 +154,7 @@ export async function fetchLeads(): Promise<AdminLead[]> {
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] fetchLeads failed:", await res.text());
+      console.error("[GridForge] fetchLeads failed:", await storeFault(res));
       return [];
     }
     return (await res.json()) as AdminLead[];
@@ -233,7 +234,7 @@ export async function fetchQualifications(limit = 500): Promise<AdminQualificati
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] fetchQualifications failed:", await res.text());
+      console.error("[GridForge] fetchQualifications failed:", await storeFault(res));
       return [];
     }
     return (await res.json()) as AdminQualification[];
@@ -257,7 +258,7 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] fetchDeliverables failed:", await res.text());
+      console.error("[GridForge] fetchDeliverables failed:", await storeFault(res));
       return [];
     }
     const rows = (await res.json()) as (AdminDeliverable & {
@@ -391,7 +392,7 @@ export async function fetchWatches(limit = 200): Promise<AdminWatch[]> {
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] fetchWatches failed:", await res.text());
+      console.error("[GridForge] fetchWatches failed:", await storeFault(res));
       return [];
     }
     const rows = (await res.json()) as (AdminWatch & { intake: unknown })[];
@@ -438,7 +439,7 @@ export async function fetchApiAccounts(limit = 200): Promise<AdminApiAccount[]> 
     );
     if (!res.ok) {
       // The table may simply not exist yet — migration 0007. Not worth an error page.
-      console.error("[GridForge] fetchApiAccounts failed:", await res.text());
+      console.error("[GridForge] fetchApiAccounts failed:", await storeFault(res));
       return [];
     }
     return (await res.json()) as AdminApiAccount[];
