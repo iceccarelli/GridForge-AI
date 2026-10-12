@@ -1504,7 +1504,11 @@ and getting an empty bundle back. It now runs in CI.
   purchase/account/deliverable, and **does not send** — delivery is the normal sweep or an explicit retry. Deploying or migrating never sends email.
 
 ### Release order
-1. Take a real recovery point and **test its restore** (the JSON export taken from the production API is not a verified restore).
+1. Take a real recovery point and **test its restore**. The platform has no backup/PITR on record, so: export every `public` table (read-only queries), then prove it restores:
+   `PGHOST=<scratch host> PGUSER=<superuser> python3 scripts/verify-backup-restore.py export.json` — builds a throwaway database from the repository migrations, loads every exported row in
+   foreign-key order, compares counts and content digests, drops the database, prints counts/OK only (never row contents; refuses a hosted Supabase host). Exit 0 = `RESTORE VERIFIED`.
+   Scope of that proof: table data only (no `auth` or Storage objects, no roles/grants). Do it on a **fresh** export taken after the last applied migration; it does not make the platform's own recovery
+   tooling exist, so also enable Supabase backups/PITR if the plan allows.
 2. Apply `0021_customer_notifications.sql` (additive, idempotent; touches no existing table; service-role-only grants). The code works before and after.
 3. Merge/deploy. Set `CRON_SECRET` (and `RESEND_FROM` if desired). Run the reconcile dry run, review, enqueue deliberately.
 4. API plans: see below — independent of the above.
