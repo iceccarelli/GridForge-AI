@@ -53,6 +53,9 @@ def to_markdown(r: Report) -> str:
     return "\n".join(out)
 
 
+E5_NOTE = ("E5 means supplied by the client — a declared rating, contract term or design value, or the client's own data as given. It is not a measurement we made, and it has not been verified by a site survey.")
+
+
 def _appendix_md(r: Report) -> list[str]:
     out = ["## Appendix A — Assumptions, provenance and validation status", "",
            "Every number in this report carries an evidence class. The class of a computed number "
@@ -61,7 +64,7 @@ def _appendix_md(r: Report) -> list[str]:
     from ..validation import EvidenceClass
     for e in EvidenceClass:
         out.append(f"| {e.short} | {e.verb} |")
-    out += ["", "### A.1 Assumptions relied upon", ""]
+    out += ["", "*%s*" % E5_NOTE, "", "### A.1 Assumptions relied upon", ""]
     for a in r.assumptions():
         out.append(f"- {a}")
     out += ["", "### A.2 Sources", ""]
@@ -252,6 +255,7 @@ def _appendix_html(r: Report) -> str:
             "measured data yields a modelled number and never a measurement.</p>"
             "<div class='tablewrap'><table><thead><tr><th scope='col'>Class</th>"
             f"<th scope='col'>Meaning</th></tr></thead><tbody>{cls}</tbody></table></div>"
+            f"<p><em>{e(E5_NOTE)}</em></p>"
             f"<h3>A.1 Assumptions relied upon</h3><ul>{ass}</ul>"
             f"<h3>A.2 Sources</h3><ul>{src}</ul>"
             "<h3>A.3 Provenance of headline quantities</h3>"

@@ -27,6 +27,7 @@ from ..envelope.time_to_power import TimeToPower, schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .study import Objective, _pick_recommended
+from .labels import full_capacity_q, is_zero_gain
 
 MARK = "#1193A8"       # capacity — dimmed step of the brand's `power`
 MARK_ALT = "#BD8318"   # delay    — dimmed step of the brand's `queue`
@@ -181,12 +182,15 @@ def build(intake: Intake, results: list[ScenarioResult], *,
     d.slides.append(Slide(
         kicker="Walkthrough",
         title=f"How much AI compute can {ctx.hall.id} carry?",
-        lead=("Thirteen constraints across electrical, thermal and physical domains, solved over "
-              "one model of this hall. The envelope is the minimum; the binding constraint is the "
-              "one that produced it."),
-        note="Every figure in this deck carries an evidence class and comes from the same solved "
-             "model as the written study."))
+        lead=(f"{len(rec.envelope.constraints)} constraints across electrical, thermal and physical "
+              "domains, solved over one model of this hall. The envelope is the minimum; the binding "
+              "constraint is the one that produced it."),
+        note="Every figure here comes from the same solved model as the written study, where each "
+             "carries its evidence class and range. This deck shows them rounded and without the "
+             "labels, so read it as modelled, not measured."))
 
+    _fq = full_capacity_q(rec.ladder, t, "weeks to full capacity")
+    _range = (f" (range {_fq.band[0]:.0f}–{_fq.band[1]:.0f})" if _fq is not None and _fq.band[1] > _fq.band[0] else "")
     d.slides.append(Slide(
         kicker="The answer",
         title=rec.envelope.binding.name,
@@ -196,19 +200,28 @@ def build(intake: Intake, results: list[ScenarioResult], *,
             ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
             ("Time to full capacity",
              "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
-             f"weeks · set by {t.critical_item.lower()}"),
+             f"weeks{_range} · set by {t.critical_item.lower()}"),
         ]))
 
+    def _relief(s):
+        text = s.relief_description or "no relief available"
+        text = text if len(text) <= 64 else text[:61].rstrip() + "…"
+        return text + (" (no racks on its own: tied constraint)" if is_zero_gain(s) else "")
+
+    n_rungs = len(rec.ladder.taken_steps)
     ladder_rows = [[str(s.step), s.binding_name,
                     f"{s.racks_before} → {s.racks_after}",
-                    (s.relief_description or "no relief available")[:64],
+                    _relief(s),
                     "—" if s.capex_eur is None else s.capex_eur.render(with_class=False),
                     "—" if s.lead_time_weeks is None else s.lead_time_weeks.render(with_class=False)]
                    for s in rec.ladder.steps[:8]]
     d.slides.append(Slide(
         kicker="What stops it",
         title="The headroom ladder",
-        lead="Each row is what binds next, what moves it, and what that costs.",
+        lead=("Each row is what binds next, what moves it, and what that costs."
+              + (f" Showing the first 8 of the {n_rungs} rungs taken; the full ladder is in the written study "
+                 f"(section 2) and the final answer, {rec.unlocked_racks} racks, is reached only "
+                 "after all of them." if n_rungs > 8 else "")),
         table=(["#", "Constraint", "Racks", "Relief", "Capex", "Lead time"], ladder_rows)))
 
     d.slides.append(Slide(
@@ -247,11 +260,12 @@ def build(intake: Intake, results: list[ScenarioResult], *,
     gaps = intake.report.gaps
     d.slides.append(Slide(
         kicker="Evidence",
-        title="What nobody has measured yet",
+        title=("What nobody has measured yet" if gaps else "What the inputs are, and are not"),
         lead=(f"Intake is {intake.report.completeness:.0%} complete. Each of these moves the "
               "answer and is currently a library default."
-              if gaps else "Every site input requested was supplied rather than assumed; prices and "
-              "lead times are covered on the cost slide."),
+              if gaps else "Every site input requested was supplied by the client as declared ratings and "
+              "design values — not measured by us. Prices, lead times and the tariff are library "
+              "defaults, covered on the cost slide."),
         table=(["Input", "Assumed", "Where it comes from"],
                [[g.label, g.fallback_description, g.how_to_get_it] for g in gaps[:8]])
         if gaps else None))

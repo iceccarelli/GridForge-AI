@@ -14,6 +14,7 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
+from .labels import full_capacity_q, racks_q, relief_text
 
 WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
              "and not a measurement of this asset.")
@@ -42,18 +43,16 @@ def build(intake: Intake, results: list[ScenarioResult],
     s = Section("1. The answer")
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks as the hall stands",
-        V(float(rec.envelope.max_racks), "racks", "deployable racks as found", ESTIMATED),
+        racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
         rec.envelope.binding.basis))
     s.blocks.append(Statement(
         "Deployable after the costed ladder",
-        V(float(rec.unlocked_racks), "racks", "deployable racks after relief", ESTIMATED),
+        racks_q(rec.unlocked_racks, "deployable racks after relief", rec),
         rec.spec.name))
-    if t.weeks_to_full is not None:
-        s.blocks.append(Statement(
-            "Time to full capacity",
-            V(t.weeks_to_full, "weeks", "elapsed weeks to full energisation", ESTIMATED,
-              band=(t.weeks_to_full * 0.7, t.weeks_to_full * 1.6)),
-            f"set by {t.critical_item.lower()}"))
+    full_q = full_capacity_q(rec.ladder, t, "elapsed weeks to full energisation")
+    if full_q is not None:
+        s.blocks.append(Statement("Time to full capacity", full_q,
+                                  f"set by {t.critical_item.lower()}; the range is that item's own lead-time range"))
     s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
                               rec.economics.aace_class))
     s.blocks.append(Callout("answer",
@@ -65,12 +64,8 @@ def build(intake: Intake, results: list[ScenarioResult],
     rows = []
     for st in rec.ladder.steps[:6]:
         rows.append([Lit(str(st.step)), st.binding_name, st.domain,
-                     V(float(st.racks_after), "racks", f"racks after step {st.step}", ESTIMATED),
-                     (st.relief_description or "no relief available") +
-                     ("" if st.taken else "  — NOT TAKEN") +
-                     ("  — adds no racks on its own: another constraint limits the hall to the same "
-                      "figure, so this relieves one of several tied constraints"
-                      if st.taken and st.racks_after <= st.racks_before else ""),
+                     racks_q(st.racks_after, f"racks after step {st.step}", rec),
+                     relief_text(st),
                      st.capex_eur if st.capex_eur is not None else "—",
                      st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
     s.blocks.append(Table(["#", "Constraint", "Domain", "Racks after", "Relief", "Capex",
@@ -82,8 +77,8 @@ def build(intake: Intake, results: list[ScenarioResult],
 
     s = Section("3. Architectures screened")
     rows = [[res.spec.name,
-             V(float(res.envelope.max_racks), "racks", f"{res.spec.id}: as found", ESTIMATED),
-             V(float(res.unlocked_racks), "racks", f"{res.spec.id}: after ladder", ESTIMATED),
+             racks_q(res.envelope.max_racks, f"{res.spec.id}: as found", res),
+             racks_q(res.unlocked_racks, f"{res.spec.id}: after ladder", res),
              res.envelope.binding.name] for res in results]
     s.blocks.append(Table(["Architecture", "As found", "After ladder", "Binds first"], rows))
     r.sections.append(s)
