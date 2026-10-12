@@ -1459,13 +1459,37 @@ out of `scenarios.csv` — which a Density Screen never produces — so every sc
 ever sold offered a generic constraint. That was found by asking the real engine
 and getting an empty bundle back. It now runs in CI.
 
-## Outbound mail and API-plan sales: what a missing variable now does
+## Customer email, API-plan sales and release order (PR #47)
 
-- **One sender policy.** Every message resolves its sender in `lib/mail.ts`: `RESEND_FROM`, else `LEAD_FROM_EMAIL`. Either one is enough. Production carries
-  `LEAD_FROM_EMAIL` only; the Stripe webhook's customer mail (intake link, API-access link, Hall Watch link, key-rotation reminder) and the Hall Watch cron
-  used to read `RESEND_FROM` alone and silently sent nothing there. With **no** sender (or no `RESEND_API_KEY`) the purchase is still fulfilled and the log line
-  `... email NOT sent: <reason> — link was <url>` carries the link to forward by hand.
-- **API plans are only sold when keys can be issued.** `/api/checkout` answers 503 for an `api_*` product, creating no Stripe session, while
-  `GRIDFORGE_KEY_SECRET` is unset on the website. Set it on Vercel to the **same value the engine holds** (do not rotate the engine's; read it from where it is
-  already stored) and redeploy. Document products and Hall Watch are not gated on it.
-- `GRIDFORGE_ADMIN_KEY` (website) is what lets a cancellation revoke a key on the engine; without it the revocation is logged and the key lives to its expiry.
+### Customer access email is a durable obligation (migration 0021)
+- The webhook writes the business record (deliverable / API account / watch) once, then a row in `customer_notifications` (unique `dedupe_key`).
+  The row holds **no recipient, token or body**; the message is rebuilt from the business row when sent, so a link never has to be read out of a log.
+- States: `pending` → `accepted` (the provider **accepted** it — not "the inbox received it"; no delivery/bounce event is consumed) or `abandoned`
+  (6 attempts, or a permanent refusal: HTTP 4xx other than 408/409/429, no address, a record that is gone). Backoff 5 min, 15 min, 1 h, 4 h, 12 h. A
+  missing sender/credential does **not** burn attempts: the row waits (retry hourly) and one operator notice says why.
+- It is retried by: the next Stripe redelivery of the same event, `/api/cron/notifications` (every 30 min; needs `CRON_SECRET`, like the watches cron —
+  **not in the production env inventory today**, so until it is set only redelivery and the admin route retry), and an operator.
+- Operator: `GET /api/admin/notifications` (ids, kinds, states, attempt counts, failure **categories**; `?state=all` includes accepted),
+  `POST /api/admin/notifications {"id": "<uuid>"}` retries one now (an abandoned one is reopened), `POST {}` works through what is due. Admin cookie required.
+- Resend semantics relied on (docs, 2026-10): `Idempotency-Key` header, 1–256 chars, kept 24 h; same key + same payload returns the first result without
+  re-sending; a different payload is `409 invalid_idempotent_request`; a concurrent duplicate is `409 concurrent_idempotent_requests`. The key is the
+  notification's `dedupe_key`. A timeout is recorded as `timeout_maybe_accepted` and retried with the **same** key. This is *not* exactly-once: a retry
+  more than 24 h after a lost-response acceptance could send twice.
+- **Release order.** The code is safe either way: before 0021 exists it sends once directly and logs `record id + category` only (a redelivery then does
+  not guess and re-send). Apply 0021 (additive, idempotent, no existing table touched) **after** a verified recovery point, then merge.
+- Sender policy, one place (`lib/mail.ts`): `RESEND_FROM`, else `LEAD_FROM_EMAIL`, else the caller's fallback. No log line carries a link, token, address or
+  provider body (`tests/test_stack_consistency.py` fails the build on one).
+- The operator's "paid" notice is sent only when the purchase record is **created**, not on every redelivery (it used to repeat).
+
+### API plans are only sold against a proof (lib/api-readiness.ts)
+`/api/checkout` for an `api_*` plan, before Stripe is touched, proves against the engine: (1) a throwaway 1-day signed key (probe account, never stored) is
+accepted — `GET /v1/version` reports `tier: client` (a different signing secret reports `public`; unmetered, no account, no solve); (2) `GRIDFORGE_ADMIN_KEY`
+is the engine's operator key (`tier: internal`) and (3) the engine reports `revocation_persistable` (operator tier only). Anything else — unset secret, unset
+engine URL, unreachable engine, secret mismatch, no/wrong admin key, no `GRIDFORGE_REVOKED_FILE` — answers 503 with no Stripe session and logs the category.
+`GET /api/admin/api-readiness` (admin) returns the same category, uncached. Document products and Hall Watch are never gated on it.
+It proves **parity and configuration**, not that the revocation volume is healthy (a read-only mount still 503s at revoke time) and not that the secret
+is "the right one" beyond matching the engine's.
+
+To enable API sales (no secret is generated or rotated by the code): website env `GRIDFORGE_KEY_SECRET` = the engine's value (read it from where it is
+stored; do **not** run `deploy-engine.sh --bootstrap` to get around a mismatch), `GRIDFORGE_ADMIN_KEY` = the engine's operator key, and the engine needs
+`GRIDFORGE_REVOKED_FILE=/data/revoked.json` (now in `fly.toml`; it takes effect on the next engine deploy). Then check `/api/admin/api-readiness`.

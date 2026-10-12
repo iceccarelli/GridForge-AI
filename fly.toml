@@ -31,6 +31,10 @@ primary_region = "ams"
   # every few minutes. The engine probes the path at startup and reports the truth
   # at /v1/usage rather than claiming durability it does not have.
   GRIDFORGE_USAGE_FILE = "/data/usage.json"
+  # Revoked key ids (POST /v1/revoke, operator tier). Without a writable path here the engine answers 503 to
+  # a revocation and the website refuses to SELL API plans (lib/api-readiness.ts: revocation_not_persistable),
+  # because a cancellation could not end the key. Same volume as the usage meter.
+  GRIDFORGE_REVOKED_FILE = "/data/revoked.json"
 
 [http_service]
   internal_port = 8080

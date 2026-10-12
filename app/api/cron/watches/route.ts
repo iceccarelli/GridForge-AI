@@ -86,16 +86,16 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
 }
 
 async function notify(w: WatchRecord, headline: string): Promise<void> {
-  const link = `${SITE_URL}/watch/${w.token}`;
+  // The change note itself is stored (watch_notes) and readable on the watch page, so this email is a
+  // courtesy pointer to it, not the only copy: a failure is logged by record id and category only.
   if (!w.email) {
-    console.error("[GridForge] watch change NOT emailed: no address on record — note was", link);
+    console.error(`[GridForge] watch change NOT emailed: no address on record (watch ${w.id})`);
     return;
   }
-  // The same sender policy as every other message (lib/mail.ts); a refusal is logged with the link.
   const r = await sendMail({
     to: w.email,
     subject: `${w.site_name ?? "Your hall"} ${w.hall_id ?? ""} — the answer moved`.trim(),
-    text: `${headline}\n\nThe change note, with the input that moved it:\n${link}\n`,
+    text: `${headline}\n\nThe change note, with the input that moved it:\n${SITE_URL}/watch/${w.token}\n`,
   });
-  if (!r.sent) console.error(`[GridForge] watch change NOT emailed: ${r.reason} — note was`, link);
+  if (!r.sent) console.error(`[GridForge] watch change NOT emailed (watch ${w.id}): ${r.category}${r.status ? ` (HTTP ${r.status})` : ""}`);
 }

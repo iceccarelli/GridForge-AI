@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { mailSender } from "@/lib/mail";
 import { z } from "zod";
 import { getQualification, requestFollowUp, type StoredQualification } from "@/lib/qualify";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
@@ -80,12 +81,10 @@ async function notifyDesk(
 ): Promise<void> {
   const key = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || process.env.RESEND_FROM || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (!key || !to) {
-    console.log(
-      "[GridForge] follow-up requested (no email provider set):",
-      JSON.stringify({ token, email, note })
-    );
+    // The qualification row holds the request; the log carries no bearer token, address or note.
+    console.log("[GridForge] follow-up requested (no email provider set); see the stored qualification");
     return;
   }
   const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "Unnamed hall";
@@ -125,7 +124,7 @@ async function notifyDesk(
  */
 async function acknowledgeBuyer(q: StoredQualification, token: string, email: string): Promise<void> {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.LEAD_FROM_EMAIL || process.env.RESEND_FROM || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (!key) return;
   const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "your hall";
   const screen = PRODUCTS.density_screen;

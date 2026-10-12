@@ -748,3 +748,67 @@ describe.skipIf(!enabled)("paid Density Screen, payment to released document, on
     expect((await read.GET(new Request(siteUrl("/x")), it(released.intake_token))).status).toBe(404);   // the emailed credential cannot open it
   }, 90_000);
 });
+
+describe.skipIf(!enabled)("customer notification outbox, on real PostgreSQL + PostgREST (migration 0021)", () => {
+  const WH = "whsec_test_secret_for_signature_generation";
+
+  it("a provider outage leaves a pending, bounded, leased obligation; a redelivery completes it once; concurrent runs send one message", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = WH;
+    process.env.RESEND_API_KEY = "re_test";
+    process.env.LEAD_FROM_EMAIL = "Time to Power <power@timetopower.ai>";
+    delete process.env.RESEND_FROM;
+    delete process.env.LEAD_TO_EMAIL;
+    const real = globalThis.fetch;
+    const sent: { to: string; key: string | null }[] = [];
+    let outage = true;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      if (!url.startsWith("https://api.resend.com")) return real(i as RequestInfo, init);
+      if (outage) return new Response(JSON.stringify({ name: "internal_server_error" }), { status: 500 });
+      await new Promise((r) => setTimeout(r, 25));
+      sent.push({ to: String(JSON.parse(String(init?.body)).to), key: (init?.headers as Record<string, string>)["Idempotency-Key"] ?? null });
+      return new Response(JSON.stringify({ id: "em_real" }), { status: 200 });
+    }) as typeof fetch;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const sid = `cs_ob_${crypto.randomUUID().slice(0, 8)}`;
+      const send = async () => {
+        const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: {
+          id: sid, object: "checkout_session", customer_email: `ob-${sid}@hall.example`, customer: "cus_ob", amount_total: 450_000,
+          currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } } } });
+        const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
+        const { POST } = await import("@/app/api/stripe/webhook/route");
+        return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
+      };
+      expect((await send()).status).toBe(200);                              // outage: payment still fulfilled
+      const [d] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
+      let [n] = await rows("customer_notifications", `&subject_id=eq.${d.id}`);
+      expect(n).toMatchObject({ kind: "intake_link", status: "pending", attempts: 1, last_error: "provider_error", last_http_status: 500 });
+      expect(new Date(n.next_attempt_at).getTime()).toBeGreaterThan(Date.now());   // backoff, not a hot loop
+
+      outage = false;
+      expect((await send()).status).toBe(200);                              // redelivery inside the backoff: left alone
+      [n] = await rows("customer_notifications", `&subject_id=eq.${d.id}`);
+      expect(n.status).toBe("pending");
+      expect(sent).toHaveLength(0);
+
+      // make it due, then run two attempts at once against the real compare-and-set
+      await fetch(`${PGRST}/customer_notifications?id=eq.${n.id}`, { method: "PATCH", headers: { Authorization: `Bearer ${JWT}`, "Content-Type": "application/json" }, body: JSON.stringify({ next_attempt_at: new Date(0).toISOString() }) });
+      const { ensureNotification } = await import("@/lib/notifications");
+      const [a, b] = await Promise.all([ensureNotification("intake_link", d.id), ensureNotification("intake_link", d.id)]);
+      expect([a.state, b.state].sort()).toEqual(["accepted", "skipped"]);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].key).toBe(`intake_link:${d.id}`);
+      [n] = await rows("customer_notifications", `&subject_id=eq.${d.id}`);
+      expect(n).toMatchObject({ status: "accepted", attempts: 2, provider_message_id: "em_real" });
+      expect(await rows("deliverables", `&stripe_session_id=eq.${sid}`)).toHaveLength(1);
+
+      expect((await send()).status).toBe(200);                              // and a later redelivery sends nothing more
+      expect(sent).toHaveLength(1);
+    } finally {
+      globalThis.fetch = real;
+      vi.restoreAllMocks();
+    }
+  }, 60_000);
+});

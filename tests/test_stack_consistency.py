@@ -598,3 +598,25 @@ def test_no_token_addressed_page_is_statically_rendered():
     assert not offenders, (
         'token-addressed pages without `export const dynamic = "force-dynamic"`:\n  '
         + "\n  ".join(offenders))
+
+
+# --- no capability link or address in a log line -------------------------------------------------
+# An intake, watch, API-access or document URL (or its token) is a bearer credential. Logs are copied,
+# retained and read by more people than the customer's inbox: a link written there is a leaked link.
+
+def test_no_log_line_carries_a_bearer_link_or_token():
+    root = Path(__file__).resolve().parent.parent
+    bad = re.compile(
+        r"console\.(log|error|warn|info)\(.*("
+        r"/(intake|watch|api-access|deliverable|qualify)/\$\{|"
+        r"[`\"'].*\$\{\s*(url|link|[\w.]+\.(token|intake_token))\s*\}|"
+        r",\s*(url|link|token|row\.token|[\w.]+\.(token|intake_token))\s*\)\s*;?\s*$)")
+    offenders = []
+    for base in ("app", "lib"):
+        for f in (root / base).rglob("*.ts*"):
+            for n, line in enumerate(f.read_text().splitlines(), 1):
+                if line.strip().startswith("//") or "NEXT_PUBLIC" in line:
+                    continue
+                if bad.search(line):
+                    offenders.append(f"{f.relative_to(root)}:{n}: {line.strip()[:120]}")
+    assert not offenders, "log lines that carry a bearer link/token:\n" + "\n".join(offenders)

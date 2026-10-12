@@ -202,6 +202,23 @@ def revoke(key_id: str) -> bool:
             return False
 
 
+def revocation_persistable() -> bool:
+    """Whether `revoke()` has somewhere durable to write (a path whose directory exists or can be made).
+
+    Reported to the operator tier only, so the website can refuse to SELL keys it could not later kill.
+    It checks the configuration, not the volume's health -- a read-only mount still fails at revoke time,
+    and `handle_revoke` then answers 503 rather than claim a revocation that did not happen.
+    """
+    path = _revoked_file()
+    if path is None:
+        return False
+    try:
+        d = path.parent
+        return d.is_dir() and os.access(d, os.W_OK) or (not d.exists() and os.access(next(p for p in d.parents if p.exists()), os.W_OK))
+    except Exception:
+        return False
+
+
 def looks_signed(token: str) -> bool:
     return token.startswith(PREFIX + ".")
 

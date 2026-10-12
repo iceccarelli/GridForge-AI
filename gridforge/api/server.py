@@ -70,7 +70,7 @@ from ..reporting.study import Objective
 from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
-from .keys import revoke, revoked_ids
+from .keys import revocation_persistable, revoke, revoked_ids
 from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier, redact
@@ -815,7 +815,11 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/health", "/"):
             return self._send(200, {"ok": True, "service": "gridforge", "version": VERSION})
         if path == "/v1/version":
+            # Operator tier only: lets the website verify, with the admin key and no side effect, that
+            # revocation can actually be persisted before it sells a key it could not later kill.
+            extra = {"revocation_persistable": revocation_persistable()} if self._tier() is Tier.INTERNAL else {}
             return self._send(200, {
+                **extra,
                 "version": VERSION,
                 "auth_configured": _auth_configured(),
                 "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),

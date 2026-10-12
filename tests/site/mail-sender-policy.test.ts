@@ -92,14 +92,17 @@ describe("the paid buyer's intake link on the production configuration (LEAD_FRO
 });
 
 describe("no sender anywhere", () => {
-  it("still fulfils the purchase (200, one deliverable) and says out loud that the link was not emailed, with the link", async () => {
+  it("still fulfils the purchase (200, one deliverable) and says out loud that the link was not emailed -- naming the record, never the link", async () => {
     const res = await buy();
     expect(res.status).toBe(200);
     const row = db.rows("deliverables")[0] as any;
     expect(row).toBeTruthy();
     expect(toBuyer()).toHaveLength(0);
-    const line = logged.find((l) => l.includes("intake email NOT sent"));
+    const line = logged.find((l) => l.includes("email NOT sent"));
     expect(line, logged.join("\n")).toBeTruthy();
-    expect(line).toContain(`/intake/${row.intake_token}`);
+    expect(line).toContain(row.id);                       // traceable to the paid record
+    expect(line).toContain("not_configured");
+    const all = logged.join("\n");
+    for (const secret of [row.intake_token, row.token, "/intake/", "buyer@hall.example"]) expect(all).not.toContain(secret);
   });
 });

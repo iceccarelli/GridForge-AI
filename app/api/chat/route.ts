@@ -1,4 +1,5 @@
 import { siteUrl } from "@/lib/site";
+import { mailSender } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
 import { extractLead } from "@/lib/extract";
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
       });
       // Send the lead a branded confirmation (agent path mirrors the form path)
       const rkey = process.env.RESEND_API_KEY;
-      const from = process.env.LEAD_FROM_EMAIL || "Time to Power <power@timetopower.ai>";
+      const from = mailSender("Time to Power <power@timetopower.ai>");
       const leadEmail = extracted.email;
       if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
         const hot = tier === "hot";

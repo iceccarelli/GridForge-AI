@@ -1,4 +1,5 @@
 import { SITE_URL, siteUrl } from "@/lib/site";
+import { mailSender } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 
@@ -151,7 +152,7 @@ async function notify(record: LeadRecord): Promise<void> {
 
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.LEAD_TO_EMAIL;
-  const from = process.env.LEAD_FROM_EMAIL || "Time to Power <onboarding@resend.dev>";
+  const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (apiKey && to) {
     try {
       await fetch("https://api.resend.com/emails", {
