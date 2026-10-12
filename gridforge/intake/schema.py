@@ -126,7 +126,7 @@ class IntakeReport:
     @property
     def engagement_recommendation(self) -> str:
         if self.can_issue:
-            return ("Complete intake. This supports a full Capacity & Density Envelope Study "
+            return ("The intake is complete. This supports a full Capacity & Density Envelope Study "
                     "with site-specific conclusions.")
         if len(self.required_gaps) <= 3:
             return (f"{len(self.required_gaps)} required inputs missing. Request them before "

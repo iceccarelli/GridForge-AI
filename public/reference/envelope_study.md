@@ -310,7 +310,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ### A.1 Assumptions relied upon
 
-- Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; neither is a benchmark.
+- Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a benchmark.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Class 5 (order of magnitude): -50% / +100%
 - Excludes civils and outage management.

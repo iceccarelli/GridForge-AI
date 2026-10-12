@@ -67,7 +67,10 @@ def build(intake: Intake, results: list[ScenarioResult],
         rows.append([Lit(str(st.step)), st.binding_name, st.domain,
                      V(float(st.racks_after), "racks", f"racks after step {st.step}", ESTIMATED),
                      (st.relief_description or "no relief available") +
-                     ("" if st.taken else "  — NOT TAKEN"),
+                     ("" if st.taken else "  — NOT TAKEN") +
+                     ("  — adds no racks on its own: another constraint limits the hall to the same "
+                      "figure, so this relieves one of several tied constraints"
+                      if st.taken and st.racks_after <= st.racks_before else ""),
                      st.capex_eur if st.capex_eur is not None else "—",
                      st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
     s.blocks.append(Table(["#", "Constraint", "Domain", "Racks after", "Relief", "Capex",
@@ -96,8 +99,17 @@ def build(intake: Intake, results: list[ScenarioResult],
                 for g in intake.report.gaps]
         s.blocks.append(Table(["Input", "Status", "Assumed", "Why it binds", "How to get it"], rows))
     else:
-        s.blocks.append(Para("Intake complete. Every input below the headline was supplied by the "
-                             "client rather than assumed."))
+        # "Every input supplied" was printed here even though cost, lead time and tariff are library
+        # defaults -- directly above a disclosure saying so. The site inputs are the client's; the prices
+        # are not, and the count comes from the cost basis, not from a sentence.
+        mix = rec.economics.cost_basis_mix or {}
+        placeholders, total_lines = mix.get("library_default", 0), sum(mix.values())
+        s.blocks.append(Para(
+            "Intake is complete: every site input requested was supplied by the client rather than assumed."
+            + (f" That does not extend to price and schedule: {placeholders} of {total_lines} priced "
+               "lines are library defaults rather than quotations, which is why the accuracy class "
+               "below reads as it does." if placeholders else
+               " Every priced line rests on a quotation.")))
     for w in intake.report.warnings:
         s.blocks.append(Callout("warning", w))
     below = claims_below_floor(collect_claims(results))
