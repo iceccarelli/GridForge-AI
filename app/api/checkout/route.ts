@@ -2,7 +2,8 @@ import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
-import { PRODUCTS, isProductId, type ProductId } from "@/lib/products";
+import { signingConfigured } from "@/lib/api-access";
+import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -87,6 +88,18 @@ export async function POST(req: Request) {
   const qualificationId = UUID.test(rawQualificationId) ? rawQualificationId : "";
   if (rawQualificationId && !qualificationId) {
     console.warn("[GridForge] checkout ignored a malformed qualificationId:", rawQualificationId.slice(0, 64));
+  }
+
+  // An API plan buys a signed key. If this deployment cannot sign one (GRIDFORGE_KEY_SECRET unset, or
+  // not the engine's value) the customer would pay and then meet "Key signing is not configured" on
+  // the page that is supposed to hand them their key. Refuse before Stripe is touched: no session, no
+  // charge, and an error that says what is wrong.
+  if (productId && isApiProduct(productId) && !signingConfigured()) {
+    console.error("[GridForge] API plan checkout refused: GRIDFORGE_KEY_SECRET is not set on this deployment");
+    return NextResponse.json(
+      { ok: false, error: "API plans are temporarily unavailable: key issuance is not configured on this deployment. No payment was taken." },
+      { status: 503 }
+    );
   }
 
   const origin = checkoutOrigin(req.headers.get("origin"));

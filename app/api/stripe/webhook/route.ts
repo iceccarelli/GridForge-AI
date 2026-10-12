@@ -15,6 +15,7 @@ import {
 } from "@/lib/api-access";
 import { lookupSubscriptionByStripeId, recordSubscription, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
 import { recordDeposit } from "@/lib/deposits";
+import { sendMail } from "@/lib/mail";
 import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
 export const runtime = "nodejs";
@@ -426,21 +427,10 @@ async function openApiAccount(p: {
   const url = `${base}/api-access/${created.token}`;
   console.log(`[GridForge] api account opened for ${p.email || "unknown"} — ${url}`);
 
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
   // The row is written; from here the work is done. Email is best-effort and must
   // never turn a fulfilled purchase back into a failed webhook — a retry would
   // find the row and do nothing anyway, and the link is in the log above.
-  if (!key || !from || !p.email) return true;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: p.email,
-        subject: "Your GridForge API access is live",
-        text:
+  await customerMail("api key", p.email, "Your GridForge API access is live",
           "Your key is waiting here:\n\n" +
           url +
           "\n\nIt is shown once. We do not store it — the engine verifies it by its " +
@@ -456,12 +446,24 @@ async function openApiAccount(p: {
           "loop than it does in a board pack, because nobody downstream reads the footnote.\n\n" +
           "Schemas: https://gridforge-engine.fly.dev/v1/tools\n" +
           "MCP:     https://gridforge-engine.fly.dev/mcp",
-      }),
-    });
-  } catch (err) {
-    console.error("[GridForge] api key email failed:", err);
-  }
+    url);
   return true;
+}
+
+/**
+ * A customer-facing message whose recipient is waiting on it (the intake link, the API-access link, the
+ * watch link, the key-rotation reminder). Goes through the one sender policy in lib/mail.ts and, when it
+ * does not leave, says so out loud with the link that was meant to travel -- the row is already written,
+ * so the work is recoverable, but only if the failure is findable. Never throws: email must not turn a
+ * fulfilled purchase back into a failed webhook.
+ */
+async function customerMail(label: string, to: string, subject: string, text: string, link: string): Promise<void> {
+  if (!to) {
+    console.error(`[GridForge] ${label} email NOT sent: no address on record — link was`, link);
+    return;
+  }
+  const r = await sendMail({ to, subject, text });
+  if (!r.sent) console.error(`[GridForge] ${label} email NOT sent: ${r.reason} — link was`, link);
 }
 
 async function openWatch(p: {
@@ -492,21 +494,8 @@ async function openWatch(p: {
   const base = SITE_URL;
   const url = `${base}/watch/${row.token}`;
   console.log(`[GridForge] hall watch opened for ${p.email || "unknown"} — ${url}`);
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  // The row is written; from here the work is done. Email is best-effort and must
-  // never turn a fulfilled purchase back into a failed webhook — a retry would
-  // find the row and do nothing anyway, and the link is in the log above.
-  if (!key || !from || !p.email) return true;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: p.email,
-        subject: "Your hall is now watched",
-        text:
+  // The row is written; from here the work is done (see customerMail).
+  await customerMail("watch", p.email, "Your hall is now watched",
           "The model stays live from here.\n\n" +
           "Give it the hall's current numbers once, and from then on it is re-solved every " +
           "quarter and whenever you change an input. You get a change note naming what moved " +
@@ -515,11 +504,7 @@ async function openWatch(p: {
           url +
           "\n\nIf nothing material changes, we will tell you that in three lines rather than " +
           "send you a document to justify the fee.",
-      }),
-    });
-  } catch (err) {
-    console.error("[GridForge] watch email failed:", err);
-  }
+    url);
   return true;
 }
 
@@ -566,18 +551,10 @@ async function openDeliverable(p: {
 }
 
 async function emailIntakeLink(p: { email: string; kind: string; url: string }): Promise<void> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from || !p.email) return;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: p.email,
-        subject: "Your GridForge engagement — the numbers we need",
-        text:
+  // The message that carries a EUR 4,500 engagement's only intake link. If it does not leave, that is
+  // logged with the link (customerMail) -- a paid customer must never sit waiting for an email nobody
+  // knows was dropped.
+  await customerMail("intake", p.email, "Your GridForge engagement — the numbers we need",
           "Thank you. The engagement is open.\n\n" +
           "The next step is the hall's own numbers. Everything you do not supply is filled " +
           "from a library default and named as an assumption in the deliverable, so the more " +
@@ -585,25 +562,7 @@ async function emailIntakeLink(p: { email: string; kind: string; url: string }):
           p.url +
           "\n\nThe link is unguessable and specific to this engagement. Do not forward it to " +
           "anyone who should not read the result.",
-      }),
-    });
-    // Resend answers a rejection with a status, not a throw. This is the message
-    // that carries a EUR 4,500 engagement's only intake link; losing it silently
-    // is how a paid customer sits waiting for an email nobody knows never left.
-    // The link is in the log above, so this is recoverable — but only if it is
-    // said out loud.
-    if (!res.ok) {
-      console.error(
-        "[GridForge] intake email NOT sent:",
-        res.status,
-        await res.text(),
-        "— link was",
-        p.url
-      );
-    }
-  } catch (err) {
-    console.error("[GridForge] intake email failed:", err, "— link was", p.url);
-  }
+    p.url);
 }
 
 /**
@@ -626,20 +585,10 @@ async function remindToRotate(row: ApiAccount): Promise<void> {
     : `expires on ${life.expires} — ${life.days_left} day(s) from now`;
   console.log(`[GridForge] api account ${row.account}: key ${when}; reminding ${row.email ?? "no email"}`);
 
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from || !row.email) return;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: row.email,
-        subject: life.expired
+  await customerMail("key rotation reminder", row.email ?? "",
+life.expired
           ? "Your GridForge API key has expired — mint a new one"
           : "Your GridForge API key expires shortly",
-        text:
           `Your subscription has renewed. Your API key ${when}.\n\n` +
           "Keys carry their own expiry so the engine can verify them offline, with no " +
           "database and no call home. The price of that is that a key cannot be extended " +
@@ -653,14 +602,7 @@ async function remindToRotate(row: ApiAccount): Promise<void> {
             : "Your current key keeps working until it expires, so you can deploy the new " +
               "one first and let the old one lapse. Nothing stops in between.") +
           "\n\nYour allowance and account are unchanged.",
-      }),
-    });
-    if (!res.ok) {
-      console.error("[GridForge] rotation reminder failed:", res.status, await res.text());
-    }
-  } catch (err) {
-    console.error("[GridForge] rotation reminder error:", err);
-  }
+    url);
 }
 
 async function notifySubscriber(p: { email: string; plan: string }): Promise<void> {

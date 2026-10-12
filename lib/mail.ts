@@ -5,15 +5,21 @@
 
 export type MailResult = { sent: true } | { sent: false; reason: string };
 
-/** The sender both customer and operator mail use; RESEND_FROM first (the existing customer mail), then LEAD_FROM_EMAIL. */
-function sender(): string | null {
-  return process.env.RESEND_FROM || process.env.LEAD_FROM_EMAIL || null;
+/**
+ * THE sender policy, for every outbound message: RESEND_FROM, then LEAD_FROM_EMAIL, then the caller's
+ * fallback (none by default, which means "not configured"). Production carries LEAD_FROM_EMAIL and not
+ * RESEND_FROM, and for a while the customer mail in the Stripe webhook read RESEND_FROM alone -- so a
+ * EUR 4,500 buyer's intake link was silently never sent while the operator mail (which used this helper)
+ * went out fine. One resolver, so a path cannot quietly disagree with the others again.
+ */
+export function mailSender(fallback: string | null = null): string | null {
+  return process.env.RESEND_FROM || process.env.LEAD_FROM_EMAIL || fallback;
 }
 
 export async function sendMail(m: { to: string; subject: string; text: string }): Promise<MailResult> {
   const key = process.env.RESEND_API_KEY;
-  const from = sender();
-  if (!key || !from) return { sent: false, reason: "Email is not configured on this deployment (RESEND_API_KEY and RESEND_FROM)." };
+  const from = mailSender();
+  if (!key || !from) return { sent: false, reason: "Email is not configured on this deployment (RESEND_API_KEY and RESEND_FROM or LEAD_FROM_EMAIL)." };
   if (!m.to || !m.to.includes("@")) return { sent: false, reason: "There is no email address on record." };
   try {
     const res = await fetch("https://api.resend.com/emails", {

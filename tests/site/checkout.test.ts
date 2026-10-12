@@ -153,3 +153,25 @@ describe("where the customer is sent afterwards", () => {
     expect(String(created[0].success_url)).toContain("/commissioned");
   });
 });
+
+describe("API plans are not sold by a deployment that cannot issue the key", () => {
+  afterEach(() => { delete process.env.GRIDFORGE_KEY_SECRET; });
+
+  it("refuses an API plan with no Stripe session when key signing is not configured", async () => {
+    delete process.env.GRIDFORGE_KEY_SECRET;
+    const { POST } = await route();
+    const res = await POST(post({ product: "api_triage", email: "dev@example.test" }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/key issuance is not configured/i);
+    expect(created).toHaveLength(0);
+  });
+
+  it("sells it once signing is configured, and never gates a document product on signing", async () => {
+    delete process.env.GRIDFORGE_KEY_SECRET;
+    const { POST } = await route();
+    expect((await POST(post({ product: "density_screen" }))).status).toBe(200);
+    process.env.GRIDFORGE_KEY_SECRET = "k".repeat(32);
+    expect((await POST(post({ product: "api_triage", email: "dev@example.test" }))).status).toBe(200);
+    expect(created).toHaveLength(2);
+  });
+});

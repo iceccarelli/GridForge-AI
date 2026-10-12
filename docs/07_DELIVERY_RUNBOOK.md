@@ -1458,3 +1458,14 @@ what its author believed. The follow-on offer read the hall's binding constraint
 out of `scenarios.csv` — which a Density Screen never produces — so every screen
 ever sold offered a generic constraint. That was found by asking the real engine
 and getting an empty bundle back. It now runs in CI.
+
+## Outbound mail and API-plan sales: what a missing variable now does
+
+- **One sender policy.** Every message resolves its sender in `lib/mail.ts`: `RESEND_FROM`, else `LEAD_FROM_EMAIL`. Either one is enough. Production carries
+  `LEAD_FROM_EMAIL` only; the Stripe webhook's customer mail (intake link, API-access link, Hall Watch link, key-rotation reminder) and the Hall Watch cron
+  used to read `RESEND_FROM` alone and silently sent nothing there. With **no** sender (or no `RESEND_API_KEY`) the purchase is still fulfilled and the log line
+  `... email NOT sent: <reason> — link was <url>` carries the link to forward by hand.
+- **API plans are only sold when keys can be issued.** `/api/checkout` answers 503 for an `api_*` product, creating no Stripe session, while
+  `GRIDFORGE_KEY_SECRET` is unset on the website. Set it on Vercel to the **same value the engine holds** (do not rotate the engine's; read it from where it is
+  already stored) and redeploy. Document products and Hall Watch are not gated on it.
+- `GRIDFORGE_ADMIN_KEY` (website) is what lets a cancellation revoke a key on the engine; without it the revocation is logged and the key lives to its expiry.
