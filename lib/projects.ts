@@ -20,6 +20,7 @@
 // id, or of a case token alone, cannot mutate a project.
 
 import crypto from "node:crypto";
+import { storeFault } from "@/lib/safe-log";
 import { latestDeploymentCase, newCaseToken } from "@/lib/power-deploy";
 import { isProjectAttachable, purchaseObjectType } from "@/lib/project-products";
 export { PROJECT_ATTACHABLE_KINDS, isProjectAttachable, purchaseObjectType } from "@/lib/project-products";
@@ -123,7 +124,7 @@ export async function rest<T = unknown>(
     }
     if (!res.ok) {
       const code = (parsed as { code?: string } | null)?.code;
-      console.error(`[GridForge] project store ${method} ${path.split("?")[0]} -> ${res.status}`, text);
+      console.error(`[GridForge] project store ${method} ${path.split("?")[0]} -> ${res.status}${code ? ` ${code}` : ""}`);
       return { ok: false, status: res.status, error: `store ${res.status}`, code };
     }
     return { ok: true, status: res.status, data: parsed as T };
@@ -460,7 +461,7 @@ export async function attachEvidence(
       cache: "no-store",
     });
     if (!put.ok) {
-      console.error("[GridForge] evidence object store failed:", put.status, await put.text());
+      console.error("[GridForge] evidence object store failed:", await storeFault(put));
       return { ok: false, status: 502, error: "The file could not be stored. Nothing was attached." };
     }
   } catch (err) {

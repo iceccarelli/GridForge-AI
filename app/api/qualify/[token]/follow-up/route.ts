@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mailSender } from "@/lib/mail";
+import { mailSender, sendMail } from "@/lib/mail";
 import { z } from "zod";
 import { getQualification, requestFollowUp, type StoredQualification } from "@/lib/qualify";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
@@ -100,17 +100,13 @@ async function notifyDesk(
     `Read: ${siteUrl(`/q/${token}`)}`,
   ].filter((l): l is string => l !== null);
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await sendMail({
         from,
-        to: [to],
-        reply_to: email,
+        to: to,
+        replyTo: email,
         subject: `Follow-up requested — ${where}`,
         text: lines.join("\n"),
-      }),
-    });
+      });
   } catch (err) {
     console.error("[GridForge] follow-up desk notification error:", err);
   }
@@ -141,17 +137,13 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
     `Commission the ${screen.name}: ${siteUrl("/pricing")}\n\n` +
     `— Time to Power\nIndependent power-and-thermal engineering for existing AI sites`;
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await sendMail({
         from,
-        to: [email],
-        reply_to: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
+        to: email,
+        replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
         subject: `Time to Power — we have your follow-up request`,
         text,
-      }),
-    });
+      });
   } catch (err) {
     console.error("[GridForge] follow-up acknowledgment error:", err);
   }

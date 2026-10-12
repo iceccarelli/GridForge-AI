@@ -17,6 +17,7 @@
 // and takes the email from the answer. The caller never states who they are.
 
 import { normaliseEmail } from "./subscribers";
+import { storeFault } from "@/lib/safe-log";
 
 export type Identity =
   | { ok: true; email: string }
@@ -66,7 +67,7 @@ export async function identify(req: Request): Promise<Identity> {
     return { ok: false, status: 401, error: "Your session has expired. Sign in again." };
   }
   if (!res.ok) {
-    console.error("[GridForge] portal identity failed:", res.status, await res.text());
+    console.error("[GridForge] portal identity failed:", await storeFault(res));
     return { ok: false, status: 503, error: "Could not check your session just now." };
   }
 

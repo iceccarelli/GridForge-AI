@@ -4,10 +4,19 @@
 // whether the message was actually accepted by the mail provider.
 
 /** Why a message did not go. `ambiguous` = the provider may nevertheless have accepted it (timeout / lost response). */
-export type MailFailure = "not_configured" | "no_recipient" | "rejected" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "idempotency_conflict";
+export type MailFailure =
+  | "not_configured"        // no key / sender here: an operator-config problem, retry once fixed
+  | "provider_auth"         // the provider refused OUR credential (401/403): operator-config, retry once fixed
+  | "no_recipient"
+  | "rejected"              // 400/422/other 4xx: the request itself is invalid -- permanent, a person must look
+  | "idempotency_conflict"  // same key, DIFFERENT payload (409 invalid_idempotent_request)
+  | "rate_limited"          // 429, or 409 concurrent_idempotent_requests: safe to retry later
+  | "provider_error"        // 5xx / 408: retryable
+  | "timeout"               // no answer: the provider may have accepted it (ambiguous)
+  | "unreachable";          // could not connect: nothing was sent
 export type MailResult =
   | { sent: true; id: string | null }
-  | { sent: false; reason: string; category: MailFailure; status?: number; ambiguous?: boolean };
+  | { sent: false; reason: string; category: MailFailure; status?: number; ambiguous?: boolean; retryAfterSeconds?: number };
 
 /** Strip what must never reach a log: addresses and any long URL-safe path segment (a capability token). */
 export function redact(text: string): string {
@@ -36,9 +45,15 @@ export function mailSender(fallback: string | null = null): string | null {
  * retry of a message the provider had in fact accepted would send twice. "Accepted" is also all `sent` means:
  * whether the inbox received it is the provider's separate delivery event, which nothing here consumes.
  */
-export async function sendMail(m: { to: string; subject: string; text: string; idempotencyKey?: string }): Promise<MailResult> {
+export async function sendMail(m: {
+  to: string; subject: string; text: string; idempotencyKey?: string;
+  /** Reply-To for a lead/enquiry message. */
+  replyTo?: string;
+  /** Sender override for flows with a documented test-domain fallback (lead capture); default is the one policy. */
+  from?: string | null;
+}): Promise<MailResult> {
   const key = process.env.RESEND_API_KEY;
-  const from = mailSender();
+  const from = m.from ?? mailSender();
   if (!key || !from) {
     return { sent: false, category: "not_configured", reason: "Email is not configured on this deployment (RESEND_API_KEY and RESEND_FROM or LEAD_FROM_EMAIL)." };
   }
@@ -51,18 +66,28 @@ export async function sendMail(m: { to: string; subject: string; text: string; i
         "Content-Type": "application/json",
         ...(m.idempotencyKey ? { "Idempotency-Key": m.idempotencyKey.slice(0, 256) } : {}),
       },
-      body: JSON.stringify({ from, to: [m.to], subject: m.subject, text: m.text }),
+      body: JSON.stringify({ from, to: [m.to], ...(m.replyTo ? { reply_to: m.replyTo } : {}), subject: m.subject, text: m.text }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       let name = "";
       try { name = String(((await res.json()) as { name?: unknown }).name ?? "").slice(0, 60); } catch { /* body is not logged */ }
       console.error(`[GridForge] mail refused by the provider: HTTP ${res.status}${name ? ` (${name})` : ""}`);
+      // Documented Resend semantics (idempotency keys): 409 invalid_idempotent_request = same key, different
+      // payload; 409 concurrent_idempotent_requests = the first request is still in flight (retry later);
+      // 400 invalid_idempotency_key / validation = our request is wrong. 429 = rate limit.
       const category: MailFailure =
         name === "invalid_idempotent_request" ? "idempotency_conflict"
         : res.status === 429 || name === "concurrent_idempotent_requests" ? "rate_limited"
-        : res.status >= 500 ? "provider_error" : "rejected";
-      return { sent: false, category, status: res.status, reason: `The email provider refused the message (HTTP ${res.status}).` };
+        : res.status === 401 || res.status === 403 ? "provider_auth"
+        : res.status >= 500 || res.status === 408 ? "provider_error"
+        : "rejected";
+      const ra = Number(res.headers.get("retry-after"));
+      return {
+        sent: false, category, status: res.status,
+        ...(Number.isFinite(ra) && ra > 0 ? { retryAfterSeconds: Math.min(ra, 86_400) } : {}),
+        reason: `The email provider refused the message (HTTP ${res.status}).`,
+      };
     }
     let id: string | null = null;
     try { const j = (await res.json()) as { id?: unknown }; id = typeof j.id === "string" ? j.id : null; } catch { /* accepted regardless */ }
@@ -81,5 +106,6 @@ export async function notifyOperator(subject: string, text: string): Promise<Mai
   console.error(`[GridForge] OPERATOR ACTION NEEDED: ${redact(subject)} — ${redact(text.replace(/\s+/g, " ")).slice(0, 400)}`);
   const to = process.env.LEAD_TO_EMAIL;
   if (!to) return { sent: false, category: "not_configured", reason: "LEAD_TO_EMAIL is not set." };
-  return sendMail({ to, subject, text });
+  // Operator mail may fall back to Resend's sandbox sender, which can reach only the account owner -- i.e. the operator.
+  return sendMail({ to, subject, text, from: mailSender("Time to Power <onboarding@resend.dev>") });
 }

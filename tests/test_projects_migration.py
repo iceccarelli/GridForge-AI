@@ -819,6 +819,7 @@ def test_status_and_accepted_at_agree_and_identity_never_changes(outbox):
     refused(outbox, "update customer_notifications set status='accepted' where dedupe_key='k3'", "check")
     assert psql(outbox, "update customer_notifications set status='accepted', accepted_at=now() where dedupe_key='k3'").returncode == 0
     refused(outbox, "update customer_notifications set status='pending', accepted_at=null where dedupe_key='k3'", "cannot be reopened")
+    refused(outbox, "update customer_notifications set origin='operator_reconcile' where dedupe_key='k3'", "identity cannot change")
     refused(outbox, "update customer_notifications set dedupe_key='other' where dedupe_key='k3'", "identity cannot change")
     refused(outbox, "update customer_notifications set kind='watch_link' where dedupe_key='k3'", "identity cannot change")
     refused(outbox, "delete from customer_notifications where dedupe_key='k3'", "never deleted")
@@ -838,3 +839,14 @@ def test_rls_is_on_and_the_api_roles_have_nothing(outbox):
     for role in ("anon", "authenticated"):
         if scalar(outbox, f"select count(*) from pg_roles where rolname='{role}'") == "1":
             assert scalar(outbox, f"select has_table_privilege('{role}', 'public.customer_notifications', 'select')") == "f"
+
+
+def test_ambiguous_and_cancelled_are_states_and_only_people_reopen_ambiguous(outbox):
+    assert _note(outbox, "k5", kind="subscription_welcome", table="subscriptions").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='ambiguous' where dedupe_key='k5'").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='pending', reopened_count=reopened_count+1 where dedupe_key='k5'").returncode == 0
+    assert psql(outbox, "update customer_notifications set status='cancelled' where dedupe_key='k5'").returncode == 0
+    refused(outbox, "update customer_notifications set status='pending' where dedupe_key='k5'", "cannot be reopened")
+    assert _note(outbox, "k6", kind="marketing").returncode != 0
+    assert psql(outbox, "insert into customer_notifications (dedupe_key, kind, subject_table, subject_id, origin) values "
+                        f"('k7', 'intake_link', 'deliverables', {SUBJ}, 'somebody')", check=False).returncode != 0

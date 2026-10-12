@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { storeFault } from "@/lib/safe-log";
 import { identify } from "@/lib/portal";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 
@@ -59,11 +60,11 @@ export async function GET(req: Request) {
       ),
     ]);
     if (!d.ok) {
-      console.error("[GridForge] portal deliverables read failed:", d.status, await d.text());
+      console.error("[GridForge] portal deliverables read failed:", await storeFault(d));
       return unreachable();
     }
     if (!w.ok) {
-      console.error("[GridForge] portal watches read failed:", w.status, await w.text());
+      console.error("[GridForge] portal watches read failed:", await storeFault(w));
       return unreachable();
     }
     engagements = (await d.json()) as Row[];

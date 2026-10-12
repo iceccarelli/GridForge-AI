@@ -123,3 +123,91 @@ describe("fail closed without needing an engine", () => {
     expect(created).toHaveLength(1);
   });
 });
+
+// --- the engine contract: only an explicit, well-typed positive qualifies ---------------------------
+import http from "node:http";
+
+async function stubEngine(opts: {
+  client?: unknown; operator?: unknown; clientStatus?: number; operatorStatus?: number; raw?: string; hang?: boolean;
+}): Promise<{ url: string; close: () => void }> {
+  const server = http.createServer((req, res) => {
+    if (opts.hang) return;                                       // never answers
+    const key = String(req.headers["x-api-key"] ?? "");
+    const isOperator = key === ADMIN;
+    const status = (isOperator ? opts.operatorStatus : opts.clientStatus) ?? 200;
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(opts.raw ?? JSON.stringify(isOperator ? opts.operator : opts.client));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  return { url, close: () => server.close() };
+}
+
+describe("revocation_persistable must be explicitly, correctly true", () => {
+  const client = { tier: "client" };
+  const cases: [string, unknown, string][] = [
+    ["true", { tier: "internal", revocation_persistable: true }, "ready"],
+    ["false", { tier: "internal", revocation_persistable: false }, "revocation_not_persistable"],
+    ["absent (an older engine)", { tier: "internal" }, "revocation_unverifiable"],
+    ["null", { tier: "internal", revocation_persistable: null }, "revocation_unverifiable"],
+    ['the string "true"', { tier: "internal", revocation_persistable: "true" }, "revocation_unverifiable"],
+    ["the number 1", { tier: "internal", revocation_persistable: 1 }, "revocation_unverifiable"],
+    ["an object", { tier: "internal", revocation_persistable: {} }, "revocation_unverifiable"],
+  ];
+  for (const [label, operator, expected] of cases) {
+    it(`${label} -> ${expected}${expected === "ready" ? "" : ", and an API plan is refused with no Stripe session"}`, async () => {
+      const stub = await stubEngine({ client, operator });
+      process.env.GRIDFORGE_API_URL = stub.url;
+      try {
+        expect(await category()).toBe(expected);
+        const res = await checkout("api_triage");
+        expect(res.status).toBe(expected === "ready" ? 200 : 503);
+        expect(created).toHaveLength(expected === "ready" ? 1 : 0);
+        if (expected !== "ready") {
+          const wire = JSON.stringify(await res.json());
+          expect(wire).not.toMatch(/revocation|persist|path|secret|admin/i);   // a generic, non-diagnostic public message
+        }
+      } finally { stub.close(); }
+    });
+  }
+
+  it("malformed or non-object engine answers, errors and timeouts never qualify", async () => {
+    const { resetApiReadinessCache } = await import("@/lib/api-readiness");
+    for (const [stubOpts, expected] of [
+      [{ raw: "<html>nope</html>" }, "engine_malformed"],
+      [{ raw: "[]" }, "engine_malformed"],
+      [{ raw: "null" }, "engine_malformed"],
+      [{ clientStatus: 500, client: {} }, "engine_unreachable"],
+      [{ client, operatorStatus: 503, operator: {} }, "engine_unreachable"],
+      [{ client: { tier: "public" } }, "signing_mismatch"],
+      [{ client: { tier: 7 } }, "signing_mismatch"],
+      [{ client, operator: { tier: "client", revocation_persistable: true } }, "revocation_mismatch"],
+    ] as [Parameters<typeof stubEngine>[0], string][]) {
+      resetApiReadinessCache();
+      const stub = await stubEngine(stubOpts);
+      process.env.GRIDFORGE_API_URL = stub.url;
+      try { expect(await category(), JSON.stringify(stubOpts)).toBe(expected); } finally { stub.close(); }
+    }
+    expect(created).toHaveLength(0);
+  });
+
+  it("a hung engine times out and is not ready", async () => {
+    const stub = await stubEngine({ hang: true });
+    process.env.GRIDFORGE_API_URL = stub.url;
+    try {
+      const t0 = Date.now();
+      expect(await category()).toBe("engine_unreachable");
+      expect(Date.now() - t0).toBeLessThan(8_000);
+    } finally { stub.close(); }
+  }, 15_000);
+
+  it("a failure is cached only briefly and a success is re-proved after its window; non-API products never consult it", async () => {
+    const stub = await stubEngine({ client, operator: { tier: "internal", revocation_persistable: false } });
+    process.env.GRIDFORGE_API_URL = stub.url;
+    try {
+      expect(await category()).toBe("revocation_not_persistable");
+      expect((await checkout("density_screen")).status).toBe(200);
+      expect((await checkout("hall_watch")).status).toBe(200);
+    } finally { stub.close(); }
+  });
+});

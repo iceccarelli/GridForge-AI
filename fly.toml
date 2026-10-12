@@ -34,6 +34,12 @@ primary_region = "ams"
   # Revoked key ids (POST /v1/revoke, operator tier). Without a writable path here the engine answers 503 to
   # a revocation and the website refuses to SELL API plans (lib/api-readiness.ts: revocation_not_persistable),
   # because a cancellation could not end the key. Same volume as the usage meter.
+  #
+  # TOPOLOGY: a Fly volume belongs to exactly ONE machine. Revocations (and the usage meter) are local state,
+  # so this app must run exactly ONE machine (`fly scale count 1`; never add a second without shared storage).
+  # A machine started without a volume reports revocation_persistable=false and the website then refuses to
+  # sell API plans, but a second machine behind the load balancer would still serve keys revoked only on
+  # the first -- hence the single-machine rule, documented in docs/07_DELIVERY_RUNBOOK.md.
   GRIDFORGE_REVOKED_FILE = "/data/revoked.json"
 
 [http_service]

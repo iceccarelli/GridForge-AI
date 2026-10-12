@@ -29,7 +29,9 @@ export type ReadinessCategory =
   | "signing_mismatch"
   | "revocation_unconfigured"
   | "revocation_mismatch"
-  | "revocation_not_persistable";
+  | "revocation_unverifiable"
+  | "revocation_not_persistable"
+  | "engine_malformed";
 
 export interface ApiReadiness { ready: boolean; category: ReadinessCategory; checkedAt: string }
 
@@ -39,17 +41,28 @@ let cached: { at: number; value: ApiReadiness } | null = null;
 
 export function resetApiReadinessCache(): void { cached = null; }
 
-async function engineVersion(base: string, key: string): Promise<{ tier?: string; revocation_persistable?: boolean } | null> {
+type Version = { tier: unknown; revocation_persistable: unknown };
+
+/** null = unreachable / non-2xx / timeout; "malformed" = answered, but not with a JSON object. */
+async function engineVersion(base: string, key: string): Promise<Version | "malformed" | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/version`, {
+    res = await fetch(`${base.replace(/\/$/, "")}/v1/version`, {
       headers: { "X-API-Key": key },
       signal: AbortSignal.timeout(5_000),
       cache: "no-store",
     });
-    if (!res.ok) return null;
-    return (await res.json()) as { tier?: string; revocation_persistable?: boolean };
   } catch {
     return null;
+  }
+  if (!res.ok) return null;
+  try {
+    const j = (await res.json()) as unknown;
+    if (j === null || typeof j !== "object" || Array.isArray(j)) return "malformed";
+    const o = j as Record<string, unknown>;
+    return { tier: o.tier, revocation_persistable: o.revocation_persistable };
+  } catch {
+    return "malformed";
   }
 }
 
@@ -60,15 +73,23 @@ async function check(): Promise<ReadinessCategory> {
 
   const probe = issueKey({ account: "ttp-readiness-probe", quota: 1, scope: "trial", days: 1 }).token;
   const asClient = await engineVersion(base, probe);
-  if (!asClient) return "engine_unreachable";
+  if (asClient === null) return "engine_unreachable";
+  if (asClient === "malformed") return "engine_malformed";
   if (asClient.tier !== "client") return "signing_mismatch";
 
   const admin = process.env.GRIDFORGE_ADMIN_KEY;
   if (!admin) return "revocation_unconfigured";
   const asOperator = await engineVersion(base, admin);
-  if (!asOperator) return "engine_unreachable";
+  if (asOperator === null) return "engine_unreachable";
+  if (asOperator === "malformed") return "engine_malformed";
   if (asOperator.tier !== "internal") return "revocation_mismatch";
-  if (asOperator.revocation_persistable === false) return "revocation_not_persistable";
+  // Positive evidence only. The engine proves durability by performing a real write/flush/rename/read-back
+  // beside its revocation store. An engine that does not report the capability (older contract), reports
+  // null / a string / a number, or reports false, has not proved it -- and the sale does not happen.
+  if (asOperator.revocation_persistable === undefined || asOperator.revocation_persistable === null) return "revocation_unverifiable";
+  if (asOperator.revocation_persistable !== true) {
+    return typeof asOperator.revocation_persistable === "boolean" ? "revocation_not_persistable" : "revocation_unverifiable";
+  }
   return "ready";
 }
 

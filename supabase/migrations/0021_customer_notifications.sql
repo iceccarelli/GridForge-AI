@@ -10,8 +10,12 @@
 -- from the business record's id. It stores NO recipient, token or message body: the message is rebuilt
 -- from the business row at send time, so a capability link never has to be read out of a log or a copy.
 --
---   pending  -> accepted    the mail provider ACCEPTED the message (not: the inbox received it)
---   pending  -> abandoned   attempts exhausted, or a permanent refusal; an operator must act
+--   pending   -> accepted    the mail provider ACCEPTED the message (not: the inbox received it)
+--   pending   -> ambiguous   an attempt's outcome is unknown and can no longer be retried safely (the provider
+--                            may have accepted it, but its 24 h idempotency window has passed): a person decides
+--   pending   -> abandoned   attempts exhausted, or a permanent refusal; an operator must act
+--   pending   -> cancelled   the obligation no longer applies (key already rotated, subscription superseded, ...)
+--   abandoned / ambiguous -> pending   only by an explicit operator action (reopened_count records it)
 --
 -- Attempts are bounded (max_attempts) and leased (claimed_until) so concurrent runs cannot double-send.
 -- Additive and idempotent. The application degrades to a direct, logged, best-effort send when this
@@ -20,10 +24,10 @@
 create table if not exists public.customer_notifications (
   id uuid primary key default gen_random_uuid(),
   dedupe_key text not null unique check (length(btrim(dedupe_key)) > 0),
-  kind text not null check (kind in ('intake_link', 'api_access_link', 'watch_link', 'key_rotation')),
-  subject_table text not null check (subject_table in ('deliverables', 'api_accounts', 'watches')),
+  kind text not null check (kind in ('intake_link', 'api_access_link', 'watch_link', 'key_rotation', 'subscription_welcome')),
+  subject_table text not null check (subject_table in ('deliverables', 'api_accounts', 'watches', 'subscriptions')),
   subject_id uuid not null,
-  status text not null default 'pending' check (status in ('pending', 'accepted', 'abandoned')),
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'ambiguous', 'abandoned', 'cancelled')),
   attempts int not null default 0 check (attempts >= 0),
   max_attempts int not null default 6 check (max_attempts between 1 and 20),
   next_attempt_at timestamptz not null default now(),
@@ -34,6 +38,9 @@ create table if not exists public.customer_notifications (
   last_http_status int,
   provider_message_id text,
   accepted_at timestamptz,
+  -- Who asked for this row: the webhook, or an operator's explicit reconciliation of a pre-outbox purchase.
+  origin text not null default 'webhook' check (origin in ('webhook', 'operator_reconcile')),
+  reopened_count int not null default 0 check (reopened_count >= 0),
   created_at timestamptz not null default now(),
   check ((status = 'accepted') = (accepted_at is not null))
 );
@@ -52,8 +59,11 @@ begin
      or new.subject_table is distinct from old.subject_table or new.subject_id is distinct from old.subject_id then
     raise exception 'a notification''s identity cannot change';
   end if;
-  if old.status = 'accepted' and new.status is distinct from 'accepted' then
+  if old.status in ('accepted', 'cancelled') and new.status is distinct from old.status then
     raise exception 'an accepted notification cannot be reopened';
+  end if;
+  if new.origin is distinct from old.origin then
+    raise exception 'a notification''s identity cannot change';
   end if;
   return new;
 end

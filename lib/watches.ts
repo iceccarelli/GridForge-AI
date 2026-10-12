@@ -10,6 +10,7 @@
 // lines rather than padded into a document.
 
 import crypto from "node:crypto";
+import { storeFault } from "@/lib/safe-log";
 
 export type WatchStatus = "active" | "paused" | "cancelled";
 export type Cadence = "monthly" | "quarterly";
@@ -90,7 +91,7 @@ export async function createWatch(
     body: JSON.stringify(record),
   });
   if (!res.ok) {
-    console.error("[GridForge] watch insert failed:", await res.text());
+    console.error("[GridForge] watch insert failed:", await storeFault(res));
     return null;
   }
   return ((await res.json()) as WatchRecord[])[0] ?? null;
@@ -122,7 +123,7 @@ export async function dueWatches(limit = 25): Promise<WatchRecord[]> {
     { headers: c.headers, cache: "no-store" }
   );
   if (!res.ok) {
-    console.error("[GridForge] dueWatches failed:", await res.text());
+    console.error("[GridForge] dueWatches failed:", await storeFault(res));
     return [];
   }
   return (await res.json()) as WatchRecord[];
@@ -136,7 +137,7 @@ export async function updateWatch(token: string, patch: Partial<WatchRecord>): P
     headers: { ...c.headers, Prefer: "return=minimal" },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) console.error("[GridForge] watch update failed:", await res.text());
+  if (!res.ok) console.error("[GridForge] watch update failed:", await storeFault(res));
   return res.ok;
 }
 
@@ -163,7 +164,7 @@ export async function lookupWatchBySubscription(
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] watchBySubscription failed:", await res.text());
+      console.error("[GridForge] watchBySubscription failed:", await storeFault(res));
       return { ok: false };
     }
     return { ok: true, row: ((await res.json()) as WatchRecord[])[0] ?? null };
@@ -189,7 +190,7 @@ export async function recordNote(row: Partial<WatchNote> & { watch_id: string })
     headers: { ...c.headers, Prefer: "return=minimal" },
     body: JSON.stringify(row),
   });
-  if (!res.ok) console.error("[GridForge] watch note insert failed:", await res.text());
+  if (!res.ok) console.error("[GridForge] watch note insert failed:", await storeFault(res));
   return res.ok;
 }
 

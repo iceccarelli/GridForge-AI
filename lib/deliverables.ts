@@ -14,6 +14,7 @@
 // and the page says so.
 
 import crypto from "node:crypto";
+import { storeFault } from "@/lib/safe-log";
 import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
 
 export const DELIVERABLE_STATUSES = [
@@ -117,7 +118,7 @@ export async function createDeliverable(
       const { intake_token: _omitted, ...withoutIntakeToken } = record;
       res = await insert(withoutIntakeToken);
       if (!res.ok) {
-        console.error("[GridForge] deliverable insert failed:", await res.text());
+        console.error("[GridForge] deliverable insert failed:", await storeFault(res));
         return null;
       }
     } else {
@@ -150,7 +151,7 @@ export async function deliverableBySession(
       { headers: c.headers, cache: "no-store" }
     );
     if (!res.ok) {
-      console.error("[GridForge] deliverable by session failed:", res.status, await res.text());
+      console.error("[GridForge] deliverable by session failed:", await storeFault(res));
       return null;
     }
     const rows = (await res.json()) as DeliverableRecord[];
@@ -198,7 +199,7 @@ export async function creditsToward(
   if (!res.ok) {
     // Never guess a credit. Reporting none is recoverable by a human reading the
     // pipeline; inventing one is money given away on our own arithmetic.
-    console.error("[GridForge] credit lookup failed:", res.status, await res.text());
+    console.error("[GridForge] credit lookup failed:", await storeFault(res));
     return empty;
   }
   const rows = (await res.json()) as { kind: string; token: string; amount_cents: number | null }[];
@@ -253,7 +254,7 @@ export async function getByIntakeToken(token: string): Promise<DeliverableRecord
       const rows = (await res.json()) as DeliverableRecord[];
       if (rows[0]) return rows[0];
     } else {
-      console.error("[GridForge] intake token lookup failed:", res.status, await res.text());
+      console.error("[GridForge] intake token lookup failed:", await storeFault(res));
     }
   } catch (err) {
     console.error("[GridForge] intake token lookup unreachable:", err);
@@ -271,7 +272,7 @@ export async function updateByToken(
     `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}`,
     { method: "PATCH", headers: { ...c.headers, Prefer: "return=minimal" }, body: JSON.stringify(patch) }
   );
-  if (!res.ok) console.error("[GridForge] deliverable update failed:", await res.text());
+  if (!res.ok) console.error("[GridForge] deliverable update failed:", await storeFault(res));
   return res.ok;
 }
 
@@ -453,7 +454,7 @@ export async function renderDeliverable(
         cache: "no-store",
       });
       if (!res.ok) {
-        console.error("[GridForge] binding lookup failed:", res.status, await res.text());
+        console.error("[GridForge] binding lookup failed:", await storeFault(res));
         return null;
       }
       const body = (await res.json()) as {

@@ -10,6 +10,7 @@
 // plainly, rather than inventing a number.
 
 import { z } from "zod";
+import { storeFault } from "@/lib/safe-log";
 
 export const qualifySchema = z.object({
   // --- the seven questions that decide the answer for almost any hall --------
@@ -261,7 +262,7 @@ export async function qualificationById(id: string): Promise<StoredQualification
     { headers: c.headers, cache: "no-store" }
   );
   if (!res.ok) {
-    console.error("[GridForge] qualification by id failed:", res.status, await res.text());
+    console.error("[GridForge] qualification by id failed:", await storeFault(res));
     return null;
   }
   const rows = (await res.json()) as StoredQualification[];
@@ -375,7 +376,7 @@ export async function requestFollowUp(
       }
     );
     if (!res.ok) {
-      console.error("[GridForge] follow-up update failed:", res.status, await res.text());
+      console.error("[GridForge] follow-up update failed:", await storeFault(res));
       return { ok: false, reason: "store_error" };
     }
     const rows = (await res.json().catch(() => [])) as unknown[];

@@ -14,6 +14,7 @@
 // fail-closed-to-null on an unreachable store rather than a thrown exception.
 
 import crypto from "node:crypto";
+import { storeFault } from "@/lib/safe-log";
 
 export interface PowerDeploymentCaseRow {
   id: string;
@@ -190,7 +191,7 @@ export async function createDeploymentCase(row: {
       cache: "no-store",
     });
     if (!res.ok) {
-      console.error("[GridForge] power deployment case insert failed:", await res.text());
+      console.error("[GridForge] power deployment case insert failed:", await storeFault(res));
       return null;
     }
     return ((await res.json()) as PowerDeploymentCaseRow[])[0] ?? null;
@@ -314,7 +315,7 @@ export async function appendDeploymentRevision(
         cache: "no-store",
       });
       if (!res.ok) {
-        console.error("[GridForge] power deployment revision (with project history) failed:", await res.text());
+        console.error("[GridForge] power deployment revision (with project history) failed:", await storeFault(res));
         return null;
       }
       const out = (await res.json()) as { row: PowerDeploymentCaseRow; events: number };
@@ -327,7 +328,7 @@ export async function appendDeploymentRevision(
       cache: "no-store",
     });
     if (!res.ok) {
-      console.error("[GridForge] power deployment revision insert failed:", await res.text());
+      console.error("[GridForge] power deployment revision insert failed:", await storeFault(res));
       return null;
     }
     return ((await res.json()) as PowerDeploymentCaseRow[])[0] ?? null;

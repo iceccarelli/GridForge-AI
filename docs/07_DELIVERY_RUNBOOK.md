@@ -1461,35 +1461,80 @@ and getting an empty bundle back. It now runs in CI.
 
 ## Customer email, API-plan sales and release order (PR #47)
 
-### Customer access email is a durable obligation (migration 0021)
-- The webhook writes the business record (deliverable / API account / watch) once, then a row in `customer_notifications` (unique `dedupe_key`).
-  The row holds **no recipient, token or body**; the message is rebuilt from the business row when sent, so a link never has to be read out of a log.
-- States: `pending` → `accepted` (the provider **accepted** it — not "the inbox received it"; no delivery/bounce event is consumed) or `abandoned`
-  (6 attempts, or a permanent refusal: HTTP 4xx other than 408/409/429, no address, a record that is gone). Backoff 5 min, 15 min, 1 h, 4 h, 12 h. A
-  missing sender/credential does **not** burn attempts: the row waits (retry hourly) and one operator notice says why.
-- It is retried by: the next Stripe redelivery of the same event, `/api/cron/notifications` (every 30 min; needs `CRON_SECRET`, like the watches cron —
-  **not in the production env inventory today**, so until it is set only redelivery and the admin route retry), and an operator.
-- Operator: `GET /api/admin/notifications` (ids, kinds, states, attempt counts, failure **categories**; `?state=all` includes accepted),
-  `POST /api/admin/notifications {"id": "<uuid>"}` retries one now (an abandoned one is reopened), `POST {}` works through what is due. Admin cookie required.
-- Resend semantics relied on (docs, 2026-10): `Idempotency-Key` header, 1–256 chars, kept 24 h; same key + same payload returns the first result without
-  re-sending; a different payload is `409 invalid_idempotent_request`; a concurrent duplicate is `409 concurrent_idempotent_requests`. The key is the
-  notification's `dedupe_key`. A timeout is recorded as `timeout_maybe_accepted` and retried with the **same** key. This is *not* exactly-once: a retry
-  more than 24 h after a lost-response acceptance could send twice.
-- **Release order.** The code is safe either way: before 0021 exists it sends once directly and logs `record id + category` only (a redelivery then does
-  not guess and re-send). Apply 0021 (additive, idempotent, no existing table touched) **after** a verified recovery point, then merge.
-- Sender policy, one place (`lib/mail.ts`): `RESEND_FROM`, else `LEAD_FROM_EMAIL`, else the caller's fallback. No log line carries a link, token, address or
-  provider body (`tests/test_stack_consistency.py` fails the build on one).
-- The operator's "paid" notice is sent only when the purchase record is **created**, not on every redelivery (it used to repeat).
+### What is guaranteed, and what is not
+- **Guaranteed (once migration 0021 is applied):** every paid customer's access email is a durable obligation. A provider outage, a database blip or a
+  crash after sending cannot silently lose it; it is retried, or surfaced to a person.
+- **Not guaranteed:** exactly-once delivery, or that an inbox received a message. "accepted" means the provider (Resend) accepted it and we recorded that;
+  no delivery/bounce event is consumed.
+- **Before 0021 exists:** the first webhook delivery makes ONE direct send; if it fails it is logged (`record id + category`) and is **not recoverable** — there
+  is no obligation row to retry — and a Stripe redelivery deliberately does nothing (it must not guess whether the first send happened). Use the
+  reconcile endpoint (below) after applying 0021 to cover those purchases.
 
-### API plans are only sold against a proof (lib/api-readiness.ts)
-`/api/checkout` for an `api_*` plan, before Stripe is touched, proves against the engine: (1) a throwaway 1-day signed key (probe account, never stored) is
-accepted — `GET /v1/version` reports `tier: client` (a different signing secret reports `public`; unmetered, no account, no solve); (2) `GRIDFORGE_ADMIN_KEY`
-is the engine's operator key (`tier: internal`) and (3) the engine reports `revocation_persistable` (operator tier only). Anything else — unset secret, unset
-engine URL, unreachable engine, secret mismatch, no/wrong admin key, no `GRIDFORGE_REVOKED_FILE` — answers 503 with no Stripe session and logs the category.
-`GET /api/admin/api-readiness` (admin) returns the same category, uncached. Document products and Hall Watch are never gated on it.
-It proves **parity and configuration**, not that the revocation volume is healthy (a read-only mount still 503s at revoke time) and not that the secret
-is "the right one" beyond matching the engine's.
+### The outbox (`customer_notifications`, migration 0021)
+- Kinds: `intake_link`, `api_access_link`, `watch_link`, `key_rotation`, `subscription_welcome`. One row per obligation (`dedupe_key` unique). The row holds
+  **no recipient, token or body**; the message is rebuilt from the *current* business record when sent.
+- States: `pending` → `accepted` | `ambiguous` | `abandoned` | `cancelled`. `abandoned`/`ambiguous` return to `pending` only by an explicit operator action
+  (`reopened_count` records it); `accepted`/`cancelled` are final.
+- **Provider semantics used** (Resend idempotency docs, checked 2026-10): `Idempotency-Key` 1–256 chars, remembered **24 h**; same key + same payload returns the
+  original result without sending; different payload → `409 invalid_idempotent_request`; in-flight duplicate → `409 concurrent_idempotent_requests`.
+  Classification: 400/422/other 4xx → `rejected` (permanent, operator notified once); 429 and `concurrent_idempotent_requests` → retry (honouring
+  `Retry-After`); 408/5xx → retry; 401/403 → `provider_auth` and a missing key/sender → `not_configured` (**operator-config: the obligation waits, no attempt is
+  burned**, retried hourly, one operator notice); `invalid_idempotent_request` → retry under a new key version; timeout → `timeout_maybe_accepted`
+  (ambiguous acceptance, not "undelivered"); network failure → retry.
+- **Bounded:** 6 attempts, backoff 5 min / 15 min / 1 h / 4 h / 12 h. After attempts are exhausted: `abandoned` (or `ambiguous` if the last attempt may have been accepted).
+- **Provider success ≠ database success.** An attempt stamps `last_error='in_flight'` under a 2-minute lease (compare-and-set on `attempts`). If the provider accepts
+  but the database write fails, the outcome is `accepted_unrecorded` (never reported as accepted), the row stays `pending`, and the retry reuses the same key so the
+  provider returns the original instead of sending again. **An attempt with an unknown outcome older than 23 h is not retried automatically**: it becomes `ambiguous`,
+  because the provider can no longer deduplicate it.
+- **Credential separation.** The intake email carries only a valid `intake_token` that differs from the document token. A row without one is **never** sent the other
+  credential: the notification waits (`credential_missing`, no attempt burned), one operator notice (ids only) says so, and it completes by itself after the record is repaired.
+- **Stale messages are cancelled.** The message is rebuilt at send time: an intake reminder after intake was submitted, a key warning after the key was rotated/renewed
+  (the dedupe key carries the expiry the warning was for), a welcome for a superseded subscription — all become `cancelled`, not sent. A key-less account never gets a rotation warning.
+- **If the outbox cannot be written** (database error, not a missing table) the webhook answers 500 so Stripe redelivers; the business record is idempotent, so only the notification step repeats.
 
-To enable API sales (no secret is generated or rotated by the code): website env `GRIDFORGE_KEY_SECRET` = the engine's value (read it from where it is
-stored; do **not** run `deploy-engine.sh --bootstrap` to get around a mismatch), `GRIDFORGE_ADMIN_KEY` = the engine's operator key, and the engine needs
-`GRIDFORGE_REVOKED_FILE=/data/revoked.json` (now in `fly.toml`; it takes effect on the next engine deploy). Then check `/api/admin/api-readiness`.
+### Operating it
+- `GET /api/admin/notifications[?state=all]` — ids, kinds, states, attempt/reopen counts, failure **categories** (admin cookie). Never a recipient, link, token or body.
+- `POST /api/admin/notifications {"id": "<uuid>", "action": "retry" | "confirm_sent"}` — `retry` sends again now (reopens an abandoned/ambiguous one; for an ambiguous one
+  that may send a second copy — your choice); `confirm_sent` records that you verified receipt. `POST {}` works through what is due. Every action is logged by id + outcome.
+- `GET /api/cron/notifications` — header-only `Authorization: Bearer $CRON_SECRET`, timing-safe, **fails closed** (no `CRON_SECRET` ⇒ 401 for everyone). Reports
+  `attempted / accepted / acceptedUnrecorded / pending / ambiguous / abandoned / cancelled / skipped` separately. **`CRON_SECRET` is absent from the production env today, so this
+  schedule (and the existing watches cron) cannot run until it is set; until then only a Stripe redelivery or the admin route retries.** A schedule in `vercel.json` proves nothing by itself.
+- **Reconciling purchases made before the outbox:** `GET /api/admin/notifications/reconcile` is a **dry run** (counts and record ids with an eligibility reason; no address/link/token; writes
+  nothing). `POST {"selection":[{"kind","subject_id"}]}` (≤ 50) enqueues exactly those records after re-checking eligibility, deduplicates against existing obligations, creates no
+  purchase/account/deliverable, and **does not send** — delivery is the normal sweep or an explicit retry. Deploying or migrating never sends email.
+
+### Release order
+1. Take a real recovery point and **test its restore** (the JSON export taken from the production API is not a verified restore).
+2. Apply `0021_customer_notifications.sql` (additive, idempotent; touches no existing table; service-role-only grants). The code works before and after.
+3. Merge/deploy. Set `CRON_SECRET` (and `RESEND_FROM` if desired). Run the reconcile dry run, review, enqueue deliberately.
+4. API plans: see below — independent of the above.
+
+### API plans are only sold against a proof (`lib/api-readiness.ts`)
+`/api/checkout` for an `api_*` plan proves, before Stripe is touched, against the engine — and **only an explicit positive qualifies**:
+1. a throwaway 1-day signed key (probe account, never stored) is accepted: `GET /v1/version` reports `tier: "client"` (a different signing secret reads as `public`; unmetered, creates no account, runs no solve);
+2. `GRIDFORGE_ADMIN_KEY` is the engine's operator key (`tier: "internal"`);
+3. the engine reports **`revocation_persistable === true`**. Absent (an older engine), `null`, a string, a number or `false` all fail.
+Anything else — unset secret/URL, unreachable or slow engine, non-JSON answer, secret mismatch, no/wrong admin key — answers a generic 503 ("No payment was taken"), creates no Stripe
+session and logs only a category. `GET /api/admin/api-readiness` (admin) returns the category uncached; no secret, fingerprint, path or key is ever returned.
+Document products and Hall Watch are never gated on it.
+
+**What `revocation_persistable` proves:** the engine performs a real create → flush → atomic rename → read-back in the directory of `GRIDFORGE_REVOKED_FILE`, beside (never touching) the live revoked-ID
+set. On Fly it additionally requires that directory to be a mounted volume (a different device than `/`). **What it does not prove:** that the volume stays healthy afterwards (a read-only remount still
+answers 503 at revoke time — never a claimed success), or anything about other machines.
+
+**Topology — exactly one machine.** A Fly volume attaches to one machine. Revocations and the usage meter are local files. The supported topology is **one machine** (`fly scale count 1`).
+A machine started without its own volume reports `revocation_persistable: false`; a second machine *with* a volume would still not see revocations made on the first. Adding machines requires
+shared revocation storage first; until then the readiness probe may reach either machine, so do not scale out.
+
+To enable API sales (no secret is generated or rotated by the code): website env `GRIDFORGE_KEY_SECRET` = the engine's value (read it from where it is stored; do **not** run `deploy-engine.sh --bootstrap`
+to get around a mismatch), `GRIDFORGE_ADMIN_KEY` = the engine's operator key, and deploy the engine with `GRIDFORGE_REVOKED_FILE=/data/revoked.json` (now in `fly.toml`). Then check `/api/admin/api-readiness`.
+Production metadata checked 2026-10 (names only): `GRIDFORGE_KEY_SECRET`, `GRIDFORGE_ADMIN_KEY`, `CRON_SECRET`, `RESEND_FROM` are **absent** on Vercel; the engine's `signed_keys=true` proves only that signed keys are enabled there.
+
+### Logs
+No log line may carry a link, token, secret, address, message body or provider/store response body. Failures are traced by record id, notification id, kind, attempt number, HTTP status and a bounded
+category (`lib/safe-log.ts` turns a failed store call into `HTTP <status> <code>`). `tests/site/log-privacy.test.ts` parses every `console.*` call in `app/` and `lib/` as a syntax tree (multi-line calls,
+template literals, nested expressions) and fails the build on a leak; it is itself tested against the earlier leaking lines. All Resend traffic goes through `lib/mail.ts` (`tests` assert it is the only call site).
+
+### Preview
+The Preview environment has the production Supabase URL (`SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_URL` are assigned to Preview). Isolation from production data is **unproven**. Preview lacks the Stripe webhook
+secret and the Resend key (production-only), so it cannot fulfil payments or send mail, but it can read/write the shared database through any route that does not need them. Do not use Preview for write testing.

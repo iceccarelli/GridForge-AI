@@ -194,7 +194,10 @@ def revoke(key_id: str) -> bool:
             current.add(key_id)
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(path.suffix + ".tmp")
-            tmp.write_text(json.dumps({"revoked": sorted(current)}, indent=2))
+            with open(tmp, "w") as fh:
+                fh.write(json.dumps({"revoked": sorted(current)}, indent=2))
+                fh.flush()
+                os.fsync(fh.fileno())      # on disk before it becomes THE file
             tmp.replace(path)
             _revoked_cache = (path.stat().st_mtime, frozenset(current))
             return True
@@ -203,18 +206,44 @@ def revoke(key_id: str) -> bool:
 
 
 def revocation_persistable() -> bool:
-    """Whether `revoke()` has somewhere durable to write (a path whose directory exists or can be made).
+    """True only if a revocation written NOW would be durable -- proved by doing the same kind of write.
 
-    Reported to the operator tier only, so the website can refuse to SELL keys it could not later kill.
-    It checks the configuration, not the volume's health -- a read-only mount still fails at revoke time,
-    and `handle_revoke` then answers 503 rather than claim a revocation that did not happen.
+    "The directory is writable" is not "revocation survives": the file must be created, flushed to disk,
+    atomically renamed into place and read back, in the directory the real store lives in. This performs
+    exactly that sequence on a probe file next to the store and removes it; it never opens, reads or
+    changes the revoked-ID set itself, so it is safe to call on a live deployment.
+
+    On Fly (FLY_MACHINE_ID is set) the directory must also be a mounted volume, i.e. on a different
+    device than the root filesystem. A machine added without its own volume has an ephemeral /data that
+    would silently drop every revocation on restart; it must report False. A Fly volume belongs to ONE
+    machine, so revocation state is only coherent while the app runs exactly one machine (see the runbook).
+
+    Reported to the operator tier only, as a boolean: no path, device or error detail leaves the engine.
     """
     path = _revoked_file()
     if path is None:
         return False
     try:
         d = path.parent
-        return d.is_dir() and os.access(d, os.W_OK) or (not d.exists() and os.access(next(p for p in d.parents if p.exists()), os.W_OK))
+        d.mkdir(parents=True, exist_ok=True)
+        if os.environ.get("FLY_MACHINE_ID") and os.stat(d).st_dev == os.stat("/").st_dev:
+            return False
+        probe = d / f".revoke-probe-{os.getpid()}-{secrets.token_hex(4)}"
+        tmp = probe.with_suffix(".tmp")
+        payload = secrets.token_hex(8)
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            tmp.replace(probe)
+            return probe.read_text() == payload
+        finally:
+            for f in (tmp, probe):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
     except Exception:
         return False
 
