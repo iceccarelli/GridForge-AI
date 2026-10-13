@@ -126,9 +126,18 @@ def test_portfolio_ranks_and_the_orderings_disagree():
     intakes = [load(p) for p in sorted(INTAKE_DIR.glob("*.json"))]
     entries = [SiteEntry(intake=i, results=run_all(i.context, i.scenarios)) for i in intakes]
     by_compute = [e.intake.reference for e in rank(entries, Objective.MAX_COMPUTE)]
-    by_speed = [e.intake.reference for e in rank(entries, Objective.FASTEST_TO_POWER)]
+    by_cost = [e.intake.reference for e in rank(entries, Objective.MIN_COST_PER_RACK)]
     assert len(by_compute) == len(intakes)
-    assert by_compute != by_speed, "if every objective gives the same order, the objective is fake"
+    assert by_compute != by_cost, "if every objective gives the same order, the objective is fake"
+    # London supplies no UPS schedule: its constraint was never evaluated, so under
+    # every objective it is ranked after the halls that supplied everything.
+    for obj in Objective:
+        order = rank(entries, obj)
+        incomplete = [e for e in order if e.required_gaps]
+        assert incomplete and order[-len(incomplete):] == incomplete, obj
+    from gridforge.reporting.portfolio import rank_notes
+    notes = rank_notes(rank(entries, Objective.FASTEST_TO_POWER), Objective.FASTEST_TO_POWER)
+    assert "required inputs not supplied" in notes[-1]
     report = build_portfolio(entries, client="test")
     from gridforge.reporting import to_markdown
     assert "Ranked portfolio" in to_markdown(report)

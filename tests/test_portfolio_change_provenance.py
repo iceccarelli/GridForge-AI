@@ -278,7 +278,13 @@ def test_halls_whose_bands_overlap_are_not_presented_as_a_settled_order(halls):
                           Objective.FASTEST_TO_POWER)
     assert all(r["weeks_to_full"] == 160 for r in rows)            # three halls, one transformer, one date
     assert all("ties" in r["rank_note"] or "overlaps" in r["rank_note"] for r in rows)
+    # London as shipped supplies no UPS schedule: it must not win on a date that
+    # ignores the UPS limit, and it says why.
     r = portfolio_rows([halls["nordic_hall"], halls["london_hall"]], Objective.FASTEST_TO_POWER)
+    assert r[-1]["hall"] == "LON-03" and "required inputs not supplied" in r[-1]["rank_note"]
+    complete = doc("london_hall")
+    complete["ups"] = doc("dublin_hall")["ups"]
+    r = portfolio_rows([halls["nordic_hall"], entry(complete)], Objective.FASTEST_TO_POWER)
     assert r[0]["hall"] == "LON-03" and r[0]["rank_note"] == "—", "36 [24-52] weeks vs 160 [80-210]: a settled order"
 
 
