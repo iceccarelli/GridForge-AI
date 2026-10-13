@@ -521,7 +521,11 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
         # stops looking for the leaked key.
         raise ApiError(503, "revocation is not persistable on this deployment",
                        fix="set GRIDFORGE_REVOKED_FILE to a writable path on a volume")
-    return {"revoked": key_id, "count": len(revoked_ids())}
+    try:
+        count = len(revoked_ids())
+    except Exception:
+        count = None
+    return {"revoked": key_id, "count": count}
 
 
 _BID_NOTE = ("Installation method and evidence quality carry 15 of the 100 points and "
@@ -800,7 +804,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         admin = os.environ.get("GRIDFORGE_ADMIN_KEY") or ""
         supplied = self._supplied_key() or ""
-        return bool(admin) and hmac.compare_digest(admin, supplied)
+        return bool(admin) and hmac.compare_digest(admin.encode(), supplied.encode("utf-8", "replace"))
 
     def _tier(self) -> Tier:
         if self._is_operator():
