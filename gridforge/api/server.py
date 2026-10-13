@@ -64,7 +64,7 @@ from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
-from ..reporting.study import build as build_study_report
+from ..reporting.study import build as build_study_report, watermark_for
 from ..reporting.study import collect_claims
 from ..reporting.study import Objective
 from ..scenario import run_all
@@ -232,8 +232,13 @@ def handle_study(body: dict, tier: Tier) -> dict:
         from ..scenario import sensitivity
         rec = _pick_recommended(results, objective)
         sens = sensitivity(rec, SENSITIVITY_KNOBS)
+        if str(body.get("view") or "").lower() == "board":
+            # the one-page summary a sponsor forwards (docs/01 §4D): same model, labels and gates as the study
+            from ..reporting.board import build as build_board_report
+            return _rendered(build_board_report(intake, results, sens, objective=objective), results, fmt)
         report = build_study_report(intake.context, results, sens,
-                                    client=intake.client, objective=objective)
+                                    client=intake.client, objective=objective,
+                                    watermark=watermark_for(intake))
         return _rendered(report, results, fmt)
     return model_pack(intake, results)
 

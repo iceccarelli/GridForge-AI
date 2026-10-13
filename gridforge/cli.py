@@ -34,7 +34,8 @@ from .reporting.deck import build as build_deck
 from .reporting.deck import to_html as deck_to_html
 from .reporting.proposal import build as build_proposal
 from .reporting.study import Objective, _pick_recommended, collect_claims
-from .reporting.study import build as build_study
+from .reporting.board import build as build_board
+from .reporting.study import build as build_study, watermark_for
 from .scenario import run_all, sensitivity
 from .scenario.knobs import SENSITIVITY_KNOBS
 from .serialize import write_csv_bundle, write_model_pack
@@ -254,11 +255,14 @@ def cmd_study(args) -> int:
     objective = OBJECTIVES[args.objective]
     rec = _pick_recommended(results, objective)
     sens = sensitivity(rec, SENSITIVITY_KNOBS)
-    report = build_study(intake.context, results, sens, client=intake.client, objective=objective)
+    report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
+                         watermark=watermark_for(intake))
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)
     w.paths.append(out / "model_pack.json")
+    board = build_board(intake, results, sens, objective=objective)
+    w.paths.extend(_emit(board, out, "board_summary", claims=collect_claims(results)).paths)
     if args.csv:
         w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
