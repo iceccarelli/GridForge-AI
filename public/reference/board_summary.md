@@ -22,7 +22,7 @@
 
 *Limited by: set by transformer capacity; works run in parallel*
 
-**Indicative capital cost:** 18,400,000 [9,200,000–36,800,000] EUR (E0)
+**Indicative capital cost:** 19,300,000 [9,660,000–38,600,000] EUR (E0)
 
 *Limited by: Class 5 (order of magnitude): -50% / +100%*
 
@@ -64,7 +64,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | E2 | simulated |
 | E3 | estimated |
 | E4 | validated against test data |
-| E5 | measured at site (customer data) |
+| E5 | supplied by the client (not measured or surveyed by us) |
 | E6 | field-validated |
 | E7 | observed in operation |
 
@@ -90,7 +90,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | deployable racks after relief | E0 | input@0.1 | `8869e76332d4` |
 | deployable IT load | E0 | envelope.it_load@0.1 | `a4e3fd845acb` |
 | elapsed weeks to full capacity | E0 | input@0.1 | `ddfa75087f01` |
-| total capex | E0 | economics.total_capex@0.1 | `17c4c0465bea` |
+| total capex | E0 | economics.total_capex@0.1 | `deb75b48d05b` |
 | adiabatic assist and trim chiller | E0 | input@0.1 | `af0380aad4fa` |
 | lead time | E0 | input@0.1 | `3141b684dcc2` |
 | GEN-5MW installed capex | E0 | power.btm_capex@0.1 | `1be583b10fb5` |

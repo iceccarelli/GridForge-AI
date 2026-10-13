@@ -119,7 +119,16 @@ class _Reader:
             note = raw.get("note")
             src = raw.get("source")
             if raw.get("evidence"):
-                ev = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None) or ev
+                declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
+                if declared is not None:
+                    # A client can attest to their own data, never to our validation: E6/E7 are
+                    # earned by the calibration ledger, not by writing them into an intake.
+                    if declared > EvidenceClass.E5_CUSTOMER_DATA:
+                        self.report.warnings.append(
+                            f"{path}: declared evidence {declared.short} capped at E5; "
+                            f"E6 and E7 are earned through the calibration ledger.")
+                        declared = EvidenceClass.E5_CUSTOMER_DATA
+                    ev = declared
             raw = raw["value"]
         if ev is None:
             ev = spec.supplied_evidence if spec else CUSTOMER

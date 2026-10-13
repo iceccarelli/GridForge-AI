@@ -195,7 +195,7 @@
           "domain": "electrical",
           "racks_before": 0,
           "racks_after": 0,
-          "taken": true,
+          "taken": false,
           "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
           "capex_eur": {
             "value": 6000.0,
@@ -223,19 +223,19 @@
       "time_to_power": {
         "weeks_to_first_rack": null,
         "weeks_to_full": null,
-        "sets_the_date": "Rack feed / tap-off rating",
+        "sets_the_date": "\u2014",
         "curve": []
       },
       "economics": {
         "capex_total_eur": {
-          "value": 6000.0,
-          "low": 3000.0,
-          "high": 12000.0,
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "704d3494246d"
+          "digest": "f7495c34f50b"
         },
         "capex_per_kW_it": {
           "value": 0,
@@ -267,7 +267,7 @@
           "model": "input@0.1",
           "digest": "fe231166c354"
         },
-        "critical_path_weeks": 24,
+        "critical_path_weeks": 0.0,
         "basis": "Class 5 (order of magnitude): -50% / +100%"
       },
       "constraints": [
@@ -441,6 +441,38 @@
           }
         },
         {
+          "id": "plant_capacity",
+          "domain": "thermal",
+          "name": "Chilled-water plant capacity",
+          "gate": false,
+          "racks_permitted": 14,
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (rack heat rejected into the existing plant)",
+          "relief": {
+            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+            "capex_eur": {
+              "value": 900000,
+              "low": 450000.0,
+              "high": 1800000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chilled-water plant uprate",
+              "model": "input@0.1",
+              "digest": "df9224a00794"
+            },
+            "lead_time_weeks": {
+              "value": 44,
+              "low": 30,
+              "high": 70,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "chiller / dry cooler lead time",
+              "model": "input@0.1",
+              "digest": "823a7da52136"
+            },
+            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          }
+        },
+        {
           "id": "grid_firm_capacity",
           "domain": "electrical",
           "name": "Firm supply (grid import + behind-the-meter)",
@@ -470,38 +502,6 @@
               "digest": "47721a918c66"
             },
             "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
-          }
-        },
-        {
-          "id": "plant_capacity",
-          "domain": "thermal",
-          "name": "Chilled-water plant capacity",
-          "gate": false,
-          "racks_permitted": 140,
-          "basis": "1,900 kW (E3) of plant headroom against 13.5 [10.6\u201321.3] kW (E0) per rack \u2014 residual air load only (liquid rejected to a dedicated high-temperature loop)",
-          "relief": {
-            "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
-            "capex_eur": {
-              "value": 900000,
-              "low": 450000.0,
-              "high": 1800000.0,
-              "unit": "EUR",
-              "evidence": "E0_ASSUMPTION",
-              "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
-            },
-            "lead_time_weeks": {
-              "value": 44,
-              "low": 30,
-              "high": 70,
-              "unit": "weeks",
-              "evidence": "E0_ASSUMPTION",
-              "label": "chiller / dry cooler lead time",
-              "model": "input@0.1",
-              "digest": "823a7da52136"
-            },
-            "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
           }
         },
         {
@@ -654,7 +654,7 @@
           "domain": "electrical",
           "racks_before": 0,
           "racks_after": 0,
-          "taken": true,
+          "taken": false,
           "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
           "capex_eur": {
             "value": 6000.0,
@@ -682,19 +682,19 @@
       "time_to_power": {
         "weeks_to_first_rack": null,
         "weeks_to_full": null,
-        "sets_the_date": "Rack feed / tap-off rating",
+        "sets_the_date": "\u2014",
         "curve": []
       },
       "economics": {
         "capex_total_eur": {
-          "value": 6000.0,
-          "low": 3000.0,
-          "high": 12000.0,
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "704d3494246d"
+          "digest": "f7495c34f50b"
         },
         "capex_per_kW_it": {
           "value": 0,
@@ -726,7 +726,7 @@
           "model": "input@0.1",
           "digest": "fe231166c354"
         },
-        "critical_path_weeks": 24,
+        "critical_path_weeks": 0.0,
         "basis": "Class 5 (order of magnitude): -50% / +100%"
       },
       "constraints": [
@@ -905,7 +905,7 @@
           "name": "Chilled-water plant capacity",
           "gate": false,
           "racks_permitted": 14,
-          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (liquid rejected into the existing plant)",
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (rack heat rejected into the existing plant)",
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
@@ -1139,14 +1139,14 @@
           "taken": true,
           "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
           "capex_eur": {
-            "value": 6000.0,
-            "low": 3000.0,
-            "high": 12000.0,
+            "value": 156000.0,
+            "low": 78000.0,
+            "high": 312000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 26 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "18c611b5ae25"
+            "digest": "54813d853468"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -1170,14 +1170,14 @@
           "taken": true,
           "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
           "capex_eur": {
-            "value": 63000.0,
-            "low": 31500.0,
-            "high": 126000.0,
+            "value": 234000.0,
+            "low": 117000.0,
+            "high": 468000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 7 racks",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 26 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "d98bc83282e8"
+            "digest": "6e4cca9df4fa"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -1453,24 +1453,24 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 5960000.0,
-          "low": 2959300.0,
-          "high": 12093200.0,
+          "value": 6280000.0,
+          "low": 3119800.0,
+          "high": 12735200.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "199c79a76b23"
+          "digest": "07d48b0ef41b"
         },
         "capex_per_kW_it": {
-          "value": 1700.0,
-          "low": 801.5438786565547,
-          "high": 3523.6596736596734,
+          "value": 1790.0,
+          "low": 845.0162513542796,
+          "high": 3710.7226107226106,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "f95fa99bd249"
+          "digest": "ae88038c55ff"
         },
         "annual_energy_cost_eur": {
           "value": 4200000.0,
@@ -1662,7 +1662,7 @@
           "name": "Chilled-water plant capacity",
           "gate": false,
           "racks_permitted": 14,
-          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (liquid rejected into the existing plant)",
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132\u2013142] kW (E0) per rack \u2014 full rack load (rack heat rejected into the existing plant)",
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
@@ -1928,14 +1928,14 @@
           "taken": true,
           "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
           "capex_eur": {
-            "value": 6000.0,
-            "low": 3000.0,
-            "high": 12000.0,
+            "value": 168000.0,
+            "low": 84000.0,
+            "high": 336000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 28 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "18c611b5ae25"
+            "digest": "6db404b292d5"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -1959,14 +1959,14 @@
           "taken": true,
           "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
           "capex_eur": {
-            "value": 9000.0,
-            "low": 4500.0,
-            "high": 18000.0,
+            "value": 252000.0,
+            "low": 126000.0,
+            "high": 504000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 28 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "2920ba36f7dd"
+            "digest": "7b85e2520908"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -2232,24 +2232,24 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 5460000.0,
-          "low": 2712300.0,
-          "high": 11105200.0,
+          "value": 5870000.0,
+          "low": 2914800.0,
+          "high": 11915200.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "36e114f0bf98"
+          "digest": "ccf1b3a39e01"
         },
         "capex_per_kW_it": {
-          "value": 1450.0,
-          "low": 682.1680080482897,
-          "high": 3004.65367965368,
+          "value": 1550.0,
+          "low": 733.0985915492957,
+          "high": 3223.809523809524,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "80b98f22a2d1"
+          "digest": "21511c84aae9"
         },
         "annual_energy_cost_eur": {
           "value": 4170000.0,
@@ -2707,14 +2707,14 @@
           "taken": true,
           "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)",
           "capex_eur": {
-            "value": 6000.0,
-            "low": 3000.0,
-            "high": 12000.0,
+            "value": 372000.0,
+            "low": 186000.0,
+            "high": 744000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
+            "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 62 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "18c611b5ae25"
+            "digest": "147ba26046e4"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -2738,14 +2738,14 @@
           "taken": true,
           "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load",
           "capex_eur": {
-            "value": 9000.0,
-            "low": 4500.0,
-            "high": 18000.0,
+            "value": 558000.0,
+            "low": 279000.0,
+            "high": 1116000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
+            "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 62 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "2920ba36f7dd"
+            "digest": "edd4d4501790"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -3316,6 +3316,37 @@
             "digest": "843c6ad78c29"
           },
           "risk": ""
+        },
+        {
+          "step": 21,
+          "constraint": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "domain": "electrical",
+          "racks_before": 62,
+          "racks_after": 62,
+          "taken": false,
+          "relief": "Grid reinforcement / new connection capacity from the DSO",
+          "capex_eur": {
+            "value": 2500000,
+            "low": 1250000.0,
+            "high": 5000000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement capex",
+            "model": "input@0.1",
+            "digest": "f5f7e0079a68"
+          },
+          "lead_time_weeks": {
+            "value": 260,
+            "low": 150,
+            "high": 520,
+            "unit": "weeks",
+            "evidence": "E0_ASSUMPTION",
+            "label": "grid reinforcement lead time",
+            "model": "input@0.1",
+            "digest": "47721a918c66"
+          },
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
         }
       ],
       "time_to_power": {
@@ -3407,24 +3438,24 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 18400000.0,
-          "low": 9200500.0,
-          "high": 36802000.0,
+          "value": 19300000.0,
+          "low": 9658000.0,
+          "high": 38632000.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "17c4c0465bea"
+          "digest": "deb75b48d05b"
         },
         "capex_per_kW_it": {
-          "value": 2200.0,
-          "low": 1045.0363471149478,
-          "high": 4496.823069403715,
+          "value": 2310.0,
+          "low": 1097.0013630168105,
+          "high": 4720.430107526881,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "b4b87c436ae9"
+          "digest": "95e5508f517e"
         },
         "annual_energy_cost_eur": {
           "value": 9240000.0,

@@ -144,7 +144,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | E2 | simulated |
 | E3 | estimated |
 | E4 | validated against test data |
-| E5 | measured at site (customer data) |
+| E5 | supplied by the client (not measured or surveyed by us) |
 | E6 | field-validated |
 | E7 | observed in operation |
 

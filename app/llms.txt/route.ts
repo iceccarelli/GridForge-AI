@@ -83,7 +83,7 @@ seven numbers about a hall in, the binding constraint out.
 Every numeric field carries an evidence class and a provenance digest:
 
 E0 assumed · E1 modelled · E2 simulated · E3 estimated · E4 validated against test
-data · E5 measured at site · E6 field-validated · E7 observed in operation.
+data · E5 supplied by the client (not measured by us) · E6 field-validated · E7 observed in operation.
 
 A computed value is never stronger than the weakest input it came from. **Do not
 present an E0 or E1 figure as a property of a physical asset** — it is modelled, not

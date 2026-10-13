@@ -44,3 +44,12 @@ def test_invalid_values_are_refused_with_the_field_named(path, value, fragment):
 
 def test_the_reference_intake_still_loads():
     load_document(copy.deepcopy(BASE))
+
+
+def test_a_client_cannot_self_declare_field_validation():
+    d = copy.deepcopy(BASE)
+    d["grid"]["firm_capacity_MVA"] = {"value": 14, "evidence": "E7"}
+    intake = load_document(d)
+    from gridforge.validation import EvidenceClass
+    assert intake.context.power.grid.firm_capacity_MVA.evidence <= EvidenceClass.E5_CUSTOMER_DATA
+    assert any("capped at E5" in w for w in intake.report.warnings)
