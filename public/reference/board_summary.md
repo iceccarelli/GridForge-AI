@@ -90,7 +90,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | deployable racks after relief | E0 | input@0.1 | `8869e76332d4` |
 | deployable IT load | E0 | envelope.it_load@0.1 | `a4e3fd845acb` |
 | elapsed weeks to full capacity | E0 | input@0.1 | `ddfa75087f01` |
-| total capex | E0 | economics.total_capex@0.1 | `698a41adaa1e` |
+| total capex | E0 | economics.total_capex@0.1 | `17c4c0465bea` |
 | adiabatic assist and trim chiller | E0 | input@0.1 | `af0380aad4fa` |
 | lead time | E0 | input@0.1 | `3141b684dcc2` |
 | GEN-5MW installed capex | E0 | power.btm_capex@0.1 | `1be583b10fb5` |

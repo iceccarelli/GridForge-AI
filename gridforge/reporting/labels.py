@@ -15,8 +15,12 @@ Three rules the report layer used to break by writing ``V(x, ..., ESTIMATED)`` d
 """
 from __future__ import annotations
 
+import math
+
 from ..common import V
-from ..envelope.solver import HeadroomLadder
+from ..envelope.solver import HeadroomLadder, rack_evidence
+from ..envelope.time_to_power import (  # noqa: F401  (re-exported for the report modules)
+    elapsed_bands, full_capacity_band, schedule_complete)
 from ..scenario.run import ScenarioResult
 from ..validation import EvidenceClass, Quantity
 
@@ -25,10 +29,10 @@ INF = float("inf")
 
 def rack_class(result: ScenarioResult) -> EvidenceClass:
     """Weakest evidence class among the constraints this architecture was evaluated against."""
-    classes = [c.max_racks.evidence for c in result.envelope.constraints if c.max_racks.value != INF]
+    classes = [rack_evidence(result.envelope)]
     if result.ladder.final is not None:
-        classes += [c.max_racks.evidence for c in result.ladder.final.constraints if c.max_racks.value != INF]
-    return min(classes) if classes else EvidenceClass.E0_ASSUMPTION
+        classes.append(rack_evidence(result.ladder.final))
+    return min(classes)
 
 
 def racks_q(value: float, label: str, result: ScenarioResult) -> Quantity:
@@ -39,31 +43,6 @@ def racks_q(value: float, label: str, result: ScenarioResult) -> Quantity:
 def lead_class(ladder: HeadroomLadder) -> EvidenceClass:
     classes = [s.lead_time_weeks.evidence for s in ladder.taken_steps if s.lead_time_weeks is not None]
     return min(classes) if classes else EvidenceClass.E0_ASSUMPTION
-
-
-def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, EvidenceClass]]:
-    """For each energisation point (same order as ``schedule(ladder).points``): (weeks, low, high, class).
-
-    Reliefs run in parallel, so elapsed time is the longest lead time among the steps taken so far, and its
-    band is the longest LOW and longest HIGH among them -- the lead times' own bands, not a multiplier."""
-    out: list[tuple[float, float, float, EvidenceClass]] = []
-    elapsed = lo = hi = 0.0
-    cls: EvidenceClass | None = None
-    seen = ladder.initial.max_racks if ladder.initial else 0
-    if seen > 0:
-        out.append((0.0, 0.0, 0.0, EvidenceClass.E0_ASSUMPTION))
-    for st in ladder.steps:
-        if not st.taken:
-            continue
-        lt = st.lead_time_weeks
-        if lt is not None:
-            elapsed = max(elapsed, lt.value)
-            lo, hi = max(lo, lt.band[0]), max(hi, lt.band[1])
-            cls = lt.evidence if cls is None else min(cls, lt.evidence)
-        if st.racks_after > seen:
-            seen = st.racks_after
-            out.append((elapsed, lo, hi, cls if cls is not None else EvidenceClass.E0_ASSUMPTION))
-    return out
 
 
 def weeks_q(weeks: float, lo: float, hi: float, cls: EvidenceClass, label: str) -> Quantity:
@@ -88,13 +67,10 @@ def relief_text(step, *, with_note: bool = True) -> str:
 
 
 def full_capacity_q(ladder: HeadroomLadder, ttp, label: str) -> Quantity | None:
-    """Time to full capacity, banded from the lead times that set it (None when nothing is deployable)."""
-    if not ttp.max_racks:
-        return None
-    for p, (w, lo, hi, cls) in zip(ttp.points, elapsed_bands(ladder)):
-        if p.racks >= ttp.max_racks:
-            return weeks_q(p.weeks, lo, hi, cls, label)
-    return None
+    """Time to full capacity, banded from the lead times that set it (None when nothing is deployable or
+    a relief taken has no lead time)."""
+    got = full_capacity_band(ladder, ttp)
+    return None if got is None else weeks_q(got[0], got[1], got[2], got[3], label)
 
 
 def dominant_sensitivity(sensitivities, base: int):
@@ -111,3 +87,13 @@ def critical_path_q(ladder: HeadroomLadder, label: str) -> Quantity:
     top = max(leads, key=lambda q: q.value)
     lo, hi = max(q.band[0] for q in leads), max(q.band[1] for q in leads)
     return weeks_q(top.value, lo, hi, min(q.evidence for q in leads), label)
+
+
+def capex_per_rack_q(result: ScenarioResult, label: str) -> Quantity | None:
+    """Total capex over the racks it enables, banded by the division (None when no rack is deployable: the
+    figure is undefined, not capex divided by a made-up single rack)."""
+    capex = result.economics.capex_total_eur
+    if result.unlocked_racks <= 0 or not math.isfinite(capex.value):
+        return None
+    n = V(float(result.unlocked_racks), "racks", f"{label}: racks enabled", rack_class(result))
+    return (capex / n).relabel(label, "economics.capex_per_rack", step_evidence=capex.evidence)

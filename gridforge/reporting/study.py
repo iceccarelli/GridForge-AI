@@ -19,7 +19,7 @@ _pick_recommended = pick_recommended
 from ..validation import Quantity
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
-from .labels import (critical_path_q, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
+from .labels import (capex_per_rack_q, critical_path_q, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
                      racks_q, relief_text, weeks_q)
 
 
@@ -186,11 +186,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             "without it a later rung cannot deliver its gain. They are kept, and costed, because dropping "
             "any one of them lowers the final answer — that is checked, not assumed. The EUR-per-kW "
             "column is left blank for them for the same reason: no racks are unlocked at that step."))
-    s.blocks.append(Statement("Cumulative relief capex",
-                              V(rec.ladder.cumulative_capex_eur, "EUR",
-                                "cumulative capex of relief measures", ASSUMED,
-                                band=(rec.ladder.cumulative_capex_eur * 0.5,
-                                      rec.ladder.cumulative_capex_eur * 2.0)),
+    s.blocks.append(Statement("Cumulative relief capex", rec.economics.capex_relief_eur,
                               rec.economics.aace_class))
     s.blocks.append(Statement("Critical-path lead time",
                               critical_path_q(rec.ladder, "longest relief lead time on the path"),
@@ -322,12 +318,10 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             rows.append([res.spec.name, racks_q(0, f"{res.spec.id}: racks unlocked", res),
                          "—", "—", "—", "—", "—"])
             continue
-        per_rack = e.capex_total_eur.value / res.unlocked_racks
         rows.append([res.spec.name,
                      racks_q(res.unlocked_racks, f"{res.spec.id}: racks unlocked", res),
                      e.capex_total_eur,
-                     V(per_rack, "EUR/rack", f"{res.spec.id}: capex per rack enabled", ASSUMED,
-                       band=(per_rack * 0.5, per_rack * 2.0)),
+                     capex_per_rack_q(res, f"{res.spec.id}: capex per rack enabled"),
                      e.annual_energy_cost_eur, e.energy_cost_per_gpu_hour_eur,
                      critical_path_q(res.ladder, f"{res.spec.id}: critical path")])
     s.blocks.append(Table(["Scenario", "Racks", "Total capex", "Capex per rack enabled",

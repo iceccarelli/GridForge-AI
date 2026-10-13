@@ -17,15 +17,43 @@ silently adds up to the wrong number is worse than no driver table.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from .envelope.time_to_power import schedule
+from .costs import library
+from .envelope.solver import rack_evidence
+from .envelope.time_to_power import full_capacity_band, schedule, schedule_complete
 from .intake.loader import load_document
 from .scenario.objective import Objective, pick_recommended
 from .scenario.run import ScenarioResult, run_all
 
 MAX_DRIVERS_PROBED = 40   # a sanity bound; a hall with more changes is a new study
+
+
+def _digest(rows) -> str:
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def intake_digest(doc: dict) -> str:
+    """Fingerprint of the physics inputs of an intake (notes and project metadata excluded)."""
+    flat = {k: _unwrap(v) for k, v in flatten(doc).items()
+            if not (k.startswith("project.") or k == "scenarios")}
+    return _digest(sorted(flat.items()))
+
+
+def price_basis_digest() -> str:
+    """Fingerprint of the recorded prices (cost library) a solve rests on. A new quotation changes it."""
+    return _digest(sorted((e.key, e.value, e.basis, e.valid_until or "", e.stale)
+                          for e in library().entries.values()))
+
+
+def relief_path_digest(res: ScenarioResult) -> str:
+    """Fingerprint of the relief path and the lead times along it, independent of rack counts."""
+    return _digest([(st.binding_id, st.relief_description, st.cost_key, st.taken,
+                     None if st.lead_time_weeks is None else (st.lead_time_weeks.value, st.lead_time_weeks.band))
+                    for st in res.ladder.steps])
 
 
 @dataclass
@@ -41,23 +69,51 @@ class EnvelopeState:
     it_load_kW: float
     scenario_id: str
     scenario_name: str
+    # Provenance of the figures above. All optional so a state recorded before they existed still loads;
+    # an empty value means "not recorded", which a change note must say rather than guess.
+    racks_class: str = ""                  # EvidenceClass name of the rack count
+    weeks_lo: float | None = None
+    weeks_hi: float | None = None
+    weeks_class: str = ""
+    schedule_complete: bool = True         # False: a relief taken has no lead time, so no date is given
+    capex_lo: float | None = None
+    capex_hi: float | None = None
+    capex_class: str = ""
+    capex_complete: bool = True            # False: a relief taken has no price, so capex is a lower bound
+    intake_digest: str = ""
+    price_basis_digest: str = ""
+    relief_path_digest: str = ""
 
     @staticmethod
-    def of(res: ScenarioResult) -> "EnvelopeState":
+    def of(res: ScenarioResult, doc: dict | None = None) -> "EnvelopeState":
         t = schedule(res.ladder)
         final = res.ladder.final or res.envelope
+        full = full_capacity_band(res.ladder, t)       # (weeks, lo, hi, class) | None
+        rack_cls = min([rack_evidence(res.envelope)] + ([rack_evidence(res.ladder.final)] if res.ladder.final else []))
+        complete = schedule_complete(res.ladder)
+        cap = res.economics.capex_total_eur
         return EnvelopeState(
             racks_as_found=res.envelope.max_racks,
             racks_after_ladder=res.unlocked_racks,
             binding_id=res.envelope.binding.id,
             binding_name=res.envelope.binding.name,
             binding_basis=res.envelope.binding.basis,
-            weeks_to_full=t.weeks_to_full,
+            weeks_to_full=full[0] if full is not None else None,
             sets_the_date=t.critical_item,
-            capex_eur=res.economics.capex_total_eur.value,
+            capex_eur=cap.value,
             it_load_kW=final.it_load_kW.value,
             scenario_id=res.spec.id,
             scenario_name=res.spec.name,
+            racks_class=rack_cls.name,
+            weeks_lo=full[1] if full is not None else None,
+            weeks_hi=full[2] if full is not None else None,
+            weeks_class=full[3].name if full is not None else "",
+            schedule_complete=complete,
+            capex_lo=cap.band[0], capex_hi=cap.band[1], capex_class=cap.evidence.name,
+            capex_complete=res.economics.capex_complete,
+            intake_digest=intake_digest(doc) if doc is not None else "",
+            price_basis_digest=price_basis_digest(),
+            relief_path_digest=relief_path_digest(res),
         )
 
 
@@ -68,6 +124,7 @@ class Driver:
     after: Any
     racks_delta: int
     flips_binding_to: str | None = None
+    racks_class: str = ""     # weakest rack-count class of the baseline and of this one-input trial
 
     @property
     def material(self) -> bool:
@@ -80,8 +137,16 @@ class EnvelopeDiff:
     after: EnvelopeState
     drivers: list[Driver] = field(default_factory=list)
     changed_paths: list[str] = field(default_factory=list)
-    unprobed: list[str] = field(default_factory=list)
+    unprobed: list[str] = field(default_factory=list)       # beyond the probe cap: never re-solved alone
+    unprobeable: list[str] = field(default_factory=list)    # removed, or cannot stand alone: no contribution exists
     recommendation_changed: tuple[str, str] | None = None
+    #: Did the customer's inputs change? "changed" | "unchanged" (verified) | "unknown" (the earlier inputs
+    #: were not recorded, so a change cannot be ruled in or out and must not be attributed to either side).
+    inputs: str = "unknown"
+    #: What on OUR side differs from the recorded run, when it can be told: "prices", "relief path",
+    #: "constraint model". Empty when nothing differs or when the earlier run recorded no fingerprint.
+    drift: list[str] = field(default_factory=list)
+    drift_known: bool = False
 
     @property
     def racks_delta(self) -> int:
@@ -134,6 +199,13 @@ class EnvelopeDiff:
                         f"{self.recommendation_changed[1]}")
         head = "; ".join(bits)
         return head[:1].upper() + head[1:] + "."
+
+
+def _weaker(a: str, b: str) -> str:
+    """The weaker of two recorded evidence-class names ("" = not recorded, which is never a claim)."""
+    from .validation import EvidenceClass
+    names = [n for n in (a, b) if n in EvidenceClass.__members__]
+    return min(names, key=lambda n: EvidenceClass[n]) if names else ""
 
 
 # --- flattening --------------------------------------------------------------
@@ -230,7 +302,20 @@ def diff_from_state(previous: EnvelopeState, after_doc: dict, *,
     if same is None:
         rec, _ = _solve(after_doc, objective)
         same = rec
-    return EnvelopeDiff(before=previous, after=EnvelopeState.of(same))
+    now = EnvelopeState.of(same, after_doc)
+    d = EnvelopeDiff(before=previous, after=now)
+    if previous.intake_digest:
+        d.inputs = "unchanged" if previous.intake_digest == now.intake_digest else "changed"
+    if d.inputs == "unchanged" and previous.price_basis_digest and previous.relief_path_digest:
+        # The customer's inputs are verifiably the same, so any movement is ours. Say which part differs.
+        d.drift_known = True
+        if previous.price_basis_digest != now.price_basis_digest:
+            d.drift.append("prices")
+        if previous.relief_path_digest != now.relief_path_digest:
+            d.drift.append("relief path")
+        if d.material and not d.drift:
+            d.drift.append("constraint model")
+    return d
 
 
 def diff(before_doc: dict, after_doc: dict, *,
@@ -245,11 +330,14 @@ def diff(before_doc: dict, after_doc: dict, *,
     pin = rec_before.spec.id
     after_same = _by_id(all_after, pin) or rec_after
 
-    d = EnvelopeDiff(before=EnvelopeState.of(rec_before), after=EnvelopeState.of(after_same))
+    d = EnvelopeDiff(before=EnvelopeState.of(rec_before, before_doc),
+                     after=EnvelopeState.of(after_same, after_doc))
     if rec_after.spec.id != rec_before.spec.id:
         d.recommendation_changed = (rec_before.spec.name, rec_after.spec.name)
 
     d.changed_paths = changed_paths(before_doc, after_doc)
+    d.inputs = "changed" if d.changed_paths else "unchanged"
+    d.drift_known = True          # both solved by this engine, now: nothing on our side differs between them
     if not attribute or not d.changed_paths:
         return d
 
@@ -260,14 +348,16 @@ def diff(before_doc: dict, after_doc: dict, *,
 
     for path in probe:
         if path not in fa:
-            continue                      # a removed input is reported, not probed
+            d.unprobeable.append(path)    # a removed input has no "new value" to move it to
+            continue
         trial = copy.deepcopy(before_doc)
         try:
             _set_path(trial, path, _unwrap(fa[path]))
             one, all_one = _solve(trial, objective)
             same = _by_id(all_one, pin) or one
         except Exception:
-            continue                      # an input that cannot stand alone is not a driver
+            d.unprobeable.append(path)    # an input that cannot stand alone is not a driver, and is said so
+            continue
         st = EnvelopeState.of(same)
         d.drivers.append(Driver(
             path=path,
@@ -275,6 +365,7 @@ def diff(before_doc: dict, after_doc: dict, *,
             after=_unwrap(fa[path]),
             racks_delta=st.racks_after_ladder - base,
             flips_binding_to=(st.binding_name if st.binding_id != d.before.binding_id else None),
+            racks_class=_weaker(d.before.racks_class, st.racks_class),
         ))
 
     d.drivers.sort(key=lambda x: (-abs(x.racks_delta), x.path))

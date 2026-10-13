@@ -201,11 +201,11 @@
             "value": 6000.0,
             "low": 3000.0,
             "high": 12000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "bac2079ddc64"
+            "digest": "18c611b5ae25"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -235,7 +235,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "698a41adaa1e"
+          "digest": "704d3494246d"
         },
         "capex_per_kW_it": {
           "value": 0,
@@ -660,11 +660,11 @@
             "value": 6000.0,
             "low": 3000.0,
             "high": 12000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "bac2079ddc64"
+            "digest": "18c611b5ae25"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -694,7 +694,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "698a41adaa1e"
+          "digest": "704d3494246d"
         },
         "capex_per_kW_it": {
           "value": 0,
@@ -1142,11 +1142,11 @@
             "value": 6000.0,
             "low": 3000.0,
             "high": 12000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "bac2079ddc64"
+            "digest": "18c611b5ae25"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -1173,11 +1173,11 @@
             "value": 63000.0,
             "low": 31500.0,
             "high": 126000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 7 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "683fbc5f115e"
+            "digest": "d98bc83282e8"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -1454,23 +1454,23 @@
       "economics": {
         "capex_total_eur": {
           "value": 5960000.0,
-          "low": 2978500.0,
-          "high": 11914000.0,
+          "low": 2959300.0,
+          "high": 12093200.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "698a41adaa1e"
+          "digest": "199c79a76b23"
         },
         "capex_per_kW_it": {
           "value": 1700.0,
-          "low": 806.7443120260021,
-          "high": 3471.4452214452213,
+          "low": 801.5438786565547,
+          "high": 3523.6596736596734,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "7c17f4c9bb7f"
+          "digest": "f95fa99bd249"
         },
         "annual_energy_cost_eur": {
           "value": 4200000.0,
@@ -1931,11 +1931,11 @@
             "value": 6000.0,
             "low": 3000.0,
             "high": 12000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "bac2079ddc64"
+            "digest": "18c611b5ae25"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -1962,11 +1962,11 @@
             "value": 9000.0,
             "low": 4500.0,
             "high": 18000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "88b4e413a7ee"
+            "digest": "2920ba36f7dd"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -2233,23 +2233,23 @@
       "economics": {
         "capex_total_eur": {
           "value": 5460000.0,
-          "low": 2731500.0,
-          "high": 10926000.0,
+          "low": 2712300.0,
+          "high": 11105200.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "698a41adaa1e"
+          "digest": "36e114f0bf98"
         },
         "capex_per_kW_it": {
           "value": 1450.0,
-          "low": 686.9969818913481,
-          "high": 2956.1688311688313,
+          "low": 682.1680080482897,
+          "high": 3004.65367965368,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "7c17f4c9bb7f"
+          "digest": "80b98f22a2d1"
         },
         "annual_energy_cost_eur": {
           "value": 4170000.0,
@@ -2710,11 +2710,11 @@
             "value": 6000.0,
             "low": 3000.0,
             "high": 12000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "bac2079ddc64"
+            "digest": "18c611b5ae25"
           },
           "lead_time_weeks": {
             "value": 24,
@@ -2741,11 +2741,11 @@
             "value": 9000.0,
             "low": 4500.0,
             "high": 18000.0,
-            "unit": "EUR/rack",
+            "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks",
             "model": "envelope.relief_capex@0.1",
-            "digest": "88b4e413a7ee"
+            "digest": "2920ba36f7dd"
           },
           "lead_time_weeks": {
             "value": 20,
@@ -3414,7 +3414,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "698a41adaa1e"
+          "digest": "17c4c0465bea"
         },
         "capex_per_kW_it": {
           "value": 2200.0,
@@ -3424,7 +3424,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "7c17f4c9bb7f"
+          "digest": "b4b87c436ae9"
         },
         "annual_energy_cost_eur": {
           "value": 9240000.0,

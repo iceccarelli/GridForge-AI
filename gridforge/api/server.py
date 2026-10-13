@@ -56,7 +56,7 @@ from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
-from ..reporting.portfolio import SiteEntry, rank
+from ..reporting.portfolio import SiteEntry, portfolio_rows
 from ..commercial import ENGAGEMENTS, engagement
 from ..change import EnvelopeState, diff as envelope_diff, diff_from_state
 from ..reporting.change_note import build as build_change_note_report
@@ -275,6 +275,11 @@ def handle_diff(body: dict, tier: Tier) -> dict:
         "drivers": [dr.__dict__ for dr in d.drivers],
         "explained_racks": d.explained,
         "unexplained_racks": d.residual,
+        "inputs": d.inputs,
+        "model_drift": d.drift,
+        "model_drift_known": d.drift_known,
+        "unprobed_inputs": d.unprobed,
+        "unprobeable_inputs": d.unprobeable,
     }
     fmt = str(body.get("format") or "json").lower()
     if fmt in ("html", "md"):
@@ -580,27 +585,16 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     docs = body.get("intakes")
     if not isinstance(docs, list) or not docs:
         raise ApiError(422, "expected {\"intakes\": [ ... ]} with at least one intake")
+    objective = _objective(body)
     entries = []
     for d in docs:
         intake, results = _run(d)
-        entries.append(SiteEntry(intake=intake, results=results))
-    objective = _objective(body)
-    ordered = rank(entries, objective)
+        entries.append(SiteEntry(intake=intake, results=results, objective=objective))
     return {
         "objective": objective.value,
-        "halls": [{
-            "rank": i,
-            "site": e.intake.context.site.name,
-            "hall": e.intake.context.hall.id,
-            "metro": e.intake.context.site.metro,
-            "racks": e.racks,
-            "weeks_to_full": None if e.weeks == float("inf") else e.weeks,
-            "capex_eur": e.capex,
-            "capex_per_rack_eur": e.capex_per_rack,
-            "binds_first": e.best.envelope.binding.name,
-            "intake_completeness": round(e.intake.report.completeness, 3),
-        } for i, e in enumerate(ordered, 1)],
+        "halls": portfolio_rows(entries, objective),
         "total_racks": sum(e.racks for e in entries),
+        "total_racks_evidence": min(e.rack_class for e in entries).name,
     }
 
 
