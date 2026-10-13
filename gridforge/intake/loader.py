@@ -111,6 +111,18 @@ class Intake:
     def reference(self) -> str:
         return str(self.project.get("reference") or "—")
 
+    @property
+    def synthetic(self) -> bool:
+        """True only for an intake that says, in so many words, that it is invented.
+
+        ``project.synthetic: true``, or "synthetic" in the client name or note (the reference intakes
+        carry both). Anything else is treated as a real client: stamping a real customer's document
+        "SYNTHETIC REFERENCE DATA" is a false statement about their asset, and omitting that stamp
+        from a demo is how a demo gets mistaken for a real site -- so the default errs towards real and
+        the demo intakes say what they are."""
+        p = self.project
+        return bool(p.get("synthetic")) or "synthetic" in f"{p.get('client', '')} {p.get('note', '')}".lower()
+
 
 _ARCH_BY_NAME = {a.value: a for a in Architecture}
 

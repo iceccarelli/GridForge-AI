@@ -39,6 +39,16 @@ def collect_claims(results) -> dict[str, list]:
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "
              "All values are modelled or assumed; none is a measurement of a real site.")
 
+# A real client's study. Same wording as the Density Screen's: what it is and what it is not.
+CLIENT_WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
+                    "and not a measurement of this asset.")
+
+
+def watermark_for(intake) -> str:
+    """The synthetic-data stamp belongs to invented reference intakes only (docs/01 §8)."""
+    return WATERMARK if intake.synthetic else CLIENT_WATERMARK
+
+
 SCOPE_OUT = [
     "Stamped design drawings and any deliverable requiring a professional engineering signature.",
     "CFD of the hall (available as a priced add-on or a later phase).",
