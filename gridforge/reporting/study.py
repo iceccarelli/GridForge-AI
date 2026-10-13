@@ -19,6 +19,8 @@ _pick_recommended = pick_recommended
 from ..validation import Quantity
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
+from .labels import (critical_path_q, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
+                     racks_q, relief_text, weeks_q)
 
 
 def collect_claims(results) -> dict[str, list]:
@@ -77,26 +79,26 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s = Section("1. The answer")
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks today, before any investment",
-        V(float(rec.envelope.max_racks), "racks", "deployable racks as found", ESTIMATED),
+        racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
         rec.envelope.binding.basis))
     s.blocks.append(Para(
         f"The binding constraint as found is {rec.envelope.binding.name.lower()} "
         f"({rec.envelope.binding.domain}). {rec.envelope.binding.basis}."))
     s.blocks.append(Statement(
         "Deployable racks after the full headroom ladder",
-        V(float(rec.unlocked_racks), "racks", "deployable racks after relief measures", ESTIMATED),
+        racks_q(rec.unlocked_racks, "deployable racks after relief measures", rec),
         f"{rec.ladder.final.binding.name} becomes binding" if rec.ladder.final else ""))
     s.blocks.append(Statement(
         "IT load unlocked",
         rec.ladder.final.it_load_kW if rec.ladder.final else rec.envelope.it_load_kW,
         "at the recommended architecture"))
     ttp = schedule(rec.ladder)
-    if ttp.weeks_to_full is not None:
+    full_q = full_capacity_q(rec.ladder, ttp, "elapsed weeks to energise the full envelope")
+    if full_q is not None:
         s.blocks.append(Statement(
-            "Time to full capacity",
-            V(ttp.weeks_to_full, "weeks", "elapsed weeks to energise the full envelope", ESTIMATED,
-              band=(ttp.weeks_to_full * 0.7, ttp.weeks_to_full * 1.6)),
-            f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel"))
+            "Time to full capacity", full_q,
+            f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel; the range is "
+            "that item's own lead-time range"))
     s.blocks.append(Statement(
         "Indicative capex to reach it",
         rec.economics.capex_total_eur,
@@ -106,6 +108,14 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Para(
         f"Selection objective: {OBJECTIVE_RATIONALE[objective]} Section 9 shows every architecture "
         "against all three objectives so the ranking can be overruled with the evidence in view."))
+    dom = dominant_sensitivity(sensitivities, rec.unlocked_racks)
+    if dom is not None and dom[1] != rec.unlocked_racks:
+        cliff = dom[1] == 0 and rec.unlocked_racks > 0
+        s.blocks.append(Callout("warning" if cliff else "note",
+            f"Dominant sensitivity: {dom[0].lower()} takes the answer from {rec.unlocked_racks} to "
+            f"{dom[1]} racks (section 10)."
+            + (" The headline is therefore not robust to that input, which is assumed rather than "
+               "measured: treat it as the first thing to confirm." if cliff else "")))
     if rec.envelope.max_racks == 0:
         s.blocks.append(Callout("warning",
             "As found, this hall cannot host a single rack of the target platform. The value of "
@@ -124,10 +134,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         eur_kw = st.eur_per_kW_unlocked(plat.rack_kW.value)
         rows.append([
             Lit(str(st.step)), st.binding_name, st.domain,
-            V(float(st.racks_before), "racks", f"racks before step {st.step}", ESTIMATED),
-            V(float(st.racks_after), "racks", f"racks after step {st.step}", ESTIMATED),
-            (st.relief_description or "no relief available") +
-            ("" if st.taken else "  — NOT TAKEN: this relief cannot be obtained in the decision horizon"),
+            racks_q(st.racks_before, f"racks before step {st.step}", rec),
+            racks_q(st.racks_after, f"racks after step {st.step}", rec),
+            relief_text(st),
             st.capex_eur if st.capex_eur is not None else "—",
             st.lead_time_weeks if st.lead_time_weeks is not None else "—",
             V(eur_kw, "EUR/kW", f"cost per kW unlocked at step {st.step}", ASSUMED)
@@ -140,6 +149,14 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Para(
         "Steps marked NOT TAKEN are shown because they are the next thing that binds, not because "
         "they are recommended. Their cost is excluded from the totals below."))
+    zero = [st for st in rec.ladder.steps if is_zero_gain(st)]
+    if zero:
+        s.blocks.append(Para(
+            f"Rungs {', '.join(str(st.step) for st in zero)} are charged but add no racks on their own. "
+            "Each relieves one of several constraints that limit the hall to the same figure at that point; "
+            "without it a later rung cannot deliver its gain. They are kept, and costed, because dropping "
+            "any one of them lowers the final answer — that is checked, not assumed. The EUR-per-kW "
+            "column is left blank for them for the same reason: no racks are unlocked at that step."))
     s.blocks.append(Statement("Cumulative relief capex",
                               V(rec.ladder.cumulative_capex_eur, "EUR",
                                 "cumulative capex of relief measures", ASSUMED,
@@ -147,8 +164,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                                       rec.ladder.cumulative_capex_eur * 2.0)),
                               rec.economics.aace_class))
     s.blocks.append(Statement("Critical-path lead time",
-                              V(rec.ladder.critical_path_weeks, "weeks",
-                                "longest relief lead time on the path", ASSUMED),
+                              critical_path_q(rec.ladder, "longest relief lead time on the path"),
                               "Lead time, not construction, is usually the schedule driver."))
     r.sections.append(s)
 
@@ -159,9 +175,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         "reliefs are assumed to run in parallel, so the racks unlocked by the first N steps become "
         "available at the longest lead time among those N. One item sets the date, and it is almost "
         "never the construction work."))
-    rows = [[V(p.weeks, "weeks", f"elapsed at {p.racks} racks", ESTIMATED),
-             V(float(p.racks), "racks", f"racks energised at week {p.weeks:g}", ESTIMATED),
-             p.unlocked_by, p.domain] for p in ttp.points]
+    rows = [[weeks_q(p.weeks, lo, hi, cls, f"elapsed at {p.racks} racks"),
+             racks_q(p.racks, f"racks energised at week {p.weeks:g}", rec),
+             p.unlocked_by, p.domain] for p, (_w, lo, hi, cls) in zip(ttp.points, elapsed_bands(rec.ladder))]
     if rows:
         s.blocks.append(Table(["Elapsed", "Racks energised", "Unlocked by", "Domain"], rows,
                               caption="Energisation curve for the recommended architecture."))
@@ -172,11 +188,10 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     rows = []
     for res in results:
         t = schedule(res.ladder)
+        fq = full_capacity_q(res.ladder, t, f"{res.spec.id}: weeks to full capacity")
         rows.append([res.spec.name,
-                     V(float(res.unlocked_racks), "racks", f"{res.spec.id}: racks after ladder",
-                       ESTIMATED),
-                     V(t.weeks_to_full, "weeks", f"{res.spec.id}: weeks to full capacity", ESTIMATED)
-                     if t.weeks_to_full is not None else "—",
+                     racks_q(res.unlocked_racks, f"{res.spec.id}: racks after ladder", res),
+                     fq if fq is not None else "—",
                      t.critical_item])
     s.blocks.append(Table(["Scenario", "Racks", "Time to full capacity", "Item that sets the date"],
                           rows, caption="Time to power across the architectures compared."))
@@ -188,7 +203,8 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         ["Item", "Value"],
         [["Site", ctx.site.name], ["Metro", ctx.site.metro], ["Country", ctx.site.country],
          ["Hall", hall.id], ["Built", Lit(str(hall.build_year))],
-         ["Floor", hall.floor_type.value], ["Containment", hall.containment],
+         ["Floor", hall.floor_type.value.replace("_", " ")],
+         ["Containment", str(hall.containment).replace("_", " ")],
          ["Rack positions", V(float(hall.rack_positions), "positions", "installed rack positions", ESTIMATED)],
          ["Positions available", V(float(hall.positions_available), "positions",
                                    "positions available for redeployment", ESTIMATED)],
@@ -207,7 +223,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
          ["Plant supply / return", f"{ctx.thermal.plant.design_supply_C.render()} / "
                                    f"{ctx.thermal.plant.design_return_C.render()}"],
          ["Pumped flow available", ctx.thermal.plant.pump_flow_capacity_l_per_min]],
-        caption="Baseline as supplied. Items marked E5 are customer data; everything else is assumed."))
+        caption="Baseline as supplied. E5 means supplied by the client — a declared rating, contract term or "
+                "design value as given to us, not measured or surveyed by us. E3 marks a figure that is "
+                "estimate-grade by nature; E0 marks a library default."))
     if ctx.power.grid.queue_note:
         s.blocks.append(Callout("note", ctx.power.grid.queue_note))
     r.sections.append(s)
@@ -221,14 +239,22 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         for c in rec.envelope.sorted_constraints():
             if c.domain != domain:
                 continue
+            if c.max_racks.value == float("inf"):
+                cell = Lit("passes — not limiting" if c.gate else "not limiting")
+            elif c.gate:
+                cell = racks_q(c.max_racks.value, f"{c.name}: gate fails", rec)
+            else:
+                cell = c.max_racks
             rows.append([c.name, "gate" if c.gate else "capacity",
-                         c.max_racks if c.max_racks.value != float("inf")
-                         else V(0, "racks", f"{c.name}: not limiting", ESTIMATED),
+                         cell,
                          c.basis,
                          c.relief.description if c.relief else "—"])
         if not rows:
             continue
-        s.blocks.append(Table(["Constraint", "Type", "Racks permitted", "Basis", "Relief"], rows))
+        s.blocks.append(Table(["Constraint", "Type", "Racks permitted", "Basis", "Relief"], rows,
+                              caption="A gate either passes (it does not limit the hall) or fails (it permits "
+                                      "no racks until relieved). Rack counts carry the weakest evidence class "
+                                      "among the constraints evaluated."))
         notes = [n for c in rec.envelope.constraints if c.domain == domain for n in c.notes if n]
         if notes:
             s.blocks.append(Bullets(notes))
@@ -245,8 +271,8 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     for res in results:
         rows.append([res.spec.name, res.envelope.architecture,
                      _pue_of(res),
-                     V(float(res.headline_racks), "racks", f"{res.spec.id}: racks as found", ESTIMATED),
-                     V(float(res.unlocked_racks), "racks", f"{res.spec.id}: racks after ladder", ESTIMATED),
+                     racks_q(res.headline_racks, f"{res.spec.id}: racks as found", res),
+                     racks_q(res.unlocked_racks, f"{res.spec.id}: racks after ladder", res),
                      res.envelope.binding.name,
                      res.ladder.final.binding.name if res.ladder.final else "—"])
     s.blocks.append(Table(["Scenario", "Architecture", "PUE used", "Racks as found",
@@ -257,21 +283,39 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     # 8 --------------------------------------------------------------- economics
     s = Section("9. Economics")
     rows = []
+    none_deployable = []
     for res in results:
         e = res.economics
-        per_rack = e.capex_total_eur.value / max(res.unlocked_racks, 1)
+        if res.unlocked_racks == 0:
+            # Nothing can be deployed and no relief exists: a cost, a cost per rack and a cost per GPU-hour
+            # are not zero, they are undefined. Printing 0 reads as "free".
+            none_deployable.append(res.spec.name)
+            rows.append([res.spec.name, racks_q(0, f"{res.spec.id}: racks unlocked", res),
+                         "—", "—", "—", "—", "—"])
+            continue
+        per_rack = e.capex_total_eur.value / res.unlocked_racks
         rows.append([res.spec.name,
-                     V(float(res.unlocked_racks), "racks", f"{res.spec.id}: racks unlocked",
-                       ESTIMATED),
+                     racks_q(res.unlocked_racks, f"{res.spec.id}: racks unlocked", res),
                      e.capex_total_eur,
                      V(per_rack, "EUR/rack", f"{res.spec.id}: capex per rack enabled", ASSUMED,
                        band=(per_rack * 0.5, per_rack * 2.0)),
                      e.annual_energy_cost_eur, e.energy_cost_per_gpu_hour_eur,
-                     V(e.critical_path_weeks, "weeks", f"{res.spec.id}: critical path", ASSUMED)])
+                     critical_path_q(res.ladder, f"{res.spec.id}: critical path")])
     s.blocks.append(Table(["Scenario", "Racks", "Total capex", "Capex per rack enabled",
                            "Annual energy cost", "Energy cost per GPU-hour", "Critical path"], rows,
                           caption=f"Cost basis: {rec.economics.aace_class}. Excludes IT hardware, "
-                                  f"migration and lost tenancy revenue."))
+                                  f"migration and lost tenancy revenue."
+                                  + (" A dash means no rack can be deployed in that architecture and no "
+                                     "relief exists, so the figure is undefined rather than zero."
+                                     if none_deployable else "")))
+    e = rec.economics
+    s.blocks.append(Table(
+        ["How the recommended capex is built", "Amount"],
+        [[f"Relief works along the headroom ladder (section 2)", e.capex_relief_eur],
+         [f"In-hall conversion of the {rec.unlocked_racks} racks deployed", e.capex_conversion_eur],
+         ["Total (the headline capex)", e.capex_total_eur]],
+        caption="The ladder's cumulative figure covers the relief works only; the headline adds the "
+                "per-rack conversion inside the hall."))
     mix = rec.economics.cost_basis_mix or {}
     placeholders = mix.get("library_default", 0)
     priced = sum(v for k, v in mix.items() if k != "library_default")
@@ -279,7 +323,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     if total_lines:
         s.blocks.append(Table(
             ["Cost basis", "Lines"],
-            [[basis.replace("_", " "), V(float(n), "lines", f"cost lines on {basis}", ESTIMATED)]
+            [[basis.replace("_", " "), Lit(f"{n} lines")]
              for basis, n in sorted(mix.items(), key=lambda kv: -kv[1])],
             caption="What each price in this study rests on. The accuracy class above follows the "
                     "weakest line, not the average."))
@@ -303,20 +347,36 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             "relieved case rather than the hall as found. Inputs are ranked by how far each moves "
             "the answer; the ones at the top are the ones worth paying to measure."))
         base = rec.unlocked_racks
-        rows = [[label, V(float(n), "racks", f"racks under: {label}", ESTIMATED),
-                 V(float(n - base), "racks", f"delta under: {label}", ESTIMATED)]
+        rows = [[label, racks_q(n, f"racks under: {label}", rec),
+                 racks_q(n - base, f"delta under: {label}", rec)]
                 for label, n in sensitivities]
         rows.sort(key=lambda row: -abs(row[2].value))
         s.blocks.append(Table(["Input varied", "Racks", "Change vs base case"], rows))
+        collapse = [label for label, n in sensitivities if n == 0 and base > 0]
+        if collapse:
+            s.blocks.append(Callout("warning",
+                f"The answer is a cliff, not a slope, on: {'; '.join(l.lower() for l in collapse)}. A small "
+                "change in that input removes every rack, because it moves a pass/fail gate rather than a "
+                "capacity. It is an assumed input; confirming it is worth more than any other measurement "
+                "in this study."))
         r.sections.append(s)
 
     # 10 ------------------------------------------------------------------ risks
     s = Section("11. Risk register")
     risks = []
+    seen: dict[tuple[str, str], int] = {}
     for st in rec.ladder.steps:
-        if st.risk:
-            risks.append([st.binding_name, st.risk,
-                          st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
+        if not st.risk:
+            continue
+        key = (st.binding_name, st.risk)
+        if key in seen:
+            risks[seen[key]][3] += 1
+            continue
+        seen[key] = len(risks)
+        risks.append([st.binding_name, st.risk,
+                      st.lead_time_weeks if st.lead_time_weeks is not None else "—", 1])
+    # a constraint relieved on several rungs is one risk, not several
+    risks = [[n, d + (f" Applies to {k} rungs of the ladder." if k > 1 else ""), lt] for n, d, lt, k in risks]
     risks += [
         ["Evidence base", "The dominant inputs in this study are assumed rather than measured. "
                           "Twelve months of hall trend data would move the headline from an "
@@ -357,9 +417,11 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         "package and confers no design liability. The following are outside scope:"))
     s.blocks.append(Bullets(SCOPE_OUT))
     s.blocks.append(Para(
-        "Every quantity in this report carries an evidence class; Appendix A lists the assumptions, "
-        "sources and provenance of each. No number here is a measurement of a physical asset unless "
-        "it is labelled E5 or above."))
+        "Every quantity in this report carries an evidence class; Appendix A lists the assumptions and "
+        "sources relied upon and the provenance digest of each headline quantity. No number here is a "
+        "measurement of a physical asset unless it is labelled E5 or above — and E5 means supplied by "
+        "the client (a declared rating, contract term or design value, or the client's own data as given), "
+        "not measured or surveyed by us."))
     below = claims_below_floor(collect_claims(results))
     if below:
         detail = "; ".join(

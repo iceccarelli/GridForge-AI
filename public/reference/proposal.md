@@ -8,11 +8,11 @@
 
 We ran your hall through the capacity engine before writing this. The following is not a claim about what we might do; it is what the constraint set already says, on the inputs you supplied.
 
-**Deployable NVIDIA GB300 NVL72 racks as the hall stands:** 0 racks (E3)
+**Deployable NVIDIA GB300 NVL72 racks as the hall stands:** 0 racks (E0)
 
 *Limited by: platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5)*
 
-**Deployable after the costed ladder:** 62 racks (E3)
+**Deployable after the costed ladder:** 62 racks (E0)
 
 *Limited by: Full DLC plus behind-the-meter supply*
 
@@ -99,6 +99,8 @@ Every number in this report carries an evidence class. The class of a computed n
 | E6 | field-validated |
 | E7 | observed in operation |
 
+*E5 means supplied by the client — a declared rating, contract term or design value, or the client's own data as given. It is not a measurement we made, and it has not been verified by a site survey.*
+
 ### A.1 Assumptions relied upon
 
 
@@ -109,8 +111,8 @@ Every number in this report carries an evidence class. The class of a computed n
 
 | Quantity | Evidence | Model | Digest |
 | --- | --- | --- | --- |
-| deployable racks as found | E3 | input@0.1 | `37ccfd2a8602` |
-| deployable racks after relief | E3 | input@0.1 | `5bb5a58337e6` |
+| deployable racks as found | E0 | input@0.1 | `2251cf0df6fb` |
+| deployable racks after relief | E0 | input@0.1 | `8869e76332d4` |
 | elapsed weeks to full energisation | E3 | input@0.1 | `85cf5cf7107b` |
 | Density Screen fixed fee | E3 | input@0.1 | `7ca2ecfa0a05` |
 

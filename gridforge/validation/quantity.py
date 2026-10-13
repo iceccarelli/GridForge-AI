@@ -199,13 +199,18 @@ class Quantity:
         if with_band and (abs(hi - lo) > 1e-12):
             s += f" [{_fmt(lo, n)}–{_fmt(hi, n)}]"
         if self.unit not in ("1", ""):
-            s += f" {self.unit}"
+            s += f" {_display_unit(self.unit)}"
         if with_class:
             s += f" ({self.evidence.short})"
         return s
 
     def __str__(self) -> str:  # pragma: no cover - convenience
         return self.render()
+
+
+def _display_unit(unit: str) -> str:
+    """Presentation only: the algebra keeps ``m*m``; a reader should see ``m2`` (kg/m*m reads as a typo)."""
+    return unit.replace("m*m*m", "m3").replace("m*m", "m2")
 
 
 def _round_sig(x: float, n: int) -> float:

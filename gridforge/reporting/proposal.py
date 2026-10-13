@@ -21,6 +21,7 @@ from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .labels import racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 
@@ -57,11 +58,11 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         "you supplied."))
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks as the hall stands",
-        V(float(rec.envelope.max_racks), "racks", "deployable racks as found", ESTIMATED),
+        racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
         rec.envelope.binding.basis))
     s.blocks.append(Statement(
         "Deployable after the costed ladder",
-        V(float(rec.unlocked_racks), "racks", "deployable racks after relief", ESTIMATED),
+        racks_q(rec.unlocked_racks, "deployable racks after relief", rec),
         rec.spec.name))
     if t.weeks_to_full is not None:
         s.blocks.append(Statement(

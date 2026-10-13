@@ -148,6 +148,8 @@ Every number in this report carries an evidence class. The class of a computed n
 | E6 | field-validated |
 | E7 | observed in operation |
 
+*E5 means supplied by the client — a declared rating, contract term or design value, or the client's own data as given. It is not a measurement we made, and it has not been verified by a site survey.*
+
 ### A.1 Assumptions relied upon
 
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.

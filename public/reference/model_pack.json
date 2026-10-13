@@ -542,7 +542,7 @@
           "name": "Floor loading",
           "gate": true,
           "racks_permitted": null,
-          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "basis": "972 [894\u20131,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
@@ -1033,7 +1033,7 @@
           "name": "Floor loading",
           "gate": true,
           "racks_permitted": null,
-          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "basis": "972 [894\u20131,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
@@ -1822,7 +1822,7 @@
           "name": "Floor loading",
           "gate": true,
           "racks_permitted": null,
-          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "basis": "972 [894\u20131,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
@@ -2633,7 +2633,7 @@
           "name": "Floor loading",
           "gate": true,
           "racks_permitted": null,
-          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "basis": "972 [894\u20131,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
@@ -3808,7 +3808,7 @@
           "name": "Floor loading",
           "gate": true,
           "racks_permitted": null,
-          "basis": "972 [894\u20131,050] kg/m*m (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "basis": "972 [894\u20131,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
