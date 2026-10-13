@@ -518,9 +518,9 @@ Every number in this report carries an evidence class. The class of a computed n
 | chilled-water plant capacity | E5 | input@0.1 | `cedbd39b6085` |
 | available pumped flow | E3 | input@0.1 | `7ebcc1ab3857` |
 | Rack feed / tap-off rating: gate fails | E0 | input@0.1 | `4aa8886b8226` |
-| (transformer headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `9af5243c1c0c` |
+| (transformer headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `edb30cfae0fa` |
 | (UPS headroom for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `c8e62be34b0a` |
-| (total usable busway capacity in hall / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `3112da34d3e7` |
+| (total usable busway capacity in hall / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `bf7b469cd3d1` |
 | (firm supply headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `0fecb91fef87` |
 | Residual air load removal per rack: gate fails | E0 | input@0.1 | `26165e87d919` |
 | Achievable facility water temperature: gate fails | E0 | input@0.1 | `220f8c8a7543` |
@@ -548,20 +548,20 @@ Every number in this report carries an evidence class. The class of a computed n
 | hybrid_dlc: racks unlocked | E0 | input@0.1 | `8eba1a207998` |
 | total capex | E0 | economics.total_capex@0.1 | `07d48b0ef41b` |
 | hybrid_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `c7afdff35fca` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `9484f91af71c` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `225353cfdc60` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `f5f775cde4f8` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `8e1e0844ef3b` |
 | hybrid_dlc: critical path | E0 | input@0.1 | `fd4bb27c96c2` |
 | full_dlc: racks unlocked | E0 | input@0.1 | `8887e6b75586` |
 | total capex | E0 | economics.total_capex@0.1 | `ccf1b3a39e01` |
 | full_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `7fac320b3d61` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `e325c835963f` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `97c6866ebaf9` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `ec9363fe2c9c` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `45f8b23cee89` |
 | full_dlc: critical path | E0 | input@0.1 | `e150e1d1a44b` |
 | full_dlc_btm: racks unlocked | E0 | input@0.1 | `7d7b81a69f10` |
 | total capex | E0 | economics.total_capex@0.1 | `deb75b48d05b` |
 | full_dlc_btm: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `f037eeced423` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `e325c835963f` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `97c6866ebaf9` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `ec9363fe2c9c` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `45f8b23cee89` |
 | full_dlc_btm: critical path | E0 | input@0.1 | `1bfd8e2425a5` |
 | capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `ba6364f31cf6` |
 | in-hall conversion capex | E0 | economics.conversion_capex@0.1 | `31aac42971b6` |

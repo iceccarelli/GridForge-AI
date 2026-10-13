@@ -38,7 +38,14 @@ You receive: Density Screen document (HTML and Markdown), the first six rungs of
 
 ## 3. What we need from you
 
-Intake is complete. Nothing further is required to begin; the clock starts on commissioning.
+Intake is 92% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
+
+| Input | Status | Assumed if not supplied | Where it comes from |
+| --- | --- | --- | --- |
+| Installed CDU schedule | optional | [] | CDU nameplates and the mechanical single-line diagram. |
+| TCS target supply temperature | optional | 30 [27–32] degC (E0) | The platform vendor's reference design for the target rack. |
+
+> ℹ️ A behind-the-meter opex was declared but is not applied: BTM dispatch is not modelled, so annual energy cost prices all energy at the grid tariff in every scenario.
 
 ## 4. Fee, timing and terms
 

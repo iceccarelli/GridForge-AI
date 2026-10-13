@@ -136,28 +136,57 @@
         "full_dlc_btm"
       ]
     },
-    "completeness": 1.0,
+    "completeness": 0.923,
     "can_issue": true,
     "supplied": [
       "compute.platform",
+      "compute.utilisation",
       "grid.contracted_MW",
       "grid.current_it_load_MW",
       "grid.current_site_peak_MW",
       "grid.firm_capacity_MVA",
+      "grid.power_factor",
+      "hall.aisle_pitch_m",
       "hall.floor_loading_kPa",
+      "hall.net_white_space_m2",
       "hall.positions_available",
       "lv.busway_ampacity_A",
+      "lv.busway_runs",
+      "lv.busway_utilisation_limit",
       "lv.tapoff_max_A",
+      "lv.voltage_V",
       "site.design_drybulb_C",
       "thermal.plant.chilled_water_capacity_kW",
+      "thermal.plant.design_return_C",
       "thermal.plant.design_supply_C",
       "thermal.plant.pump_flow_capacity_l_per_min",
       "thermal.residual_air_capacity_kW_per_rack",
       "transformers",
       "ups"
     ],
-    "gaps": [],
-    "warnings": [],
+    "gaps": [
+      {
+        "path": "thermal.cdus",
+        "label": "Installed CDU schedule",
+        "unit": "-",
+        "required": false,
+        "assumed": "[]",
+        "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have.",
+        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram."
+      },
+      {
+        "path": "thermal.tcs_target_supply_C",
+        "label": "TCS target supply temperature",
+        "unit": "degC",
+        "required": false,
+        "assumed": "30 [27\u201332] degC (E0)",
+        "why_it_binds": "Whether the plant can hold the water temperature the chips need.",
+        "how_to_get_it": "The platform vendor's reference design for the target rack."
+      }
+    ],
+    "warnings": [
+      "A behind-the-meter opex was declared but is not applied: BTM dispatch is not modelled, so annual energy cost prices all energy at the grid tariff in every scenario."
+    ],
     "engagement_recommendation": "The intake is complete. This supports a full Capacity & Density Envelope Study with site-specific conclusions."
   },
   "scenarios": [
@@ -255,7 +284,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "8c2b146e0f84"
+          "digest": "a40d0c80d537"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -714,7 +743,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "101c7d75ffc7"
+          "digest": "1b1d8eff56c7"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -1480,7 +1509,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "9484f91af71c"
+          "digest": "f5f775cde4f8"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.256,
@@ -1490,7 +1519,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "225353cfdc60"
+          "digest": "8e1e0844ef3b"
         },
         "critical_path_weeks": 160.0,
         "basis": "Class 5 (order of magnitude): -50% / +100%"
@@ -2259,7 +2288,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "e325c835963f"
+          "digest": "ec9363fe2c9c"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -2269,7 +2298,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "97c6866ebaf9"
+          "digest": "45f8b23cee89"
         },
         "critical_path_weeks": 160.0,
         "basis": "Class 5 (order of magnitude): -50% / +100%"
@@ -3465,7 +3494,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "e325c835963f"
+          "digest": "ec9363fe2c9c"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -3475,7 +3504,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "97c6866ebaf9"
+          "digest": "45f8b23cee89"
         },
         "critical_path_weeks": 160.0,
         "basis": "Class 5 (order of magnitude): -50% / +100%"

@@ -1,1 +1,3 @@
 input,unit,required,assumed_value,why_it_binds,how_to_get_it
+Installed CDU schedule,-,False,[],"When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have.",CDU nameplates and the mechanical single-line diagram.
+TCS target supply temperature,degC,False,30 [27–32] degC (E0),Whether the plant can hold the water temperature the chips need.,The platform vendor's reference design for the target rack.

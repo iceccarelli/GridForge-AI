@@ -60,7 +60,7 @@ Obligation words carry their usual tender meaning: shall — non-compliance disq
 
 **Required:** 1,990 A (E3)
 
-*Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E5) continuous limit. Installed: 400 A (E5).*
+*Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E3) continuous limit. Installed: 400 A (E5).*
 
 *Verification:* Type test certificate to the applicable standard, with derating basis stated.
 
