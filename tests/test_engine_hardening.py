@@ -82,3 +82,23 @@ def test_retained_air_puts_the_whole_rack_on_the_plant():
     dlc = plant_capacity(ctx)
     assert air.max_racks.value < dlc.max_racks.value
     assert "rack heat" in air.basis
+
+
+def test_single_phase_busway_is_not_credited_with_the_three_phase_factor():
+    from gridforge.power.constraints import busway_ampacity
+    three = load_document(doc("dublin_hall"))
+    d = doc("dublin_hall")
+    d["lv"]["phases"] = 1
+    one = load_document(d)
+    r3 = busway_ampacity(three.context).max_racks.value
+    r1 = busway_ampacity(one.context).max_racks.value
+    assert abs(r1 - r3 / 3 ** 0.5) <= 1.0           # racks are whole numbers; the factor is sqrt(3)
+    assert r1 < r3
+    d["lv"]["phases"] = 2
+    with pytest.raises(IntakeError, match="phases"):
+        load_document(d)
+
+
+def test_a_declared_btm_opex_that_is_not_modelled_is_disclosed():
+    i = load_document(doc("dublin_hall"))
+    assert any("opex was declared but is not applied" in w for w in i.report.warnings)

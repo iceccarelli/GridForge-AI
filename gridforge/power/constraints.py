@@ -192,8 +192,9 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 @constraint
 def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
     lv = ctx.power.lv
+    phase_factor = SQRT3 if lv.phases == 3 else 1.0         # single-phase: P = V * I, not sqrt(3) * V * I
     per_run_kW = (lv.voltage_V * lv.busway_ampacity_A * lv.busway_utilisation_limit *
-                  ctx.power.grid.power_factor).convert(SQRT3 / 1000.0, "kW",
+                  ctx.power.grid.power_factor).convert(phase_factor / 1000.0, "kW",
                                                        "usable capacity per busway run")
     total = (per_run_kW * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)).relabel(
         "total usable busway capacity in hall", "power.busway_total", step_evidence=ESTIMATED)

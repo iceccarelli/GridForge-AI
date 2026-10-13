@@ -93,6 +93,7 @@ export function Conversation({
       <div className="border-t border-line p-3">
         <div className="flex items-end gap-2">
           <textarea
+            aria-label="Describe your site or ask the engine"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

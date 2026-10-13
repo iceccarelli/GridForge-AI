@@ -71,6 +71,13 @@ def _frac(raw: Any, what: str) -> float:
     return v
 
 
+def _phases(raw: Any) -> int:
+    n = _int(raw, "lv.phases")
+    if n not in (1, 3):
+        raise IntakeError(f"lv.phases is {n}; busway distribution is modelled as single-phase (1) or three-phase (3)")
+    return n
+
+
 _REDUNDANCY = {"N", "N+0", "N+1", "N+2", "2N", "N+N"}
 
 
@@ -413,7 +420,7 @@ def _load_document(doc: dict) -> Intake:
         lv=LVDistribution(
             voltage_V=r.q("lv.voltage_V", "V", "LV distribution voltage",
                           V(400, "V", "assumed LV distribution voltage", ASSUMED)),
-            phases=_int(r.raw("lv.phases", 3)),
+            phases=_phases(r.raw("lv.phases", 3)),
             busway_ampacity_A=r.q("lv.busway_ampacity_A", "A", "installed busway ampacity",
                                   V(400, "A", "assumed legacy busway ampacity", ASSUMED,
                                     band=(250, 630))),
@@ -496,6 +503,10 @@ def _load_document(doc: dict) -> Intake:
                                "evaluated and may be the true binding constraint.")
     if not ups:
         report.warnings.append("No UPS schedule supplied: the load is treated as unprotected.")
+    if any(o.opex_eur_per_MWh is not None for o in options):
+        report.warnings.append(
+            "A behind-the-meter opex was declared but is not applied: BTM dispatch is not modelled, so "
+            "annual energy cost prices all energy at the grid tariff in every scenario.")
     if not options:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")

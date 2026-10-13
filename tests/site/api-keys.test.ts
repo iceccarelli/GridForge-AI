@@ -187,11 +187,12 @@ describe("the paid boundary still holds", () => {
     expect(db.rows("api_accounts")[0].key_id).toBe("aabbccdd");
   });
 
-  it("still serves an account whose payment is being retried", async () => {
-    // past_due is Stripe retrying, not a cancellation — same rule as everywhere else.
+  it("does not mint for an account whose payment is being retried, but still reads it", async () => {
+    // past_due mints nothing (35-day keys against an uncleared payment); reading stays open.
     seedAccount({ status: "past_due", key_expires_at: iso(-1) });
-    const { POST } = await route();
-    expect((await POST(post({ token: TOKEN }))).status).toBe(200);
+    const { POST, GET } = await route();
+    expect((await POST(post({ token: TOKEN }))).status).toBe(402);
+    expect((await GET(get(TOKEN))).status).toBe(200);
   });
 
   it("refuses an unknown portal token", async () => {

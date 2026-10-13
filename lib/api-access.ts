@@ -373,17 +373,40 @@ export async function revokeOnEngine(keyId: string | null | undefined): Promise<
   }
 }
 
+export interface MintResult {
+  token: string;
+  expires: string;
+  /** Every id the account now records as revoked (including ones the engine has not yet confirmed). */
+  revoked: string[];
+  /** The key id this mint replaced on the account row, if any. */
+  previous: string | null;
+  /**
+   * What the ENGINE said about the previous id: true = confirmed revoked there, false = a revocation was
+   * attempted and not confirmed (the id stays in revoked_key_ids so cancellation retries it), null = no
+   * engine revocation was attempted (nothing replaced, or an in-window overlap mint left the old key live).
+   */
+  engine_revoked: boolean | null;
+}
+
+/**
+ * Mint and record a new key. Whenever it overwrites key_id, the superseded id is kept in
+ * revoked_key_ids so it is never forgotten (cancellation pushes every one of them to the engine).
+ * With `rotate`, the superseded id is also revoked on the engine now, AFTER the new id is saved, and the
+ * result says honestly whether the engine confirmed. Without it (a mint inside the renewal window) the old
+ * key keeps working until it expires, on purpose, but it is tracked.
+ */
 export async function mintForAccount(
   row: ApiAccount,
   opts: { rotate?: boolean } = {}
-): Promise<{ token: string; expires: string; revoked: string[] } | null> {
+): Promise<MintResult | null> {
   const { token, payload } = issueKey({
     account: row.account,
     quota: row.monthly_units,
     scope: "machine",
   });
   const revoked = [...(row.revoked_key_ids ?? [])];
-  if (opts.rotate && row.key_id) revoked.push(row.key_id);
+  const previous = row.key_id || null;
+  if (previous && !revoked.includes(previous)) revoked.push(previous);
   // The key is only handed over once the account records which id is live. A key the account does
   // not know about can be neither rotated nor revoked on cancellation, so a failed write must not
   // produce a working credential the customer then holds.
@@ -394,5 +417,7 @@ export async function mintForAccount(
     revoked_key_ids: revoked,
   });
   if (!saved) return null;
-  return { token, expires: payload.e, revoked };
+  let engine_revoked: boolean | null = null;
+  if (opts.rotate && previous) engine_revoked = await revokeOnEngine(previous);
+  return { token, expires: payload.e, revoked, previous, engine_revoked };
 }

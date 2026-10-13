@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { bearerFor, installWithAuth } from "./auth-fake";
 
 const SUBSCRIBER = "ops@northhall.example";
 
@@ -23,10 +24,16 @@ async function route() {
   return await import("@/app/api/siting-analysis/route");
 }
 
+// Identity is the verified bearer token, minted here from `body.email` for
+// readability; the route never reads an email from the body.
 function ask(body: unknown) {
+  const email = typeof body === "string" ? SUBSCRIBER : (body as { email?: unknown } | null)?.email;
   return new Request(siteUrl("/api/siting-analysis"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(typeof email === "string" ? bearerFor(email) : {}),
+    },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -38,7 +45,7 @@ beforeEach(() => {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   db = new PostgrestFake(["subscriptions"]);
-  restore = db.install();
+  restore = installWithAuth(db).restore;
 });
 
 afterEach(() => restore());
@@ -84,6 +91,29 @@ describe("the gate", () => {
     const res = await POST(ask({ ...BRIEF, email: "gatecrasher@example.com" }));
     expect(res.status).toBe(402);
   });
+
+  it("ignores a body email naming a real subscriber when the token is someone else's", async () => {
+    db.seed("subscriptions", [
+      { email: SUBSCRIBER, plan: "team", status: "active", created_at: "2026-01-01T00:00:00Z" },
+    ]);
+    const { POST } = await route();
+    const res = await POST(
+      new Request(siteUrl("/api/siting-analysis"), {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearerFor("gatecrasher@example.com") },
+        body: JSON.stringify(BRIEF),
+      })
+    );
+    expect(res.status).toBe(402);
+    const anon = await POST(
+      new Request(siteUrl("/api/siting-analysis"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(BRIEF),
+      })
+    );
+    expect(anon.status).toBe(401);
+  });
 });
 
 describe("input", () => {
@@ -92,9 +122,9 @@ describe("input", () => {
     expect((await POST(ask("{oops"))).status).toBe(400);
   });
 
-  it("rejects a brief with no email", async () => {
+  it("rejects a brief with no verified identity", async () => {
     const { POST } = await route();
-    expect((await POST(ask({ brief: "40 MW" }))).status).toBe(400);
+    expect((await POST(ask({ brief: "40 MW" }))).status).toBe(401);
   });
 
   it("rejects an email with no brief", async () => {

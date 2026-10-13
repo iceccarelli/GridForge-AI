@@ -88,6 +88,7 @@ export function RequestFollowUp({
         </button>
       </div>
       <textarea
+        aria-label="Note for the engineer (optional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
         maxLength={500}

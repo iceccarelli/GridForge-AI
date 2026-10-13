@@ -47,8 +47,15 @@ export async function POST(req: Request) {
 
   const assessed = await runDeploymentAssessment(request);
   if (!assessed.ok) {
+    // Engine and configuration detail (env var names, upstream URLs) is for the
+    // server log, not the person filling in the form.
+    console.error("[GridForge] power deploy assessment failed:", assessed.error);
     return NextResponse.json(
-      { ok: false, error: `The engine could not produce an assessment: ${assessed.error}` },
+      {
+        ok: false,
+        error:
+          "The assessment service is temporarily unavailable, so no result was produced. Nothing was saved. Please try again later.",
+      },
       { status: 502 }
     );
   }

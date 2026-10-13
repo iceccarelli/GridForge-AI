@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from .clock import report_date_iso
+from .clock import report_date, report_date_iso
 from .common import V
 from .validation import EvidenceClass, Quantity, Source
 
@@ -110,9 +110,18 @@ class CostEntry:
         if not self.valid_until:
             return False
         try:
-            return date.fromisoformat(self.valid_until) < date.today()
+            return date.fromisoformat(self.valid_until) < report_date()
         except ValueError:
             return False
+
+    def __post_init__(self) -> None:
+        import math
+        if not (isinstance(self.value, (int, float)) and math.isfinite(self.value)):
+            raise ValueError(f"cost entry {self.key!r} has a non-numeric or non-finite value")
+        if self.value < 0 or (self.value == 0 and self.basis != "library_default"):
+            raise ValueError(
+                f"cost entry {self.key!r}: a {self.basis} price of {self.value:g} is not a price. "
+                f"A zero quotation would be recorded as a free, high-evidence line.")
 
     def quantity(self) -> Quantity:
         ev = EvidenceClass.E1_MODEL if (self.stale and self.evidence > EvidenceClass.E1_MODEL) \

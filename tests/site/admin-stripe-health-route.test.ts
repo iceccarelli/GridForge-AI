@@ -4,6 +4,7 @@
  * checks that an unauthenticated caller is refused and an authenticated one
  * gets back the same shape lib/stripe-health.ts produces.
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
@@ -26,7 +27,7 @@ afterEach(() => {
 });
 
 function signIn() {
-  jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+  jar.push({ name: "gf_admin", value: adminToken()! });
 }
 
 describe("GET /api/admin/stripe-health", () => {

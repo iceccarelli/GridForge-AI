@@ -33,38 +33,30 @@ interface Presentation {
   highlighted?: boolean;
 }
 
+// Every feature listed here is something the dashboard actually does today.
+// The three tiers unlock the same dashboard; tier-specific alerts, API access,
+// SSO, seat limits or dedicated feeds are not built, so they are not sold.
+const DASHBOARD_FEATURES = [
+  "Live EPEX day-ahead market data",
+  "Interconnection-queue views by region",
+  "Fastest-to-energize ranking across regions",
+  "Saved scenarios you can compare",
+  "AI siting analyst for your own site",
+];
+
 const PRESENTATION: Record<IntelligencePlanId, Presentation> = {
   developer: {
-    tagline: "Live market intelligence for a single site team.",
-    features: [
-      "Live EPEX / day-ahead market data",
-      "Basic interconnection-queue signals",
-      "Fastest-to-energize directional reads",
-      "1 seat",
-    ],
+    tagline: "The live siting dashboard, billed monthly.",
+    features: DASHBOARD_FEATURES,
   },
   team: {
-    tagline: "Full siting intelligence for active developers.",
-    features: [
-      "Everything in Developer",
-      "Full interconnection-queue intelligence",
-      "Fastest-to-energize scoring across regions",
-      "Price + congestion alerts",
-      "API access",
-      "5 seats",
-    ],
+    tagline: "The same live siting dashboard, for teams who want it on a larger plan.",
+    features: [...DASHBOARD_FEATURES, "Same dashboard as Developer today; no extra tier-specific features yet"],
     highlighted: true,
   },
   enterprise: {
-    tagline: "Dedicated intelligence for hyperscale siting teams.",
-    features: [
-      "Everything in Team",
-      "Custom regions & dedicated feeds",
-      "Priority engineering-hours credit",
-      "SSO & audit logging",
-      "Unlimited seats",
-      "Direct line to a senior engineer",
-    ],
+    tagline: "The same live siting dashboard, on the top plan.",
+    features: [...DASHBOARD_FEATURES, "Same dashboard as Developer today; no extra tier-specific features yet"],
   },
 };
 

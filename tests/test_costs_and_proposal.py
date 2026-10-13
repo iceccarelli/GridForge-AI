@@ -274,3 +274,22 @@ def test_deck_is_self_contained(solved):
     assert "http://" not in html and "https://" not in html, (
         "the deck must render with no network at all — a client may open it offline"
     )
+
+
+def test_a_zero_or_non_finite_quotation_is_not_a_price():
+    import pytest
+    from gridforge.costs import CostEntry
+    with pytest.raises(ValueError, match="not a price"):
+        CostEntry(key="x", label="x", unit="EUR", value=0, basis="firm_quote")
+    with pytest.raises(ValueError, match="finite"):
+        CostEntry(key="x", label="x", unit="EUR", value=float("nan"), basis="firm_quote")
+    CostEntry(key="x", label="x", unit="EUR", value=0, basis="library_default")   # a placeholder may be zero
+
+
+def test_staleness_follows_the_pinned_report_date(monkeypatch):
+    from gridforge.costs import CostEntry
+    e = CostEntry(key="x", label="x", unit="EUR", value=5, basis="firm_quote", valid_until="2026-09-30")
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-09-01")
+    assert not e.stale
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-01")
+    assert e.stale

@@ -33,12 +33,12 @@ export function DelayDemo() {
 
       <div className="grid sm:grid-cols-2 gap-5 mb-6">
         <div>
-          <label className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
-          <input type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
+          <label htmlFor="delaydemo-mw" className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
+          <input id="delaydemo-mw" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
         </div>
         <div>
-          <label className="data text-[10px] text-faint">MARKET</label>
-          <select value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
+          <label htmlFor="delaydemo-region" className="data text-[10px] text-faint">MARKET</label>
+          <select id="delaydemo-region" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
             {ranked.map((r) => <option key={r.id} value={r.id}>{r.region}</option>)}
           </select>
         </div>
