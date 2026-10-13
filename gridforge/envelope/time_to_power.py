@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..validation import EvidenceClass
 from .solver import HeadroomLadder
 
 
@@ -72,6 +73,50 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
             seen_racks = st.racks_after
             out.points.append(EnergisationPoint(elapsed, seen_racks, st.binding_name, st.domain))
     return out
+
+
+def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, EvidenceClass]]:
+    """For each energisation point (same order as ``schedule(ladder).points``): (weeks, low, high, class).
+
+    Reliefs run in parallel, so elapsed time is the longest lead time among the steps taken so far, and its
+    band is the longest LOW and longest HIGH among them -- the lead times' own bands, not a multiplier."""
+    out: list[tuple[float, float, float, EvidenceClass]] = []
+    elapsed = lo = hi = 0.0
+    cls: EvidenceClass | None = None
+    seen = ladder.initial.max_racks if ladder.initial else 0
+    if seen > 0:
+        out.append((0.0, 0.0, 0.0, EvidenceClass.E0_ASSUMPTION))
+    for st in ladder.steps:
+        if not st.taken:
+            continue
+        lt = st.lead_time_weeks
+        if lt is not None:
+            elapsed = max(elapsed, lt.value)
+            lo, hi = max(lo, lt.band[0]), max(hi, lt.band[1])
+            cls = lt.evidence if cls is None else min(cls, lt.evidence)
+        if st.racks_after > seen:
+            seen = st.racks_after
+            out.append((elapsed, lo, hi, cls if cls is not None else EvidenceClass.E0_ASSUMPTION))
+    return out
+
+
+def schedule_complete(ladder: HeadroomLadder) -> bool:
+    """True when every relief taken has a lead time. A missing one is not 'zero weeks': ``schedule`` would
+    treat it as such and understate the date, so an incomplete schedule yields no date at all."""
+    return all(s.lead_time_weeks is not None for s in ladder.taken_steps)
+
+
+def full_capacity_band(ladder: HeadroomLadder, ttp: TimeToPower
+                       ) -> tuple[float, float, float, EvidenceClass] | None:
+    """(weeks, low, high, class) to reach the full envelope, from the lead times that set it.
+
+    None when no rack is deployable or the schedule is incomplete: there is then no defensible date."""
+    if not ttp.max_racks or not schedule_complete(ladder):
+        return None
+    for p, (w, lo, hi, cls) in zip(ttp.points, elapsed_bands(ladder)):
+        if p.racks >= ttp.max_racks:
+            return (p.weeks, lo, hi, cls)
+    return None
 
 
 @dataclass

@@ -308,6 +308,11 @@ def cmd_diff(args) -> int:
         "drivers": [dr.__dict__ for dr in d.drivers],
         "explained_racks": d.explained,
         "unexplained_racks": d.residual,
+        "inputs": d.inputs,
+        "model_drift": d.drift,
+        "model_drift_known": d.drift_known,
+        "unprobed_inputs": d.unprobed,
+        "unprobeable_inputs": d.unprobeable,
     }
     (out / "change.json").write_text(json.dumps(payload, indent=2))
     w.paths.append(out / "change.json")
@@ -808,11 +813,11 @@ def cmd_serve(args) -> int:
 
 
 def cmd_portfolio(args) -> int:
+    objective = OBJECTIVES[args.objective]
     entries = []
     for p in args.intakes:
         intake = load(p)
-        entries.append(SiteEntry(intake=intake, results=_run(intake)))
-    objective = OBJECTIVES[args.objective]
+        entries.append(SiteEntry(intake=intake, results=_run(intake), objective=objective))
     report = build_portfolio(entries, client=args.client, objective=objective)
     out = Path(args.out)
     claims = collect_claims([r for e in entries for r in e.results])

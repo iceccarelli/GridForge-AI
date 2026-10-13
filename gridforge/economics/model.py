@@ -8,11 +8,11 @@ is a genuine proprietary asset; these placeholders are not.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..common import ASSUMED, ESTIMATED, MODELLED, V
-from ..costs import cost, library
-from ..envelope.solver import EnvelopeResult, HeadroomLadder
+from ..costs import BAND_BY_EVIDENCE, cost, library
+from ..envelope.solver import EnvelopeResult, HeadroomLadder, rack_evidence
 from ..validation import Quantity
 
 CONVERSION_COST_KEY = "conversion.per_rack"
@@ -43,6 +43,8 @@ class EconomicsResult:
     critical_path_weeks: float
     aace_class: str = AACE_CLASS
     cost_basis_mix: dict = None  # type: ignore[assignment]
+    #: False when a relief taken on the ladder has no price: the total is then a lower bound, not an estimate.
+    capex_complete: bool = True
 
     @property
     def rests_on_placeholders(self) -> int:
@@ -51,14 +53,31 @@ class EconomicsResult:
 
 def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) -> EconomicsResult:
     keys = sorted({k for k in lad.cost_keys if "." in k} | {CONVERSION_COST_KEY})
-    racks = V(float(res.max_racks), "racks", "deployable racks", ESTIMATED)
+    # The class of a derived rack count is the weakest constraint that caps it, not a blanket claim (labels.py).
+    racks = V(float(res.max_racks), "racks", "deployable racks", rack_evidence(res))
     conv = (racks * conversion_capex_per_rack()).relabel(
         "in-hall conversion capex", "economics.conversion_capex", step_evidence=MODELLED)
-    relief_total = lad.cumulative_capex_eur
+    # The relief cost is the sum of the priced rungs, each carrying the band and evidence class of the library
+    # line it came from -- a firm quotation narrows it, a placeholder widens it. It used to be the point value
+    # times a fixed 0.5x-2x, which ignored every quotation in the cost library.
+    priced = [st.capex_eur for st in lad.taken_steps if st.capex_eur is not None]
+    capex_complete = len(priced) == len(lad.taken_steps)
     aace = library().aace_class(keys)
-    relief = V(relief_total, "EUR", "capex of relief measures taken along the headroom ladder",
-               ASSUMED, band=(relief_total * 0.5, relief_total * 2.0),
-               assumptions=[aace])
+    if priced:
+        relief = priced[0]
+        for q in priced[1:]:
+            relief = relief + q
+        # The estimate is only as mature as its weakest priced line (the AACE class says so). Interval addition of
+        # the lines can come out narrower than that class allows when a few lines are firmer than the rest, so
+        # the band is never narrower than the cost library's band for the weakest line's evidence class.
+        lo_f, hi_f = BAND_BY_EVIDENCE[library().weakest(keys)]
+        relief = replace(relief, lo=min(relief.band[0], relief.value * lo_f),
+                         hi=max(relief.band[1], relief.value * hi_f))
+        relief = relief.relabel("capex of relief measures taken along the headroom ladder",
+                                "economics.relief_capex", step_evidence=MODELLED, assumptions=[aace])
+    else:
+        relief = V(0.0, "EUR", "capex of relief measures taken along the headroom ladder", MODELLED,
+                   assumptions=["No relief was needed or priced."])
     total = (conv + relief).relabel("total capex", "economics.total_capex", step_evidence=MODELLED)
     per_kW = (total / res.it_load_kW).relabel(
         "capex per kW of IT load deployed", "economics.capex_per_kW", step_evidence=MODELLED) \
@@ -75,4 +94,4 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
         if gpu_hours > 0 else V(0, "EUR/gpu*h", "energy cost per GPU-hour (no GPUs deployable)", MODELLED)
 
     return EconomicsResult(conv, relief, total, per_kW, energy, cost_, per_gpu_h,
-                           lad.critical_path_weeks, aace, library().basis_mix(keys))
+                           lad.critical_path_weeks, aace, library().basis_mix(keys), capex_complete)

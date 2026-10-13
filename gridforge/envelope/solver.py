@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from ..common import ESTIMATED, V
 from ..constraints import ConstraintResult, EnvelopeContext, all_constraints
-from ..validation import Quantity
+from ..validation import EvidenceClass, Quantity
 
 # Importing the constraint modules registers them.
 from ..power import constraints as _p  # noqa: F401
@@ -39,6 +39,16 @@ class EnvelopeResult:
 
     def sorted_constraints(self) -> list[ConstraintResult]:
         return sorted(self.constraints, key=lambda c: (c.racks, 0 if c.gate else 1))
+
+
+def rack_evidence(res: EnvelopeResult) -> EvidenceClass:
+    """Weakest evidence class among the constraints that cap this result's rack count.
+
+    A rack count is the minimum over constraints, each built from its own inputs, so it can be no better
+    evidenced than the weakest of them (docs/01 §6). Constraints that do not limit the hall (infinite
+    headroom) assert nothing and are skipped."""
+    classes = [c.max_racks.evidence for c in res.constraints if c.max_racks.value != math.inf]
+    return min(classes) if classes else EvidenceClass.E0_ASSUMPTION
 
 
 def solve(ctx: EnvelopeContext) -> EnvelopeResult:
@@ -119,13 +129,16 @@ class HeadroomLadder:
                     if s.lead_time_weeks is not None), default=0.0)
 
 
-def _absolute_capex(relief, racks_after: int) -> "Quantity":
-    """A relief quoted per rack only costs what the racks it enables cost."""
+def _absolute_capex(relief, racks_after: int, evidence: EvidenceClass = ESTIMATED) -> "Quantity":
+    """A relief quoted per rack only costs what the racks it enables cost (EUR/rack x racks = EUR).
+
+    ``evidence`` is the class of that rack count: it comes from the constraints that cap it, not from a
+    blanket claim, so a firm per-rack quotation is not dragged down -- or up -- by a number we asserted."""
     if not relief.per_rack:
         return relief.capex_eur
     n = max(racks_after, 1)
-    return (relief.capex_eur * V(float(n), "1", f"racks fitted out ({n})", ESTIMATED)).relabel(
-        relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=ESTIMATED)
+    return (relief.capex_eur * V(float(n), "racks", f"racks fitted out ({n})", evidence)).relabel(
+        relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=evidence)
 
 
 def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
@@ -143,7 +156,7 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
             out.steps.append(LadderStep(
                 i, binding.id, binding.name, binding.domain, res.max_racks, res.max_racks,
                 binding.basis, binding.relief.description,
-                _absolute_capex(binding.relief, res.max_racks),
+                _absolute_capex(binding.relief, res.max_racks, rack_evidence(res)),
                 binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
                 binding.relief.cost_key, taken=False))
             break
@@ -151,7 +164,7 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
         out.steps.append(LadderStep(
             i, binding.id, binding.name, binding.domain, res.max_racks, nxt.max_racks,
             binding.basis, binding.relief.description,
-            _absolute_capex(binding.relief, nxt.max_racks),
+            _absolute_capex(binding.relief, nxt.max_racks, rack_evidence(nxt)),
             binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
             binding.relief.cost_key))
         if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
