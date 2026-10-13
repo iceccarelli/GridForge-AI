@@ -27,7 +27,7 @@ def _effective_units(units: int, redundancy: str) -> int:
         return units // 2
     if r == "N+2":
         return max(units - 2, 0)
-    return units
+    raise ValueError(f"unknown redundancy {redundancy!r}; expected N, N+1, N+2 or 2N")
 
 
 def _it_headroom_to_racks(headroom_kW: Quantity, ctx: EnvelopeContext, label: str) -> Quantity:

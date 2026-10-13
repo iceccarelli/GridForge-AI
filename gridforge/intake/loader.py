@@ -71,6 +71,18 @@ def _frac(raw: Any, what: str) -> float:
     return v
 
 
+_REDUNDANCY = {"N", "N+0", "N+1", "N+2", "2N", "N+N"}
+
+
+def _redundancy(raw: Any, what: str) -> str:
+    """An unrecognised scheme used to fall back to N (every unit usable): '2N+1' gave 22 racks
+    where N+1 gives 13. Refuse it by name instead."""
+    r = str(raw).upper().replace(" ", "")
+    if r not in _REDUNDANCY:
+        raise IntakeError(f"{what} redundancy {raw!r} is not one of N, N+1, N+2 or 2N")
+    return str(raw)
+
+
 def _pos(raw: Any, what: str) -> float:
     v = _num(raw, what)
     if v < 0:
@@ -300,7 +312,7 @@ def load_document(doc: dict) -> Intake:
             unit_rating_MVA=V(_pos(t["unit_rating_MVA"], 'unit_rating_MVA'), "MVA", f"{t.get('id','TX')} unit rating",
                               CUSTOMER),
             units=_int(t.get("units", 2)),
-            redundancy=str(t.get("redundancy", "N+1")),
+            redundancy=_redundancy(t.get("redundancy", "N+1"), "transformer"),
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating", ESTIMATED, band=(0.85, 0.95)),
             replacement_lead_time_weeks=V(_pos(t.get("replacement_lead_time_weeks", 160), 'replacement_lead_time_weeks'),
@@ -314,7 +326,7 @@ def load_document(doc: dict) -> Intake:
             unit_rating_kW=V(_pos(u["unit_rating_kW"], 'unit_rating_kW'), "kW", f"{u.get('id','UPS')} module rating",
                              CUSTOMER),
             units=_int(u.get("units", 2)),
-            redundancy=str(u.get("redundancy", "N+1")),
+            redundancy=_redundancy(u.get("redundancy", "N+1"), "UPS"),
             step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
                                    "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
         ))
@@ -400,7 +412,7 @@ def load_document(doc: dict) -> Intake:
             rated_flow_l_per_min=V(_pos(c.get("rated_flow_l_per_min", 2000), 'rated_flow_l_per_min'), "l/min",
                                    f"{c.get('id','CDU')} rated flow", ASSUMED),
             units=_int(c.get("units", 1)),
-            redundancy=str(c.get("redundancy", "N+1")),
+            redundancy=_redundancy(c.get("redundancy", "N+1"), "CDU"),
         ))
 
     thermal = ThermalInput(

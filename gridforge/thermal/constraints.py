@@ -18,13 +18,19 @@ from ..validation import Quantity
 
 def _effective_units(units: int, redundancy: str) -> int:
     r = redundancy.upper().replace(" ", "")
-    return {"N": units, "N+1": max(units - 1, 0), "N+2": max(units - 2, 0),
-            "2N": units // 2, "N+N": units // 2}.get(r, units)
+    table = {"N": units, "N+0": units, "N+1": max(units - 1, 0), "N+2": max(units - 2, 0),
+             "2N": units // 2, "N+N": units // 2}
+    if r not in table:
+        raise ValueError(f"unknown redundancy {redundancy!r}; expected one of {sorted(table)}")
+    return table[r]
 
 
 def _liquid_load_to_plant(ctx: EnvelopeContext) -> bool:
-    """Does the liquid load land on the existing chilled-water plant?"""
-    return ctx.architecture in (Architecture.HYBRID_DLC, Architecture.RDHX)
+    """Does the whole rack load land on the existing chilled-water plant? Under retained air
+    all of it does (it is air-cooled and the plant removes it); under full direct-to-chip
+    only the residual air share does, the liquid going to a dedicated loop."""
+    return ctx.architecture in (Architecture.HYBRID_DLC, Architecture.RDHX,
+                                Architecture.RETAINED_AIR)
 
 
 @constraint
@@ -117,7 +123,7 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             V(1.5, "1", "plant uprate factor", ASSUMED))
         return c
 
-    route = ("full rack load (liquid rejected into the existing plant)" if _liquid_load_to_plant(ctx)
+    route = ("full rack load (rack heat rejected into the existing plant)" if _liquid_load_to_plant(ctx)
              else "residual air load only (liquid rejected to a dedicated high-temperature loop)")
     return ConstraintResult(
         "plant_capacity", "thermal", "Chilled-water plant capacity",

@@ -141,15 +141,23 @@ def _absolute_capex(relief, racks_after: int, evidence: EvidenceClass = ESTIMATE
         relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=evidence)
 
 
-def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
+class LadderDidNotConverge(RuntimeError):
+    """The ladder was still finding reliefs when the step budget ran out. Reporting
+    the rung it happened to stop on would publish a capacity that is not the ceiling."""
+
+
+def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
     out = HeadroomLadder()
     cur = ctx
     res = solve(cur)
     out.initial = res
     out.final_context = cur
+    converged = False
+    reliefs: dict[int, object] = {}
     for i in range(1, max_steps + 1):
         binding = res.binding
         if binding.relief is None:
+            converged = True
             break
         nxt_ctx = binding.relief.apply(cur)
         if nxt_ctx is cur:          # relief that cannot actually be bought
@@ -159,8 +167,10 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
                 _absolute_capex(binding.relief, res.max_racks, rack_evidence(res)),
                 binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
                 binding.relief.cost_key, taken=False))
+            converged = True
             break
         nxt = solve(nxt_ctx)
+        reliefs[i] = binding.relief
         out.steps.append(LadderStep(
             i, binding.id, binding.name, binding.domain, res.max_racks, nxt.max_racks,
             binding.basis, binding.relief.description,
@@ -168,8 +178,24 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
             binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
             binding.relief.cost_key))
         if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
+            converged = True
             break
         cur, res = nxt_ctx, nxt
+    if not converged:
+        raise LadderDidNotConverge(
+            f"the headroom ladder was still finding reliefs after {max_steps} steps")
     out.final = res
     out.final_context = cur
+    # A per-rack relief costs the racks finally fitted out, not the count that happened to
+    # exist when its rung was reached (early rungs often sit at 0 racks and were priced for 1).
+    n_final = res.max_racks
+    ev_final = rack_evidence(res)
+    for st in out.taken_steps:
+        relief = reliefs.get(st.step)
+        if relief is not None and relief.per_rack and st.capex_eur is not None:
+            st.capex_eur = _absolute_capex(relief, n_final, ev_final)
+    # A path that never reaches a single deployable rack buys nothing: its reliefs are not a plan.
+    if n_final <= 0:
+        for st in out.steps:
+            st.taken = False
     return out

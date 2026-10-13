@@ -376,8 +376,9 @@ def test_a_binding_constraint_change_is_called_out(base):
 
 
 def test_interacting_changes_report_the_residual_and_do_not_claim_independence(base):
-    d = diff(base, moved(base, **{"grid.contracted_MW": 10.5, "lv.busway_ampacity_A": 300,
-                                   "lv.tapoff_max_A": 250, "hall.floor_loading_kPa": 9}))
+    # Two limits on the same grid headroom: each alone is partly masked by the other, so
+    # the single-input probes cannot sum to the joint effect (62 -> 50, probes explain 42).
+    d = diff(base, moved(base, **{"grid.firm_capacity_MVA": 11, "grid.contracted_MW": 10}))
     assert d.residual != 0
     _, md = note(d)
     assert "unexplained" in md and "interacting" in md

@@ -132,8 +132,15 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         "Indicative capex to reach it",
         rec.economics.capex_total_eur,
         rec.economics.aace_class))
-    s.blocks.append(Callout("answer",
-        f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
+    if rec.unlocked_racks <= 0:
+        s.blocks.append(Callout("answer",
+            f"None of the {len(results)} architectures compared can host a rack on these inputs, "
+            f"even after every relief the model knows. {rec.ladder.final.binding.name if rec.ladder.final else rec.envelope.binding.name} "
+            f"is the limit that remains. No capital is recommended against the present inputs; "
+            f"{rec.spec.name} is shown only as the least-constrained comparison."))
+    else:
+        s.blocks.append(Callout("answer",
+            f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
     s.blocks.append(Para(
         f"Selection objective: {OBJECTIVE_RATIONALE[objective]} Section 9 shows every architecture "
         "against all three objectives so the ranking can be overruled with the evidence in view."))
@@ -416,9 +423,15 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
 
     # 11 -------------------------------------------------------- recommendation
     s = Section("12. Recommendation and decision gates")
-    s.blocks.append(Para(
-        f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
-        f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
+    if rec.unlocked_racks <= 0:
+        s.blocks.append(Para(
+            f"Do not proceed to procurement on these inputs. No architecture modelled hosts a "
+            f"{plat.name} rack: the site cannot support the requested deployment as described. "
+            f"Revisit the inputs that set the limit (listed in sections 1 and 4), or the target platform."))
+    else:
+        s.blocks.append(Para(
+            f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
+            f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
     s.blocks.append(Bullets([long for _short, long in DECISION_GATES]))
     r.sections.append(s)
 
