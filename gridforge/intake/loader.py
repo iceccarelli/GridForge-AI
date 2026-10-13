@@ -254,6 +254,8 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
             "scenario whose capacity is set by what can be built rather than by the queue.",
             overrides=_high_temp_loop),
     }
+    if names is not None and not names:
+        raise IntakeError("scenarios is an empty list: name at least one, or omit the field for the standard set")
     keys = names or list(catalogue)
     missing = [k for k in keys if k not in catalogue]
     if missing:
@@ -268,6 +270,21 @@ def load(path: str | Path) -> Intake:
 
 
 def load_document(doc: dict) -> Intake:
+    """Turn an intake document into a context. Malformed input is an IntakeError naming the problem,
+    never a KeyError or a traceback."""
+    if not isinstance(doc, dict):
+        raise IntakeError("an intake must be a JSON object")
+    try:
+        return _load_document(doc)
+    except IntakeError:
+        raise
+    except KeyError as exc:
+        raise IntakeError(f"the intake is missing a required field: {exc.args[0]}") from None
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise IntakeError(f"the intake is malformed: {exc}") from None
+
+
+def _load_document(doc: dict) -> Intake:
     report = IntakeReport()
     r = _Reader(doc, report)
 
@@ -344,7 +361,7 @@ def load_document(doc: dict) -> Intake:
     for o in r.raw("btm_options", []) or []:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
-            kind=str(o.get("kind", "bess")),
+            kind=str(o.get("kind", "bess")).strip().lower(),
             capacity_MW=V(_pos(o["capacity_MW"], 'capacity_MW'), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
             capex_eur_per_kW=V(_pos(o.get("capex_eur_per_kW", 900), 'capex_eur_per_kW'), "EUR/kW",
                                f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3),
@@ -466,8 +483,11 @@ def load_document(doc: dict) -> Intake:
                         V(0.75, "1", "assumed annual average utilisation", ASSUMED, band=(0.6, 0.9))),
     )
 
-    arch = _ARCH_BY_NAME.get(str(r.raw("compute.default_architecture", "hybrid_dlc")),
-                             Architecture.HYBRID_DLC)
+    arch_name = str(r.raw("compute.default_architecture", "hybrid_dlc"))
+    if arch_name not in _ARCH_BY_NAME:
+        raise IntakeError(f"unknown default_architecture {arch_name!r}. "
+                          f"Available: {', '.join(sorted(_ARCH_BY_NAME))}")
+    arch = _ARCH_BY_NAME[arch_name]
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch])
 

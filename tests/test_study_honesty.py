@@ -200,7 +200,10 @@ def test_the_deck_does_not_claim_labels_it_does_not_print_and_does_not_hide_the_
     assert f"{len(rec.envelope.constraints)} constraints across" in text
     taken = len(rec.ladder.taken_steps)
     assert taken > 8 and f"first 8 of the {taken} rungs taken" in re.sub(r"\s+", " ", text)
-    assert "What nobody has measured yet" not in text          # the intake has no gaps: the slide must not say nothing was supplied
+    # The intake leaves two optional inputs to library defaults (the CDU schedule and the TCS target
+    # temperature); the slide must name exactly those, not claim nothing was supplied.
+    assert "What nobody has measured yet" in text
+    assert "Installed CDU schedule" in text and "TCS target supply temperature" in text
     assert "tied constraint" in text
 
 

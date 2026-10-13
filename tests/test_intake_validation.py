@@ -53,3 +53,31 @@ def test_a_client_cannot_self_declare_field_validation():
     from gridforge.validation import EvidenceClass
     assert intake.context.power.grid.firm_capacity_MVA.evidence <= EvidenceClass.E5_CUSTOMER_DATA
     assert any("capped at E5" in w for w in intake.report.warnings)
+
+
+def test_structural_garbage_is_an_intake_error_not_a_traceback():
+    d = copy.deepcopy(BASE)
+    del d["transformers"][0]["unit_rating_MVA"]
+    with pytest.raises(IntakeError, match="unit_rating_MVA"):
+        load_document(d)
+    d = copy.deepcopy(BASE)
+    d["hall"]["floor_type"] = "marble"
+    with pytest.raises(IntakeError, match="malformed|floor"):
+        load_document(d)
+    d = copy.deepcopy(BASE)
+    d["compute"] = {"platform": "gb300_nvl72", "default_architecture": "teleporter"}
+    with pytest.raises(IntakeError, match="default_architecture"):
+        load_document(d)
+    d = copy.deepcopy(BASE)
+    d["scenarios"] = []
+    with pytest.raises(IntakeError, match="empty list"):
+        load_document(d)
+    with pytest.raises(IntakeError):
+        load_document([])
+
+
+def test_btm_kind_is_case_insensitive():
+    d = copy.deepcopy(BASE)
+    d["btm_options"][0]["kind"] = "GAS_ENGINE"
+    i = load_document(d)
+    assert i.context.power.options[0].kind == "gas_engine"
