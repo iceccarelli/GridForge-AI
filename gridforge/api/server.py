@@ -232,6 +232,10 @@ def handle_study(body: dict, tier: Tier) -> dict:
         from ..scenario import sensitivity
         rec = _pick_recommended(results, objective)
         sens = sensitivity(rec, SENSITIVITY_KNOBS)
+        if str(body.get("view") or "").lower() == "board":
+            # the one-page summary a sponsor forwards (docs/01 §4D): same model, labels and gates as the study
+            from ..reporting.board import build as build_board_report
+            return _rendered(build_board_report(intake, results, sens, objective=objective), results, fmt)
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
                                     watermark=watermark_for(intake))

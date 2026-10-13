@@ -39,6 +39,25 @@ def collect_claims(results) -> dict[str, list]:
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "
              "All values are modelled or assumed; none is a measurement of a real site.")
 
+# The four gates after the study. One list, so the long report and the board summary cannot drift apart.
+DECISION_GATES = (
+    ("Gate 1 — get the DSO's position on firm capacity and any flexibility product in writing before "
+     "committing capital.",
+     "Gate 1 — obtain the DSO position in writing on firm capacity and any flexibility product "
+     "before committing capital. In most target metros this is the shortest path to a definitive "
+     "answer and it costs nothing but time."),
+    ("Gate 2 — commission a structural assessment of the floor and a hydraulic model of the secondary loop.",
+     "Gate 2 — commission a structural assessment of the hall floor and a hydraulic model of the "
+     "secondary loop. Both are cheap relative to the decision and both can invalidate it."),
+    ("Gate 3 — place long-lead orders only after Gates 1 and 2 clear.",
+     "Gate 3 — place long-lead orders (transformer, busway, CDU) only after Gates 1 and 2 clear; "
+     "lead time, not construction, governs the programme."),
+    ("Gate 4 — instrument the hall and reconcile this model against twelve months of measured data.",
+     "Gate 4 — instrument the hall and reconcile this model against twelve months of measured "
+     "data before the second phase. That reconciliation is what moves these numbers from "
+     "estimated to field-validated."),
+)
+
 # A real client's study. Same wording as the Density Screen's: what it is and what it is not.
 CLIENT_WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
                     "and not a measurement of this asset.")
@@ -406,18 +425,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Para(
         f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
         f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
-    s.blocks.append(Bullets([
-        "Gate 1 — obtain the DSO position in writing on firm capacity and any flexibility product "
-        "before committing capital. In most target metros this is the shortest path to a definitive "
-        "answer and it costs nothing but time.",
-        "Gate 2 — commission a structural assessment of the hall floor and a hydraulic model of the "
-        "secondary loop. Both are cheap relative to the decision and both can invalidate it.",
-        "Gate 3 — place long-lead orders (transformer, busway, CDU) only after Gates 1 and 2 clear; "
-        "lead time, not construction, governs the programme.",
-        "Gate 4 — instrument the hall and reconcile this model against twelve months of measured "
-        "data before the second phase. That reconciliation is what moves these numbers from "
-        "estimated to field-validated.",
-    ]))
+    s.blocks.append(Bullets([long for _short, long in DECISION_GATES]))
     r.sections.append(s)
 
     # 12 --------------------------------------------------------------- scope
