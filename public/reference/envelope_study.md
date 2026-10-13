@@ -219,6 +219,14 @@ Power and thermal are not independent budgets. Every kilowatt the cooling archit
 
 *Cost basis: Class 5 (order of magnitude): -50% / +100%. Excludes IT hardware, migration and lost tenancy revenue. A dash means no rack can be deployed in that architecture and no relief exists, so the figure is undefined rather than zero.*
 
+| Objective | What it optimises | Architecture it selects | Racks |
+| --- | --- | --- | --- |
+| max compute | Maximum deployable compute. | Full DLC plus behind-the-meter supply | 62 racks (E0) |
+| min cost | Lowest capital cost per rack enabled. | Full DLC, grid only | 28 racks (E0) |
+| fastest | Earliest full energisation. | Full DLC plus behind-the-meter supply | 62 racks (E0) |
+
+*The same scenarios ranked under each objective. The recommendation above uses the stated objective; where another objective selects a different architecture, that is a judgement for the client, not for the model.*
+
 | How the recommended capex is built | Amount |
 | --- | --- |
 | Relief works along the headroom ladder (section 2) | 15,900,000 [7,950,000–31,800,000] EUR (E0) |
@@ -563,6 +571,9 @@ Every number in this report carries an evidence class. The class of a computed n
 | annual energy cost | E0 | economics.energy_cost@0.1 | `ec9363fe2c9c` |
 | energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `45f8b23cee89` |
 | full_dlc_btm: critical path | E0 | input@0.1 | `1bfd8e2425a5` |
+| full_dlc_btm: racks under max_compute | E0 | input@0.1 | `03622d66b673` |
+| full_dlc: racks under min_cost | E0 | input@0.1 | `4a678bdcfdb2` |
+| full_dlc_btm: racks under fastest | E0 | input@0.1 | `11903e200727` |
 | capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `ba6364f31cf6` |
 | in-hall conversion capex | E0 | economics.conversion_capex@0.1 | `31aac42971b6` |
 | total capex | E0 | economics.total_capex@0.1 | `deb75b48d05b` |

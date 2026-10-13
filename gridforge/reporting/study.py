@@ -338,6 +338,16 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                                   + (" A dash means no rack can be deployed in that architecture and no "
                                      "relief exists, so the figure is undefined rather than zero."
                                      if none_deployable else "")))
+    pick_rows = []
+    for obj in Objective:
+        chosen = pick_recommended(results, obj)
+        pick_rows.append([obj.value.replace("_", " "), OBJECTIVE_RATIONALE[obj].split(". ")[0] + ".",
+                          chosen.spec.name if chosen.unlocked_racks > 0 else "none deployable",
+                          racks_q(chosen.unlocked_racks, f"{chosen.spec.id}: racks under {obj.value}", chosen)])
+    s.blocks.append(Table(["Objective", "What it optimises", "Architecture it selects", "Racks"], pick_rows,
+                          caption="The same scenarios ranked under each objective. The recommendation above "
+                                  "uses the stated objective; where another objective selects a different "
+                                  "architecture, that is a judgement for the client, not for the model."))
     e = rec.economics
     s.blocks.append(Table(
         ["How the recommended capex is built", "Amount"],

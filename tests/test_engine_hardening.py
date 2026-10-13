@@ -102,3 +102,27 @@ def test_single_phase_busway_is_not_credited_with_the_three_phase_factor():
 def test_a_declared_btm_opex_that_is_not_modelled_is_disclosed():
     i = load_document(doc("dublin_hall"))
     assert any("opex was declared but is not applied" in w for w in i.report.warnings)
+
+
+def test_the_study_shows_the_ranking_under_every_objective_it_promises():
+    intake = load_document(doc("dublin_hall"))
+    results = run_all(intake.context, intake.scenarios)
+    md = to_markdown(build_study(intake.context, results, client="t"))
+    assert "Architecture it selects" in md
+    for name in ("max compute", "min cost", "fastest"):
+        assert name in md
+
+
+def test_the_slowest_transformer_bank_sets_the_relief_lead_time():
+    from gridforge.power.constraints import transformer_capacity
+    d = doc("dublin_hall")
+    bank = copy.deepcopy(d["transformers"][0])
+    bank["id"] = "TX-SLOW"
+    bank["replacement_lead_time_weeks"] = 200
+    d["transformers"][0]["replacement_lead_time_weeks"] = 100
+    d["transformers"].append(bank)
+    d["transformers"].append({**copy.deepcopy(bank), "id": "TX-FAST", "replacement_lead_time_weeks": 40})
+    ctx = load_document(d).context
+    # shrink the grid-side limits so the transformer is the binding constraint and carries a relief
+    res = transformer_capacity(ctx)
+    assert res.relief is not None and res.relief.lead_time_weeks.value == 200

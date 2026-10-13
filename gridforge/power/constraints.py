@@ -119,8 +119,9 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         cap = (t.unit_rating_MVA * ctx.power.grid.power_factor * t.derating_factor).convert(
             1000.0 * n, "kW", f"{t.id} usable capacity ({t.redundancy}, {n} of {t.units} units)")
         total = cap if total is None else total + cap
-        if t.replacement_lead_time_weeks is not None:
-            lead = t.replacement_lead_time_weeks
+        if t.replacement_lead_time_weeks is not None and (
+                lead is None or t.replacement_lead_time_weeks.value > lead.value):
+            lead = t.replacement_lead_time_weeks      # the slowest bank sets the date
     headroom = (total - ctx.power.grid.current_site_peak_MW.convert(1000.0, "kW", "current site peak")).relabel(
         "transformer headroom", "power.transformer_headroom", step_evidence=ESTIMATED)
     racks = _it_headroom_to_racks(headroom, ctx, "transformer headroom")
