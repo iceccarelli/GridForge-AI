@@ -124,12 +124,18 @@ export default async function ReferencePage() {
         </section>
       ) : null}
 
-      <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card
           href="/reference/envelope_study.html"
           icon={<FileText className="h-4 w-4" />}
           title="The study"
-          body="Thirteen sections: the answer, the headroom ladder, time to power, every architecture compared, sensitivity, economics, risks, and the provenance of every figure."
+          body="Fourteen sections and an appendix: the answer, the headroom ladder, time to power, every architecture compared, sensitivity, economics, risks, the model's own accuracy record, and the assumptions and provenance behind the headline figures."
+        />
+        <Card
+          href="/reference/board_summary.html"
+          icon={<FileText className="h-4 w-4" />}
+          title="The board summary"
+          body="One page a sponsor can forward without editing: the answer, what decides it, how firm it is and which single input it depends on most, and what to decide next."
         />
         <Card
           href="/reference/walkthrough.html"

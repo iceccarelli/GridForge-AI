@@ -34,6 +34,7 @@ from .reporting.deck import build as build_deck
 from .reporting.deck import to_html as deck_to_html
 from .reporting.proposal import build as build_proposal
 from .reporting.study import Objective, _pick_recommended, collect_claims
+from .reporting.board import build as build_board
 from .reporting.study import build as build_study, watermark_for
 from .scenario import run_all, sensitivity
 from .scenario.knobs import SENSITIVITY_KNOBS
@@ -260,6 +261,8 @@ def cmd_study(args) -> int:
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)
     w.paths.append(out / "model_pack.json")
+    board = build_board(intake, results, sens, objective=objective)
+    w.paths.extend(_emit(board, out, "board_summary", claims=collect_claims(results)).paths)
     if args.csv:
         w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
