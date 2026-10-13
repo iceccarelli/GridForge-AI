@@ -7,6 +7,7 @@ with the question that would close it.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,52 @@ _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
 
 class IntakeError(ValueError):
     """The intake document cannot be turned into a context at all."""
+
+
+def _num(raw: Any, what: str = "value") -> float:
+    """float() that refuses what float() lets through: NaN, infinity, null, booleans.
+    A non-finite number does not fail later with a traceback; it silently drops a
+    constraint or ranks a hall first."""
+    if isinstance(raw, bool) or raw is None:
+        raise IntakeError(f"{what} is {raw!r}, which is not a number")
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        raise IntakeError(f"{what} is {raw!r}, which is not a number") from None
+    if not math.isfinite(v):
+        raise IntakeError(f"{what} is {raw!r}; it must be a finite number")
+    return v
+
+
+def _int(raw: Any, what: str = "value") -> int:
+    v = _num(raw, what)
+    if v != int(v) or v < 0:
+        raise IntakeError(f"{what} is {raw!r}; it must be a whole number, zero or more")
+    return int(v)
+
+
+#: Physical range per field. Anything outside is an unconditional refusal: a power
+#: factor of 1.5 or a derating factor of 5 does not make a hall exceptional, it
+#: makes the document wrong, and a wrong document must not rank.
+_FRACTION_PATHS = {            # (0, 1]
+    "grid.power_factor", "lv.busway_utilisation_limit", "compute.utilisation",
+}
+_TEMPERATURE_UNITS = {"degC"}
+
+
+def _frac(raw: Any, what: str) -> float:
+    v = _num(raw, what)
+    if not 0 < v <= 1:
+        raise IntakeError(f"{what} is {v:g}; it must be above 0 and at most 1")
+    return v
+
+
+def _pos(raw: Any, what: str) -> float:
+    v = _num(raw, what)
+    if v < 0:
+        raise IntakeError(f"{what} is {v:g}; it cannot be negative")
+    return v
+
 
 
 def _dig(doc: dict, path: str) -> Any:
@@ -66,7 +113,12 @@ class _Reader:
             ev = spec.supplied_evidence if spec else CUSTOMER
         if spec:
             self.report.supplied.append(path)
-        return V(float(raw), unit, label, ev, band=band,
+        num = _num(raw, f"{label} ({path})")
+        if unit not in _TEMPERATURE_UNITS and num < 0:
+            raise IntakeError(f"{label} ({path}) is {num:g} {unit}; it cannot be negative")
+        if path in _FRACTION_PATHS and not 0 < num <= 1:
+            raise IntakeError(f"{label} ({path}) is {num:g}; it must be above 0 and at most 1")
+        return V(num, unit, label, ev, band=band,
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
 
@@ -208,7 +260,7 @@ def load_document(doc: dict) -> Intake:
 
     hall = HallSpec(
         id=str(r.raw("hall.id", "HALL-1")),
-        build_year=int(r.raw("hall.build_year", 2015)),
+        build_year=_int(r.raw("hall.build_year", 2015)),
         floor_type=FloorType(r.raw("hall.floor_type", "raised_floor")),
         net_white_space_m2=r.q("hall.net_white_space_m2", "m2", "hall net white space",
                                V(2000, "m2", "assumed hall net white space", ASSUMED, band=0.3)),
@@ -219,8 +271,8 @@ def load_document(doc: dict) -> Intake:
                            V(3.0, "m", "assumed clear height", ASSUMED, band=0.15)),
         aisle_pitch_m=r.q("hall.aisle_pitch_m", "m", "installed aisle pitch",
                           V(2.4, "m", "assumed aisle pitch", ASSUMED, band=0.15)),
-        rack_positions=int(r.raw("hall.rack_positions", 400)),
-        positions_available=int(r.raw("hall.positions_available", 100)),
+        rack_positions=_int(r.raw("hall.rack_positions", 400)),
+        positions_available=_int(r.raw("hall.positions_available", 100)),
         design_density_kW_per_rack=r.q(
             "hall.design_density_kW_per_rack", "kW", "hall design density per rack",
             V(8, "kW", "assumed design density (European colo 2010-2020: 8-20 kW/rack)",
@@ -245,13 +297,13 @@ def load_document(doc: dict) -> Intake:
     for t in r.raw("transformers", []) or []:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
-            unit_rating_MVA=V(float(t["unit_rating_MVA"]), "MVA", f"{t.get('id','TX')} unit rating",
+            unit_rating_MVA=V(_pos(t["unit_rating_MVA"], 'unit_rating_MVA'), "MVA", f"{t.get('id','TX')} unit rating",
                               CUSTOMER),
-            units=int(t.get("units", 2)),
+            units=_int(t.get("units", 2)),
             redundancy=str(t.get("redundancy", "N+1")),
-            derating_factor=V(float(t.get("derating_factor", 0.9)), "1",
+            derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating", ESTIMATED, band=(0.85, 0.95)),
-            replacement_lead_time_weeks=V(float(t.get("replacement_lead_time_weeks", 160)),
+            replacement_lead_time_weeks=V(_pos(t.get("replacement_lead_time_weeks", 160), 'replacement_lead_time_weeks'),
                                           "weeks", "power transformer lead time", ASSUMED,
                                           band=(80, 210)),
         ))
@@ -259,11 +311,11 @@ def load_document(doc: dict) -> Intake:
     for u in r.raw("ups", []) or []:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
-            unit_rating_kW=V(float(u["unit_rating_kW"]), "kW", f"{u.get('id','UPS')} module rating",
+            unit_rating_kW=V(_pos(u["unit_rating_kW"], 'unit_rating_kW'), "kW", f"{u.get('id','UPS')} module rating",
                              CUSTOMER),
-            units=int(u.get("units", 2)),
+            units=_int(u.get("units", 2)),
             redundancy=str(u.get("redundancy", "N+1")),
-            step_load_capability=V(float(u.get("step_load_capability", 0.5)), "1",
+            step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
                                    "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
         ))
 
@@ -272,20 +324,20 @@ def load_document(doc: dict) -> Intake:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
             kind=str(o.get("kind", "bess")),
-            capacity_MW=V(float(o["capacity_MW"]), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
-            capex_eur_per_kW=V(float(o.get("capex_eur_per_kW", 900)), "EUR/kW",
+            capacity_MW=V(_pos(o["capacity_MW"], 'capacity_MW'), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
+            capex_eur_per_kW=V(_pos(o.get("capex_eur_per_kW", 900), 'capex_eur_per_kW'), "EUR/kW",
                                f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3),
-            lead_time_weeks=V(float(o.get("lead_time_weeks", 36)), "weeks",
+            lead_time_weeks=V(_pos(o.get("lead_time_weeks", 36), 'lead_time_weeks'), "weeks",
                               f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35),
             firm=bool(o.get("firm", True)),
-            firm_capacity_factor=(V(float(o["firm_capacity_factor"]), "1",
+            firm_capacity_factor=(V(_frac(o["firm_capacity_factor"], "BTM firm_capacity_factor"), "1",
                                     f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
                                   if o.get("firm_capacity_factor") is not None else None),
-            opex_eur_per_MWh=(V(float(o["opex_eur_per_MWh"]), "EUR/MWh",
+            opex_eur_per_MWh=(V(_pos(o["opex_eur_per_MWh"], 'opex_eur_per_MWh'), "EUR/MWh",
                                 f"{o.get('id','BTM')} opex", ASSUMED, band=0.4)
                               if o.get("opex_eur_per_MWh") is not None else None),
             permitting_note=str(o.get("permitting_note", "")),
-            energy_MWh=(V(float(o["energy_MWh"]), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
+            energy_MWh=(V(_pos(o["energy_MWh"], 'energy_MWh'), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
                           band=0.15)
                        if o.get("energy_MWh") is not None else None),
         )
@@ -297,7 +349,7 @@ def load_document(doc: dict) -> Intake:
         if (opt.kind == "bess" and opt.energy_MWh is not None
                 and opt.firm_capacity_factor is None and o.get("ride_through_hours") is not None):
             from ..power.btm import bess_firm_factor_for_duration
-            hours = V(float(o["ride_through_hours"]), "h",
+            hours = V(_pos(o["ride_through_hours"], 'ride_through_hours'), "h",
                      f"{opt.id} required ride-through", ASSUMED)
             opt.firm_capacity_factor = bess_firm_factor_for_duration(opt, hours)
         options.append(opt)
@@ -323,11 +375,11 @@ def load_document(doc: dict) -> Intake:
         lv=LVDistribution(
             voltage_V=r.q("lv.voltage_V", "V", "LV distribution voltage",
                           V(400, "V", "assumed LV distribution voltage", ASSUMED)),
-            phases=int(r.raw("lv.phases", 3)),
+            phases=_int(r.raw("lv.phases", 3)),
             busway_ampacity_A=r.q("lv.busway_ampacity_A", "A", "installed busway ampacity",
                                   V(400, "A", "assumed legacy busway ampacity", ASSUMED,
                                     band=(250, 630))),
-            busway_runs=int(r.raw("lv.busway_runs", 6)),
+            busway_runs=_int(r.raw("lv.busway_runs", 6)),
             busway_utilisation_limit=r.q("lv.busway_utilisation_limit", "1",
                                          "continuous-load derating on busway",
                                          V(0.8, "1", "assumed continuous-load derating", ESTIMATED)),
@@ -341,13 +393,13 @@ def load_document(doc: dict) -> Intake:
     for c in r.raw("thermal.cdus", []) or []:
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
-            rated_capacity_kW=V(float(c["rated_capacity_kW"]), "kW",
+            rated_capacity_kW=V(_pos(c["rated_capacity_kW"], 'rated_capacity_kW'), "kW",
                                 f"{c.get('id','CDU')} rated capacity", CUSTOMER, band=0.1),
-            rated_approach_K=V(float(c.get("rated_approach_K", 5)), "K",
+            rated_approach_K=V(_pos(c.get("rated_approach_K", 5), 'rated_approach_K'), "K",
                                f"{c.get('id','CDU')} rated approach", ASSUMED),
-            rated_flow_l_per_min=V(float(c.get("rated_flow_l_per_min", 2000)), "l/min",
+            rated_flow_l_per_min=V(_pos(c.get("rated_flow_l_per_min", 2000), 'rated_flow_l_per_min'), "l/min",
                                    f"{c.get('id','CDU')} rated flow", ASSUMED),
-            units=int(c.get("units", 1)),
+            units=_int(c.get("units", 1)),
             redundancy=str(c.get("redundancy", "N+1")),
         ))
 

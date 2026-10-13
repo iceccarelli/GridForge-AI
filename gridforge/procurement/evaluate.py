@@ -12,8 +12,11 @@ challenge, and that challenge lands on the client.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from datetime import date
 
+from ..clock import report_date
 from .schema import (MANDATORY, EvaluationCriterion, ProcurementError, Requirement,
                      SpecPackage, SupplierResponse)
 
@@ -42,9 +45,13 @@ class BidAssessment:
     disqualified: bool = False
     notes: list[str] = field(default_factory=list)
 
+    deviations: list[str] = field(default_factory=list)
+
     @property
     def compliant(self) -> bool:
-        return not self.mandatory_failed
+        """Every mandatory requirement answered, and none answered 'N'. A bid that is
+        silent on a mandatory requirement has not said it complies."""
+        return not self.mandatory_failed and not self.unanswered
 
     def headline(self) -> str:
         if self.disqualified:
@@ -53,7 +60,8 @@ class BidAssessment:
         price = f"EUR {self.capex_eur:,.0f}" if self.capex_eur is not None else "no price"
         weeks = (f"{self.weeks_to_energised:.0f} weeks to energised"
                  if self.weeks_to_energised is not None else "no programme")
-        flag = "" if self.compliant else f" — {len(self.mandatory_failed)} mandatory not met"
+        flag = ("" if self.compliant else
+                f" — {len(self.mandatory_failed) + len(self.unanswered)} mandatory not met")
         return f"{self.supplier}: {price}, {weeks}, score {self.total_score:.0f}/100{flag}"
 
 
@@ -70,14 +78,84 @@ def _score_lower_is_better(values: list[float], v: float) -> float:
     return (hi - v) / (hi - lo)
 
 
+VALID_CODES = {COMPLIANT, COMPLIES_WITH_DEVIATION, NON_COMPLIANT}
+
+#: A price this far from the modelled budget is answering a different question —
+#: most often a supplier quoting in thousands, or for a different scope.
+BUDGET_PLAUSIBILITY_FACTOR = 10.0
+
+
+def _iso(raw: str, what: str, supplier: str) -> date:
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        raise ProcurementError(
+            f"{supplier}: {what} {raw!r} is not an ISO date (YYYY-MM-DD)") from None
+
+
+def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[str]:
+    """Hard errors raise (the response is not this tender's); soft problems are returned
+    and disqualify the bid from ranking without discarding the others."""
+    spec = r.specification
+    if spec:
+        for key, attr in (("project", "project"), ("hall", "hall"),
+                          ("constraint", "constraint_id"),
+                          ("sized_for_racks", "sized_for_racks")):
+            if not hasattr(pkg, attr):
+                continue
+            mine = getattr(pkg, attr)
+            if key in spec and str(spec[key]) != str(mine):
+                raise ProcurementError(
+                    f"{r.supplier}: this response was written for {key} {spec[key]!r}, "
+                    f"but the current specification has {key} {mine!r}. The requirements "
+                    f"have changed or the response belongs to another tender; ask the "
+                    f"supplier to re-price against the current specification.")
+    if _iso(r.received_on, "received_on", r.supplier) > today:
+        raise ProcurementError(
+            f"{r.supplier}: received_on {r.received_on} is in the future.")
+    for rid, code in r.compliance.items():
+        if code not in VALID_CODES:
+            raise ProcurementError(
+                f"{r.supplier}: compliance code {code!r} for {rid} is not one of "
+                f"C, CD or N.")
+    problems: list[str] = []
+    if r.valid_until and _iso(r.valid_until, "valid_until", r.supplier) < today:
+        problems.append(f"offer expired on {r.valid_until}")
+    capex, lead, install = r.get("capex_eur"), r.get("lead_time_weeks"), r.get("install_weeks")
+    if capex is not None and capex <= 0:
+        problems.append(f"price {capex:,.0f} is not a positive amount")
+    if lead is not None and lead <= 0:
+        problems.append(f"lead time {lead:g} weeks is not positive")
+    if install is not None and install < 0:
+        problems.append(f"installation duration {install:g} weeks is negative")
+    budget = getattr(pkg, "budget_eur", None)
+    if capex is not None and capex > 0 and budget is not None and budget.value > 0:
+        ratio = capex / budget.value
+        if ratio > BUDGET_PLAUSIBILITY_FACTOR or ratio < 1 / BUDGET_PLAUSIBILITY_FACTOR:
+            problems.append(
+                f"price EUR {capex:,.0f} is {ratio:.2g}x the modelled budget of "
+                f"EUR {budget.value:,.0f}; confirm the units and scope and resubmit")
+    return problems
+
+
 def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAssessment]:
     if not responses:
         raise ProcurementError("no responses to assess")
+    seen: set[str] = set()
+    for r in responses:
+        key = r.supplier.strip().lower()
+        if key in seen:
+            raise ProcurementError(
+                f"two responses from {r.supplier!r}. Supply one current response per "
+                f"supplier; a superseded quotation must not compete with its replacement.")
+        seen.add(key)
+    today = report_date()
     mandatory = pkg.mandatory()
     required_fields = [f for f in pkg.response_fields if f.required]
 
     out: list[BidAssessment] = []
     for r in responses:
+        problems = _check_response(pkg, r, today)
         failed = [q.id for q in mandatory
                   if r.compliance.get(q.id, "").upper() == NON_COMPLIANT]
         unanswered = [q.id for q in mandatory if q.id not in r.compliance]
@@ -102,6 +180,19 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
             mandatory_met=len(mandatory) - len(failed) - len(unanswered),
             mandatory_failed=failed, unanswered=unanswered)
 
+        a.deviations = [q.id for q in mandatory
+                        if r.compliance.get(q.id, "").upper() == COMPLIES_WITH_DEVIATION]
+        if problems:
+            a.disqualified = True
+            a.notes.append("response not evaluated: " + "; ".join(problems))
+        if a.deviations:
+            a.notes.append(
+                f"complies with deviation on {', '.join(a.deviations)}: the engineer must "
+                f"accept each deviation in writing before award.")
+        if not r.specification:
+            a.notes.append(
+                "response is not tied to a specification (no 'specification' block); it "
+                "cannot be checked against the current revision.")
         if missing_fields:
             a.disqualified = True
             a.notes.append(
@@ -121,7 +212,9 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
 
     for a in live:
         by_id = {c.id: c for c in pkg.criteria}
-        compliance_fraction = (a.mandatory_met / a.mandatory_total) if a.mandatory_total else 1.0
+        compliance_fraction = (
+            (a.mandatory_met - 0.5 * len(a.deviations)) / a.mandatory_total
+            if a.mandatory_total else 1.0)
         a.scores["C1"] = compliance_fraction * by_id["C1"].weight if "C1" in by_id else 0.0
         a.scores["C2"] = (
             _score_lower_is_better(programmes, a.weeks_to_energised) * by_id["C2"].weight

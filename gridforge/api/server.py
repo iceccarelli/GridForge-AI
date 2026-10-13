@@ -352,6 +352,9 @@ def handle_spec(body: dict, tier: Tier) -> dict:
         "requirements": len(pkg.requirements), "mandatory": len(pkg.mandatory()),
     }
     out["response_template"] = {
+        "specification": {"project": pkg.project, "hall": pkg.hall,
+                          "constraint": pkg.constraint_id,
+                          "sized_for_racks": pkg.sized_for_racks},
         "supplier": "", "received_on": "", "valid_until": "",
         "values": {f.key: None for f in pkg.response_fields},
         "compliance": {q.id: "" for q in pkg.mandatory()},

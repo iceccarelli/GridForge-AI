@@ -7,6 +7,7 @@ those are how a tender ends up specifying equipment the hall does not need.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..validation import EvidenceClass, Quantity
@@ -146,11 +147,15 @@ def _numeric(raw: dict) -> dict[str, float]:
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
         try:
-            out[str(k)] = float(v)
+            num = float(v)
         except (TypeError, ValueError):
             raise ProcurementError(
                 f"response field {k!r} is {v!r}, which is not a number. If the supplier "
                 f"gave a range or a caveat, put the figure here and the caveat in 'text'.")
+        if not math.isfinite(num):
+            raise ProcurementError(
+                f"response field {k!r} is {v!r}: a quotation figure must be a finite number.")
+        out[str(k)] = num
     return out
 
 
@@ -164,6 +169,10 @@ class SupplierResponse:
     compliance: dict[str, str] = field(default_factory=dict)   # requirement id -> C/CD/N
     reference: str = ""
     valid_until: str = ""
+    #: The specification this response was written against, copied from the response
+    #: template. Without it a response for another hall, another constraint or an
+    #: earlier sizing is indistinguishable from a current one.
+    specification: dict = field(default_factory=dict)
 
     def get(self, key: str) -> float | None:
         v = self.values.get(key)
@@ -189,4 +198,5 @@ class SupplierResponse:
                         for k, v in (d.get("compliance") or {}).items()
                         if str(v).strip()},
             reference=str(d.get("reference") or ""),
-            valid_until=str(d.get("valid_until") or ""))
+            valid_until=str(d.get("valid_until") or ""),
+            specification=dict(d.get("specification") or {}))
