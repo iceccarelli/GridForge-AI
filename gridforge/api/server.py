@@ -135,6 +135,11 @@ class ApiError(Exception):
         self.extra = extra
 
 
+def _reject_constant(name: str):
+    """json.loads accepts NaN/Infinity, which are not JSON and poison every comparison downstream."""
+    raise ValueError(f"{name} is not a valid JSON number")
+
+
 class _RateLimiter:
     def __init__(self, per_minute: int):
         self.per_minute = per_minute
@@ -146,6 +151,9 @@ class _RateLimiter:
             return True
         now = time.time()
         with self._lock:
+            if len(self._hits) > 10_000:                      # a spoofed-key flood must not grow this forever
+                for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
+                    del self._hits[k]
             q = self._hits[key]
             while q and now - q[0] > 60:
                 q.popleft()
@@ -176,7 +184,15 @@ def _allowed_origins() -> list[str]:
 
 
 def _run(doc: dict):
+    if not isinstance(doc, dict):
+        raise ApiError(422, "expected an intake document (a JSON object)")
     intake = load_document(doc)
+    if not intake.report.supplied:
+        # Every number would be a library default: a study of a hall nobody described. The free
+        # /v1/qualify route is the place to start from a handful of figures.
+        raise ApiError(422, "the request contains none of the intake fields, so there is nothing to "
+                            "solve. Send an intake document (see GET /v1/tools for the schema) or use "
+                            "/v1/qualify.", missing_required=[g.path for g in intake.report.required_gaps])
     return intake, run_all(intake.context, intake.scenarios)
 
 
@@ -654,12 +670,18 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     denied = charge(endpoint, args)
     if denied:
         raise RpcError(-32002, denied["error"], denied)
+    refund = getattr(charge, "refund", lambda: None)
     try:
         result = handler(args, tier)
     except ApiError as exc:
+        refund()
         raise RpcError(-32602, exc.message, exc.extra)
     except IntakeError as exc:
+        refund()
         raise RpcError(-32602, str(exc))
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        refund()
+        raise RpcError(-32602, f"invalid arguments: {exc.__class__.__name__}: {str(exc)[:160]}")
     # MCP wants content blocks. The structured payload is the real answer; the text
     # block is a one-line summary so a model that only reads text is not left with
     # a wall of JSON and no idea which number mattered.
@@ -754,6 +776,9 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    #: Seconds a connection may sit idle mid-request. Without it a client that announces a body and
+    #: never sends it holds a thread for ever.
+    timeout = 30
     server_version = f"gridforge/{VERSION}"
     limiter = _RateLimiter(RATE_LIMIT_PER_MINUTE)
 
@@ -786,11 +811,24 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _client_key(self) -> str:
-        return (self.headers.get("X-Forwarded-For") or self.client_address[0] or "?").split(",")[0]
+        """The caller's address as OUR proxy saw it. X-Forwarded-For is appended to by each hop and
+        the leftmost entry is whatever the client chose to send, so we count in from the right:
+        GRIDFORGE_TRUSTED_PROXY_HOPS (default 1, i.e. the entry our own proxy added; 0 ignores the
+        header and uses the socket address)."""
+        try:
+            hops = max(0, int(os.environ.get("GRIDFORGE_TRUSTED_PROXY_HOPS", "1")))
+        except ValueError:
+            hops = 1
+        fwd = [p.strip() for p in (self.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
+        if hops and len(fwd) >= hops:
+            return fwd[-hops]
+        return self.client_address[0] or "?"
 
     def _supplied_key(self) -> str:
-        return (self.headers.get("X-API-Key")
-                or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth[:7].lower() == "bearer ":
+            auth = auth[7:].strip()
+        return self.headers.get("X-API-Key") or auth
 
     def _plan(self):
         return plan_for(self._supplied_key())
@@ -893,16 +931,27 @@ class Handler(BaseHTTPRequestHandler):
         units = units_for(endpoint, body)
         if units <= 0:
             return None
-        if METER.would_exceed(plan.account, units, plan.monthly_quota):
+        usage = METER.reserve(plan.account, endpoint, units, plan.monthly_quota)
+        if usage is None:
             u = METER.statement(plan)
             return {"error": "monthly unit quota exhausted",
                     "units_required": units, "units_used": u["units"],
                     "monthly_quota": u["monthly_quota"], "month": u["month"],
                     "fix": "upgrade the plan on your account page, or wait for the "
                            "allowance to reset at the start of next month"}
-        self._last_usage = METER.record(plan.account, endpoint, units)
+        self._last_usage = usage
         self._last_units = units
+        self._charged = (plan.account, endpoint, units)
         return None
+
+    def _refund(self) -> None:
+        """Undo this request's charge: the call produced no answer."""
+        charged = getattr(self, "_charged", None)
+        if charged:
+            METER.refund(*charged)
+            self._charged = None
+            self._last_units = 0
+            self._last_usage = METER.current(charged[0])
 
     def _usage_headers(self) -> None:
         units = getattr(self, "_last_units", None)
@@ -951,14 +1000,19 @@ class Handler(BaseHTTPRequestHandler):
                                         public_endpoint="/v1/qualify",
                                         tool_schemas="/v1/tools"))
 
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._send(400, {"error": "invalid Content-Length"})
+        if length < 0:
+            return self._send(400, {"error": "invalid Content-Length"})
         if length > MAX_BODY_BYTES:
             return self._send(413, {"error": "payload too large",
                                     "max_bytes": MAX_BODY_BYTES})
         raw = self.rfile.read(length) if length else b"{}"
         try:
-            body = json.loads(raw or b"{}")
-        except json.JSONDecodeError as exc:
+            body = json.loads(raw or b"{}", parse_constant=_reject_constant)
+        except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
             return self._send(400, {"error": f"invalid JSON: {exc}"})
 
         if path == "/mcp":
@@ -975,15 +1029,28 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self._send(200, handler(body, tier))
         except ApiError as exc:
+            self._refund()
             return self._send(exc.status, {"error": exc.message, **exc.extra})
         except IntakeError as exc:
+            self._refund()
             return self._send(422, {"error": str(exc)})
-        except Exception as exc:  # pragma: no cover - last resort
-            return self._send(500, {"error": "engine error", "detail": str(exc)[:300]})
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            # Malformed input that got past the field checks. Reported as the caller's problem
+            # (422, not billed) rather than a 500 that blames us and leaks an exception string.
+            self._refund()
+            return self._send(422, {"error": "the request could not be processed as given",
+                                    "detail": f"{exc.__class__.__name__}: {str(exc)[:160]}"})
+        except Exception:  # pragma: no cover - last resort
+            self._refund()
+            import traceback
+            traceback.print_exc()
+            return self._send(500, {"error": "engine error",
+                                    "request_id": self.headers.get("X-Request-Id", "")})
 
     def _serve_mcp(self, body, tier: Tier) -> None:
         """JSON-RPC 2.0, single request or batch. Notifications get 202 and no body."""
         charge = lambda endpoint, args: self._charge(endpoint, args)  # noqa: E731
+        charge.refund = self._refund
         if isinstance(body, list):
             if not body:
                 return self._send(400, {"jsonrpc": "2.0", "id": None,

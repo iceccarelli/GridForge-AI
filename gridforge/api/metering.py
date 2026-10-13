@@ -26,6 +26,7 @@ accounting problem is worse than losing the line.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -96,7 +97,7 @@ class KeyPlan:
 
     def __post_init__(self) -> None:
         if not self.account:
-            self.account = self.label or self.key[:6]
+            self.account = self.label or "k_" + hashlib.sha256(self.key.encode()).hexdigest()[:10]
 
     @property
     def masked(self) -> str:
@@ -111,14 +112,17 @@ class KeyPlan:
         key = parts[0].strip()
         if not key:
             return None
-        label = parts[1].strip() if len(parts) > 1 else key[:6]
+        # A key with no label used to account under its first six characters, so `sk_live_a` and
+        # `sk_live_b` shared one usage and quota bucket. An unlabelled key is its own account.
+        label = parts[1].strip() if len(parts) > 1 else \
+            "k_" + hashlib.sha256(key.encode()).hexdigest()[:10]
         quota = 0
         if len(parts) > 2:
             try:
                 quota = max(0, int(parts[2]))
             except ValueError:
                 quota = 0
-        return KeyPlan(key=key, label=label or key[:6],
+        return KeyPlan(key=key, label=label,
                        monthly_quota=quota or DEFAULT_MONTHLY_QUOTA)
 
 
@@ -289,6 +293,40 @@ class Meter:
                              first_seen=u.first_seen, last_seen=u.last_seen)
         self._flush()
         return snapshot
+
+    def reserve(self, account: str, path: str, units: int, quota: int = 0) -> "Usage | None":
+        """Check the allowance and take the units in one critical section. Two concurrent calls can
+        no longer both pass would_exceed() and then both record, overshooting the quota.
+        Returns the new usage, or None when the call does not fit."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        m = _month()
+        with self._lock:
+            u = self._usage.setdefault((account, m), Usage(month=m, first_seen=now))
+            if quota and u.units + units > quota:
+                return None
+            u.units += units
+            u.calls += 1
+            u.by_endpoint[path] = u.by_endpoint.get(path, 0) + units
+            u.last_seen = now
+            snapshot = Usage(month=u.month, units=u.units, calls=u.calls,
+                             by_endpoint=dict(u.by_endpoint),
+                             first_seen=u.first_seen, last_seen=u.last_seen)
+        self._flush()
+        return snapshot
+
+    def refund(self, account: str, path: str, units: int) -> None:
+        """Give back units for a call that produced no answer (the work failed on our side or the
+        request was invalid). A caller is billed for results, not for errors."""
+        m = _month()
+        with self._lock:
+            u = self._usage.get((account, m))
+            if u is None:
+                return
+            u.units = max(0, u.units - units)
+            u.calls = max(0, u.calls - 1)
+            if path in u.by_endpoint:
+                u.by_endpoint[path] = max(0, u.by_endpoint[path] - units)
+        self._flush()
 
     def statement(self, plan: "KeyPlan | None", account: str = "") -> dict:
         account = account or (plan.account if plan else "unknown")

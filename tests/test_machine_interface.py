@@ -375,7 +375,7 @@ def test_rotating_a_key_does_not_reset_the_allowance(selfserve):
     a = issue("rotator", quota=4)
     b = issue("rotator", quota=4)
     assert a != b
-    assert call(selfserve, "/v1/screen", {"intake": {}}, key=a)[0] == 200
-    assert call(selfserve, "/v1/screen", {"intake": {}}, key=b)[0] == 200
+    assert call(selfserve, "/v1/screen", {"intake": {"grid": {"contracted_MW": 12, "firm_capacity_MVA": 12}}}, key=a)[0] == 200
+    assert call(selfserve, "/v1/screen", {"intake": {"grid": {"contracted_MW": 12, "firm_capacity_MVA": 12}}}, key=b)[0] == 200
     status, body, _ = call(selfserve, "/v1/usage", key=b)
     assert body["units"] == 2, "usage did not follow the account across a rotation"
