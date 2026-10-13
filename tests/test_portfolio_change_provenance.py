@@ -495,3 +495,41 @@ def test_a_recorded_E0_is_reported_as_E0_not_as_unrecorded_or_as_a_stronger_clas
     r, _ = note(d)
     contribution = next(q for q in r.quantities() if q.prov.label.startswith("contribution of"))
     assert contribution.evidence is E.E0_ASSUMPTION, "must not fall through to the stronger 'after' class"
+
+
+# --- found by running Hall Watch: a capex or evidence change is not "nothing" ------------------
+
+def test_a_large_capex_movement_is_material_and_is_not_called_nothing():
+    base = doc("dublin_hall")
+    after = copy.deepcopy(base)
+    after["btm_options"][0]["capex_eur_per_kW"] = 3000
+    d = diff(base, after)
+    assert d.capex_moved and d.material
+    assert "Nothing that changes the answer" not in d.headline()
+    _, md = note(d)
+    assert "Nothing that changes the answer" not in md
+
+
+def test_an_evidence_upgrade_with_the_same_value_is_visible(base):
+    after = copy.deepcopy(base)
+    after["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E5"}
+    before = copy.deepcopy(base)
+    before["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E0"}
+    d = diff(before, after)
+    assert d.inputs == "changed" and d.evidence_changes == ["grid.contracted_MW"]
+    assert d.material and "evidence" in d.headline()
+
+
+def test_a_watch_state_records_evidence_so_a_later_upgrade_is_detected(base):
+    from gridforge.change import EnvelopeState, diff_from_state
+    from gridforge.scenario.run import run_all
+    from gridforge.intake.loader import load_document
+    first = copy.deepcopy(base)
+    first["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E0"}
+    i = load_document(copy.deepcopy(first))
+    res = pick_recommended(run_all(i.context, i.scenarios), Objective.MAX_COMPUTE)
+    state = EnvelopeState.of(res, first)
+    upgraded = copy.deepcopy(first)
+    upgraded["grid"]["contracted_MW"]["evidence"] = "E5"
+    d = diff_from_state(state, upgraded)
+    assert d.evidence_digest_changed and d.material

@@ -43,6 +43,34 @@ def intake_digest(doc: dict) -> str:
     return _digest(sorted(flat.items()))
 
 
+def declared_evidence(doc: Any, prefix: str = "") -> dict[str, str]:
+    """{path: evidence class the client declared} for every wrapped input. flatten() deliberately
+    treats the wrapper as one leaf, so without this an upgrade from an assumption to a client-supplied
+    measurement was invisible: same value, same digest, 'nothing changed'."""
+    out: dict[str, str] = {}
+    if isinstance(doc, dict):
+        if "value" in doc:
+            if doc.get("evidence"):
+                out[prefix] = str(doc["evidence"]).upper()[:2]
+            return out
+        for k, v in doc.items():
+            out.update(declared_evidence(v, f"{prefix}.{k}" if prefix else k))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.update(declared_evidence(v, f"{prefix}[{i}]"))
+    return {k: v for k, v in out.items() if not (k.startswith("project.") or k == "scenarios")}
+
+
+def evidence_digest(doc: dict) -> str:
+    ev = declared_evidence(doc)
+    return _digest(sorted(ev.items())) if ev else ""
+
+
+#: A capex movement this large is a change to the investment case even when the (wide, screening-class)
+#: uncertainty bands still overlap; below it the note may call the movement noise.
+CAPEX_MATERIAL_FRACTION = 0.10
+
+
 def price_basis_digest() -> str:
     """Fingerprint of the recorded prices (cost library) a solve rests on. A new quotation changes it."""
     return _digest(sorted((e.key, e.value, e.basis, e.valid_until or "", e.stale)
@@ -81,6 +109,7 @@ class EnvelopeState:
     capex_class: str = ""
     capex_complete: bool = True            # False: a relief taken has no price, so capex is a lower bound
     intake_digest: str = ""
+    evidence_digest: str = ""
     price_basis_digest: str = ""
     relief_path_digest: str = ""
 
@@ -112,6 +141,7 @@ class EnvelopeState:
             capex_lo=cap.band[0], capex_hi=cap.band[1], capex_class=cap.evidence.name,
             capex_complete=res.economics.capex_complete,
             intake_digest=intake_digest(doc) if doc is not None else "",
+            evidence_digest=evidence_digest(doc) if doc is not None else "",
             price_basis_digest=price_basis_digest(),
             relief_path_digest=relief_path_digest(res),
         )
@@ -147,6 +177,10 @@ class EnvelopeDiff:
     #: "constraint model". Empty when nothing differs or when the earlier run recorded no fingerprint.
     drift: list[str] = field(default_factory=list)
     drift_known: bool = False
+    #: Inputs whose declared evidence class changed while their value did not (or alongside it).
+    evidence_changes: list[str] = field(default_factory=list)
+    #: Evidence digest differs between two recorded states (paths unknown when only digests were kept).
+    evidence_digest_changed: bool = False
 
     @property
     def racks_delta(self) -> int:
@@ -176,9 +210,25 @@ class EnvelopeDiff:
         return self.racks_delta - self.explained
 
     @property
+    def capex_moved(self) -> bool:
+        a = self.before.capex_eur
+        if a <= 0:
+            return self.after.capex_eur > 0
+        return abs(self.capex_delta) / a >= CAPEX_MATERIAL_FRACTION
+
+    @property
+    def evidence_moved(self) -> bool:
+        return bool(self.evidence_changes or self.evidence_digest_changed
+                    or (self.before.racks_class and self.after.racks_class
+                        and self.before.racks_class != self.after.racks_class)
+                    or (self.before.capex_class and self.after.capex_class
+                        and self.before.capex_class != self.after.capex_class))
+
+    @property
     def material(self) -> bool:
         return bool(self.racks_delta or self.binding_moved
-                    or (self.weeks_delta or 0) or self.recommendation_changed)
+                    or (self.weeks_delta or 0) or self.recommendation_changed
+                    or self.capex_moved or self.evidence_moved)
 
     def headline(self) -> str:
         if not self.material:
@@ -197,6 +247,11 @@ class EnvelopeDiff:
         if self.recommendation_changed:
             bits.append("the recommended architecture changed to "
                         f"{self.recommendation_changed[1]}")
+        if self.capex_moved:
+            bits.append(f"indicative capex moved {self.capex_delta / 1e6:+.1f} M EUR "
+                        f"({self.before.capex_eur / 1e6:.1f} to {self.after.capex_eur / 1e6:.1f})")
+        if self.evidence_moved:
+            bits.append("the evidence behind the answer changed (an input was upgraded or downgraded)")
         head = "; ".join(bits)
         return head[:1].upper() + head[1:] + "."
 
@@ -306,6 +361,10 @@ def diff_from_state(previous: EnvelopeState, after_doc: dict, *,
     d = EnvelopeDiff(before=previous, after=now)
     if previous.intake_digest:
         d.inputs = "unchanged" if previous.intake_digest == now.intake_digest else "changed"
+    if previous.evidence_digest or now.evidence_digest:
+        if previous.evidence_digest != now.evidence_digest:
+            d.evidence_digest_changed = True
+            d.inputs = "changed"
     if d.inputs == "unchanged" and previous.price_basis_digest and previous.relief_path_digest:
         # The customer's inputs are verifiably the same, so any movement is ours. Say which part differs.
         d.drift_known = True
@@ -336,7 +395,9 @@ def diff(before_doc: dict, after_doc: dict, *,
         d.recommendation_changed = (rec_before.spec.name, rec_after.spec.name)
 
     d.changed_paths = changed_paths(before_doc, after_doc)
-    d.inputs = "changed" if d.changed_paths else "unchanged"
+    eb, ea = declared_evidence(before_doc), declared_evidence(after_doc)
+    d.evidence_changes = sorted(k for k in set(eb) | set(ea) if eb.get(k) != ea.get(k))
+    d.inputs = "changed" if (d.changed_paths or d.evidence_changes) else "unchanged"
     d.drift_known = True          # both solved by this engine, now: nothing on our side differs between them
     if not attribute or not d.changed_paths:
         return d
