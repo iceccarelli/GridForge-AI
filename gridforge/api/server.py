@@ -239,7 +239,15 @@ def handle_study(body: dict, tier: Tier) -> dict:
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
                                     watermark=watermark_for(intake))
-        return _rendered(report, results, fmt)
+        out = _rendered(report, results, fmt)
+        if str(body.get("bundle") or "").lower() == "board":
+            # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
+            # two cannot disagree about the model, the objective, the evidence classes or the watermark. Each
+            # passes the report gates; if either fails nothing is returned, never half a pack.
+            from ..reporting.board import build as build_board_report
+            out["board"] = _rendered(build_board_report(intake, results, sens, objective=objective),
+                                     results, fmt)
+        return out
     return model_pack(intake, results)
 
 

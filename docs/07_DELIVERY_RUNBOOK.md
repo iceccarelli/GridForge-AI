@@ -616,9 +616,30 @@ and the report can never disagree. Arrow keys to advance; `Print to PDF` gives a
 landscape deck you can send. No network, no fonts to fetch, no script from anywhere —
 a client can open it on a plane.
 
-It ships automatically with a purchased Envelope Study and appears on the client's
+It is generated for any engagement on the `study` endpoint and appears on the client's
 deliverable page next to the document. The Screen does not include one: the
-walkthrough is part of the Study engagement.
+walkthrough is part of the Study engagement. (The live €9,000 Envelope Study *deposit*
+is bespoke and opens no engagement — see "Deposits" — so today the walkthrough, like the
+study, reaches that buyer through the operator.)
+
+### The Envelope Study pack: study + board summary
+
+A `study`-endpoint engagement is delivered as a **pack**: the full study and the one-page board summary
+(`docs/01` §4D), rendered by the engine in **one call** (`POST /v1/study` with `"bundle": "board"`), so both come from
+one solve — same model, objective, evidence classes and watermark rule. They go through the existing path: intake ->
+`generateAndStore` -> `deliverables` row (`document_*` plus `working_files["board_summary.html" | ".md"]`; no
+migration) -> human release -> the token-gated `/deliverable/{token}` page and `GET /api/deliverable/{token}?format=board|board_md`.
+
+- `working_files["bundle.json"]` records what the pack should contain. **`draft` means every artefact exists and was
+  stored.** If the board is missing (older engine, gate refusal) or the row update fails, the study that was produced is
+  kept, the status is `engine_unavailable`, the operator is mailed, and **release answers 409** until the pack is whole.
+- **Recovery:** `/admin/pipeline` shows **Regenerate** on an `engine_unavailable` row; it re-solves from the stored intake
+  and replaces every generated artefact together (a board from an earlier run is never kept beside a new study).
+- Rows generated before packs existed have no manifest and release as the study-only documents they always were.
+- The release email is sent once per release and carries `Idempotency-Key: deliverable-release-<row id>`.
+- **Not automated, by design:** the Envelope Study deposit still opens no engagement (`producesDeliverable: false`). A
+  scoped Study reaches this path only when an engagement of that kind exists; the CLI route (`gridforge study`) already
+  writes `board_summary.*` next to `envelope_study.*` from the same run.
 
 **The chart colours are not the brand accents.** `#00E5FF` and `#FFB020` are interface
 colours; as data marks on the panel surface they fall outside the usable lightness

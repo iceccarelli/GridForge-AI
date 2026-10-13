@@ -83,7 +83,7 @@ export function EngagementPipeline({
     [activeApi]
   );
 
-  async function act(token: string, action: "release" | "unrelease") {
+  async function act(token: string, action: "release" | "unrelease" | "regenerate") {
     setBusy(token);
     setError(null);
     try {
@@ -96,6 +96,9 @@ export function EngagementPipeline({
       if (!res.ok || !body.ok) {
         setError(body?.error ?? "Could not update this engagement.");
         return;
+      }
+      if (action === "regenerate" && Array.isArray(body.missing) && body.missing.length) {
+        setError(`Regenerated, but the pack is still missing: ${body.missing.join(", ")}. It stays held until it is whole.`);
       }
       // Releasing emails the buyer their link. If that did not happen, say so and hand over the link:
       // the buyer has been promised it, and a released document nobody was told about is not delivered.
@@ -257,6 +260,16 @@ export function EngagementPipeline({
                                 <Loader2 className="h-3 w-3 animate-spin" />
                               ) : null}
                               Release
+                            </button>
+                          ) : null}
+                          {d.status === "engine_unavailable" ? (
+                            <button
+                              type="button"
+                              onClick={() => act(d.token, "regenerate")}
+                              disabled={busy === d.token}
+                              className="rounded border border-flag/50 px-3 py-1.5 text-xs text-flag disabled:opacity-60"
+                            >
+                              Regenerate
                             </button>
                           ) : null}
                           {d.status === "released" ? (

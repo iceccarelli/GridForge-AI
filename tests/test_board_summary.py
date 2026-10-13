@@ -89,3 +89,29 @@ def test_the_api_serves_the_same_page(tmp_path):
     assert out["document"].startswith("# Board summary")
     study, board, _ = run_study(DUBLIN, tmp_path / "o")
     assert body(out["document"]).strip() == body(board).strip()
+
+
+@pytest.mark.parametrize("fmt", ["md", "html"])
+def test_the_paid_pack_returns_study_and_board_from_one_call_with_the_same_stamp_and_objective(fmt):
+    doc = json.loads(DUBLIN.read_text())
+    out = handle_study({"intake": doc, "format": fmt, "bundle": "board", "objective": "min_cost"}, Tier.CLIENT)
+    board = out["board"]
+    alone = handle_study({"intake": doc, "format": fmt, "view": "board", "objective": "min_cost"}, Tier.CLIENT)
+    assert board["document"] == alone["document"], "the bundled board must be the board the API serves on its own"
+    assert out["title"] != board["title"] and out["document"] != board["document"]
+    stamp = "SYNTHETIC REFERENCE DATA" if "SYNTHETIC REFERENCE DATA" in out["document"] else None
+    assert (stamp in board["document"]) if stamp else True, "the board must carry the study's watermark rule"
+    assert "board" not in alone and "board" not in handle_study({"intake": doc, "format": fmt}, Tier.CLIENT), (
+        "without the bundle flag the response is unchanged (study-only callers, the screen, existing clients)")
+
+
+def test_a_real_clients_pack_is_not_stamped_synthetic_on_either_document():
+    doc = json.loads(DUBLIN.read_text())
+    doc["project"] = {"client": "Acme Data Centres", "reference": "ACME-1"}
+    assert "synthetic" not in json.dumps(doc["project"]).lower()
+    out = handle_study({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert "SYNTHETIC REFERENCE DATA" not in out["document"]
+    assert "SYNTHETIC REFERENCE DATA" not in out["board"]["document"]
+    synth = json.loads(DUBLIN.read_text())
+    both = handle_study({"intake": synth, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert "SYNTHETIC REFERENCE DATA" in both["document"] and "SYNTHETIC REFERENCE DATA" in both["board"]["document"]

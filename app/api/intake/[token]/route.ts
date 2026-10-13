@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import {
-  getByIntakeToken,
-  renderDeliverable,
-  updateByToken,
-} from "@/lib/deliverables";
+import { generateAndStore, getByIntakeToken, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -114,58 +110,54 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { status: 500 }
     );
   }
-  const rendered = await renderDeliverable(doc, endpoint);
+  // One fulfilment path, shared with the operator's "regenerate": it renders the pack, stores it in a single row
+  // update, and only reports `draft` when every artefact the product promises exists.
+  const stored = await generateAndStore(row, doc, endpoint);
 
-  if (!rendered.ok) {
-    await updateByToken(row.token, { status: "engine_unavailable" });
+  if (!stored.ok) {
+    const persist = stored.stage === "persist";
     // The buyer is told "we will pick this up"; nothing else tells anyone, so say it to the operator.
     await notifyOperator(
-      `Engine could not produce a document — ${row.email ?? "unknown buyer"} (${row.kind})`,
-      `The buyer's numbers are saved (status engine_unavailable) but the engine could not generate the ` +
-        `${row.kind} just now: ${rendered.error}\n\nBuyer: ${row.email ?? "no email on record"}\n` +
-        `Open ${SITE_URL}/admin/pipeline once the engine is back and re-run it. The buyer was told you will come back to them.`
+      `${persist ? "Documents could not be stored" : "Engine could not produce a document"} — ${row.email ?? "unknown buyer"} (${row.kind})`,
+      `The buyer's numbers are saved (status engine_unavailable) but ${persist ? "the generated documents could not be stored" : `the engine could not generate the ${row.kind} just now`}: ${stored.error}\n\n` +
+        `Buyer: ${row.email ?? "no email on record"}\n` +
+        `Open ${SITE_URL}/admin/pipeline and use Regenerate once it is back. The buyer was told you will come back to them.`
     );
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Your numbers were saved, but the engine could not produce the document just now. " +
+          "Your numbers were saved, but the document could not be produced just now. " +
           "Nothing is lost and nothing was invented — we will pick this up and come back to you.",
-        detail: rendered.error,
+        detail: stored.error,
       },
       { status: 502 }
     );
   }
 
-  // What bound, as the engine reported it. Stored
-  // under a namespaced key so the client's own intake stays exactly as they
-  // entered it — the follow-on offer names their constraint rather than a generic
-  // one, and an unreadable bundle simply means it does not.
-  // Prefer the engine's own field; fall back to the working-file bundle, which is
-  // all the Study used to have and all a Screen never had.
-  const binding = rendered.binding ?? bindingFrom(rendered.working);
-
-  // The relief the specification was written for, kept beside the intake so the
-  // bid comparison is judged against the requirement the suppliers answered — not
-  // against whatever binds the hall by the time their quotes come back.
-  const meta: Record<string, unknown> = {};
-  if (binding) meta.binding = binding;
-  if (rendered.spec) meta.spec = rendered.spec;
-
-  await updateByToken(row.token, {
-    status: "draft",
-    title: rendered.title,
-    intake: Object.keys(meta).length ? { ...doc, _gridforge: meta } : doc,
-    document_html: rendered.html,
-    document_md: rendered.md,
-    ...(rendered.deck ? { deck_html: rendered.deck } : {}),
-    ...(rendered.working ? { working_files: rendered.working } : {}),
-  });
+  if (!stored.complete) {
+    // Part of the pack exists, part does not. It is not a draft: nothing can be released until it is whole.
+    await notifyOperator(
+      `Pack incomplete — ${row.email ?? "unknown buyer"} (${stored.title})`,
+      `A paid ${row.kind} was generated without: ${stored.missing.join(", ")}. What exists is saved and the ` +
+        `engagement is held (engine_unavailable) so it cannot be released as complete.\n\n` +
+        `Buyer: ${row.email ?? "no email on record"}\nUse Regenerate at ${SITE_URL}/admin/pipeline once the engine is back.`
+    );
+    return NextResponse.json({
+      ok: true,
+      status: "engine_unavailable",
+      title: stored.title,
+      message:
+        "Received. Part of your pack is still being produced; we will complete it, have a senior engineer " +
+        "review it and come back to you. Nothing has been published.",
+      assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
+    });
+  }
 
   // A draft waits for a person. Nothing else announces it, and the buyer has just been told it is with
   // a senior engineer: tell the engineer. (The document token is never put in an email.)
   await notifyOperator(
-    `Draft ready for review — ${row.email ?? "unknown buyer"} (${rendered.title})`,
+    `Draft ready for review — ${row.email ?? "unknown buyer"} (${stored.title})`,
     `A paid ${row.kind} has been generated and is waiting for your review and release.\n\n` +
       `Buyer: ${row.email ?? "no email on record"}${row.company ? ` · ${row.company}` : ""}\n` +
       `Review and release it at ${SITE_URL}/admin/pipeline\n\n` +
@@ -175,7 +167,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   return NextResponse.json({
     ok: true,
     status: "draft",
-    title: rendered.title,
+    title: stored.title,
     message:
       "Received. The document is generated and now sits with a senior engineer for review. " +
       "You will get the link once it is released — we do not publish an engineering opinion " +
@@ -185,28 +177,4 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     // discover it in a footnote a week later.
     assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
   });
-}
-
-/**
- * The constraint that binds, from scenarios.csv.
- *
- * Deliberately tolerant: a missing or reshaped bundle returns null and the page
- * falls back to a generic sentence. Guessing a constraint would be worse than not
- * naming one — this is a document about what physically limits a client's hall.
- */
-function bindingFrom(working: Record<string, string> | null): string | null {
-  const csv = working?.["scenarios.csv"];
-  if (!csv) return null;
-  try {
-    const [header, ...rows] = csv.split("\n").filter((l) => l.trim());
-    const cols = header.split(",");
-    const i = cols.indexOf("binds_first");
-    if (i < 0 || !rows.length) return null;
-    // Split respecting quoted fields — scenario names contain commas.
-    const cells = rows[0].match(/("([^"]|"")*"|[^,]*)(,|$)/g) ?? [];
-    const raw = (cells[i] ?? "").replace(/,$/, "").replace(/^"|"$/g, "").trim();
-    return raw || null;
-  } catch {
-    return null;
-  }
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getByToken } from "@/lib/deliverables";
+import { BOARD_HTML, getByToken, isPackFile } from "@/lib/deliverables";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
 import { BidComparison } from "@/components/BidComparison";
@@ -65,6 +65,16 @@ export default async function DeliverablePage({
           Released{row.released_at ? ` · ${new Date(row.released_at).toLocaleDateString()}` : ""}
         </p>
         <div className="flex flex-wrap items-center gap-3">
+          {row.working_files?.[BOARD_HTML] ? (
+            <a
+              href={`/api/deliverable/${token}?format=board`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10"
+            >
+              Board summary
+            </a>
+          ) : null}
           {row.deck_html ? (
             <a
               href={`/api/deliverable/${token}?format=deck`}
@@ -89,7 +99,7 @@ export default async function DeliverablePage({
         className="rounded border border-line bg-white"
         dangerouslySetInnerHTML={{ __html: row.document_html ?? "" }}
       />
-      {row.working_files && Object.keys(row.working_files).length ? (
+      {row.working_files && Object.keys(row.working_files).some((f) => !isPackFile(f)) ? (
         <section className="mt-8 rounded border border-line bg-panel-2 p-5">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
             Check our arithmetic
@@ -102,6 +112,7 @@ export default async function DeliverablePage({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {Object.keys(row.working_files)
+              .filter((f) => !isPackFile(f))
               .sort()
               .map((f) => (
                 <a
