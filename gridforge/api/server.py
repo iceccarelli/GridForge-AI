@@ -42,6 +42,7 @@ agent told to retry a call it can never afford will retry it forever.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
@@ -133,6 +134,40 @@ class ApiError(Exception):
         self.status = status
         self.message = message
         self.extra = extra
+
+
+API_SCHEMA = "gridforge/api/1"
+
+
+class _IdempotencyCache:
+    """Remembers the answer to a keyed request, so a client that retries after a timeout is neither
+    billed twice nor handed a different answer. Bounded and in-memory: it protects the retry window
+    (minutes), it is not a ledger, and it forgets on restart."""
+    TTL = 24 * 3600
+    MAX = 2000
+
+    def __init__(self):
+        self._items: dict[tuple, tuple[float, str, int, dict]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple):
+        now = time.time()
+        with self._lock:
+            hit = self._items.get(key)
+            if hit and now - hit[0] <= self.TTL:
+                return hit
+            self._items.pop(key, None)
+            return None
+
+    def put(self, key: tuple, body_hash: str, status: int, payload: dict) -> None:
+        with self._lock:
+            if len(self._items) >= self.MAX:
+                oldest = min(self._items, key=lambda k: self._items[k][0])
+                del self._items[oldest]
+            self._items[key] = (time.time(), body_hash, status, payload)
+
+
+IDEMPOTENCY = _IdempotencyCache()
 
 
 def _reject_constant(name: str):
@@ -798,12 +833,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     def _send(self, status: int, payload: dict) -> None:
+        if isinstance(payload, dict) and "jsonrpc" not in payload:
+            payload = {"schema_version": API_SCHEMA, **payload}
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-GridForge-Schema", API_SCHEMA)
+        if getattr(self, "_replayed", False):
+            self.send_header("Idempotent-Replay", "true")
         self._usage_headers()
         self._cors()
         self.end_headers()
@@ -868,6 +908,8 @@ class Handler(BaseHTTPRequestHandler):
                 "auth_configured": _auth_configured(),
                 "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+                "schema": API_SCHEMA,
+                "idempotency": "send an Idempotency-Key header on a POST to make a retry free and identical",
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
                 "unit_rates": dict(sorted(UNIT_COST.items())),
@@ -1021,13 +1063,32 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"error": "expected a JSON object"})
 
+        idem = (self.headers.get("Idempotency-Key") or "").strip()
+        idem_key = None
+        body_hash = hashlib.sha256(raw).hexdigest()
+        plan = self._plan()
+        if idem and plan is not None:
+            if len(idem) > 200:
+                return self._send(400, {"error": "Idempotency-Key is longer than 200 characters"})
+            idem_key = (plan.account, path, idem)
+            hit = IDEMPOTENCY.get(idem_key)
+            if hit is not None:
+                if hit[1] != body_hash:
+                    return self._send(422, {"error": "this Idempotency-Key was already used with a "
+                                                     "different request body"})
+                self._replayed = True
+                return self._send(hit[2], hit[3])
+
         denied = self._charge(path, body)
         if denied:
             return self._send(402, denied)
 
         handler = ROUTES[path][0]
         try:
-            return self._send(200, handler(body, tier))
+            result = handler(body, tier)
+            if idem_key is not None:
+                IDEMPOTENCY.put(idem_key, body_hash, 200, result)
+            return self._send(200, result)
         except ApiError as exc:
             self._refund()
             return self._send(exc.status, {"error": exc.message, **exc.extra})

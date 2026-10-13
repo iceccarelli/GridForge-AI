@@ -131,3 +131,31 @@ def test_rate_limit_ignores_a_spoofed_leftmost_forwarded_address():
         self_headers["X-Forwarded-For"] = f"{spoof}, 203.0.113.9"
         h.headers = type("Hd", (), {"get": lambda _s, k, d=None: self_headers.get(k, d)})()
         assert h._client_key() == "203.0.113.9"
+
+
+INTAKE = {"grid": {"contracted_MW": 12, "firm_capacity_MVA": 12}}
+
+
+def test_every_json_answer_declares_its_schema_version(base):
+    status, body = post(base, "/v1/screen", INTAKE)
+    assert status == 200 and body["schema_version"] == S.API_SCHEMA
+    status, body = post(base, "/v1/screen", {"grid": {"contracted_MW": "abc"}})
+    assert status == 422 and body["schema_version"] == S.API_SCHEMA
+
+
+def test_a_retry_with_the_same_idempotency_key_is_not_billed_twice(base):
+    acct = S.key_plans()[KEY].account
+    h = {"Idempotency-Key": "retry-after-timeout-1"}
+    before = used(acct)
+    s1, b1 = post(base, "/v1/screen", INTAKE, headers=h)
+    mid = used(acct)
+    s2, b2 = post(base, "/v1/screen", INTAKE, headers=h)
+    assert s1 == s2 == 200 and b1 == b2
+    assert mid > before and used(acct) == mid, "the replay must cost nothing"
+
+
+def test_reusing_an_idempotency_key_for_a_different_request_is_refused(base):
+    h = {"Idempotency-Key": "reuse-with-other-body"}
+    assert post(base, "/v1/screen", INTAKE, headers=h)[0] == 200
+    s, body = post(base, "/v1/screen", {"grid": {"contracted_MW": 9, "firm_capacity_MVA": 9}}, headers=h)
+    assert s == 422 and "different request body" in body["error"]
