@@ -152,6 +152,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ### A.1 Assumptions relied upon
 
+- Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. Not a market price.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Tap-off units are a reported shortage item
 
@@ -162,7 +163,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 | Quantity | Evidence | Model | Digest |
 | --- | --- | --- | --- |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |

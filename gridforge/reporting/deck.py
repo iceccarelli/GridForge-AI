@@ -212,7 +212,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
     ladder_rows = [[str(s.step), s.binding_name,
                     f"{s.racks_before} → {s.racks_after}",
                     _relief(s),
-                    "—" if s.capex_eur is None else s.capex_eur.render(with_class=False),
+                    "—" if (s.capex_eur is None or not s.taken) else s.capex_eur.render(with_class=False),
                     "—" if s.lead_time_weeks is None else s.lead_time_weeks.render(with_class=False)]
                    for s in rec.ladder.steps[:8]]
     d.slides.append(Slide(
@@ -246,7 +246,9 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         kicker="Cost",
         title="What it takes, and how well we know it",
         figures=[
-            ("Indicative capex", econ.capex_total_eur.render(with_band=False, with_class=False), ""),
+            ("Indicative capex" if econ.capex_complete else "Indicative capex (lower bound)",
+             ("" if econ.capex_complete else "≥ ") + econ.capex_total_eur.render(with_band=False, with_class=False),
+             "" if econ.capex_complete else "a cost it needs has no price"),
             ("Per kW of IT", econ.capex_eur_per_kW_it.render(with_band=False, with_class=False), ""),
             ("Accuracy class", econ.aace_class.split(":")[0], econ.aace_class.split(":", 1)[-1]),
         ],

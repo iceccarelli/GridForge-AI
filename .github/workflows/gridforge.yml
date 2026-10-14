@@ -226,7 +226,7 @@ jobs:
           python -c "
           import csv, pathlib
           d = pathlib.Path('public/reference/working_files')
-          for name in ['scenarios.csv','headroom_ladder.csv','constraints.csv','inputs.csv','assumed_inputs.csv','provenance.csv','README.txt']:
+          for name in ['scenarios.csv','headroom_ladder.csv','constraints.csv','inputs.csv','assumed_inputs.csv','provenance.csv','economics.csv','unpriced_components.csv','README.txt']:
               assert (d/name).exists(), name
           rows = list(csv.DictReader(open(d/'provenance.csv')))
           assert len(rows) > 20, len(rows)

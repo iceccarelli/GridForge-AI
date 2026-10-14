@@ -245,8 +245,24 @@ def cmd_screen(args) -> int:
     rec = _pick_recommended(results, objective)
     print(f"Density Screen — {intake.client}: {rec.envelope.max_racks} racks as found, "
           f"{rec.unlocked_racks} after the ladder, binding on {rec.envelope.binding.name}.")
+    _economics_note(rec)
     w.report()
     return 0
+
+
+def _economics_note(rec) -> None:
+    """One honest line on whether the economics can be relied on, so the terminal never reads cleaner than the report."""
+    from .reporting.labels import economics_limitations
+    lims = economics_limitations(rec.economics)
+    if rec.unlocked_racks <= 0:
+        return
+    if lims:
+        n = len(rec.economics.unpriced_summary())
+        print("  ECONOMICS: not decision-grade"
+              + (f"; capex is a LOWER BOUND ({n} cost component(s) have no price)" if n else "")
+              + f". {len(lims)} reason(s) in the report, section 9.")
+    else:
+        print("  ECONOMICS: every priced line rests on a quotation or better; nothing is unpriced.")
 
 
 def cmd_study(args) -> int:
@@ -267,6 +283,7 @@ def cmd_study(args) -> int:
         w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
           f"{rec.unlocked_racks} racks after the ladder.")
+    _economics_note(rec)
     if not intake.report.can_issue:
         print(f"  NOTE: {len(intake.report.required_gaps)} required inputs are assumed. "
               f"Screening mode only — see the evidence disclosure in the report.")
@@ -423,15 +440,30 @@ def cmd_cost(args) -> int:
               f"Drop --bundled and it goes to {private_path()}, which is gitignored.",
               file=sys.stderr)
         return 2
-    if args.basis != "library_default" and not (args.supplier and args.quoted_on):
+    if args.basis == "published_benchmark":
+        if not (args.source and args.quoted_on and args.region):
+            print("a published_benchmark needs --source (what was published), --quoted-on (its publication date) "
+                  "and --region (the geography it describes), and its unit and scope must match the line it "
+                  "prices. A figure that cannot name them is a placeholder.", file=sys.stderr)
+            return 2
+    elif args.basis == "engineering_estimate":
+        if not args.note:
+            print("an engineering_estimate needs --note stating its basis (what was assumed, by whom). It is "
+                  "weaker than any supplier quotation and is kept in your private library.", file=sys.stderr)
+            return 2
+    elif args.basis != "library_default" and not (args.supplier and args.quoted_on):
         print(f"a {args.basis} needs --supplier and --quoted-on. Without them it is not a "
               "quotation, it is a number someone remembered.", file=sys.stderr)
         return 2
-    entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
-                      value=float(args.value), basis=args.basis, supplier=args.supplier,
-                      quoted_on=args.quoted_on, valid_until=args.valid_until,
-                      region=args.region, project=args.project, note=args.note,
-                      source=args.source)
+    try:
+        entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
+                          value=float(args.value), basis=args.basis, supplier=args.supplier,
+                          quoted_on=args.quoted_on, valid_until=args.valid_until,
+                          region=args.region, project=args.project, note=args.note,
+                          source=args.source)
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     lib.put(entry)
     path = lib.save(args.library)
     q = entry.quantity()
@@ -923,8 +955,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--unit", default="EUR")
     s.add_argument("--value", default="0")
     s.add_argument("--basis", default="library_default",
-                   help="library_default | published_benchmark | budgetary_quote | "
-                        "firm_quote | contracted")
+                   help="library_default | published_benchmark | engineering_estimate | "
+                        "budgetary_quote | firm_quote | contracted")
     s.add_argument("--supplier")
     s.add_argument("--quoted-on", dest="quoted_on", help="ISO date of the quotation")
     s.add_argument("--valid-until", dest="valid_until")

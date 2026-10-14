@@ -46,5 +46,8 @@ def redact(value, tier: Tier):
     if isinstance(value, dict):
         return {k: redact(v, tier) for k, v in value.items() if k not in PUBLIC_REDACTED_KEYS}
     if isinstance(value, list):
-        return [redact(v, tier) for v in value]
+        # Gap-ledger rows for economics inputs (tariff, horizon, discount rate) are priced content: the
+        # question is part of the paid economics, and its placeholder is a euro figure.
+        return [redact(v, tier) for v in value
+                if not (isinstance(v, dict) and str(v.get("path", "")).startswith("economics."))]
     return value

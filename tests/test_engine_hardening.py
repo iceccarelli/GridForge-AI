@@ -99,11 +99,6 @@ def test_single_phase_busway_is_not_credited_with_the_three_phase_factor():
         load_document(d)
 
 
-def test_a_declared_btm_opex_that_is_not_modelled_is_disclosed():
-    i = load_document(doc("dublin_hall"))
-    assert any("opex was declared but is not applied" in w for w in i.report.warnings)
-
-
 def test_the_study_shows_the_ranking_under_every_objective_it_promises():
     intake = load_document(doc("dublin_hall"))
     results = run_all(intake.context, intake.scenarios)

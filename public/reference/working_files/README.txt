@@ -11,13 +11,17 @@ inputs.csv             every input the model used, flattened, each marked
                        'client' (it came from you) or 'assumed' (nobody
                        supplied it, so we used a defensible default)
 assumed_inputs.csv     the ones nobody supplied, and where to get them
+economics.csv          every capex and annual cost component with its unit and evidence
+                       class, and whether the total is complete and decision-grade
+unpriced_components.csv every cost with no price at all: the totals exclude these and
+                       are therefore lower bounds, never estimates
 provenance.csv         every headline quantity traced back to its inputs
 
 Reading provenance.csv: each row is one quantity with a digest. 'derived_from'
 lists the digests it was computed from, so a number can be walked back to the
 assumptions underneath it. 'evidence' is the honest status of that number:
-E0 assumed, E1 modelled, E2 simulated, E3 estimated, E4 tested, E5 measured at
-site, E6 field-validated, E7 observed in operation. A computed number is never
+E0 assumed, E1 modelled, E2 simulated, E3 estimated, E4 tested, E5 supplied by
+the client (not measured by us), E6 field-validated, E7 observed in operation. A computed number is never
 stronger than the weakest input it came from.
 
 If you find an error in here, tell us. We would rather be corrected than cited.

@@ -285,7 +285,9 @@ def test_halls_whose_bands_overlap_are_not_presented_as_a_settled_order(halls):
     complete = doc("london_hall")
     complete["ups"] = doc("dublin_hall")["ups"]
     r = portfolio_rows([halls["nordic_hall"], entry(complete)], Objective.FASTEST_TO_POWER)
-    assert r[0]["hall"] == "LON-03" and r[0]["rank_note"] == "—", "36 [24-52] weeks vs 160 [80-210]: a settled order"
+    note0 = r[0]["rank_note"]
+    assert r[0]["hall"] == "LON-03" and "overlaps" not in note0 and "ties" not in note0, \
+        "36 [24-52] weeks vs 160 [80-210]: a settled order (any note is about price completeness, not the order)"
 
 
 def test_unequal_completeness_is_visible_next_to_the_rank(halls):

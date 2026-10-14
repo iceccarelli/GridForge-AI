@@ -60,7 +60,7 @@ ZERO_GAIN_NOTE = ("adds no racks on its own: another constraint limits the hall 
 def relief_text(step, *, with_note: bool = True) -> str:
     text = step.relief_description or "no relief available"
     if not step.taken:
-        text += "  — NOT TAKEN: this relief cannot be obtained in the decision horizon"
+        text += "  — NOT TAKEN: " + (step.not_taken_reason or "this relief cannot be obtained in the decision horizon")
     elif with_note and is_zero_gain(step):
         text += "  — " + ZERO_GAIN_NOTE
     return text
@@ -97,3 +97,36 @@ def capex_per_rack_q(result: ScenarioResult, label: str) -> Quantity | None:
         return None
     n = V(float(result.unlocked_racks), "racks", f"{label}: racks enabled", rack_class(result))
     return (capex / n).relabel(label, "economics.capex_per_rack", step_evidence=capex.evidence)
+
+
+_KIND_TEXT = {
+    "per_unit": "unit price x quantity added",
+    "per_rack": "unit price x racks fitted out",
+    "quoted_job_lump": "a quoted price for this job",
+    "fixed_site": "fixed lump, not scaled to size",
+    "client_declared": "the client's own declared figure",
+}
+
+
+def step_basis_text(step) -> str:
+    """How a ladder step was priced, in one line: what it buys, how the price was formed, what it rests on."""
+    from ..costs import BASIS_LABEL
+    if step.cost_key in ("client-supplied", "not-capital"):
+        return "the client's own declared figure" if step.cost_key == "client-supplied" else "not a capital purchase"
+    parts = []
+    if step.scope:
+        parts.append(step.scope)
+    if step.cost_kind:
+        parts.append(_KIND_TEXT.get(step.cost_kind, step.cost_kind))
+    if step.cost_basis:
+        parts.append(BASIS_LABEL.get(step.cost_basis, step.cost_basis.replace("_", " ")))
+    if step.basis_note:
+        parts.append(step.basis_note)
+    if step.unpriced:
+        parts.append("NOT PRICED: " + "; ".join(w for _k, w, _u, _q in step.unpriced))
+    return " · ".join(parts)
+
+
+def economics_limitations(econ, *, include_horizon: bool = False) -> list[str]:
+    """Why the economics are not decision-grade, as sentences; empty when they are."""
+    return [x for x in econ.limitations if include_horizon or not x.startswith("no lifecycle horizon")]

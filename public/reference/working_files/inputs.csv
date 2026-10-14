@@ -7,9 +7,11 @@ btm_options[0].id,BESS-2MW-8MWh,client
 btm_options[0].kind,bess,client
 btm_options[0].lead_time_weeks,30,client
 btm_options[0].permitting_note,No combustion consent required; grid-code compliance and fire separation govern the programme.,client
+btm_options[1].annual_run_hours,5000,client
 btm_options[1].capacity_MW,5.0,client
 btm_options[1].capex_eur_per_kW,800,client
 btm_options[1].firm,True,client
+btm_options[1].fixed_om_eur_per_kW_year,18,client
 btm_options[1].id,GEN-5MW,client
 btm_options[1].kind,gas_engine,client
 btm_options[1].lead_time_weeks,44,client
@@ -18,6 +20,7 @@ btm_options[1].permitting_note,"Emissions consent and fuel supply are the schedu
 compute.default_architecture,hybrid_dlc,client
 compute.platform,gb300_nvl72,client
 compute.utilisation,0.75,client
+economics.horizon_years,10,client
 grid.contracted_MW,12.0,client
 grid.current_it_load_MW,4.9,client
 grid.current_site_peak_MW,7.4,client

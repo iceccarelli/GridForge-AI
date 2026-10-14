@@ -1,5 +1,5 @@
 {
-  "schema": "gridforge/model-pack/1",
+  "schema": "gridforge/model-pack/2",
   "generated": "2026-09-14",
   "project": {
     "client": "Reference Project (synthetic)",
@@ -125,9 +125,14 @@
           "lead_time_weeks": 44,
           "firm": true,
           "opex_eur_per_MWh": 95,
+          "annual_run_hours": 5000,
+          "fixed_om_eur_per_kW_year": 18,
           "permitting_note": "Emissions consent and fuel supply are the schedule risk, not the equipment."
         }
       ],
+      "economics": {
+        "horizon_years": 10
+      },
       "scenarios": [
         "retained_air",
         "rdhx",
@@ -136,11 +141,12 @@
         "full_dlc_btm"
       ]
     },
-    "completeness": 0.923,
+    "completeness": 0.833,
     "can_issue": true,
     "supplied": [
       "compute.platform",
       "compute.utilisation",
+      "economics.horizon_years",
       "grid.contracted_MW",
       "grid.current_it_load_MW",
       "grid.current_site_peak_MW",
@@ -182,11 +188,36 @@
         "assumed": "30 [27\u201332] degC (E0)",
         "why_it_binds": "Whether the plant can hold the water temperature the chips need.",
         "how_to_get_it": "The platform vendor's reference design for the target rack."
+      },
+      {
+        "path": "thermal.rdhx.capacity_kW_per_rack",
+        "label": "Rear-door heat exchanger capacity per rack",
+        "unit": "kW",
+        "required": false,
+        "assumed": "60 [20\u201380] kW (E0)",
+        "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement.",
+        "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow."
+      },
+      {
+        "path": "economics.electricity_eur_per_MWh",
+        "label": "All-in grid electricity price",
+        "unit": "EUR/MWh",
+        "required": false,
+        "assumed": "library placeholder of 140 EUR/MWh (E0)",
+        "why_it_binds": "Every annual energy cost, cost per GPU-hour and lifecycle figure is priced at this. When absent the engine uses a 140 EUR/MWh placeholder (band 90-220).",
+        "how_to_get_it": "The supply contract, or 12 months of invoices divided by metered energy."
+      },
+      {
+        "path": "economics.discount_rate",
+        "label": "Discount rate",
+        "unit": "-",
+        "required": false,
+        "assumed": "none: the lifecycle value is undiscounted",
+        "why_it_binds": "When absent the lifecycle value is stated undiscounted and says so.",
+        "how_to_get_it": "The client's hurdle rate."
       }
     ],
-    "warnings": [
-      "A behind-the-meter opex was declared but is not applied: BTM dispatch is not modelled, so annual energy cost prices all energy at the grid tariff in every scenario."
-    ],
+    "warnings": [],
     "engagement_recommendation": "The intake is complete. This supports a full Capacity & Density Envelope Study with site-specific conclusions."
   },
   "scenarios": [
@@ -246,7 +277,14 @@
             "model": "input@0.1",
             "digest": "7a5fc57ce1e4"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "tapoff.unit",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": "adds no deployable capacity, here or in any later step; not part of the plan and not costed"
         }
       ],
       "time_to_power": {
@@ -276,6 +314,38 @@
           "model": "input@0.1",
           "digest": "fa43210b5cde"
         },
+        "capex_components": {
+          "relief_works_eur": {
+            "value": 0.0,
+            "low": 0.0,
+            "high": 0.0,
+            "unit": "EUR",
+            "evidence": "E1_MODEL",
+            "label": "capex of relief measures taken along the headroom ladder",
+            "model": "input@0.1",
+            "digest": "0bbdb0027436"
+          },
+          "in_hall_conversion_eur": {
+            "value": 0.0,
+            "low": 0.0,
+            "high": 0.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-hall conversion capex",
+            "model": "economics.conversion_capex@0.1",
+            "digest": "31aac42971b6"
+          },
+          "initial_cdu_kit_eur": null,
+          "initial_cdu_kit_scope": null
+        },
+        "capex_complete": true,
+        "unpriced_components": [],
+        "cost_basis_mix": {
+          "library_default": {
+            "lines": 1,
+            "label": "library placeholder (not a price)"
+          }
+        },
         "annual_energy_cost_eur": {
           "value": 0.0,
           "low": 0.0,
@@ -284,7 +354,17 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "a40d0c80d537"
+          "digest": "9fa64c70303b"
+        },
+        "annual_grid_energy_cost_eur": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual grid energy cost",
+          "model": "economics.grid_energy_cost@0.1",
+          "digest": "e4c2ba60d951"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -296,8 +376,30 @@
           "model": "input@0.1",
           "digest": "fe231166c354"
         },
+        "grid_tariff": {
+          "eur_per_MWh": {
+            "value": 140,
+            "low": 90,
+            "high": 220,
+            "unit": "EUR/MWh",
+            "evidence": "E0_ASSUMPTION",
+            "label": "all-in electricity price",
+            "model": "input@0.1",
+            "digest": "ee5beeda32eb"
+          },
+          "declared_by_client": false
+        },
+        "btm_operating_cost": null,
+        "opex_complete": true,
+        "lifecycle": null,
         "critical_path_weeks": 0.0,
-        "basis": "Class 5 (order of magnitude): -50% / +100%"
+        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "decision_grade": false,
+        "limitations": [
+          "1 of 1 priced lines are library placeholders, not prices",
+          "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
+          "no lifecycle horizon was declared, so no lifecycle value is computed"
+        ]
       },
       "constraints": [
         {
@@ -383,14 +485,14 @@
           "relief": {
             "description": "Replace / add transformer capacity (uprate ~60%)",
             "capex_eur": {
-              "value": 1200000,
-              "low": 600000.0,
-              "high": 2400000.0,
+              "value": 1200000.0,
+              "low": 600000.0000000001,
+              "high": 2400000.0000000005,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "transformer and switchgear replacement",
-              "model": "input@0.1",
-              "digest": "b8816fd15315"
+              "label": "transformer and switchgear uprate",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "a9ead11db2b8"
             },
             "lead_time_weeks": {
               "value": 160.0,
@@ -415,14 +517,14 @@
           "relief": {
             "description": "Add UPS modules / new UPS block",
             "capex_eur": {
-              "value": 864000.0,
-              "low": 422400.0,
-              "high": 1817600.0,
+              "value": 768000.0,
+              "low": 384000.0,
+              "high": 1536000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "UPS module addition capex",
-              "model": "power.ups_relief_capex@0.1",
-              "digest": "1423200e04d9"
+              "label": "UPS module addition, installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "c872f896fe0c"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -447,14 +549,14 @@
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
-              "value": 450000,
+              "value": 450000.0,
               "low": 225000.0,
               "high": 900000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "busway replacement for one hall",
-              "model": "input@0.1",
-              "digest": "74129e356449"
+              "label": "busway and tap-off works, per run",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "8bca5c542732"
             },
             "lead_time_weeks": {
               "value": 36,
@@ -479,14 +581,14 @@
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
-              "value": 900000,
+              "value": 900000.0,
               "low": 450000.0,
               "high": 1800000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "669aac56b8b8"
             },
             "lead_time_weeks": {
               "value": 44,
@@ -575,14 +677,14 @@
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
-              "value": 260000,
+              "value": 260000.0,
               "low": 130000.0,
               "high": 520000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "structural works for one hall",
-              "model": "input@0.1",
-              "digest": "df283960afbf"
+              "label": "structural works, per m2 of net white space",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "7105e1a75558"
             },
             "lead_time_weeks": {
               "value": 18,
@@ -705,7 +807,14 @@
             "model": "input@0.1",
             "digest": "7a5fc57ce1e4"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "tapoff.unit",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": "adds no deployable capacity, here or in any later step; not part of the plan and not costed"
         }
       ],
       "time_to_power": {
@@ -735,6 +844,38 @@
           "model": "input@0.1",
           "digest": "fa43210b5cde"
         },
+        "capex_components": {
+          "relief_works_eur": {
+            "value": 0.0,
+            "low": 0.0,
+            "high": 0.0,
+            "unit": "EUR",
+            "evidence": "E1_MODEL",
+            "label": "capex of relief measures taken along the headroom ladder",
+            "model": "input@0.1",
+            "digest": "0bbdb0027436"
+          },
+          "in_hall_conversion_eur": {
+            "value": 0.0,
+            "low": 0.0,
+            "high": 0.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-hall conversion capex",
+            "model": "economics.conversion_capex@0.1",
+            "digest": "31aac42971b6"
+          },
+          "initial_cdu_kit_eur": null,
+          "initial_cdu_kit_scope": null
+        },
+        "capex_complete": true,
+        "unpriced_components": [],
+        "cost_basis_mix": {
+          "library_default": {
+            "lines": 1,
+            "label": "library placeholder (not a price)"
+          }
+        },
         "annual_energy_cost_eur": {
           "value": 0.0,
           "low": 0.0,
@@ -743,7 +884,17 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "1b1d8eff56c7"
+          "digest": "a4b1b00fafbf"
+        },
+        "annual_grid_energy_cost_eur": {
+          "value": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual grid energy cost",
+          "model": "economics.grid_energy_cost@0.1",
+          "digest": "8d67a81dd6ce"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -755,8 +906,30 @@
           "model": "input@0.1",
           "digest": "fe231166c354"
         },
+        "grid_tariff": {
+          "eur_per_MWh": {
+            "value": 140,
+            "low": 90,
+            "high": 220,
+            "unit": "EUR/MWh",
+            "evidence": "E0_ASSUMPTION",
+            "label": "all-in electricity price",
+            "model": "input@0.1",
+            "digest": "ee5beeda32eb"
+          },
+          "declared_by_client": false
+        },
+        "btm_operating_cost": null,
+        "opex_complete": true,
+        "lifecycle": null,
         "critical_path_weeks": 0.0,
-        "basis": "Class 5 (order of magnitude): -50% / +100%"
+        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "decision_grade": false,
+        "limitations": [
+          "1 of 1 priced lines are library placeholders, not prices",
+          "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
+          "no lifecycle horizon was declared, so no lifecycle value is computed"
+        ]
       },
       "constraints": [
         {
@@ -797,7 +970,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "rdhx is practically capable of 60 [20\u201380] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "rdhx is practically capable of 60 [20\u201380] kW (E0) per rack (a library default for the architecture, not a manufacturer's rating or a site measurement); the target platform draws 135 [132\u2013142] kW (E0)",
           "relief": null
         },
         {
@@ -842,14 +1015,14 @@
           "relief": {
             "description": "Replace / add transformer capacity (uprate ~60%)",
             "capex_eur": {
-              "value": 1200000,
-              "low": 600000.0,
-              "high": 2400000.0,
+              "value": 1200000.0,
+              "low": 600000.0000000001,
+              "high": 2400000.0000000005,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "transformer and switchgear replacement",
-              "model": "input@0.1",
-              "digest": "b8816fd15315"
+              "label": "transformer and switchgear uprate",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "a9ead11db2b8"
             },
             "lead_time_weeks": {
               "value": 160.0,
@@ -874,14 +1047,14 @@
           "relief": {
             "description": "Add UPS modules / new UPS block",
             "capex_eur": {
-              "value": 864000.0,
-              "low": 422400.0,
-              "high": 1817600.0,
+              "value": 768000.0,
+              "low": 384000.0,
+              "high": 1536000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "UPS module addition capex",
-              "model": "power.ups_relief_capex@0.1",
-              "digest": "1423200e04d9"
+              "label": "UPS module addition, installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "c872f896fe0c"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -906,14 +1079,14 @@
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
-              "value": 450000,
+              "value": 450000.0,
               "low": 225000.0,
               "high": 900000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "busway replacement for one hall",
-              "model": "input@0.1",
-              "digest": "74129e356449"
+              "label": "busway and tap-off works, per run",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "8bca5c542732"
             },
             "lead_time_weeks": {
               "value": 36,
@@ -938,14 +1111,14 @@
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
-              "value": 900000,
+              "value": 900000.0,
               "low": 450000.0,
               "high": 1800000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "669aac56b8b8"
             },
             "lead_time_weeks": {
               "value": 44,
@@ -1002,14 +1175,14 @@
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
-              "value": 420000,
+              "value": 420000.0,
               "low": 210000.0,
               "high": 840000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "pump and secondary pipework uprate",
-              "model": "input@0.1",
-              "digest": "3171ff0f8a7b"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "5f23ce84b340"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -1066,14 +1239,14 @@
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
-              "value": 260000,
+              "value": 260000.0,
               "low": 130000.0,
               "high": 520000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "structural works for one hall",
-              "model": "input@0.1",
-              "digest": "df283960afbf"
+              "label": "structural works, per m2 of net white space",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "7105e1a75558"
             },
             "lead_time_weeks": {
               "value": 18,
@@ -1187,7 +1360,14 @@
             "model": "input@0.1",
             "digest": "7a5fc57ce1e4"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "tapoff.unit",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 2,
@@ -1218,7 +1398,14 @@
             "model": "input@0.1",
             "digest": "fe48412ff79a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "inrow_rdhx.per_rack",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 3,
@@ -1230,14 +1417,14 @@
           "taken": true,
           "relief": "Replace / add transformer capacity (uprate ~60%)",
           "capex_eur": {
-            "value": 1200000,
-            "low": 600000.0,
-            "high": 2400000.0,
+            "value": 1200000.0,
+            "low": 600000.0000000001,
+            "high": 2400000.0000000005,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "transformer and switchgear replacement",
-            "model": "input@0.1",
-            "digest": "b8816fd15315"
+            "label": "transformer and switchgear uprate",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "a9ead11db2b8"
           },
           "lead_time_weeks": {
             "value": 160.0,
@@ -1249,7 +1436,14 @@
             "model": "input@0.1",
             "digest": "010015f8a59e"
           },
-          "risk": "Lead time, not construction, is usually the schedule driver."
+          "risk": "Lead time, not construction, is usually the schedule driver.",
+          "cost_key": "transformer.replacement",
+          "cost_kind": "per_unit",
+          "scope": "9 MVA added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 4,
@@ -1261,14 +1455,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -1280,7 +1474,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 5,
@@ -1292,14 +1493,14 @@
           "taken": true,
           "relief": "Replace busway with 800-1000 A and new tap-off units",
           "capex_eur": {
-            "value": 450000,
+            "value": 450000.0,
             "low": 225000.0,
             "high": 900000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -1311,7 +1512,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "8 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 6,
@@ -1323,14 +1531,14 @@
           "taken": true,
           "relief": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
           "capex_eur": {
-            "value": 900000,
+            "value": 900000.0,
             "low": 450000.0,
             "high": 1800000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
             "label": "chilled-water plant uprate",
-            "model": "input@0.1",
-            "digest": "df9224a00794"
+            "model": "costs.scaled_relief@0.1",
+            "digest": "669aac56b8b8"
           },
           "lead_time_weeks": {
             "value": 44,
@@ -1342,7 +1550,14 @@
             "model": "input@0.1",
             "digest": "823a7da52136"
           },
-          "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant."
+          "risk": "A dedicated high-temperature loop is usually cheaper to run and should be compared against uprating legacy low-temperature plant.",
+          "cost_key": "plant.uprate",
+          "cost_kind": "per_unit",
+          "scope": "3,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 7,
@@ -1354,14 +1569,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -1373,7 +1588,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 8,
@@ -1385,14 +1620,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -1404,7 +1639,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 9,
@@ -1435,7 +1677,14 @@
             "model": "input@0.1",
             "digest": "47721a918c66"
           },
-          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint.",
+          "cost_key": "grid.reinforcement",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": "One lump placeholder; the MVA a DSO would actually offer is not modelled, so it is not scaled.",
+          "not_taken_reason": "this relief cannot be obtained inside the model's horizon"
         }
       ],
       "time_to_power": {
@@ -1482,24 +1731,98 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 6280000.0,
-          "low": 3119800.0,
-          "high": 12735200.0,
+          "value": 6630000.0,
+          "low": 3313000.0,
+          "high": 13252000.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "07d48b0ef41b"
+          "digest": "2942aa2c020c"
         },
         "capex_per_kW_it": {
-          "value": 1790.0,
-          "low": 845.0162513542796,
-          "high": 3710.7226107226106,
+          "value": 1890.0,
+          "low": 897.3456121343445,
+          "high": 3861.305361305361,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "ae88038c55ff"
+          "digest": "39c2c194dfb5"
+        },
+        "capex_components": {
+          "relief_works_eur": {
+            "value": 4660000.0,
+            "low": 2328000.0,
+            "high": 9312000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "capex of relief measures taken along the headroom ladder",
+            "model": "economics.relief_capex@0.1",
+            "digest": "e5ee3b75efd6"
+          },
+          "in_hall_conversion_eur": {
+            "value": 1430000.0,
+            "low": 715000.0,
+            "high": 2860000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-hall conversion capex",
+            "model": "economics.conversion_capex@0.1",
+            "digest": "31aac42971b6"
+          },
+          "initial_cdu_kit_eur": {
+            "value": 540000.0,
+            "low": 270000.0,
+            "high": 1080000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "initial CDU kit (assumed, not installed): supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "457085eb7b50"
+          },
+          "initial_cdu_kit_scope": "3 CDU unit(s) added"
+        },
+        "capex_complete": false,
+        "unpriced_components": [
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          }
+        ],
+        "cost_basis_mix": {
+          "library_default": {
+            "lines": 8,
+            "label": "library placeholder (not a price)"
+          }
         },
         "annual_energy_cost_eur": {
           "value": 4200000.0,
@@ -1509,7 +1832,17 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "f5f775cde4f8"
+          "digest": "f35d99e09dad"
+        },
+        "annual_grid_energy_cost_eur": {
+          "value": 4200000.0,
+          "low": 2475796.752,
+          "high": 7470983.52,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual grid energy cost",
+          "model": "economics.grid_energy_cost@0.1",
+          "digest": "85a461c1f878"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.256,
@@ -1519,10 +1852,47 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "8e1e0844ef3b"
+          "digest": "3e1397117363"
+        },
+        "grid_tariff": {
+          "eur_per_MWh": {
+            "value": 140,
+            "low": 90,
+            "high": 220,
+            "unit": "EUR/MWh",
+            "evidence": "E0_ASSUMPTION",
+            "label": "all-in electricity price",
+            "model": "input@0.1",
+            "digest": "ee5beeda32eb"
+          },
+          "declared_by_client": false
+        },
+        "btm_operating_cost": null,
+        "opex_complete": true,
+        "lifecycle": {
+          "horizon_years": 10,
+          "discount_rate": null,
+          "cost_eur": {
+            "value": 48600000.0,
+            "low": 28070967.52,
+            "high": 87961835.19999999,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "lifecycle cost over 10 years",
+            "model": "economics.lifecycle_cost@0.1",
+            "digest": "c0c7b3b2c957"
+          },
+          "complete": false,
+          "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
-        "basis": "Class 5 (order of magnitude): -50% / +100%"
+        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "decision_grade": false,
+        "limitations": [
+          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+          "8 of 8 priced lines are library placeholders, not prices",
+          "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff"
+        ]
       },
       "constraints": [
         {
@@ -1599,14 +1969,14 @@
           "relief": {
             "description": "Replace / add transformer capacity (uprate ~60%)",
             "capex_eur": {
-              "value": 1200000,
-              "low": 600000.0,
-              "high": 2400000.0,
+              "value": 1200000.0,
+              "low": 600000.0000000001,
+              "high": 2400000.0000000005,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "transformer and switchgear replacement",
-              "model": "input@0.1",
-              "digest": "b8816fd15315"
+              "label": "transformer and switchgear uprate",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "a9ead11db2b8"
             },
             "lead_time_weeks": {
               "value": 160.0,
@@ -1631,14 +2001,14 @@
           "relief": {
             "description": "Add UPS modules / new UPS block",
             "capex_eur": {
-              "value": 864000.0,
-              "low": 422400.0,
-              "high": 1817600.0,
+              "value": 768000.0,
+              "low": 384000.0,
+              "high": 1536000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "UPS module addition capex",
-              "model": "power.ups_relief_capex@0.1",
-              "digest": "1423200e04d9"
+              "label": "UPS module addition, installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "c872f896fe0c"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -1663,14 +2033,14 @@
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
-              "value": 450000,
+              "value": 450000.0,
               "low": 225000.0,
               "high": 900000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "busway replacement for one hall",
-              "model": "input@0.1",
-              "digest": "74129e356449"
+              "label": "busway and tap-off works, per run",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "8bca5c542732"
             },
             "lead_time_weeks": {
               "value": 36,
@@ -1695,14 +2065,14 @@
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
-              "value": 900000,
+              "value": 900000.0,
               "low": 450000.0,
               "high": 1800000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "669aac56b8b8"
             },
             "lead_time_weeks": {
               "value": 44,
@@ -1727,14 +2097,14 @@
           "relief": {
             "description": "Add CDU capacity (one further unit per bank)",
             "capex_eur": {
-              "value": 180000,
+              "value": 180000.0,
               "low": 90000.0,
               "high": 360000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "additional row CDU, installed",
-              "model": "input@0.1",
-              "digest": "e2a2ad42d89f"
+              "label": "additional CDU: supplied and mechanically installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "053f8a554b8c"
             },
             "lead_time_weeks": {
               "value": 26,
@@ -1791,14 +2161,14 @@
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
-              "value": 420000,
+              "value": 420000.0,
               "low": 210000.0,
               "high": 840000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "pump and secondary pipework uprate",
-              "model": "input@0.1",
-              "digest": "3171ff0f8a7b"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "5f23ce84b340"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -1855,14 +2225,14 @@
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
-              "value": 260000,
+              "value": 260000.0,
               "low": 130000.0,
               "high": 520000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "structural works for one hall",
-              "model": "input@0.1",
-              "digest": "df283960afbf"
+              "label": "structural works, per m2 of net white space",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "7105e1a75558"
             },
             "lead_time_weeks": {
               "value": 18,
@@ -1976,7 +2346,14 @@
             "model": "input@0.1",
             "digest": "7a5fc57ce1e4"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "tapoff.unit",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 2,
@@ -2007,7 +2384,14 @@
             "model": "input@0.1",
             "digest": "fe48412ff79a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "inrow_rdhx.per_rack",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 3,
@@ -2038,7 +2422,14 @@
             "model": "input@0.1",
             "digest": "3141b684dcc2"
           },
-          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets.",
+          "cost_key": "trim_chiller.adiabatic",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size.",
+          "not_taken_reason": null
         },
         {
           "step": 4,
@@ -2050,14 +2441,14 @@
           "taken": true,
           "relief": "Replace / add transformer capacity (uprate ~60%)",
           "capex_eur": {
-            "value": 1200000,
-            "low": 600000.0,
-            "high": 2400000.0,
+            "value": 1200000.0,
+            "low": 600000.0000000001,
+            "high": 2400000.0000000005,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "transformer and switchgear replacement",
-            "model": "input@0.1",
-            "digest": "b8816fd15315"
+            "label": "transformer and switchgear uprate",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "a9ead11db2b8"
           },
           "lead_time_weeks": {
             "value": 160.0,
@@ -2069,7 +2460,14 @@
             "model": "input@0.1",
             "digest": "010015f8a59e"
           },
-          "risk": "Lead time, not construction, is usually the schedule driver."
+          "risk": "Lead time, not construction, is usually the schedule driver.",
+          "cost_key": "transformer.replacement",
+          "cost_kind": "per_unit",
+          "scope": "9 MVA added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 5,
@@ -2081,14 +2479,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -2100,7 +2498,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 6,
@@ -2112,14 +2517,14 @@
           "taken": true,
           "relief": "Replace busway with 800-1000 A and new tap-off units",
           "capex_eur": {
-            "value": 450000,
+            "value": 450000.0,
             "low": 225000.0,
             "high": 900000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -2131,7 +2536,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "8 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 7,
@@ -2143,14 +2555,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -2162,7 +2574,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 8,
@@ -2174,14 +2606,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -2193,7 +2625,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 9,
@@ -2224,7 +2663,14 @@
             "model": "input@0.1",
             "digest": "47721a918c66"
           },
-          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint.",
+          "cost_key": "grid.reinforcement",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": "One lump placeholder; the MVA a DSO would actually offer is not modelled, so it is not scaled.",
+          "not_taken_reason": "this relief cannot be obtained inside the model's horizon"
         }
       ],
       "time_to_power": {
@@ -2261,24 +2707,98 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 5870000.0,
-          "low": 2914800.0,
-          "high": 11915200.0,
+          "value": 6220000.0,
+          "low": 3108000.0,
+          "high": 12432000.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "ccf1b3a39e01"
+          "digest": "c9c2f31d3126"
         },
         "capex_per_kW_it": {
-          "value": 1550.0,
-          "low": 733.0985915492957,
-          "high": 3223.809523809524,
+          "value": 1640.0,
+          "low": 781.6901408450705,
+          "high": 3363.6363636363635,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "21511c84aae9"
+          "digest": "700f5ebffdb0"
+        },
+        "capex_components": {
+          "relief_works_eur": {
+            "value": 4140000.0,
+            "low": 2068000.0,
+            "high": 8272000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "capex of relief measures taken along the headroom ladder",
+            "model": "economics.relief_capex@0.1",
+            "digest": "7243a493138f"
+          },
+          "in_hall_conversion_eur": {
+            "value": 1540000.0,
+            "low": 770000.0,
+            "high": 3080000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-hall conversion capex",
+            "model": "economics.conversion_capex@0.1",
+            "digest": "31aac42971b6"
+          },
+          "initial_cdu_kit_eur": {
+            "value": 540000.0,
+            "low": 270000.0,
+            "high": 1080000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "initial CDU kit (assumed, not installed): supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "457085eb7b50"
+          },
+          "initial_cdu_kit_scope": "3 CDU unit(s) added"
+        },
+        "capex_complete": false,
+        "unpriced_components": [
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          }
+        ],
+        "cost_basis_mix": {
+          "library_default": {
+            "lines": 8,
+            "label": "library placeholder (not a price)"
+          }
         },
         "annual_energy_cost_eur": {
           "value": 4170000.0,
@@ -2288,7 +2808,17 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "ec9363fe2c9c"
+          "digest": "c6e2b66f7cd7"
+        },
+        "annual_grid_energy_cost_eur": {
+          "value": 4170000.0,
+          "low": 2513261.5199999996,
+          "high": 7356045.312000001,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual grid energy cost",
+          "model": "economics.grid_energy_cost@0.1",
+          "digest": "40503427ac6d"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -2298,10 +2828,47 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "45f8b23cee89"
+          "digest": "9f0764431542"
+        },
+        "grid_tariff": {
+          "eur_per_MWh": {
+            "value": 140,
+            "low": 90,
+            "high": 220,
+            "unit": "EUR/MWh",
+            "evidence": "E0_ASSUMPTION",
+            "label": "all-in electricity price",
+            "model": "input@0.1",
+            "digest": "ee5beeda32eb"
+          },
+          "declared_by_client": false
+        },
+        "btm_operating_cost": null,
+        "opex_complete": true,
+        "lifecycle": {
+          "horizon_years": 10,
+          "discount_rate": null,
+          "cost_eur": {
+            "value": 47900000.0,
+            "low": 28240615.199999996,
+            "high": 85992453.12,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "lifecycle cost over 10 years",
+            "model": "economics.lifecycle_cost@0.1",
+            "digest": "a7fe3ba3d2a3"
+          },
+          "complete": false,
+          "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
-        "basis": "Class 5 (order of magnitude): -50% / +100%"
+        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "decision_grade": false,
+        "limitations": [
+          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+          "8 of 8 priced lines are library placeholders, not prices",
+          "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff"
+        ]
       },
       "constraints": [
         {
@@ -2410,14 +2977,14 @@
           "relief": {
             "description": "Replace / add transformer capacity (uprate ~60%)",
             "capex_eur": {
-              "value": 1200000,
-              "low": 600000.0,
-              "high": 2400000.0,
+              "value": 1200000.0,
+              "low": 600000.0000000001,
+              "high": 2400000.0000000005,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "transformer and switchgear replacement",
-              "model": "input@0.1",
-              "digest": "b8816fd15315"
+              "label": "transformer and switchgear uprate",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "a9ead11db2b8"
             },
             "lead_time_weeks": {
               "value": 160.0,
@@ -2442,14 +3009,14 @@
           "relief": {
             "description": "Add UPS modules / new UPS block",
             "capex_eur": {
-              "value": 864000.0,
-              "low": 422400.0,
-              "high": 1817600.0,
+              "value": 768000.0,
+              "low": 384000.0,
+              "high": 1536000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "UPS module addition capex",
-              "model": "power.ups_relief_capex@0.1",
-              "digest": "1423200e04d9"
+              "label": "UPS module addition, installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "c872f896fe0c"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -2474,14 +3041,14 @@
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
-              "value": 450000,
+              "value": 450000.0,
               "low": 225000.0,
               "high": 900000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "busway replacement for one hall",
-              "model": "input@0.1",
-              "digest": "74129e356449"
+              "label": "busway and tap-off works, per run",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "8bca5c542732"
             },
             "lead_time_weeks": {
               "value": 36,
@@ -2506,14 +3073,14 @@
           "relief": {
             "description": "Add CDU capacity (one further unit per bank)",
             "capex_eur": {
-              "value": 180000,
+              "value": 180000.0,
               "low": 90000.0,
               "high": 360000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "additional row CDU, installed",
-              "model": "input@0.1",
-              "digest": "e2a2ad42d89f"
+              "label": "additional CDU: supplied and mechanically installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "053f8a554b8c"
             },
             "lead_time_weeks": {
               "value": 26,
@@ -2570,14 +3137,14 @@
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
-              "value": 420000,
+              "value": 420000.0,
               "low": 210000.0,
               "high": 840000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "pump and secondary pipework uprate",
-              "model": "input@0.1",
-              "digest": "3171ff0f8a7b"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "5f23ce84b340"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -2602,14 +3169,14 @@
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
-              "value": 900000,
+              "value": 900000.0,
               "low": 450000.0,
               "high": 1800000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "669aac56b8b8"
             },
             "lead_time_weeks": {
               "value": 44,
@@ -2666,14 +3233,14 @@
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
-              "value": 260000,
+              "value": 260000.0,
               "low": 130000.0,
               "high": 520000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "structural works for one hall",
-              "model": "input@0.1",
-              "digest": "df283960afbf"
+              "label": "structural works, per m2 of net white space",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "7105e1a75558"
             },
             "lead_time_weeks": {
               "value": 18,
@@ -2755,7 +3322,14 @@
             "model": "input@0.1",
             "digest": "7a5fc57ce1e4"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "tapoff.unit",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 2,
@@ -2786,7 +3360,14 @@
             "model": "input@0.1",
             "digest": "fe48412ff79a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "inrow_rdhx.per_rack",
+          "cost_kind": "per_rack",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 3,
@@ -2817,7 +3398,14 @@
             "model": "input@0.1",
             "digest": "3141b684dcc2"
           },
-          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets."
+          "risk": "Adiabatic assist reintroduces water consumption; check permits and WUE targets.",
+          "cost_key": "trim_chiller.adiabatic",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size.",
+          "not_taken_reason": null
         },
         {
           "step": 4,
@@ -2829,14 +3417,14 @@
           "taken": true,
           "relief": "Replace / add transformer capacity (uprate ~60%)",
           "capex_eur": {
-            "value": 1200000,
-            "low": 600000.0,
-            "high": 2400000.0,
+            "value": 1200000.0,
+            "low": 600000.0000000001,
+            "high": 2400000.0000000005,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "transformer and switchgear replacement",
-            "model": "input@0.1",
-            "digest": "b8816fd15315"
+            "label": "transformer and switchgear uprate",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "a9ead11db2b8"
           },
           "lead_time_weeks": {
             "value": 160.0,
@@ -2848,7 +3436,14 @@
             "model": "input@0.1",
             "digest": "010015f8a59e"
           },
-          "risk": "Lead time, not construction, is usually the schedule driver."
+          "risk": "Lead time, not construction, is usually the schedule driver.",
+          "cost_key": "transformer.replacement",
+          "cost_kind": "per_unit",
+          "scope": "9 MVA added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 5,
@@ -2860,14 +3455,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -2879,7 +3474,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 6,
@@ -2891,14 +3493,14 @@
           "taken": true,
           "relief": "Replace busway with 800-1000 A and new tap-off units",
           "capex_eur": {
-            "value": 450000,
+            "value": 450000.0,
             "low": 225000.0,
             "high": 900000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -2910,7 +3512,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "8 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 7,
@@ -2922,14 +3531,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -2941,7 +3550,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 8,
@@ -2953,14 +3582,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -2972,7 +3601,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 9,
@@ -3003,7 +3639,14 @@
             "model": "input@0.1",
             "digest": "6b920c9df84d"
           },
-          "risk": "No combustion consent required; grid-code compliance and fire separation govern the programme."
+          "risk": "No combustion consent required; grid-code compliance and fire separation govern the programme.",
+          "cost_key": "client-supplied",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "client_supplied",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 10,
@@ -3015,14 +3658,14 @@
           "taken": true,
           "relief": "Add two further busway runs (needs riser and routing space)",
           "capex_eur": {
-            "value": 450000,
-            "low": 225000.0,
-            "high": 900000.0,
+            "value": 112000.0,
+            "low": 56250.0,
+            "high": 225000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -3034,7 +3677,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "2 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 11,
@@ -3046,14 +3696,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -3065,7 +3715,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 12,
@@ -3096,7 +3766,14 @@
             "model": "input@0.1",
             "digest": "481a422b0494"
           },
-          "risk": "Emissions consent and fuel supply are the schedule risk, not the equipment."
+          "risk": "Emissions consent and fuel supply are the schedule risk, not the equipment.",
+          "cost_key": "client-supplied",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "client_supplied",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 13,
@@ -3108,14 +3785,14 @@
           "taken": true,
           "relief": "Add two further busway runs (needs riser and routing space)",
           "capex_eur": {
-            "value": 450000,
-            "low": 225000.0,
-            "high": 900000.0,
+            "value": 112000.0,
+            "low": 56250.0,
+            "high": 225000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -3127,7 +3804,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "2 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 14,
@@ -3139,14 +3823,14 @@
           "taken": true,
           "relief": "Replace / add transformer capacity (uprate ~60%)",
           "capex_eur": {
-            "value": 1200000,
-            "low": 600000.0,
-            "high": 2400000.0,
+            "value": 1920000.0,
+            "low": 960000.0000000002,
+            "high": 3840000.000000001,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "transformer and switchgear replacement",
-            "model": "input@0.1",
-            "digest": "b8816fd15315"
+            "label": "transformer and switchgear uprate",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "a9ead11db2b8"
           },
           "lead_time_weeks": {
             "value": 160.0,
@@ -3158,7 +3842,14 @@
             "model": "input@0.1",
             "digest": "010015f8a59e"
           },
-          "risk": "Lead time, not construction, is usually the schedule driver."
+          "risk": "Lead time, not construction, is usually the schedule driver.",
+          "cost_key": "transformer.replacement",
+          "cost_kind": "per_unit",
+          "scope": "14.4 MVA added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 15,
@@ -3170,14 +3861,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -3189,7 +3880,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 16,
@@ -3201,14 +3899,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -3220,7 +3918,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 17,
@@ -3232,14 +3950,14 @@
           "taken": true,
           "relief": "Add two further busway runs (needs riser and routing space)",
           "capex_eur": {
-            "value": 450000,
-            "low": 225000.0,
-            "high": 900000.0,
+            "value": 112000.0,
+            "low": 56250.0,
+            "high": 225000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -3251,7 +3969,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "2 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 18,
@@ -3263,14 +3988,14 @@
           "taken": true,
           "relief": "Add two further busway runs (needs riser and routing space)",
           "capex_eur": {
-            "value": 450000,
-            "low": 225000.0,
-            "high": 900000.0,
+            "value": 112000.0,
+            "low": 56250.0,
+            "high": 225000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "busway replacement for one hall",
-            "model": "input@0.1",
-            "digest": "74129e356449"
+            "label": "busway and tap-off works, per run",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "8bca5c542732"
           },
           "lead_time_weeks": {
             "value": 36,
@@ -3282,7 +4007,14 @@
             "model": "input@0.1",
             "digest": "74ff17170551"
           },
-          "risk": "Requires hall outage or phased de-tenanting."
+          "risk": "Requires hall outage or phased de-tenanting.",
+          "cost_key": "busway.replacement",
+          "cost_kind": "per_unit",
+          "scope": "2 busway run(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 19,
@@ -3294,14 +4026,14 @@
           "taken": true,
           "relief": "Add CDU capacity (one further unit per bank)",
           "capex_eur": {
-            "value": 180000,
+            "value": 180000.0,
             "low": 90000.0,
             "high": 360000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "additional row CDU, installed",
-            "model": "input@0.1",
-            "digest": "e2a2ad42d89f"
+            "label": "additional CDU: supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "053f8a554b8c"
           },
           "lead_time_weeks": {
             "value": 26,
@@ -3313,7 +4045,27 @@
             "model": "input@0.1",
             "digest": "77ae364db11a"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "cdu.addition",
+          "cost_kind": "per_unit",
+          "scope": "1 CDU unit(s) added",
+          "cost_basis": "library_default",
+          "unpriced_components": [
+            {
+              "key": "cdu.integration",
+              "component": "CDU hydraulic integration and controls",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            },
+            {
+              "key": "cdu.commissioning",
+              "component": "CDU commissioning and flushing",
+              "unit": "EUR/unit",
+              "quantity": 1.0
+            }
+          ],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 20,
@@ -3325,14 +4077,14 @@
           "taken": true,
           "relief": "Add UPS modules / new UPS block",
           "capex_eur": {
-            "value": 864000.0,
-            "low": 422400.0,
-            "high": 1817600.0,
+            "value": 768000.0,
+            "low": 384000.0,
+            "high": 1536000.0,
             "unit": "EUR",
             "evidence": "E0_ASSUMPTION",
-            "label": "UPS module addition capex",
-            "model": "power.ups_relief_capex@0.1",
-            "digest": "1423200e04d9"
+            "label": "UPS module addition, installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "c872f896fe0c"
           },
           "lead_time_weeks": {
             "value": 30,
@@ -3344,7 +4096,14 @@
             "model": "input@0.1",
             "digest": "843c6ad78c29"
           },
-          "risk": ""
+          "risk": "",
+          "cost_key": "ups.per_kW",
+          "cost_kind": "per_unit",
+          "scope": "2,400 kW added",
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": null,
+          "not_taken_reason": null
         },
         {
           "step": 21,
@@ -3375,7 +4134,14 @@
             "model": "input@0.1",
             "digest": "47721a918c66"
           },
-          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint."
+          "risk": "In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint.",
+          "cost_key": "grid.reinforcement",
+          "cost_kind": "fixed_site",
+          "scope": null,
+          "cost_basis": "library_default",
+          "unpriced_components": [],
+          "basis_note": "One lump placeholder; the MVA a DSO would actually offer is not modelled, so it is not scaled.",
+          "not_taken_reason": "this relief cannot be obtained inside the model's horizon"
         }
       ],
       "time_to_power": {
@@ -3467,24 +4233,146 @@
       },
       "economics": {
         "capex_total_eur": {
-          "value": 19300000.0,
-          "low": 9658000.0,
-          "high": 38632000.0,
+          "value": 18800000.0,
+          "low": 9421000.0,
+          "high": 37684000.0,
           "unit": "EUR",
           "evidence": "E0_ASSUMPTION",
           "label": "total capex",
           "model": "economics.total_capex@0.1",
-          "digest": "deb75b48d05b"
+          "digest": "9eed5fbc0658"
         },
         "capex_per_kW_it": {
-          "value": 2310.0,
-          "low": 1097.0013630168105,
-          "high": 4720.430107526881,
+          "value": 2250.0,
+          "low": 1070.0817810086323,
+          "high": 4604.594330400782,
           "unit": "EUR/kW",
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "95e5508f517e"
+          "digest": "13152a4b6cf1"
+        },
+        "capex_components": {
+          "relief_works_eur": {
+            "value": 14900000.0,
+            "low": 7446000.0,
+            "high": 29784000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "capex of relief measures taken along the headroom ladder",
+            "model": "economics.relief_capex@0.1",
+            "digest": "dee1a6789921"
+          },
+          "in_hall_conversion_eur": {
+            "value": 3410000.0,
+            "low": 1705000.0,
+            "high": 6820000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "in-hall conversion capex",
+            "model": "economics.conversion_capex@0.1",
+            "digest": "31aac42971b6"
+          },
+          "initial_cdu_kit_eur": {
+            "value": 540000.0,
+            "low": 270000.0,
+            "high": 1080000.0,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "initial CDU kit (assumed, not installed): supplied and mechanically installed",
+            "model": "costs.scaled_relief@0.1",
+            "digest": "457085eb7b50"
+          },
+          "initial_cdu_kit_scope": "3 CDU unit(s) added"
+        },
+        "capex_complete": false,
+        "unpriced_components": [
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 11: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 11: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 16: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 16: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 19: Add CDU capacity (one further unit per bank)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "step 19: Add CDU capacity (one further unit per bank)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 1.0,
+            "scope": "1 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU hydraulic integration and controls",
+            "key": "cdu.integration",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          },
+          {
+            "where": "initial CDU kit (no CDU schedule was supplied)",
+            "component": "CDU commissioning and flushing",
+            "key": "cdu.commissioning",
+            "unit": "EUR/unit",
+            "quantity": 3.0,
+            "scope": "3 CDU unit(s) added"
+          }
+        ],
+        "cost_basis_mix": {
+          "library_default": {
+            "lines": 8,
+            "label": "library placeholder (not a price)"
+          }
         },
         "annual_energy_cost_eur": {
           "value": 9240000.0,
@@ -3494,7 +4382,17 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "ec9363fe2c9c"
+          "digest": "c6e2b66f7cd7"
+        },
+        "annual_grid_energy_cost_eur": {
+          "value": 9240000.0,
+          "low": 5565079.079999999,
+          "high": 16288386.048000002,
+          "unit": "EUR",
+          "evidence": "E0_ASSUMPTION",
+          "label": "annual grid energy cost",
+          "model": "economics.grid_energy_cost@0.1",
+          "digest": "40503427ac6d"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -3504,10 +4402,80 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "45f8b23cee89"
+          "digest": "9f0764431542"
+        },
+        "grid_tariff": {
+          "eur_per_MWh": {
+            "value": 140,
+            "low": 90,
+            "high": 220,
+            "unit": "EUR/MWh",
+            "evidence": "E0_ASSUMPTION",
+            "label": "all-in electricity price",
+            "model": "input@0.1",
+            "digest": "ee5beeda32eb"
+          },
+          "declared_by_client": false
+        },
+        "btm_operating_cost": {
+          "applied": false,
+          "missing": [
+            "BESS-2MW-8MWh: annual_run_hours not declared",
+            "BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency)",
+            "BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it)",
+            "BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere)"
+          ],
+          "options": [
+            {
+              "id": "BESS-2MW-8MWh",
+              "kind": "bess",
+              "capacity_MW": 2.0,
+              "missing": [
+                "BESS-2MW-8MWh: annual_run_hours not declared",
+                "BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency)",
+                "BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it)",
+                "BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere)"
+              ]
+            },
+            {
+              "id": "GEN-5MW",
+              "kind": "gas_engine",
+              "capacity_MW": 5.0,
+              "missing": []
+            }
+          ],
+          "generated_MWh": null,
+          "used_on_site_MWh": null,
+          "variable_eur_per_year": null,
+          "fixed_eur_per_year": null,
+          "generation_above_site_demand_is_not_valued": false
+        },
+        "opex_complete": false,
+        "lifecycle": {
+          "horizon_years": 10,
+          "discount_rate": null,
+          "cost_eur": {
+            "value": 111000000.0,
+            "low": 65071790.79999999,
+            "high": 200567860.48000002,
+            "unit": "EUR",
+            "evidence": "E0_ASSUMPTION",
+            "label": "lifecycle cost over 10 years",
+            "model": "economics.lifecycle_cost@0.1",
+            "digest": "099a6a050f4a"
+          },
+          "complete": false,
+          "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
-        "basis": "Class 5 (order of magnitude): -50% / +100%"
+        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "decision_grade": false,
+        "limitations": [
+          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places)",
+          "8 of 8 priced lines are library placeholders, not prices",
+          "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
+          "installed behind-the-meter generation has no usable operating cost: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The energy cost prices all energy at the grid tariff"
+        ]
       },
       "constraints": [
         {
@@ -3616,14 +4584,14 @@
           "relief": {
             "description": "Replace / add transformer capacity (uprate ~60%)",
             "capex_eur": {
-              "value": 1200000,
-              "low": 600000.0,
-              "high": 2400000.0,
+              "value": 1200000.0,
+              "low": 600000.0000000001,
+              "high": 2400000.0000000005,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "transformer and switchgear replacement",
-              "model": "input@0.1",
-              "digest": "b8816fd15315"
+              "label": "transformer and switchgear uprate",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "a9ead11db2b8"
             },
             "lead_time_weeks": {
               "value": 160.0,
@@ -3648,14 +4616,14 @@
           "relief": {
             "description": "Add UPS modules / new UPS block",
             "capex_eur": {
-              "value": 864000.0,
-              "low": 422400.0,
-              "high": 1817600.0,
+              "value": 768000.0,
+              "low": 384000.0,
+              "high": 1536000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "UPS module addition capex",
-              "model": "power.ups_relief_capex@0.1",
-              "digest": "1423200e04d9"
+              "label": "UPS module addition, installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "c872f896fe0c"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -3680,14 +4648,14 @@
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
-              "value": 450000,
+              "value": 450000.0,
               "low": 225000.0,
               "high": 900000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "busway replacement for one hall",
-              "model": "input@0.1",
-              "digest": "74129e356449"
+              "label": "busway and tap-off works, per run",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "8bca5c542732"
             },
             "lead_time_weeks": {
               "value": 36,
@@ -3712,14 +4680,14 @@
           "relief": {
             "description": "Add CDU capacity (one further unit per bank)",
             "capex_eur": {
-              "value": 180000,
+              "value": 180000.0,
               "low": 90000.0,
               "high": 360000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "additional row CDU, installed",
-              "model": "input@0.1",
-              "digest": "e2a2ad42d89f"
+              "label": "additional CDU: supplied and mechanically installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "053f8a554b8c"
             },
             "lead_time_weeks": {
               "value": 26,
@@ -3776,14 +4744,14 @@
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
-              "value": 420000,
+              "value": 420000.0,
               "low": 210000.0,
               "high": 840000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "pump and secondary pipework uprate",
-              "model": "input@0.1",
-              "digest": "3171ff0f8a7b"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "5f23ce84b340"
             },
             "lead_time_weeks": {
               "value": 30,
@@ -3808,14 +4776,14 @@
           "relief": {
             "description": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             "capex_eur": {
-              "value": 900000,
+              "value": 900000.0,
               "low": 450000.0,
               "high": 1800000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
               "label": "chilled-water plant uprate",
-              "model": "input@0.1",
-              "digest": "df9224a00794"
+              "model": "costs.scaled_relief@0.1",
+              "digest": "669aac56b8b8"
             },
             "lead_time_weeks": {
               "value": 44,
@@ -3872,14 +4840,14 @@
           "relief": {
             "description": "Load spreading / remove raised floor and deploy on slab",
             "capex_eur": {
-              "value": 260000,
+              "value": 260000.0,
               "low": 130000.0,
               "high": 520000.0,
               "unit": "EUR",
               "evidence": "E0_ASSUMPTION",
-              "label": "structural works for one hall",
-              "model": "input@0.1",
-              "digest": "df283960afbf"
+              "label": "structural works, per m2 of net white space",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "7105e1a75558"
             },
             "lead_time_weeks": {
               "value": 18,

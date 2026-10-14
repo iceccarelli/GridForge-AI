@@ -35,8 +35,10 @@ def test_reference_intake_supplies_every_required_input_and_names_what_it_defaul
     assert intake.report.can_issue and not intake.report.required_gaps
     # Two optional inputs fall back to library values, and the ledger must say so rather than
     # report 100%: with no CDU schedule the liquid scenarios assume a free 3 x 1,350 kW N+1 kit.
-    assert sorted(g.path for g in intake.report.gaps) == ["thermal.cdus", "thermal.tcs_target_supply_C"]
-    assert 0.9 < intake.report.completeness < 1.0
+    assert sorted(g.path for g in intake.report.gaps) == [
+        "economics.discount_rate", "economics.electricity_eur_per_MWh", "thermal.cdus",
+        "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
+    assert 0.8 < intake.report.completeness < 1.0
 
 
 def test_thin_intake_is_flagged_and_priced_as_a_screen():

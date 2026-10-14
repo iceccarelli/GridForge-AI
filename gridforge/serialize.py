@@ -19,7 +19,7 @@ from .intake.loader import Intake
 from .scenario.run import ScenarioResult
 from .validation import Quantity
 
-SCHEMA_VERSION = "gridforge/model-pack/1"
+SCHEMA_VERSION = "gridforge/model-pack/2"
 
 
 def _q(q: Quantity | None) -> dict | None:
@@ -43,6 +43,45 @@ def _constraint(c) -> dict:
             }}
 
 
+def economics_dict(res: ScenarioResult) -> dict:
+    """The economics of one scenario as data: every total, what it is made of, what is missing, and whether it is
+    decision-grade. One function, so the model pack, the API and the reports cannot tell different stories."""
+    from .costs import BASIS_LABEL
+    e = res.economics
+    btm = e.btm
+    return {
+        "capex_total_eur": _q(e.capex_total_eur),
+        "capex_per_kW_it": _q(e.capex_eur_per_kW_it),
+        "capex_components": {
+            "relief_works_eur": _q(e.capex_relief_eur),
+            "in_hall_conversion_eur": _q(e.capex_conversion_eur),
+            "initial_cdu_kit_eur": _q(e.capex_cdu_kit_eur),
+            "initial_cdu_kit_scope": e.cdu_kit_scope or None,
+        },
+        "capex_complete": e.capex_complete,
+        "unpriced_components": [dict(u) for u in e.unpriced],
+        "cost_basis_mix": {k: {"lines": v, "label": BASIS_LABEL.get(k, k)}
+                           for k, v in sorted((e.cost_basis_mix or {}).items())},
+        "annual_energy_cost_eur": _q(e.annual_energy_cost_eur),
+        "annual_grid_energy_cost_eur": _q(e.annual_grid_energy_cost_eur),
+        "energy_cost_per_gpu_hour_eur": _q(e.energy_cost_per_gpu_hour_eur),
+        "grid_tariff": {"eur_per_MWh": _q(e.tariff_eur_per_MWh), "declared_by_client": e.tariff_declared},
+        "btm_operating_cost": None if btm is None else {
+            "applied": btm.applied, "missing": list(btm.missing), "options": btm.options,
+            "generated_MWh": _q(btm.generated_MWh), "used_on_site_MWh": _q(btm.used_MWh),
+            "variable_eur_per_year": _q(btm.variable_eur), "fixed_eur_per_year": _q(btm.fixed_eur),
+            "generation_above_site_demand_is_not_valued": btm.curtailed},
+        "opex_complete": e.opex_complete,
+        "lifecycle": None if e.horizon_years is None else {
+            "horizon_years": e.horizon_years, "discount_rate": e.discount_rate,
+            "cost_eur": _q(e.lifecycle_cost_eur), "complete": e.lifecycle_complete, "basis": e.lifecycle_basis},
+        "critical_path_weeks": e.critical_path_weeks,
+        "basis": e.aace_class,
+        "decision_grade": e.decision_grade,
+        "limitations": e.limitations,
+    }
+
+
 def scenario_dict(res: ScenarioResult) -> dict:
     t = schedule(res.ladder)
     return {
@@ -64,19 +103,18 @@ def scenario_dict(res: ScenarioResult) -> dict:
                     "racks_after": s.racks_after, "taken": s.taken,
                     "relief": s.relief_description,
                     "capex_eur": _q(s.capex_eur), "lead_time_weeks": _q(s.lead_time_weeks),
-                    "risk": s.risk}
+                    "risk": s.risk, "cost_key": s.cost_key, "cost_kind": s.cost_kind or None,
+                    "scope": s.scope or None, "cost_basis": s.cost_basis or None,
+                    "unpriced_components": [{"key": k, "component": w, "unit": u, "quantity": q}
+                                            for k, w, u, q in s.unpriced],
+                    "basis_note": s.basis_note or None, "not_taken_reason": s.not_taken_reason or None}
                    for s in res.ladder.steps],
         "time_to_power": {"weeks_to_first_rack": t.weeks_to_first_rack,
                           "weeks_to_full": t.weeks_to_full,
                           "sets_the_date": t.critical_item,
                           "curve": [{"weeks": p.weeks, "racks": p.racks,
                                      "unlocked_by": p.unlocked_by} for p in t.points]},
-        "economics": {"capex_total_eur": _q(res.economics.capex_total_eur),
-                      "capex_per_kW_it": _q(res.economics.capex_eur_per_kW_it),
-                      "annual_energy_cost_eur": _q(res.economics.annual_energy_cost_eur),
-                      "energy_cost_per_gpu_hour_eur": _q(res.economics.energy_cost_per_gpu_hour_eur),
-                      "critical_path_weeks": res.economics.critical_path_weeks,
-                      "basis": res.economics.aace_class},
+        "economics": economics_dict(res),
         "constraints": [_constraint(c) for c in res.envelope.sorted_constraints()],
     }
 
@@ -164,12 +202,46 @@ def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
             *_q_cells(final.it_load_kW),
             *_q_cells(r.economics.capex_total_eur),
             r.economics.aace_class,
+            r.economics.capex_complete, r.economics.opex_complete, r.economics.decision_grade,
         ])
     out["scenarios.csv"] = _csv(
         ["scenario_id", "scenario", "architecture", "racks_as_found", "racks_after_ladder",
          "binds_first_id", "binds_first", "gpus", "weeks_to_full", "sets_the_date",
          *[f"it_load_kW.{h}" for h in _Q_HEAD], *[f"capex_eur.{h}" for h in _Q_HEAD],
-         "accuracy_class"], rows)
+         "accuracy_class", "capex_complete", "opex_complete", "decision_grade"], rows)
+
+    # The economics, component by component, each with its unit and evidence class, so a client's analyst can
+    # re-add the total, and every missing component named on its own row.
+    rows, miss = [], []
+    for r in results:
+        e = r.economics
+        lines = [("capex: in-hall conversion", e.capex_conversion_eur),
+                 ("capex: relief works along the ladder", e.capex_relief_eur),
+                 ("capex: initial CDU kit (assumed, not installed)", e.capex_cdu_kit_eur),
+                 ("capex: total", e.capex_total_eur),
+                 ("annual: grid energy cost", e.annual_grid_energy_cost_eur),
+                 ("annual: BTM variable operating cost", e.btm.variable_eur if e.btm else None),
+                 ("annual: BTM fixed O&M", e.btm.fixed_eur if e.btm else None),
+                 ("annual: total energy cost", e.annual_energy_cost_eur),
+                 (f"lifecycle over {e.horizon_years} years" if e.horizon_years else "lifecycle (no horizon declared)",
+                  e.lifecycle_cost_eur)]
+        for name, q in lines:
+            if q is None:
+                continue
+            rows.append([r.spec.id, name, *_q_cells(q)])
+        rows.append([r.spec.id, "capex complete", e.capex_complete, "", "", "", "", "", ""])
+        rows.append([r.spec.id, "operating cost complete", e.opex_complete, "", "", "", "", "", ""])
+        rows.append([r.spec.id, "decision grade", e.decision_grade, "", "", "", "", "", ""])
+        for u in e.unpriced:
+            miss.append([r.spec.id, u["where"], u["component"], u["key"], u["unit"], u["scope"],
+                         "no library price: the capex total excludes this component"])
+        if e.btm is not None and not e.btm.applied:
+            for m in e.btm.missing:
+                miss.append([r.spec.id, "behind-the-meter operating cost", m, "", "", "",
+                             "not applied: the energy cost prices all energy at the grid tariff"])
+    out["economics.csv"] = _csv(["scenario_id", "item", *_Q_HEAD], rows)
+    out["unpriced_components.csv"] = _csv(
+        ["scenario_id", "where", "missing", "library_key", "unit", "scope", "consequence"], miss)
 
     rows = []
     for r in results:
@@ -178,11 +250,14 @@ def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
                 r.spec.id, st.step, st.binding_id, st.binding_name, st.domain,
                 st.racks_before, st.racks_after, st.taken,
                 st.relief_description or "", st.cost_key or "", st.risk or "",
+                st.cost_kind, st.scope, st.cost_basis,
+                "; ".join(w for _k, w, _u, _q in st.unpriced), st.not_taken_reason,
                 *_q_cells(st.capex_eur), *_q_cells(st.lead_time_weeks),
             ])
     out["headroom_ladder.csv"] = _csv(
         ["scenario_id", "step", "constraint_id", "constraint", "domain", "racks_before",
          "racks_after", "relief_taken", "relief", "cost_library_key", "risk",
+         "cost_kind", "scope", "cost_basis", "unpriced_components", "not_taken_reason",
          *[f"capex.{h}" for h in _Q_HEAD], *[f"lead_time_weeks.{h}" for h in _Q_HEAD]], rows)
 
     rows = []
@@ -249,12 +324,16 @@ def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
         "                       'client' (it came from you) or 'assumed' (nobody\n"
         "                       supplied it, so we used a defensible default)\n"
         "assumed_inputs.csv     the ones nobody supplied, and where to get them\n"
+        "economics.csv          every capex and annual cost component with its unit and evidence\n"
+        "                       class, and whether the total is complete and decision-grade\n"
+        "unpriced_components.csv every cost with no price at all: the totals exclude these and\n"
+        "                       are therefore lower bounds, never estimates\n"
         "provenance.csv         every headline quantity traced back to its inputs\n\n"
         "Reading provenance.csv: each row is one quantity with a digest. 'derived_from'\n"
         "lists the digests it was computed from, so a number can be walked back to the\n"
         "assumptions underneath it. 'evidence' is the honest status of that number:\n"
-        "E0 assumed, E1 modelled, E2 simulated, E3 estimated, E4 tested, E5 measured at\n"
-        "site, E6 field-validated, E7 observed in operation. A computed number is never\n"
+        "E0 assumed, E1 modelled, E2 simulated, E3 estimated, E4 tested, E5 supplied by\n"
+        "the client (not measured by us), E6 field-validated, E7 observed in operation. A computed number is never\n"
         "stronger than the weakest input it came from.\n\n"
         "If you find an error in here, tell us. We would rather be corrected than cited.\n"
     )

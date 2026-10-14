@@ -147,7 +147,9 @@ def rank_notes(ordered: list[SiteEntry], objective: Objective) -> list[str]:
         elif _metric(e, objective) is None:
             notes[i].append("a relief on the path has no lead time, so no date is given; ranked after halls with one")
         if e.racks > 0 and not e.best.economics.capex_complete:
-            notes[i].append("a relief on the path is unpriced; capex is a lower bound")
+            gone = [g["component"] for g in e.best.economics.unpriced_summary()]
+            notes[i].append("capex is a lower bound; unpriced: "
+                            + ("; ".join(gone) if gone else "a relief on the path"))
     for i in range(len(ordered) - 1):
         a, b = _metric(ordered[i], objective), _metric(ordered[i + 1], objective)
         if a is None or b is None:
@@ -196,6 +198,8 @@ def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MA
             "schedule_complete": e.schedule_complete,
             "capex_eur": c.value, "capex_band_eur": list(c.band), "capex_evidence": c.evidence.name,
             "capex_complete": e.best.economics.capex_complete,
+            "decision_grade": e.best.economics.decision_grade,
+            "economics_limitations": e.best.economics.limitations,
             "capex_per_rack_eur": None if cpr is None else cpr.value,
             "capex_per_rack_band_eur": None if cpr is None else list(cpr.band),
             "binds_first": e.best.envelope.binding.name,

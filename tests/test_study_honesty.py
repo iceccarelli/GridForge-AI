@@ -154,7 +154,8 @@ def test_the_headline_capex_reconciles_to_the_ladder_and_says_how(tmp_path):
     md = study(tmp_path)
     _, _, rec = solved()
     e = rec.economics
-    assert abs(e.capex_relief_eur.value + e.capex_conversion_eur.value - e.capex_total_eur.value) < 1.0
+    kit = e.capex_cdu_kit_eur.value if e.capex_cdu_kit_eur is not None else 0.0
+    assert abs(e.capex_relief_eur.value + e.capex_conversion_eur.value + kit - e.capex_total_eur.value) < 1.0
     s9 = sec(md, 9)
     assert "How the recommended capex is built" in s9
     for label in ("Relief works along the headroom ladder", "In-hall conversion of the", "Total (the headline capex)"):

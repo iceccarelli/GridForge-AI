@@ -207,6 +207,8 @@ export default async function ReferencePage() {
                 "working_files/provenance.csv",
                 "working_files/assumed_inputs.csv",
                 "working_files/inputs.csv",
+                "working_files/economics.csv",
+                "working_files/unpriced_components.csv",
                 "model_pack.json",
               ].map((f) => (
                 <a
