@@ -24,6 +24,18 @@ from .validation import Quantity
 
 
 @dataclass
+class EconomicsInput:
+    """Economic inputs the CLIENT may declare. Absent means absent: nothing here has a hidden default."""
+    #: Contracted or expected all-in grid electricity price. None -> the engine's labelled placeholder is used
+    #: and the gap ledger says so.
+    electricity_eur_per_MWh: Quantity | None = None
+    #: Years over which a lifecycle cost is stated. None -> no lifecycle value is computed (never a made-up horizon).
+    horizon_years: int | None = None
+    #: Annual discount rate for the lifecycle value. None -> the lifecycle value is stated UNDISCOUNTED, and says so.
+    discount_rate: Quantity | None = None
+
+
+@dataclass
 class EnvelopeContext:
     site: SiteSpec
     hall: HallSpec
@@ -33,6 +45,7 @@ class EnvelopeContext:
     architecture: Architecture
     pue: Quantity
     capex_budget_eur: Quantity | None = None
+    economics: EconomicsInput = field(default_factory=EconomicsInput)
 
     def copy(self) -> "EnvelopeContext":
         return copy.deepcopy(self)
@@ -52,6 +65,20 @@ class ReliefOption:
     cost_key: str | None = None
     per_rack: bool = False        # capex quoted per rack rather than as a lump sum
     customer_funded: bool = True  # capital rule: we never fund physical deployment
+    #: How the price was formed: "fixed_site" (one cost for the site, not scaled by size),
+    #: "per_unit" (unit price x what this step adds), "quoted_job_lump" (a supplier's price for this job),
+    #: "per_rack" (unit price x racks finally fitted out), "client_declared" (the intake's own figure).
+    cost_kind: str = "fixed_site"
+    #: What this step buys, in the unit it is priced in ("9 MVA added"). Empty for a fixed-site lump.
+    scope: str = ""
+    #: Cost components the library has no price for. The capex above is then a lower bound, and the step is
+    #: reported as incompletely priced rather than as a smaller number. Each: (library key, what it is, unit, quantity it would apply to).
+    unpriced: tuple[tuple[str, str, str, float], ...] = ()
+    #: A caveat about the basis that must travel with the price (e.g. a lump that does not scale with size).
+    basis_note: str = ""
+    #: Further library lines this price includes (priced components), so the basis mix and the weakest-evidence
+    #: class cover every line the total rests on, not only ``cost_key``.
+    extra_cost_keys: tuple[str, ...] = ()
 
 
 @dataclass

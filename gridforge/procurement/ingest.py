@@ -12,11 +12,11 @@ frequently NDA'd; they go to the private library, same rule as everywhere else.
 """
 from __future__ import annotations
 
-from ..costs import COST_EVIDENCE
+from ..costs import CAPACITY_SCALED_KEYS, COST_EVIDENCE
 from .schema import ProcurementError, SpecPackage, SupplierResponse
 
 
-def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float) -> tuple[str, float]:
+def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float, key: str = "") -> tuple[str, float]:
     """Convert a supplier's delivered price onto the basis the library holds.
 
     A supplier quotes one number for the job. The library holds `tapoff.unit` per
@@ -30,6 +30,11 @@ def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float) -> tuple[str
     face.
     """
     u = (unit or "EUR").strip()
+    if key in CAPACITY_SCALED_KEYS:
+        # The engine prices these per unit of capacity ADDED, which a supplier's package does not state.
+        # A quotation is the price of this job: record it as a EUR lump, which the engine uses as it stands
+        # and never rescales to some other quantity.
+        return "EUR", round(lump_sum, 2)
     if u.endswith("/rack"):
         if pkg.sized_for_racks <= 0:
             raise ProcurementError(
@@ -55,9 +60,9 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
     if basis not in COST_EVIDENCE:
         raise ProcurementError(
             f"unknown basis {basis!r}. One of: {', '.join(sorted(COST_EVIDENCE))}")
-    if basis in ("library_default", "published_benchmark"):
+    if basis in ("library_default", "published_benchmark", "engineering_estimate"):
         raise ProcurementError(
-            "a supplier response is a quotation, not a benchmark. Use budgetary_quote, "
+            "a supplier response is a quotation, not a benchmark or an estimate. Use budgetary_quote, "
             "firm_quote or contracted.")
 
     out: list[dict] = []
@@ -67,7 +72,7 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
         value = response.get(f.key)
         if value is None:
             continue
-        unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value)
+        unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value, f.cost_key)
         out.append({
             "key": f.cost_key,
             "label": f"{pkg.relief_title} ({response.supplier})",

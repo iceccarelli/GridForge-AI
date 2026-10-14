@@ -71,6 +71,15 @@ class GenerationOption:
     #: lets `btm.bess_firm_factor_for_duration()` replace that flat guess with a
     #: real power-vs-energy calculation against a stated ride-through duration.
     energy_MWh: Quantity | None = None
+    # --- operating economics (all optional; a missing one is reported, never invented) ---------------------
+    #: Equivalent full-load hours per year at rated output. Energy generated = capacity x this.
+    annual_run_hours: Quantity | None = None
+    #: Price of the fuel per MWh of FUEL energy. Used with ``electrical_efficiency``. Mutually exclusive with
+    #: ``opex_eur_per_MWh``, which is an all-in variable cost per MWh generated and already contains the fuel.
+    fuel_price_eur_per_MWh: Quantity | None = None
+    electrical_efficiency: Quantity | None = None        # fraction, > 0 and <= 1
+    variable_om_eur_per_MWh: Quantity | None = None      # used with the fuel route; not additive to opex_eur_per_MWh
+    fixed_om_eur_per_kW_year: Quantity | None = None     # maintenance, staffing, insurance per kW per year
 
 
 @dataclass

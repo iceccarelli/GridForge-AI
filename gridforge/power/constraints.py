@@ -9,12 +9,15 @@ from __future__ import annotations
 import math
 
 from ..common import ASSUMED, ESTIMATED, V
-from ..costs import cost
+from ..costs import cost, scaled_cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from ..validation import Quantity
 from .btm import installed_firm_kW, next_option, option_capex
 
 SQRT3 = math.sqrt(3.0)
+
+#: Transformer relief: every bank is uprated by this factor (a screening assumption, not a product rating).
+TRANSFORMER_UPRATE = 1.6
 
 
 def _effective_units(units: int, redundancy: str) -> int:
@@ -88,6 +91,7 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                            note="Placeholder until a DSO connection offer is obtained. In most "
                                 "FLAP-D metros this option is unavailable at any price before 2030."),
             cost_key="grid.reinforcement",
+            basis_note="One lump placeholder; the MVA a DSO would actually offer is not modelled, so it is not scaled.",
             lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
                               assumptions=["Frankfurt: no new large connections before 2030; "
                                            "Amsterdam queue ~10 years"]),
@@ -129,14 +133,19 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
         for tr in c.power.transformers:
-            tr.unit_rating_MVA = tr.unit_rating_MVA * V(1.6, "1", "uprated transformer factor", ASSUMED)
+            tr.unit_rating_MVA = tr.unit_rating_MVA * V(TRANSFORMER_UPRATE, "1", "uprated transformer factor", ASSUMED)
         return c
 
+    # What is bought is nameplate MVA: every bank is uprated, so the price follows the MVA added.
+    added_MVA = sum(t.units * t.unit_rating_MVA.value for t in ctx.power.transformers) * (TRANSFORMER_UPRATE - 1.0)
+    price = scaled_cost(
+        "transformer.replacement", 1_200_000 / 9.0, "EUR/MVA", added_MVA, "MVA",
+        "transformer and switchgear uprate",
+        note="Placeholder re-expressed per MVA from the earlier 1.2 MEUR lump at the reference hall's 9 MVA "
+             "added (3 x 5 MVA, +60%). Not a market price. Excludes civils and outage management.")
     relief = ReliefOption(
         description="Replace / add transformer capacity (uprate ~60%)",
-        capex_eur=cost("transformer.replacement", 1_200_000, "EUR",
-                       "transformer and switchgear replacement",
-                       note="Excludes civils and outage management."),
+        capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
         cost_key="transformer.replacement",
         lead_time_weeks=lead if lead is not None else V(160, "weeks", "power transformer lead time", ASSUMED,
                                                         band=(80, 210),
@@ -172,16 +181,17 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             u.units += 2
         return c
 
+    # The relief adds two modules to every block; the price follows the nameplate kW actually added.
+    added_kW = sum(2 * u.unit_rating_kW.value for u in ctx.power.ups)
+    price = scaled_cost("ups.per_kW", 320, "EUR/kW", added_kW, "kW", "UPS module addition, installed",
+                        note="Placeholder per nameplate kW of UPS added.")
     return ConstraintResult(
         "ups_capacity", "electrical", "UPS capacity (protected load)",
         floor_racks(racks),
         basis=f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy",
         relief=ReliefOption(
             description="Add UPS modules / new UPS block",
-            capex_eur=(cost("ups.per_kW", 320, "EUR/kW", "UPS capacity, installed") *
-                       ctx.cluster.platform.rack_kW *
-                       V(20.0, "1", "20-rack capacity increment", ASSUMED)).relabel(
-                           "UPS module addition capex", "power.ups_relief_capex"),
+            capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
             cost_key="ups.per_kW",
             lead_time_weeks=V(30, "weeks", "UPS lead time", ASSUMED, band=(20, 52)),
             apply=_apply,
@@ -214,6 +224,14 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
             c.power.lv.busway_runs += 2
         return c
 
+    # Replacing the busway renews every run; once the ampacity is modern the relief adds two runs. Either way
+    # the price follows the runs the step actually buys.
+    runs_bought = lv.busway_runs if lv.busway_ampacity_A.value < 1000 else 2
+    bw_price = scaled_cost(
+        "busway.replacement", 450_000 / 8.0, "EUR/run", float(runs_bought), "run",
+        "busway and tap-off works, per run", scope_unit="busway run(s)",
+        note="Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. "
+             "Not a market price.")
     return ConstraintResult(
         "busway_ampacity", "electrical", "Busway ampacity",
         floor_racks(racks),
@@ -223,8 +241,7 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else
                          "Add two further busway runs (needs riser and routing space)"),
-            capex_eur=cost("busway.replacement", 450_000, "EUR",
-                           "busway replacement for one hall"),
+            capex_eur=bw_price.capex, cost_kind=bw_price.kind, scope=bw_price.scope,
             cost_key="busway.replacement",
             lead_time_weeks=V(36, "weeks", "busway and tap-off lead time", ASSUMED, band=(24, 52),
                               assumptions=["Tap-off units are a reported shortage item"]),

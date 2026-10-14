@@ -34,13 +34,16 @@ class CDUSpec:
     rated_flow_l_per_min: Quantity
     units: int
     redundancy: str = "N+1"
+    #: False for a CDU the engine ASSUMES so that a liquid scenario can be solved when the client supplied no CDU
+    #: schedule. It is not in the hall; it has to be bought, and the economics must say so.
+    installed: bool = True
 
 
 @dataclass
 class RDHxSpec:
     id: str
     capacity_kW_per_rack: Quantity
-    requires_water_supply_C: Quantity
+    requires_water_supply_C: Quantity | None = None
 
 
 @dataclass

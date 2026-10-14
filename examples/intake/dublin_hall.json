@@ -93,9 +93,16 @@
       "lead_time_weeks": 56,
       "firm": true,
       "opex_eur_per_MWh": 110,
+      "annual_run_hours": 6000,
+      "fixed_om_eur_per_kW_year": 18,
       "permitting_note": "CRU policy requires dispatchable generation at 100% of demand, separately connected and metered at 10 MVA or above."
     }
   ],
+  "economics": {
+    "electricity_eur_per_MWh": {"value": 125, "note": "Illustrative value in a synthetic example; not a tariff."},
+    "horizon_years": 10,
+    "discount_rate": 0.08
+  },
   "scenarios": [
     "retained_air",
     "rdhx",

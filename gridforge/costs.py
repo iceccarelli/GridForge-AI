@@ -15,10 +15,14 @@ cannot be rebuilt from anything public, and it compounds with every engagement.
 Cost evidence maps onto the same ladder as everything else:
 
     library_default      E0  a placeholder; a band, not a price
-    published_benchmark  E1  a public figure, correctly attributed
+    published_benchmark  E1  a public figure, correctly attributed (source, date, region, unit)
+    engineering_estimate E3  our own reasoned estimate with its basis written down (private library)
     budgetary_quote      E3  a supplier's indicative number, reviewed
     firm_quote           E5  a written quotation with a validity date
     contracted           E7  what was actually paid on a delivered project
+
+A price that is not in the library is not zero and not free: where a component has no price at all,
+the relief says so (``unpriced``) and every total that includes it is a lower bound.
 """
 from __future__ import annotations
 
@@ -29,7 +33,7 @@ from datetime import date
 from pathlib import Path
 
 from .clock import report_date, report_date_iso
-from .common import V
+from .common import ESTIMATED, V
 from .validation import EvidenceClass, Quantity, Source
 
 # Two files, and the distinction matters commercially and legally.
@@ -48,6 +52,25 @@ PRIVATE_FILENAME = "cost_library.local.json"
 PUBLISHABLE_BASES = frozenset({"library_default", "published_benchmark"})
 
 
+#: What each basis is, in the words a report uses.
+BASIS_LABEL: dict[str, str] = {
+    "library_default": "library placeholder (not a price)",
+    "published_benchmark": "published benchmark",
+    "engineering_estimate": "engineering estimate",
+    "budgetary_quote": "budgetary supplier quote",
+    "firm_quote": "firm supplier quote",
+    "contracted": "contracted / paid cost",
+}
+
+#: Library lines that are priced per unit of capacity ADDED by the relief. A supplier quotes the job, not
+#: the unit, so a quotation for one of these is recorded as a lump in EUR and used as-is (it is not
+#: scaled), and procurement ingest must not divide it by an unrelated quantity.
+CAPACITY_SCALED_KEYS = frozenset({
+    "transformer.replacement", "plant.uprate", "pump.uprate", "busway.replacement",
+    "floor.load_spreading", "cdu.addition",
+})
+
+
 def private_path() -> Path:
     env = os.environ.get("GRIDFORGE_COST_LIBRARY")
     return Path(env) if env else Path.cwd() / PRIVATE_FILENAME
@@ -55,6 +78,7 @@ def private_path() -> Path:
 COST_EVIDENCE: dict[str, EvidenceClass] = {
     "library_default": EvidenceClass.E0_ASSUMPTION,
     "published_benchmark": EvidenceClass.E1_MODEL,
+    "engineering_estimate": EvidenceClass.E3_ENGINEERING_ESTIMATE,
     "budgetary_quote": EvidenceClass.E3_ENGINEERING_ESTIMATE,
     "firm_quote": EvidenceClass.E5_CUSTOMER_DATA,
     "contracted": EvidenceClass.E7_DEPLOYED,
@@ -118,6 +142,19 @@ class CostEntry:
         import math
         if not (isinstance(self.value, (int, float)) and math.isfinite(self.value)):
             raise ValueError(f"cost entry {self.key!r} has a non-numeric or non-finite value")
+        if self.basis not in COST_EVIDENCE:
+            raise ValueError(f"cost entry {self.key!r}: unknown basis {self.basis!r}; "
+                             f"one of {', '.join(sorted(COST_EVIDENCE))}")
+        if self.basis == "published_benchmark":
+            missing = [n for n, v in (("source", self.source), ("quoted_on", self.quoted_on),
+                                      ("region", self.region)) if not v]
+            if missing:
+                raise ValueError(
+                    f"cost entry {self.key!r}: a published benchmark must be traceable; missing "
+                    f"{', '.join(missing)}. A figure that cannot name its source, date and geography "
+                    f"is a placeholder.")
+        if self.basis == "engineering_estimate" and not (self.note or "").strip():
+            raise ValueError(f"cost entry {self.key!r}: an engineering estimate must state its basis in `note`")
         if self.value < 0 or (self.value == 0 and self.basis != "library_default"):
             raise ValueError(
                 f"cost entry {self.key!r}: a {self.basis} price of {self.value:g} is not a price. "
@@ -258,9 +295,119 @@ DECLARED_UNITS: dict[str, str] = {}
 
 
 def declared_unit(key: str, fallback: str = "EUR") -> str:
+    """The unit a QUOTATION for this line should be entered in. Capacity-scaled lines are priced per unit of
+    capacity added by the engine, but a supplier prices the job, so a quote for them is a EUR lump."""
+    if key in CAPACITY_SCALED_KEYS:
+        return "EUR"
     return DECLARED_UNITS.get(key, fallback)
 
 
 def cost(key: str, fallback_value: float, unit: str, label: str,
          note: str | None = None) -> Quantity:
     return library().lookup(key, fallback_value, unit, label, note)
+
+
+# --- pricing a relief by what it actually buys ---------------------------------------------------------------------
+@dataclass(frozen=True)
+class ScaledPrice:
+    """A relief price together with the basis it rests on, so a report can say what was bought and how it was priced."""
+    capex: Quantity
+    kind: str          # "per_unit" | "quoted_job_lump" | "fixed_site"
+    scope: str         # what the step buys, in the unit the price is expressed in
+    basis: str         # the library basis of the line used
+
+
+def basis_of(key: str | None) -> str:
+    """The basis a priced line rests on: a library basis, 'library_default' when the library has no entry,
+    or a sentinel for client-supplied and non-capital reliefs."""
+    if not key:
+        return "library_default"
+    if "." not in key:
+        return key.replace("-", "_")                  # client-supplied / not-capital
+    e = library().entries.get(key)
+    return e.basis if e is not None else "library_default"
+
+
+def basis_label(key: str | None) -> str:
+    b = basis_of(key)
+    base = BASIS_LABEL.get(b, b.replace("_", " "))
+    e = library().entries.get(key) if key and "." in key else None
+    return base + (" (expired)" if e is not None and e.stale else "")
+
+
+def component_cost(key: str, unit: str, label: str, quantity: float, quantity_unit: str) -> Quantity | None:
+    """The library's price for ``quantity`` of a component, or None when the library has NO line for it.
+
+    Unlike cost(), there is no placeholder: a component nobody has priced is reported as unpriced rather than
+    filled with a number, because a made-up figure turns a missing cost into a confident total. A line held
+    per unit is multiplied by the quantity; a line held as a EUR lump is the price of this job as it stands."""
+    DECLARED_UNITS.setdefault(key, unit)
+    e = library().entries.get(key)
+    if e is None:
+        return None
+    if e.unit == "EUR":
+        return e.quantity().relabel(label + " (job lump as quoted)", "costs.component")
+    if e.unit != unit:
+        raise ValueError(f"cost line {key!r} is held in {e.unit!r}; this component is priced in {unit!r} or as a EUR lump")
+    return (e.quantity() * V(float(quantity), quantity_unit, f"{quantity_unit} of {label}", ESTIMATED)).relabel(
+        label, "costs.component")
+
+
+def scaled_cost(key: str, placeholder_per_unit: float, unit: str, quantity: float, quantity_unit: str,
+                label: str, *, note: str | None = None, scope_unit: str | None = None) -> ScaledPrice:
+    """Price an intervention by the capacity it actually adds.
+
+    * a library line held per unit (``unit``) is multiplied by the quantity added;
+    * a library line held as a lump in EUR is a supplier's price for THIS job and is used as it stands;
+    * with no library line, the placeholder per unit is multiplied by the quantity added.
+
+    A zero quantity is a zero-cost step only because nothing was bought; it is never a free purchase of
+    something, and the caller should not have taken the step at all.
+    """
+    import math
+    if not (math.isfinite(quantity) and quantity >= 0):
+        raise ValueError(f"{key}: quantity added must be a finite number, zero or more (got {quantity!r})")
+    DECLARED_UNITS.setdefault(key, unit)
+    e = library().entries.get(key)
+    scope = f"{quantity:,.4g} {scope_unit or quantity_unit} added"
+    if e is not None and e.unit == "EUR":
+        q = e.quantity().relabel(label + " (job lump as quoted)", "costs.job_lump")
+        return ScaledPrice(q, "quoted_job_lump", scope + "; priced as one quoted job, not scaled", e.basis)
+    if e is not None and e.unit != unit:
+        raise ValueError(f"cost line {key!r} is held in {e.unit!r}; the engine prices it in {unit!r} or as a EUR lump")
+    unit_price = library().lookup(key, placeholder_per_unit, unit, label, note)
+    q = (unit_price * V(float(quantity), quantity_unit, f"{quantity_unit} added by this relief", ESTIMATED)).relabel(
+        label, "costs.scaled_relief")
+    return ScaledPrice(q, "per_unit", scope, e.basis if e is not None else "library_default")
+
+
+# --- the CDU: priced completely, or reported as incomplete ---------------------------------------------------------
+#: Components of a CDU purchase beyond supply and mechanical installation. The library placeholder for a CDU
+#: covers the unit supplied and mechanically installed ONLY; these are priced when the library has a line and
+#: reported as unpriced when it does not. (key, what it is)
+CDU_COMPONENTS = (
+    ("cdu.integration", "CDU hydraulic integration and controls"),
+    ("cdu.commissioning", "CDU commissioning and flushing"),
+)
+
+
+def cdu_cost(units: int, label: str):
+    """Price ``units`` CDUs completely or say what is missing. Returns (capex, kind, scope, unpriced, extra_keys).
+
+    The one place a CDU is priced, shared by the ladder relief and the initial kit, so the same unit is never
+    priced twice or priced two ways."""
+    sp = scaled_cost("cdu.addition", 180_000, "EUR/unit", float(units), "unit",
+                     f"{label}: supplied and mechanically installed", scope_unit="CDU unit(s)",
+                     note="Placeholder covering the unit supplied and mechanically installed only. Hydraulic "
+                          "integration, controls and commissioning are separate components.")
+    capex, unpriced, extra = sp.capex, [], []
+    for key, what in CDU_COMPONENTS:
+        q = component_cost(key, "EUR/unit", f"{label}: {what}", float(units), "unit")
+        if q is None:
+            unpriced.append((key, what, "EUR/unit", float(units)))
+        else:
+            capex = capex + q
+            extra.append(key)
+    return capex, sp.kind, sp.scope, tuple(unpriced), tuple(extra)
+
+

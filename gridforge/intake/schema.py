@@ -119,6 +119,22 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
               why_it_binds="Scales energy cost and PUE-weighted operating figures.",
               how_to_get_it="The tenant's committed load profile."),
+    FieldSpec("thermal.rdhx.capacity_kW_per_rack", "Rear-door heat exchanger capacity per rack", "kW", False,
+              why_it_binds=("Decides whether the rear-door scenario can host the target rack at all. When absent the "
+                            "engine uses a library default of 60 kW per rack (band 20-80), which is neither a "
+                            "manufacturer's rating nor a site measurement."),
+              how_to_get_it="The selected rear-door unit's datasheet at the site's water temperature and airflow."),
+    FieldSpec("economics.electricity_eur_per_MWh", "All-in grid electricity price", "EUR/MWh", False,
+              why_it_binds=("Every annual energy cost, cost per GPU-hour and lifecycle figure is priced at this. "
+                            "When absent the engine uses a 140 EUR/MWh placeholder (band 90-220)."),
+              how_to_get_it="The supply contract, or 12 months of invoices divided by metered energy."),
+    FieldSpec("economics.horizon_years", "Lifecycle horizon", "years", False,
+              why_it_binds=("A lifecycle cost needs a horizon. When absent NO lifecycle value is computed; the "
+                            "annual operating cost is still stated."),
+              how_to_get_it="The investment committee's evaluation period."),
+    FieldSpec("economics.discount_rate", "Discount rate", "-", False,
+              why_it_binds="When absent the lifecycle value is stated undiscounted and says so.",
+              how_to_get_it="The client's hurdle rate."),
     FieldSpec("compute.platform", "Target platform", "-", True,
               why_it_binds="Defines rack power, heat split, flow and mass.",
               how_to_get_it="The tenant's actual order, not a press release."),

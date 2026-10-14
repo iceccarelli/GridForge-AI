@@ -15,14 +15,14 @@ from typing import Any
 from ..common import ASSUMED, CUSTOMER, ESTIMATED, V
 from ..compute.library import PLATFORMS, get_platform
 from ..compute.schema import ClusterSpec
-from ..constraints import EnvelopeContext
+from ..constraints import EconomicsInput, EnvelopeContext
 from ..power.schema import (GenerationOption, GridConnection, LVDistribution, PowerInput,
                             TransformerBank, UPSBlock)
 from ..scenario.schema import ScenarioSpec
 from ..site.schema import FloorType, HallSpec, SiteSpec
 from ..thermal.library import (CDU_L2L_APPROACH_K, PUE_BY_ARCHITECTURE,
                                RESIDUAL_AIR_CAPACITY_LEGACY_kW, TCS_SUPPLY_DESIGN_C)
-from ..thermal.schema import Architecture, CDUSpec, PlantSpec, ThermalInput
+from ..thermal.schema import Architecture, CDUSpec, PlantSpec, RDHxSpec, ThermalInput
 from ..validation import EvidenceClass, Quantity, Source
 from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport
 
@@ -88,6 +88,16 @@ def _redundancy(raw: Any, what: str) -> str:
     if r not in _REDUNDANCY:
         raise IntakeError(f"{what} redundancy {raw!r} is not one of N, N+1, N+2 or 2N")
     return str(raw)
+
+
+def _opt(o: dict, key: str, unit: str, evidence, *, band: float, high: float | None = None):
+    """An optional non-negative declared number on a list item, or None. Never defaulted."""
+    if o.get(key) is None:
+        return None
+    v = _pos(o[key], key)
+    if high is not None and v > high:
+        raise IntakeError(f"{key} is {v:g}; it cannot exceed {high:g}")
+    return V(v, unit, f"{o.get('id', 'BTM')} {key}", evidence, band=band)
 
 
 def _pos(raw: Any, what: str) -> float:
@@ -206,6 +216,9 @@ class Intake:
 
 _ARCH_BY_NAME = {a.value: a for a in Architecture}
 
+#: Input sanity bound for a rear-door heat exchanger's per-rack rating (catches W-for-kW slips); not a product claim.
+RDHX_MAX_CREDIBLE_kW = 200.0
+
 
 def _strip_btm(c: EnvelopeContext) -> EnvelopeContext:
     c = c.copy()
@@ -222,7 +235,7 @@ def _install_cdus(c: EnvelopeContext) -> EnvelopeContext:
         rated_capacity_kW=V(1350, "kW", "assumed row CDU rated capacity", ASSUMED, band=0.1),
         rated_approach_K=V(5, "K", "assumed CDU rated approach", ASSUMED),
         rated_flow_l_per_min=V(2000, "l/min", "assumed CDU rated flow", ASSUMED),
-        units=3, redundancy="N+1")]
+        units=3, redundancy="N+1", installed=False)]
     return c
 
 
@@ -385,7 +398,25 @@ def _load_document(doc: dict) -> Intake:
             energy_MWh=(V(_pos(o["energy_MWh"], 'energy_MWh'), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
                           band=0.15)
                        if o.get("energy_MWh") is not None else None),
+            annual_run_hours=_opt(o, "annual_run_hours", "h", ASSUMED, band=0.15, high=8760.0),
+            fuel_price_eur_per_MWh=_opt(o, "fuel_price_eur_per_MWh", "EUR/MWh_fuel", ASSUMED, band=0.4),
+            electrical_efficiency=(V(_frac(o["electrical_efficiency"], "BTM electrical_efficiency"), "1",
+                                     f"{o.get('id','BTM')} electrical efficiency", ASSUMED, band=0.1)
+                                   if o.get("electrical_efficiency") is not None else None),
+            variable_om_eur_per_MWh=_opt(o, "variable_om_eur_per_MWh", "EUR/MWh", ASSUMED, band=0.4),
+            fixed_om_eur_per_kW_year=_opt(o, "fixed_om_eur_per_kW_year", "EUR/kW/yr", ASSUMED, band=0.4),
         )
+        if opt.opex_eur_per_MWh is not None and (
+                opt.fuel_price_eur_per_MWh is not None or opt.electrical_efficiency is not None
+                or opt.variable_om_eur_per_MWh is not None):
+            raise IntakeError(
+                f"BTM option {opt.id}: opex_eur_per_MWh is an all-in variable cost per MWh generated and already "
+                f"contains fuel and variable O&M. Declare EITHER opex_eur_per_MWh OR fuel_price_eur_per_MWh with "
+                f"electrical_efficiency (and variable_om_eur_per_MWh), not both: the fuel would be counted twice.")
+        if (opt.fuel_price_eur_per_MWh is None) != (opt.electrical_efficiency is None):
+            raise IntakeError(
+                f"BTM option {opt.id}: fuel_price_eur_per_MWh and electrical_efficiency are only meaningful "
+                f"together (fuel cost per MWh generated = price / efficiency).")
         # A BESS option with both an energy rating and a declared ride-through
         # requirement gets the real power-vs-energy firm factor computed from
         # gridforge.power.storage, replacing btm.DEFAULT_FIRM_FACTOR's flat 0.50
@@ -495,18 +526,60 @@ def _load_document(doc: dict) -> Intake:
         raise IntakeError(f"unknown default_architecture {arch_name!r}. "
                           f"Available: {', '.join(sorted(_ARCH_BY_NAME))}")
     arch = _ARCH_BY_NAME[arch_name]
+    # Rear-door heat-exchanger capacity per rack. Absent -> thermal.rdhx stays None and the engine uses a
+    # labelled library default (never a manufacturer's rating); the gap ledger records the fallback.
+    rdhx_path = "thermal.rdhx.capacity_kW_per_rack"
+    if _dig(doc, rdhx_path) is not None:
+        cap = r.q(rdhx_path, "kW", "rear-door heat exchanger capacity per rack")
+        if not 0 < cap.value <= RDHX_MAX_CREDIBLE_kW:
+            raise IntakeError(
+                f"{rdhx_path} is {cap.value:g} kW; a rear-door heat exchanger is modelled between 0 and "
+                f"{RDHX_MAX_CREDIBLE_kW:g} kW per rack. Check the unit (W versus kW).")
+        thermal.rdhx = RDHxSpec(id="RDHX", capacity_kW_per_rack=cap)
+    else:
+        from ..thermal.library import ARCH_RACK_CAPABILITY_kW
+        r._gap(rdhx_path, FIELD_BY_PATH.get(rdhx_path), ARCH_RACK_CAPABILITY_kW[Architecture.RDHX])
+
+    econ = EconomicsInput()
+    tariff_path = "economics.electricity_eur_per_MWh"
+    if _dig(doc, tariff_path) is not None:
+        econ.electricity_eur_per_MWh = r.q(tariff_path, "EUR/MWh", "grid electricity price")
+        if econ.electricity_eur_per_MWh.value <= 0:
+            raise IntakeError(f"{tariff_path} must be above zero")
+    else:
+        r._gap(tariff_path, FIELD_BY_PATH.get(tariff_path), None, "library placeholder of 140 EUR/MWh (E0)")
+    horizon = _dig(doc, "economics.horizon_years")
+    if isinstance(horizon, dict) and "value" in horizon:
+        horizon = horizon["value"]
+    if horizon is None:
+        r._gap("economics.horizon_years", FIELD_BY_PATH.get("economics.horizon_years"), None,
+               "none: no lifecycle value is computed")
+    else:
+        r.report.supplied.append("economics.horizon_years")
+        n = _int(horizon, "economics.horizon_years")
+        if not 1 <= n <= 50:
+            raise IntakeError("economics.horizon_years must be between 1 and 50")
+        econ.horizon_years = n
+    rate = _dig(doc, "economics.discount_rate")
+    if isinstance(rate, dict) and "value" in rate:
+        rate = rate["value"]
+    if rate is None:
+        r._gap("economics.discount_rate", FIELD_BY_PATH.get("economics.discount_rate"), None,
+               "none: the lifecycle value is undiscounted")
+    else:
+        r.report.supplied.append("economics.discount_rate")
+        rv = _num(rate, "economics.discount_rate")
+        if not 0 <= rv < 0.5:
+            raise IntakeError("economics.discount_rate must be a fraction from 0 up to (not including) 0.5")
+        econ.discount_rate = V(rv, "1", "annual discount rate", CUSTOMER)
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
-                          architecture=arch, pue=PUE_BY_ARCHITECTURE[arch])
+                          architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
     if not transformers:
         report.warnings.append("No transformer schedule supplied: transformer capacity is not "
                                "evaluated and may be the true binding constraint.")
     if not ups:
         report.warnings.append("No UPS schedule supplied: the load is treated as unprotected.")
-    if any(o.opex_eur_per_MWh is not None for o in options):
-        report.warnings.append(
-            "A behind-the-meter opex was declared but is not applied: BTM dispatch is not modelled, so "
-            "annual energy cost prices all energy at the grid tariff in every scenario.")
     if not options:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
