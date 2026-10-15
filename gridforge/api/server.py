@@ -273,6 +273,40 @@ def handle_screen(body: dict, tier: Tier) -> dict:
     return screen_payload(intake, results, _objective(body), tier=tier)
 
 
+def handle_compare(body: dict, tier: Tier) -> dict:
+    """Time-to-Power scenario comparison over the scenarios an intake defines. One solve (``_run``), no second model:
+    the numbers are the ones /v1/screen reports, laid side by side with only the dates the lead times support."""
+    from .compare_payload import CompareError, compare_payload, select
+    doc = body.get("intake")
+    if not isinstance(doc, dict):
+        raise ApiError(422, 'expected {"intake": {...}, "scenarios": [...], "objective": "..."}')
+    ids = body.get("scenarios")
+    if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, str) for i in ids)):
+        raise ApiError(422, "scenarios must be a list of scenario ids")
+    baseline = body.get("baseline")
+    if baseline is not None and not isinstance(baseline, str):
+        raise ApiError(422, "baseline must be a scenario id")
+    objective = _objective(body)
+    intake, results = _run(doc)
+    try:
+        if ids and "full_dlc_btm" in ids and not intake.context.power.options:
+            raise CompareError("full_dlc_btm compares behind-the-meter supply, and this intake declares none",
+                               hint="declare btm_options (kind, capacity_MW, lead_time_weeks, capex_eur_per_kW)")
+        chosen = select(results, ids)
+        if not ids and "full_dlc_btm" in [r.spec.id for r in chosen] and not intake.context.power.options:
+            chosen = [r for r in chosen if r.spec.id != "full_dlc_btm"]
+            notes = ["full_dlc_btm is not compared: the intake declares no behind-the-meter options."]
+        else:
+            notes = []
+        out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
+    except CompareError as exc:
+        raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
+    out["project"] = intake.project
+    out["intake_completeness"] = round(intake.report.completeness, 3)
+    out["provenance"] = provenance(VERSION)
+    return out
+
+
 def handle_study(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     fmt = str(body.get("format") or "json").lower()
@@ -669,6 +703,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
 ROUTES = {
     "/v1/qualify": (handle_qualify, Tier.PUBLIC),
     "/v1/screen": (handle_screen, Tier.CLIENT),
+    "/v1/compare": (handle_compare, Tier.CLIENT),
     "/v1/study": (handle_study, Tier.CLIENT),
     "/v1/portfolio": (handle_portfolio, Tier.CLIENT),
     "/v1/proposal": (handle_proposal, Tier.CLIENT),

@@ -37,7 +37,7 @@ _INTAKE_SCHEMA = {
 
 _OBJECTIVE = {
     "type": "string",
-    "enum": ["max_compute", "min_capex_per_rack", "fastest_to_power"],
+    "enum": ["max_compute", "min_cost", "fastest"],
     "default": "max_compute",
     "description": "What the recommendation optimises for.",
 }
@@ -96,6 +96,25 @@ TOOLS: list[dict] = [
                                    "default": "json"}},
          "additionalProperties": False},
         returns="screen payload, or the rendered screening document.",
+    ),
+    _tool(
+        "gridforge_compare",
+        ("Time-to-Power scenario comparison. A full intake in; the scenarios it defines out, side by side: racks "
+         "as found and after relief, the constraint that binds, the date to full capacity with its low/high "
+         "band and evidence class, capital and what is unpriced, and how each differs from the baseline. "
+         "A scenario with an unknown lead time gets no date and a reason, never a small number; nothing is "
+         "ranked on a figure it does not have. Same solve as gridforge_screen, same inputs, same numbers."),
+        "/v1/compare",
+        {"type": "object", "required": ["intake"],
+         "properties": {"intake": _INTAKE_SCHEMA, "objective": _OBJECTIVE,
+                        "scenarios": {"type": "array", "items": {"type": "string"}, "minItems": 2,
+                                      "description": "Scenario ids to compare, from the intake's own set "
+                                                     "(retained_air, rdhx, hybrid_dlc, full_dlc, full_dlc_btm). "
+                                                     "Default: all the intake defines."},
+                        "baseline": {"type": "string",
+                                     "description": "Scenario id the others are compared with. Default: the first."}},
+         "additionalProperties": False},
+        returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, request_digest, provenance.",
     ),
     _tool(
         "gridforge_study",

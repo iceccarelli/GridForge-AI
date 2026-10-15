@@ -280,6 +280,34 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     production_status: "live",
   },
   {
+    capability_id: "ttp_compare",
+    family: "free_tier",
+    name: "Time-to-Power Scenario Comparison",
+    description:
+      "One hall's cooling and supply scenarios side by side: racks as found and after relief, the binding " +
+      "constraint, the date to full capacity with its band and evidence class, capital and what is unpriced. " +
+      "A scenario with an unknown lead time gets no date; nothing is ranked on a figure it does not have.",
+    engine_capability: "gridforge/api/compare_payload.py:compare_payload",
+    rest_endpoint: "/v1/compare",
+    mcp_tool: "gridforge_compare",
+    cli_command: "gridforge compare",
+    web_route: "/power/compare",
+    workspace_action: null,
+    database_record: null,
+    entitlement:
+      "REST/MCP: gated by API key + unit metering (1 unit, the same single solve as /v1/screen). Web " +
+      "(/power/compare): no entitlement gate and no checkout -- there is no product to buy; the site calls the " +
+      "engine with its own platform key and persists nothing.",
+    stripe_product_or_price: "none",
+    deliverable: "JSON comparison (gridforge/ttp-compare/1) with request digest and engine provenance",
+    status: "free",
+    production_status: "not_deployed",
+    notes:
+      "Not persisted to a project: saving a comparison to the project record needs a new link/event type and a " +
+      "migration, which this slice deliberately does not add. Accepted supplier cost evidence is not yet applied " +
+      "to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only.",
+  },
+  {
     capability_id: "btm_deploy_assess",
     family: "btm",
     name: "BTM Power Deployment Assessment",

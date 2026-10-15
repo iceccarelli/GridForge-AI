@@ -70,6 +70,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
     heading: "How it works",
     links: [
       { href: "#technology", label: "How it works", hash: true },
+      { href: "/power/compare", label: "Time-to-Power comparison" },
       { href: "/constraints", label: "Constraints" },
       { href: "/platforms", label: "Platforms" },
       { href: "/reference", label: "Reference" },
