@@ -248,3 +248,57 @@ def test_the_cli_refuses_what_the_api_refuses(tmp_path):
     p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(EX / "dublin_hall.json"),
                         "-o", str(tmp_path), "--scenarios", "rdhx"], capture_output=True, text=True)
     assert p.returncode == 2 and "at least two" in p.stderr
+
+
+def test_a_baseline_that_deploys_nothing_gives_no_capex_delta_from_nothing():
+    """retained_air deploys 0 racks at EUR 0: a priced scenario is not 'EUR x more' than that."""
+    out = compare(DUBLIN)
+    base = row(out, out["baseline"])
+    assert base["after_ladder"]["racks"] == 0
+    for r in out["scenarios"]:
+        if r["id"] == out["baseline"]:
+            continue
+        d = r["vs_baseline"]
+        assert d["capex_delta_eur"] is None
+        assert "no racks" in d["capex_delta_unknown_reason"]
+
+
+def test_a_scenario_without_a_date_is_never_graded_above_indicative():
+    out = compare(DUBLIN)
+    assert row(out, "retained_air")["grade"] == "undated"
+    intake = load_document(DUBLIN)
+    results = run_all(intake.context, intake.scenarios)
+    res = next(r for r in results if r.spec.id == "full_dlc")
+    broken = copy.deepcopy(res)
+    broken.ladder.taken_steps[0].lead_time_weeks = None
+    other = next(r for r in results if r.spec.id == "hybrid_dlc")
+    p = compare_payload(DUBLIN, [other, broken], objective=Objective.MAX_COMPUTE, baseline=None)
+    assert row(p, "full_dlc")["grade"] == "undated"
+    assert p["grade"] == "indicative"           # one relief with no lead time keeps the whole comparison indicative
+
+
+def test_a_fastest_ranking_says_when_the_capacities_differ():
+    out = compare(DUBLIN, objective="fastest")
+    rk = out["ranking"]
+    assert len({rk["racks"][i] for i in rk["order"]}) > 1
+    assert "different numbers of racks" in rk["note"] and "not more capacity" in rk["note"]
+    assert "different numbers of racks" not in (compare(DUBLIN, objective="max_compute")["ranking"]["note"] or "")
+
+
+def test_an_empty_scenario_list_is_refused_not_read_as_all():
+    with pytest.raises(ApiError) as e:
+        compare(DUBLIN, scenarios=[])
+    assert e.value.status == 422 and "empty list" in e.value.message
+
+
+def test_the_cli_reproduces_the_request_file_the_site_offers(tmp_path):
+    request = {"intake": DUBLIN, "objective": "fastest", "scenarios": ["hybrid_dlc", "full_dlc"]}
+    f = tmp_path / "request.json"
+    f.write_text(json.dumps(request))
+    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(f), "-o", str(tmp_path / "o")],
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    written = json.loads((tmp_path / "o" / "ttp_compare.json").read_text())
+    direct = handle_compare(request, Tier.CLIENT)
+    assert written["request_digest"] == direct["request_digest"]
+    assert [r["id"] for r in written["scenarios"]] == ["hybrid_dlc", "full_dlc"] and written["objective"] == "fastest"

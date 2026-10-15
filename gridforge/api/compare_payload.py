@@ -86,6 +86,15 @@ def _date(res: ScenarioResult) -> dict:
             "first_rack_weeks": t.weeks_to_first_rack, "sets_the_date": t.critical_item, "reason": None}
 
 
+def _grade(status: str, weakest, has_missing_lead_time: bool) -> str:
+    """How far a scenario's date can be leaned on. A scenario with no date is 'undated', never graded up; a date
+    resting on an assumed lead time (E0) is 'indicative'; only a dated scenario whose every lead time is above an
+    assumption is 'screening'."""
+    if status != "dated" or has_missing_lead_time:
+        return "undated"
+    return "indicative" if weakest is None or weakest <= EvidenceClass.E0_ASSUMPTION else "screening"
+
+
 def _scenario(res: ScenarioResult) -> dict:
     date = _date(res)
     taken = res.ladder.taken_steps
@@ -117,7 +126,7 @@ def _scenario(res: ScenarioResult) -> dict:
                       "cost_basis_mix": econ["cost_basis_mix"], "decision_grade": econ["decision_grade"],
                       "basis": econ["basis"], "limitations": econ["limitations"]},
         "weakest_lead_time_evidence": _cls(weakest.name) if weakest is not None else None,
-        "grade": ("indicative" if weakest is None or weakest <= EvidenceClass.E0_ASSUMPTION else "screening"),
+        "grade": _grade(date["status"], weakest, any(s.lead_time_weeks is None for s in taken)),
         "missing_inputs": missing,
     }
 
@@ -127,8 +136,11 @@ def _vs(base: dict, s: dict) -> dict:
     bd, sd = base["time_to_power"], s["time_to_power"]
     weeks = None if bd["weeks"] is None or sd["weeks"] is None else round(sd["weeks"] - bd["weeks"], 1)
     be, se = base["economics"], s["economics"]
-    capex = None
-    if be["capex_complete"] and se["capex_complete"] and be["capex_total_eur"] and se["capex_total_eur"]:
+    capex, capex_why = None, "capex is incomplete in one of the two"
+    if base["after_ladder"]["racks"] <= 0 or s["after_ladder"]["racks"] <= 0:
+        capex_why = ("the baseline deploys no racks, so there is nothing to price a difference against"
+                     if base["after_ladder"]["racks"] <= 0 else "this scenario deploys no racks")
+    elif be["capex_complete"] and se["capex_complete"] and be["capex_total_eur"] and se["capex_total_eur"]:
         capex = round(se["capex_total_eur"]["value"] - be["capex_total_eur"]["value"])
     racks = s["after_ladder"]["racks"] - base["after_ladder"]["racks"]
     why = []
@@ -141,9 +153,10 @@ def _vs(base: dict, s: dict) -> dict:
         why.append(f"the date is set by {sd['sets_the_date']}")
     return {"racks_delta": racks,
             "weeks_delta": weeks,
-            "weeks_delta_unknown_reason": None if weeks is not None else (sd["reason"] or bd["reason"]),
+            "weeks_delta_unknown_reason": None if weeks is not None else (
+                sd["reason"] if sd["weeks"] is None else bd["reason"]),
             "capex_delta_eur": capex,
-            "capex_delta_unknown_reason": None if capex is not None else "capex is incomplete in one of the two",
+            "capex_delta_unknown_reason": None if capex is not None else capex_why,
             "why": why or ["no difference in the limit, the date or the racks"]}
 
 
@@ -185,12 +198,17 @@ def _rank(rows: list[dict], objective: Objective) -> dict:
         unit = "deployable racks"
     key = sortkey or metric
     tie = len(order) > 1 and key[order[0]] == key[order[1]]
+    racks = {r["id"]: r["after_ladder"]["racks"] for r in rows if r["id"] in order}
+    differ = len(set(racks.values())) > 1 and objective is not Objective.MAX_COMPUTE
     return {"objective": objective.value, "metric": unit, "order": order,
-            "values": {i: metric[i] for i in order}, "excluded": excluded,
+            "values": {i: metric[i] for i in order}, "racks": racks, "excluded": excluded,
             "leader": None if not order or tie else order[0],
             "tie": tie,
             "note": ("Nothing can be ranked on this objective with the inputs supplied." if not order else
-                     "The top two are level; no leader is named." if tie else None)}
+                     "The top two are level; no leader is named." if tie else
+                     "The ranked scenarios deploy different numbers of racks (" +
+                     ", ".join(f"{i}: {racks[i]}" for i in order) +
+                     "): a better rank on this objective is not more capacity." if differ else None)}
 
 
 def compare_payload(document: dict, results: list[ScenarioResult], *, objective: Objective,
@@ -206,7 +224,11 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
     for r in rows:
         r["vs_baseline"] = None if r["id"] == base_id else _vs(base, r)
     ranking = _rank(rows, objective)
-    indicative = any(r["grade"] == "indicative" for r in rows)
+    graded = [r["grade"] for r in rows]
+    # 'screening' only when something is dated, every dated scenario is above an assumption, and no relief is
+    # left without a lead time; otherwise the whole comparison is indicative.
+    indicative = not ("screening" in graded and "indicative" not in graded and
+                      not any(r["time_to_power"]["status"] == "lead_time_missing" for r in rows))
     caveats = list(notes or [])
     if indicative:
         caveats.append("At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: "

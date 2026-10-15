@@ -140,7 +140,15 @@ describe.runIf(hasPython)("a request that cannot be answered honestly is refused
   it("rejects malformed and oversized bodies without touching the engine", async () => {
     expect((await post(null, "{not json")).status).toBe(400);
     expect((await post(null, JSON.stringify({ hall: HALL, pad: "x".repeat(70_000) }))).status).toBe(413);
+    expect((await post(null, JSON.stringify({ hall: HALL, pad: "é".repeat(40_000) }))).status).toBe(413);   // bytes, not characters
     expect(calls).toHaveLength(0);
+  });
+
+  it("names the failing field, with its row, in a list the page can show", async () => {
+    const res = await post({ hall: HALL, btm_options: [GAS, { id: "b", kind: "bess", capacity_MW: 5, lead_time_weeks: 30 }] });
+    const b = await res.json();
+    expect(res.status).toBe(422);
+    expect(b.problems.some((p: { path: string }) => p.path === "btm_options.1.energy_MWh")).toBe(true);
   });
 
   it("passes an engine refusal through when it is the person's to fix", async () => {

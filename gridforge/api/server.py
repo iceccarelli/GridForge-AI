@@ -283,6 +283,8 @@ def handle_compare(body: dict, tier: Tier) -> dict:
     ids = body.get("scenarios")
     if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, str) for i in ids)):
         raise ApiError(422, "scenarios must be a list of scenario ids")
+    if ids is not None and len(ids) == 0:
+        raise ApiError(422, "scenarios is an empty list: name at least two, or omit it to compare all")
     baseline = body.get("baseline")
     if baseline is not None and not isinstance(baseline, str):
         raise ApiError(422, "baseline must be a scenario id")

@@ -879,7 +879,11 @@ def cmd_compare(args) -> int:
     from .api.server import ApiError, handle_compare
     from .api.tiers import Tier
     doc = json.loads(Path(args.intake).read_text())
-    body = {"intake": doc, "objective": args.objective}
+    # Accepts a bare intake, or the request document the website and the API use ({"intake": {...}, ...}), so the
+    # request.json the site offers for download reproduces here unchanged. Flags given on the command line win.
+    body = dict(doc) if isinstance(doc.get("intake"), dict) else {"intake": doc}
+    if args.objective:
+        body["objective"] = args.objective
     if args.scenarios:
         body["scenarios"] = args.scenarios
     if args.baseline:
@@ -1118,7 +1122,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("compare", help="Time-to-Power scenario comparison: dates only where lead times support them")
     s.add_argument("intake")
     s.add_argument("-o", "--out", default="out")
-    s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
+    s.add_argument("--objective", default=None, choices=sorted(OBJECTIVES),
+                   help="what to rank by (default: max_compute, or the objective in a request file)")
     s.add_argument("--scenarios", nargs="+", metavar="ID", help="scenario ids to compare (default: all the intake defines)")
     s.add_argument("--baseline", metavar="ID", help="scenario the others are compared with (default: the first)")
     s.set_defaults(func=cmd_compare)

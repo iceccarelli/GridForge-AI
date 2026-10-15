@@ -116,7 +116,7 @@ export interface CompareScenario {
     limitations: string[];
   };
   weakest_lead_time_evidence: string | null;
-  grade: "indicative" | "screening";
+  grade: "indicative" | "screening" | "undated";
   missing_inputs: string[];
   vs_baseline: null | {
     racks_delta: number;
@@ -138,6 +138,7 @@ export interface CompareResult {
     metric: string;
     order: string[];
     values: Record<string, number>;
+    racks: Record<string, number>;
     excluded: { id: string; reason: string }[];
     leader: string | null;
     tie: boolean;

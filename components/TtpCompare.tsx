@@ -124,11 +124,13 @@ export function TtpCompare() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) {
-        const issues = body?.issues?.fieldErrors
-          ? Object.entries(body.issues.fieldErrors as Record<string, string[]>).map(([k, v]) => `${k}: ${v.join(", ")}`)
-          : undefined;
+        const problems: string[] | undefined = Array.isArray(body?.problems)
+          ? (body.problems as { path: string; message: string }[]).map((p) => `${p.path}: ${p.message}`)
+          : body?.detail
+            ? Object.entries(body.detail as Record<string, unknown>).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+            : undefined;
         setOut(null);
-        setError({ message: body?.error ?? "The comparison could not be produced.", fields: issues });
+        setError({ message: body?.error ?? "The comparison could not be produced.", fields: problems });
         return;
       }
       setOut({ result: body.result, request: body.request, synthetic });
@@ -326,6 +328,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
             <>No leader. {r.ranking.note}</>
           )}
         </p>
+        {r.ranking.leader && r.ranking.note ? <p className="mt-1 text-xs text-queue">{r.ranking.note}</p> : null}
         {r.ranking.excluded.length ? (
           <ul className="mt-2 list-disc pl-5 text-xs text-mute">
             {r.ranking.excluded.map((e) => (<li key={e.id}><span className="text-ghost">{byId[e.id]?.name ?? e.id}</span> not ranked — {e.reason}</li>))}

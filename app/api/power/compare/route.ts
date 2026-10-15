@@ -14,8 +14,12 @@ export const maxDuration = 60;
 const MAX_BODY_BYTES = 64 * 1024;
 
 export async function POST(req: Request) {
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
+  }
   const text = await req.text().catch(() => "");
-  if (text.length > MAX_BODY_BYTES) {
+  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
     return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
   }
   let raw: unknown;
@@ -27,7 +31,12 @@ export async function POST(req: Request) {
   const parsed = compareRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
-      { ok: false, error: "Validation failed", issues: parsed.error.flatten() },
+      {
+        ok: false,
+        error: "Validation failed",
+        issues: parsed.error.flatten(),
+        problems: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      },
       { status: 422 }
     );
   }
