@@ -33,6 +33,18 @@ interface Ranked {
   notes?: string[];
 }
 
+interface Line {
+  id: string;
+  state: string;
+  cost_key: string;
+  supplier: string;
+  value: number | null;
+  unit: string;
+  problems?: string[];
+  limitations?: string[];
+  synthetic?: boolean;
+}
+
 const eur = (n: number | undefined) =>
   typeof n === "number"
     ? new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n)
@@ -50,6 +62,38 @@ export function BidComparison({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState(initial ?? null);
   const [saved, setSaved] = useState<boolean | null>(null);
+  const [by, setBy] = useState("");
+  const [lines, setLines] = useState<Line[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [rerun, setRerun] = useState<{ document: string; created: boolean; ids: number } | null>(null);
+
+  async function refreshLines() {
+    try {
+      const r = await fetch(`/api/deliverable/${token}/quotes`, { cache: "no-store" });
+      const b = await r.json();
+      if (r.ok && b.ok) setLines(b.items);
+    } catch {
+      /* the list is a convenience; the comparison above stands without it */
+    }
+  }
+
+  async function applyAccepted() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/deliverable/${token}/evidence-run`, { method: "POST" });
+      const b = await r.json();
+      if (!r.ok || !b.ok) {
+        setError(b?.error ?? "Could not re-run the study with the accepted quotations.");
+        return;
+      }
+      setRerun({ document: b.document, created: b.created, ids: b.evidence_ids.length });
+    } catch {
+      setError("Could not reach the server. Nothing was recorded — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function onFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -87,6 +131,20 @@ export function BidComparison({
       }
       setResult(body);
       setSaved(body.saved !== false);
+      // The same files, recorded as RECEIVED quotations so a reviewer can accept them as cost evidence. Receipt
+      // changes no study: it is only the first state a quotation can be in.
+      if (by.trim()) {
+        const q = await fetch(`/api/deliverable/${token}/quotes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ responses, submitted_by: by.trim() }),
+        });
+        const qb = await q.json().catch(() => ({}));
+        setNote(q.ok && qb.ok ? qb.note : qb?.error ?? "The quotations could not be recorded as cost evidence.");
+        await refreshLines();
+      } else {
+        setNote("Enter your name before choosing files to also record these quotations as cost evidence for review.");
+      }
     } catch {
       setError("Could not reach the server. Nothing was submitted — try again.");
     } finally {
@@ -108,6 +166,16 @@ export function BidComparison({
         first.
       </p>
 
+      <label className="mt-4 block text-xs text-faint">
+        Your name (to record the quotations as cost evidence for review)
+        <input
+          value={by}
+          onChange={(e) => setBy(e.target.value)}
+          maxLength={120}
+          className="mt-1 block w-72 rounded border border-line bg-transparent px-2 py-1 text-sm text-ghost"
+        />
+      </label>
+
       <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         {busy ? "Comparing" : ranked.length ? "Compare again" : "Choose the completed schedules"}
@@ -125,6 +193,51 @@ export function BidComparison({
         <div className="mt-3 flex items-start gap-2 rounded border border-flag/40 bg-flag/5 p-3 text-sm text-mute">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" />
           <p>{error}</p>
+        </div>
+      ) : null}
+
+      {note ? <p className="mt-3 max-w-3xl text-[11px] leading-relaxed text-faint">{note}</p> : null}
+
+      {lines?.length ? (
+        <div className="mt-4 max-w-3xl">
+          <p className="text-xs text-faint">Quotation lines and their state</p>
+          <ul className="mt-2 space-y-1 text-[11px] text-mute">
+            {lines.map((l) => (
+              <li key={l.id}>
+                <span className="font-mono">{l.state}</span> · {l.supplier} · {l.cost_key}
+                {l.synthetic ? " · SYNTHETIC" : ""}
+                {l.problems?.length ? ` · ${l.problems.join("; ")}` : ""}
+                {l.limitations?.length ? ` · limited: ${l.limitations.join("; ")}` : ""}
+              </li>
+            ))}
+          </ul>
+          {lines.some((l) => l.state === "accepted") ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={applyAccepted}
+              className="mt-3 rounded border border-power/60 px-3 py-1.5 text-sm font-semibold text-power hover:bg-power/10"
+            >
+              Re-run the study with the accepted quotations
+            </button>
+          ) : (
+            <p className="mt-2 text-[11px] text-faint">
+              Nothing here affects a study until a named reviewer accepts it.
+            </p>
+          )}
+          {rerun ? (
+            <p className="mt-2 text-[11px] text-faint">
+              Study re-run using {rerun.ids} accepted quotation{rerun.ids === 1 ? "" : "s"}
+              {rerun.created ? "" : " (already recorded)"}. The document names each one and what it changed.{" "}
+              <a
+                className="underline"
+                download="study-with-accepted-quotations.html"
+                href={`data:text/html;charset=utf-8,${encodeURIComponent(rerun.document)}`}
+              >
+                Download it
+              </a>
+            </p>
+          ) : null}
         </div>
       ) : null}
 
