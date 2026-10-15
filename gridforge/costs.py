@@ -147,6 +147,9 @@ class CostEntry:
     #: Other library keys whose scope this quotation already covers (e.g. a CDU quote that includes commissioning).
     #: Declared by the reviewer; absent means those components stay unpriced and the total stays a lower bound.
     includes_keys: tuple = ()
+    #: A test fixture or demonstration, not a real quotation. A run that uses one says so on its face and is never
+    #: decision-grade.
+    synthetic: bool = False
 
     @property
     def evidence(self) -> EvidenceClass:
@@ -359,7 +362,7 @@ def entry_record(e: "CostEntry") -> dict:
             "basis": e.basis, "supplier": e.supplier, "quoted_on": e.quoted_on, "valid_until": e.valid_until,
             "quoted_quantity": e.quoted_quantity, "quoted_quantity_unit": e.quoted_quantity_unit, "scope": e.scope,
             "comparability": e.comparability, "response_ref": e.response_ref, "reviewer": e.reviewer,
-            "reviewed_on": e.reviewed_on, "project": e.project}
+            "reviewed_on": e.reviewed_on, "project": e.project, "synthetic": e.synthetic}
 
 
 _ACTIVE: contextvars.ContextVar["dict | None"] = contextvars.ContextVar("gridforge_cost_evidence", default=None)

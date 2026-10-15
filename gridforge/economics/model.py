@@ -67,6 +67,8 @@ class EconomicsResult:
     cdu_kit_scope: str = ""
     #: Priced lines resting on a quotation of limited comparability: [{where, note}].
     limited: list = field(default_factory=list)
+    #: Cost keys on this run's path whose accepted evidence is a synthetic fixture.
+    synthetic_evidence: list = field(default_factory=list)
     tariff_eur_per_MWh: Quantity | None = None
     tariff_declared: bool = False
     annual_grid_energy_cost_eur: Quantity | None = None
@@ -107,6 +109,9 @@ class EconomicsResult:
             items = [f"{g['component']} ({g['quantity']:g} x {g['unit'].split('/')[-1]}, needed in "
                      f"{len(g['where'])} place{'s' if len(g['where']) != 1 else ''})" for g in self.unpriced_summary()]
             out.append("the capex total is a LOWER BOUND: no price exists for " + "; ".join(items))
+        if self.synthetic_evidence:
+            out.append("synthetic cost evidence (a test fixture, not a real quotation) is in the price basis: "
+                       + ", ".join(self.synthetic_evidence))
         if self.limited:
             out.append(f"{len(self.limited)} priced line(s) rest on a supplier quotation of limited comparability "
                        f"(scaled to a quantity the supplier did not quote, or with no stated scope)")
@@ -310,6 +315,7 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     return EconomicsResult(
         conv, relief, total, per_kW, energy, cost_, per_gpu_h, lad.critical_path_weeks, aace,
         library().basis_mix(keys), capex_complete, unpriced=unpriced, capex_cdu_kit_eur=kit,
-        cdu_kit_scope=kit_scope, limited=limited_rows, tariff_eur_per_MWh=tariff, tariff_declared=declared,
+        cdu_kit_scope=kit_scope, limited=limited_rows,
+        synthetic_evidence=sorted(k for k in keys if k in library().entries and library().entries[k].synthetic), tariff_eur_per_MWh=tariff, tariff_declared=declared,
         annual_grid_energy_cost_eur=grid_cost, btm=btm, opex_complete=opex_complete,
         lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis)

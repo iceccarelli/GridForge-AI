@@ -467,3 +467,19 @@ def test_no_synthetic_or_private_evidence_is_in_any_public_artefact():
 def test_the_public_qualifier_neither_accepts_nor_echoes_evidence(world):
     with pytest.raises(ApiError):
         _invoke("/v1/qualify", handle_qualify, {"cost_evidence": _evidence_payload(world)}, Tier.PUBLIC)
+
+
+# === 9. synthetic evidence is never mistaken for a quotation ======================================================
+
+def test_synthetic_evidence_is_labelled_everywhere_and_is_never_decision_grade(world):
+    intake, _, _ = world
+    pkg = pkg_for(world)
+    (line,) = quote_lines(pkg, [response(pkg, capex=2_340_000)])
+    e = CostEntry(**{**accepted(line).__dict__, "synthetic": True})
+    with cost_overlay([e]) as rep:
+        assert rep.to_dict()["used"][0]["synthetic"] is True
+        r = {x.spec.id: x for x in run_all(intake.context, intake.scenarios)}["full_dlc_btm"]
+    assert any("synthetic cost evidence" in x for x in r.economics.limitations) and not r.economics.decision_grade
+    out = call_study({"intake": doc(), "cost_evidence": [e.__dict__ | {"includes_keys": []}], "format": "md"})
+    md = out["document"] if "document" in out else json.dumps(out)
+    assert "SYNTHETIC COST EVIDENCE" in md

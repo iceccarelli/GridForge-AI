@@ -387,6 +387,10 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         # The provenance of every accepted quotation this run used, and what it changed. Accepted evidence is the
         # difference between a library placeholder and a price, so a reader must be able to see exactly which it was.
         used = ev.get("used") or []
+        if any(u.get("synthetic") for u in used):
+            s.blocks.append(Callout("warning",
+                "SYNTHETIC COST EVIDENCE. At least one line below is a test fixture or demonstration, not a real "
+                "quotation. Nothing in this run may be quoted as supplier-backed."))
         if used:
             s.blocks.append(Table(
                 ["Cost line", "Supplier", "Quoted", "Valid until", "Covers", "Value", "Comparability", "Accepted by"],
