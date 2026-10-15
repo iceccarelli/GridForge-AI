@@ -420,6 +420,8 @@ export const BOARD_HTML = "board_summary.html";
 export const BOARD_MD = "board_summary.md";
 export const BUNDLE_MANIFEST = "bundle.json";
 const PACK_FILES = new Set([BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST]);
+/** Working files written by someone other than the engine run, which a regeneration must not discard. */
+const KEPT_FILES = new Set(["bid_comparison.json"]);
 
 /** Working files the customer downloads as data; the pack's own artefacts are shown as documents instead. */
 export function isPackFile(name: string): boolean {
@@ -507,8 +509,10 @@ export async function generateAndStore(
 
   // Carry forward files this run does not own (a bid comparison), but never a board from an earlier run: a new
   // study beside an old board would be two documents from two different solves.
+  // Everything the engine generates is replaced; only files this run does not own survive. A stale scenarios.csv
+  // beside a new study would be arithmetic from different numbers.
   const kept = Object.fromEntries(
-    Object.entries(row.working_files ?? {}).filter(([k]) => !PACK_FILES.has(k))
+    Object.entries(row.working_files ?? {}).filter(([k]) => KEPT_FILES.has(k))
   );
   const files: Record<string, string> = { ...kept, ...(rendered.working ?? {}) };
   if (endpoint === "study") {
@@ -519,6 +523,11 @@ export async function generateAndStore(
     files[BUNDLE_MANIFEST] = JSON.stringify({ expected: packArtifacts(row.kind), generated: new Date().toISOString() });
   }
   const candidate = { kind: row.kind, document_html: rendered.html, working_files: files };
+  if (endpoint === "study" && !rendered.md) {
+    // The study is delivered in both formats; an engine answer without the markdown is not a whole study.
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    return { ok: false, stage: "render", error: "The engine returned the study without its markdown form." };
+  }
   const state = endpoint === "study" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
   // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
   meta.document_sha256 = packHash(candidate);
@@ -531,7 +540,7 @@ export async function generateAndStore(
       intake: { ...doc, _gridforge: meta },
       document_html: rendered.html,
       document_md: rendered.md,
-      ...(rendered.deck ? { deck_html: rendered.deck } : {}),
+      deck_html: rendered.deck ?? null,
       working_files: Object.keys(files).length ? files : null,
     },
     ["generating"]
@@ -539,7 +548,8 @@ export async function generateAndStore(
   if (saved !== "claimed") {
     console.error("[GridForge] generated documents could not be stored (%s): %s", row.kind, saved);
     // Best effort: leave a state a human can see and act on rather than "generating" forever.
-    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    const recovered = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    if (recovered !== "claimed") console.error("[GridForge] could not move %s out of generating (%s)", row.kind, recovered);
     return { ok: false, stage: "persist", error: "The generated documents could not be stored." };
   }
   return { ok: true, complete: state.complete, missing: state.missing, title: rendered.title };

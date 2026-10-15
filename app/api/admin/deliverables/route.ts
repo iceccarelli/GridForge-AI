@@ -158,8 +158,9 @@ export async function PATCH(req: Request) {
     const sent = await sendMail({
       to: row.email ?? "",
       subject: "Your GridForge document is ready",
-      // Same row, same payload: a retry after a lost response returns the first result instead of sending twice.
-      idempotencyKey: `deliverable-release-${row.id}`,
+      // Same row, same pack, same payload: a retry after a lost response returns the first result instead of sending
+      // twice. The pack hash is in the key so a re-release of a changed pack is a new mail, not a replay.
+      idempotencyKey: `deliverable-release-${row.id}-${current.slice(0, 16)}`,
       text:
         (hasBoard
           ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"

@@ -175,7 +175,7 @@ describe.runIf(hasPython)("the pack is generated whole, from one solve, behind t
     const m = toBuyer();
     expect(m).toHaveLength(1);
     expect(m[0].text).toContain("board summary");
-    expect(m[0].headers["Idempotency-Key"]).toBe("deliverable-release-d1");
+    expect(m[0].headers["Idempotency-Key"]).toBe(`deliverable-release-d1-${packHash(row()).slice(0, 16)}`);
     expect(m[0].text).not.toContain(row().intake_token);        // the intake credential never goes in a mail
     const again = await (await admin("doc-tok")).json();
     expect(again.customer_notified).toBe(false);
@@ -482,3 +482,38 @@ describe.runIf(hasPython)("other products keep their behaviour", () => {
   });
 });
 
+
+describe.runIf(hasPython)("a regeneration replaces every generated artefact, never mixes runs", () => {
+  it("drops a stale deck and stale working files from the earlier numbers; keeps only the bid comparison", async () => {
+    openStudy({
+      status: "engine_unavailable", deck_html: "<p>OLD DECK</p>",
+      working_files: { "scenarios.csv": "OLD", [BOARD_HTML]: "OLD", "bid_comparison.json": "{}" },
+    });
+    const doc = (await import("@/lib/engagement-intake")).toIntakeDocument(INTAKE as any, "Hall Co");
+    db.rows("deliverables")[0].intake = { ...doc };
+    signIn();
+    expect((await admin("doc-tok", "regenerate")).status).toBe(200);
+    const r = row();
+    expect(r.deck_html ?? "").not.toContain("OLD DECK");
+    expect(r.working_files["scenarios.csv"]).not.toBe("OLD");
+    expect(r.working_files["bid_comparison.json"]).toBe("{}");
+  });
+
+  it("an engine answer without the study's markdown is not a releasable pack", async () => {
+    openStudy();
+    const base = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const res = await base(i, init);
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      if (ENGINE && url.startsWith(ENGINE) && String(init?.body ?? "").includes('"bundle":"board"')) {
+        const b = await res.json();
+        delete b.document_md;
+        return new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return res;
+    }) as typeof fetch;
+    expect((await submit()).status).toBe(502);
+    expect(row().status).toBe("engine_unavailable");
+    expect(row().document_html ?? null).toBeNull();
+  });
+});
