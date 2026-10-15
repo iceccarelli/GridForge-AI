@@ -74,7 +74,8 @@ jobs:
             --valid-until 2099-12-31 --library /tmp/costs.json
           GRIDFORGE_COST_LIBRARY=/tmp/costs.json python -m gridforge study \
             examples/intake/reference_hall.json -o /tmp/quoted
-          grep -q "firm quote" /tmp/quoted/envelope_study.md
+          # The label is the application's own (BASIS_LABEL), so a wording change cannot silently stale this check.
+          python -c "from gridforge.costs import BASIS_LABEL; t=open('/tmp/quoted/envelope_study.md').read(); l=BASIS_LABEL['firm_quote']; assert l in t, l; assert 'not decision-grade' in t; print('quotation reaches the study:', l)"
       - name: Proposal from the CLI
         run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
       - name: A change note names the input that moved the answer
@@ -100,7 +101,7 @@ jobs:
           python -m gridforge calibrate show | tee /tmp/cal.txt
           grep -q "has not been established" /tmp/cal.txt
           python -m gridforge calibrate add --key envelope.racks --site "CI" --hall H1 \
-            --predicted 26 --observed 24 --unit racks --on 2026-11-30 \
+            --predicted 26 --observed 24 --unit racks --on 2026-01-01 \
             --method "CI smoke" --ledger /tmp/cal.json
           python -c "
           import json
