@@ -198,7 +198,16 @@ def test_a_lump_quote_with_a_stated_quantity_is_used_in_proportion_not_charged_a
     assert [round(s.quantity, 3) for s in tr] == [9.0, 14.4]
     assert [round(s.capex_eur.value) for s in tr] == [round(2_340_000 * 9 / 23.4), round(2_340_000 * 14.4 / 23.4)]
     assert sum(s.capex_eur.value for s in tr) == pytest.approx(2_340_000)        # the quote, once
-    assert all(s.cost_kind == "quoted_scaled" and s.limited for s in tr)       # neither step is the quoted size
+    # the two steps together are exactly the 23.4 MVA the supplier priced: an allocation of the quote, not a guess
+    assert all(s.cost_kind == "quoted_allocation" and not s.limited for s in tr)
+    assert not any("limited comparability" in x for x in r.economics.limitations)
+    # a hall that needs a different total is NOT covered by that quote: it is scaled, flagged and weaker
+    d = doc()
+    d["transformers"][0]["unit_rating_MVA"] = 4.0
+    _, other = scenario(d, "full_dlc_btm")
+    tr2 = [s for s in other.ladder.taken_steps if s.binding_id == "transformer_capacity"]
+    assert tr2 and all(s.cost_kind == "quoted_scaled" and s.limited for s in tr2)
+    assert any("limited comparability" in x for x in other.economics.limitations)
     assert declared_unit("transformer.replacement") == "EUR"
 
 

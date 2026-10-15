@@ -231,6 +231,34 @@ def cmd_power_assess(args) -> int:
     return 0
 
 
+def _with_evidence(fn):
+    """Run a command with accepted cost evidence from --cost-evidence layered over the library for this one run."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(args) -> int:
+        path = getattr(args, "cost_evidence", None)
+        if not path:
+            return fn(args)
+        from .costs import CostEntry, cost_overlay, set_evidence_effect
+        from .scenario.evidence import evidence_effect
+        try:
+            raw = json.loads(Path(path).read_text())
+            rows = raw.get("entries", raw) if isinstance(raw, dict) else raw
+            entries = [CostEntry(**r) for r in rows]
+        except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+            print(f"refused: cost evidence {path} is unusable: {exc}", file=sys.stderr)
+            return 2
+        intake = load(args.intake)
+        with cost_overlay(entries) as report:
+            set_evidence_effect(evidence_effect(intake.context, intake.scenarios, entries))
+            print(f"  cost evidence: {len(report.used)} accepted line(s) used, {len(report.ignored)} ignored")
+            for ig in report.ignored:
+                print(f"    not used: {ig['key']} — {ig['reason']}")
+            return fn(args)
+    return run
+
+
 def cmd_screen(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
@@ -880,13 +908,16 @@ def main(argv: list[str] | None = None) -> int:
     for name, fn, helptext in (("screen", cmd_screen, "produce a Density Screen"),
                                ("study", cmd_study, "produce a Capacity & Density Envelope Study")):
         s = sub.add_parser(name, help=helptext)
+        s.add_argument("--cost-evidence", dest="cost_evidence", metavar="FILE",
+                       help="accepted supplier cost evidence (JSON list of cost lines) to apply to THIS run only; "
+                            "lines that are not accepted, have expired or are superseded are named and ignored")
         s.add_argument("intake")
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.add_argument("--csv", action="store_true",
                        help="also write the working files, so the client's engineers can check "
                             "the arithmetic in a spreadsheet")
-        s.set_defaults(func=fn)
+        s.set_defaults(func=_with_evidence(fn))
 
     s = sub.add_parser("power-assess",
                        help="the Power Readiness Case: current capacity, binding constraint, "

@@ -190,6 +190,29 @@ def _btm_opex(options: list, facility_energy_MWh: Quantity) -> BtmOpex:
         variable_eur=variable, fixed_eur=fixed_total, curtailed=used_frac < 1.0)
 
 
+def _allocated_quotes(lad: HeadroomLadder, assumed_cdu_units: int) -> set[str]:
+    """Library keys whose quotation is ALLOCATED across this run's steps rather than extrapolated: the quantities the
+    steps need (plus the assumed CDU kit, which is priced on the cdu.addition line) add up to the quantity the supplier
+    quoted. Splitting a package price across the steps of that package is arithmetic, not an assumption about a size the
+    supplier never priced, so those steps are not flagged limited."""
+    lib = library()
+    out: set[str] = set()
+    for key, e in lib.entries.items():
+        if e.unit != "EUR" or e.quoted_quantity is None or e.comparability != "exact":
+            continue
+        steps = [st for st in lad.taken_steps if st.cost_key == key and st.quantity is not None]
+        needed = sum(st.quantity for st in steps) + (assumed_cdu_units if key == "cdu.addition" else 0)
+        if (steps or (key == "cdu.addition" and assumed_cdu_units)) and abs(needed / e.quoted_quantity - 1.0) <= 0.01:
+            out.add(key)
+            for st in steps:
+                if st.cost_kind == "quoted_scaled":
+                    st.cost_kind = "quoted_allocation"
+                    st.limited = False
+                    st.basis_note = ("the quotation covers this constraint's steps together and is allocated across them "
+                                     "in proportion to the capacity each adds")
+    return out
+
+
 def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) -> EconomicsResult:
     ctx_f, ctx_i = lad.final_context, lad.initial_context
     settings = ctx_f.economics if ctx_f is not None else None
@@ -199,6 +222,8 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     conv = (racks * conversion_capex_per_rack()).relabel(
         "in-hall conversion capex", "economics.conversion_capex", step_evidence=MODELLED)
     unpriced = _unpriced_rows(lad)
+    assumed_units = sum(c.units for c in (ctx_i.thermal.cdus if ctx_i is not None else []) if not c.installed)
+    allocated = _allocated_quotes(lad, assumed_units if res.max_racks > 0 else 0)
     # Lines whose price rests on a quotation of limited comparability: scaled to a quantity the supplier did not quote,
     # or quoted with no stated scope. They stay in the total, visibly limited, never treated as a clean benchmark.
     limited_rows = [{"where": f"step {st.step}: {st.relief_description}", "note": st.basis_note or "limited comparability"}
@@ -227,11 +252,10 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     # CDUs the engine ASSUMED so a liquid scenario could be solved are not in the hall: buying them is capex. The
     # ladder prices every CDU it ADDS; this prices the ones it started from, so no unit is priced twice or not at all.
     kit, kit_scope = None, ""
-    assumed_units = sum(c.units for c in (ctx_i.thermal.cdus if ctx_i is not None else []) if not c.installed)
     if res.max_racks > 0 and assumed_units > 0:
         kit, _kind, kit_scope, kit_unpriced, kit_extra, kit_limited, kit_note = cdu_cost(
             assumed_units, "initial CDU kit (assumed, not installed)")
-        if kit_limited:
+        if kit_limited and "cdu.addition" not in allocated:
             limited_rows.append({"where": "initial CDU kit", "note": kit_note or "limited comparability"})
         keys = sorted(set(keys) | {"cdu.addition"} | set(kit_extra))
         aace = library().aace_class(keys)

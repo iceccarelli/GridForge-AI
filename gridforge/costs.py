@@ -362,6 +362,21 @@ def entry_record(e: "CostEntry") -> dict:
             "reviewed_on": e.reviewed_on, "project": e.project}
 
 
+_ACTIVE: contextvars.ContextVar["dict | None"] = contextvars.ContextVar("gridforge_cost_evidence", default=None)
+
+
+def active_evidence() -> dict | None:
+    """The evidence block for the run in progress ({used, ignored, effect?}), or None when no evidence was supplied.
+    Reports and the model pack read this, so every deliverable of a run names the evidence behind it."""
+    return _ACTIVE.get()
+
+
+def set_evidence_effect(effect: dict) -> None:
+    cur = _ACTIVE.get()
+    if cur is not None:
+        cur["effect"] = effect
+
+
 @contextlib.contextmanager
 def cost_overlay(entries):
     """Run with a set of accepted cost evidence layered over the library, for this context only.
@@ -395,9 +410,13 @@ def cost_overlay(entries):
         merged.entries[e.key] = e
         report.used.append(e)
     token = _OVERLAY.set(merged)
+    block = report.to_dict()
+    atok = _ACTIVE.set(block) if (report.used or report.ignored) else None
     try:
         yield report
     finally:
+        if atok is not None:
+            _ACTIVE.reset(atok)
         _OVERLAY.reset(token)
 
 
@@ -405,9 +424,11 @@ def cost_overlay(entries):
 def without_overlay():
     """Run against the library as it stands without any evidence overlay (the baseline a result is compared with)."""
     token = _OVERLAY.set(None)
+    atok = _ACTIVE.set(None)
     try:
         yield
     finally:
+        _ACTIVE.reset(atok)
         _OVERLAY.reset(token)
 
 

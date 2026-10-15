@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from .clock import report_date_iso
+from .costs import active_evidence
 
 from .envelope.time_to_power import schedule
 from .intake.loader import Intake
@@ -137,6 +138,9 @@ def model_pack(intake: Intake, results: list[ScenarioResult],
             "engagement_recommendation": intake.report.engagement_recommendation,
         },
         "scenarios": [scenario_dict(r) for r in results],
+        # Which accepted supplier evidence this run used (and which it refused to use), and what it changed. Explicit
+        # when empty: a model pack that is silent about evidence has not said there was none.
+        "cost_evidence": active_evidence() or {"used": [], "ignored": [], "effect": None},
         "sensitivity": [{"input": k, "racks": v} for k, v in (sensitivities or [])],
         "disclaimer": (
             "Every quantity carries an evidence class. Nothing in this pack is a measurement of "

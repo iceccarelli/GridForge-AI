@@ -92,6 +92,11 @@ def build(intake: Intake, results: list[ScenarioResult],
     if placeholders:
         items.append(f"{placeholders} of {total} priced lines are library defaults rather than quotations; "
                      "the cost is an order-of-magnitude figure, not a budget.")
+    from ..costs import active_evidence
+    ev = active_evidence()
+    if ev and ev.get("used"):
+        items.append(f"{len(ev['used'])} accepted supplier quotation(s) were used in this run; the study lists each "
+                     "with its supplier, date, scope and reviewer.")
     if not rec.economics.decision_grade:
         n = len(rec.economics.unpriced_summary())
         items.append("The economics are not decision-grade"

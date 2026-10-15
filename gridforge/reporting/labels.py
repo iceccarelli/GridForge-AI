@@ -102,6 +102,8 @@ def capex_per_rack_q(result: ScenarioResult, label: str) -> Quantity | None:
 _KIND_TEXT = {
     "per_unit": "unit price x quantity added",
     "quoted_scaled": "a supplier quotation scaled in proportion to this step",
+    "quoted_allocation": "a supplier quotation allocated across the steps it covers",
+    "quoted_job_lump": "a supplier quotation, priced as quoted",
     "quoted_lump_unstated_quantity": "a quoted lump of unstated scope, used once per step",
     "per_rack": "unit price x racks fitted out",
     "quoted_job_lump": "a quoted price for this job",

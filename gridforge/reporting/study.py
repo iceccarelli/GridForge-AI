@@ -16,7 +16,7 @@ from ..scenario.run import ScenarioResult
 
 # Kept as a module-level alias so existing call sites keep working.
 _pick_recommended = pick_recommended
-from ..costs import BASIS_LABEL
+from ..costs import BASIS_LABEL, active_evidence
 from ..validation import Quantity
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
@@ -382,6 +382,41 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                 "per-rack conversion inside the hall"
                 + (" and the CDUs the model assumed so the liquid scenarios could be solved (the hall has no CDU "
                    "schedule on file; those units must be bought)." if e.capex_cdu_kit_eur is not None else ".")))
+    ev = active_evidence()
+    if ev is not None:
+        # The provenance of every accepted quotation this run used, and what it changed. Accepted evidence is the
+        # difference between a library placeholder and a price, so a reader must be able to see exactly which it was.
+        used = ev.get("used") or []
+        if used:
+            s.blocks.append(Table(
+                ["Cost line", "Supplier", "Quoted", "Valid until", "Covers", "Value", "Comparability", "Accepted by"],
+                [[Lit(u["key"]), Lit(u["supplier"] or "—"), Lit(u["quoted_on"] or "—"), Lit(u["valid_until"] or "—"),
+                  Lit((f"{u['quoted_quantity']:g} {u['quoted_quantity_unit']}" if u.get("quoted_quantity") else "no quantity stated")),
+                  Lit(f"{u['value']:,.0f} {u['currency']} ({u['unit']})"),
+                  Lit(u["comparability"]), Lit(f"{u['reviewer']} on {u['reviewed_on']}")] for u in used],
+                caption="Accepted supplier evidence used in this run. Each line was reviewed by a named person before it "
+                        "could affect a number; a received or unreviewed quotation is never used."))
+        for ig in ev.get("ignored") or []:
+            s.blocks.append(Callout("note", f"Evidence not used — {ig['key']} ({ig.get('evidence_id') or 'no id'}): {ig['reason']}."))
+        eff = ev.get("effect")
+        if eff:
+            this = next((x for x in eff["scenarios"] if x["scenario"] == rec.spec.id), None)
+            if this:
+                s.blocks.append(Table(
+                    ["Recommended architecture", "Without this evidence", "With it"],
+                    [["Total capex (EUR)", Lit(f"{this['capex_before_eur']:,.0f}"), Lit(f"{this['capex_after_eur']:,.0f}")],
+                     ["Change", Lit("—"), Lit(f"{this['capex_delta_eur']:+,.0f}")],
+                     ["Capex complete", Lit(str(this["capex_complete_before"])), Lit(str(this["capex_complete_after"]))],
+                     ["Priced lines still library placeholders", Lit(str(this["placeholder_lines_before"])),
+                      Lit(str(this["placeholder_lines_after"]))],
+                     ["Cost components with no price", Lit(str(this["unpriced_before"])), Lit(str(this["unpriced_after"]))],
+                     ["Decision-grade", Lit(str(this["decision_grade_before"])), Lit(str(this["decision_grade_after"]))]],
+                    caption="What the accepted evidence changed. Racks, schedule and constraints are the same in both "
+                            "runs; only the cost basis differs."))
+                for ch in this["steps_changed"]:
+                    s.blocks.append(Callout("note",
+                        f"Step {ch['step']} ({ch['constraint']}): {ch['capex_before_eur']:,.0f} → {ch['capex_after_eur']:,.0f} EUR; "
+                        f"basis {ch['basis_before']} → {ch['basis_after']} ({ch['price_kind_after']})."))
     # Recurring cost, stated apart from capital: what the hall pays every year, and on what price and run hours.
     op_rows = [["Grid electricity price used", e.tariff_eur_per_MWh,
                 Lit("declared by the client" if e.tariff_declared else "library placeholder, not the site's tariff")],

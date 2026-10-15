@@ -4874,6 +4874,11 @@
       ]
     }
   ],
+  "cost_evidence": {
+    "used": [],
+    "ignored": [],
+    "effect": null
+  },
   "sensitivity": [
     {
       "input": "Contracted power 20% lower",

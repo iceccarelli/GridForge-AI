@@ -673,6 +673,46 @@ ROUTES = {
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
+#: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
+EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/diff", "/v1/deck", "/v1/spec"})
+MAX_EVIDENCE_LINES = 200
+
+
+def _invoke(endpoint: str, handler, body, tier):
+    """Call a handler, applying accepted cost evidence from the request when it carries any.
+
+    The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
+    has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
+    returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
+    if not isinstance(body, dict) or "cost_evidence" not in body:
+        return handler(body, tier)
+    from ..costs import CostEntry, cost_overlay, set_evidence_effect
+    ev = body["cost_evidence"]
+    if endpoint not in EVIDENCE_ROUTES:
+        raise ApiError(422, f"{endpoint} does not take cost_evidence", supported=sorted(EVIDENCE_ROUTES))
+    if not isinstance(ev, list) or len(ev) > MAX_EVIDENCE_LINES:
+        raise ApiError(422, f"cost_evidence must be a list of at most {MAX_EVIDENCE_LINES} accepted cost lines")
+    entries = []
+    for i, raw in enumerate(ev):
+        try:
+            entries.append(CostEntry(**raw))
+        except (TypeError, ValueError) as exc:
+            raise ApiError(422, f"cost_evidence[{i}] is not a valid cost line: {exc}")
+    clean = {k: v for k, v in body.items() if k != "cost_evidence"}
+    with cost_overlay(entries) as report:
+        effect = None
+        if endpoint in ("/v1/screen", "/v1/study"):
+            from ..scenario.evidence import evidence_effect
+            doc = clean.get("intake") or clean
+            intake = load_document(doc)          # an invalid intake fails here exactly as the handler would
+            effect = evidence_effect(intake.context, intake.scenarios, entries)
+            set_evidence_effect(effect)
+        out = handler(clean, tier)
+    if isinstance(out, dict):
+        out["cost_evidence"] = {**report.to_dict(), "effect": effect}
+    return out
+
+
 GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
               "/v1/calibration", "/v1/tools", "/v1/usage")
 
@@ -707,7 +747,7 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
         raise RpcError(-32002, denied["error"], denied)
     refund = getattr(charge, "refund", lambda: None)
     try:
-        result = handler(args, tier)
+        result = _invoke(endpoint, handler, args, tier)
     except ApiError as exc:
         refund()
         raise RpcError(-32602, exc.message, exc.extra)
@@ -1085,7 +1125,7 @@ class Handler(BaseHTTPRequestHandler):
 
         handler = ROUTES[path][0]
         try:
-            result = handler(body, tier)
+            result = _invoke(path, handler, body, tier)
             if idem_key is not None:
                 IDEMPOTENCY.put(idem_key, body_hash, 200, result)
             return self._send(200, result)
