@@ -249,6 +249,41 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
   );
 }
 
+/** The quotation-to-run loop, as the project record sees it: counts and integrity facts only. Quotations influence a
+ * run only once a named reviewer has accepted them; supplier names and prices are not shown here. */
+function CostEvidence({ state }: { state: ProjectState }) {
+  const ce = state.cost_evidence;
+  return (
+    <Card title="QUOTATIONS AND EVIDENCE RUNS">
+      {ce.lines.total === 0 && ce.runs.length === 0 && <p>{NOT_YET} — no supplier quotations have been recorded for this project.</p>}
+      {ce.lines.total > 0 && (
+        <>
+          <Row k="Quotation lines" v={ce.lines.total} />
+          <Row k="Awaiting a decision" v={ce.lines.validated} />
+          <Row k="Accepted (applied to new runs)" v={ce.lines.accepted} />
+          <Row k="Rejected / invalid" v={`${ce.lines.rejected} / ${ce.lines.invalid}`} />
+          <Row k="Superseded / withdrawn" v={`${ce.lines.superseded} / ${ce.lines.withdrawn}`} />
+        </>
+      )}
+      {ce.runs.map((r) => (
+        <div key={r.id} className="space-y-0.5 border-t border-line pt-2">
+          <Row k="Run" v={`${when(r.created_at)}${r.legacy ? " · legacy" : ""}`} />
+          <Row k="Evidence" v={`${r.offered ?? UNKNOWN} offered · ${r.used} used · ${r.ignored} ignored`} />
+          <Row k="Engine" v={r.engine_version ?? UNKNOWN} />
+          <Row
+            k="Document"
+            v={
+              r.artifact.status === "stored"
+                ? `stored · ${r.artifact.bytes} bytes · sha256 ${r.artifact.sha256?.slice(0, 16)}…`
+                : "not kept (recorded before durable storage)"
+            }
+          />
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 /** What the selected supplier promised against what the project experienced. A record, not a signal:
  * the quote is copied by the database from the stored selected response, every fact may be left
  * unknown, a cost is only compared when it is stated to cover the quote's scope, and nothing here
@@ -617,6 +652,8 @@ export function ProjectPanel({
             <Observed state={state} projectToken={projectToken!} onSaved={() => void load()} />
 
             <SupplierReality state={state} projectToken={projectToken!} onSaved={() => void load()} />
+
+            <CostEvidence state={state} />
 
             <Commission projectToken={projectToken!} />
 

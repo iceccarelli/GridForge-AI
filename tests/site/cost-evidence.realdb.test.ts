@@ -954,6 +954,36 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     });
   });
 
+  describe("the project record (Verified Power Record) carries the loop as counts and integrity facts", () => {
+    it("shows line states, runs and document integrity for the project, and nothing confidential", async () => {
+      const { getProjectState } = await import("@/lib/project-state");
+      const e = await engagement();
+      await submitAndAccept(e, "SYNTHETIC-SUPPLIER-A", 2_345_678);
+      const pending = (await (await quotes(e.token, { responses: [response("SYNTHETIC-SUPPLIER-B", 2_999_000)], submitted_by: "Buyer" })).json()).lines[0];
+      const made = await (await run(e.token)).json();
+      await db("/cost_evidence_runs", { method: "POST", body: JSON.stringify({ deliverable_id: e.id, project_id: e.project.id, intake_digest: "1".repeat(64), evidence_digest: "2".repeat(64), evidence_ids: [crypto.randomUUID()], effect: {}, document_sha256: "3".repeat(64) }) });
+
+      const r = await getProjectState(e.project.project_token);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const ce = r.state.cost_evidence;
+      expect(ce.lines).toMatchObject({ total: 2, accepted: 1, validated: 1, rejected: 0 });
+      expect(ce.runs).toHaveLength(2);
+      const versioned = ce.runs.find((x) => !x.legacy)!;
+      expect(versioned).toMatchObject({ id: made.run.id, offered: 1, used: 1, ignored: 0, report_date: "2026-10-13" });
+      expect(versioned.artifact).toMatchObject({ status: "stored", sha256: made.document_sha256 });
+      expect(ce.runs.find((x) => x.legacy)!.artifact).toEqual({ status: "legacy_unavailable", sha256: null, bytes: null });
+
+      const text = JSON.stringify(r.state);
+      for (const secret of ["SYNTHETIC-SUPPLIER", "2345678", "2999000", "cost-evidence-artifacts", "artifact_storage_ref"]) expect(text).not.toContain(secret);
+      expect(pending.id).toBeTruthy();   // opaque evidence ids already appear in the existing event timeline; no supplier or price does
+      // Another project sees none of it.
+      const other = await engagement();
+      const o = await getProjectState(other.project.project_token);
+      expect(o.ok && o.state.cost_evidence).toEqual({ lines: { validated: 0, invalid: 0, accepted: 0, rejected: 0, superseded: 0, withdrawn: 0, total: 0 }, runs: [] });
+    });
+  });
+
   describe("the administrator's review workflow, end to end through the existing routes", () => {
     const list = async (state: string) => {
       const { GET } = await import("@/app/api/admin/cost-evidence/route");
