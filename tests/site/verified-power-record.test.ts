@@ -55,7 +55,7 @@ function installFetch() {
   db = new PostgrestFake([
     "power_deployment_cases", "projects", "project_links", "project_evidence", "project_events",
     "procurement_packages", "procurement_responses", "procurement_comparisons",
-    "project_observations", "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality",
+    "project_observations", "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "cost_evidence_state", "cost_evidence_runs",
   ]);
   db.uniqueKeys.set("projects", [["project_token"]]);
   db.uniqueKeys.set("project_links", [["project_id", "object_type", "object_id"]]);

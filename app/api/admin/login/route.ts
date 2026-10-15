@@ -7,6 +7,7 @@ import {
   requestKey,
   throttleLogin,
   ADMIN_COOKIE,
+  ADMIN_SESSION_SECONDS,
 } from "@/lib/admin";
 
 export const runtime = "nodejs";
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 8, // 8 hours
+    maxAge: ADMIN_SESSION_SECONDS,
   });
   return NextResponse.json({ ok: true });
 }

@@ -216,43 +216,72 @@ def test_the_published_tool_catalogue_matches_the_engine():
             f"{t['name']}: published rate {t['units']}, actual {UNIT_COST[t['endpoint']]}")
 
 
-# --- documentation is not allowed to claim things that are not there -------
+# --- the shipped surfaces are not allowed to claim things that are not there ---
 
-def test_the_readme_names_every_product_and_every_package(cat):
-    """The first file anyone opens. It once described this repository as a
-    marketing site for a behind-the-meter EMS practice, four patches after it had
-    stopped being that."""
-    readme = (ROOT / "README.md").read_text()
+LLMS_TS = (ROOT / "app" / "llms.txt" / "route.ts").read_text()
+
+
+def test_every_visible_product_reaches_the_agent_readable_index(cat):
+    """/llms.txt is generated from the ladder and API product lists. A visible product
+    whose surface is not one of those two would be sold on the pricing page and
+    invisible to every crawler and agent, so the derivation itself is checked."""
+    assert "LADDER_PRODUCTS" in LLMS_TS and "API_PRODUCTS" in LLMS_TS
     for pid, p in cat.items():
         if p["surface"] == "hidden":
             continue
-        # A deposit is a payment mechanism, not a product a reader needs named;
-        # the engagement it opens is what must appear.
-        name = p["name"].split(" — deposit")[0]
-        assert name in readme, f"README does not mention {name}"
-    packages = [d.name for d in (ROOT / "gridforge").iterdir()
-                if d.is_dir() and not d.name.startswith(("_", "."))
-                and (d / "__init__.py").exists()]
-    missing = [d for d in packages if f"{d}/" not in readme]
-    assert not missing, f"README's architecture map omits: {missing}"
+        assert p["surface"] in {"ladder", "developers", "upsell"}, pid
+        if p["surface"] == "upsell":
+            # An upsell is offered inside another product's flow; it must name what it
+            # is credited against or extends, or it is a SKU with no home.
+            assert "creditsAgainst" in p["raw"] or "upsell" in p["raw"].lower(), pid
 
 
-def test_the_readme_does_not_describe_a_different_company():
-    readme = (ROOT / "README.md").read_text().lower()
-    for stale in ["lead-generation site", "physics-informed energy management",
-                  "interactive (sample-data) dashboard"]:
-        assert stale not in readme, f"README still says {stale!r}"
-
-
-def test_the_commercial_spine_lists_what_is_actually_purchasable(cat):
-    """The strategy document and the price list are allowed to disagree about the
-    future. They are not allowed to disagree about the present."""
-    spine = (ROOT / "docs" / "00_COMMERCIAL_SPINE.md").read_text()
-    for pid, p in cat.items():
-        if p["surface"] == "hidden":
+def test_every_engine_package_is_importable_and_shipped():
+    """The distribution is `gridforge*`. A package directory without __init__.py is
+    silently left out of the wheel; one that fails to import breaks the engine image."""
+    import importlib
+    dirs = [d for d in (ROOT / "gridforge").iterdir()
+            if d.is_dir() and not d.name.startswith(("_", ".")) and d.name != "data"]
+    for d in dirs:
+        if not any(d.glob("*.py")):
             continue
-        name = p["name"].split(" — deposit")[0]
-        assert name in spine, f"the commercial spine does not mention {name}"
+        assert (d / "__init__.py").exists(), f"gridforge/{d.name} would not be packaged"
+        importlib.import_module(f"gridforge.{d.name}")
+
+
+def test_runtime_data_files_are_declared_as_package_data():
+    """cost_library.json and calibration.json are read at runtime relative to the
+    package. Without package-data an installed wheel imports fine and then fails (or
+    silently loses the cost library) on first use."""
+    import tomllib, fnmatch
+    cfg = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    globs = cfg["tool"]["setuptools"]["package-data"]["gridforge"]
+    for f in (ROOT / "gridforge" / "data").glob("*.json"):
+        rel = f.relative_to(ROOT / "gridforge").as_posix()
+        assert any(fnmatch.fnmatch(rel, g) for g in globs), f"{rel} would not ship"
+
+
+def test_public_surfaces_do_not_describe_the_product_as_something_it_is_not():
+    """The site once described itself as a lead-generation site for an EMS practice
+    after it had become an engineering-products platform. The check runs against what
+    is actually served, not against a document about it."""
+    stale = ["lead-generation site", "physics-informed energy management",
+             "interactive (sample-data) dashboard"]
+    served = [*(ROOT / "app").rglob("*.ts*"), *(ROOT / "lib").rglob("*.ts"),
+              *(ROOT / "components").rglob("*.tsx"), *(ROOT / "gridforge").rglob("*.py")]
+    for f in served:
+        low = f.read_text(errors="ignore").lower()
+        for phrase in stale:
+            assert phrase not in low, f"{f.relative_to(ROOT)} still says {phrase!r}"
+
+
+def test_every_engine_commercial_offer_is_visible_on_the_site_catalogue(cat):
+    """Names, not prices (test_catalogue_parity owns prices): every engagement the
+    engine can quote must be a product the site can sell, by the same name."""
+    site_names = {p["name"].split(" — deposit")[0] for p in cat.values() if "name" in p}
+    for key, e in ENGAGEMENTS.items():
+        assert any(e.name.split(" — deposit")[0] in n or n in e.name for n in site_names), (
+            f"engine engagement {key!r} ({e.name}) has no site product")
 
 
 #: Everything allowed to sit in the repository root, and why it is there.
@@ -265,7 +294,6 @@ ROOT_FILES = {
     ".gitignore": "",
     "Dockerfile": "the engine image",
     "Makefile": "",
-    "README.md": "",
     "fly.toml": "engine deployment",
     "next.config.ts": "",
     "package.json": "",
@@ -351,21 +379,24 @@ def test_the_apply_script_removes_the_patch_it_applied():
         "on NEW ones — it reverted a good patch twice for a failure it did not cause")
 
 
-def test_the_runbook_documents_every_command_the_cli_offers():
-    """The runbook is what the founder works from. A command it does not mention is
-    one that does not get used; a command it mentions that does not exist is worse."""
-    import argparse
-    from gridforge import cli
-    runbook = (ROOT / "docs" / "07_DELIVERY_RUNBOOK.md").read_text()
+def test_every_cli_command_parses_and_describes_itself():
+    """The CLI is the operator's interface to delivery. Each subcommand must exist in
+    the parser, answer --help with exit 0, and carry help text — executed, not grepped."""
+    import subprocess, sys
     parser_src = (ROOT / "gridforge" / "cli.py").read_text()
-    commands = set(re.findall(r'sub\.add_parser\("([a-z]+)"', parser_src))
+    commands = set(re.findall(r'sub\.add_parser\(\s*"([a-z-]+)"', parser_src))
+    commands |= set(re.findall(r'for name, helptext in .*', parser_src) and [])
+    top = subprocess.run([sys.executable, "-m", "gridforge", "--help"], cwd=ROOT,
+                         capture_output=True, text=True)
+    assert top.returncode == 0
     assert len(commands) > 8, commands
-    undocumented = sorted(c for c in commands
-                          if f"gridforge {c}" not in runbook and f"`{c}`" not in runbook)
-    assert not undocumented, f"CLI commands absent from the runbook: {undocumented}"
+    for c in sorted(commands):
+        r = subprocess.run([sys.executable, "-m", "gridforge", c, "--help"], cwd=ROOT,
+                           capture_output=True, text=True)
+        assert r.returncode == 0, f"gridforge {c} --help failed: {r.stderr[-300:]}"
+        assert c in top.stdout, f"gridforge {c} missing from the top-level help"
+        assert len(r.stdout.strip()) > 20, c
 
-
-# --- every recurring product survives its own billing lifecycle ---------------
 
 WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_text()
 

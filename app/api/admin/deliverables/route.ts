@@ -5,8 +5,9 @@ import {
   BOARD_HTML,
   generateAndStore,
   getByToken,
+  packHash,
   packState,
-  updateByToken,
+  updateByTokenIf,
 } from "@/lib/deliverables";
 import { deliverableEndpoint } from "@/lib/products";
 import { sendMail } from "@/lib/mail";
@@ -23,7 +24,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { token?: string; action?: string };
+  let body: { token?: string; action?: string; reviewed_hash?: string };
   try {
     body = await req.json();
   } catch {
@@ -31,34 +32,72 @@ export async function PATCH(req: Request) {
   }
   const token = typeof body.token === "string" ? body.token : "";
   const action =
-    body.action === "unrelease" ? "unrelease" : body.action === "regenerate" ? "regenerate" : "release";
+    body.action === "unrelease"
+      ? "unrelease"
+      : body.action === "reopen"
+        ? "reopen"
+        : body.action === "regenerate"
+          ? "regenerate"
+          : "release";
   if (!token) return NextResponse.json({ ok: false, error: "token required" }, { status: 422 });
 
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   if (action === "regenerate") {
-    // Recovery for a pack that is incomplete or whose engine run failed. Re-solves from the stored intake and
-    // replaces every generated artefact together; never touches a released engagement.
-    const endpoint = deliverableEndpoint(row.kind);
-    const stored = (row.intake ?? null) as Record<string, unknown> | null;
+    // Recovery for a pack that is incomplete or whose engine run failed. Re-solves from the stored intake through
+    // the same shared function as the customer's submission, replacing every generated artefact together. Only an
+    // `engine_unavailable` engagement is eligible: a released one is never regenerated over, and a draft a reviewer
+    // may be reading is not silently rewritten (reopen it instead).
     if (row.status === "released") {
       return NextResponse.json({ ok: false, error: "Already released; pull it back first." }, { status: 409 });
     }
+    if (row.status !== "engine_unavailable") {
+      return NextResponse.json(
+        { ok: false, error: `Only an engagement held as engine_unavailable can be regenerated (this one is '${row.status}').` },
+        { status: 409 }
+      );
+    }
+    const endpoint = deliverableEndpoint(row.kind);
+    const stored = (row.intake ?? null) as Record<string, unknown> | null;
     if (!stored || !endpoint) {
       return NextResponse.json({ ok: false, error: "There is no intake to regenerate from." }, { status: 409 });
+    }
+    // Claim it, so a release, a customer resubmission or a second regenerate cannot interleave.
+    const claim = await updateByTokenIf(token, { status: "generating" }, ["engine_unavailable"]);
+    if (claim !== "claimed") {
+      return NextResponse.json(
+        { ok: false, error: claim === "error" ? "Could not update this engagement." : "This engagement is no longer held; reload and check it." },
+        { status: claim === "error" ? 503 : 409 }
+      );
     }
     const { _gridforge: _ours, ...doc } = stored;
     const out = await generateAndStore(row, doc, endpoint);
     if (!out.ok) return NextResponse.json({ ok: false, error: out.error, stage: out.stage }, { status: 502 });
+    // The reviewer must echo the hash of the pack as it now stands, so hand it back rather than leave the UI stale.
+    const fresh = await getByToken(token);
     return NextResponse.json({
       ok: true,
       status: out.complete ? "draft" : "engine_unavailable",
+      ...(fresh?.document_html ? { has_document: true, document_hash: packHash(fresh) } : {}),
       ...(out.complete ? {} : { missing: out.missing }),
     });
   }
 
   if (action === "release") {
+    // Idempotent re-click: already released, nothing written, nobody emailed.
+    if (row.status === "released") {
+      const link = `${SITE_URL}/deliverable/${token}`;
+      return NextResponse.json({ ok: true, status: "released", customer_notified: false, notify_error: "Already released; the buyer was not emailed again.", link });
+    }
+    // Only a draft can be released. `generating`, `awaiting_intake` and
+    // `engine_unavailable` rows may hold a stale or half-written document_html.
+    if (row.status !== "draft") {
+      return NextResponse.json(
+        { ok: false, error: `Only a draft can be released (this engagement is '${row.status}').` },
+        { status: 409 }
+      );
+    }
     if (!row.document_html) {
       return NextResponse.json(
         { ok: false, error: "Nothing generated yet — there is no document to release." },
@@ -74,15 +113,47 @@ export async function PATCH(req: Request) {
         { status: 409 }
       );
     }
-    const first = row.status !== "released";
-    await updateByToken(token, { status: "released", released_at: new Date().toISOString() });
+    // What is released must be exactly what was reviewed: the caller names the
+    // sha256 of the draft (the whole pack) they read (AdminDeliverable.document_hash), and it must
+    // still match the stored document — and the hash recorded at generation.
+    const current = packHash(row);
+    const reviewed = typeof body.reviewed_hash === "string" ? body.reviewed_hash : "";
+    if (!reviewed) {
+      return NextResponse.json(
+        { ok: false, error: "reviewed_hash is required: release names the exact draft that was reviewed." },
+        { status: 422 }
+      );
+    }
+    const generated = (row.intake as { _gridforge?: { document_sha256?: unknown } } | null)?._gridforge?.document_sha256;
+    if (reviewed !== current || (typeof generated === "string" && generated !== current)) {
+      return NextResponse.json(
+        { ok: false, error: "The draft changed since you reviewed it. Reload, re-read it, and release again." },
+        { status: 409 }
+      );
+    }
+    // Compare-and-set on status=draft, and trust only the store's answer: the buyer
+    // is emailed only after the release is durably recorded.
+    const written = await updateByTokenIf(
+      token,
+      { status: "released", released_at: new Date().toISOString() },
+      ["draft"]
+    );
+    if (written === "error") {
+      return NextResponse.json(
+        { ok: false, error: "Could not record the release; nothing was changed and the buyer was not emailed." },
+        { status: 503 }
+      );
+    }
+    if (written === "lost") {
+      return NextResponse.json(
+        { ok: false, error: "This engagement is no longer a draft; reload and check it." },
+        { status: 409 }
+      );
+    }
     const link = `${SITE_URL}/deliverable/${token}`;
     // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
-    // the link once it is released". Email it once (never on an idempotent re-click), and report what
-    // actually happened so a failed send is handed to the operator instead of being assumed.
-    if (!first) {
-      return NextResponse.json({ ok: true, status: "released", customer_notified: false, notify_error: "Already released; the buyer was not emailed again.", link });
-    }
+    // the link once it is released". Report what actually happened so a failed send is handed to the
+    // operator instead of being assumed.
     const hasBoard = Boolean(row.working_files?.[BOARD_HTML]);
     const sent = await sendMail({
       to: row.email ?? "",
@@ -107,6 +178,25 @@ export async function PATCH(req: Request) {
     });
   }
 
-  await updateByToken(token, { status: "draft", released_at: null });
+  if (action === "reopen") {
+    // Operator-only way to let the customer correct their numbers: a draft goes
+    // back to awaiting_intake (intake POST is refused while a draft exists).
+    const r = await updateByTokenIf(token, { status: "awaiting_intake" }, ["draft", "engine_unavailable"]);
+    if (r !== "claimed") {
+      return NextResponse.json(
+        { ok: false, error: r === "error" ? "Could not update this engagement." : "Only a draft can be reopened." },
+        { status: r === "error" ? 503 : 409 }
+      );
+    }
+    return NextResponse.json({ ok: true, status: "awaiting_intake" });
+  }
+
+  const back = await updateByTokenIf(token, { status: "draft", released_at: null }, ["released"]);
+  if (back !== "claimed") {
+    return NextResponse.json(
+      { ok: false, error: back === "error" ? "Could not update this engagement." : "Only a released engagement can be pulled back." },
+      { status: back === "error" ? 503 : 409 }
+    );
+  }
   return NextResponse.json({ ok: true, status: "draft" });
 }

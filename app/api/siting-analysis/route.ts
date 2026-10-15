@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { identify } from "@/lib/portal";
 import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 import Anthropic from "@anthropic-ai/sdk";
 import { SITING_REGIONS, sitingScore } from "@/lib/siting";
@@ -9,17 +10,22 @@ export const runtime = "nodejs";
 // timeline, workload) and returns a deep regional recommendation grounded in
 // the siting dataset + GridForge REF-01 engineering. Directional, not bankable.
 export async function POST(req: Request) {
+  // Identity first: the email comes from the verified Supabase bearer token. A
+  // caller-supplied `email` is ignored (it used to be the credential, so knowing a
+  // subscriber's address let anyone spend their LLM analyst).
+  const who = await identify(req);
+  if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  const email = who.email;
+
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return NextResponse.json({ ok: false, error: "Analyst unavailable" }, { status: 503 });
 
-  // Gate: require an active subscription (email passed from the authed client).
-  let body: { email?: string; brief?: string } = {};
+  let body: { brief?: string } = {};
   try { body = await req.json(); } catch {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
-  const email = (body.email || "").trim().toLowerCase();
   const brief = (body.brief || "").trim();
-  if (!email || !brief) return NextResponse.json({ ok: false, error: "Missing input" }, { status: 400 });
+  if (!brief) return NextResponse.json({ ok: false, error: "Missing input" }, { status: 400 });
 
   // Verify the subscription server-side, through the one module that knows how.
   //

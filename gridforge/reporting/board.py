@@ -15,7 +15,7 @@ from ..intake.loader import Intake
 from ..scenario.objective import Objective, pick_recommended
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
-from .labels import dominant_sensitivity, full_capacity_q, is_zero_gain, racks_q
+from .labels import dominant_sensitivity, economics_limitations, full_capacity_q, is_zero_gain, racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import DECISION_GATES, collect_claims, watermark_for
 
@@ -36,7 +36,7 @@ def build(intake: Intake, results: list[ScenarioResult],
                 "and provenance. Engineering opinion supported by a documented model; not a design package."),
         status="Board summary",
         meta=[("Site", ctx.site.name), ("Hall", ctx.hall.id), ("Target platform", plat.name),
-              ("Recommended architecture", rec.spec.name)],
+              ("Recommended architecture", rec.spec.name if rec.unlocked_racks > 0 else "none — no architecture is deployable on these inputs")],
     )
 
     s = Section("The answer")
@@ -50,7 +50,9 @@ def build(intake: Intake, results: list[ScenarioResult],
     if fq is not None:
         s.blocks.append(Statement("Time to full capacity", fq,
                                   f"set by {ttp.critical_item.lower()}; works run in parallel"))
-    s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur, rec.economics.aace_class))
+    s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur,
+                              rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                                          " · LOWER BOUND: a cost it needs has no price")))
     if rec.envelope.max_racks == 0:
         s.blocks.append(Callout("warning",
             "As the hall stands it cannot host a single rack of the target platform. Stopping here is a "
@@ -90,6 +92,16 @@ def build(intake: Intake, results: list[ScenarioResult],
     if placeholders:
         items.append(f"{placeholders} of {total} priced lines are library defaults rather than quotations; "
                      "the cost is an order-of-magnitude figure, not a budget.")
+    from ..costs import active_evidence
+    ev = active_evidence()
+    if ev and ev.get("used"):
+        items.append(f"{len(ev['used'])} accepted supplier quotation(s) were used in this run; the study lists each "
+                     "with its supplier, date, scope and reviewer.")
+    if not rec.economics.decision_grade:
+        n = len(rec.economics.unpriced_summary())
+        items.append("The economics are not decision-grade"
+                     + (f"; {n} cost component{'s have' if n != 1 else ' has'} no price" if n else "")
+                     + "; the study lists every gap.")
     dom = dominant_sensitivity(sensitivities, rec.unlocked_racks)
     if dom is not None and dom[1] != rec.unlocked_racks:
         items.append(f"The answer depends most on one assumed input: {dom[0].lower()} takes it from "

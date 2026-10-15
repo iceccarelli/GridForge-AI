@@ -1,17 +1,3 @@
-"""Where observations live, and the rule about what may be committed.
-
-Same split as the cost library, for the same reason. A client's metered hall data
-is confidential and is frequently the most commercially sensitive number they
-have. It must never enter the repository or the Docker image.
-
-    BUNDLED   gridforge/data/calibration.json   — the published aggregate, and only
-                                                   observations we are free to publish
-    PRIVATE   calibration.local.json            — gitignored, overlaid at runtime
-
-The bundled file ships empty on purpose. An empty ledger is a true statement about
-where this business is; a seeded one would be the first lie in a product whose only
-durable advantage is that it does not tell them.
-"""
 from __future__ import annotations
 
 import json

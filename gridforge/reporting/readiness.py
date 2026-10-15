@@ -126,7 +126,7 @@ def _next_action(intake: Intake, relief: list[dict]) -> dict:
             "how": "Escalate to a named engineering review before committing capital.",
         }
     top = purchasable[0]
-    weak = {"E0_ASSUMPTION", "E1_MODELLED"}
+    weak = {"E0_ASSUMPTION", "E1_MODEL"}
     top_evidence = {q["evidence"] for q in (top["capex_eur"], top["lead_time_weeks"]) if q}
     label = top["description"] or top["binding_name"]
     if top_evidence & weak:

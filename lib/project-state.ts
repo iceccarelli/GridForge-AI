@@ -141,7 +141,69 @@ export interface ProjectState {
     install: { quoted_weeks: number | null; actual_weeks: number | null; basis: string };
     price: { quoted_eur: number | null; delta_eur: number | null; basis: string };
   }[];
+  /**
+   * The quotation-to-run loop for this project's engagements, as COUNTS and integrity facts only. Supplier names,
+   * prices, storage references and the documents themselves stay with the engagement's own token and the administrator
+   * (lib/cost-evidence.ts); this is the record that they exist, what state they are in, and whether each run's
+   * document is stored. Only evidence and runs recorded while the engagement was linked to this project appear.
+   */
+  cost_evidence: {
+    lines: Record<"validated" | "invalid" | "accepted" | "rejected" | "superseded" | "withdrawn", number> & { total: number };
+    runs: {
+      id: string;
+      created_at: string;
+      /** Recorded before durable artifacts: its document was never kept. */
+      legacy: boolean;
+      offered: number | null;
+      used: number;
+      ignored: number;
+      engine_version: string | null;
+      report_date: string | null;
+      artifact: { status: "stored" | "legacy_unavailable"; sha256: string | null; bytes: number | null };
+    }[];
+  };
   events: Pick<ProjectEventRow, "id" | "event_type" | "occurred_at" | "actor" | "payload">[];
+}
+
+interface CostRunRow {
+  id: string;
+  created_at: string;
+  run_fingerprint: string | null;
+  evidence_ids: string[];
+  accepted_evidence_ids: string[] | null;
+  ignored: unknown[] | null;
+  engine_provenance: { engine_version?: string } | null;
+  report_date: string | null;
+  artifact_sha256: string | null;
+  artifact_bytes: number | null;
+  artifact_storage_ref: string | null;
+}
+
+function costEvidenceState(
+  lines: { state: string }[],
+  runs: CostRunRow[]
+): ProjectState["cost_evidence"] {
+  const counts = { validated: 0, invalid: 0, accepted: 0, rejected: 0, superseded: 0, withdrawn: 0, total: lines.length };
+  for (const l of lines) if (l.state in counts) counts[l.state as keyof typeof counts] += 1;
+  return {
+    lines: counts,
+    runs: runs.map((r) => {
+      const stored = r.run_fingerprint !== null && !!r.artifact_storage_ref;
+      return {
+        id: r.id,
+        created_at: r.created_at,
+        legacy: r.run_fingerprint === null,
+        offered: r.accepted_evidence_ids ? r.accepted_evidence_ids.length : null,
+        used: r.evidence_ids.length,
+        ignored: Array.isArray(r.ignored) ? r.ignored.length : 0,
+        engine_version: r.engine_provenance?.engine_version ?? null,
+        report_date: r.report_date,
+        artifact: stored
+          ? { status: "stored", sha256: r.artifact_sha256, bytes: r.artifact_bytes === null ? null : Number(r.artifact_bytes) }
+          : { status: "legacy_unavailable", sha256: null, bytes: null },
+      };
+    }),
+  };
 }
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -185,7 +247,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk, ob, rv, sa, sr, sv] = await Promise.all([
+  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
@@ -195,11 +257,16 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     rest<ActualRow[]>("GET", `supplier_actuals?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=submitted_at.asc`),
     rest<ActualReviewRow[]>("GET", `supplier_actual_reviews?project_id=eq.${encodeURIComponent(project.id)}&select=*`),
     realityFor(project.id),
+    rest<{ state: keyof ProjectState["cost_evidence"]["lines"] }[]>("GET", `cost_evidence_state?project_id=eq.${encodeURIComponent(project.id)}&select=state`),
+    rest<CostRunRow[]>(
+      "GET",
+      `cost_evidence_runs?project_id=eq.${encodeURIComponent(project.id)}&select=id,created_at,run_fingerprint,evidence_ids,accepted_evidence_ids,ignored,engine_provenance,report_date,artifact_sha256,artifact_bytes,artifact_storage_ref&order=created_at.desc,id.desc`
+    ),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
   // A failed read is a failed read — never rendered as "no evidence" or "no packages".
-  if (!ev.ok || !pk.ok || !ob.ok || !rv.ok || !sa.ok || !sr.ok || !sv.ok) return { ok: false, status: 502, error: "The project record could not be read." };
+  if (!ev.ok || !pk.ok || !ob.ok || !rv.ok || !sa.ok || !sr.ok || !sv.ok || !cel.ok || !cer.ok) return { ok: false, status: 502, error: "The project record could not be read." };
 
   const cases: CaseState[] = [];
   const latestRevision = new Map<string, number>();
@@ -353,6 +420,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       procurement: { packages },
       observations,
       supplier_reality,
+      cost_evidence: costEvidenceState(cel.data ?? [], cer.data ?? []),
       events: events.events.map((e) => ({
         id: e.id,
         event_type: e.event_type,

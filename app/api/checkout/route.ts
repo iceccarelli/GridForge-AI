@@ -1,7 +1,7 @@
 import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { COMMERCE, foundingSlotsRemaining } from "@/lib/commerce";
+import { COMMERCE, foundingSlotsRemainingLive } from "@/lib/commerce";
 import { apiSalesReadiness } from "@/lib/api-readiness";
 import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
@@ -110,7 +110,21 @@ export async function POST(req: Request) {
   // The founding credit applies to the engagement deposit, not to a fixed-fee
   // engineering deliverable — discounting the screen would undercut the only
   // qualification signal that means anything.
-  const applyFounding = !product && wantsFounding && foundingSlotsRemaining() > 0;
+  // Slots are counted from persisted paid deposits. If the count cannot be read the credit is NOT
+  // granted blind: the request is refused (no session, no coupon). When no slot remains the buyer gets the
+  // ordinary deposit and the response says the credit was not applied. No coupon is created without a discount.
+  let applyFounding = false;
+  if (!product && wantsFounding && COMMERCE.founding.enabled) {
+    const remaining = await foundingSlotsRemainingLive();
+    if (remaining === null) {
+      console.error("[GridForge] founding slots unreadable; checkout refused (fail closed)");
+      return NextResponse.json(
+        { ok: false, error: "We cannot confirm Founding Partner availability right now. No payment was taken. Please try again shortly." },
+        { status: 503 }
+      );
+    }
+    applyFounding = remaining > 0;
+  }
   const discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
   if (applyFounding) {
     const coupon = await stripe.coupons.create({
@@ -193,7 +207,11 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ ok: true, url: session.url });
+    return NextResponse.json({
+      ok: true,
+      url: session.url,
+      ...(wantsFounding && !product ? { founding_applied: applyFounding } : {}),
+    });
   } catch (err) {
     console.error("[GridForge] Stripe checkout error:", err);
     return NextResponse.json(

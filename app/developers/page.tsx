@@ -299,6 +299,12 @@ export default async function DevelopersPage() {
         >
           See the full deliverable
         </Link>
+        <Link
+          href="/power/deploy"
+          className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+        >
+          Try the BTM power deployment assessment
+        </Link>
       </section>
     </main>
   );

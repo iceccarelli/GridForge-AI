@@ -9,6 +9,7 @@
  * FAKE-BACKED store (the same obligations are exercised against real PostgreSQL in the realdb suite);
  * email is intercepted, Resend is never contacted.
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
@@ -209,7 +210,7 @@ describe("an operator can recover from the persisted record, through an authenti
   it("lists open notifications without any recipient, link or token, and retries an abandoned one", async () => {
     const { createHash } = await import("node:crypto");
     process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
-    const cookie = createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex");
+    const cookie = adminToken()!;
     vi.doMock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => (n === "gf_admin" ? { value: cookie } : undefined) }) }));
     vi.resetModules();
 

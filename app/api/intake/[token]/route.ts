@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import { generateAndStore, getByIntakeToken, updateByToken } from "@/lib/deliverables";
+import { generateAndStore, getByIntakeToken, updateByToken, updateByTokenIf } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -58,9 +58,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // Resubmission policy (explicit, minimal): the customer may submit only while
+  // the engagement is `awaiting_intake`, or `engine_unavailable` (nothing was
+  // generated, so retrying loses nothing). Once a draft exists — or is being
+  // generated, or is released — the numbers are frozen: letting the customer
+  // resubmit would rewrite document_html and flip status under a reviewer who is
+  // reading it. To change anything after that, an operator reopens the engagement
+  // (PATCH /api/admin/deliverables action "reopen"), which returns it to
+  // `awaiting_intake`.
   if (row.status === "released") {
     return NextResponse.json(
       { ok: false, error: "This engagement has already been delivered." },
+      { status: 409 }
+    );
+  }
+  if (row.status === "draft" || row.status === "generating") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          row.status === "draft"
+            ? "Your numbers are already in and the document is with a senior engineer for review. " +
+              "If something needs correcting, reply to the email we sent you."
+            : "Your numbers are already being processed.",
+      },
       { status: 409 }
     );
   }
@@ -88,7 +109,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const assumed = assumedFields(parsed.data as Record<string, unknown>);
 
   const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
-  await updateByToken(row.token, { intake: doc, status: "generating" });
+  // Claim the engagement atomically: only one submission can move it out of an
+  // intake-accepting status, so two concurrent POSTs cannot both generate.
+  const claim = await updateByTokenIf(row.token, { intake: doc, status: "generating" }, [
+    "awaiting_intake",
+    "engine_unavailable",
+  ]);
+  if (claim === "error") {
+    return NextResponse.json(
+      { ok: false, error: "We could not save your numbers just now. Please try again shortly." },
+      { status: 503 }
+    );
+  }
+  if (claim === "lost") {
+    return NextResponse.json(
+      { ok: false, error: "Your numbers are already being processed." },
+      { status: 409 }
+    );
+  }
 
   // From the catalogue, not from a conditional here. Branching on the kind inline
   // is how a EUR 18,000 Procurement Specification purchase generated a Density
@@ -131,7 +169,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
           "Nothing is lost and nothing was invented — we will pick this up and come back to you.",
         detail: stored.error,
       },
-      { status: 502 }
+      { status: persist ? 503 : 502 }
     );
   }
 

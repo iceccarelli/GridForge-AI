@@ -15,6 +15,8 @@
  *           this file — only that the request we would send carries the catalogue's exact product and amount.
  *   NOT proven anywhere in this repository: a live or test-mode Stripe Checkout round trip.
  */
+import { adminToken } from "@/lib/admin";
+import { documentHash } from "@/lib/deliverables";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -313,9 +315,9 @@ describe.each(Object.values(PRODUCTS))("$id", (p) => {
       const read = await import("@/app/api/deliverable/[token]/route");
       expect((await read.GET(new Request(siteUrl("/x")), ctx(row.token))).status).toBe(409);
       const admin = await import("@/app/api/admin/deliverables/route");
-      const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: row.token }) }));
+      const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: row.token, reviewed_hash: documentHash(row.document_html) }) }));
       expect((await release()).status).toBe(401);
-      jar.push({ name: "gf_admin", value: (await import("node:crypto")).createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+      jar.push({ name: "gf_admin", value: adminToken()! });
       expect((await release()).status).toBe(200);
       r().humanRelease = "proven";
 

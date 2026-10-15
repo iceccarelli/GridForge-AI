@@ -42,6 +42,7 @@ agent told to retry a call it can never afford will retry it forever.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
@@ -71,6 +72,7 @@ from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
+from ..provenance import provenance
 from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier, redact
@@ -135,6 +137,45 @@ class ApiError(Exception):
         self.extra = extra
 
 
+API_SCHEMA = "gridforge/api/1"
+
+
+class _IdempotencyCache:
+    """Remembers the answer to a keyed request, so a client that retries after a timeout is neither
+    billed twice nor handed a different answer. Bounded and in-memory: it protects the retry window
+    (minutes), it is not a ledger, and it forgets on restart."""
+    TTL = 24 * 3600
+    MAX = 2000
+
+    def __init__(self):
+        self._items: dict[tuple, tuple[float, str, int, dict]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple):
+        now = time.time()
+        with self._lock:
+            hit = self._items.get(key)
+            if hit and now - hit[0] <= self.TTL:
+                return hit
+            self._items.pop(key, None)
+            return None
+
+    def put(self, key: tuple, body_hash: str, status: int, payload: dict) -> None:
+        with self._lock:
+            if len(self._items) >= self.MAX:
+                oldest = min(self._items, key=lambda k: self._items[k][0])
+                del self._items[oldest]
+            self._items[key] = (time.time(), body_hash, status, payload)
+
+
+IDEMPOTENCY = _IdempotencyCache()
+
+
+def _reject_constant(name: str):
+    """json.loads accepts NaN/Infinity, which are not JSON and poison every comparison downstream."""
+    raise ValueError(f"{name} is not a valid JSON number")
+
+
 class _RateLimiter:
     def __init__(self, per_minute: int):
         self.per_minute = per_minute
@@ -146,6 +187,9 @@ class _RateLimiter:
             return True
         now = time.time()
         with self._lock:
+            if len(self._hits) > 10_000:                      # a spoofed-key flood must not grow this forever
+                for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
+                    del self._hits[k]
             q = self._hits[key]
             while q and now - q[0] > 60:
                 q.popleft()
@@ -176,7 +220,15 @@ def _allowed_origins() -> list[str]:
 
 
 def _run(doc: dict):
+    if not isinstance(doc, dict):
+        raise ApiError(422, "expected an intake document (a JSON object)")
     intake = load_document(doc)
+    if not intake.report.supplied:
+        # Every number would be a library default: a study of a hall nobody described. The free
+        # /v1/qualify route is the place to start from a handful of figures.
+        raise ApiError(422, "the request contains none of the intake fields, so there is nothing to "
+                            "solve. Send an intake document (see GET /v1/tools for the schema) or use "
+                            "/v1/qualify.", missing_required=[g.path for g in intake.report.required_gaps])
     return intake, run_all(intake.context, intake.scenarios)
 
 
@@ -224,6 +276,13 @@ def handle_screen(body: dict, tier: Tier) -> dict:
 def handle_study(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     fmt = str(body.get("format") or "json").lower()
+    bundle = str(body.get("bundle") or "").lower()
+    if bundle and bundle != "board":
+        raise ApiError(422, f"unknown bundle {bundle!r}", allowed=["board"])
+    if bundle and fmt not in ("html", "md"):
+        raise ApiError(422, "bundle=board needs format html or md", allowed=["html", "md"])
+    if bundle and str(body.get("view") or "").lower() == "board":
+        raise ApiError(422, "bundle=board and view=board cannot be combined")
     if fmt == "csv":
         return {"format": "csv", "files": csv_bundle(intake, results)}
     if fmt in ("html", "md"):
@@ -240,13 +299,21 @@ def handle_study(body: dict, tier: Tier) -> dict:
                                     client=intake.client, objective=objective,
                                     watermark=watermark_for(intake))
         out = _rendered(report, results, fmt)
-        if str(body.get("bundle") or "").lower() == "board":
+        if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
             # two cannot disagree about the model, the objective, the evidence classes or the watermark. Each
             # passes the report gates; if either fails nothing is returned, never half a pack.
             from ..reporting.board import build as build_board_report
-            out["board"] = _rendered(build_board_report(intake, results, sens, objective=objective),
-                                     results, fmt)
+            board_report = build_board_report(intake, results, sens, objective=objective)
+            out["board"] = _rendered(board_report, results, fmt)
+            # Both formats of both documents ride in this one response, so the caller never re-solves for the
+            # other format. `bundle` is the engine's own statement of what it produced.
+            out["document_md"] = out["document"] if fmt == "md" else _rendered(report, results, "md")["document"]
+            out["board"]["document_md"] = (out["board"]["document"] if fmt == "md"
+                                           else _rendered(board_report, results, "md")["document"])
+            out["bundle"] = {"kind": "board", "solves": 1,
+                             "artifacts": ["study", "board_summary"],
+                             "formats": ["html", "md"]}
         return out
     return model_pack(intake, results)
 
@@ -360,6 +427,9 @@ def handle_spec(body: dict, tier: Tier) -> dict:
         "requirements": len(pkg.requirements), "mandatory": len(pkg.mandatory()),
     }
     out["response_template"] = {
+        "specification": {"project": pkg.project, "hall": pkg.hall,
+                          "constraint": pkg.constraint_id,
+                          "sized_for_racks": pkg.sized_for_racks},
         "supplier": "", "received_on": "", "valid_until": "",
         "values": {f.key: None for f in pkg.response_fields},
         "compliance": {q.id: "" for q in pkg.mandatory()},
@@ -526,7 +596,11 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
         # stops looking for the leaked key.
         raise ApiError(503, "revocation is not persistable on this deployment",
                        fix="set GRIDFORGE_REVOKED_FILE to a writable path on a volume")
-    return {"revoked": key_id, "count": len(revoked_ids())}
+    try:
+        count = len(revoked_ids())
+    except Exception:
+        count = None
+    return {"revoked": key_id, "count": count}
 
 
 _BID_NOTE = ("Installation method and evidence quality carry 15 of the 100 points and "
@@ -564,6 +638,15 @@ def handle_bids(body: dict, tier: Tier) -> dict:
     try:
         pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
         responses = [SupplierResponse.from_dict(d) for d in raw]
+        if body.get("evidence_only"):
+            # Structured, validated quote lines for the site to persist for human review. Nothing is
+            # ranked and nothing is accepted here: a line is evidence only after a person accepts it.
+            from ..procurement.evidence import quote_lines
+            return {
+                "relief": pkg.relief_title, "constraint_id": pkg.constraint_id,
+                "scope_quantity": pkg.scope_quantity, "scope_quantity_unit": pkg.scope_quantity_unit,
+                "lines": [q.to_dict() for q in quote_lines(pkg, responses)],
+            }
         ranked = rank_bids(pkg, responses)
     except ProcurementError as exc:
         raise ApiError(422, str(exc))
@@ -623,6 +706,47 @@ ROUTES = {
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
+#: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
+EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/diff", "/v1/deck", "/v1/spec"})
+MAX_EVIDENCE_LINES = 200
+
+
+def _invoke(endpoint: str, handler, body, tier):
+    """Call a handler, applying accepted cost evidence from the request when it carries any.
+
+    The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
+    has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
+    returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
+    if not isinstance(body, dict) or "cost_evidence" not in body:
+        return handler(body, tier)
+    from ..costs import CostEntry, cost_overlay, set_evidence_effect
+    ev = body["cost_evidence"]
+    if endpoint not in EVIDENCE_ROUTES:
+        raise ApiError(422, f"{endpoint} does not take cost_evidence", supported=sorted(EVIDENCE_ROUTES))
+    if not isinstance(ev, list) or len(ev) > MAX_EVIDENCE_LINES:
+        raise ApiError(422, f"cost_evidence must be a list of at most {MAX_EVIDENCE_LINES} accepted cost lines")
+    entries = []
+    for i, raw in enumerate(ev):
+        try:
+            entries.append(CostEntry(**raw))
+        except (TypeError, ValueError) as exc:
+            raise ApiError(422, f"cost_evidence[{i}] is not a valid cost line: {exc}")
+    clean = {k: v for k, v in body.items() if k != "cost_evidence"}
+    with cost_overlay(entries) as report:
+        effect = None
+        if endpoint in ("/v1/screen", "/v1/study"):
+            from ..scenario.evidence import evidence_effect
+            doc = clean.get("intake") or clean
+            intake = load_document(doc)          # an invalid intake fails here exactly as the handler would
+            effect = evidence_effect(intake.context, intake.scenarios, entries)
+            set_evidence_effect(effect)
+        out = handler(clean, tier)
+    if isinstance(out, dict):
+        out["cost_evidence"] = {**report.to_dict(), "effect": effect}
+        out["provenance"] = provenance(VERSION)      # what produced this answer, so a caller can record it
+    return out
+
+
 GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
               "/v1/calibration", "/v1/tools", "/v1/usage")
 
@@ -655,12 +779,18 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     denied = charge(endpoint, args)
     if denied:
         raise RpcError(-32002, denied["error"], denied)
+    refund = getattr(charge, "refund", lambda: None)
     try:
-        result = handler(args, tier)
+        result = _invoke(endpoint, handler, args, tier)
     except ApiError as exc:
+        refund()
         raise RpcError(-32602, exc.message, exc.extra)
     except IntakeError as exc:
+        refund()
         raise RpcError(-32602, str(exc))
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        refund()
+        raise RpcError(-32602, f"invalid arguments: {exc.__class__.__name__}: {str(exc)[:160]}")
     # MCP wants content blocks. The structured payload is the real answer; the text
     # block is a one-line summary so a model that only reads text is not left with
     # a wall of JSON and no idea which number mattered.
@@ -755,6 +885,9 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    #: Seconds a connection may sit idle mid-request. Without it a client that announces a body and
+    #: never sends it holds a thread for ever.
+    timeout = 30
     server_version = f"gridforge/{VERSION}"
     limiter = _RateLimiter(RATE_LIMIT_PER_MINUTE)
 
@@ -774,12 +907,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     def _send(self, status: int, payload: dict) -> None:
+        if isinstance(payload, dict) and "jsonrpc" not in payload:
+            payload = {"schema_version": API_SCHEMA, **payload}
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-GridForge-Schema", API_SCHEMA)
+        if getattr(self, "_replayed", False):
+            self.send_header("Idempotent-Replay", "true")
         self._usage_headers()
         self._cors()
         self.end_headers()
@@ -787,11 +925,24 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _client_key(self) -> str:
-        return (self.headers.get("X-Forwarded-For") or self.client_address[0] or "?").split(",")[0]
+        """The caller's address as OUR proxy saw it. X-Forwarded-For is appended to by each hop and
+        the leftmost entry is whatever the client chose to send, so we count in from the right:
+        GRIDFORGE_TRUSTED_PROXY_HOPS (default 1, i.e. the entry our own proxy added; 0 ignores the
+        header and uses the socket address)."""
+        try:
+            hops = max(0, int(os.environ.get("GRIDFORGE_TRUSTED_PROXY_HOPS", "1")))
+        except ValueError:
+            hops = 1
+        fwd = [p.strip() for p in (self.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
+        if hops and len(fwd) >= hops:
+            return fwd[-hops]
+        return self.client_address[0] or "?"
 
     def _supplied_key(self) -> str:
-        return (self.headers.get("X-API-Key")
-                or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth[:7].lower() == "bearer ":
+            auth = auth[7:].strip()
+        return self.headers.get("X-API-Key") or auth
 
     def _plan(self):
         return plan_for(self._supplied_key())
@@ -805,7 +956,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         admin = os.environ.get("GRIDFORGE_ADMIN_KEY") or ""
         supplied = self._supplied_key() or ""
-        return bool(admin) and hmac.compare_digest(admin, supplied)
+        return bool(admin) and hmac.compare_digest(admin.encode(), supplied.encode("utf-8", "replace"))
 
     def _tier(self) -> Tier:
         if self._is_operator():
@@ -828,9 +979,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 **extra,
                 "version": VERSION,
+                "provenance": provenance(VERSION),
                 "auth_configured": _auth_configured(),
                 "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+                "schema": API_SCHEMA,
+                "idempotency": "send an Idempotency-Key header on a POST to make a retry free and identical",
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
                 "unit_rates": dict(sorted(UNIT_COST.items())),
@@ -894,16 +1048,27 @@ class Handler(BaseHTTPRequestHandler):
         units = units_for(endpoint, body)
         if units <= 0:
             return None
-        if METER.would_exceed(plan.account, units, plan.monthly_quota):
+        usage = METER.reserve(plan.account, endpoint, units, plan.monthly_quota)
+        if usage is None:
             u = METER.statement(plan)
             return {"error": "monthly unit quota exhausted",
                     "units_required": units, "units_used": u["units"],
                     "monthly_quota": u["monthly_quota"], "month": u["month"],
                     "fix": "upgrade the plan on your account page, or wait for the "
                            "allowance to reset at the start of next month"}
-        self._last_usage = METER.record(plan.account, endpoint, units)
+        self._last_usage = usage
         self._last_units = units
+        self._charged = (plan.account, endpoint, units)
         return None
+
+    def _refund(self) -> None:
+        """Undo this request's charge: the call produced no answer."""
+        charged = getattr(self, "_charged", None)
+        if charged:
+            METER.refund(*charged)
+            self._charged = None
+            self._last_units = 0
+            self._last_usage = METER.current(charged[0])
 
     def _usage_headers(self) -> None:
         units = getattr(self, "_last_units", None)
@@ -952,14 +1117,19 @@ class Handler(BaseHTTPRequestHandler):
                                         public_endpoint="/v1/qualify",
                                         tool_schemas="/v1/tools"))
 
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._send(400, {"error": "invalid Content-Length"})
+        if length < 0:
+            return self._send(400, {"error": "invalid Content-Length"})
         if length > MAX_BODY_BYTES:
             return self._send(413, {"error": "payload too large",
                                     "max_bytes": MAX_BODY_BYTES})
         raw = self.rfile.read(length) if length else b"{}"
         try:
-            body = json.loads(raw or b"{}")
-        except json.JSONDecodeError as exc:
+            body = json.loads(raw or b"{}", parse_constant=_reject_constant)
+        except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
             return self._send(400, {"error": f"invalid JSON: {exc}"})
 
         if path == "/mcp":
@@ -968,23 +1138,55 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"error": "expected a JSON object"})
 
+        idem = (self.headers.get("Idempotency-Key") or "").strip()
+        idem_key = None
+        body_hash = hashlib.sha256(raw).hexdigest()
+        plan = self._plan()
+        if idem and plan is not None:
+            if len(idem) > 200:
+                return self._send(400, {"error": "Idempotency-Key is longer than 200 characters"})
+            idem_key = (plan.account, path, idem)
+            hit = IDEMPOTENCY.get(idem_key)
+            if hit is not None:
+                if hit[1] != body_hash:
+                    return self._send(422, {"error": "this Idempotency-Key was already used with a "
+                                                     "different request body"})
+                self._replayed = True
+                return self._send(hit[2], hit[3])
+
         denied = self._charge(path, body)
         if denied:
             return self._send(402, denied)
 
         handler = ROUTES[path][0]
         try:
-            return self._send(200, handler(body, tier))
+            result = _invoke(path, handler, body, tier)
+            if idem_key is not None:
+                IDEMPOTENCY.put(idem_key, body_hash, 200, result)
+            return self._send(200, result)
         except ApiError as exc:
+            self._refund()
             return self._send(exc.status, {"error": exc.message, **exc.extra})
         except IntakeError as exc:
+            self._refund()
             return self._send(422, {"error": str(exc)})
-        except Exception as exc:  # pragma: no cover - last resort
-            return self._send(500, {"error": "engine error", "detail": str(exc)[:300]})
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            # Malformed input that got past the field checks. Reported as the caller's problem
+            # (422, not billed) rather than a 500 that blames us and leaks an exception string.
+            self._refund()
+            return self._send(422, {"error": "the request could not be processed as given",
+                                    "detail": f"{exc.__class__.__name__}: {str(exc)[:160]}"})
+        except Exception:  # pragma: no cover - last resort
+            self._refund()
+            import traceback
+            traceback.print_exc()
+            return self._send(500, {"error": "engine error",
+                                    "request_id": self.headers.get("X-Request-Id", "")})
 
     def _serve_mcp(self, body, tier: Tier) -> None:
         """JSON-RPC 2.0, single request or batch. Notifications get 202 and no body."""
         charge = lambda endpoint, args: self._charge(endpoint, args)  # noqa: E731
+        charge.refund = self._refund
         if isinstance(body, list):
             if not body:
                 return self._send(400, {"jsonrpc": "2.0", "id": None,

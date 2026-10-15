@@ -87,6 +87,19 @@ class LadderStep:
     gate: bool = False
     cost_key: str | None = None
     taken: bool = True     # False -> relief exists on paper but cannot actually be bought
+    #: How the price was formed and what it rests on (see ReliefOption); filled from the relief.
+    cost_kind: str = ""
+    scope: str = ""
+    cost_basis: str = ""           # basis of the library line: library_default, firm_quote, ...
+    unpriced: tuple = ()           # ((key, what, unit), ...) components with no price at all
+    basis_note: str = ""
+    #: Why a relief on the path was NOT counted although it is physically a step ("no deployable capacity
+    #: is added by this relief or by anything after it").
+    not_taken_reason: str = ""
+    extra_cost_keys: tuple = ()
+    quantity: float | None = None
+    quantity_unit: str = ""
+    limited: bool = False
 
     @property
     def racks_unlocked(self) -> int:
@@ -104,6 +117,7 @@ class HeadroomLadder:
     final: EnvelopeResult | None = None
     initial: EnvelopeResult | None = None
     final_context: EnvelopeContext | None = None
+    initial_context: EnvelopeContext | None = None
 
     @property
     def cost_keys(self) -> list[str]:
@@ -112,7 +126,10 @@ class HeadroomLadder:
         Sentinels ("client-supplied", "not-capital") are real answers to "where did
         this number come from" but they are not library lines, so they are returned
         here and filtered by whoever is counting placeholders."""
-        return [s.cost_key for s in self.taken_steps if s.cost_key]
+        keys = [s.cost_key for s in self.taken_steps if s.cost_key]
+        for s in self.taken_steps:
+            keys.extend(s.extra_cost_keys)
+        return keys
 
     @property
     def taken_steps(self) -> list["LadderStep"]:
@@ -141,35 +158,88 @@ def _absolute_capex(relief, racks_after: int, evidence: EvidenceClass = ESTIMATE
         relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=evidence)
 
 
-def ladder(ctx: EnvelopeContext, max_steps: int = 20) -> HeadroomLadder:
+class LadderDidNotConverge(RuntimeError):
+    """The ladder was still finding reliefs when the step budget ran out. Reporting
+    the rung it happened to stop on would publish a capacity that is not the ceiling."""
+
+
+def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *, taken: bool = True) -> LadderStep:
+    from ..costs import basis_of
+    rl = binding.relief
+    key = rl.cost_key
+    return LadderStep(
+        i, binding.id, binding.name, binding.domain, res.max_racks, racks_after,
+        binding.basis, rl.description, _absolute_capex(rl, racks_after, evidence),
+        rl.lead_time_weeks, rl.risk, binding.gate, key, taken=taken,
+        cost_kind="per_rack" if rl.per_rack else rl.cost_kind, scope=rl.scope,
+        cost_basis=basis_of(key) if key else "library_default",
+        unpriced=tuple(rl.unpriced), basis_note=rl.basis_note,
+        extra_cost_keys=tuple(rl.extra_cost_keys), quantity=rl.quantity, quantity_unit=rl.quantity_unit,
+        limited=rl.limited)
+
+
+def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
     out = HeadroomLadder()
     cur = ctx
     res = solve(cur)
     out.initial = res
+    out.initial_context = ctx
     out.final_context = cur
+    converged = False
+    reliefs: dict[int, object] = {}
+    #: the context and result AFTER each step, so the plan can be cut back to the last step that earned anything
+    states: dict[int, tuple[EnvelopeContext, "EnvelopeResult"]] = {0: (cur, res)}
     for i in range(1, max_steps + 1):
         binding = res.binding
         if binding.relief is None:
+            converged = True
             break
         nxt_ctx = binding.relief.apply(cur)
         if nxt_ctx is cur:          # relief that cannot actually be bought
-            out.steps.append(LadderStep(
-                i, binding.id, binding.name, binding.domain, res.max_racks, res.max_racks,
-                binding.basis, binding.relief.description,
-                _absolute_capex(binding.relief, res.max_racks, rack_evidence(res)),
-                binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
-                binding.relief.cost_key, taken=False))
+            st = _step(i, binding, res, res.max_racks, rack_evidence(res), taken=False)
+            st.not_taken_reason = "this relief cannot be obtained inside the model's horizon"
+            out.steps.append(st)
+            converged = True
             break
         nxt = solve(nxt_ctx)
-        out.steps.append(LadderStep(
-            i, binding.id, binding.name, binding.domain, res.max_racks, nxt.max_racks,
-            binding.basis, binding.relief.description,
-            _absolute_capex(binding.relief, nxt.max_racks, rack_evidence(nxt)),
-            binding.relief.lead_time_weeks, binding.relief.risk, binding.gate,
-            binding.relief.cost_key))
+        reliefs[i] = binding.relief
+        out.steps.append(_step(i, binding, res, nxt.max_racks, rack_evidence(nxt)))
+        states[i] = (nxt_ctx, nxt)
         if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
+            converged = True
             break
         cur, res = nxt_ctx, nxt
+    if not converged:
+        raise LadderDidNotConverge(
+            f"the headroom ladder was still finding reliefs after {max_steps} steps")
+    # A relief that earns no deployable capacity, and is not followed by one that does, is spending with no
+    # return: the plan ends at the last step that added racks. (A zero-gain step BEFORE a gaining one is a
+    # tied constraint and stays: relieving one of two limits at the same count changes nothing alone.)
+    taken_idx = [s_.step for s_ in out.steps if s_.taken]
+    last_gain = max((s_.step for s_ in out.steps if s_.taken and s_.racks_after > s_.racks_before), default=0)
+    for st in out.steps:
+        if st.taken and st.step > last_gain:
+            st.taken = False
+            st.not_taken_reason = ("adds no deployable capacity, here or in any later step; "
+                                   "not part of the plan and not costed")
+    if taken_idx and res.max_racks > 0:
+        # Cut the plan back to the last step that earned capacity. (When the hall hosts nothing at the end,
+        # the end state is kept: it is the answer to "what still binds".)
+        cur, res = states[last_gain]
     out.final = res
     out.final_context = cur
+    # A per-rack relief costs the racks finally fitted out, not the count that happened to
+    # exist when its rung was reached (early rungs often sit at 0 racks and were priced for 1).
+    n_final = res.max_racks
+    ev_final = rack_evidence(res)
+    for st in out.taken_steps:
+        relief = reliefs.get(st.step)
+        if relief is not None and relief.per_rack and st.capex_eur is not None:
+            st.capex_eur = _absolute_capex(relief, n_final, ev_final)
+    # A path that never reaches a single deployable rack buys nothing: its reliefs are not a plan.
+    if n_final <= 0:
+        for st in out.steps:
+            if st.taken:
+                st.not_taken_reason = "the hall still hosts no rack after this plan, so nothing is bought"
+            st.taken = False
     return out

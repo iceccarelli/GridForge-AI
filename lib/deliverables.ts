@@ -82,7 +82,16 @@ export async function createDeliverable(
   };
   const c = creds();
   if (!c) {
-    console.log("[GridForge] deliverable (not persisted — Supabase unset):", JSON.stringify(record));
+    // With no store the order is NOT persisted, and the Stripe webhook treats a
+    // non-null result as "engagement opened" (2xx, no retry) — a paid-but-lost
+    // order. So outside local development this is a failure (null -> 5xx -> Stripe
+    // retries). The id:"local" stand-in exists only for `next dev`. The record holds
+    // the document token, intake token and buyer email, so it is never logged.
+    if (process.env.NODE_ENV !== "development") {
+      console.error("[GridForge] deliverable NOT persisted: Supabase is not configured (kind=%s)", row.kind);
+      return null;
+    }
+    console.warn("[GridForge] DEV ONLY: deliverable not persisted (Supabase unset), kind=%s", row.kind);
     return { ...(record as DeliverableRecord), id: "local" };
   }
   const insert = (payload: Record<string, unknown>) =>
@@ -276,6 +285,50 @@ export async function updateByToken(
   return res.ok;
 }
 
+/**
+ * Update only if the row is still in one of `statuses` — a compare-and-set on
+ * the lifecycle. "claimed": exactly the expected row changed. "lost": the row was
+ * not (or no longer) in an allowed status, nothing was written. "error": the store
+ * failed, so the outcome is unknown and the caller must not assume success.
+ */
+export async function updateByTokenIf(
+  token: string,
+  patch: Partial<DeliverableRecord>,
+  statuses: DeliverableStatus[]
+): Promise<"claimed" | "lost" | "error"> {
+  const c = creds();
+  if (!c) return "error";
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}` +
+        `&status=in.(${statuses.join(",")})`,
+      {
+        method: "PATCH",
+        headers: { ...c.headers, Prefer: "return=representation" },
+        body: JSON.stringify(patch),
+      }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] deliverable conditional update failed:", await storeFault(res));
+      return "error";
+    }
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    return rows.length > 0 ? "claimed" : "lost";
+  } catch (err) {
+    console.error("[GridForge] deliverable conditional update unreachable:", err);
+    return "error";
+  }
+}
+
+/**
+ * Fingerprint of a document body. Taken when a draft is generated and again when
+ * an operator releases it: release is refused unless the caller names the hash of
+ * the draft they actually reviewed, so what is released is exactly what was read.
+ */
+export function documentHash(html: string | null | undefined): string {
+  return crypto.createHash("sha256").update(html ?? "", "utf8").digest("hex");
+}
+
 /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */
 /**
  * Compare supplier responses against the capacity model.
@@ -343,14 +396,16 @@ export async function compareBids(
   }
 }
 
-function boardFrom(
-  html: { board?: { document?: string; document_full?: string } },
-  md: { board?: { document?: string } }
-): { html: string; md: string } | null {
-  // Standalone page for the html (it opens in its own tab, like the deck); both formats must be present.
-  const h = html.board?.document_full ?? html.board?.document;
-  const m = md.board?.document;
-  return typeof h === "string" && h && typeof m === "string" && m ? { html: h, md: m } : null;
+function boardFrom(body: {
+  board?: { document?: string; document_full?: string; document_md?: string };
+  bundle?: { kind?: string; artifacts?: unknown };
+}): { html: string; md: string } | null {
+  // The engine states what it produced; a response that does not claim the board artefact is not a pack, whatever
+  // else it contains. Standalone page for the html (it opens in its own tab, like the deck).
+  const claimed = body.bundle?.kind === "board" && Array.isArray(body.bundle.artifacts) && body.bundle.artifacts.includes("board_summary");
+  const h = body.board?.document_full ?? body.board?.document;
+  const m = body.board?.document_md;
+  return claimed && typeof h === "string" && h && typeof m === "string" && m ? { html: h, md: m } : null;
 }
 
 // --- The paid Envelope Study pack --------------------------------------------------------------------------------
@@ -390,10 +445,14 @@ export function packState(row: Pick<DeliverableRecord, "kind" | "document_html" 
     // No manifest: a row generated before packs existed. Do not retroactively hold it hostage to a board.
     return { complete: Boolean(row.document_html), missing: row.document_html ? [] : ["study"], legacy: true };
   }
-  let expected = packArtifacts(row.kind);
+  // The product defines what a pack must contain; the stored manifest can only add to that, never shorten it.
+  const required = packArtifacts(row.kind);
+  let expected = required;
   try {
     const m = JSON.parse(raw) as { expected?: unknown };
-    if (Array.isArray(m.expected) && m.expected.every((x) => typeof x === "string")) expected = m.expected as string[];
+    if (Array.isArray(m.expected) && m.expected.every((x) => typeof x === "string")) {
+      expected = [...new Set([...required, ...(m.expected as string[])])];
+    }
   } catch {
     // An unreadable manifest is treated as "expects the full pack": fail towards incomplete.
   }
@@ -403,6 +462,17 @@ export function packState(row: Pick<DeliverableRecord, "kind" | "document_html" 
   };
   const missing = expected.filter((a) => !has[a]);
   return { complete: missing.length === 0, missing, legacy: false };
+}
+
+/**
+ * The fingerprint a reviewer approves and release re-checks. For a pack it covers the board summary as well as the
+ * study, so a reviewer cannot approve one document and release another. A row without board files hashes exactly
+ * as it always did (document_html alone).
+ */
+export function packHash(row: Pick<DeliverableRecord, "document_html" | "working_files">): string {
+  const f = row.working_files ?? {};
+  if (!f[BOARD_HTML] && !f[BOARD_MD]) return documentHash(row.document_html);
+  return documentHash(`${row.document_html ?? ""}\n--board.html--\n${f[BOARD_HTML] ?? ""}\n--board.md--\n${f[BOARD_MD] ?? ""}`);
 }
 
 export type StoreOutcome =
@@ -422,9 +492,11 @@ export async function generateAndStore(
   doc: Record<string, unknown>,
   endpoint: "screen" | "study" | "spec"
 ): Promise<StoreOutcome> {
+  // The caller has already claimed the row (`generating`). Every write here is a compare-and-set on that status, so
+  // a release or a second claim that slipped in is never overwritten.
   const rendered = await renderDeliverable(doc, endpoint);
   if (!rendered.ok) {
-    await updateByToken(row.token, { status: "engine_unavailable" });
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
     return { ok: false, stage: "render", error: rendered.error };
   }
 
@@ -448,19 +520,26 @@ export async function generateAndStore(
   }
   const candidate = { kind: row.kind, document_html: rendered.html, working_files: files };
   const state = endpoint === "study" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
+  // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
+  meta.document_sha256 = packHash(candidate);
 
-  const ok = await updateByToken(row.token, {
-    status: state.complete ? "draft" : "engine_unavailable",
-    title: rendered.title,
-    intake: Object.keys(meta).length ? { ...doc, _gridforge: meta } : doc,
-    document_html: rendered.html,
-    document_md: rendered.md,
-    ...(rendered.deck ? { deck_html: rendered.deck } : {}),
-    working_files: Object.keys(files).length ? files : null,
-  });
-  if (!ok) {
+  const saved = await updateByTokenIf(
+    row.token,
+    {
+      status: state.complete ? "draft" : "engine_unavailable",
+      title: rendered.title,
+      intake: { ...doc, _gridforge: meta },
+      document_html: rendered.html,
+      document_md: rendered.md,
+      ...(rendered.deck ? { deck_html: rendered.deck } : {}),
+      working_files: Object.keys(files).length ? files : null,
+    },
+    ["generating"]
+  );
+  if (saved !== "claimed") {
+    console.error("[GridForge] generated documents could not be stored (%s): %s", row.kind, saved);
     // Best effort: leave a state a human can see and act on rather than "generating" forever.
-    await updateByToken(row.token, { status: "engine_unavailable" });
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
     return { ok: false, stage: "persist", error: "The generated documents could not be stored." };
   }
   return { ok: true, complete: state.complete, missing: state.missing, title: rendered.title };
@@ -545,11 +624,11 @@ export async function renderDeliverable(
   if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
   if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
 
-  const call = async (format: "html" | "md") => {
+  const call = async (format: "html" | "md", bundle = false) => {
     const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
-      body: JSON.stringify({ intake, format, ...(endpoint === "study" ? { bundle: "board" } : {}) }),
+      body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}) }),
       signal: AbortSignal.timeout(120_000),
       cache: "no-store",
     });
@@ -559,7 +638,9 @@ export async function renderDeliverable(
       title: string;
       document: string;
       document_full?: string;
-      board?: { title?: string; document?: string; document_full?: string };
+      document_md?: string;
+      board?: { title?: string; document?: string; document_full?: string; document_md?: string };
+      bundle?: { kind?: string; artifacts?: unknown };
     };
   };
 
@@ -671,9 +752,12 @@ export async function renderDeliverable(
   };
 
   try {
-    const [html, md, deckHtml, files, binding] = await Promise.all([
-      call("html"),
-      call("md"),
+    // The Envelope Study is ONE engine request: study and board summary, both formats, one solve. The other
+    // endpoints still render each format on its own.
+    const pack = endpoint === "study";
+    const [html, mdOnly, deckHtml, files, binding] = await Promise.all([
+      call("html", pack),
+      pack ? Promise.resolve(null) : call("md"),
       deck(),
       working(),
       structured(),
@@ -682,10 +766,10 @@ export async function renderDeliverable(
       ok: true,
       title: html.title,
       html: html.document,
-      md: md.document,
+      md: pack ? (html.document_md ?? "") : (mdOnly?.document ?? ""),
       deck: deckHtml,
       working: files,
-      board: boardFrom(html, md),
+      board: pack ? boardFrom(html) : null,
       binding,
       spec: specFrom(files),
     };

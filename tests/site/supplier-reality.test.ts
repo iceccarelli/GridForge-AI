@@ -9,6 +9,7 @@
  * unknown; cost scopes are never silently equated; a correction is a new traceable record; review is
  * a separate human decision; and nothing here reaches the cost library, rankings or the ledger.
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -32,7 +33,7 @@ beforeEach(() => {
   process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "project_observations",
-    "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality",
+    "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "cost_evidence_state", "cost_evidence_runs",
     "procurement_packages", "procurement_responses", "procurement_comparisons", "power_deployment_cases",
   ]);
   db.uniqueKeys.set("supplier_actual_reviews", [["actual_id"]]);
@@ -49,7 +50,7 @@ afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; });
 const json = (path: string, body: unknown) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) });
-const signIn = () => jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
 
 async function newProject(name = "Hall A") {
   const { POST } = await import("@/app/api/projects/route");

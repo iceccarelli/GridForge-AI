@@ -83,14 +83,18 @@ export function EngagementPipeline({
     [activeApi]
   );
 
-  async function act(token: string, action: "release" | "unrelease" | "regenerate") {
+  async function act(
+    token: string,
+    action: "release" | "unrelease" | "reopen" | "regenerate",
+    reviewedHash?: string
+  ) {
     setBusy(token);
     setError(null);
     try {
       const res = await fetch("/api/admin/deliverables", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action }),
+        body: JSON.stringify({ token, action, ...(reviewedHash ? { reviewed_hash: reviewedHash } : {}) }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
@@ -112,6 +116,8 @@ export function EngagementPipeline({
                 ...r,
                 status: body.status,
                 released_at: body.status === "released" ? new Date().toISOString() : null,
+                has_document: body.status === "awaiting_intake" ? false : (body.has_document ?? r.has_document),
+                document_hash: typeof body.document_hash === "string" ? body.document_hash : r.document_hash,
               }
             : r
         )
@@ -252,7 +258,7 @@ export function EngagementPipeline({
                           {d.status === "draft" && d.has_document ? (
                             <button
                               type="button"
-                              onClick={() => act(d.token, "release")}
+                              onClick={() => act(d.token, "release", d.document_hash ?? undefined)}
                               disabled={busy === d.token}
                               className="inline-flex items-center gap-2 rounded bg-verified px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
                             >
@@ -268,8 +274,20 @@ export function EngagementPipeline({
                               onClick={() => act(d.token, "regenerate")}
                               disabled={busy === d.token}
                               className="rounded border border-flag/50 px-3 py-1.5 text-xs text-flag disabled:opacity-60"
+                              title="Re-solve from the stored intake and replace every generated artefact together"
                             >
                               Regenerate
+                            </button>
+                          ) : null}
+                          {d.status === "draft" ? (
+                            <button
+                              type="button"
+                              onClick={() => act(d.token, "reopen")}
+                              disabled={busy === d.token}
+                              className="rounded border border-line px-3 py-1.5 text-xs text-faint hover:text-flag disabled:opacity-60"
+                              title="Let the customer resubmit their intake; the current draft is discarded when they do"
+                            >
+                              Reopen intake
                             </button>
                           ) : null}
                           {d.status === "released" ? (

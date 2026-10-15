@@ -24,9 +24,11 @@ The binding constraint as found is rack feed / tap-off rating (electrical). plat
 
 *Limited by: set by transformer capacity; reliefs assumed to run in parallel; the range is that item's own lead-time range*
 
-**Indicative capex to reach it:** 18,400,000 [9,200,000–36,800,000] EUR (E0)
+**Indicative capex to reach it:** 18,800,000 [9,420,000–37,700,000] EUR (E0)
 
-*Limited by: Class 5 (order of magnitude): -50% / +100%*
+*Limited by: Class 5 (order of magnitude): -50% / +100% · LOWER BOUND, not an estimate: a cost it needs has no price*
+
+> ⚠️ These economics are not decision-grade. The capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places). 8 of 8 priced lines are library placeholders, not prices. The grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff. Installed behind-the-meter generation has no usable operating cost: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The energy cost prices all energy at the grid tariff. Section 9 lists every component and what it rests on.
 
 > ➡️ Recommended architecture: Full DLC plus behind-the-meter supply. The same hall with on-site firm supply where the grid connection binds. The only scenario whose capacity is set by what can be built rather than by the queue.
 
@@ -40,36 +42,37 @@ Selection objective: Maximum deployable compute. On an AI site the revenue attac
 
 Each row is the constraint that binds at that point, what it costs to move it, and how long that takes. Reliefs are assumed to run in parallel, so the schedule is governed by the longest lead time rather than the sum.
 
-| # | Constraint | Domain | Racks before | Racks after | Relief | Capex | Lead time | EUR per kW unlocked |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Rack feed / tap-off rating | electrical | 0 racks (E0) | 0 racks (E0) | Higher-rated tap-off units (and busway if ampacity does not allow)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 6,000 [3,000–12,000] EUR (E0) | 24 [12–40] weeks (E0) | — |
-| 2 | Residual air load removal per rack | thermal | 0 racks (E0) | 0 racks (E0) | Add in-row cooling or rear-door heat exchangers for the residual air load  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 9,000 [4,500–18,000] EUR (E0) | 20 [12–32] weeks (E0) | — |
-| 3 | Achievable facility water temperature | thermal | 0 racks (E0) | 8 racks (E0) | Adiabatic assist plus trim chiller on the high-temperature loop | 350,000 [175,000–700,000] EUR (E0) | 32 [20–48] weeks (E0) | 324 EUR/kW (E0) |
-| 4 | Transformer capacity | electrical | 8 racks (E0) | 8 racks (E0) | Replace / add transformer capacity (uprate ~60%)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 1,200,000 [600,000–2,400,000] EUR (E0) | 160 [80–210] weeks (E0) | — |
-| 5 | UPS capacity (protected load) | electrical | 8 racks (E0) | 12 racks (E0) | Add UPS modules / new UPS block | 864,000 [422,000–1,820,000] EUR (E0) | 30 [20–52] weeks (E0) | 1,600 EUR/kW (E0) |
-| 6 | Busway ampacity | electrical | 12 racks (E0) | 22 racks (E0) | Replace busway with 800-1000 A and new tap-off units | 450,000 [225,000–900,000] EUR (E0) | 36 [24–52] weeks (E0) | 333 EUR/kW (E0) |
-| 7 | CDU capacity (derated to site water temperature) | thermal | 22 racks (E0) | 25 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
-| 8 | UPS capacity (protected load) | electrical | 25 racks (E0) | 28 racks (E0) | Add UPS modules / new UPS block | 864,000 [422,000–1,820,000] EUR (E0) | 30 [20–52] weeks (E0) | 2,130 EUR/kW (E0) |
-| 9 | Firm supply (grid import + behind-the-meter) | electrical | 28 racks (E0) | 31 racks (E0) | Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW) | 1,800,000 [1,260,000–2,340,000] EUR (E0) | 30 [19.5–40.5] weeks (E0) | 4,440 EUR/kW (E0) |
-| 10 | Busway ampacity | electrical | 31 racks (E0) | 33 racks (E0) | Add two further busway runs (needs riser and routing space) | 450,000 [225,000–900,000] EUR (E0) | 36 [24–52] weeks (E0) | 1,670 EUR/kW (E0) |
-| 11 | CDU capacity (derated to site water temperature) | thermal | 33 racks (E0) | 34 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 26 [16–40] weeks (E0) | 1,330 EUR/kW (E0) |
-| 12 | Firm supply (grid import + behind-the-meter) | electrical | 34 racks (E0) | 39 racks (E0) | Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW) | 4,000,000 [2,800,000–5,200,000] EUR (E0) | 44 [28.6–59.4] weeks (E0) | 5,930 EUR/kW (E0) |
-| 13 | Busway ampacity | electrical | 39 racks (E0) | 40 racks (E0) | Add two further busway runs (needs riser and routing space) | 450,000 [225,000–900,000] EUR (E0) | 36 [24–52] weeks (E0) | 3,330 EUR/kW (E0) |
-| 14 | Transformer capacity | electrical | 40 racks (E0) | 43 racks (E0) | Replace / add transformer capacity (uprate ~60%) | 1,200,000 [600,000–2,400,000] EUR (E0) | 160 [80–210] weeks (E0) | 2,960 EUR/kW (E0) |
-| 15 | UPS capacity (protected load) | electrical | 43 racks (E0) | 44 racks (E0) | Add UPS modules / new UPS block | 864,000 [422,000–1,820,000] EUR (E0) | 30 [20–52] weeks (E0) | 6,400 EUR/kW (E0) |
-| 16 | CDU capacity (derated to site water temperature) | thermal | 44 racks (E0) | 47 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
-| 17 | Busway ampacity | electrical | 47 racks (E0) | 55 racks (E0) | Add two further busway runs (needs riser and routing space) | 450,000 [225,000–900,000] EUR (E0) | 36 [24–52] weeks (E0) | 417 EUR/kW (E0) |
-| 18 | Busway ampacity | electrical | 55 racks (E0) | 55 racks (E0) | Add two further busway runs (needs riser and routing space)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 450,000 [225,000–900,000] EUR (E0) | 36 [24–52] weeks (E0) | — |
-| 19 | CDU capacity (derated to site water temperature) | thermal | 55 racks (E0) | 61 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 26 [16–40] weeks (E0) | 222 EUR/kW (E0) |
-| 20 | UPS capacity (protected load) | electrical | 61 racks (E0) | 62 racks (E0) | Add UPS modules / new UPS block | 864,000 [422,000–1,820,000] EUR (E0) | 30 [20–52] weeks (E0) | 6,400 EUR/kW (E0) |
+| # | Constraint | Domain | Racks before | Racks after | Relief | Capex | What it buys and how it is priced | Lead time | EUR per kW unlocked |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Rack feed / tap-off rating | electrical | 0 racks (E0) | 0 racks (E0) | Higher-rated tap-off units (and busway if ampacity does not allow)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 372,000 [186,000–744,000] EUR (E0) | unit price x racks fitted out · library placeholder (not a price) | 24 [12–40] weeks (E0) | — |
+| 2 | Residual air load removal per rack | thermal | 0 racks (E0) | 0 racks (E0) | Add in-row cooling or rear-door heat exchangers for the residual air load  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 558,000 [279,000–1,120,000] EUR (E0) | unit price x racks fitted out · library placeholder (not a price) | 20 [12–32] weeks (E0) | — |
+| 3 | Achievable facility water temperature | thermal | 0 racks (E0) | 8 racks (E0) | Adiabatic assist plus trim chiller on the high-temperature loop | 350,000 [175,000–700,000] EUR (E0) | fixed lump, not scaled to size · library placeholder (not a price) · One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size. | 32 [20–48] weeks (E0) | 324 EUR/kW (E0) |
+| 4 | Transformer capacity | electrical | 8 racks (E0) | 8 racks (E0) | Replace / add transformer capacity (uprate ~60%)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 1,200,000 [600,000–2,400,000] EUR (E0) | 9 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [80–210] weeks (E0) | — |
+| 5 | UPS capacity (protected load) | electrical | 8 racks (E0) | 12 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 1,420 EUR/kW (E0) |
+| 6 | Busway ampacity | electrical | 12 racks (E0) | 22 racks (E0) | Replace busway with 800-1000 A and new tap-off units | 450,000 [225,000–900,000] EUR (E0) | 8 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 333 EUR/kW (E0) |
+| 7 | CDU capacity (derated to site water temperature) | thermal | 22 racks (E0) | 25 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
+| 8 | UPS capacity (protected load) | electrical | 25 racks (E0) | 28 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 1,900 EUR/kW (E0) |
+| 9 | Firm supply (grid import + behind-the-meter) | electrical | 28 racks (E0) | 31 racks (E0) | Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW) | 1,800,000 [1,260,000–2,340,000] EUR (E0) | the client's own declared figure | 30 [19.5–40.5] weeks (E0) | 4,440 EUR/kW (E0) |
+| 10 | Busway ampacity | electrical | 31 racks (E0) | 33 racks (E0) | Add two further busway runs (needs riser and routing space) | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 417 EUR/kW (E0) |
+| 11 | CDU capacity (derated to site water temperature) | thermal | 33 racks (E0) | 34 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 1,330 EUR/kW (E0) |
+| 12 | Firm supply (grid import + behind-the-meter) | electrical | 34 racks (E0) | 39 racks (E0) | Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW) | 4,000,000 [2,800,000–5,200,000] EUR (E0) | the client's own declared figure | 44 [28.6–59.4] weeks (E0) | 5,930 EUR/kW (E0) |
+| 13 | Busway ampacity | electrical | 39 racks (E0) | 40 racks (E0) | Add two further busway runs (needs riser and routing space) | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 833 EUR/kW (E0) |
+| 14 | Transformer capacity | electrical | 40 racks (E0) | 43 racks (E0) | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 14.4 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [80–210] weeks (E0) | 4,740 EUR/kW (E0) |
+| 15 | UPS capacity (protected load) | electrical | 43 racks (E0) | 44 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 5,690 EUR/kW (E0) |
+| 16 | CDU capacity (derated to site water temperature) | thermal | 44 racks (E0) | 47 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
+| 17 | Busway ampacity | electrical | 47 racks (E0) | 55 racks (E0) | Add two further busway runs (needs riser and routing space) | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 104 EUR/kW (E0) |
+| 18 | Busway ampacity | electrical | 55 racks (E0) | 55 racks (E0) | Add two further busway runs (needs riser and routing space)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | — |
+| 19 | CDU capacity (derated to site water temperature) | thermal | 55 racks (E0) | 61 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 222 EUR/kW (E0) |
+| 20 | UPS capacity (protected load) | electrical | 61 racks (E0) | 62 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 5,690 EUR/kW (E0) |
+| 21 | Firm supply (grid import + behind-the-meter) | electrical | 62 racks (E0) | 62 racks (E0) | Grid reinforcement / new connection capacity from the DSO  — NOT TAKEN: this relief cannot be obtained inside the model's horizon | — | this relief cannot be obtained inside the model's horizon | 260 [150–520] weeks (E0) | — |
 
-*Headroom ladder for the recommended architecture.*
+*Headroom ladder for the recommended architecture. A step's price follows what it adds (units, MVA, kW, racks) where the library is priced per unit; a fixed lump is marked as not scaled. A component with no price is named, never counted as zero.*
 
 Steps marked NOT TAKEN are shown because they are the next thing that binds, not because they are recommended. Their cost is excluded from the totals below.
 
 Rungs 1, 2, 4, 18 are charged but add no racks on their own. Each relieves one of several constraints that limit the hall to the same figure at that point; without it a later rung cannot deliver its gain. They are kept, and costed, because dropping any one of them lowers the final answer — that is checked, not assumed. The EUR-per-kW column is left blank for them for the same reason: no racks are unlocked at that step.
 
-**Cumulative relief capex:** 15,000,000 [7,500,000–30,000,000] EUR (E0)
+**Cumulative relief capex:** 14,900,000 [7,450,000–29,800,000] EUR (E0)
 
 *Limited by: Class 5 (order of magnitude): -50% / +100%*
 
@@ -106,8 +109,8 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 
 | Scenario | Racks | Time to full capacity | Item that sets the date |
 | --- | --- | --- | --- |
-| Retained air, grid only | 0 racks (E0) | — | Rack feed / tap-off rating |
-| Rear-door heat exchangers, grid only | 0 racks (E0) | — | Rack feed / tap-off rating |
+| Retained air, grid only | 0 racks (E0) | — | — |
+| Rear-door heat exchangers, grid only | 0 racks (E0) | — | — |
 | Hybrid DLC on retained plant, grid only | 26 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
 | Full DLC, grid only | 28 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
 | Full DLC plus behind-the-meter supply | 62 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
@@ -208,27 +211,52 @@ Power and thermal are not independent budgets. Every kilowatt the cooling archit
 
 ## 9. Economics
 
-| Scenario | Racks | Total capex | Capex per rack enabled | Annual energy cost | Energy cost per GPU-hour | Critical path |
-| --- | --- | --- | --- | --- | --- | --- |
-| Retained air, grid only | 0 racks (E0) | — | — | — | — | — |
-| Rear-door heat exchangers, grid only | 0 racks (E0) | — | — | — | — | — |
-| Hybrid DLC on retained plant, grid only | 26 racks (E0) | 5,960,000 [2,960,000–12,100,000] EUR (E0) | 229,000 [114,000–465,000] EUR/rack (E0) | 4,200,000 [2,480,000–7,470,000] EUR (E0) | 0.256 [0.151–0.456] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) |
-| Full DLC, grid only | 28 racks (E0) | 5,460,000 [2,710,000–11,100,000] EUR (E0) | 195,000 [96,900–397,000] EUR/rack (E0) | 4,170,000 [2,510,000–7,360,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) |
-| Full DLC plus behind-the-meter supply | 62 racks (E0) | 18,400,000 [9,200,000–36,800,000] EUR (E0) | 297,000 [148,000–594,000] EUR/rack (E0) | 9,240,000 [5,570,000–16,300,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) |
+| Scenario | Racks | Total capex | Capex per rack enabled | Annual energy cost | Energy cost per GPU-hour | Critical path | Economics | Lifecycle cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Retained air, grid only | 0 racks (E0) | — | — | — | — | — | — | — |
+| Rear-door heat exchangers, grid only | 0 racks (E0) | — | — | — | — | — | — | — |
+| Hybrid DLC on retained plant, grid only | 26 racks (E0) | ≥ 6,630,000 [3,310,000–13,300,000] EUR (E0) | 255,000 [127,000–510,000] EUR/rack (E0) | 4,200,000 [2,480,000–7,470,000] EUR (E0) | 0.256 [0.151–0.456] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 48,600,000 [28,100,000–88,000,000] EUR (E0) |
+| Full DLC, grid only | 28 racks (E0) | ≥ 6,220,000 [3,110,000–12,400,000] EUR (E0) | 222,000 [111,000–444,000] EUR/rack (E0) | 4,170,000 [2,510,000–7,360,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 47,900,000 [28,200,000–86,000,000] EUR (E0) |
+| Full DLC plus behind-the-meter supply | 62 racks (E0) | ≥ 18,800,000 [9,420,000–37,700,000] EUR (E0) | 304,000 [152,000–608,000] EUR/rack (E0) | 9,240,000 [5,570,000–16,300,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 111,000,000 [65,100,000–201,000,000] EUR (E0) |
 
-*Cost basis: Class 5 (order of magnitude): -50% / +100%. Excludes IT hardware, migration and lost tenancy revenue. A dash means no rack can be deployed in that architecture and no relief exists, so the figure is undefined rather than zero.*
+*Cost basis: Class 5 (order of magnitude): -50% / +100%. Excludes IT hardware, migration and lost tenancy revenue. A total marked with ≥ is a lower bound: a cost it needs has no price. A dash means no rack can be deployed in that architecture and no relief exists, so the figure is undefined rather than zero.*
+
+| Objective | What it optimises | Architecture it selects | Racks |
+| --- | --- | --- | --- |
+| max compute | Maximum deployable compute. | Full DLC plus behind-the-meter supply | 62 racks (E0) |
+| min cost | Lowest capital cost per rack enabled. | Full DLC, grid only | 28 racks (E0) |
+| fastest | Earliest full energisation. | Full DLC plus behind-the-meter supply | 62 racks (E0) |
+
+*The same scenarios ranked under each objective. The recommendation above uses the stated objective; where another objective selects a different architecture, that is a judgement for the client, not for the model.*
 
 | How the recommended capex is built | Amount |
 | --- | --- |
-| Relief works along the headroom ladder (section 2) | 15,000,000 [7,500,000–30,000,000] EUR (E0) |
+| Relief works along the headroom ladder (section 2) | 14,900,000 [7,450,000–29,800,000] EUR (E0) |
 | In-hall conversion of the 62 racks deployed | 3,410,000 [1,700,000–6,820,000] EUR (E0) |
-| Total (the headline capex) | 18,400,000 [9,200,000–36,800,000] EUR (E0) |
+| Initial CDU kit — assumed, not installed (3 CDU unit(s) added) | 540,000 [270,000–1,080,000] EUR (E0) |
+| NOT PRICED — CDU commissioning and flushing (7 x unit; 5 places) | no price: excluded |
+| NOT PRICED — CDU hydraulic integration and controls (7 x unit; 5 places) | no price: excluded |
+| Total (the headline capex) — LOWER BOUND: the unpriced components above are excluded | 18,800,000 [9,420,000–37,700,000] EUR (E0) |
 
-*The ladder's cumulative figure covers the relief works only; the headline adds the per-rack conversion inside the hall.*
+*The ladder's cumulative figure covers the relief works only; the headline adds the per-rack conversion inside the hall and the CDUs the model assumed so the liquid scenarios could be solved (the hall has no CDU schedule on file; those units must be bought).*
+
+| Recurring cost (recommended architecture) | Amount | Basis |
+| --- | --- | --- |
+| Grid electricity price used | 140 [90–220] EUR/MWh (E0) | library placeholder, not the site's tariff |
+| Annual site energy | 66,000 [61,800–74,000] MWh (E0) | utilisation x facility load x 8,760 h |
+| Annual energy cost (recurring) | 9,240,000 [5,570,000–16,300,000] EUR (E0) | all energy at the grid price |
+
+*Operating cost is stated separately from capital. It covers energy and, where on-site generation is installed, that generation's declared operating cost; it excludes the non-energy operating cost of the cooling plant.*
+
+> ⚠️ Behind-the-meter generation is installed on this path but its operating cost cannot be computed: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The annual energy cost above therefore prices ALL energy at the grid price, which the hall would not pay. Supply these inputs to replace that figure.
+
+**Lifecycle cost over 10 years — LOWER BOUND:** 111,000,000 [65,100,000–201,000,000] EUR (E0)
+
+*Limited by: capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning*
 
 | Cost basis | Lines |
 | --- | --- |
-| library default | 8 lines |
+| library placeholder (not a price) | 8 lines |
 
 *What each price in this study rests on. The accuracy class above follows the weakest line, not the average.*
 
@@ -259,6 +287,7 @@ One-at-a-time sensitivity on the recommended architecture, evaluated against the
 | Busway ampacity | Requires hall outage or phased de-tenanting. Applies to 5 rungs of the ladder. | 36 [24–52] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | No combustion consent required; grid-code compliance and fire separation govern the programme. | 30 [19.5–40.5] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | Emissions consent and fuel supply are the schedule risk, not the equipment. | 44 [28.6–59.4] weeks (E0) |
+| Firm supply (grid import + behind-the-meter) | In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint. | 260 [150–520] weeks (E0) |
 | Evidence base | The dominant inputs in this study are assumed rather than measured. Twelve months of hall trend data would move the headline from an estimate to a reconciled figure. | — |
 | Structural | Floor loading is screened, not assessed. A structural engineer must sign off before any deployment. | — |
 | Hydraulics | Pressure drop and pipe sizing are not modelled at screening level; a hydraulic model is required before design. | — |
@@ -317,7 +346,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | E2 | simulated |
 | E3 | estimated |
 | E4 | validated against test data |
-| E5 | measured at site (customer data) |
+| E5 | supplied by the client (not measured or surveyed by us) |
 | E6 | field-validated |
 | E7 | observed in operation |
 
@@ -328,8 +357,12 @@ Every number in this report carries an evidence class. The class of a computed n
 - Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a benchmark.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Class 5 (order of magnitude): -50% / +100%
-- Excludes civils and outage management.
+- Placeholder re-expressed per MVA from the earlier 1.2 MEUR lump at the reference hall's 9 MVA added (3 x 5 MVA, +60%). Not a market price. Excludes civils and outage management.
+- Placeholder per nameplate kW of UPS added.
+- Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. Not a market price.
+- Placeholder covering the unit supplied and mechanically installed only. Hydraulic integration, controls and commissioning are separate components.
 - Tap-off units are a reported shortage item
+- Frankfurt: no new large connections before 2030; Amsterdam queue ~10 years
 - Design value from the building record, not a survey
 - 12 months of half-hourly metered data
 - Legacy 400 A busway; modern AI halls use 800-1000 A
@@ -338,6 +371,7 @@ Every number in this report carries an evidence class. The class of a computed n
 - Cold plates on CPU/GPU/HBM/NVSwitch; residual air load must still be removed
 - Assumes positions can be released from existing tenancy
 - Legacy low-temperature plant retained for residual air load, so free-cooling benefit is largely forgone
+- Placeholder re-expressed per kW of cooling added from the earlier 900 kEUR lump at the reference hall's 3,400 kW (+50% of 6,800 kW). Not a market price.
 - Placeholder. Replace with the site's actual contracted tariff.
 
 ### A.2 Sources
@@ -355,14 +389,14 @@ Every number in this report carries an evidence class. The class of a computed n
 | deployable racks after relief measures | E0 | input@0.1 | `90db47981317` |
 | deployable IT load | E0 | envelope.it_load@0.1 | `a4e3fd845acb` |
 | elapsed weeks to energise the full envelope | E0 | input@0.1 | `d0aab02069a1` |
-| total capex | E0 | economics.total_capex@0.1 | `17c4c0465bea` |
+| total capex | E0 | economics.total_capex@0.1 | `9eed5fbc0658` |
 | racks before step 1 | E0 | input@0.1 | `57e2e78db498` |
 | racks after step 1 | E0 | input@0.1 | `85b2bc621f00` |
-| Higher-rated tap-off units (and busway if ampacity does not allow) for 1 racks | E0 | envelope.relief_capex@0.1 | `18c611b5ae25` |
+| Higher-rated tap-off units (and busway if ampacity does not allow) for 62 racks | E0 | envelope.relief_capex@0.1 | `147ba26046e4` |
 | tap-off lead time | E0 | input@0.1 | `7a5fc57ce1e4` |
 | racks before step 2 | E0 | input@0.1 | `158e8bfa6770` |
 | racks after step 2 | E0 | input@0.1 | `700ff34e59e2` |
-| Add in-row cooling or rear-door heat exchangers for the residual air load for 1 racks | E0 | envelope.relief_capex@0.1 | `2920ba36f7dd` |
+| Add in-row cooling or rear-door heat exchangers for the residual air load for 62 racks | E0 | envelope.relief_capex@0.1 | `edd4d4501790` |
 | in-row / RDHx lead time | E0 | input@0.1 | `fe48412ff79a` |
 | racks before step 3 | E0 | input@0.1 | `97d684abc6e0` |
 | racks after step 3 | E0 | input@0.1 | `d9cc107e9ef0` |
@@ -371,26 +405,26 @@ Every number in this report carries an evidence class. The class of a computed n
 | cost per kW unlocked at step 3 | E0 | input@0.1 | `2429f9df92bf` |
 | racks before step 4 | E0 | input@0.1 | `ec6a187a151c` |
 | racks after step 4 | E0 | input@0.1 | `e5f4587dc18d` |
-| transformer and switchgear replacement | E0 | input@0.1 | `b8816fd15315` |
+| transformer and switchgear uprate | E0 | costs.scaled_relief@0.1 | `a9ead11db2b8` |
 | power transformer lead time | E0 | input@0.1 | `010015f8a59e` |
 | racks before step 5 | E0 | input@0.1 | `fee83603c8b2` |
 | racks after step 5 | E0 | input@0.1 | `9fa15f724191` |
-| UPS module addition capex | E0 | power.ups_relief_capex@0.1 | `1423200e04d9` |
+| UPS module addition, installed | E0 | costs.scaled_relief@0.1 | `c872f896fe0c` |
 | UPS lead time | E0 | input@0.1 | `843c6ad78c29` |
 | cost per kW unlocked at step 5 | E0 | input@0.1 | `829a9d9356bc` |
 | racks before step 6 | E0 | input@0.1 | `ad285ced026e` |
 | racks after step 6 | E0 | input@0.1 | `77feda0334a7` |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | cost per kW unlocked at step 6 | E0 | input@0.1 | `338dcc79c4e4` |
 | racks before step 7 | E0 | input@0.1 | `f40dcd6f1aa0` |
 | racks after step 7 | E0 | input@0.1 | `d1074967c022` |
-| additional row CDU, installed | E0 | input@0.1 | `e2a2ad42d89f` |
+| additional CDU: supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `053f8a554b8c` |
 | CDU lead time | E0 | input@0.1 | `77ae364db11a` |
 | cost per kW unlocked at step 7 | E0 | input@0.1 | `628ad8c40217` |
 | racks before step 8 | E0 | input@0.1 | `3387af96d966` |
 | racks after step 8 | E0 | input@0.1 | `cb2676ac8d5d` |
-| UPS module addition capex | E0 | power.ups_relief_capex@0.1 | `1423200e04d9` |
+| UPS module addition, installed | E0 | costs.scaled_relief@0.1 | `c872f896fe0c` |
 | UPS lead time | E0 | input@0.1 | `843c6ad78c29` |
 | cost per kW unlocked at step 8 | E0 | input@0.1 | `8f918f41cfe3` |
 | racks before step 9 | E0 | input@0.1 | `16a2bb6299a8` |
@@ -400,12 +434,12 @@ Every number in this report carries an evidence class. The class of a computed n
 | cost per kW unlocked at step 9 | E0 | input@0.1 | `1e2d4014ffb6` |
 | racks before step 10 | E0 | input@0.1 | `de69563717d8` |
 | racks after step 10 | E0 | input@0.1 | `fbdcf5cb2f3f` |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | cost per kW unlocked at step 10 | E0 | input@0.1 | `5968e91375ca` |
 | racks before step 11 | E0 | input@0.1 | `a8109f1916d5` |
 | racks after step 11 | E0 | input@0.1 | `519c3c15d3dd` |
-| additional row CDU, installed | E0 | input@0.1 | `e2a2ad42d89f` |
+| additional CDU: supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `053f8a554b8c` |
 | CDU lead time | E0 | input@0.1 | `77ae364db11a` |
 | cost per kW unlocked at step 11 | E0 | input@0.1 | `a0505c39fe74` |
 | racks before step 12 | E0 | input@0.1 | `78e4bb9838e6` |
@@ -415,44 +449,47 @@ Every number in this report carries an evidence class. The class of a computed n
 | cost per kW unlocked at step 12 | E0 | input@0.1 | `1ab1faf58c6a` |
 | racks before step 13 | E0 | input@0.1 | `a4ddfec8e8bd` |
 | racks after step 13 | E0 | input@0.1 | `2209fe0bf7d0` |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | cost per kW unlocked at step 13 | E0 | input@0.1 | `eee5feb9ead9` |
 | racks before step 14 | E0 | input@0.1 | `68af5e73ee6b` |
 | racks after step 14 | E0 | input@0.1 | `165631b4129f` |
-| transformer and switchgear replacement | E0 | input@0.1 | `b8816fd15315` |
+| transformer and switchgear uprate | E0 | costs.scaled_relief@0.1 | `a9ead11db2b8` |
 | power transformer lead time | E0 | input@0.1 | `010015f8a59e` |
 | cost per kW unlocked at step 14 | E0 | input@0.1 | `d0dffe923585` |
 | racks before step 15 | E0 | input@0.1 | `af265f35b839` |
 | racks after step 15 | E0 | input@0.1 | `e22ce0c897d7` |
-| UPS module addition capex | E0 | power.ups_relief_capex@0.1 | `1423200e04d9` |
+| UPS module addition, installed | E0 | costs.scaled_relief@0.1 | `c872f896fe0c` |
 | UPS lead time | E0 | input@0.1 | `843c6ad78c29` |
 | cost per kW unlocked at step 15 | E0 | input@0.1 | `31fa46fb8fba` |
 | racks before step 16 | E0 | input@0.1 | `74a2f3ac10bf` |
 | racks after step 16 | E0 | input@0.1 | `df141571107d` |
-| additional row CDU, installed | E0 | input@0.1 | `e2a2ad42d89f` |
+| additional CDU: supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `053f8a554b8c` |
 | CDU lead time | E0 | input@0.1 | `77ae364db11a` |
 | cost per kW unlocked at step 16 | E0 | input@0.1 | `f67577db3fdd` |
 | racks before step 17 | E0 | input@0.1 | `fd92b7157817` |
 | racks after step 17 | E0 | input@0.1 | `b1dbf0553bee` |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | cost per kW unlocked at step 17 | E0 | input@0.1 | `2be504be40dc` |
 | racks before step 18 | E0 | input@0.1 | `284dc52db335` |
 | racks after step 18 | E0 | input@0.1 | `2634a2d87285` |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | racks before step 19 | E0 | input@0.1 | `3f9ddadacb88` |
 | racks after step 19 | E0 | input@0.1 | `21b37f3b00d9` |
-| additional row CDU, installed | E0 | input@0.1 | `e2a2ad42d89f` |
+| additional CDU: supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `053f8a554b8c` |
 | CDU lead time | E0 | input@0.1 | `77ae364db11a` |
 | cost per kW unlocked at step 19 | E0 | input@0.1 | `d9490469db4e` |
 | racks before step 20 | E0 | input@0.1 | `25b83a93faec` |
 | racks after step 20 | E0 | input@0.1 | `b6813b6b8083` |
-| UPS module addition capex | E0 | power.ups_relief_capex@0.1 | `1423200e04d9` |
+| UPS module addition, installed | E0 | costs.scaled_relief@0.1 | `c872f896fe0c` |
 | UPS lead time | E0 | input@0.1 | `843c6ad78c29` |
 | cost per kW unlocked at step 20 | E0 | input@0.1 | `32589fd051c3` |
-| capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `cb2462debe7e` |
+| racks before step 21 | E0 | input@0.1 | `24f076aba591` |
+| racks after step 21 | E0 | input@0.1 | `083abc3511b5` |
+| grid reinforcement lead time | E0 | input@0.1 | `47721a918c66` |
+| capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `dee1a6789921` |
 | longest relief lead time on the path | E0 | input@0.1 | `505fa5f7a1d4` |
 | elapsed at 8 racks | E0 | input@0.1 | `de5547aa0005` |
 | racks energised at week 32 | E0 | input@0.1 | `8af3af83e35b` |
@@ -510,9 +547,9 @@ Every number in this report carries an evidence class. The class of a computed n
 | chilled-water plant capacity | E5 | input@0.1 | `cedbd39b6085` |
 | available pumped flow | E3 | input@0.1 | `7ebcc1ab3857` |
 | Rack feed / tap-off rating: gate fails | E0 | input@0.1 | `4aa8886b8226` |
-| (transformer headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `9af5243c1c0c` |
+| (transformer headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `edb30cfae0fa` |
 | (UPS headroom for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `c8e62be34b0a` |
-| (total usable busway capacity in hall / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `3112da34d3e7` |
+| (total usable busway capacity in hall / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `bf7b469cd3d1` |
 | (firm supply headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `0fecb91fef87` |
 | Residual air load removal per rack: gate fails | E0 | input@0.1 | `26165e87d919` |
 | Achievable facility water temperature: gate fails | E0 | input@0.1 | `220f8c8a7543` |
@@ -538,26 +575,34 @@ Every number in this report carries an evidence class. The class of a computed n
 | retained_air: racks unlocked | E0 | input@0.1 | `2e4138fcac55` |
 | rdhx: racks unlocked | E0 | input@0.1 | `e9952b43b4be` |
 | hybrid_dlc: racks unlocked | E0 | input@0.1 | `8eba1a207998` |
-| total capex | E0 | economics.total_capex@0.1 | `199c79a76b23` |
-| hybrid_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `2f325a19c3f6` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `9484f91af71c` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `225353cfdc60` |
+| hybrid_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `c231de706945` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `f35d99e09dad` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `3e1397117363` |
 | hybrid_dlc: critical path | E0 | input@0.1 | `fd4bb27c96c2` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `c0c7b3b2c957` |
 | full_dlc: racks unlocked | E0 | input@0.1 | `8887e6b75586` |
-| total capex | E0 | economics.total_capex@0.1 | `36e114f0bf98` |
-| full_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `2688436f17b8` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `e325c835963f` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `97c6866ebaf9` |
+| full_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `b1117dd9e458` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `9f0764431542` |
 | full_dlc: critical path | E0 | input@0.1 | `e150e1d1a44b` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `a7fe3ba3d2a3` |
 | full_dlc_btm: racks unlocked | E0 | input@0.1 | `7d7b81a69f10` |
-| total capex | E0 | economics.total_capex@0.1 | `17c4c0465bea` |
-| full_dlc_btm: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `1a00defecc49` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `e325c835963f` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `97c6866ebaf9` |
+| full_dlc_btm: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `9b9420d1d44f` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `9f0764431542` |
 | full_dlc_btm: critical path | E0 | input@0.1 | `1bfd8e2425a5` |
-| capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `cb2462debe7e` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `099a6a050f4a` |
+| full_dlc_btm: racks under max_compute | E0 | input@0.1 | `03622d66b673` |
+| full_dlc: racks under min_cost | E0 | input@0.1 | `4a678bdcfdb2` |
+| full_dlc_btm: racks under fastest | E0 | input@0.1 | `11903e200727` |
+| capex of relief measures taken along the headroom ladder | E0 | economics.relief_capex@0.1 | `dee1a6789921` |
 | in-hall conversion capex | E0 | economics.conversion_capex@0.1 | `31aac42971b6` |
-| total capex | E0 | economics.total_capex@0.1 | `17c4c0465bea` |
+| initial CDU kit (assumed, not installed): supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `457085eb7b50` |
+| total capex | E0 | economics.total_capex@0.1 | `9eed5fbc0658` |
+| all-in electricity price | E0 | input@0.1 | `ee5beeda32eb` |
+| annual site energy for the deployed load | E0 | convert@0.1 | `215ce7188587` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `099a6a050f4a` |
 | racks under: Contracted power 20% lower | E0 | input@0.1 | `869b37a4a341` |
 | delta under: Contracted power 20% lower | E0 | input@0.1 | `65f882b76c13` |
 | racks under: PUE 10% worse than assumed | E0 | input@0.1 | `43065380960f` |
@@ -577,6 +622,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | BESS-2MW-8MWh lead time | E0 | input@0.1 | `6b920c9df84d` |
 | GEN-5MW lead time | E0 | input@0.1 | `481a422b0494` |
+| grid reinforcement lead time | E0 | input@0.1 | `47721a918c66` |
 
 ---
 

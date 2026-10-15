@@ -109,7 +109,7 @@ export function CapacityQualifier() {
       setShare(typeof body.share === "string" ? body.share : null);
       setQualificationId(typeof body.qualificationId === "string" ? body.qualificationId : null);
     } catch {
-      setError("Could not reach the engine. Your figures were not lost — try again.");
+      setError("Could not reach the server. Your figures were not saved — please check your connection and try again.");
     } finally {
       setBusy(false);
     }

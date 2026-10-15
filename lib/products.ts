@@ -300,7 +300,7 @@ export interface IntelligencePlan {
   interval: "month";
   /** Stripe metadata.kind. One family; the tier travels as metadata.plan. */
   kind: "intelligence_subscription";
-  /** null means unlimited. */
+  /** null means unlimited. NOT ENFORCED anywhere yet: informational only, and not shown to buyers as a feature. */
   seats: number | null;
 }
 

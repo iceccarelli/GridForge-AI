@@ -12,11 +12,11 @@ frequently NDA'd; they go to the private library, same rule as everywhere else.
 """
 from __future__ import annotations
 
-from ..costs import COST_EVIDENCE
+from ..costs import CAPACITY_SCALED_KEYS, COST_EVIDENCE
 from .schema import ProcurementError, SpecPackage, SupplierResponse
 
 
-def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float) -> tuple[str, float]:
+def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float, key: str = "") -> tuple[str, float]:
     """Convert a supplier's delivered price onto the basis the library holds.
 
     A supplier quotes one number for the job. The library holds `tapoff.unit` per
@@ -30,6 +30,11 @@ def _to_library_basis(pkg: SpecPackage, unit: str, lump_sum: float) -> tuple[str
     face.
     """
     u = (unit or "EUR").strip()
+    if key in CAPACITY_SCALED_KEYS:
+        # The engine prices these per unit of capacity ADDED, which a supplier's package does not state.
+        # A quotation is the price of this job: record it as a EUR lump, which the engine uses as it stands
+        # and never rescales to some other quantity.
+        return "EUR", round(lump_sum, 2)
     if u.endswith("/rack"):
         if pkg.sized_for_racks <= 0:
             raise ProcurementError(
@@ -55,9 +60,9 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
     if basis not in COST_EVIDENCE:
         raise ProcurementError(
             f"unknown basis {basis!r}. One of: {', '.join(sorted(COST_EVIDENCE))}")
-    if basis in ("library_default", "published_benchmark"):
+    if basis in ("library_default", "published_benchmark", "engineering_estimate"):
         raise ProcurementError(
-            "a supplier response is a quotation, not a benchmark. Use budgetary_quote, "
+            "a supplier response is a quotation, not a benchmark or an estimate. Use budgetary_quote, "
             "firm_quote or contracted.")
 
     out: list[dict] = []
@@ -67,7 +72,8 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
         value = response.get(f.key)
         if value is None:
             continue
-        unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value)
+        unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value, f.cost_key)
+        lump_scaled = f.cost_key in CAPACITY_SCALED_KEYS
         out.append({
             "key": f.cost_key,
             "label": f"{pkg.relief_title} ({response.supplier})",
@@ -79,6 +85,12 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
             "valid_until": response.valid_until,
             "region": region,
             "project": project or pkg.project,
+            # A lump for a capacity-scaled line is recorded with the quantity it covers, so the engine uses it in
+            # proportion to what each step needs instead of charging it again on every step.
+            "quoted_quantity": pkg.scope_quantity if lump_scaled else None,
+            "quoted_quantity_unit": (pkg.scope_quantity_unit or None) if lump_scaled and pkg.scope_quantity else None,
+            "currency": response.currency or "EUR",
+            "scope": pkg.relief_title,
             "note": (f"From the response to the {pkg.relief_title} specification for hall "
                      f"{pkg.hall}. Relieves {pkg.constraint_name}."
                      + (f" Reference {response.reference}." if response.reference else "")),
@@ -108,6 +120,8 @@ def command_lines(entries: list[dict], library: str = "") -> list[str]:
             parts.append(f"--region {e['region']}")
         if e.get("project"):
             parts.append(f"--project {e['project']!r}")
+        if e.get("quoted_quantity"):
+            parts.append(f"--quoted-quantity {e['quoted_quantity']:g} --quoted-quantity-unit {e['quoted_quantity_unit']}")
         if library:
             parts.append(f"--library {library}")
         lines.append(" \\\n    ".join(parts))

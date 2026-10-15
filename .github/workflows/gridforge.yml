@@ -74,7 +74,8 @@ jobs:
             --valid-until 2099-12-31 --library /tmp/costs.json
           GRIDFORGE_COST_LIBRARY=/tmp/costs.json python -m gridforge study \
             examples/intake/reference_hall.json -o /tmp/quoted
-          grep -q "firm quote" /tmp/quoted/envelope_study.md
+          # The label is the application's own (BASIS_LABEL), so a wording change cannot silently stale this check.
+          python -c "from gridforge.costs import BASIS_LABEL; t=open('/tmp/quoted/envelope_study.md').read(); l=BASIS_LABEL['firm_quote']; assert l in t, l; assert 'not decision-grade' in t; print('quotation reaches the study:', l)"
       - name: Proposal from the CLI
         run: python -m gridforge proposal examples/intake/reference_hall.json -o /tmp/proposal
       - name: A change note names the input that moved the answer
@@ -100,7 +101,7 @@ jobs:
           python -m gridforge calibrate show | tee /tmp/cal.txt
           grep -q "has not been established" /tmp/cal.txt
           python -m gridforge calibrate add --key envelope.racks --site "CI" --hall H1 \
-            --predicted 26 --observed 24 --unit racks --on 2026-11-30 \
+            --predicted 26 --observed 24 --unit racks --on 2026-01-01 \
             --method "CI smoke" --ledger /tmp/cal.json
           python -c "
           import json
@@ -226,7 +227,7 @@ jobs:
           python -c "
           import csv, pathlib
           d = pathlib.Path('public/reference/working_files')
-          for name in ['scenarios.csv','headroom_ladder.csv','constraints.csv','inputs.csv','assumed_inputs.csv','provenance.csv','README.txt']:
+          for name in ['scenarios.csv','headroom_ladder.csv','constraints.csv','inputs.csv','assumed_inputs.csv','provenance.csv','economics.csv','unpriced_components.csv','README.txt']:
               assert (d/name).exists(), name
           rows = list(csv.DictReader(open(d/'provenance.csv')))
           assert len(rows) > 20, len(rows)
@@ -597,6 +598,67 @@ jobs:
         run: python -m pytest tests/test_projects_migration.py -q
       - name: Real engine + real PostgREST + real PostgreSQL acceptance (fails, never skips)
         run: npx vitest run tests/site/verified-power-record.realdb.test.ts
+      - name: Cost-evidence migrations (fresh database and upgrade of legacy runs) against real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_cost_evidence_migration.py -q
+      - name: Durable, versioned cost-evidence runs - real engines + real PostgREST + real PostgreSQL, stubbed Storage (fails, never skips)
+        run: npx vitest run tests/site/cost-evidence.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true
+
+  # The durable-artifact promise is only as good as the object store behind it. The job above proves the application
+  # logic against a deterministic stub; THIS job proves the Storage contract against the REAL, pinned
+  # supabase/storage-api service. It is mandatory: GF_REQUIRE_REAL_STORAGE=1 turns a missing or unreachable service into
+  # a FAILURE, and scripts/realdb-up.sh fails if the container does not start, its schema is not created, the
+  # migrations do not apply, or the artifact bucket is absent or public. Test-only credentials and synthetic data
+  # throughout; nothing here reads a secret or touches a Supabase project. It is not a hosted Supabase project (no
+  # gateway, no GoTrue, local-file object backend) - see docs/09_COST_EVIDENCE_RUNS.md for what remains to verify in
+  # production.
+  real-storage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      GF_REAL_STORAGE: "1"
+      GF_REQUIRE_REALDB: "1"
+      GF_REQUIRE_REAL_STORAGE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Real PostgreSQL + PostgREST + REAL Supabase Storage (pinned image), every migration applied in order
+        run: |
+          bash scripts/realdb-up.sh
+          cat /tmp/gf-realdb/realdb.env >> "$GITHUB_ENV"
+      - name: Real-Storage integration - real engines + PostgREST + PostgreSQL + Supabase Storage (fails, never skips)
+        run: npx vitest run tests/site/cost-evidence.realdb.test.ts
+      - name: Diagnostics on failure (redacted, no tokens, keys, documents or quotations)
+        if: failure()
+        run: |
+          redact() { sed -E 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[redacted-jwt]/g' | cut -c1-300; }
+          echo "--- storage container: $(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' gf-storage 2>&1)"
+          docker logs gf-storage 2>&1 | tail -40 | redact || true
+          echo "--- postgrest"; tail -20 /tmp/gf-realdb/pgrst.log | redact || true
+      - name: Remove the Storage container (always)
+        if: always()
+        run: docker rm -f gf-storage >/dev/null 2>&1 || true

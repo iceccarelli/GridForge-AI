@@ -27,10 +27,10 @@ from gridforge.validation.evidence import EvidenceClass
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def obs(key="envelope.racks", predicted=26.0, observed=24.0, on="2026-11-30",
-        site="Client A", hall="DH-02", evidence=EvidenceClass.E5_CUSTOMER_DATA):
+def obs(key="envelope.racks", predicted=26.0, observed=24.0, on="2026-06-30",
+        site="Client A", hall="DH-02", evidence=EvidenceClass.E5_CUSTOMER_DATA, unit="racks"):
     return Observation(key=key, site_ref=site_ref(site, hall), predicted=predicted,
-                       observed=observed, unit="racks", observed_on=on,
+                       observed=observed, unit=unit, observed_on=on,
                        evidence=evidence, method="half-hourly metering")
 
 
@@ -186,7 +186,7 @@ def test_calibrate_add_records_and_reports(tmp_path):
     p = tmp_path / "cal.json"
     r = run_cli("calibrate", "add", "--key", "envelope.racks", "--site", "Client A",
                 "--hall", "DH-02", "--predicted", "26", "--observed", "24",
-                "--unit", "racks", "--on", "2026-11-30", "--method", "metering",
+                "--unit", "racks", "--on", "2026-06-30", "--method", "metering",
                 "--ledger", str(p))
     assert r.returncode == 0, r.stderr
     assert "-7.7%" in r.stdout
@@ -235,3 +235,39 @@ def test_the_accuracy_section_does_not_trip_the_language_gate(tmp_path):
     report = build(intake.context, results, client=intake.client)
     run_all_gates(report, to_markdown(report), claims=collect_claims(results),
                   mode=ReportMode.SCREENING)
+
+
+# --- found by running the ledger, not reading it --------------------------------------------
+
+def test_five_readings_from_one_site_are_not_calibration():
+    from gridforge.calibration.stats import calibration_for, CalibrationState
+    rows = [obs(site="Only Hall", hall="H1", on=f"2026-0{m}-15") for m in range(1, 6)]
+    c = calibration_for("envelope.racks", rows)
+    assert c.n == 5 and c.sites == 1
+    assert c.state is not CalibrationState.CALIBRATED
+
+
+def test_cost_and_schedule_overruns_are_optimistic_not_conservative():
+    from gridforge.calibration.stats import calibration_for
+    capex = [obs(key="economics.capex_total_eur", predicted=10e6, observed=15e6, unit="EUR")]
+    c = calibration_for("economics.capex_total_eur", capex)
+    assert c.conservative is False and "optimistic" in c.sentence()
+    weeks = [obs(key="schedule.weeks_to_full", predicted=40, observed=60, unit="weeks")]
+    assert calibration_for("schedule.weeks_to_full", weeks).conservative is False
+    racks = [obs(predicted=20, observed=24)]
+    assert calibration_for("envelope.racks", racks).conservative is True
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_non_finite_values_are_refused(bad):
+    with pytest.raises(ObservationError, match="finite"):
+        obs(observed=bad)
+    with pytest.raises(ObservationError, match="finite"):
+        obs(predicted=bad)
+
+
+def test_future_dates_and_wrong_units_are_refused():
+    with pytest.raises(ObservationError, match="future"):
+        obs(on="2099-01-01")
+    with pytest.raises(ObservationError, match="recorded in"):
+        obs(key="thermal.pue", predicted=1.3, observed=1.4, unit="kW")

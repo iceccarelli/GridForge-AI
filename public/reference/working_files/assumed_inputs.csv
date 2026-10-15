@@ -1,1 +1,6 @@
 input,unit,required,assumed_value,why_it_binds,how_to_get_it
+Installed CDU schedule,-,False,[],"When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have.",CDU nameplates and the mechanical single-line diagram.
+TCS target supply temperature,degC,False,30 [27–32] degC (E0),Whether the plant can hold the water temperature the chips need.,The platform vendor's reference design for the target rack.
+Rear-door heat exchanger capacity per rack,kW,False,60 [20–80] kW (E0),"Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement.",The selected rear-door unit's datasheet at the site's water temperature and airflow.
+All-in grid electricity price,EUR/MWh,False,library placeholder of 140 EUR/MWh (E0),"Every annual energy cost, cost per GPU-hour and lifecycle figure is priced at this. When absent the engine uses a 140 EUR/MWh placeholder (band 90-220).","The supply contract, or 12 months of invoices divided by metered energy."
+Discount rate,-,False,none: the lifecycle value is undiscounted,When absent the lifecycle value is stated undiscounted and says so.,The client's hurdle rate.

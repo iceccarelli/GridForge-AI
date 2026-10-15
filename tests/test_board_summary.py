@@ -115,3 +115,27 @@ def test_a_real_clients_pack_is_not_stamped_synthetic_on_either_document():
     synth = json.loads(DUBLIN.read_text())
     both = handle_study({"intake": synth, "format": "md", "bundle": "board"}, Tier.CLIENT)
     assert "SYNTHETIC REFERENCE DATA" in both["document"] and "SYNTHETIC REFERENCE DATA" in both["board"]["document"]
+
+
+def test_the_pack_response_carries_both_formats_and_the_engines_own_manifest_from_one_call():
+    doc = json.loads(DUBLIN.read_text())
+    out = handle_study({"intake": doc, "format": "html", "bundle": "board"}, Tier.CLIENT)
+    md = handle_study({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert out["bundle"] == {"kind": "board", "solves": 1, "artifacts": ["study", "board_summary"],
+                             "formats": ["html", "md"]}
+    assert out["document_md"] == md["document"] and out["board"]["document_md"] == md["board"]["document"]
+    assert out["board"]["document_md"].startswith("# Board summary")
+
+
+def test_the_bundle_flag_is_validated_not_silently_ignored():
+    from gridforge.api.server import ApiError
+    doc = json.loads(DUBLIN.read_text())
+    for bad in ({"bundle": "all", "format": "md"}, {"bundle": "board", "format": "json"},
+                {"bundle": "board", "format": "csv"}, {"bundle": "board", "format": "md", "view": "board"}):
+        with pytest.raises(ApiError) as e:
+            handle_study({"intake": doc, **bad}, Tier.CLIENT)
+        assert e.value.status == 422
+    for other in ("screen", "spec"):
+        import gridforge.api.server as srv
+        out = getattr(srv, f"handle_{other}")({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+        assert "board" not in out and "bundle" not in out, f"{other} must not acquire the pack"

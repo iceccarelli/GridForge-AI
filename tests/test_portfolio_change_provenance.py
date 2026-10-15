@@ -278,8 +278,16 @@ def test_halls_whose_bands_overlap_are_not_presented_as_a_settled_order(halls):
                           Objective.FASTEST_TO_POWER)
     assert all(r["weeks_to_full"] == 160 for r in rows)            # three halls, one transformer, one date
     assert all("ties" in r["rank_note"] or "overlaps" in r["rank_note"] for r in rows)
+    # London as shipped supplies no UPS schedule: it must not win on a date that
+    # ignores the UPS limit, and it says why.
     r = portfolio_rows([halls["nordic_hall"], halls["london_hall"]], Objective.FASTEST_TO_POWER)
-    assert r[0]["hall"] == "LON-03" and r[0]["rank_note"] == "—", "36 [24-52] weeks vs 160 [80-210]: a settled order"
+    assert r[-1]["hall"] == "LON-03" and "required inputs not supplied" in r[-1]["rank_note"]
+    complete = doc("london_hall")
+    complete["ups"] = doc("dublin_hall")["ups"]
+    r = portfolio_rows([halls["nordic_hall"], entry(complete)], Objective.FASTEST_TO_POWER)
+    note0 = r[0]["rank_note"]
+    assert r[0]["hall"] == "LON-03" and "overlaps" not in note0 and "ties" not in note0, \
+        "36 [24-52] weeks vs 160 [80-210]: a settled order (any note is about price completeness, not the order)"
 
 
 def test_unequal_completeness_is_visible_next_to_the_rank(halls):
@@ -370,8 +378,9 @@ def test_a_binding_constraint_change_is_called_out(base):
 
 
 def test_interacting_changes_report_the_residual_and_do_not_claim_independence(base):
-    d = diff(base, moved(base, **{"grid.contracted_MW": 10.5, "lv.busway_ampacity_A": 300,
-                                   "lv.tapoff_max_A": 250, "hall.floor_loading_kPa": 9}))
+    # Two limits on the same grid headroom: each alone is partly masked by the other, so
+    # the single-input probes cannot sum to the joint effect (62 -> 50, probes explain 42).
+    d = diff(base, moved(base, **{"grid.firm_capacity_MVA": 11, "grid.contracted_MW": 10}))
     assert d.residual != 0
     _, md = note(d)
     assert "unexplained" in md and "interacting" in md
@@ -488,3 +497,41 @@ def test_a_recorded_E0_is_reported_as_E0_not_as_unrecorded_or_as_a_stronger_clas
     r, _ = note(d)
     contribution = next(q for q in r.quantities() if q.prov.label.startswith("contribution of"))
     assert contribution.evidence is E.E0_ASSUMPTION, "must not fall through to the stronger 'after' class"
+
+
+# --- found by running Hall Watch: a capex or evidence change is not "nothing" ------------------
+
+def test_a_large_capex_movement_is_material_and_is_not_called_nothing():
+    base = doc("dublin_hall")
+    after = copy.deepcopy(base)
+    after["btm_options"][0]["capex_eur_per_kW"] = 3000
+    d = diff(base, after)
+    assert d.capex_moved and d.material
+    assert "Nothing that changes the answer" not in d.headline()
+    _, md = note(d)
+    assert "Nothing that changes the answer" not in md
+
+
+def test_an_evidence_upgrade_with_the_same_value_is_visible(base):
+    after = copy.deepcopy(base)
+    after["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E5"}
+    before = copy.deepcopy(base)
+    before["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E0"}
+    d = diff(before, after)
+    assert d.inputs == "changed" and d.evidence_changes == ["grid.contracted_MW"]
+    assert d.material and "evidence" in d.headline()
+
+
+def test_a_watch_state_records_evidence_so_a_later_upgrade_is_detected(base):
+    from gridforge.change import EnvelopeState, diff_from_state
+    from gridforge.scenario.run import run_all
+    from gridforge.intake.loader import load_document
+    first = copy.deepcopy(base)
+    first["grid"]["contracted_MW"] = {"value": base["grid"]["contracted_MW"], "evidence": "E0"}
+    i = load_document(copy.deepcopy(first))
+    res = pick_recommended(run_all(i.context, i.scenarios), Objective.MAX_COMPUTE)
+    state = EnvelopeState.of(res, first)
+    upgraded = copy.deepcopy(first)
+    upgraded["grid"]["contracted_MW"]["evidence"] = "E5"
+    d = diff_from_state(state, upgraded)
+    assert d.evidence_digest_changed and d.material

@@ -8,13 +8,13 @@
  * same solve as the study); email is intercepted; the store is the PostgREST fake.
  *
  * Context worth knowing: the live Envelope Study DEPOSIT is bespoke (producesDeliverable: false) and opens no
- * engagement, so these tests open a `study`-endpoint engagement directly. See docs/07_DELIVERY_RUNBOOK.md.
+ * engagement, so these tests open a `study`-endpoint engagement directly.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
-import { BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST, isPackFile, packState } from "@/lib/deliverables";
+import { adminToken } from "@/lib/admin";
+import { BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST, isPackFile, packHash, packState } from "@/lib/deliverables";
 import { PostgrestFake } from "./postgrest-fake";
 
 const jar: { name: string; value: string }[] = [];
@@ -29,6 +29,7 @@ let db: PostgrestFake;
 let undo: () => void;
 let mail: { to: string[] | string; subject: string; text: string; headers: Record<string, string> }[];
 let engineMode: { dropBoard?: boolean; failBoardCalls?: boolean; failStoreWrite?: boolean };
+let studyCalls: string[];
 const realFetch = globalThis.fetch;
 
 async function startEngine(): Promise<string> {
@@ -50,6 +51,7 @@ beforeEach(() => {
   mail = [];
   jar.length = 0;
   engineMode = {};
+  studyCalls = [];
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   process.env.GRIDFORGE_API_URL = ENGINE;
@@ -69,11 +71,13 @@ beforeEach(() => {
     }
     if (ENGINE && url.startsWith(ENGINE)) {
       const wantsBoard = String(init?.body ?? "").includes('"bundle":"board"');
+      if (url.includes("/v1/study")) studyCalls.push(String(init?.body ?? ""));
       if (wantsBoard && engineMode.failBoardCalls) return new Response(JSON.stringify({ error: "gate refused" }), { status: 500 });
       const res = await realFetch(i as RequestInfo, init);
       if (wantsBoard && engineMode.dropBoard) {   // an engine from before packs: ignores the flag
         const body = await res.json();
         delete body.board;
+        delete body.bundle;
         return new Response(JSON.stringify(body), { status: res.status, headers: { "content-type": "application/json" } });
       }
       return res;
@@ -94,9 +98,14 @@ const INTAKE = {
 };
 const json = (b: unknown, method = "POST") => new Request(siteUrl("/x"), { method, headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
 const ctx = (token: string) => ({ params: Promise.resolve({ token }) });
-const signIn = () => jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
-const admin = async (token: string, action?: string) =>
-  (await import("@/app/api/admin/deliverables/route")).PATCH(json({ token, ...(action ? { action } : {}) }, "PATCH"));
+const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
+/** An operator action. A release names the hash of the pack as it now stands, as the pipeline UI does. */
+const admin = async (token: string, action?: string, reviewed_hash?: string | null) => {
+  const r = db.rows("deliverables").find((x: any) => x.token === token) as any;
+  const hash = reviewed_hash === undefined ? (r?.document_html ? packHash(r) : undefined) : (reviewed_hash ?? undefined);
+  return (await import("@/app/api/admin/deliverables/route")).PATCH(
+    json({ token, ...(action ? { action } : {}), ...(!action && hash ? { reviewed_hash: hash } : {}) }, "PATCH"));
+};
 const row = () => db.rows("deliverables")[0] as any;
 const submit = async (token = "intake-tok") => (await import("@/app/api/intake/[token]/route")).POST(json(INTAKE), ctx(token));
 const read = async (token: string, qs = "") =>
@@ -200,9 +209,9 @@ describe.runIf(hasPython)("a partial pack is never presented as complete, and ca
     expect(toOps().some((m) => m.subject.includes("Pack incomplete") && m.text.includes("board_summary"))).toBe(true);
 
     signIn();
-    const rel = await admin("doc-tok");                    // even a forced release attempt is refused
+    const rel = await admin("doc-tok");                    // a release attempt on the held pack is refused
     expect(rel.status).toBe(409);
-    expect((await rel.json()).error).toContain("incomplete");
+    expect(JSON.stringify(await rel.json())).not.toContain(row().document_html.slice(0, 40));   // no document disclosed
     expect(row().status).toBe("engine_unavailable");
     expect((await read("doc-tok")).status).toBe(409);
   });
@@ -263,7 +272,7 @@ describe.runIf(hasPython)("a partial pack is never presented as complete, and ca
     engineMode.failStoreWrite = true;
     openStudy();
     const res = await submit();
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(503);
     expect((await res.json()).error).toContain("could not be produced");
     expect(row().status).not.toBe("draft");
     expect(row().document_html ?? null).toBeNull();
@@ -325,3 +334,151 @@ describe.runIf(hasPython)("everything that existed before packs behaves as it di
     expect(PRODUCTS.envelope_study_deposit.endpoint).toBe("study");
   });
 });
+
+describe.runIf(hasPython)("one solve, one persisted pack, one authority for completeness", () => {
+  it("asks the engine for the study ONCE, with the board in the same request, and stores that board", async () => {
+    openStudy();
+    await submit();
+    const packCalls = studyCalls.filter((b) => b.includes('"bundle":"board"'));
+    expect(packCalls).toHaveLength(1);
+    expect(studyCalls.filter((b) => b.includes('"format":"md"'))).toHaveLength(0);   // md rides in the same response
+    expect(row().working_files[BOARD_MD]).toContain("Board summary");
+  });
+
+  it("a draft whose board is missing (manifest says pack) cannot be released, and no document is disclosed", async () => {
+    openStudy();
+    await submit();
+    const r = row();
+    delete r.working_files[BOARD_HTML];
+    r.status = "draft";                                     // simulate a row corrupted into a releasable-looking draft
+    signIn();
+    const rel = await admin("doc-tok", undefined, packHash(r));
+    expect(rel.status).toBe(409);
+    const body = JSON.stringify(await rel.json());
+    expect(body).toContain("incomplete");
+    expect(body).not.toContain("Capacity");
+    expect(row().status).toBe("draft");
+    expect(toBuyer()).toHaveLength(0);
+  });
+
+  it("a manifest that expects less than the product promises does not make a pack complete", async () => {
+    const files = { [BUNDLE_MANIFEST]: JSON.stringify({ expected: [] }) };
+    expect(packState({ kind: KIND, document_html: "<p>s</p>", working_files: files })).toMatchObject({
+      complete: false, missing: ["board_summary"],
+    });
+  });
+
+  it("the reviewer's hash covers the board: swapping the board after review is refused", async () => {
+    openStudy();
+    await submit();
+    signIn();
+    const reviewed = packHash(row());
+    row().working_files[BOARD_HTML] = "<p>a different board</p>";
+    const rel = await admin("doc-tok", undefined, reviewed);
+    expect(rel.status).toBe(409);
+    expect(row().status).toBe("draft");
+    expect((await admin("doc-tok", undefined, null)).status).toBe(422);   // and a release must name its hash at all
+  });
+
+  it("regenerate is refused for a draft or an in-flight row, and a lost claim writes nothing", async () => {
+    openStudy();
+    await submit();
+    signIn();
+    const before = JSON.stringify(row());
+    expect((await admin("doc-tok", "regenerate")).status).toBe(409);        // a draft is not silently rewritten
+    row().status = "generating";
+    expect((await admin("doc-tok", "regenerate")).status).toBe(409);
+    expect(JSON.stringify({ ...row(), status: "draft" })).toBe(before);
+  });
+
+  it("regenerating a held row never touches a released one: the claim is compare-and-set", async () => {
+    engineMode.dropBoard = true;
+    openStudy();
+    await submit();
+    signIn();
+    row().status = "released";                              // released between the page load and the click
+    expect((await admin("doc-tok", "regenerate")).status).toBe(409);
+    expect(row().status).toBe("released");
+    expect(packState(row()).complete).toBe(false);
+  });
+
+  it("regenerate hands the UI the new pack hash, which is the hash release then accepts", async () => {
+    engineMode.dropBoard = true;
+    openStudy();
+    await submit();
+    engineMode.dropBoard = false;
+    signIn();
+    const out = await (await admin("doc-tok", "regenerate")).json();
+    expect(out.document_hash).toBe(packHash(row()));
+    expect((await (await admin("doc-tok", undefined, out.document_hash)).json()).status).toBe("released");
+  });
+});
+
+describe.runIf(hasPython)("private retrieval of the pack", () => {
+  const releasedPack = async () => {
+    openStudy();
+    await submit();
+    signIn();
+    await admin("doc-tok");
+    jar.length = 0;
+  };
+
+  it("unknown, malformed and foreign tokens retrieve nothing", async () => {
+    await releasedPack();
+    for (const t of ["nope", "", "../doc-tok", "doc-tok%00", "' or 1=1 --"]) {
+      for (const q of ["?format=board", "?format=board_md", "?format=csv&file=board_summary.html"]) {
+        const res = await read(t, q);
+        expect([404, 400, 409]).toContain(res.status);
+        expect(res.status === 200).toBe(false);
+      }
+    }
+    // the intake credential is not a document credential
+    expect((await read("intake-tok", "?format=board")).status).toBe(404);
+  });
+
+  it("another engagement's token never yields this engagement's board", async () => {
+    await releasedPack();
+    db.seed("deliverables", [{
+      id: "d2", token: "other-tok", intake_token: "other-intake", kind: KIND, status: "draft",
+      email: "other@hall.example", working_files: { [BOARD_HTML]: "OTHER BOARD" }, document_html: "<p>other</p>",
+    }]);
+    const mine = await read("doc-tok", "?format=board");
+    expect(await mine.text()).not.toContain("OTHER BOARD");
+    const theirs = await read("other-tok", "?format=board");      // a draft: still gated
+    expect(theirs.status).toBe(409);
+    expect(await theirs.text()).not.toContain("OTHER BOARD");
+  });
+
+  it("the page links the board only when it exists and the engagement is released", async () => {
+    openStudy();
+    await submit();
+    const page = async () => {
+      const { default: Page } = await import("@/app/deliverable/[token]/page");
+      const el = (await Page({ params: Promise.resolve({ token: "doc-tok" }) })) as unknown;
+      return JSON.stringify(el);
+    };
+    expect(await page()).not.toContain("format=board");        // draft: not even a link
+    signIn();
+    await admin("doc-tok");
+    expect(await page()).toContain("format=board");
+    delete row().working_files[BOARD_HTML];
+    expect(await page()).not.toContain("format=board");        // legacy / missing artefact: no dead link
+  });
+});
+
+describe.runIf(hasPython)("other products keep their behaviour", () => {
+  it("a released Procurement Specification has no pack, no board link and no board wording", async () => {
+    db.seed("deliverables", [{
+      id: "d3", token: "spec-tok", intake_token: "spec-intake", kind: "procurement_spec", status: "draft",
+      email: "buyer@hall.example", document_html: "<p>spec</p>", document_md: "spec",
+      working_files: { "response_template.json": "{}", "specification.json": "{}" },
+    }]);
+    expect(packState(row())).toMatchObject({ complete: true, missing: [] });
+    signIn();
+    expect((await (await admin("spec-tok")).json()).status).toBe("released");
+    expect(toBuyer()[0].text).not.toContain("board summary");
+    expect((await read("spec-tok", "?format=board")).status).toBe(404);
+    expect((await read("spec-tok", "?format=csv&file=response_template.json")).status).toBe(200);
+  });
+});
+

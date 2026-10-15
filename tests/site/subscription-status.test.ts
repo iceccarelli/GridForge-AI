@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { bearerFor, installWithAuth } from "./auth-fake";
 
 const SUBSCRIBER = "ops@northhall.example";
 
@@ -20,10 +21,17 @@ async function route() {
   return await import("@/app/api/subscription-status/route");
 }
 
+// The identity is the verified bearer token. For readability these tests still
+// write `{ email }`, and that email is what the TOKEN is minted for; the route
+// itself never reads the body (see the "identity" cases at the bottom).
 function ask(body: unknown) {
+  const email = typeof body === "string" ? SUBSCRIBER : (body as { email?: unknown } | null)?.email;
   return new Request(siteUrl("/api/subscription-status"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(typeof email === "string" ? bearerFor(email) : {}),
+    },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -32,7 +40,7 @@ beforeEach(() => {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   db = new PostgrestFake(["subscriptions"]);
-  restore = db.install();
+  restore = installWithAuth(db).restore;
 });
 
 afterEach(() => restore());
@@ -79,17 +87,40 @@ it("says so when Supabase is not configured rather than denying the customer", a
   expect((await POST(ask({ email: SUBSCRIBER }))).status).toBe(503);
 });
 
-it("rejects a malformed body", async () => {
+it("does not read the body at all, so a malformed one cannot matter", async () => {
   const { POST } = await route();
-  expect((await POST(ask("{oops"))).status).toBe(400);
+  expect((await POST(ask("{oops"))).status).toBe(200);
 });
 
-it("treats a missing email as inactive without touching the store", async () => {
+it("refuses a caller with no verified identity without touching the store", async () => {
   const { POST } = await route();
   const res = await POST(ask({}));
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(401);
   expect((await res.json()).active).toBe(false);
   expect(db.calls).toHaveLength(0);
+});
+
+it("will not say whether a named address subscribes — identity is the token, not the body", async () => {
+  db.seed("subscriptions", [
+    { email: SUBSCRIBER, plan: "team", status: "active", created_at: "2026-01-01T00:00:00Z" },
+  ]);
+  const { POST } = await route();
+  const res = await POST(
+    new Request(siteUrl("/api/subscription-status"), {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearerFor("stranger@example.com") },
+      body: JSON.stringify({ email: SUBSCRIBER }),
+    })
+  );
+  expect(await res.json()).toMatchObject({ ok: true, active: false });
+  const anon = await POST(
+    new Request(siteUrl("/api/subscription-status"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: SUBSCRIBER }),
+    })
+  );
+  expect(anon.status).toBe(401);
 });
 
 it("matches an email the user typed with different capitalisation", async () => {

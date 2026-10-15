@@ -7,6 +7,7 @@ those are how a tender ends up specifying equipment the hall does not need.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..validation import EvidenceClass, Quantity
@@ -110,6 +111,11 @@ class SpecPackage:
     response_fields: list[ResponseField] = field(default_factory=list)
     lead_time_weeks: Quantity | None = None
     budget_eur: Quantity | None = None
+    #: What the package asks suppliers to price, in the unit the engine prices the line in: the total the ladder
+    #: adds for this constraint across every step ("23.4 MVA"). A lump quote is recorded against it, so it is
+    #: used in proportion to what each step needs and never charged again per step.
+    scope_quantity: float | None = None
+    scope_quantity_unit: str = ""
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -146,11 +152,15 @@ def _numeric(raw: dict) -> dict[str, float]:
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
         try:
-            out[str(k)] = float(v)
+            num = float(v)
         except (TypeError, ValueError):
             raise ProcurementError(
                 f"response field {k!r} is {v!r}, which is not a number. If the supplier "
                 f"gave a range or a caveat, put the figure here and the caveat in 'text'.")
+        if not math.isfinite(num):
+            raise ProcurementError(
+                f"response field {k!r} is {v!r}: a quotation figure must be a finite number.")
+        out[str(k)] = num
     return out
 
 
@@ -164,6 +174,11 @@ class SupplierResponse:
     compliance: dict[str, str] = field(default_factory=dict)   # requirement id -> C/CD/N
     reference: str = ""
     valid_until: str = ""
+    currency: str = ""
+    #: The specification this response was written against, copied from the response
+    #: template. Without it a response for another hall, another constraint or an
+    #: earlier sizing is indistinguishable from a current one.
+    specification: dict = field(default_factory=dict)
 
     def get(self, key: str) -> float | None:
         v = self.values.get(key)
@@ -189,4 +204,6 @@ class SupplierResponse:
                         for k, v in (d.get("compliance") or {}).items()
                         if str(v).strip()},
             reference=str(d.get("reference") or ""),
-            valid_until=str(d.get("valid_until") or ""))
+            valid_until=str(d.get("valid_until") or ""),
+            currency=str(d.get("currency") or "").strip().upper(),
+            specification=dict(d.get("specification") or {}))

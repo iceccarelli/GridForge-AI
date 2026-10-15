@@ -231,6 +231,34 @@ def cmd_power_assess(args) -> int:
     return 0
 
 
+def _with_evidence(fn):
+    """Run a command with accepted cost evidence from --cost-evidence layered over the library for this one run."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(args) -> int:
+        path = getattr(args, "cost_evidence", None)
+        if not path:
+            return fn(args)
+        from .costs import CostEntry, cost_overlay, set_evidence_effect
+        from .scenario.evidence import evidence_effect
+        try:
+            raw = json.loads(Path(path).read_text())
+            rows = raw.get("entries", raw) if isinstance(raw, dict) else raw
+            entries = [CostEntry(**r) for r in rows]
+        except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+            print(f"refused: cost evidence {path} is unusable: {exc}", file=sys.stderr)
+            return 2
+        intake = load(args.intake)
+        with cost_overlay(entries) as report:
+            set_evidence_effect(evidence_effect(intake.context, intake.scenarios, entries))
+            print(f"  cost evidence: {len(report.used)} accepted line(s) used, {len(report.ignored)} ignored")
+            for ig in report.ignored:
+                print(f"    not used: {ig['key']} — {ig['reason']}")
+            return fn(args)
+    return run
+
+
 def cmd_screen(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
@@ -245,8 +273,24 @@ def cmd_screen(args) -> int:
     rec = _pick_recommended(results, objective)
     print(f"Density Screen — {intake.client}: {rec.envelope.max_racks} racks as found, "
           f"{rec.unlocked_racks} after the ladder, binding on {rec.envelope.binding.name}.")
+    _economics_note(rec)
     w.report()
     return 0
+
+
+def _economics_note(rec) -> None:
+    """One honest line on whether the economics can be relied on, so the terminal never reads cleaner than the report."""
+    from .reporting.labels import economics_limitations
+    lims = economics_limitations(rec.economics)
+    if rec.unlocked_racks <= 0:
+        return
+    if lims:
+        n = len(rec.economics.unpriced_summary())
+        print("  ECONOMICS: not decision-grade"
+              + (f"; capex is a LOWER BOUND ({n} cost component(s) have no price)" if n else "")
+              + f". {len(lims)} reason(s) in the report, section 9.")
+    else:
+        print("  ECONOMICS: every priced line rests on a quotation or better; nothing is unpriced.")
 
 
 def cmd_study(args) -> int:
@@ -267,6 +311,7 @@ def cmd_study(args) -> int:
         w.paths.extend(write_csv_bundle(out / "working_files", intake, results))
     print(f"Envelope Study — {intake.client}: recommended {rec.spec.name}; "
           f"{rec.unlocked_racks} racks after the ladder.")
+    _economics_note(rec)
     if not intake.report.can_issue:
         print(f"  NOTE: {len(intake.report.required_gaps)} required inputs are assumed. "
               f"Screening mode only — see the evidence disclosure in the report.")
@@ -423,15 +468,31 @@ def cmd_cost(args) -> int:
               f"Drop --bundled and it goes to {private_path()}, which is gitignored.",
               file=sys.stderr)
         return 2
-    if args.basis != "library_default" and not (args.supplier and args.quoted_on):
+    if args.basis == "published_benchmark":
+        if not (args.source and args.quoted_on and args.region):
+            print("a published_benchmark needs --source (what was published), --quoted-on (its publication date) "
+                  "and --region (the geography it describes), and its unit and scope must match the line it "
+                  "prices. A figure that cannot name them is a placeholder.", file=sys.stderr)
+            return 2
+    elif args.basis == "engineering_estimate":
+        if not args.note:
+            print("an engineering_estimate needs --note stating its basis (what was assumed, by whom). It is "
+                  "weaker than any supplier quotation and is kept in your private library.", file=sys.stderr)
+            return 2
+    elif args.basis != "library_default" and not (args.supplier and args.quoted_on):
         print(f"a {args.basis} needs --supplier and --quoted-on. Without them it is not a "
               "quotation, it is a number someone remembered.", file=sys.stderr)
         return 2
-    entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
-                      value=float(args.value), basis=args.basis, supplier=args.supplier,
-                      quoted_on=args.quoted_on, valid_until=args.valid_until,
-                      region=args.region, project=args.project, note=args.note,
-                      source=args.source)
+    try:
+        entry = CostEntry(key=args.key, label=args.label or args.key, unit=args.unit,
+                          value=float(args.value), basis=args.basis, supplier=args.supplier,
+                          quoted_on=args.quoted_on, valid_until=args.valid_until,
+                          region=args.region, project=args.project, note=args.note,
+                          source=args.source, quoted_quantity=args.quoted_quantity,
+                          quoted_quantity_unit=args.quoted_quantity_unit)
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     lib.put(entry)
     path = lib.save(args.library)
     q = entry.quantity()
@@ -847,13 +908,16 @@ def main(argv: list[str] | None = None) -> int:
     for name, fn, helptext in (("screen", cmd_screen, "produce a Density Screen"),
                                ("study", cmd_study, "produce a Capacity & Density Envelope Study")):
         s = sub.add_parser(name, help=helptext)
+        s.add_argument("--cost-evidence", dest="cost_evidence", metavar="FILE",
+                       help="accepted supplier cost evidence (JSON list of cost lines) to apply to THIS run only; "
+                            "lines that are not accepted, have expired or are superseded are named and ignored")
         s.add_argument("intake")
         s.add_argument("-o", "--out", default="out")
         s.add_argument("--objective", default="max_compute", choices=sorted(OBJECTIVES))
         s.add_argument("--csv", action="store_true",
                        help="also write the working files, so the client's engineers can check "
                             "the arithmetic in a spreadsheet")
-        s.set_defaults(func=fn)
+        s.set_defaults(func=_with_evidence(fn))
 
     s = sub.add_parser("power-assess",
                        help="the Power Readiness Case: current capacity, binding constraint, "
@@ -923,8 +987,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--unit", default="EUR")
     s.add_argument("--value", default="0")
     s.add_argument("--basis", default="library_default",
-                   help="library_default | published_benchmark | budgetary_quote | "
-                        "firm_quote | contracted")
+                   help="library_default | published_benchmark | engineering_estimate | "
+                        "budgetary_quote | firm_quote | contracted")
     s.add_argument("--supplier")
     s.add_argument("--quoted-on", dest="quoted_on", help="ISO date of the quotation")
     s.add_argument("--valid-until", dest="valid_until")
@@ -932,6 +996,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--project")
     s.add_argument("--note")
     s.add_argument("--source")
+    s.add_argument("--quoted-quantity", dest="quoted_quantity", type=float,
+                   help="for a lump (EUR) quotation: the quantity it covers, in the unit the engine prices the line in")
+    s.add_argument("--quoted-quantity-unit", dest="quoted_quantity_unit")
     s.add_argument("--library",
                    help="path to a cost library JSON (default: your private, gitignored one)")
     s.add_argument("--bundled", action="store_true",

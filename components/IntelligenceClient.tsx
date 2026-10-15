@@ -9,9 +9,11 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 
 export function IntelligenceClient() {
   const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function subscribe(planId: string) {
     setLoading(planId);
+    setError(null);
     try {
       const res = await fetch("/api/subscribe", {
         method: "POST",
@@ -22,11 +24,11 @@ export function IntelligenceClient() {
       if (data.ok && data.url) {
         window.location.href = data.url;
       } else {
-        alert(data.error || "Could not start checkout.");
+        setError(typeof data.error === "string" && data.error ? data.error : "Could not start checkout. Please try again in a moment.");
         setLoading(null);
       }
     } catch {
-      alert("Could not start checkout.");
+      setError("Could not start checkout. Please try again in a moment.");
       setLoading(null);
     }
   }
@@ -35,14 +37,14 @@ export function IntelligenceClient() {
     <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
-            <div className="eyebrow text-power mb-4">Building toward · GridForge Intelligence</div>
+            <div className="eyebrow text-power mb-4">GridForge Intelligence</div>
             <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
               Comparing markets
               <br />
               <span className="text-power">by time to power, not just queue position.</span>
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
-              A siting layer, in progress: interconnection-queue signal and modelled
+              A live siting dashboard: interconnection-queue signal and modelled
               time-to-energize across regions, with behind-the-meter supply scored as one
               named relief option, priced and lead-timed like any other — not as
               equipment we sell or own. This is an intelligence subscription, not a
@@ -133,6 +135,12 @@ export function IntelligenceClient() {
               </div>
             ))}
           </div>
+
+          {error && (
+            <p role="alert" className="mt-6 text-sm text-red-400">
+              {error}
+            </p>
+          )}
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 data text-xs text-faint">
             <span>Cancel anytime</span>

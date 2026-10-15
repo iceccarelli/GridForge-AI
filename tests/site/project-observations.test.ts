@@ -7,6 +7,7 @@
  *   - verifying needs an attached artifact; a class is never inferred or defaulted
  *   - nothing here can reach the calibration ledger — it is a file this code never opens
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { siteUrl } from "@/lib/site";
@@ -28,7 +29,7 @@ beforeEach(() => {
   process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "project_observations",
-    "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "procurement_packages", "procurement_responses",
+    "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "cost_evidence_state", "cost_evidence_runs", "procurement_packages", "procurement_responses",
     "procurement_comparisons", "power_deployment_cases",
   ]);
   db.uniqueKeys.set("project_observation_reviews", [["observation_id"]]);
@@ -48,7 +49,7 @@ afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; });
 const json = (path: string, body: unknown) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) });
-const signIn = () => jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
 
 async function project(attachCase = true) {
   const { POST } = await import("@/app/api/projects/route");

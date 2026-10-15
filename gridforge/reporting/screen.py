@@ -14,7 +14,7 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
-from .labels import full_capacity_q, racks_q, relief_text
+from .labels import economics_limitations, full_capacity_q, racks_q, relief_text
 
 WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
              "and not a measurement of this asset.")
@@ -54,7 +54,12 @@ def build(intake: Intake, results: list[ScenarioResult],
         s.blocks.append(Statement("Time to full capacity", full_q,
                                   f"set by {t.critical_item.lower()}; the range is that item's own lead-time range"))
     s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
-                              rec.economics.aace_class))
+                              rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                                          " · LOWER BOUND: a cost it needs has no price")))
+    lims = economics_limitations(rec.economics)
+    if lims:
+        s.blocks.append(Callout("warning", "These economics are not decision-grade. "
+                                + " ".join(x[0].upper() + x[1:] + "." for x in lims)))
     s.blocks.append(Callout("answer",
         f"Binding constraint: {rec.envelope.binding.name} ({rec.envelope.binding.domain}). "
         f"{rec.envelope.binding.basis}."))
@@ -66,7 +71,7 @@ def build(intake: Intake, results: list[ScenarioResult],
         rows.append([Lit(str(st.step)), st.binding_name, st.domain,
                      racks_q(st.racks_after, f"racks after step {st.step}", rec),
                      relief_text(st),
-                     st.capex_eur if st.capex_eur is not None else "—",
+                     st.capex_eur if (st.capex_eur is not None and st.taken) else "—",
                      st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
     s.blocks.append(Table(["#", "Constraint", "Domain", "Racks after", "Relief", "Capex",
                            "Lead time"], rows,

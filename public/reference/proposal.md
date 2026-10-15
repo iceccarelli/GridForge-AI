@@ -38,7 +38,15 @@ You receive: Density Screen document (HTML and Markdown), the first six rungs of
 
 ## 3. What we need from you
 
-Intake is complete. Nothing further is required to begin; the clock starts on commissioning.
+Intake is 83% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
+
+| Input | Status | Assumed if not supplied | Where it comes from |
+| --- | --- | --- | --- |
+| Installed CDU schedule | optional | [] | CDU nameplates and the mechanical single-line diagram. |
+| TCS target supply temperature | optional | 30 [27–32] degC (E0) | The platform vendor's reference design for the target rack. |
+| Rear-door heat exchanger capacity per rack | optional | 60 [20–80] kW (E0) | The selected rear-door unit's datasheet at the site's water temperature and airflow. |
+| All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |
+| Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
 
 ## 4. Fee, timing and terms
 
@@ -95,7 +103,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | E2 | simulated |
 | E3 | estimated |
 | E4 | validated against test data |
-| E5 | measured at site (customer data) |
+| E5 | supplied by the client (not measured or surveyed by us) |
 | E6 | field-validated |
 | E7 | observed in operation |
 

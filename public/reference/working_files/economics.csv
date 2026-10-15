@@ -1,0 +1,47 @@
+scenario_id,item,value,low,high,unit,evidence,label,provenance
+retained_air,capex: in-hall conversion,0.0,0.0,0.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
+retained_air,capex: relief works along the ladder,0.0,0.0,0.0,EUR,E1_MODEL,capex of relief measures taken along the headroom ladder,0bbdb0027436
+retained_air,capex: total,0.0,0.0,0.0,EUR,E0_ASSUMPTION,total capex,f7495c34f50b
+retained_air,annual: grid energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual grid energy cost,e4c2ba60d951
+retained_air,annual: total energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual energy cost,9fa64c70303b
+retained_air,capex complete,True,,,,,,
+retained_air,operating cost complete,True,,,,,,
+retained_air,decision grade,False,,,,,,
+rdhx,capex: in-hall conversion,0.0,0.0,0.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
+rdhx,capex: relief works along the ladder,0.0,0.0,0.0,EUR,E1_MODEL,capex of relief measures taken along the headroom ladder,0bbdb0027436
+rdhx,capex: total,0.0,0.0,0.0,EUR,E0_ASSUMPTION,total capex,f7495c34f50b
+rdhx,annual: grid energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual grid energy cost,8d67a81dd6ce
+rdhx,annual: total energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual energy cost,a4b1b00fafbf
+rdhx,capex complete,True,,,,,,
+rdhx,operating cost complete,True,,,,,,
+rdhx,decision grade,False,,,,,,
+hybrid_dlc,capex: in-hall conversion,1430000.0,715000.0,2860000.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
+hybrid_dlc,capex: relief works along the ladder,4660000.0,2328000.0,9312000.0,EUR,E0_ASSUMPTION,capex of relief measures taken along the headroom ladder,e5ee3b75efd6
+hybrid_dlc,"capex: initial CDU kit (assumed, not installed)",540000.0,270000.0,1080000.0,EUR,E0_ASSUMPTION,"initial CDU kit (assumed, not installed): supplied and mechanically installed",457085eb7b50
+hybrid_dlc,capex: total,6630000.0,3313000.0,13252000.0,EUR,E0_ASSUMPTION,total capex,2942aa2c020c
+hybrid_dlc,annual: grid energy cost,4200000.0,2475796.752,7470983.52,EUR,E0_ASSUMPTION,annual grid energy cost,85a461c1f878
+hybrid_dlc,annual: total energy cost,4200000.0,2475796.752,7470983.52,EUR,E0_ASSUMPTION,annual energy cost,f35d99e09dad
+hybrid_dlc,lifecycle over 10 years,48600000.0,28070967.52,87961835.19999999,EUR,E0_ASSUMPTION,lifecycle cost over 10 years,c0c7b3b2c957
+hybrid_dlc,capex complete,False,,,,,,
+hybrid_dlc,operating cost complete,True,,,,,,
+hybrid_dlc,decision grade,False,,,,,,
+full_dlc,capex: in-hall conversion,1540000.0,770000.0,3080000.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
+full_dlc,capex: relief works along the ladder,4140000.0,2068000.0,8272000.0,EUR,E0_ASSUMPTION,capex of relief measures taken along the headroom ladder,7243a493138f
+full_dlc,"capex: initial CDU kit (assumed, not installed)",540000.0,270000.0,1080000.0,EUR,E0_ASSUMPTION,"initial CDU kit (assumed, not installed): supplied and mechanically installed",457085eb7b50
+full_dlc,capex: total,6220000.0,3108000.0,12432000.0,EUR,E0_ASSUMPTION,total capex,c9c2f31d3126
+full_dlc,annual: grid energy cost,4170000.0,2513261.5199999996,7356045.312000001,EUR,E0_ASSUMPTION,annual grid energy cost,40503427ac6d
+full_dlc,annual: total energy cost,4170000.0,2513261.5199999996,7356045.312000001,EUR,E0_ASSUMPTION,annual energy cost,c6e2b66f7cd7
+full_dlc,lifecycle over 10 years,47900000.0,28240615.199999996,85992453.12,EUR,E0_ASSUMPTION,lifecycle cost over 10 years,a7fe3ba3d2a3
+full_dlc,capex complete,False,,,,,,
+full_dlc,operating cost complete,True,,,,,,
+full_dlc,decision grade,False,,,,,,
+full_dlc_btm,capex: in-hall conversion,3410000.0,1705000.0,6820000.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
+full_dlc_btm,capex: relief works along the ladder,14900000.0,7446000.0,29784000.0,EUR,E0_ASSUMPTION,capex of relief measures taken along the headroom ladder,dee1a6789921
+full_dlc_btm,"capex: initial CDU kit (assumed, not installed)",540000.0,270000.0,1080000.0,EUR,E0_ASSUMPTION,"initial CDU kit (assumed, not installed): supplied and mechanically installed",457085eb7b50
+full_dlc_btm,capex: total,18800000.0,9421000.0,37684000.0,EUR,E0_ASSUMPTION,total capex,9eed5fbc0658
+full_dlc_btm,annual: grid energy cost,9240000.0,5565079.079999999,16288386.048000002,EUR,E0_ASSUMPTION,annual grid energy cost,40503427ac6d
+full_dlc_btm,annual: total energy cost,9240000.0,5565079.079999999,16288386.048000002,EUR,E0_ASSUMPTION,annual energy cost,c6e2b66f7cd7
+full_dlc_btm,lifecycle over 10 years,111000000.0,65071790.79999999,200567860.48000002,EUR,E0_ASSUMPTION,lifecycle cost over 10 years,099a6a050f4a
+full_dlc_btm,capex complete,False,,,,,,
+full_dlc_btm,operating cost complete,False,,,,,,
+full_dlc_btm,decision grade,False,,,,,,

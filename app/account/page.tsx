@@ -27,6 +27,14 @@ function useQueue() {
   return { live, loaded };
 }
 
+/** The verified identity the paid routes now require. The email is no longer sent: the server reads it
+ *  from the token, so a request cannot name someone else's account. */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await getSupabase().auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: "Bearer " + token } : {};
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
@@ -46,8 +54,8 @@ export default function AccountPage() {
       try {
         const res = await fetch("/api/subscription-status", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: userEmail }),
+          headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+          body: "{}",
         });
         const j = await res.json();
         if (!res.ok) {
@@ -219,7 +227,8 @@ function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: numb
 
   useEffect(() => {
     let on = true;
-    fetch("/api/scenarios?email=" + encodeURIComponent(email))
+    authHeaders()
+      .then((h) => fetch("/api/scenarios", { headers: h }))
       .then((r) => r.json())
       .then((j) => { if (on) { setRows(j.scenarios || []); setLoaded(true); } })
       .catch(() => { if (on) setLoaded(true); });
@@ -234,8 +243,8 @@ function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: numb
     setRows((rs) => rs.filter((r) => r.id !== id));
     try {
       const res = await fetch(
-        "/api/scenarios?email=" + encodeURIComponent(email) + "&id=" + encodeURIComponent(id),
-        { method: "DELETE" }
+        "/api/scenarios?id=" + encodeURIComponent(id),
+        { method: "DELETE", headers: await authHeaders() }
       );
       if (!res.ok) setRows(before);
     } catch { setRows(before); }
@@ -313,9 +322,8 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
     try {
       const res = await fetch("/api/scenarios", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
-          email,
           name: region.region + " · " + mw + " MW",
           mw,
           regionId: region.id,
@@ -343,11 +351,11 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
       <div className="grid sm:grid-cols-3 gap-4 mb-6">
         <div>
           <label className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
-          <input type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
+          <input aria-label="Site size in MW" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
         </div>
         <div>
           <label className="data text-[10px] text-faint">REGION</label>
-          <select value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
+          <select aria-label="Market" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
             {ranked.map((r) => <option key={r.id} value={r.id}>{r.region}</option>)}
           </select>
         </div>
@@ -419,8 +427,8 @@ function SitingAnalyst({ email }: { email: string }) {
     try {
       const res = await fetch("/api/siting-analysis", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, brief }),
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ brief }),
       });
       const j = await res.json();
       setAnalysis(j.ok ? j.analysis : (j.error || "Analyst unavailable."));
@@ -433,7 +441,7 @@ function SitingAnalyst({ email }: { email: string }) {
       <div className="eyebrow text-power mb-2">AI siting analyst</div>
       <h2 className="text-lg font-semibold tracking-tight">Get a recommendation for your site</h2>
       <p className="text-mute text-[13px] mt-1 mb-4">Describe your site — MW, region preference, timeline, workload — and the analyst ranks the best markets and queue-bypass path. Directional; a <Link href="/pricing" className="text-power hover:underline">Density Screen</Link> confirms figures for one hall.</p>
-      <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} placeholder="e.g. 80 MW for AI training, flexible on US region, need power by Q3 next year, prioritize low cost and fast energization." className="w-full resize-none bg-ink border border-line rounded-lg px-3.5 py-3 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
+      <textarea aria-label="Project brief" value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} placeholder="e.g. 80 MW for AI training, flexible on US region, need power by Q3 next year, prioritize low cost and fast energization." className="w-full resize-none bg-ink border border-line rounded-lg px-3.5 py-3 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
       <button onClick={analyze} disabled={loading || !brief.trim()} className="mt-3 rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 hover:bg-power/90 transition-all">
         {loading ? <Loader2 size={15} className="animate-spin" /> : <><Send size={14} /> Analyze my site</>}
       </button>

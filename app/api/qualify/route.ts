@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { engineUnavailableMessage } from "./unavailable-message";
 import { callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
 
 export const runtime = "nodejs";
@@ -48,13 +49,16 @@ export async function POST(req: Request) {
   if (!outcome.ok) {
     // Never invent a number when the engine is unavailable. Capture the enquiry
     // and say plainly what happened.
-    await persist(input, null, token).catch(() => undefined);
+    const persisted = await persist(input, null, token).then(
+      () => true,
+      () => false
+    );
     const status = outcome.reason === "unconfigured" ? 503 : 502;
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "The capacity engine could not be reached, so no result was produced. Your figures were saved and we will come back with the read.",
+        error: engineUnavailableMessage(persisted, Boolean(input.email)),
+        saved: persisted,
         reason: outcome.reason,
       },
       { status }

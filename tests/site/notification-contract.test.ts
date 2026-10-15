@@ -3,6 +3,7 @@
  * stale-message cancellation, reconciliation of pre-outbox purchases, and the Intelligence welcome.
  * FAKE-BACKED store; email is intercepted (Resend is never contacted).
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import Stripe from "stripe";
@@ -318,7 +319,7 @@ describe("the Intelligence welcome", () => {
 });
 
 describe("reconciling paid records that predate the outbox", () => {
-  const cookie = () => createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex");
+  const cookie = () => adminToken()!;
   const asAdmin = (yes: boolean) => { vi.doMock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => (yes && n === "gf_admin" ? { value: cookie() } : undefined) }) })); vi.resetModules(); };
   const req = (method: string, body?: unknown) => new Request(siteUrl("/api/admin/notifications/reconcile"), { method, body: body === undefined ? undefined : JSON.stringify(body) });
 

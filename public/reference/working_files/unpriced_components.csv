@@ -1,0 +1,23 @@
+scenario_id,where,missing,library_key,unit,scope,consequence
+hybrid_dlc,step 7: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+hybrid_dlc,step 7: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+hybrid_dlc,initial CDU kit (no CDU schedule was supplied),CDU hydraulic integration and controls,cdu.integration,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+hybrid_dlc,initial CDU kit (no CDU schedule was supplied),CDU commissioning and flushing,cdu.commissioning,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc,step 7: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc,step 7: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc,initial CDU kit (no CDU schedule was supplied),CDU hydraulic integration and controls,cdu.integration,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc,initial CDU kit (no CDU schedule was supplied),CDU commissioning and flushing,cdu.commissioning,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 7: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 7: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 11: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 11: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 16: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 16: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 19: Add CDU capacity (one further unit per bank),CDU hydraulic integration and controls,cdu.integration,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,step 19: Add CDU capacity (one further unit per bank),CDU commissioning and flushing,cdu.commissioning,EUR/unit,1 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,initial CDU kit (no CDU schedule was supplied),CDU hydraulic integration and controls,cdu.integration,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,initial CDU kit (no CDU schedule was supplied),CDU commissioning and flushing,cdu.commissioning,EUR/unit,3 CDU unit(s) added,no library price: the capex total excludes this component
+full_dlc_btm,behind-the-meter operating cost,BESS-2MW-8MWh: annual_run_hours not declared,,,,not applied: the energy cost prices all energy at the grid tariff
+full_dlc_btm,behind-the-meter operating cost,"BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency)",,,,not applied: the energy cost prices all energy at the grid tariff
+full_dlc_btm,behind-the-meter operating cost,BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it),,,,not applied: the energy cost prices all energy at the grid tariff
+full_dlc_btm,behind-the-meter operating cost,BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere),,,,not applied: the energy cost prices all energy at the grid tariff

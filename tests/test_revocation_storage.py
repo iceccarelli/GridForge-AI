@@ -19,6 +19,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setenv("GRIDFORGE_REVOKED_FILE", str(path))
     monkeypatch.delenv("FLY_MACHINE_ID", raising=False)
     keys._revoked_cache = (-1.0, frozenset())
+    monkeypatch.setattr(keys, "_store_seen", False)
     return path
 
 
@@ -80,3 +81,40 @@ def test_a_revocation_that_cannot_be_persisted_is_a_503_never_a_claimed_success(
     with pytest.raises(ApiError) as e:
         handle_revoke({"key_id": "abc12345"}, Tier.INTERNAL)
     assert e.value.status == 503
+
+
+# --- fails closed: a store that cannot be trusted must not un-revoke anything ---------------------
+
+def _signed(monkeypatch, kid="kid00001"):
+    monkeypatch.setenv("GRIDFORGE_KEY_SECRET", "x" * 32)
+    return keys.issue("acct", quota=10, key_id=kid)
+
+
+def test_a_vanished_store_stops_signed_keys_rather_than_reviving_revoked_ones(store, monkeypatch):
+    tok = _signed(monkeypatch)
+    keys.verify(tok)                                   # fresh deployment, nothing revoked: fine
+    assert keys.revoke("otherkey")
+    keys.verify(tok)                                   # store now seen
+    store.unlink()                                     # volume unmounted / replaced
+    keys._revoked_cache = (-1.0, frozenset())
+    with pytest.raises(keys.KeyError_, match="cannot be verified right now"):
+        keys.verify(tok)
+
+
+def test_a_corrupt_store_stops_signed_keys(store, monkeypatch):
+    tok = _signed(monkeypatch)
+    assert keys.revoke("kid00001")
+    store.write_text('{"revoked":["kid00001"')          # truncated write
+    keys._revoked_cache = (-1.0, frozenset())           # as after a restart
+    with pytest.raises(keys.KeyError_, match="cannot be verified right now"):
+        keys.verify(tok)
+    store.write_text(json.dumps({"revoked": ["kid00001"]}))
+    with pytest.raises(keys.KeyError_, match="revoked"):
+        keys.verify(tok)
+
+
+def test_a_non_ascii_signature_is_a_clean_rejection_not_a_crash(monkeypatch):
+    tok = _signed(monkeypatch)
+    head, _ = tok.rsplit(".", 1)
+    with pytest.raises(keys.KeyError_):
+        keys.verify(head + ".sigé")
