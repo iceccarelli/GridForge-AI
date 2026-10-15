@@ -62,7 +62,9 @@ class QuoteLine:
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def to_dict(self) -> dict:
-        return {"key": self.key, "unit": self.unit, "value": self.value, "submitted_value": self.submitted_value,
+        def num(x):          # JSON has no NaN/inf: an unreadable amount is null, never a number that is not one
+            return x if isinstance(x, (int, float)) and math.isfinite(x) else None
+        return {"key": self.key, "unit": self.unit, "value": num(self.value) or None, "submitted_value": num(self.submitted_value),
                 "currency": self.currency, "supplier": self.supplier, "received_on": self.received_on,
                 "valid_until": self.valid_until, "reference": self.reference, "scope": self.scope,
                 "quoted_quantity": self.quoted_quantity, "quoted_quantity_unit": self.quoted_quantity_unit,

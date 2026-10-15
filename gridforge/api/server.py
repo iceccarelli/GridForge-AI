@@ -614,6 +614,15 @@ def handle_bids(body: dict, tier: Tier) -> dict:
     try:
         pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
         responses = [SupplierResponse.from_dict(d) for d in raw]
+        if body.get("evidence_only"):
+            # Structured, validated quote lines for the site to persist for human review. Nothing is
+            # ranked and nothing is accepted here: a line is evidence only after a person accepts it.
+            from ..procurement.evidence import quote_lines
+            return {
+                "relief": pkg.relief_title, "constraint_id": pkg.constraint_id,
+                "scope_quantity": pkg.scope_quantity, "scope_quantity_unit": pkg.scope_quantity_unit,
+                "lines": [q.to_dict() for q in quote_lines(pkg, responses)],
+            }
         ranked = rank_bids(pkg, responses)
     except ProcurementError as exc:
         raise ApiError(422, str(exc))

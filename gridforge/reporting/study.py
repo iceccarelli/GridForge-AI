@@ -393,11 +393,13 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                 "quotation. Nothing in this run may be quoted as supplier-backed."))
         if used:
             s.blocks.append(Table(
-                ["Cost line", "Supplier", "Quoted", "Valid until", "Covers", "Value", "Comparability", "Accepted by"],
+                ["Cost line", "Supplier", "Quoted", "Valid until", "Covers", "Value", "Comparability", "Accepted by",
+                 "Evidence record"],
                 [[Lit(u["key"]), Lit(u["supplier"] or "—"), Lit(u["quoted_on"] or "—"), Lit(u["valid_until"] or "—"),
                   Lit((f"{u['quoted_quantity']:g} {u['quoted_quantity_unit']}" if u.get("quoted_quantity") else "no quantity stated")),
                   Lit(f"{u['value']:,.0f} {u['currency']} ({u['unit']})"),
-                  Lit(u["comparability"]), Lit(f"{u['reviewer']} on {u['reviewed_on']}")] for u in used],
+                  Lit(u["comparability"]), Lit(f"{u['reviewer']} on {u['reviewed_on']}"),
+                  Lit(f"{u['evidence_id']}" + (f" (project {u['project']})" if u.get("project") else ""))] for u in used],
                 caption="Accepted supplier evidence used in this run. Each line was reviewed by a named person before it "
                         "could affect a number; a received or unreviewed quotation is never used."))
         for ig in ev.get("ignored") or []:

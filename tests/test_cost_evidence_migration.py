@@ -177,6 +177,15 @@ def test_a_malformed_line_is_refused_by_the_schema_itself(db, bad):
     assert r.returncode != 0, bad
 
 
+def test_an_invalid_line_may_lack_what_made_it_invalid_but_cannot_become_evidence(db):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d, value=None, submitted_value=None, currency="USD", received_on=None,
+               validation_status="invalid", problems=["currency USD", "no price"])
+    assert state(db, e["id"]) == "invalid"
+    refused(db, f"select public.gf_review_cost_evidence({sql_json({'evidence_id': e['id'], 'decision': 'accepted', 'reviewer': 'R', 'basis': 'firm_quote', 'comparability': 'exact'})}, {EVENT('cost_evidence_reviewed')})",
+            "only a validated")
+
+
 def test_an_accepted_review_must_state_what_kind_of_quotation_it_is(db):
     d, _ = new_deliverable(db)
     e = submit(db, deliverable_id=d)

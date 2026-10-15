@@ -36,11 +36,11 @@ create table if not exists public.cost_evidence (
   line_digest text not null check (line_digest ~ '^[0-9a-f]{64}$'),
   cost_key text not null check (cost_key ~ '^[A-Za-z0-9_]+\.[A-Za-z0-9_.]+$'),
   unit text not null,
-  value numeric not null check (value > 0),
+  value numeric,
   submitted_value numeric,
-  currency text not null check (currency = 'EUR'),
+  currency text not null default '',
   supplier text not null check (length(btrim(supplier)) > 0),
-  received_on date not null,
+  received_on date,
   valid_until date,
   reference text,
   scope text not null check (length(btrim(scope)) > 0),
@@ -59,7 +59,10 @@ create table if not exists public.cost_evidence (
   submitted_at timestamptz not null default now(),
   unique (deliverable_id, line_digest),
   check ((quoted_quantity is null) = (quoted_quantity_unit is null)),
-  check (validation_status = 'invalid' or jsonb_array_length(problems) = 0)
+  check (validation_status = 'invalid' or jsonb_array_length(problems) = 0),
+  -- An invalid line is kept so the reviewer sees what was wrong with it, and may be missing the very thing that made it
+  -- invalid (no price, another currency, an unreadable date). A validated line may be missing none of them.
+  check (validation_status = 'invalid' or (value is not null and value > 0 and currency = 'EUR' and received_on is not null))
 );
 
 create index if not exists cost_evidence_deliverable_idx on public.cost_evidence (deliverable_id, cost_key);
@@ -152,8 +155,8 @@ begin
   insert into public.cost_evidence (deliverable_id, project_id, line_digest, cost_key, unit, value, submitted_value,
         currency, supplier, received_on, valid_until, reference, scope, quoted_quantity, quoted_quantity_unit,
         specification, response_digest, validation_status, problems, limitations, comparability, synthetic)
-  values ((p->>'deliverable_id')::uuid, proj, p->>'line_digest', p->>'cost_key', p->>'unit', (p->>'value')::numeric,
-          nullif(p->>'submitted_value', '')::numeric, p->>'currency', p->>'supplier', (p->>'received_on')::date,
+  values ((p->>'deliverable_id')::uuid, proj, p->>'line_digest', p->>'cost_key', p->>'unit', nullif(p->>'value', '')::numeric,
+          nullif(p->>'submitted_value', '')::numeric, coalesce(p->>'currency', ''), p->>'supplier', nullif(p->>'received_on', '')::date,
           nullif(p->>'valid_until', '')::date, p->>'reference', p->>'scope',
           nullif(p->>'quoted_quantity', '')::numeric, nullif(p->>'quoted_quantity_unit', ''),
           coalesce(p->'specification', '{}'::jsonb), p->>'response_digest', p->>'validation_status',

@@ -483,3 +483,17 @@ def test_synthetic_evidence_is_labelled_everywhere_and_is_never_decision_grade(w
     out = call_study({"intake": doc(), "cost_evidence": [e.__dict__ | {"includes_keys": []}], "format": "md"})
     md = out["document"] if "document" in out else json.dumps(out)
     assert "SYNTHETIC COST EVIDENCE" in md
+
+
+def test_the_bids_endpoint_in_evidence_mode_returns_json_safe_lines_and_ranks_nothing(world):
+    from gridforge.api.server import handle_bids
+    pkg = pkg_for(world)
+    good = response(pkg).__dict__ | {}
+    bad = dict(good, supplier="SYNTHETIC-SUPPLIER-B", currency="USD", values={"capex_eur": None})
+    out = handle_bids({"intake": doc(), "constraint": "transformer_capacity", "evidence_only": True,
+                       "responses": [good, bad]}, Tier.PUBLIC)
+    assert "ranked" not in out and out["scope_quantity_unit"]
+    by = {l["supplier"]: l for l in out["lines"]}
+    assert by["SYNTHETIC-SUPPLIER-A"]["status"] == "validated" and by["SYNTHETIC-SUPPLIER-B"]["status"] == "invalid"
+    json.dumps(out, allow_nan=False)            # an unreadable amount is null, never NaN
+    assert by["SYNTHETIC-SUPPLIER-B"]["value"] is None and by["SYNTHETIC-SUPPLIER-B"]["submitted_value"] is None

@@ -331,6 +331,11 @@
             "default": false,
             "description": "also return the cost-library lines the winning response implies"
           },
+          "evidence_only": {
+            "type": "boolean",
+            "default": false,
+            "description": "return the validated or invalid quote lines instead of a ranking; nothing is accepted until a person reviews it"
+          },
           "basis": {
             "type": "string",
             "enum": [
@@ -1040,6 +1045,11 @@
               "type": "boolean",
               "default": false,
               "description": "also return the cost-library lines the winning response implies"
+            },
+            "evidence_only": {
+              "type": "boolean",
+              "default": false,
+              "description": "return the validated or invalid quote lines instead of a ranking; nothing is accepted until a person reviews it"
             },
             "basis": {
               "type": "string",
@@ -1755,6 +1765,11 @@
               "type": "boolean",
               "default": false,
               "description": "also return the cost-library lines the winning response implies"
+            },
+            "evidence_only": {
+              "type": "boolean",
+              "default": false,
+              "description": "return the validated or invalid quote lines instead of a ranking; nothing is accepted until a person reviews it"
             },
             "basis": {
               "type": "string",
