@@ -72,6 +72,7 @@ from ..scenario import run_all
 from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
+from ..provenance import provenance
 from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier, redact
@@ -719,6 +720,7 @@ def _invoke(endpoint: str, handler, body, tier):
         out = handler(clean, tier)
     if isinstance(out, dict):
         out["cost_evidence"] = {**report.to_dict(), "effect": effect}
+        out["provenance"] = provenance(VERSION)      # what produced this answer, so a caller can record it
     return out
 
 
@@ -954,6 +956,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 **extra,
                 "version": VERSION,
+                "provenance": provenance(VERSION),
                 "auth_configured": _auth_configured(),
                 "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,

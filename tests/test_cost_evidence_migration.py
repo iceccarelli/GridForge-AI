@@ -46,7 +46,7 @@ def db():
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql", "0016_project_purchases.sql",
               "0017_project_observations.sql", "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
-              "0020_function_privileges.sql", "0022_cost_evidence.sql"):
+              "0020_function_privileges.sql", "0022_cost_evidence.sql", "0023_cost_evidence_artifacts.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -75,6 +75,26 @@ def line(deliverable, **over):
 
 def sql_json(obj):
     return "'" + json.dumps(obj).replace("'", "''") + "'::jsonb"
+
+
+def run_payload(deliverable, accepted, **over):
+    """A complete 0023 run record. SYNTHETIC digests; the fingerprint is the identity the database enforces."""
+    fp = over.pop("run_fingerprint", uuid.uuid4().hex + uuid.uuid4().hex)
+    art = over.pop("artifact_sha256", uuid.uuid4().hex + uuid.uuid4().hex)
+    p = {"deliverable_id": deliverable, "identity_version": "gridforge/cost-evidence-run/1", "run_fingerprint": fp,
+         "intake_digest": D64("1"), "intake_snapshot": {"hall": {"id": "DUB-01"}}, "accepted_snapshot": [{"evidence_id": i} for i in accepted],
+         "accepted_snapshot_digest": D64("4"), "accepted_evidence_ids": accepted, "evidence_digest": D64("2"),
+         "evidence_ids": accepted, "effect": {"capex_delta_eur": -1}, "ignored": [],
+         "engine_provenance": {"digest": D64("5")}, "engine_fingerprint": D64("5"), "request_options": {"endpoint": "/v1/study"},
+         "report_date": "2026-10-13", "document_sha256": art,
+         "artifact_storage_ref": f"cost-evidence-artifacts/{deliverable}/{fp}/{art}.html", "artifact_sha256": art,
+         "artifact_bytes": 1234, "artifact_media_type": "text/html; charset=utf-8"}
+    p.update(over)
+    return p
+
+
+def record(db, p):
+    return json.loads(psql(db, f"select public.gf_record_cost_evidence_run({sql_json(p)}, {EVENT('cost_evidence_run')})").stdout)
 
 
 EVENT = lambda t: sql_json({"event_type": t, "actor": "test", "payload": {}})
@@ -162,7 +182,7 @@ def test_the_evidence_record_is_append_only_even_for_the_service_role(db, table,
     review(db, e["id"])
     review2 = submit(db, deliverable_id=d)
     review(db, review2["id"])                    # retires the first: every table has a row to attack
-    psql(db, f"select public.gf_record_cost_evidence_run({sql_json({'deliverable_id': d, 'intake_digest': D64('1'), 'evidence_digest': D64('2'), 'evidence_ids': [e['id']], 'effect': {}, 'document_sha256': D64('3')})}, {EVENT('cost_evidence_run')})")
+    record(db, run_payload(d, [e["id"]]))
     refused(db, sql, "append-only")
 
 
@@ -282,18 +302,175 @@ def test_events_reach_the_project_only_when_the_engagement_belongs_to_one(db):
     assert psql(db, f"select project_id is null from cost_evidence where id = '{e2['id']}'").stdout.strip() == "t"
 
 
-def test_an_evidence_run_is_recorded_once_per_engagement_intake_and_evidence_set(db):
+def test_an_evidence_run_is_recorded_once_per_run_fingerprint(db):
     d, _ = new_deliverable(db)
     e = submit(db, deliverable_id=d)
-    p = {"deliverable_id": d, "intake_digest": D64("1"), "evidence_digest": D64("2"), "evidence_ids": [e["id"]],
-         "effect": {"capex_delta_eur": -1}, "ignored": [], "document_sha256": D64("3")}
-    q = lambda: json.loads(psql(db, f"select public.gf_record_cost_evidence_run({sql_json(p)}, {EVENT('cost_evidence_run')})").stdout)
-    a, b = q(), q()
+    p = run_payload(d, [e["id"]])
+    a, b = record(db, p), record(db, p)
     assert a["created"] is True and b["created"] is False and a["run"]["id"] == b["run"]["id"]
-    p2 = dict(p, evidence_digest=D64("9"))
-    assert json.loads(psql(db, f"select public.gf_record_cost_evidence_run({sql_json(p2)}, {EVENT('cost_evidence_run')})").stdout)["created"] is True
+    # Same intake digest AND same USED-evidence digest, different engine: 0022 would have collided; now it is a new run.
+    p2 = run_payload(d, [e["id"]], engine_fingerprint=D64("6"), engine_provenance={"digest": D64("6")})
+    c = record(db, p2)
+    assert c["created"] is True and c["run"]["id"] != a["run"]["id"]
+    assert c["run"]["intake_digest"] == a["run"]["intake_digest"] and c["run"]["evidence_digest"] == a["run"]["evidence_digest"]
+
+
+def test_an_existing_identity_returns_the_existing_record_and_never_a_second_event_or_artifact(db):
+    d, proj = new_deliverable(db, project=True)
+    e = submit(db, deliverable_id=d)
+    first = record(db, run_payload(d, [e["id"]], run_fingerprint=D64("a"), artifact_sha256=D64("b")))
+    replay = record(db, run_payload(d, [e["id"]], run_fingerprint=D64("a"), artifact_sha256=D64("c")))   # a different candidate
+    assert first["created"] is True and replay["created"] is False
+    assert replay["run"]["artifact_sha256"] == D64("b") == first["run"]["artifact_sha256"]
+    assert replay["run"]["artifact_storage_ref"] == first["run"]["artifact_storage_ref"]
+    assert psql(db, f"select count(*) from cost_evidence_runs where deliverable_id = '{d}'").stdout.strip() == "1"
+    assert psql(db, f"select count(*) from project_events where project_id = '{proj}' and event_type = 'cost_evidence_run'").stdout.strip() == "1"
+
+
+def test_concurrent_recordings_of_one_identity_leave_one_row_and_one_event(db):
+    d, proj = new_deliverable(db, project=True)
+    e = submit(db, deliverable_id=d)
+    out = []
+    def go(art):
+        out.append(record(db, run_payload(d, [e["id"]], run_fingerprint=D64("d"), artifact_sha256=art)))
+    ts = [threading.Thread(target=go, args=(D64(c),)) for c in "1234567"]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert sorted(o["created"] for o in out).count(True) == 1
+    winner = [o for o in out if o["created"]][0]["run"]
+    assert {o["run"]["id"] for o in out} == {winner["id"]}
+    assert {o["run"]["artifact_sha256"] for o in out} == {winner["artifact_sha256"]}
+    assert psql(db, f"select count(*) from cost_evidence_runs where deliverable_id = '{d}'").stdout.strip() == "1"
+    assert psql(db, f"select count(*) from project_events where project_id = '{proj}' and event_type = 'cost_evidence_run'").stdout.strip() == "1"
+
+
+@pytest.mark.parametrize("field", ["identity_version", "intake_snapshot", "accepted_snapshot", "accepted_snapshot_digest",
+                                   "accepted_evidence_ids", "engine_provenance", "engine_fingerprint", "request_options",
+                                   "report_date", "artifact_storage_ref", "artifact_sha256", "artifact_bytes",
+                                   "artifact_media_type", "document_sha256"])
+def test_a_versioned_run_without_complete_metadata_is_refused_by_the_database(db, field):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    bad = run_payload(d, [e["id"]])
+    bad[field] = None
+    r = psql(db, f"select public.gf_record_cost_evidence_run({sql_json(bad)}, {EVENT('cost_evidence_run')})", check=False)
+    assert r.returncode != 0, f"{field} may not be missing from a versioned run"
+    assert psql(db, f"select count(*) from cost_evidence_runs where deliverable_id = '{d}'").stdout.strip() == "0"
+
+
+@pytest.mark.parametrize("over", [{"artifact_bytes": 0}, {"artifact_sha256": "nothex"}, {"engine_fingerprint": "short"},
+                                  {"artifact_storage_ref": ""}, {"accepted_evidence_ids": []},
+                                  {"document_sha256": D64("9"), "artifact_sha256": D64("8")}])
+def test_a_versioned_run_with_malformed_metadata_is_refused(db, over):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    r = psql(db, f"select public.gf_record_cost_evidence_run({sql_json(run_payload(d, [e['id']], **over))}, {EVENT('cost_evidence_run')})", check=False)
+    assert r.returncode != 0
+
+
+def test_used_evidence_must_be_part_of_the_accepted_snapshot(db):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    other = submit(db, deliverable_id=d)
+    r = psql(db, f"select public.gf_record_cost_evidence_run({sql_json(run_payload(d, [e['id']], evidence_ids=[other['id']]))}, {EVENT('cost_evidence_run')})", check=False)
+    assert r.returncode != 0
+    ok = record(db, run_payload(d, [e["id"], other["id"]], evidence_ids=[e["id"]]))      # offered two, used one: allowed
+    assert ok["created"] is True
+
+
+def test_a_run_without_a_fingerprint_can_no_longer_be_recorded(db):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    legacy = {"deliverable_id": d, "intake_digest": D64("1"), "evidence_digest": D64("2"), "evidence_ids": [e["id"]], "effect": {}, "document_sha256": D64("3")}
+    assert psql(db, f"select public.gf_record_cost_evidence_run({sql_json(legacy)}, {EVENT('cost_evidence_run')})", check=False).returncode != 0
+
+
+def test_run_rows_stay_append_only_including_the_new_columns(db):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    record(db, run_payload(d, [e["id"]]))
+    refused(db, f"update cost_evidence_runs set artifact_sha256 = '{D64('f')}', document_sha256 = '{D64('f')}' where deliverable_id = '{d}'", "append-only")
+    refused(db, f"delete from cost_evidence_runs where deliverable_id = '{d}'", "append-only")
+
+
+def test_the_state_view_exposes_retirement_reason_and_person(db):
+    d, _ = new_deliverable(db)
+    e = submit(db, deliverable_id=d)
+    review(db, e["id"])
+    psql(db, f"select public.gf_retire_cost_evidence({sql_json({'evidence_id': e['id'], 'retired_by': 'Test Person', 'reason': 'retracted'})}, {EVENT('cost_evidence_retired')})")
+    row = psql(db, f"select state, retired_by, retirement_reason from cost_evidence_state where id = '{e['id']}'").stdout.strip()
+    assert row == "withdrawn|Test Person|retracted"
 
 
 def test_rls_is_enabled_and_grants_nothing_to_anyone_but_the_service_role(db):
     assert psql(db, "select bool_and(relrowsecurity) from pg_class where relname in ('cost_evidence','cost_evidence_reviews','cost_evidence_retirements','cost_evidence_runs')").stdout.strip() == "t"
     assert psql(db, "select count(*) from pg_policies where tablename like 'cost_evidence%'").stdout.strip() == "0"
+
+
+# ----------------------------------------------------------------------------------------------- upgrading a database
+# that already holds 0022 runs. This is the case production is in: runs recorded without a document.
+
+CHAIN_TO_0022 = ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql", "0016_project_purchases.sql",
+                 "0017_project_observations.sql", "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
+                 "0020_function_privileges.sql", "0022_cost_evidence.sql")
+
+
+@pytest.fixture(scope="module")
+def upgraded():
+    name = f"gf_{uuid.uuid4().hex[:10]}"
+    psql("postgres", f"create database {name}")
+    psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
+    for f in CHAIN_TO_0022:
+        psql(name, file=MIGRATIONS / f)
+    d, proj = new_deliverable(name, project=True)
+    e = submit(name, deliverable_id=d)
+    review(name, e["id"])
+    old_run = {"deliverable_id": d, "intake_digest": D64("1"), "evidence_digest": D64("2"), "evidence_ids": [e["id"]],
+               "effect": {"capex_delta_eur": -5}, "ignored": [{"key": "x", "reason": "expired"}], "document_sha256": D64("3")}
+    made = json.loads(psql(name, f"select public.gf_record_cost_evidence_run({sql_json(old_run)}, {EVENT('cost_evidence_run')})").stdout)
+    before = json.loads(psql(name, f"select to_jsonb(r) from cost_evidence_runs r where id = '{made['run']['id']}'").stdout)
+    evidence_before = psql(name, "select md5(string_agg(to_jsonb(e)::text, '' order by id)) from cost_evidence e").stdout.strip()
+    events_before = psql(name, "select count(*) from project_events").stdout.strip()
+    psql(name, file=MIGRATIONS / "0023_cost_evidence_artifacts.sql")
+    yield {"db": name, "d": d, "proj": proj, "e": e, "before": before, "evidence_before": evidence_before, "events_before": events_before}
+    psql("postgres", f"drop database {name}")
+
+
+def test_upgrade_keeps_every_historical_run_exactly_and_marks_it_legacy_without_an_artifact(upgraded):
+    db, before = upgraded["db"], upgraded["before"]
+    after = json.loads(psql(db, f"select to_jsonb(r) from cost_evidence_runs r where id = '{before['id']}'").stdout)
+    for k, v in before.items():
+        assert after[k] == v, f"historical column {k} changed"
+    for k in ("run_fingerprint", "identity_version", "accepted_snapshot", "accepted_snapshot_digest", "accepted_evidence_ids",
+              "engine_provenance", "engine_fingerprint", "request_options", "report_date", "intake_snapshot",
+              "artifact_storage_ref", "artifact_sha256", "artifact_bytes", "artifact_media_type"):
+        assert after[k] is None, f"{k} was fabricated for a legacy run"
+    assert psql(db, "select md5(string_agg(to_jsonb(e)::text, '' order by id)) from cost_evidence e").stdout.strip() == upgraded["evidence_before"]
+    assert psql(db, "select count(*) from project_events").stdout.strip() == upgraded["events_before"]
+
+
+def test_after_upgrade_history_is_still_protected_and_legacy_rows_cannot_gain_an_artifact(upgraded):
+    db, rid = upgraded["db"], upgraded["before"]["id"]
+    refused(db, f"update cost_evidence_runs set artifact_storage_ref = 'cost-evidence-artifacts/x' where id = '{rid}'", "append-only")
+    refused(db, f"delete from cost_evidence_runs where id = '{rid}'", "append-only")
+    # A legacy-shaped row cannot claim an artifact, and a second identical legacy row is still refused.
+    r = psql(db, f"insert into cost_evidence_runs (deliverable_id, intake_digest, evidence_digest, evidence_ids, effect, document_sha256, artifact_storage_ref) "
+                 f"values ('{upgraded['d']}', '{D64('7')}', '{D64('8')}', '{{}}', '{{}}', '{D64('9')}', 'cost-evidence-artifacts/x')", check=False)
+    assert r.returncode != 0
+    r = psql(db, f"insert into cost_evidence_runs (deliverable_id, intake_digest, evidence_digest, evidence_ids, effect, document_sha256) "
+                 f"values ('{upgraded['d']}', '{D64('1')}', '{D64('2')}', '{{}}', '{{}}', '{D64('9')}')", check=False)
+    assert r.returncode != 0
+
+
+def test_after_upgrade_a_new_run_with_the_old_intake_and_used_evidence_is_a_distinct_versioned_run(upgraded):
+    db, d, e = upgraded["db"], upgraded["d"], upgraded["e"]
+    new = record(db, run_payload(d, [e["id"]]))          # the SAME intake_digest and evidence_digest as the legacy run
+    assert new["created"] is True and new["run"]["id"] != upgraded["before"]["id"]
+    assert psql(db, f"select count(*) filter (where run_fingerprint is null), count(*) filter (where run_fingerprint is not null) from cost_evidence_runs where deliverable_id = '{d}'").stdout.strip() == "1|1"
+    assert psql(db, f"select count(*) from project_events where project_id = '{upgraded['proj']}' and event_type = 'cost_evidence_run'").stdout.strip() == "2"
+
+
+def test_after_upgrade_the_old_unfingerprinted_call_is_refused_and_the_view_still_works(upgraded):
+    db, d, e = upgraded["db"], upgraded["d"], upgraded["e"]
+    old = {"deliverable_id": d, "intake_digest": D64("e"), "evidence_digest": D64("f"), "evidence_ids": [e["id"]], "effect": {}, "document_sha256": D64("3")}
+    assert psql(db, f"select public.gf_record_cost_evidence_run({sql_json(old)}, {EVENT('cost_evidence_run')})", check=False).returncode != 0
+    assert psql(db, f"select state from cost_evidence_state where id = '{e['id']}'").stdout.strip() == "accepted"

@@ -56,6 +56,9 @@ done
 "${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_attach_purchase','gf_submit_observation','gf_submit_supplier_actual','gf_deposit_guard','gf_review_cost_evidence')" \
   | grep -qx 5 || { echo "[realdb] FAILED: expected migration objects are missing"; exit 1; }
 
+"${DBQ[@]}" -At -c "select count(*) from information_schema.columns where table_name = 'cost_evidence_runs' and column_name in ('run_fingerprint','artifact_storage_ref','artifact_sha256')" \
+  | grep -qx 3 || { echo "[realdb] FAILED: migration 0023 (cost-evidence artifacts) is missing"; exit 1; }
+
 "${DBQ[@]}" -c "grant usage on schema public to anon, service_role" \
             -c "grant all on all tables in schema public to service_role" \
             -c "alter default privileges in schema public grant all on tables to service_role"

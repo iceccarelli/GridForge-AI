@@ -598,6 +598,10 @@ jobs:
         run: python -m pytest tests/test_projects_migration.py -q
       - name: Real engine + real PostgREST + real PostgreSQL acceptance (fails, never skips)
         run: npx vitest run tests/site/verified-power-record.realdb.test.ts
+      - name: Cost-evidence migrations (fresh database and upgrade of legacy runs) against real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_cost_evidence_migration.py -q
+      - name: Durable, versioned cost-evidence runs - real engines + real PostgREST + real PostgreSQL, stubbed Storage (fails, never skips)
+        run: npx vitest run tests/site/cost-evidence.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true
