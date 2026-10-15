@@ -263,7 +263,10 @@ def test_a_lump_sum_bid_converts_onto_the_librarys_own_basis(solved):
     price = 620_000.0
     cases = {
         "rack_feed_tapoff": "EUR/rack",
-        "ups_capacity": "EUR/kW",
+        # The engine prices UPS per nameplate kW ADDED, which a supplier's package does not state, so the quotation is
+        # recorded as a lump with the quantity it covers. (It was once divided by the hall's IT kW and then
+        # multiplied by UPS kW: two different kilowatts.)
+        "ups_capacity": "EUR",
         "busway_ampacity": "EUR",
         "cdu_capacity": "EUR",
     }
@@ -276,6 +279,10 @@ def test_a_lump_sum_bid_converts_onto_the_librarys_own_basis(solved):
             assert entry["value"] == pytest.approx(price / pkg.sized_for_racks, rel=1e-3)
         elif expected_unit == "EUR/kW":
             assert entry["value"] == pytest.approx(price / pkg.sized_for_kW, rel=1e-3)
+        elif cid in ("ups_capacity", "busway_ampacity", "cdu_capacity"):
+            assert entry["value"] == pytest.approx(price)
+            assert entry["quoted_quantity"] == pytest.approx(pkg.scope_quantity) and entry["quoted_quantity"] > 0
+            assert entry["quoted_quantity_unit"] == pkg.scope_quantity_unit
         else:
             assert entry["value"] == pytest.approx(price)
 

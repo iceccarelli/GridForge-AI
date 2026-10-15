@@ -65,6 +65,8 @@ class EconomicsResult:
     unpriced: list = field(default_factory=list)
     capex_cdu_kit_eur: Quantity | None = None
     cdu_kit_scope: str = ""
+    #: Priced lines resting on a quotation of limited comparability: [{where, note}].
+    limited: list = field(default_factory=list)
     tariff_eur_per_MWh: Quantity | None = None
     tariff_declared: bool = False
     annual_grid_energy_cost_eur: Quantity | None = None
@@ -105,6 +107,9 @@ class EconomicsResult:
             items = [f"{g['component']} ({g['quantity']:g} x {g['unit'].split('/')[-1]}, needed in "
                      f"{len(g['where'])} place{'s' if len(g['where']) != 1 else ''})" for g in self.unpriced_summary()]
             out.append("the capex total is a LOWER BOUND: no price exists for " + "; ".join(items))
+        if self.limited:
+            out.append(f"{len(self.limited)} priced line(s) rest on a supplier quotation of limited comparability "
+                       f"(scaled to a quantity the supplier did not quote, or with no stated scope)")
         n = self.rests_on_placeholders
         if n:
             total = sum((self.cost_basis_mix or {}).values())
@@ -194,6 +199,10 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     conv = (racks * conversion_capex_per_rack()).relabel(
         "in-hall conversion capex", "economics.conversion_capex", step_evidence=MODELLED)
     unpriced = _unpriced_rows(lad)
+    # Lines whose price rests on a quotation of limited comparability: scaled to a quantity the supplier did not quote,
+    # or quoted with no stated scope. They stay in the total, visibly limited, never treated as a clean benchmark.
+    limited_rows = [{"where": f"step {st.step}: {st.relief_description}", "note": st.basis_note or "limited comparability"}
+                    for st in lad.taken_steps if st.limited]
     # The relief cost is the sum of the priced rungs, each carrying the band and evidence class of the library
     # line it came from -- a firm quotation narrows it, a placeholder widens it.
     priced = [st.capex_eur for st in lad.taken_steps if st.capex_eur is not None]
@@ -220,7 +229,10 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     kit, kit_scope = None, ""
     assumed_units = sum(c.units for c in (ctx_i.thermal.cdus if ctx_i is not None else []) if not c.installed)
     if res.max_racks > 0 and assumed_units > 0:
-        kit, _kind, kit_scope, kit_unpriced, kit_extra = cdu_cost(assumed_units, "initial CDU kit (assumed, not installed)")
+        kit, _kind, kit_scope, kit_unpriced, kit_extra, kit_limited, kit_note = cdu_cost(
+            assumed_units, "initial CDU kit (assumed, not installed)")
+        if kit_limited:
+            limited_rows.append({"where": "initial CDU kit", "note": kit_note or "limited comparability"})
         keys = sorted(set(keys) | {"cdu.addition"} | set(kit_extra))
         aace = library().aace_class(keys)
         for key, what, unit, qty in kit_unpriced:
@@ -274,6 +286,6 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     return EconomicsResult(
         conv, relief, total, per_kW, energy, cost_, per_gpu_h, lad.critical_path_weeks, aace,
         library().basis_mix(keys), capex_complete, unpriced=unpriced, capex_cdu_kit_eur=kit,
-        cdu_kit_scope=kit_scope, tariff_eur_per_MWh=tariff, tariff_declared=declared,
+        cdu_kit_scope=kit_scope, limited=limited_rows, tariff_eur_per_MWh=tariff, tariff_declared=declared,
         annual_grid_energy_cost_eur=grid_cost, btm=btm, opex_complete=opex_complete,
         lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis)

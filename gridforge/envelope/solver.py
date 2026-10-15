@@ -97,6 +97,9 @@ class LadderStep:
     #: is added by this relief or by anything after it").
     not_taken_reason: str = ""
     extra_cost_keys: tuple = ()
+    quantity: float | None = None
+    quantity_unit: str = ""
+    limited: bool = False
 
     @property
     def racks_unlocked(self) -> int:
@@ -171,7 +174,8 @@ def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *,
         cost_kind="per_rack" if rl.per_rack else rl.cost_kind, scope=rl.scope,
         cost_basis=basis_of(key) if key else "library_default",
         unpriced=tuple(rl.unpriced), basis_note=rl.basis_note,
-        extra_cost_keys=tuple(rl.extra_cost_keys))
+        extra_cost_keys=tuple(rl.extra_cost_keys), quantity=rl.quantity, quantity_unit=rl.quantity_unit,
+        limited=rl.limited)
 
 
 def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:

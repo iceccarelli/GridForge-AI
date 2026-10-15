@@ -423,6 +423,20 @@ def _response_fields(step: LadderStep) -> list[ResponseField]:
     ]
 
 
+def _scope_quantity(result: ScenarioResult, step: LadderStep) -> float | None:
+    """What this constraint's package asks suppliers to price: the capacity the ladder adds at it, over EVERY taken
+    step for that constraint (you tender for the constraint once, for the end state, not once per rung)."""
+    qs = [s.quantity for s in result.ladder.taken_steps
+          if s.binding_id == step.binding_id and s.quantity is not None and s.quantity_unit == step.quantity_unit]
+    total = float(sum(qs)) if qs else None
+    if step.binding_id == "cdu_capacity" and result.unlocked_racks > 0 and result.ladder.initial_context is not None:
+        # The CDUs the model assumed (the hall has no CDU schedule on file) are bought too, and priced on the same line.
+        kit = sum(c.units for c in result.ladder.initial_context.thermal.cdus if not c.installed)
+        if kit:
+            total = (total or 0.0) + float(kit)
+    return total
+
+
 def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None,
                constraint_id: str = "") -> SpecPackage:
     """One specification, for one relief on one hall.
@@ -501,6 +515,8 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
         response_fields=_response_fields(step),
         lead_time_weeks=step.lead_time_weeks,
         budget_eur=step.capex_eur,
+        scope_quantity=_scope_quantity(result, step),
+        scope_quantity_unit=step.quantity_unit if step.quantity is not None else "",
         sized_for_racks=racks,
         sized_for_kW=ctx.cluster.platform.rack_kW.value * racks,
         notes=[

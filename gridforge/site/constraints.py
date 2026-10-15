@@ -46,6 +46,8 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Load spreading / remove raised floor and deploy on slab",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="floor.load_spreading",
             lead_time_weeks=V(18, "weeks", "structural works", ASSUMED, band=(10, 30)),
             apply=_apply,

@@ -189,15 +189,79 @@ def test_plant_and_floor_reliefs_scale_and_the_trim_chiller_is_a_declared_fixed_
     assert trim.capex_eur.value == pytest.approx(350_000)
 
 
-def test_a_supplier_quote_for_a_scaled_line_is_the_price_of_the_job_and_is_never_rescaled(private_library):
-    private_library([quote("transformer.replacement", "EUR", 2_000_000.0)])
+def test_a_lump_quote_with_a_stated_quantity_is_used_in_proportion_not_charged_again_per_step(private_library):
+    """Found by running it: a 2.0 MEUR lump for transformers was charged in full on a 9 MVA step AND on a 14.4 MVA step
+    (4.0 MEUR for one quote, and the larger step priced the same as the smaller)."""
+    private_library([quote("transformer.replacement", "EUR", 2_340_000.0, quoted_quantity=23.4, quoted_quantity_unit="MVA")])
+    _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
+    tr = [s for s in r.ladder.taken_steps if s.binding_id == "transformer_capacity"]
+    assert [round(s.quantity, 3) for s in tr] == [9.0, 14.4]
+    assert [round(s.capex_eur.value) for s in tr] == [round(2_340_000 * 9 / 23.4), round(2_340_000 * 14.4 / 23.4)]
+    assert sum(s.capex_eur.value for s in tr) == pytest.approx(2_340_000)        # the quote, once
+    assert all(s.cost_kind == "quoted_scaled" and s.limited for s in tr)       # neither step is the quoted size
+    assert declared_unit("transformer.replacement") == "EUR"
+
+
+def test_a_quote_for_exactly_the_quantity_a_step_needs_is_used_as_quoted_and_not_limited(private_library):
+    private_library([quote("transformer.replacement", "EUR", 1_800_000.0, quoted_quantity=9.0, quoted_quantity_unit="MVA")])
     small = transformer_capacity(_ctx(doc())).relief
+    assert small.capex_eur.value == pytest.approx(1_800_000) and small.cost_kind == "quoted_job_lump"
+    assert not small.limited
+    d = doc()
+    d["transformers"][0]["units"] = 6                                  # a step twice the size: scaled, and flagged
+    large = transformer_capacity(_ctx(d)).relief
+    assert large.capex_eur.value == pytest.approx(3_600_000) and large.cost_kind == "quoted_scaled" and large.limited
+    notes = " ".join(a for n in large.capex_eur.prov.walk() for a in n.assumptions)
+    assert "supplier did not quote this size" in notes
+
+
+def test_a_lump_quote_that_states_no_quantity_is_used_once_per_step_and_is_visibly_limited(private_library):
+    private_library([quote("transformer.replacement", "EUR", 2_000_000.0)])
+    _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
+    tr = [s for s in r.ladder.taken_steps if s.binding_id == "transformer_capacity"]
+    assert all(s.cost_kind == "quoted_lump_unstated_quantity" and s.limited for s in tr)
+    assert any("limited comparability" in x for x in r.economics.limitations)
+    assert not r.economics.decision_grade
+
+
+def test_a_quote_for_a_different_unit_of_scope_is_refused_not_misapplied(private_library):
+    private_library([quote("transformer.replacement", "EUR", 2_000_000.0, quoted_quantity=5.0, quoted_quantity_unit="kW")])
+    with pytest.raises(ValueError, match="Re-enter the quotation"):
+        transformer_capacity(_ctx(doc()))
+
+
+def test_a_scaled_quote_is_weaker_than_the_quote_it_came_from(private_library):
+    private_library([quote("transformer.replacement", "EUR", 1_800_000.0, quoted_quantity=9.0, quoted_quantity_unit="MVA")])
     d = doc()
     d["transformers"][0]["units"] = 6
-    large = transformer_capacity(_ctx(d)).relief
-    assert small.capex_eur.value == large.capex_eur.value == pytest.approx(2_000_000)
-    assert small.cost_kind == "quoted_job_lump"
-    assert declared_unit("transformer.replacement") == "EUR"          # a quotation is entered as a lump
+    scaled = transformer_capacity(_ctx(d)).relief.capex_eur
+    exact = transformer_capacity(_ctx(doc())).relief.capex_eur
+    assert exact.evidence == COST_EVIDENCE["firm_quote"] and scaled.evidence < exact.evidence
+
+
+def test_the_initial_cdu_kit_and_the_ladder_share_one_quotation_in_proportion(private_library):
+    """Found by running it: a 540 kEUR quote for 3 CDUs was applied unscaled to the 3-unit kit and to each of five
+    1-unit steps, pricing eight CDUs at six times the quoted lump."""
+    private_library([quote("cdu.addition", "EUR", 1_440_000.0, quoted_quantity=8.0, quoted_quantity_unit="unit")])
+    _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
+    steps = [s for s in r.ladder.taken_steps if s.binding_id == "cdu_capacity"]
+    assert len(steps) == 5 and r.economics.capex_cdu_kit_eur is not None
+    total = sum(s.capex_eur.value for s in steps) + r.economics.capex_cdu_kit_eur.value
+    # eight units at 1.44 MEUR / 8 = 180 kEUR each: exactly the quote, once (components still unpriced, so excluded)
+    assert total == pytest.approx(1_440_000)
+
+
+def test_a_cdu_quote_that_includes_commissioning_stops_it_being_reported_unpriced(private_library):
+    private_library([quote("cdu.addition", "EUR", 1_440_000.0, quoted_quantity=8.0, quoted_quantity_unit="unit",
+                           includes_keys=["cdu.commissioning"])])
+    _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
+    assert {g["key"] for g in r.economics.unpriced_summary()} == {"cdu.integration"}
+
+
+def test_a_lump_with_no_quantity_prices_a_cdu_per_step_and_says_so(private_library):
+    private_library([quote("cdu.addition", "EUR", 180_000.0)])
+    _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
+    assert r.economics.limited and any("CDU" in x["where"] or "kit" in x["where"] for x in r.economics.limited)
 
 
 def test_a_per_unit_library_line_is_multiplied_by_the_quantity_added(private_library):
@@ -226,7 +290,7 @@ def test_a_zero_quantity_prices_at_zero_because_nothing_is_bought():
 
 def test_capacity_scaled_keys_are_exactly_the_ones_priced_per_unit_added():
     assert CAPACITY_SCALED_KEYS == {"transformer.replacement", "plant.uprate", "pump.uprate", "busway.replacement",
-                                    "floor.load_spreading", "cdu.addition"}
+                                    "floor.load_spreading", "cdu.addition", "ups.per_kW"}
 
 
 def test_the_ladder_total_is_the_sum_of_its_taken_steps_and_never_double_counts():

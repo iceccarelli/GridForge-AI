@@ -92,7 +92,7 @@ def test_no_third_party_dependencies():
     lazily - inside a function body - so importing gridforge never pulls it in.
     """
     stdlib_ok = {"__future__", "argparse", "ast", "base64", "collections", "copy", "csv",
-                 "dataclasses", "datetime", "enum", "hashlib", "hmac", "html", "http", "io",
+                 "contextlib", "contextvars", "dataclasses", "datetime", "enum", "hashlib", "hmac", "html", "http", "io",
                  "json", "math", "os", "pathlib", "re", "secrets", "sys", "threading",
                  "time", "traceback", "typing", "urllib", "zipfile"}
     bad = []

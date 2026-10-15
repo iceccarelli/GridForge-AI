@@ -79,6 +79,11 @@ class ReliefOption:
     #: Further library lines this price includes (priced components), so the basis mix and the weakest-evidence
     #: class cover every line the total rests on, not only ``cost_key``.
     extra_cost_keys: tuple[str, ...] = ()
+    #: What this step adds, numerically, in the unit the line is priced in (the RFQ for the constraint is sized
+    #: from the sum of these) and whether the price rests on a quote of limited comparability.
+    quantity: float | None = None
+    quantity_unit: str = ""
+    limited: bool = False
 
 
 @dataclass

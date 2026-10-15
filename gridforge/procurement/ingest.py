@@ -73,6 +73,7 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
         if value is None:
             continue
         unit, converted = _to_library_basis(pkg, f.cost_unit or f.unit, value, f.cost_key)
+        lump_scaled = f.cost_key in CAPACITY_SCALED_KEYS
         out.append({
             "key": f.cost_key,
             "label": f"{pkg.relief_title} ({response.supplier})",
@@ -84,6 +85,12 @@ def cost_entries_from(pkg: SpecPackage, response: SupplierResponse, *,
             "valid_until": response.valid_until,
             "region": region,
             "project": project or pkg.project,
+            # A lump for a capacity-scaled line is recorded with the quantity it covers, so the engine uses it in
+            # proportion to what each step needs instead of charging it again on every step.
+            "quoted_quantity": pkg.scope_quantity if lump_scaled else None,
+            "quoted_quantity_unit": (pkg.scope_quantity_unit or None) if lump_scaled and pkg.scope_quantity else None,
+            "currency": response.currency or "EUR",
+            "scope": pkg.relief_title,
             "note": (f"From the response to the {pkg.relief_title} specification for hall "
                      f"{pkg.hall}. Relieves {pkg.constraint_name}."
                      + (f" Reference {response.reference}." if response.reference else "")),
@@ -113,6 +120,8 @@ def command_lines(entries: list[dict], library: str = "") -> list[str]:
             parts.append(f"--region {e['region']}")
         if e.get("project"):
             parts.append(f"--project {e['project']!r}")
+        if e.get("quoted_quantity"):
+            parts.append(f"--quoted-quantity {e['quoted_quantity']:g} --quoted-quantity-unit {e['quoted_quantity_unit']}")
         if library:
             parts.append(f"--library {library}")
         lines.append(" \\\n    ".join(parts))

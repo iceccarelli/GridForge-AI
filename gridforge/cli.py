@@ -460,7 +460,8 @@ def cmd_cost(args) -> int:
                           value=float(args.value), basis=args.basis, supplier=args.supplier,
                           quoted_on=args.quoted_on, valid_until=args.valid_until,
                           region=args.region, project=args.project, note=args.note,
-                          source=args.source)
+                          source=args.source, quoted_quantity=args.quoted_quantity,
+                          quoted_quantity_unit=args.quoted_quantity_unit)
     except ValueError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -964,6 +965,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--project")
     s.add_argument("--note")
     s.add_argument("--source")
+    s.add_argument("--quoted-quantity", dest="quoted_quantity", type=float,
+                   help="for a lump (EUR) quotation: the quantity it covers, in the unit the engine prices the line in")
+    s.add_argument("--quoted-quantity-unit", dest="quoted_quantity_unit")
     s.add_argument("--library",
                    help="path to a cost library JSON (default: your private, gitignored one)")
     s.add_argument("--bundled", action="store_true",

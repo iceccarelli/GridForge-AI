@@ -146,6 +146,8 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     relief = ReliefOption(
         description="Replace / add transformer capacity (uprate ~60%)",
         capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
         cost_key="transformer.replacement",
         lead_time_weeks=lead if lead is not None else V(160, "weeks", "power transformer lead time", ASSUMED,
                                                         band=(80, 210),
@@ -192,6 +194,8 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Add UPS modules / new UPS block",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="ups.per_kW",
             lead_time_weeks=V(30, "weeks", "UPS lead time", ASSUMED, band=(20, 52)),
             apply=_apply,
@@ -242,6 +246,8 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
                          if lv.busway_ampacity_A.value < 1000 else
                          "Add two further busway runs (needs riser and routing space)"),
             capex_eur=bw_price.capex, cost_kind=bw_price.kind, scope=bw_price.scope,
+            quantity=bw_price.quantity, quantity_unit=bw_price.quantity_unit, limited=bw_price.limited,
+            basis_note=bw_price.note,
             cost_key="busway.replacement",
             lead_time_weeks=V(36, "weeks", "busway and tap-off lead time", ASSUMED, band=(24, 52),
                               assumptions=["Tap-off units are a reported shortage item"]),

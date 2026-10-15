@@ -102,7 +102,8 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         return c
 
     # One further unit per bank: the price follows the units actually added.
-    cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra = cdu_cost(len(t.cdus), "additional CDU")
+    cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
+        len(t.cdus), "additional CDU")
     return ConstraintResult(
         "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
         floor_racks(racks),
@@ -111,7 +112,8 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Add CDU capacity (one further unit per bank)",
             capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
-            extra_cost_keys=cdu_extra,
+            extra_cost_keys=cdu_extra, quantity=float(len(t.cdus)), quantity_unit="unit", limited=cdu_limited,
+            basis_note=cdu_note,
             cost_key="cdu.addition",
             lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
             apply=_apply,
@@ -154,6 +156,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="plant.uprate",
             lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
             apply=_apply,
@@ -195,6 +199,8 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Uprate pumps and secondary pipework",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="pump.uprate",
             lead_time_weeks=V(30, "weeks", "pump / pipework lead time", ASSUMED, band=(18, 48)),
             apply=_apply,
