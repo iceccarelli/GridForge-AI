@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { lookupSubscription, normaliseEmail, subscriptionsConfigured } from "@/lib/subscribers";
+import { identify } from "@/lib/portal";
+import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
 
@@ -15,14 +16,13 @@ export const runtime = "nodejs";
 // So a store we cannot reach is a 503 and the page can say so, rather than
 // telling a subscriber they have not subscribed.
 export async function POST(req: Request) {
-  let body: { email?: string } = {};
-  try {
-    body = (await req.json()) as { email?: string };
-  } catch {
-    return NextResponse.json({ ok: false, active: false, error: "Invalid payload" }, { status: 400 });
+  // The email is the verified bearer token's, never the request body's: asking
+  // "is this address a subscriber" about anybody was an enumeration oracle.
+  const who = await identify(req);
+  if (!who.ok) {
+    return NextResponse.json({ ok: false, active: false, error: who.error }, { status: who.status });
   }
-  const email = normaliseEmail(body?.email);
-  if (!email) return NextResponse.json({ ok: true, active: false });
+  const email = who.email;
 
   if (!subscriptionsConfigured()) {
     return NextResponse.json(

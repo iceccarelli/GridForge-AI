@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Loader2, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -9,8 +9,7 @@ import { useRouter } from "next/navigation";
  *
  * Deliberately narrow: one generator, one battery, a flat load assumption. A
  * real intake with an uploaded interval CSV and an arbitrary equipment list is
- * the engine's own `deployment_request()` shape (see
- * docs/07_DELIVERY_RUNBOOK.md) — this form exists so a person can see the
+ * the engine's own `deployment_request()` shape — this form exists so a person can see the
  * capability work end to end without a JSON editor, not to be the only way
  * in. The API accepts everything this form does not expose.
  */
@@ -87,10 +86,11 @@ export function PowerDeployCaseForm() {
         <Field label="Grid firm capacity today (MW)" value={gridFirmMW} onChange={setGridFirmMW} />
         <Field label="Load, screening assumption (kW)" value={flatKW} onChange={setFlatKW} />
         <div>
-          <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
+          <label htmlFor="pd-redundancy" className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
             Redundancy policy
           </label>
           <select
+            id="pd-redundancy"
             value={redundancy}
             onChange={(e) => setRedundancy(e.target.value)}
             className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
@@ -150,10 +150,12 @@ function Field({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">{label}</label>
       <input
+        id={id}
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -174,10 +176,12 @@ function TextField({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">{label}</label>
       <input
+        id={id}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}

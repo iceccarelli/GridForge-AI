@@ -3,6 +3,7 @@
  * routes; the report content itself is exercised by
  * tests/site/capability-registry.test.ts against the registry directly.
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
@@ -23,7 +24,7 @@ afterEach(() => {
 });
 
 function signIn() {
-  jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+  jar.push({ name: "gf_admin", value: adminToken()! });
 }
 
 describe("GET /api/admin/capability-audit", () => {

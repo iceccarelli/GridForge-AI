@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { bearerFor, installWithAuth } from "./auth-fake";
 
 const SUBSCRIBER = "ops@northhall.example";
 const OTHER = "someone.else@rival.example";
@@ -23,24 +24,25 @@ async function route() {
   return await import("@/app/api/scenarios/route");
 }
 
-function get(email?: string) {
-  const qs = email === undefined ? "" : `?email=${encodeURIComponent(email)}`;
-  return new Request(siteUrl(`/api/scenarios${qs}`));
+// Identity is the verified bearer token (see auth-fake.ts); the request never
+// states who it is. `as === undefined` sends no credential at all.
+function get(as?: string) {
+  return new Request(siteUrl("/api/scenarios"), { headers: as === undefined ? {} : bearerFor(as) });
 }
 
-function post(body: unknown) {
+function post(body: unknown, as: string | undefined = SUBSCRIBER) {
   return new Request(siteUrl("/api/scenarios"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(as === undefined ? {} : bearerFor(as)) },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
 
-function del(email: string, id: string) {
-  return new Request(
-    siteUrl(`/api/scenarios?email=${encodeURIComponent(email)}&id=${encodeURIComponent(id)}`),
-    { method: "DELETE" }
-  );
+function del(as: string | undefined, id: string) {
+  return new Request(siteUrl(`/api/scenarios?id=${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: as === undefined ? {} : bearerFor(as),
+  });
 }
 
 beforeEach(() => {
@@ -50,7 +52,7 @@ beforeEach(() => {
   db.seed("subscriptions", [
     { email: SUBSCRIBER, plan: "team", status: "active", created_at: "2026-01-01T00:00:00Z" },
   ]);
-  restore = db.install();
+  restore = installWithAuth(db).restore;
 });
 
 afterEach(() => restore());
@@ -137,14 +139,9 @@ describe("a store that cannot answer", () => {
 });
 
 describe("input", () => {
-  it("rejects a missing email", async () => {
+  it("rejects a caller with no verified identity", async () => {
     const { GET } = await route();
-    expect((await GET(get())).status).toBe(400);
-  });
-
-  it("rejects an empty email", async () => {
-    const { GET } = await route();
-    expect((await GET(get("   "))).status).toBe(400);
+    expect((await GET(get())).status).toBe(401);
   });
 
   it("rejects a body that is not JSON", async () => {
@@ -242,11 +239,73 @@ describe("cross-tenant access", () => {
     expect((await DELETE(del(SUBSCRIBER, id))).status).toBe(404);
   });
 
-  it("requires both an email and an id to delete", async () => {
+  it("requires an id to delete", async () => {
     const { DELETE } = await route();
     const res = await DELETE(
-      new Request(siteUrl("/api/scenarios?email=" + SUBSCRIBER), { method: "DELETE" })
+      new Request(siteUrl("/api/scenarios"), { method: "DELETE", headers: bearerFor(SUBSCRIBER) })
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("identity is verified, never claimed", () => {
+  it("refuses GET/POST/DELETE with no bearer token, even naming a real subscriber", async () => {
+    db.seed("scenarios", [{ email: SUBSCRIBER, name: "Private hall", avoided_eur: 1 }]);
+    const id = String(db.rows("scenarios")[0].id);
+    const { GET, POST, DELETE } = await route();
+    const g = await GET(new Request(siteUrl(`/api/scenarios?email=${SUBSCRIBER}`)));
+    expect(g.status).toBe(401);
+    expect(JSON.stringify(await g.json())).not.toContain("Private hall");
+    const p = await POST(
+      new Request(siteUrl("/api/scenarios"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: SUBSCRIBER, name: "planted" }),
+      })
+    );
+    expect(p.status).toBe(401);
+    const d = await DELETE(
+      new Request(siteUrl(`/api/scenarios?email=${SUBSCRIBER}&id=${id}`), { method: "DELETE" })
+    );
+    expect(d.status).toBe(401);
+    expect(db.rows("scenarios")).toHaveLength(1);
+  });
+
+  it("refuses a forged token", async () => {
+    const { GET } = await route();
+    const res = await GET(
+      new Request(siteUrl("/api/scenarios"), { headers: { authorization: "Bearer forged" } })
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("ignores a caller-supplied email: an attacker's token cannot act on a victim's rows", async () => {
+    db.seed("scenarios", [{ email: SUBSCRIBER, name: "Private hall", avoided_eur: 1 }]);
+    const id = String(db.rows("scenarios")[0].id);
+    const { GET, POST, DELETE } = await route();
+    // OTHER is verified but not a subscriber; naming SUBSCRIBER changes nothing.
+    const g = await GET(
+      new Request(siteUrl(`/api/scenarios?email=${SUBSCRIBER}`), { headers: bearerFor(OTHER) })
+    );
+    expect(g.status).toBe(402);
+    const p = await POST(post({ email: SUBSCRIBER, name: "planted" }, OTHER));
+    expect(p.status).toBe(402);
+    const d = await DELETE(
+      new Request(siteUrl(`/api/scenarios?email=${SUBSCRIBER}&id=${id}`), {
+        method: "DELETE",
+        headers: bearerFor(OTHER),
+      })
+    );
+    expect(d.status).toBe(402);
+    expect(db.rows("scenarios")).toHaveLength(1);
+  });
+
+  it("saves under the verified email, not the one in the body", async () => {
+    db.seed("subscriptions", [
+      { email: OTHER, plan: "developer", status: "active", created_at: "2026-02-01T00:00:00Z" },
+    ]);
+    const { POST } = await route();
+    await POST(post({ email: SUBSCRIBER, name: "mine" }, OTHER));
+    expect(db.rows("scenarios")[0].email).toBe(OTHER);
   });
 });

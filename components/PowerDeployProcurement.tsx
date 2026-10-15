@@ -249,6 +249,7 @@ export function PowerDeployProcurement({
                     Paste one supplier&apos;s completed response schedule (JSON). Responses so far: {p.response_count}.
                   </p>
                   <textarea
+                    aria-label="Supplier response schedule (JSON)"
                     value={paste[p.package_token] ?? ""}
                     onChange={(e) => setPaste({ ...paste, [p.package_token]: e.target.value })}
                     rows={4}

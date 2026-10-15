@@ -8,6 +8,7 @@
  * Fake-backed (in-memory PostgREST). Triggers (no skipping/reversal/rewrite, append-only) are proven
  * against real PostgreSQL in tests/test_projects_migration.py and the realdb suite, not here.
  */
+import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import Stripe from "stripe";
@@ -60,7 +61,7 @@ function completed(sessionId: string, kind: string, amount: number, extra: Recor
   });
 }
 const hook = async (r: Request) => (await import("@/app/api/stripe/webhook/route")).POST(r);
-const signIn = () => jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex") });
+const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
 const post = (path: string, body: unknown) => new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 async function step(id: string, body: Record<string, unknown>) {
   const { POST } = await import("@/app/api/admin/deposits/[id]/route");

@@ -33,7 +33,7 @@ _VERB = {
     EvidenceClass.E2_SIMULATION: "simulated",
     EvidenceClass.E3_ENGINEERING_ESTIMATE: "estimated",
     EvidenceClass.E4_EXPERIMENTAL: "validated against test data",
-    EvidenceClass.E5_CUSTOMER_DATA: "measured at site (customer data)",
+    EvidenceClass.E5_CUSTOMER_DATA: "supplied by the client (not measured or surveyed by us)",
     EvidenceClass.E6_FIELD_VALIDATED: "field-validated",
     EvidenceClass.E7_DEPLOYED: "observed in operation",
 }

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass, asdict
 from datetime import date
 
+from ..clock import report_date
 from ..validation.evidence import EvidenceClass
 
 # An observation weaker than E5 is not an observation, it is another model run.
@@ -52,6 +54,8 @@ class Observation:
         if not self.site_ref.startswith("site_"):
             raise ObservationError(
                 "site_ref must come from site_ref(); raw client names are not stored")
+        if not (math.isfinite(self.predicted) and math.isfinite(self.observed)):
+            raise ObservationError("predicted and observed must be finite numbers")
         if self.predicted <= 0:
             raise ObservationError("predicted must be positive — a ratio needs a denominator")
         if self.observed < 0:
@@ -61,16 +65,25 @@ class Observation:
                 f"{self.evidence.name} is below {MINIMUM_EVIDENCE.name}: an observation must "
                 f"come from site data, not from another run of our own model")
         try:
-            date.fromisoformat(self.observed_on)
+            on = date.fromisoformat(self.observed_on)
         except ValueError:
             raise ObservationError(f"observed_on {self.observed_on!r} is not an ISO date")
+        if on > report_date():
+            raise ObservationError(
+                f"observed_on {self.observed_on} is in the future; a site cannot have been observed yet")
+        from .keys import expected_unit
+        want = expected_unit(self.key)
+        if want is not None and self.unit != want:
+            raise ObservationError(
+                f"{self.key} is recorded in {want!r}, not {self.unit!r}; convert before recording")
         if not self.method.strip():
             raise ObservationError(
                 "method is required — an observation nobody can trace is not evidence")
 
     @property
     def ratio(self) -> float:
-        """observed / predicted. >1 means the model was conservative."""
+        """observed / predicted. Whether >1 is conservative or optimistic depends on the key:
+        see ``keys.HIGHER_OBSERVED_IS_OPTIMISTIC``."""
         return self.observed / self.predicted
 
     @property

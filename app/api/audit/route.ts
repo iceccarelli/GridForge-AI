@@ -92,7 +92,7 @@ async function persist(record: LeadRecord): Promise<void> {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    console.log("[GridForge] lead (not persisted — Supabase unset):", JSON.stringify(record));
+    console.log("[GridForge] lead NOT persisted: Supabase unset (created=%s tier=%s)", record.createdAt, record.tier);
     return;
   }
   // New secret keys (sb_secret_…) go on apikey only; legacy service_role JWTs
@@ -216,6 +216,6 @@ async function notify(record: LeadRecord): Promise<void> {
   }
 
   if (!apiKey || !to) {
-    console.log("[GridForge] lead (no email provider set):", JSON.stringify(record));
+    console.log("[GridForge] lead notification NOT sent: no email provider set (created=%s tier=%s)", record.createdAt, record.tier);
   }
 }

@@ -16,11 +16,12 @@ from ..scenario.run import ScenarioResult
 
 # Kept as a module-level alias so existing call sites keep working.
 _pick_recommended = pick_recommended
+from ..costs import BASIS_LABEL, active_evidence
 from ..validation import Quantity
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .labels import (capex_per_rack_q, critical_path_q, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
-                     racks_q, relief_text, weeks_q)
+                     racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
 
 
 def collect_claims(results) -> dict[str, list]:
@@ -131,9 +132,22 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Statement(
         "Indicative capex to reach it",
         rec.economics.capex_total_eur,
-        rec.economics.aace_class))
-    s.blocks.append(Callout("answer",
-        f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
+        rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                    " · LOWER BOUND, not an estimate: a cost it needs has no price")))
+    lims = economics_limitations(rec.economics)
+    if lims:
+        s.blocks.append(Callout("warning",
+            "These economics are not decision-grade. " + " ".join(x[0].upper() + x[1:] + "." for x in lims)
+            + " Section 9 lists every component and what it rests on."))
+    if rec.unlocked_racks <= 0:
+        s.blocks.append(Callout("answer",
+            f"None of the {len(results)} architectures compared can host a rack on these inputs, "
+            f"even after every relief the model knows. {rec.ladder.final.binding.name if rec.ladder.final else rec.envelope.binding.name} "
+            f"is the limit that remains. No capital is recommended against the present inputs; "
+            f"{rec.spec.name} is shown only as the least-constrained comparison."))
+    else:
+        s.blocks.append(Callout("answer",
+            f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
     s.blocks.append(Para(
         f"Selection objective: {OBJECTIVE_RATIONALE[objective]} Section 9 shows every architecture "
         "against all three objectives so the ranking can be overruled with the evidence in view."))
@@ -166,15 +180,18 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             racks_q(st.racks_before, f"racks before step {st.step}", rec),
             racks_q(st.racks_after, f"racks after step {st.step}", rec),
             relief_text(st),
-            st.capex_eur if st.capex_eur is not None else "—",
+            st.capex_eur if (st.capex_eur is not None and st.taken) else "—",
+            step_basis_text(st) if st.taken else (st.not_taken_reason or "—"),
             st.lead_time_weeks if st.lead_time_weeks is not None else "—",
             V(eur_kw, "EUR/kW", f"cost per kW unlocked at step {st.step}", ASSUMED)
-            if eur_kw is not None else "—",
+            if (eur_kw is not None and st.taken) else "—",
         ])
     s.blocks.append(Table(
         ["#", "Constraint", "Domain", "Racks before", "Racks after", "Relief",
-         "Capex", "Lead time", "EUR per kW unlocked"], rows,
-        caption="Headroom ladder for the recommended architecture."))
+         "Capex", "What it buys and how it is priced", "Lead time", "EUR per kW unlocked"], rows,
+        caption="Headroom ladder for the recommended architecture. A step's price follows what it adds "
+                "(units, MVA, kW, racks) where the library is priced per unit; a fixed lump is marked as "
+                "not scaled. A component with no price is named, never counted as zero."))
     s.blocks.append(Para(
         "Steps marked NOT TAKEN are shown because they are the next thing that binds, not because "
         "they are recommended. Their cost is excluded from the totals below."))
@@ -309,6 +326,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s = Section("9. Economics")
     rows = []
     none_deployable = []
+    any_horizon = any(res.economics.horizon_years for res in results if res.unlocked_racks > 0)
     for res in results:
         e = res.economics
         if res.unlocked_racks == 0:
@@ -316,29 +334,128 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             # are not zero, they are undefined. Printing 0 reads as "free".
             none_deployable.append(res.spec.name)
             rows.append([res.spec.name, racks_q(0, f"{res.spec.id}: racks unlocked", res),
-                         "—", "—", "—", "—", "—"])
+                         "—", "—", "—", "—", "—", "—"] + (["—"] if any_horizon else []))
             continue
         rows.append([res.spec.name,
                      racks_q(res.unlocked_racks, f"{res.spec.id}: racks unlocked", res),
-                     e.capex_total_eur,
+                     e.capex_total_eur if e.capex_complete else Lit("≥ " + e.capex_total_eur.render()),
                      capex_per_rack_q(res, f"{res.spec.id}: capex per rack enabled"),
                      e.annual_energy_cost_eur, e.energy_cost_per_gpu_hour_eur,
-                     critical_path_q(res.ladder, f"{res.spec.id}: critical path")])
-    s.blocks.append(Table(["Scenario", "Racks", "Total capex", "Capex per rack enabled",
-                           "Annual energy cost", "Energy cost per GPU-hour", "Critical path"], rows,
+                     critical_path_q(res.ladder, f"{res.spec.id}: critical path"),
+                     Lit("decision-grade" if e.decision_grade else "NOT decision-grade")]
+                    + ([e.lifecycle_cost_eur if e.lifecycle_cost_eur is not None else "—"] if any_horizon else []))
+    heads = ["Scenario", "Racks", "Total capex", "Capex per rack enabled",
+             "Annual energy cost", "Energy cost per GPU-hour", "Critical path", "Economics"]
+    if any_horizon:
+        heads.append("Lifecycle cost")
+    s.blocks.append(Table(heads, rows,
                           caption=f"Cost basis: {rec.economics.aace_class}. Excludes IT hardware, "
-                                  f"migration and lost tenancy revenue."
+                                  f"migration and lost tenancy revenue. A total marked with ≥ is a lower bound: "
+                                  f"a cost it needs has no price."
                                   + (" A dash means no rack can be deployed in that architecture and no "
                                      "relief exists, so the figure is undefined rather than zero."
                                      if none_deployable else "")))
+    pick_rows = []
+    for obj in Objective:
+        chosen = pick_recommended(results, obj)
+        pick_rows.append([obj.value.replace("_", " "), OBJECTIVE_RATIONALE[obj].split(". ")[0] + ".",
+                          chosen.spec.name if chosen.unlocked_racks > 0 else "none deployable",
+                          racks_q(chosen.unlocked_racks, f"{chosen.spec.id}: racks under {obj.value}", chosen)])
+    s.blocks.append(Table(["Objective", "What it optimises", "Architecture it selects", "Racks"], pick_rows,
+                          caption="The same scenarios ranked under each objective. The recommendation above "
+                                  "uses the stated objective; where another objective selects a different "
+                                  "architecture, that is a judgement for the client, not for the model."))
     e = rec.economics
     s.blocks.append(Table(
         ["How the recommended capex is built", "Amount"],
         [[f"Relief works along the headroom ladder (section 2)", e.capex_relief_eur],
-         [f"In-hall conversion of the {rec.unlocked_racks} racks deployed", e.capex_conversion_eur],
-         ["Total (the headline capex)", e.capex_total_eur]],
+         [f"In-hall conversion of the {rec.unlocked_racks} racks deployed", e.capex_conversion_eur]]
+        + ([[f"Initial CDU kit — assumed, not installed ({e.cdu_kit_scope})", e.capex_cdu_kit_eur]]
+           if e.capex_cdu_kit_eur is not None else [])
+        + [[Lit(f"NOT PRICED — {g['component']} ({g['quantity']:g} x {g['unit'].split('/')[-1]}; "
+                f"{len(g['where'])} place{'s' if len(g['where']) != 1 else ''})"), Lit("no price: excluded")]
+           for g in e.unpriced_summary()]
+        + [["Total (the headline capex)" if e.capex_complete else
+            "Total (the headline capex) — LOWER BOUND: the unpriced components above are excluded",
+            e.capex_total_eur]],
         caption="The ladder's cumulative figure covers the relief works only; the headline adds the "
-                "per-rack conversion inside the hall."))
+                "per-rack conversion inside the hall"
+                + (" and the CDUs the model assumed so the liquid scenarios could be solved (the hall has no CDU "
+                   "schedule on file; those units must be bought)." if e.capex_cdu_kit_eur is not None else ".")))
+    ev = active_evidence()
+    if ev is not None:
+        # The provenance of every accepted quotation this run used, and what it changed. Accepted evidence is the
+        # difference between a library placeholder and a price, so a reader must be able to see exactly which it was.
+        used = ev.get("used") or []
+        if any(u.get("synthetic") for u in used):
+            s.blocks.append(Callout("warning",
+                "SYNTHETIC COST EVIDENCE. At least one line below is a test fixture or demonstration, not a real "
+                "quotation. Nothing in this run may be quoted as supplier-backed."))
+        if used:
+            s.blocks.append(Table(
+                ["Cost line", "Supplier", "Quoted", "Valid until", "Covers", "Value", "Comparability", "Accepted by",
+                 "Evidence record"],
+                [[Lit(u["key"]), Lit(u["supplier"] or "—"), Lit(u["quoted_on"] or "—"), Lit(u["valid_until"] or "—"),
+                  Lit((f"{u['quoted_quantity']:g} {u['quoted_quantity_unit']}" if u.get("quoted_quantity") else "no quantity stated")),
+                  Lit(f"{u['value']:,.0f} {u['currency']} ({u['unit']})"),
+                  Lit(u["comparability"]), Lit(f"{u['reviewer']} on {u['reviewed_on']}"),
+                  Lit(f"{u['evidence_id']}" + (f" (project {u['project']})" if u.get("project") else ""))] for u in used],
+                caption="Accepted supplier evidence used in this run. Each line was reviewed by a named person before it "
+                        "could affect a number; a received or unreviewed quotation is never used."))
+        for ig in ev.get("ignored") or []:
+            s.blocks.append(Callout("note", f"Evidence not used — {ig['key']} ({ig.get('evidence_id') or 'no id'}): {ig['reason']}."))
+        eff = ev.get("effect")
+        if eff:
+            this = next((x for x in eff["scenarios"] if x["scenario"] == rec.spec.id), None)
+            if this:
+                s.blocks.append(Table(
+                    ["Recommended architecture", "Without this evidence", "With it"],
+                    [["Total capex (EUR)", Lit(f"{this['capex_before_eur']:,.0f}"), Lit(f"{this['capex_after_eur']:,.0f}")],
+                     ["Change", Lit("—"), Lit(f"{this['capex_delta_eur']:+,.0f}")],
+                     ["Capex complete", Lit(str(this["capex_complete_before"])), Lit(str(this["capex_complete_after"]))],
+                     ["Priced lines still library placeholders", Lit(str(this["placeholder_lines_before"])),
+                      Lit(str(this["placeholder_lines_after"]))],
+                     ["Cost components with no price", Lit(str(this["unpriced_before"])), Lit(str(this["unpriced_after"]))],
+                     ["Decision-grade", Lit(str(this["decision_grade_before"])), Lit(str(this["decision_grade_after"]))]],
+                    caption="What the accepted evidence changed. Racks, schedule and constraints are the same in both "
+                            "runs; only the cost basis differs."))
+                for ch in this["steps_changed"]:
+                    s.blocks.append(Callout("note",
+                        f"Step {ch['step']} ({ch['constraint']}): {ch['capex_before_eur']:,.0f} → {ch['capex_after_eur']:,.0f} EUR; "
+                        f"basis {ch['basis_before']} → {ch['basis_after']} ({ch['price_kind_after']})."))
+    # Recurring cost, stated apart from capital: what the hall pays every year, and on what price and run hours.
+    op_rows = [["Grid electricity price used", e.tariff_eur_per_MWh,
+                Lit("declared by the client" if e.tariff_declared else "library placeholder, not the site's tariff")],
+               ["Annual site energy", e.annual_energy_MWh, Lit("utilisation x facility load x 8,760 h")]]
+    if e.btm is not None and e.btm.applied:
+        op_rows += [["Annual grid energy cost", e.annual_grid_energy_cost_eur,
+                     Lit("energy not supplied by on-site generation, at the grid price")],
+                    ["BTM generation used on site", e.btm.used_MWh, Lit(
+                        "run hours x capacity" + ("; generation above site demand is not valued (export is not modelled)"
+                                                  if e.btm.curtailed else ""))],
+                    ["BTM variable operating cost per year", e.btm.variable_eur, Lit("fuel / variable cost x energy generated")],
+                    ["BTM fixed O&M per year", e.btm.fixed_eur, Lit("declared O&M per kW per year x capacity")]]
+    op_rows.append(["Annual energy cost (recurring)", e.annual_energy_cost_eur,
+                    Lit("grid + on-site operating cost" if (e.btm is not None and e.btm.applied)
+                        else "all energy at the grid price")])
+    s.blocks.append(Table(["Recurring cost (recommended architecture)", "Amount", "Basis"], op_rows,
+                          caption="Operating cost is stated separately from capital. It covers energy and, where on-site "
+                                  "generation is installed, that generation's declared operating cost; it excludes the "
+                                  "non-energy operating cost of the cooling plant."))
+    if e.btm is not None and not e.btm.applied:
+        s.blocks.append(Callout("warning",
+            "Behind-the-meter generation is installed on this path but its operating cost cannot be computed: "
+            + "; ".join(e.btm.missing) + ". The annual energy cost above therefore prices ALL energy at the grid "
+            "price, which the hall would not pay. Supply these inputs to replace that figure."))
+    if e.lifecycle_cost_eur is not None:
+        s.blocks.append(Statement(
+            f"Lifecycle cost over {e.horizon_years} years" + ("" if e.lifecycle_complete else " — LOWER BOUND"),
+            e.lifecycle_cost_eur, e.lifecycle_basis))
+    else:
+        s.blocks.append(Para(
+            "No lifecycle horizon was declared, so no lifecycle value is computed: a horizon is the client's "
+            "choice and this study does not invent one. Declare economics.horizon_years (and, optionally, a "
+            "discount rate) to obtain it."))
     mix = rec.economics.cost_basis_mix or {}
     placeholders = mix.get("library_default", 0)
     priced = sum(v for k, v in mix.items() if k != "library_default")
@@ -346,7 +463,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     if total_lines:
         s.blocks.append(Table(
             ["Cost basis", "Lines"],
-            [[basis.replace("_", " "), Lit(f"{n} lines")]
+            [[BASIS_LABEL.get(basis, basis.replace("_", " ")), Lit(f"{n} lines")]
              for basis, n in sorted(mix.items(), key=lambda kv: -kv[1])],
             caption="What each price in this study rests on. The accuracy class above follows the "
                     "weakest line, not the average."))
@@ -416,9 +533,15 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
 
     # 11 -------------------------------------------------------- recommendation
     s = Section("12. Recommendation and decision gates")
-    s.blocks.append(Para(
-        f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
-        f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
+    if rec.unlocked_racks <= 0:
+        s.blocks.append(Para(
+            f"Do not proceed to procurement on these inputs. No architecture modelled hosts a "
+            f"{plat.name} rack: the site cannot support the requested deployment as described. "
+            f"Revisit the inputs that set the limit (listed in sections 1 and 4), or the target platform."))
+    else:
+        s.blocks.append(Para(
+            f"Proceed with {rec.spec.name}. {rec.spec.rationale} On the modelled inputs this unlocks "
+            f"{rec.unlocked_racks} racks of {plat.name} against {rec.envelope.max_racks} as found."))
     s.blocks.append(Bullets([long for _short, long in DECISION_GATES]))
     r.sections.append(s)
 

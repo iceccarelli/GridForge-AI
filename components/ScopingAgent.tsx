@@ -181,6 +181,7 @@ export function ScopingAgent() {
           <div className="border-t border-line p-3">
             <div className="flex items-end gap-2">
               <textarea
+                aria-label="Describe your project for the scoping assistant"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

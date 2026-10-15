@@ -71,6 +71,12 @@ class SiteEntry:
         return q.value if q is not None else INF
 
     @property
+    def required_gaps(self) -> list[str]:
+        """Required inputs this hall did not supply. A constraint whose input is missing is not evaluated,
+        so its figures describe a hall with fewer limits than the real one."""
+        return [g.label for g in self.intake.report.required_gaps]
+
+    @property
     def schedule_complete(self) -> bool:
         return schedule_complete(self.best.ladder)
 
@@ -95,7 +101,7 @@ class SiteEntry:
 
 def _metric(e: SiteEntry, objective: Objective) -> tuple[float, float, float] | None:
     """(value, low, high) of what the ranking objective compares, or None when this hall has none."""
-    if e.racks <= 0:
+    if e.racks <= 0 or e.required_gaps:
         return None
     if objective is Objective.FASTEST_TO_POWER:
         q = e.weeks_q
@@ -108,10 +114,11 @@ def _metric(e: SiteEntry, objective: Objective) -> tuple[float, float, float] | 
 
 def _sort_key(e: SiteEntry, objective: Objective):
     # Hall identity is the last key, so the order never depends on the order the intakes were supplied in.
+    # comparable, then unrankable (missing required input or lead time), then empty
+    group = 2 if e.racks <= 0 else (1 if e.required_gaps or _metric(e, objective) is None else 0)
     if objective is Objective.MAX_COMPUTE:
-        return (-e.racks, e.weeks, e.capex, e.ident)
+        return (group, -e.racks, e.weeks, e.capex, e.ident)
     m = _metric(e, objective)
-    group = 0 if m is not None else (1 if e.racks > 0 else 2)     # comparable, then unrankable, then empty
     if objective is Objective.FASTEST_TO_POWER:
         return (group, e.weeks, -e.racks, e.ident)
     return (group, e.capex_per_rack, -e.racks, e.ident)
@@ -133,10 +140,16 @@ def rank_notes(ordered: list[SiteEntry], objective: Objective) -> list[str]:
     for i, e in enumerate(ordered):
         if e.racks <= 0:
             notes[i].append("no deployable racks on these inputs; not ranked on a figure")
+        elif e.required_gaps:
+            notes[i].append("required inputs not supplied (" + ", ".join(e.required_gaps)
+                            + "): those constraints were not evaluated, so this hall is not "
+                            "ranked on a figure against halls that supplied them")
         elif _metric(e, objective) is None:
             notes[i].append("a relief on the path has no lead time, so no date is given; ranked after halls with one")
         if e.racks > 0 and not e.best.economics.capex_complete:
-            notes[i].append("a relief on the path is unpriced; capex is a lower bound")
+            gone = [g["component"] for g in e.best.economics.unpriced_summary()]
+            notes[i].append("capex is a lower bound; unpriced: "
+                            + ("; ".join(gone) if gone else "a relief on the path"))
     for i in range(len(ordered) - 1):
         a, b = _metric(ordered[i], objective), _metric(ordered[i + 1], objective)
         if a is None or b is None:
@@ -185,6 +198,8 @@ def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MA
             "schedule_complete": e.schedule_complete,
             "capex_eur": c.value, "capex_band_eur": list(c.band), "capex_evidence": c.evidence.name,
             "capex_complete": e.best.economics.capex_complete,
+            "decision_grade": e.best.economics.decision_grade,
+            "economics_limitations": e.best.economics.limitations,
             "capex_per_rack_eur": None if cpr is None else cpr.value,
             "capex_per_rack_band_eur": None if cpr is None else list(cpr.band),
             "binds_first": e.best.envelope.binding.name,

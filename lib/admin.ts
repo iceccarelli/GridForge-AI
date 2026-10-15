@@ -1,8 +1,8 @@
 // Server-only helpers for the founder admin dashboard: a lightweight password
 // gate (single founder, internal use) and the Supabase read/update data layer.
 //
-// Auth model: a SHA-256 of ADMIN_PASSWORD is stored in an httpOnly cookie. It
-// can't be forged without the password, and we compare in constant time. This
+// Auth model: an HMAC-signed, expiring session token (12h) in an httpOnly cookie,
+// compared in constant time. This
 // is a deliberate, honest "simple gate" for one operator — swap for Supabase
 // Auth / Clerk when real *clients* get portal logins. Never import this file
 import { storeFault } from "@/lib/safe-log";
@@ -16,11 +16,34 @@ export function adminConfigured(): boolean {
   return !!process.env.ADMIN_PASSWORD;
 }
 
-/** The cookie value we set on login: sha256(ADMIN_PASSWORD). */
-export function adminToken(): string | null {
-  const pw = process.env.ADMIN_PASSWORD;
-  if (!pw) return null;
-  return crypto.createHash("sha256").update(pw).digest("hex");
+/** Session lifetime. The cookie's maxAge in the login route matches it. */
+export const ADMIN_SESSION_SECONDS = 60 * 60 * 12;
+
+/**
+ * Secret the session tokens are signed with. ADMIN_SESSION_SECRET if set (rotate
+ * it to invalidate every outstanding session at once), else ADMIN_PASSWORD
+ * (changing the password then also invalidates them).
+ */
+function sessionSecret(): string | null {
+  return process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || null;
+}
+
+function sign(payload: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+/**
+ * The cookie value we set on login: `<expiryMs>.<nonce>.<hmac>`.
+ *
+ * It used to be an unsalted sha256(ADMIN_PASSWORD) that never expired and could
+ * not be invalidated without changing the password. Now it is HMAC-signed over an
+ * expiry, so it ages out on its own and is useless without the server secret.
+ */
+export function adminToken(now = Date.now()): string | null {
+  const secret = sessionSecret();
+  if (!secret) return null;
+  const payload = `${now + ADMIN_SESSION_SECONDS * 1000}.${crypto.randomBytes(8).toString("hex")}`;
+  return `${payload}.${sign(payload, secret)}`;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -84,10 +107,16 @@ export function resetLoginThrottle(): void {
   attempts.clear();
 }
 
-/** Request check: is this cookie a valid admin session? */
-export function verifyAdminCookie(value: string | undefined): boolean {
-  const token = adminToken();
-  return !!token && !!value && safeEqual(value, token);
+/** Request check: is this cookie a validly signed, unexpired admin session? */
+export function verifyAdminCookie(value: string | undefined, now = Date.now()): boolean {
+  const secret = sessionSecret();
+  if (!secret || !value) return false;
+  const parts = value.split(".");
+  if (parts.length !== 3) return false;
+  const [expiry, nonce, mac] = parts;
+  if (!/^\d{1,15}$/.test(expiry) || !nonce) return false;
+  if (!safeEqual(mac, sign(`${expiry}.${nonce}`, secret))) return false;
+  return Number(expiry) > now;
 }
 
 // --- Supabase data layer (service-role; server-only) -------------------------
@@ -221,6 +250,8 @@ export interface AdminDeliverable {
   title: string | null;
   released_at: string | null;
   has_document: boolean;
+  /** sha256 of the draft's document_html: what the operator must echo back to release it. */
+  document_hash: string | null;
   has_deck: boolean;
   has_working_files: boolean;
 }
@@ -269,6 +300,7 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     return rows.map(({ document_html, deck_html, working_files, ...r }) => ({
       ...r,
       has_document: Boolean(document_html),
+      document_hash: document_html ? crypto.createHash("sha256").update(document_html, "utf8").digest("hex") : null,
       has_deck: Boolean(deck_html),
       has_working_files: Boolean(working_files),
     }));

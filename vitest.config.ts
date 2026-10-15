@@ -8,6 +8,8 @@ import path from "node:path";
 // objects, so authorization, cross-tenant access, malformed input and duplicate
 // delivery are exercised rather than described.
 export default defineConfig({
+  // Components are written for Next's automatic JSX runtime; render them the same way in tests.
+  esbuild: { jsx: "automatic" },
   resolve: { alias: { "@": path.resolve(__dirname, ".") } },
   test: {
     environment: "node",

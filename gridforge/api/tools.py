@@ -177,6 +177,10 @@ TOOLS: list[dict] = [
                         "ingest": {"type": "boolean", "default": False,
                                    "description": "also return the cost-library lines the "
                                                   "winning response implies"},
+                        "evidence_only": {"type": "boolean", "default": False,
+                                          "description": "return the validated or invalid quote "
+                                                         "lines instead of a ranking; nothing is "
+                                                         "accepted until a person reviews it"},
                         "basis": {"type": "string",
                                   "enum": ["budgetary_quote", "firm_quote", "contracted"],
                                   "default": "budgetary_quote"},

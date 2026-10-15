@@ -3,7 +3,7 @@ one that most often stops a 130 kW rack from ever entering a 2015 hall."""
 from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, V
-from ..costs import cost
+from ..costs import scaled_cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from .schema import FloorType
 
@@ -32,6 +32,11 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
         c.hall.floor_type = FloorType.SLAB
         return c
 
+    price = scaled_cost(
+        "floor.load_spreading", 260_000 / 2400.0, "EUR/m2", hall.net_white_space_m2.value, "m2",
+        "structural works, per m2 of net white space",
+        note="Placeholder re-expressed per m2 from the earlier 260 kEUR lump for the reference hall's 2,400 m2. "
+             "Not a market price; a structural survey decides the real scope.")
     extra = ("Raised floor: 120 kW+ racks normally require load-spreading plates or removal of the "
              "raised floor and deployment on slab.") if hall.floor_type == FloorType.RAISED else ""
     return ConstraintResult(
@@ -40,8 +45,9 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
         basis=f"{imposed.render()} imposed against {capacity.render()} design capacity",
         relief=ReliefOption(
             description="Load spreading / remove raised floor and deploy on slab",
-            capex_eur=cost("floor.load_spreading", 260_000, "EUR",
-                           "structural works for one hall"),
+            capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="floor.load_spreading",
             lead_time_weeks=V(18, "weeks", "structural works", ASSUMED, band=(10, 30)),
             apply=_apply,

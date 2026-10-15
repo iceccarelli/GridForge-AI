@@ -4,9 +4,9 @@ import {
   deleteScenario,
   listScenarios,
   lookupSubscription,
-  normaliseEmail,
   subscriptionsConfigured,
 } from "@/lib/subscribers";
+import { identify } from "@/lib/portal";
 
 export const runtime = "nodejs";
 
@@ -19,6 +19,23 @@ export const runtime = "nodejs";
 // So a store that cannot answer is a 503 now, never an empty list. An empty list
 // means the subscriber has saved nothing; it must never also mean "the database
 // is missing".
+
+/**
+ * Who is asking: the email comes from the verified Supabase bearer token and from
+ * nowhere else. A caller-supplied `email` (query or body) is ignored — it used to be
+ * the only credential, so anyone who knew a subscriber's address could read, create
+ * and delete their scenarios.
+ */
+async function whoIs(req: Request) {
+  const id = await identify(req);
+  if (!id.ok) {
+    return {
+      email: "",
+      denied: NextResponse.json({ ok: false, error: id.error }, { status: id.status }),
+    };
+  }
+  return { email: id.email, denied: null };
+}
 
 /** 402, not 403: they are authenticated, they are simply not a subscriber. */
 function notEntitled() {
@@ -51,12 +68,11 @@ async function denyIfNotEntitled(email: string) {
   return null;
 }
 
-// GET ?email= -> list this subscriber's saved scenarios
+// GET -> list this subscriber's saved scenarios
 export async function GET(req: Request) {
-  const email = normaliseEmail(new URL(req.url).searchParams.get("email"));
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "email is required" }, { status: 400 });
-  }
+  const who = await whoIs(req);
+  if (who.denied) return who.denied;
+  const email = who.email;
   if (!subscriptionsConfigured()) return storeUnavailable();
   const denied = await denyIfNotEntitled(email);
   if (denied) return denied;
@@ -68,6 +84,9 @@ export async function GET(req: Request) {
 
 // POST -> save a scenario
 export async function POST(req: Request) {
+  const who = await whoIs(req);
+  if (who.denied) return who.denied;
+  const email = who.email;
   let b: Record<string, unknown> = {};
   try {
     b = (await req.json()) as Record<string, unknown>;
@@ -76,10 +95,6 @@ export async function POST(req: Request) {
   }
   if (!b || typeof b !== "object" || Array.isArray(b)) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
-  }
-  const email = normaliseEmail(b.email);
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "email is required" }, { status: 400 });
   }
   if (!subscriptionsConfigured()) return storeUnavailable();
   const denied = await denyIfNotEntitled(email);
@@ -106,13 +121,14 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, scenario });
 }
 
-// DELETE ?email=&id= -> remove one
+// DELETE ?id= -> remove one
 export async function DELETE(req: Request) {
-  const sp = new URL(req.url).searchParams;
-  const email = normaliseEmail(sp.get("email"));
-  const id = (sp.get("id") || "").trim();
-  if (!email || !id) {
-    return NextResponse.json({ ok: false, error: "email and id are required" }, { status: 400 });
+  const who = await whoIs(req);
+  if (who.denied) return who.denied;
+  const email = who.email;
+  const id = (new URL(req.url).searchParams.get("id") || "").trim();
+  if (!id) {
+    return NextResponse.json({ ok: false, error: "id is required" }, { status: 400 });
   }
   if (!subscriptionsConfigured()) return storeUnavailable();
   const denied = await denyIfNotEntitled(email);

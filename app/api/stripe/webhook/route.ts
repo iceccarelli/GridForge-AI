@@ -231,7 +231,9 @@ export async function POST(req: Request) {
         // Best-effort on purpose (see revokeOnEngine): an engine that is briefly unreachable must not
         // turn a cancellation that HAS been recorded into an endlessly redelivered event. The id is
         // logged so it can be pushed by hand, and the key still dies at its expiry.
-        await revokeOnEngine(row.key_id);
+        // Every id we ever superseded is pushed too (a rotation or overlap mint may not have been confirmed
+        // by the engine), plus the live one. Each is attempted independently; the ids stay recorded.
+        for (const id of revoked) await revokeOnEngine(id);
         console.log(`[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`);
       }
     }

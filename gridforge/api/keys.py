@@ -135,6 +135,14 @@ def issue(account: str, *, quota: int = 0, scope: str = "machine",
 # stat and nothing more, and one authenticated write at the moment of revocation.
 _REVOKED_LOCK = threading.Lock()
 _revoked_cache: tuple[float, frozenset[str]] = (-1.0, frozenset())
+#: Set once the store has been read successfully in this process. After that, a store that
+#: disappears or turns unreadable is a fault, not an empty list: treating it as empty would
+#: silently un-revoke every leaked key (an unmounted or replaced volume does exactly this).
+_store_seen = False
+
+
+class RevocationStoreError(RuntimeError):
+    """The revocation store exists in configuration but cannot be trusted."""
 
 
 def _revoked_file() -> Path | None:
@@ -143,27 +151,34 @@ def _revoked_file() -> Path | None:
 
 
 def _stored_revoked() -> frozenset[str]:
-    """Revoked ids from the local store, cached until the file changes."""
-    global _revoked_cache
+    """Revoked ids from the local store, cached until the file changes.
+
+    Fails CLOSED: a store that was readable and no longer is, or that is present but
+    corrupt, raises RevocationStoreError and verification refuses signed keys until it
+    is repaired. A store that has never existed is a fresh deployment with nothing revoked."""
+    global _revoked_cache, _store_seen
     path = _revoked_file()
     if path is None:
         return frozenset()
     try:
         mtime = path.stat().st_mtime
-    except OSError:
+    except FileNotFoundError:
+        if _store_seen:
+            raise RevocationStoreError("the revocation store has disappeared") from None
         return frozenset()
+    except OSError as exc:
+        raise RevocationStoreError(f"the revocation store cannot be read: {exc.__class__.__name__}") from None
     cached_at, cached = _revoked_cache
     if cached_at == mtime:
         return cached
     try:
         data = json.loads(path.read_text())
-        ids = frozenset(str(x).strip() for x in data.get("revoked", []) if str(x).strip())
+        ids = frozenset(str(x).strip() for x in data["revoked"] if str(x).strip())
     except Exception:
-        # An unreadable store must not silently un-revoke a leaked key. Keep what
-        # we last read and let the operator see the file is wrong.
-        return _revoked_cache[1]
+        raise RevocationStoreError("the revocation store is corrupt") from None
     with _REVOKED_LOCK:
         _revoked_cache = (mtime, ids)
+        _store_seen = True
     return ids
 
 
@@ -187,7 +202,7 @@ def revoke(key_id: str) -> bool:
     path = _revoked_file()
     if path is None:
         return False
-    global _revoked_cache
+    global _revoked_cache, _store_seen
     with _REVOKED_LOCK:
         try:
             current = set(_stored_revoked())
@@ -200,6 +215,7 @@ def revoke(key_id: str) -> bool:
                 os.fsync(fh.fileno())      # on disk before it becomes THE file
             tmp.replace(path)
             _revoked_cache = (path.stat().st_mtime, frozenset(current))
+            _store_seen = True
             return True
         except Exception:
             return False
@@ -269,7 +285,7 @@ def verify(token: str) -> ApiKey:
         raise KeyError_(f"unsupported key version {prefix!r}")
     expected = _b64e(hmac.new(secret(), f"{prefix}.{payload}".encode(),
                               hashlib.sha256).digest())
-    if not hmac.compare_digest(expected, sig):
+    if not hmac.compare_digest(expected.encode(), sig.encode("utf-8", "replace")):
         raise KeyError_("signature does not verify")
     try:
         d = json.loads(_b64d(payload))
@@ -278,7 +294,12 @@ def verify(token: str) -> ApiKey:
         date.fromisoformat(k.expires)
     except Exception:
         raise KeyError_("malformed key payload")
-    if k.key_id in revoked_ids():
+    try:
+        gone = revoked_ids()
+    except RevocationStoreError as exc:
+        raise KeyError_(f"keys cannot be verified right now: {exc}. This is a fault on our side; "
+                        f"nothing is wrong with your key.") from None
+    if k.key_id in gone:
         raise KeyError_("this key has been revoked")
     if k.days_left < 0:
         raise KeyError_(f"this key expired on {k.expires}; renew the subscription "

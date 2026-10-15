@@ -10,6 +10,8 @@
  * Skipped unless GF_PGRST_URL (PostgREST, e.g. http://127.0.0.1:3300) and GF_PGRST_JWT
  * (a token whose role is service_role) are set — a skip is a gap in what was checked.
  */
+import { adminToken } from "@/lib/admin";
+import { documentHash } from "@/lib/deliverables";
 import fs from "node:fs";
 
 import os from "node:os";
@@ -435,7 +437,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(401);
     const { createHash } = await import("node:crypto");
-    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await decide({ decision: "verified", reviewer: "J. Ortiz" })).status).toBe(422);
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches" })).status).toBe(201);
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz" })).status).toBe(409);
@@ -536,7 +538,7 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
     const { POST: rev } = await import("@/app/api/admin/supplier-actuals/[id]/review/route");
     const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
     expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(401);
-    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await decide({ decision: "verified", verified_fields: ["dispatch_date"], reviewer: "J. Ortiz" })).status).toBe(422);
     expect((await decide({ decision: "verified", verified_fields: ["po_date", "on_site_date"], reviewer: "J. Ortiz" })).status).toBe(201);
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz", reason: "no" })).status).toBe(409);
@@ -597,7 +599,7 @@ describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
     const { POST: adv } = await import("@/app/api/admin/deposits/[id]/route");
     const go = (body: Record<string, unknown>) => adv(post("/x", body), ctx({ id: mine[0].id }));
     expect((await go({ owner: "A. Rivera" })).status).toBe(401);
-    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await go({})).status).toBe(422);
     expect((await go({ owner: "A. Rivera" })).status).toBe(200);
     expect((await go({ owner: "again" })).status).toBe(422);                 // now needs the scope note
@@ -738,9 +740,9 @@ describe.skipIf(!enabled)("paid Density Screen, payment to released document, on
     const read = await import("@/app/api/deliverable/[token]/route");
     expect((await read.GET(new Request(siteUrl("/x")), it(draft.token))).status).toBe(409);
     const admin = await import("@/app/api/admin/deliverables/route");
-    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token }) }));
+    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token, reviewed_hash: documentHash(draft.document_html) }) }));
     expect((await release()).status).toBe(401);
-    jar.push({ name: "gf_admin", value: createHash("sha256").update(process.env.ADMIN_PASSWORD).digest("hex") });
+    jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await release()).status).toBe(200);
     const [released] = await rows("deliverables", `&stripe_session_id=eq.${sid}`);
     expect(released.status).toBe("released");

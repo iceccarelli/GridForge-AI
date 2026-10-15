@@ -30,10 +30,15 @@ def _cli(*args):
                           cwd=ROOT, capture_output=True, text=True)
 
 
-def test_reference_intake_is_complete():
+def test_reference_intake_supplies_every_required_input_and_names_what_it_defaults():
     intake = load(REFERENCE)
-    assert intake.report.completeness == 1.0
-    assert intake.report.can_issue
+    assert intake.report.can_issue and not intake.report.required_gaps
+    # Two optional inputs fall back to library values, and the ledger must say so rather than
+    # report 100%: with no CDU schedule the liquid scenarios assume a free 3 x 1,350 kW N+1 kit.
+    assert sorted(g.path for g in intake.report.gaps) == [
+        "economics.discount_rate", "economics.electricity_eur_per_MWh", "thermal.cdus",
+        "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
+    assert 0.8 < intake.report.completeness < 1.0
 
 
 def test_thin_intake_is_flagged_and_priced_as_a_screen():
@@ -126,9 +131,18 @@ def test_portfolio_ranks_and_the_orderings_disagree():
     intakes = [load(p) for p in sorted(INTAKE_DIR.glob("*.json"))]
     entries = [SiteEntry(intake=i, results=run_all(i.context, i.scenarios)) for i in intakes]
     by_compute = [e.intake.reference for e in rank(entries, Objective.MAX_COMPUTE)]
-    by_speed = [e.intake.reference for e in rank(entries, Objective.FASTEST_TO_POWER)]
+    by_cost = [e.intake.reference for e in rank(entries, Objective.MIN_COST_PER_RACK)]
     assert len(by_compute) == len(intakes)
-    assert by_compute != by_speed, "if every objective gives the same order, the objective is fake"
+    assert by_compute != by_cost, "if every objective gives the same order, the objective is fake"
+    # London supplies no UPS schedule: its constraint was never evaluated, so under
+    # every objective it is ranked after the halls that supplied everything.
+    for obj in Objective:
+        order = rank(entries, obj)
+        incomplete = [e for e in order if e.required_gaps]
+        assert incomplete and order[-len(incomplete):] == incomplete, obj
+    from gridforge.reporting.portfolio import rank_notes
+    notes = rank_notes(rank(entries, Objective.FASTEST_TO_POWER), Objective.FASTEST_TO_POWER)
+    assert "required inputs not supplied" in notes[-1]
     report = build_portfolio(entries, client="test")
     from gridforge.reporting import to_markdown
     assert "Ranked portfolio" in to_markdown(report)

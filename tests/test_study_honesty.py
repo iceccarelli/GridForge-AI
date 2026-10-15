@@ -154,7 +154,8 @@ def test_the_headline_capex_reconciles_to_the_ladder_and_says_how(tmp_path):
     md = study(tmp_path)
     _, _, rec = solved()
     e = rec.economics
-    assert abs(e.capex_relief_eur.value + e.capex_conversion_eur.value - e.capex_total_eur.value) < 1.0
+    kit = e.capex_cdu_kit_eur.value if e.capex_cdu_kit_eur is not None else 0.0
+    assert abs(e.capex_relief_eur.value + e.capex_conversion_eur.value + kit - e.capex_total_eur.value) < 1.0
     s9 = sec(md, 9)
     assert "How the recommended capex is built" in s9
     for label in ("Relief works along the headroom ladder", "In-hall conversion of the", "Total (the headline capex)"):
@@ -200,7 +201,10 @@ def test_the_deck_does_not_claim_labels_it_does_not_print_and_does_not_hide_the_
     assert f"{len(rec.envelope.constraints)} constraints across" in text
     taken = len(rec.ladder.taken_steps)
     assert taken > 8 and f"first 8 of the {taken} rungs taken" in re.sub(r"\s+", " ", text)
-    assert "What nobody has measured yet" not in text          # the intake has no gaps: the slide must not say nothing was supplied
+    # The intake leaves two optional inputs to library defaults (the CDU schedule and the TCS target
+    # temperature); the slide must name exactly those, not claim nothing was supplied.
+    assert "What nobody has measured yet" in text
+    assert "Installed CDU schedule" in text and "TCS target supply temperature" in text
     assert "tied constraint" in text
 
 

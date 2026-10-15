@@ -50,6 +50,11 @@ http.createServer((req, res) => {
   req.on("data", c => (body += c));
   req.on("end", () => {
     const u = new URL(req.url, "http://localhost");
+    if (u.pathname === "/auth/v1/user") {
+      // Stand-in for GoTrue: a bearer of the form `tok:<email>` verifies as that email, anything else is a 401.
+      const t = /^Bearer tok:(.+)$/.exec(req.headers.authorization || "");
+      return t ? send(res, 200, { email: t[1] }) : send(res, 401, {});
+    }
     const m = u.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (!m) return send(res, 404, { message: "no route" });
     const name = m[1];

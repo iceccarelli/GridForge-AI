@@ -76,7 +76,9 @@
      "permitting_note": "No combustion consent required; grid-code compliance and fire separation govern the programme."},
     {"id": "GEN-5MW", "kind": "gas_engine", "capacity_MW": 5.0, "capex_eur_per_kW": 800,
      "lead_time_weeks": 44, "firm": true, "opex_eur_per_MWh": 95,
+     "annual_run_hours": 5000, "fixed_om_eur_per_kW_year": 18,
      "permitting_note": "Emissions consent and fuel supply are the schedule risk, not the equipment."}
   ],
+  "economics": {"horizon_years": 10},
   "scenarios": ["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"]
 }

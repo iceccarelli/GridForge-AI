@@ -65,13 +65,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // note can name the input that moved rather than only the size of the move.
   const out = await runWatch(doc, w.last_state, w.intake ?? undefined);
   if (!out.ok) {
-    await updateWatch(token, { intake: doc });
+    // intake and last_state move together or not at all. Saving the new intake
+    // here without a matching last_state would make the NEXT change be diffed
+    // against a baseline from a different hall, and misattributed.
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Your updated numbers were saved, but the model could not be re-solved just now. " +
-          "Nothing was invented and nothing is lost — we will pick it up.",
+          "The model could not be re-solved just now, so your updated numbers were NOT saved " +
+          "and your watch still shows the previous ones. Nothing was invented — please submit again shortly.",
         detail: out.error,
       },
       { status: 502 }
@@ -80,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const d = out.diff;
   if (w.id !== "local") {
-    await recordNote({
+    const noted = await recordNote({
       watch_id: w.id,
       material: Boolean(d.material),
       headline: d.headline,
@@ -92,8 +94,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       change: d,
       trigger: "inputs_updated",
     });
+    if (!noted) {
+      return NextResponse.json(
+        { ok: false, error: "We could not record the change note just now, so nothing was saved. Please submit again shortly." },
+        { status: 503 }
+      );
+    }
   }
-  await updateWatch(token, {
+  const saved = await updateWatch(token, {
     intake: doc,
     last_state: d.after,
     last_run_at: new Date().toISOString(),
@@ -101,6 +109,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     site_name: parsed.data.siteName,
     hall_id: parsed.data.hallId,
   });
+  if (!saved) {
+    return NextResponse.json(
+      { ok: false, error: "We could not save your updated numbers just now. Please submit again shortly." },
+      { status: 503 }
+    );
+  }
 
   return NextResponse.json({ ok: true, headline: d.headline, material: d.material });
 }

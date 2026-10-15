@@ -82,7 +82,14 @@ export async function createWatch(
   };
   const c = creds();
   if (!c) {
-    console.log("[GridForge] watch (not persisted — Supabase unset):", JSON.stringify(record));
+    // See createDeliverable: a "local" success would make the Stripe webhook ack a
+    // paid subscription that was never stored. Fail outside `next dev`; never log
+    // the record (token, buyer email).
+    if (process.env.NODE_ENV !== "development") {
+      console.error("[GridForge] watch NOT persisted: Supabase is not configured");
+      return null;
+    }
+    console.warn("[GridForge] DEV ONLY: watch not persisted (Supabase unset)");
     return { ...(record as WatchRecord), id: "local" };
   }
   const res = await fetch(`${c.url}/rest/v1/watches`, {
@@ -127,6 +134,41 @@ export async function dueWatches(limit = 25): Promise<WatchRecord[]> {
     return [];
   }
   return (await res.json()) as WatchRecord[];
+}
+
+/** How long a claimed watch is held by one cron invocation before another may take it. */
+export const WATCH_LEASE_MS = 15 * 60 * 1000;
+/** After an engine/store failure a watch is pushed this far back, behind everything else due. */
+export const WATCH_RETRY_BACKOFF_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Claim a due watch: a conditional update of next_run_at (only if it is still the
+ * value we read) to a lease expiry. Exactly one of several overlapping cron
+ * invocations gets "claimed"; the others see the row already moved and skip it.
+ * "error" means the store failed, so the caller must not work on it.
+ */
+export async function claimWatch(w: WatchRecord, now = new Date()): Promise<"claimed" | "lost" | "error"> {
+  const c = creds();
+  if (!c) return "error";
+  const current = w.next_run_at === null ? "is.null" : `eq.${encodeURIComponent(w.next_run_at)}`;
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(w.token)}&status=eq.active&next_run_at=${current}`,
+      {
+        method: "PATCH",
+        headers: { ...c.headers, Prefer: "return=representation" },
+        body: JSON.stringify({ next_run_at: new Date(now.getTime() + WATCH_LEASE_MS).toISOString() }),
+      }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] watch claim failed:", await storeFault(res));
+      return "error";
+    }
+    return ((await res.json().catch(() => [])) as unknown[]).length > 0 ? "claimed" : "lost";
+  } catch (err) {
+    console.error("[GridForge] watch claim unreachable:", err);
+    return "error";
+  }
 }
 
 export async function updateWatch(token: string, patch: Partial<WatchRecord>): Promise<boolean> {
@@ -182,7 +224,7 @@ export async function watchBySubscription(subscriptionId: string): Promise<Watch
 export async function recordNote(row: Partial<WatchNote> & { watch_id: string }): Promise<boolean> {
   const c = creds();
   if (!c) {
-    console.log("[GridForge] watch note (not persisted):", JSON.stringify(row).slice(0, 400));
+    console.error("[GridForge] watch note NOT persisted: Supabase is not configured (watch_id=%s)", row.watch_id);
     return false;
   }
   const res = await fetch(`${c.url}/rest/v1/watch_notes`, {

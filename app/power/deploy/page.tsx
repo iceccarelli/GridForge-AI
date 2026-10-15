@@ -5,7 +5,6 @@ export const metadata: Metadata = {
   title: "BTM Power Deployment Assessment",
   description:
     "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.",
-  robots: { index: false, follow: false },
 };
 
 /**
@@ -29,9 +28,7 @@ export default function PowerDeployPage() {
         Compares GRID ONLY, GRID + GENERATION, GRID + BESS and GRID + BESS + GENERATION against
         your declared redundancy policy, each priced and dated from what you enter below — never
         priced at zero when a unit is uncosted. This is screening-level engineering: a directional
-        read from a flat load assumption, not a bankable number. See{" "}
-        <code className="text-ghost">docs/07_DELIVERY_RUNBOOK.md</code> for the full request
-        shape, including a real interval load profile.
+        read from a flat load assumption, not a bankable number. The API accepts a fuller request, including a real interval load profile.
       </p>
       <div className="mt-8">
         <PowerDeployCaseForm />

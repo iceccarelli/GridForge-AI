@@ -128,7 +128,9 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
                        [("bess", b.id, b.firm_MW_for_duration(case.ride_through_hours).value)
                         for b in case.bess]
         contributors.sort(key=lambda c: -c[2])
-        half = contributors[len(contributors) // 2:]
+        # One whole path is lost, and which path is unknown: assume the larger side, so the
+        # contingency is never reported milder than it could be.
+        half = contributors[:(len(contributors) + 1) // 2]
         for kind, cid, _ in half:
             (excl_gen if kind == "gen" else excl_bess).add(cid)
         scenario_name = "loss of one full 2N path (modelled as half the declared units by size)"

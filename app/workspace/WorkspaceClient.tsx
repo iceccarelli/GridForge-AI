@@ -79,6 +79,15 @@ export function WorkspaceClient() {
         turn.blocks.find((b) => b.type === "answer")?.text ??
         "Here's what the engine returned — see the canvas.";
       setMessages([...next, { role: "assistant", content: summary, turn }]);
+    } catch {
+      setMessages([
+        ...next,
+        {
+          role: "assistant",
+          content:
+            "Sorry, the engine could not be reached just now, so there is no result for that message. Please try again in a moment.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }

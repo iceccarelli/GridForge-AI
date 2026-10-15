@@ -70,3 +70,26 @@ def label(key: str) -> str:
         return MODEL_KEYS[key]
     cid = constraint_id_of(key)
     return f"Racks permitted by {cid.replace('_', ' ')}" if cid else key
+
+
+#: Keys where a LARGER observed value than predicted means the model was too optimistic
+#: (cost, time, energy overhead came in higher). For every other key (capacity, racks, load
+#: headroom) a larger observed value means the model was conservative.
+HIGHER_OBSERVED_IS_OPTIMISTIC: frozenset[str] = frozenset({
+    "thermal.pue", "schedule.weeks_to_full", "economics.capex_total_eur",
+    "envelope.facility_load_kW",
+})
+
+#: The unit each key is recorded in. An observation of PUE entered in kW, or capex in
+#: thousands, would otherwise sit in the ledger as a ratio of nonsense.
+UNIT_OF: dict[str, str] = {
+    "envelope.it_load_kW": "kW", "envelope.racks": "racks", "envelope.facility_load_kW": "kW",
+    "thermal.pue": "1", "schedule.weeks_to_full": "weeks", "economics.capex_total_eur": "EUR",
+    "btm.firm_MW": "MW",
+}
+
+
+def expected_unit(key: str) -> str | None:
+    if key in UNIT_OF:
+        return UNIT_OF[key]
+    return "racks" if constraint_id_of(key) else None

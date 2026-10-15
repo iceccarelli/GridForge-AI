@@ -82,7 +82,16 @@ export async function createDeliverable(
   };
   const c = creds();
   if (!c) {
-    console.log("[GridForge] deliverable (not persisted — Supabase unset):", JSON.stringify(record));
+    // With no store the order is NOT persisted, and the Stripe webhook treats a
+    // non-null result as "engagement opened" (2xx, no retry) — a paid-but-lost
+    // order. So outside local development this is a failure (null -> 5xx -> Stripe
+    // retries). The id:"local" stand-in exists only for `next dev`. The record holds
+    // the document token, intake token and buyer email, so it is never logged.
+    if (process.env.NODE_ENV !== "development") {
+      console.error("[GridForge] deliverable NOT persisted: Supabase is not configured (kind=%s)", row.kind);
+      return null;
+    }
+    console.warn("[GridForge] DEV ONLY: deliverable not persisted (Supabase unset), kind=%s", row.kind);
     return { ...(record as DeliverableRecord), id: "local" };
   }
   const insert = (payload: Record<string, unknown>) =>
@@ -274,6 +283,50 @@ export async function updateByToken(
   );
   if (!res.ok) console.error("[GridForge] deliverable update failed:", await storeFault(res));
   return res.ok;
+}
+
+/**
+ * Update only if the row is still in one of `statuses` — a compare-and-set on
+ * the lifecycle. "claimed": exactly the expected row changed. "lost": the row was
+ * not (or no longer) in an allowed status, nothing was written. "error": the store
+ * failed, so the outcome is unknown and the caller must not assume success.
+ */
+export async function updateByTokenIf(
+  token: string,
+  patch: Partial<DeliverableRecord>,
+  statuses: DeliverableStatus[]
+): Promise<"claimed" | "lost" | "error"> {
+  const c = creds();
+  if (!c) return "error";
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}` +
+        `&status=in.(${statuses.join(",")})`,
+      {
+        method: "PATCH",
+        headers: { ...c.headers, Prefer: "return=representation" },
+        body: JSON.stringify(patch),
+      }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] deliverable conditional update failed:", await storeFault(res));
+      return "error";
+    }
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    return rows.length > 0 ? "claimed" : "lost";
+  } catch (err) {
+    console.error("[GridForge] deliverable conditional update unreachable:", err);
+    return "error";
+  }
+}
+
+/**
+ * Fingerprint of a document body. Taken when a draft is generated and again when
+ * an operator releases it: release is refused unless the caller names the hash of
+ * the draft they actually reviewed, so what is released is exactly what was read.
+ */
+export function documentHash(html: string | null | undefined): string {
+  return crypto.createHash("sha256").update(html ?? "", "utf8").digest("hex");
 }
 
 /** Ask the engine for the rendered deliverable. Client tier: needs the API key. */

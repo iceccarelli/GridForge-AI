@@ -60,7 +60,7 @@ Obligation words carry their usual tender meaning: shall — non-compliance disq
 
 **Required:** 1,990 A (E3)
 
-*Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E5) continuous limit. Installed: 400 A (E5).*
+*Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E3) continuous limit. Installed: 400 A (E5).*
 
 *Verification:* Type test certificate to the applicable standard, with derating basis stated.
 
@@ -144,7 +144,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | E2 | simulated |
 | E3 | estimated |
 | E4 | validated against test data |
-| E5 | measured at site (customer data) |
+| E5 | supplied by the client (not measured or surveyed by us) |
 | E6 | field-validated |
 | E7 | observed in operation |
 
@@ -152,6 +152,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ### A.1 Assumptions relied upon
 
+- Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. Not a market price.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Tap-off units are a reported shortage item
 
@@ -162,7 +163,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 | Quantity | Evidence | Model | Digest |
 | --- | --- | --- | --- |
-| busway replacement for one hall | E0 | input@0.1 | `74129e356449` |
+| busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |

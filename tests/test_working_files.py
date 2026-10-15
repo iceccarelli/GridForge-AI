@@ -31,7 +31,8 @@ from gridforge.serialize import csv_bundle, write_csv_bundle
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_INTAKE = ROOT / "examples" / "intake" / "reference_hall.json"
 BUNDLE_FILES = ["scenarios.csv", "headroom_ladder.csv", "constraints.csv",
-                "inputs.csv", "assumed_inputs.csv", "provenance.csv", "README.txt"]
+                "inputs.csv", "assumed_inputs.csv", "provenance.csv", "economics.csv",
+                "unpriced_components.csv", "README.txt"]
 
 
 def run_cli(*args):

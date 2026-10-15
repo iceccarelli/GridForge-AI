@@ -8,14 +8,35 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
+  const [message, setMessage] = useState<string | null>(null);
+  const configured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
   async function sendLink() {
     if (!email.includes("@")) return;
+    setMessage(null);
+    if (!configured) {
+      setMessage("Sign-in is not available right now. Please try again later.");
+      setStatus("error");
+      return;
+    }
     setStatus("sending");
-    const { error } = await getSupabase().auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/account` },
-    });
-    setStatus(error ? "error" : "sent");
+    try {
+      const { error } = await getSupabase().auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: `${window.location.origin}/account` },
+      });
+      if (error) {
+        setMessage("Could not send the link. Check the address and try again.");
+        setStatus("error");
+      } else {
+        setStatus("sent");
+      }
+    } catch {
+      setMessage("Sign-in is not available right now. Please try again later.");
+      setStatus("error");
+    }
   }
 
   return (
@@ -42,6 +63,8 @@ export default function LoginPage() {
             <div className="space-y-3">
               <input
                 type="email"
+                aria-label="Email address"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendLink()}
@@ -63,7 +86,7 @@ export default function LoginPage() {
               </button>
               {status === "error" && (
                 <p className="text-sm text-red-400">
-                  Could not send the link. Check the address and try again.
+                  {message ?? "Could not send the link. Check the address and try again."}
                 </p>
               )}
             </div>

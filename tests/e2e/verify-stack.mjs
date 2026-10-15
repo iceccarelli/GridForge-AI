@@ -172,6 +172,16 @@ const HALL = {
   platform: "gb300_nvl72",
 };
 
+/** Release the draft exactly as the operator's button does: bound to the hash of the document that was read. */
+async function release(token, cookie) {
+  const row = (await (await sb(`deliverables?token=eq.${token}&select=document_html`)).json())[0];
+  const hash = crypto.createHash("sha256").update(row?.document_html ?? "", "utf8").digest("hex");
+  return fetch(`${SITE}/api/admin/deliverables`, {
+    method: "PATCH", headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ token, action: "release", reviewed_hash: hash }),
+  });
+}
+
 async function main() {
   head("Starting the stack");
 
@@ -188,6 +198,8 @@ async function main() {
 
   start("site", "npx", ["next", "start", "-p", String(SITE_PORT)], {
     SUPABASE_URL: PG,
+    NEXT_PUBLIC_SUPABASE_URL: PG,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "local-anon",
     SUPABASE_SERVICE_ROLE_KEY: "local-verify",
     GRIDFORGE_API_URL: ENGINE,
     GRIDFORGE_API_KEY: ENGINE_KEY,
@@ -316,10 +328,12 @@ async function main() {
      (await fetch(`${SITE}/api/admin/deliverables`, { method: "PATCH",
        headers: { "content-type": "application/json" },
        body: JSON.stringify({ token, action: "release" }) })).status === 401);
-  ok("and succeeds with it",
+  ok("release refuses a document that is not the one that was reviewed",
      (await fetch(`${SITE}/api/admin/deliverables`, { method: "PATCH",
        headers: { "content-type": "application/json", cookie },
-       body: JSON.stringify({ token, action: "release" }) })).status === 200);
+       body: JSON.stringify({ token, action: "release", reviewed_hash: "0".repeat(64) }) })).status === 409);
+  ok("and succeeds with the hash of the draft that was read",
+     (await release(token, cookie)).status === 200);
 
   ok("the customer can now read it", (await fetch(`${SITE}/api/deliverable/${token}`)).status === 200);
   const page = await (await fetch(`${SITE}/deliverable/${token}`)).text();
@@ -369,11 +383,7 @@ async function main() {
      !("floor_loading_kPa" in (thinAfter?.intake?.hall ?? {})) &&
      !("chilled_water_capacity_kW" in (thinAfter?.intake?.thermal?.plant ?? {})));
 
-  await fetch(`${SITE}/api/admin/deliverables`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ token: thinRow.token, action: "release" }),
-  });
+  await release(thinRow.token, cookie);
   const thinDoc = JSON.stringify(
     await (await fetch(`${SITE}/api/deliverable/${thinRow.token}`)).json()
   ).toLowerCase();
@@ -428,10 +438,7 @@ async function main() {
   });
   ok("bids are refused before the specification is released", early.status === 409);
 
-  await fetch(`${SITE}/api/admin/deliverables`, {
-    method: "PATCH", headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ token: specRow.token, action: "release" }),
-  });
+  await release(specRow.token, cookie);
 
   // Three suppliers answer the schedule. The cheapest has the longest lead time.
   const tmpl = JSON.parse(template);
@@ -541,10 +548,14 @@ async function main() {
     data: { object: { object: "checkout_session", customer_email: "director@northhall.example",
       customer: "cus_int", subscription: "sub_int", amount_total: 199900,
       metadata: { kind: "intelligence_subscription", plan: "team" }, ...over } } });
+  const bearer = { authorization: "Bearer tok:director@northhall.example" };
   const status = async () =>
     (await (await fetch(`${SITE}/api/subscription-status`, { method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "director@northhall.example" }) })).json());
+      headers: { "content-type": "application/json", ...bearer }, body: "{}" })).json());
+  ok("a request naming the subscriber's email but carrying no verified identity is refused",
+     (await fetch(`${SITE}/api/subscription-status`, { method: "POST",
+       headers: { "content-type": "application/json" },
+       body: JSON.stringify({ email: "director@northhall.example" }) })).status === 401);
   ok("not a subscriber before paying", (await status()).active === false);
   await sub({ id: "cs_int_1" });
   ok("entitled after paying", (await status()).active === true);
@@ -555,7 +566,7 @@ async function main() {
                data: { object: { id: "sub_int", object: "subscription" } } });
   ok("cancellation withdraws the entitlement", (await status()).active === false);
   ok("and the paid surface closes with it",
-     (await fetch(`${SITE}/api/scenarios?email=director%40northhall.example`)).status === 402);
+     (await fetch(`${SITE}/api/scenarios`, { headers: bearer })).status === 402);
 }
 
 try {

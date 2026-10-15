@@ -9,7 +9,7 @@ The two most commonly missed, and therefore the two most commercially valuable:
 from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, SIMULATED, V
-from ..costs import cost
+from ..costs import cdu_cost, cost, scaled_cost
 from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW
 from ..thermal.schema import Architecture
@@ -18,13 +18,23 @@ from ..validation import Quantity
 
 def _effective_units(units: int, redundancy: str) -> int:
     r = redundancy.upper().replace(" ", "")
-    return {"N": units, "N+1": max(units - 1, 0), "N+2": max(units - 2, 0),
-            "2N": units // 2, "N+N": units // 2}.get(r, units)
+    table = {"N": units, "N+0": units, "N+1": max(units - 1, 0), "N+2": max(units - 2, 0),
+             "2N": units // 2, "N+N": units // 2}
+    if r not in table:
+        raise ValueError(f"unknown redundancy {redundancy!r}; expected one of {sorted(table)}")
+    return table[r]
+
+
+PLANT_UPRATE = 1.5     # screening assumption: the plant relief adds 50% to chilled-water capacity
+PUMP_UPRATE = 1.8      # screening assumption: the pump relief adds 80% to pumped flow
 
 
 def _liquid_load_to_plant(ctx: EnvelopeContext) -> bool:
-    """Does the liquid load land on the existing chilled-water plant?"""
-    return ctx.architecture in (Architecture.HYBRID_DLC, Architecture.RDHX)
+    """Does the whole rack load land on the existing chilled-water plant? Under retained air
+    all of it does (it is air-cooled and the plant removes it); under full direct-to-chip
+    only the residual air share does, the liquid going to a dedicated loop."""
+    return ctx.architecture in (Architecture.HYBRID_DLC, Architecture.RDHX,
+                                Architecture.RETAINED_AIR)
 
 
 @constraint
@@ -35,6 +45,11 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
     to compare a different architecture, which is what the scenario set is for.
     """
     capability = ARCH_RACK_CAPABILITY_kW[ctx.architecture]
+    declared = False
+    if ctx.architecture == Architecture.RDHX and ctx.thermal.rdhx is not None:
+        # The client's own rear-door unit, not the screening default.
+        capability = ctx.thermal.rdhx.capacity_kW_per_rack
+        declared = True
     need = ctx.cluster.platform.rack_kW
     ok = need.value <= capability.value
     racks = V(float("inf") if ok else 0.0, "racks",
@@ -43,8 +58,11 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
         "architecture_capability", "thermal",
         "Cooling architecture per-rack capability",
         racks, gate=True,
-        basis=(f"{ctx.architecture.value} is practically capable of {capability.render()} per rack; "
-               f"the target platform draws {need.render()}"),
+        basis=(f"{ctx.architecture.value} is practically capable of {capability.render()} per rack"
+               + (" (the client's declared rear-door rating)" if declared else
+                  " (a library default for the architecture, not a manufacturer's rating or a site measurement)"
+                  if ctx.architecture == Architecture.RDHX else "")
+               + f"; the target platform draws {need.render()}"),
         relief=None,
         notes=("No capex relieves this constraint. If it binds, the architecture is wrong for the "
                "platform and a different scenario must be selected.",),
@@ -83,6 +101,9 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             cdu.units += 1
         return c
 
+    # One further unit per bank: the price follows the units actually added.
+    cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
+        len(t.cdus), "additional CDU")
     return ConstraintResult(
         "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
         floor_racks(racks),
@@ -90,7 +111,9 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                f"per rack; {available_approach.render()} approach available"),
         relief=ReliefOption(
             description="Add CDU capacity (one further unit per bank)",
-            capex_eur=cost("cdu.addition", 180_000, "EUR", "additional row CDU, installed"),
+            capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
+            extra_cost_keys=cdu_extra, quantity=float(len(t.cdus)), quantity_unit="unit", limited=cdu_limited,
+            basis_note=cdu_note,
             cost_key="cdu.addition",
             lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
             apply=_apply,
@@ -114,10 +137,17 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         c = c.copy()
         c.thermal.plant.chilled_water_capacity_kW = (
             c.thermal.plant.chilled_water_capacity_kW *
-            V(1.5, "1", "plant uprate factor", ASSUMED))
+            V(PLANT_UPRATE, "1", "plant uprate factor", ASSUMED))
         return c
 
-    route = ("full rack load (liquid rejected into the existing plant)" if _liquid_load_to_plant(ctx)
+    added_kW = t.plant.chilled_water_capacity_kW.value * (PLANT_UPRATE - 1.0)
+    price = scaled_cost(
+        "plant.uprate", 900_000 / 3400.0, "EUR/kW", added_kW, "kW",
+        "chilled-water plant uprate",
+        note="Placeholder re-expressed per kW of cooling added from the earlier 900 kEUR lump at the reference "
+             "hall's 3,400 kW (+50% of 6,800 kW). Not a market price.")
+
+    route = ("full rack load (rack heat rejected into the existing plant)" if _liquid_load_to_plant(ctx)
              else "residual air load only (liquid rejected to a dedicated high-temperature loop)")
     return ConstraintResult(
         "plant_capacity", "thermal", "Chilled-water plant capacity",
@@ -125,7 +155,9 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}",
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
-            capex_eur=cost("plant.uprate", 900_000, "EUR", "chilled-water plant uprate"),
+            capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="plant.uprate",
             lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
             apply=_apply,
@@ -148,8 +180,15 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
         c.thermal.plant.pump_flow_capacity_l_per_min = (
-            c.thermal.plant.pump_flow_capacity_l_per_min * V(1.8, "1", "pump uprate factor", ASSUMED))
+            c.thermal.plant.pump_flow_capacity_l_per_min * V(PUMP_UPRATE, "1", "pump uprate factor", ASSUMED))
         return c
+
+    added_lpm = t.plant.pump_flow_capacity_l_per_min.value * (PUMP_UPRATE - 1.0)
+    price = scaled_cost(
+        "pump.uprate", 420_000 / 7200.0, "EUR/lpm", added_lpm, "lpm",
+        "pump and secondary pipework uprate",
+        note="Placeholder re-expressed per litre/min of flow added from the earlier 420 kEUR lump at the "
+             "reference hall's 7,200 l/min (+80% of 9,000). Not a market price. lpm = litres per minute.")
 
     return ConstraintResult(
         "hydraulic_flow", "thermal", "Hydraulic flow capacity",
@@ -159,7 +198,9 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
                f"(~1.45 l/min/kW at 10 K delta-T)"),
         relief=ReliefOption(
             description="Uprate pumps and secondary pipework",
-            capex_eur=cost("pump.uprate", 420_000, "EUR", "pump and secondary pipework uprate"),
+            capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+            basis_note=price.note,
             cost_key="pump.uprate",
             lead_time_weeks=V(30, "weeks", "pump / pipework lead time", ASSUMED, band=(18, 48)),
             apply=_apply,
@@ -247,6 +288,9 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
             capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
                            "adiabatic assist and trim chiller"),
             cost_key="trim_chiller.adiabatic",
+            cost_kind="fixed_site",
+            basis_note="One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no "
+                       "loop capacity is modelled, so the lump is not scaled with hall size.",
             lead_time_weeks=V(32, "weeks", "lead time", ASSUMED, band=(20, 48)),
             apply=_apply,
             risk="Adiabatic assist reintroduces water consumption; check permits and WUE targets.",

@@ -76,6 +76,21 @@ export async function POST(req: Request) {
       { status: 402 }
     );
   }
+  // Only an ACTIVE subscription mints. A key lasts 35 days, so letting a past_due account mint or rotate
+  // hands out a month of access against a payment that has not cleared. Reading status/usage stays open
+  // (GET); the key is minted again once the payment clears and the account returns to active.
+  if (row.status !== "active") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Your latest payment has not cleared, so a new key cannot be issued yet. " +
+          "Update your payment method; you can mint a key as soon as the payment succeeds.",
+        status: row.status,
+      },
+      { status: 402 }
+    );
+  }
   // Three reasons to mint, and only the first and third were implemented. The
   // second is the one a paying customer hits: the key aged out under them, the
   // engine told them to "reissue from your account page", and this answered "a
@@ -111,7 +126,19 @@ export async function POST(req: Request) {
     key: minted.token,
     expires: minted.expires,
     replaced_expired_key: life.expired,
-    revoked_previous: supersede && Boolean(row.key_id),
+    // True only when the engine confirmed the previous id is revoked. Never inferred from intent.
+    revoked_previous: minted.engine_revoked === true,
+    ...(supersede && minted.previous && minted.engine_revoked !== true
+      ? {
+          revocation_pending: true,
+          revocation_note:
+            "The new key is live, but we could not confirm the engine has revoked the previous one. " +
+            "It is recorded for revocation and will be retried; treat the old key as still working until then.",
+        }
+      : {}),
+    ...(!supersede && minted.previous
+      ? { previous_key_overlaps_until_expiry: true }
+      : {}),
     warning:
       "Copy this now. It is shown once and is not stored anywhere we can read it back.",
   });

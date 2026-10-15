@@ -84,6 +84,73 @@ def test_quotations_reach_the_study_and_the_study_says_how_many_are_missing(tmp_
         reload_library()
 
 
+def test_a_quotation_reaches_the_study_the_way_ci_runs_it(tmp_path):
+    """The CI step "A quotation must strengthen the deliverable", with structured assertions instead of a grep.
+
+    The supplier is a SYNTHETIC test fixture, not a quotation from anyone. The date is pinned and the validity window
+    is open-ended, so neither the wall clock nor expiry decides the outcome."""
+    from gridforge.costs import BASIS_LABEL
+    lib = tmp_path / "costs.json"
+    env = {**__import__("os").environ, "GRIDFORGE_COST_LIBRARY": str(lib), "GRIDFORGE_REPORT_DATE": "2026-10-13"}
+    add = subprocess.run(
+        [sys.executable, "-m", "gridforge", "cost", "add", "--key", "tapoff.unit", "--label", "tap-off unit",
+         "--unit", "EUR/rack", "--value", "5200", "--basis", "firm_quote", "--supplier", "SYNTHETIC-TEST-SUPPLIER",
+         "--quoted-on", "2026-01-01", "--valid-until", "2099-12-31", "--library", str(lib)],
+        cwd=ROOT, capture_output=True, text=True, env=env)
+    assert add.returncode == 0, add.stderr
+    entry = json.loads(lib.read_text())["entries"][0]
+    assert (entry["key"], entry["basis"], entry["value"], entry["valid_until"]) == ("tapoff.unit", "firm_quote", 5200.0, "2099-12-31")
+
+    def study(out, library):
+        e = {**env, "GRIDFORGE_COST_LIBRARY": str(library)}
+        r = subprocess.run([sys.executable, "-m", "gridforge", "study", str(REFERENCE), "-o", str(out)],
+                           cwd=ROOT, capture_output=True, text=True, env=e)
+        assert r.returncode == 0, r.stderr
+        return (out / "envelope_study.md").read_text()
+
+    quoted_md = study(tmp_path / "quoted", lib)
+    base_md = study(tmp_path / "base", tmp_path / "no-such-library.json")
+
+    # The same two runs as data: the quote, not the report text, is what moved the number.
+    def tapoff_step(env_vars):
+        import os
+        old = {k: os.environ.get(k) for k in env_vars}
+        os.environ.update(env_vars)
+        try:
+            reload_library(env_vars["GRIDFORGE_COST_LIBRARY"])
+            intake = load(REFERENCE)
+            results = run_all(intake.context, intake.scenarios)
+            step = next(x for r in results for x in r.ladder.taken_steps if x.cost_key == "tapoff.unit")
+            return step, results[-1].economics
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+            reload_library()
+
+    q_step, q_econ = tapoff_step({"GRIDFORGE_COST_LIBRARY": str(lib), "GRIDFORGE_REPORT_DATE": "2026-10-13"})
+    b_step, b_econ = tapoff_step({"GRIDFORGE_COST_LIBRARY": str(tmp_path / "none.json"), "GRIDFORGE_REPORT_DATE": "2026-10-13"})
+    assert b_step.cost_basis == "library_default" and q_step.cost_basis == "firm_quote"
+    racks = round(b_step.capex_eur.value / 6_000)             # the placeholder is 6,000 EUR/rack
+    assert racks > 0 and q_step.capex_eur.value == pytest.approx(5200 * racks)
+    assert q_step.capex_eur.value < b_step.capex_eur.value
+    assert (q_step.capex_eur.hi - q_step.capex_eur.lo) < (b_step.capex_eur.hi - b_step.capex_eur.lo), \
+        "a firm quote must tighten the band"
+    assert q_econ.cost_basis_mix.get("firm_quote", 0) >= 1 and "firm_quote" not in b_econ.cost_basis_mix
+
+    # The report says so in the application's own words, on the tap-off row, and only in the quoted run.
+    label = BASIS_LABEL["firm_quote"]
+    row = next(l for l in quoted_md.splitlines() if l.startswith("| 1 | Rack feed / tap-off rating"))
+    assert label in row and "library placeholder" not in row
+    assert label not in base_md
+
+    # What the one quotation did not price stays disclosed, and the study does not call itself decision-grade.
+    assert q_econ.rests_on_placeholders >= 1 and not q_econ.decision_grade
+    assert BASIS_LABEL["library_default"] in quoted_md
+    assert "not decision-grade" in quoted_md and "LOWER BOUND" in quoted_md
+    assert "NOT decision-grade" in quoted_md
+    assert q_econ.unpriced and "library placeholders, not prices" in quoted_md
+
+
 def test_cost_cli_round_trips(tmp_path):
     lib = tmp_path / "costs.json"
     add = subprocess.run(
@@ -274,3 +341,22 @@ def test_deck_is_self_contained(solved):
     assert "http://" not in html and "https://" not in html, (
         "the deck must render with no network at all — a client may open it offline"
     )
+
+
+def test_a_zero_or_non_finite_quotation_is_not_a_price():
+    import pytest
+    from gridforge.costs import CostEntry
+    with pytest.raises(ValueError, match="not a price"):
+        CostEntry(key="x", label="x", unit="EUR", value=0, basis="firm_quote")
+    with pytest.raises(ValueError, match="finite"):
+        CostEntry(key="x", label="x", unit="EUR", value=float("nan"), basis="firm_quote")
+    CostEntry(key="x", label="x", unit="EUR", value=0, basis="library_default")   # a placeholder may be zero
+
+
+def test_staleness_follows_the_pinned_report_date(monkeypatch):
+    from gridforge.costs import CostEntry
+    e = CostEntry(key="x", label="x", unit="EUR", value=5, basis="firm_quote", valid_until="2026-09-30")
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-09-01")
+    assert not e.stale
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-01")
+    assert e.stale

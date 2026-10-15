@@ -25,6 +25,7 @@ def clean_env(monkeypatch, tmp_path):
     monkeypatch.setenv("GRIDFORGE_KEY_SECRET", "test-revocation-secret")
     # The module caches on mtime; each test starts from nothing.
     K._revoked_cache = (-1.0, frozenset())
+    monkeypatch.setattr(K, "_store_seen", False)
     yield
 
 
@@ -92,11 +93,12 @@ def test_an_empty_id_is_refused():
 def test_an_unreadable_store_does_not_silently_un_revoke(tmp_path):
     K.revoke("deadbeef")
     assert "deadbeef" in K.revoked_ids()
-    # Corrupt it. The last known set must survive rather than emptying, because
-    # emptying would quietly bring a leaked key back to life.
+    # Corrupt it. Serving the stale cache is not safe either (after a restart the cache is empty
+    # and a leaked key would come back to life), so the store refuses to answer at all.
     (tmp_path / "revoked.json").write_text("{ this is not json")
     K._revoked_cache = (K._revoked_cache[0] - 1, K._revoked_cache[1])
-    assert "deadbeef" in K.revoked_ids()
+    with pytest.raises(K.RevocationStoreError):
+        K.revoked_ids()
 
 
 def test_no_store_configured_is_simply_no_stored_revocations():

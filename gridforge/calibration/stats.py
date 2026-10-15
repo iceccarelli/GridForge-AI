@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from .keys import HIGHER_OBSERVED_IS_OPTIMISTIC
 from .schema import Observation
 
 # n < INDICATIVE_MIN      : we know nothing
@@ -17,6 +18,8 @@ from .schema import Observation
 # n >= CALIBRATED_MIN     : a spread worth printing next to a number
 INDICATIVE_MIN = 1
 CALIBRATED_MIN = 5
+#: Five readings from one hall are one hall. A spread is only a spread across sites.
+CALIBRATED_MIN_SITES = 3
 
 
 class CalibrationState(Enum):
@@ -80,9 +83,12 @@ class Calibration:
 
     @property
     def conservative(self) -> bool | None:
-        """True when sites have come in above what the model permitted."""
+        """True when sites came in better than the model said: more capacity than it permitted, or
+        less cost, time or overhead than it predicted."""
         if self.median_ratio is None:
             return None
+        if self.key in HIGHER_OBSERVED_IS_OPTIMISTIC:
+            return self.median_ratio < 1.0
         return self.median_ratio > 1.0
 
     def sentence(self) -> str:
@@ -121,11 +127,12 @@ def calibration_for(key: str, observations: list[Observation]) -> Calibration:
         return uncalibrated(key)
     ratios = [o.ratio for o in obs]
     n = len(obs)
-    state = (CalibrationState.CALIBRATED if n >= CALIBRATED_MIN
+    n_sites = len({o.site_ref for o in obs})
+    state = (CalibrationState.CALIBRATED if n >= CALIBRATED_MIN and n_sites >= CALIBRATED_MIN_SITES
              else CalibrationState.INDICATIVE if n >= INDICATIVE_MIN
              else CalibrationState.UNCALIBRATED)
     return Calibration(
-        key=key, n=n, sites=len({o.site_ref for o in obs}), state=state,
+        key=key, n=n, sites=n_sites, state=state,
         median_ratio=_median(ratios),
         low_ratio=_quantile(ratios, 0.1) if state is CalibrationState.CALIBRATED else None,
         high_ratio=_quantile(ratios, 0.9) if state is CalibrationState.CALIBRATED else None,

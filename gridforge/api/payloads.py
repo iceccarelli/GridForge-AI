@@ -23,10 +23,13 @@ def calibration_block(results: list[ScenarioResult]) -> dict:
     return accuracy_block(keys)
 
 
-def _gap_list(intake: Intake) -> list[dict]:
-    return [{"input": g.label, "unit": g.unit, "required": g.required,
+def _gap_list(intake: Intake, *, public: bool = False) -> list[dict]:
+    """The data request. The free qualifier omits economics inputs (tariff, horizon, discount rate): they
+    only matter to the priced deliverable, and their placeholders are euro figures."""
+    return [{"path": g.path, "input": g.label, "unit": g.unit, "required": g.required,
              "assumed": g.fallback_description, "why_it_binds": g.why_it_binds,
-             "how_to_get_it": g.how_to_get_it} for g in intake.report.gaps]
+             "how_to_get_it": g.how_to_get_it}
+            for g in intake.report.gaps if not (public and g.path.startswith("economics."))]
 
 
 def qualify_payload(intake: Intake, results: list[ScenarioResult],
@@ -59,7 +62,7 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
             "completeness": round(intake.report.completeness, 3),
             "required_inputs_missing": len(intake.report.required_gaps),
             "can_issue_a_study": intake.report.can_issue,
-            "gaps": _gap_list(intake),
+            "gaps": _gap_list(intake, public=True),
             "warnings": intake.report.warnings,
             "recommended_engagement": intake.report.engagement_recommendation,
         },
