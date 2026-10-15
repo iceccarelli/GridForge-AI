@@ -3,6 +3,7 @@
  * The stub persists exact bytes and enforces credentials, the private route and no-overwrite. It does NOT prove a
  * production Supabase Storage configuration.
  */
+import http from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_BUCKET, artifactPath, artifactRef, deleteArtifact, getArtifact, putVerified, readVerified, verifyBytes } from "@/lib/artifact-store";
 import { sha256Hex } from "@/lib/run-identity";
@@ -115,5 +116,47 @@ describe("verification and deletion", () => {
     expect(stub.objects.has(ref)).toBe(true);
     expect(await deleteArtifact(ref)).toBe(true);
     expect(stub.objects.has(ref)).toBe(false);
+  });
+});
+
+describe("how the client reads the real Storage service's error responses", () => {
+  // Bodies captured from supabase/storage-api v1.81.5 (verified live by the real-Storage tests in
+  // cost-evidence.realdb.test.ts). Here only the client's classification of them is under test.
+  const REAL_SHAPES: Record<string, [number, object]> = {
+    object: [400, { statusCode: "404", error: "not_found", message: "Object not found", code: "NoSuchKey" }],
+    bucket: [400, { statusCode: "404", error: "Bucket not found", message: "Bucket not found", code: "NoSuchBucket" }],
+    bare404: [404, {}],
+    badjwt: [400, { statusCode: "403", error: "Unauthorized", message: "Invalid Compact JWS", code: "AccessDenied" }],
+    noauth: [400, { statusCode: "400", error: "Error", message: "headers must have required property 'authorization'", code: "InvalidRequest" }],
+    boom: [500, { statusCode: "500", error: "x" }],
+  };
+  let server: http.Server;
+  let mode = "object";
+  beforeAll(async () => {
+    server = http.createServer((_req, res) => {
+      const [status, body] = REAL_SHAPES[mode];
+      res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  });
+  // After the file-level beforeEach, which points the environment at the stub.
+  beforeEach(() => {
+    process.env.SUPABASE_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "unit-test-key";
+  });
+  afterAll(() => new Promise<void>((r) => server.close(() => r())));
+
+  it.each([
+    ["object", "missing"],         // only an explicit missing OBJECT is "missing"
+    ["bucket", "unavailable"],     // a missing bucket is a misconfigured store, never a missing artifact
+    ["bare404", "unavailable"],    // an unexplained 404 (a misrouted gateway) proves nothing about the object
+    ["badjwt", "unavailable"],
+    ["noauth", "unavailable"],
+    ["boom", "unavailable"],
+  ])("a read answered with the %s response is %s", async (name, kind) => {
+    mode = name;
+    const r = await getArtifact(ref);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.kind).toBe(kind);
   });
 });

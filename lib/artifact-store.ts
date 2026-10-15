@@ -49,12 +49,12 @@ export async function getArtifact(ref: string): Promise<StoreResult<{ bytes: Buf
   try {
     const res = await fetch(`${c.url}/storage/v1/object/authenticated/${ref}`, { headers: c.headers, cache: "no-store" });
     if (res.status === 404 || res.status === 400) {
-      // Supabase answers a missing object 400 or 404 depending on version, with the real code in the body. Only an
-      // explicit not-found is "missing"; any other 400 (a rejected credential, a bad bucket) is the store failing.
-      const body = (await res.clone().json().catch(() => ({}))) as { statusCode?: unknown };
-      if (res.status === 404 || String(body.statusCode) === "404") {
-        return { ok: false, kind: "missing", error: "the stored artifact is missing" };
-      }
+      // Supabase Storage answers a missing OBJECT with HTTP 400 and the real status in the body
+      // ({"statusCode":"404","error":"not_found","code":"NoSuchKey"}). A missing BUCKET carries the same statusCode but
+      // code NoSuchBucket: that is a misconfigured store, not a missing artifact, and must not read as one.
+      const body = (await res.clone().json().catch(() => ({}))) as { code?: unknown; error?: unknown; statusCode?: unknown };
+      const gone = body.code === "NoSuchKey" || (body.code === undefined && (res.status === 404 || String(body.statusCode) === "404") && body.error === "not_found");
+      if (gone) return { ok: false, kind: "missing", error: "the stored artifact is missing" };
     }
     if (!res.ok) {
       console.error("[GridForge] artifact read failed:", await storeFault(res));
@@ -95,7 +95,9 @@ export async function putVerified(ref: string, bytes: Buffer, meta: ArtifactMeta
       cache: "no-store",
     });
     if (!res.ok) {
-      const dup = res.status === 409 || (res.status === 400 && /"(statusCode":\s*"?409|error":\s*"Duplicate)/.test(await res.clone().text().catch(() => "")));
+      // An existing object is HTTP 409, or (as Supabase Storage does) HTTP 400 with statusCode "409" in the body.
+      const body = (await res.clone().json().catch(() => ({}))) as { statusCode?: unknown; code?: unknown; error?: unknown };
+      const dup = res.status === 409 || String(body.statusCode) === "409" || body.code === "KeyAlreadyExists" || body.error === "Duplicate";
       if (!dup) {
         console.error("[GridForge] artifact store failed:", await storeFault(res));
         return { ok: false, kind: "unavailable", error: "the artifact could not be stored" };
