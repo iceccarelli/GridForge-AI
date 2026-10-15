@@ -731,3 +731,27 @@ export async function runArtifact(
   if (!doc.ok) return doc;
   return { ok: true, run, bytes: doc.bytes };
 }
+
+// ------------------------------------------------------------------------ administrator audit
+
+/** Every run across engagements, newest first, for the administrator's audit view. Integrity facts and provenance;
+ * the documents are fetched one at a time, verified, through adminRunArtifact. */
+export async function adminRuns(): Promise<Result<{ runs: (RunRow & { legacy: boolean })[] }>> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  const r = await rest<RunRow[]>("GET", `cost_evidence_runs?select=${RUN_COLUMNS}&order=created_at.desc,id.desc&limit=200`);
+  if (!r.ok) return { ok: false, status: 502, error: "The run audit could not be read." };
+  return { ok: true, runs: (r.data ?? []).map((x) => ({ ...x, legacy: x.run_fingerprint === null })) };
+}
+
+/** One run's verified artifact for an administrator (the caller has checked the admin cookie). */
+export async function adminRunArtifact(runId: string): Promise<Result<{ run: RunRow; bytes: Buffer }>> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  if (!UUID.test(runId)) return { ok: false, status: 404, error: "Not found." };
+  const r = await rest<RunRow[]>("GET", `cost_evidence_runs?id=eq.${runId}&select=${RUN_COLUMNS}&limit=1`);
+  if (!r.ok) return { ok: false, status: 502, error: "The run record could not be read." };
+  const run = r.data?.[0];
+  if (!run) return { ok: false, status: 404, error: "Not found." };
+  const doc = await verifiedDocument(run);
+  if (!doc.ok) return doc;
+  return { ok: true, run, bytes: doc.bytes };
+}

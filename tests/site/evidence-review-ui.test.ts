@@ -145,6 +145,20 @@ describe("the review screen renders every lifecycle state distinctly and truthfu
   });
 });
 
+describe("the run audit", () => {
+  const base = { id: "r1", deliverable_id: "d1", created_at: "2026-10-15T10:00:00Z", legacy: false, run_fingerprint: "a".repeat(64),
+    accepted_evidence_ids: ["x", "y"], used_evidence_ids: ["x"], ignored: [{}], engine_version: "0.9.0", engine_fingerprint: "b".repeat(64),
+    report_date: "2026-10-13", artifact_sha256: "c".repeat(64), artifact_bytes: 1234, artifact: "stored" as const };
+  it("offers a verified download only for a stored document, and says plainly when none was kept", () => {
+    const out = renderToStaticMarkup(React.createElement(CostEvidenceReview, { initial: [], runs: [base, { ...base, id: "r2", legacy: true, run_fingerprint: null, accepted_evidence_ids: null, artifact: "legacy_unavailable", artifact_sha256: null, artifact_bytes: null }] }));
+    expect(out).toContain('href="/api/admin/cost-evidence/runs/r1/artifact"');
+    expect(out).not.toContain("/runs/r2/artifact");
+    expect(out).toContain("legacy · no document kept");
+    expect(out).toContain("2 offered · 1 used · 1 ignored");
+    expect(renderToStaticMarkup(React.createElement(CostEvidenceReview, { initial: [] }))).toContain("No evidence run has been recorded.");
+  });
+});
+
 describe("wiring", () => {
   const read = (p: string) => readFileSync(p, "utf8");
 
@@ -163,10 +177,10 @@ describe("wiring", () => {
   });
 
   it("every admin evidence route checks the admin cookie before doing anything", () => {
-    for (const p of ["app/api/admin/cost-evidence/route.ts", "app/api/admin/cost-evidence/[id]/review/route.ts", "app/api/admin/cost-evidence/[id]/withdraw/route.ts"]) {
+    for (const p of ["app/api/admin/cost-evidence/runs/route.ts", "app/api/admin/cost-evidence/runs/[runId]/artifact/route.ts", "app/api/admin/cost-evidence/route.ts", "app/api/admin/cost-evidence/[id]/review/route.ts", "app/api/admin/cost-evidence/[id]/withdraw/route.ts"]) {
       const src = read(p);
       expect(src.indexOf("verifyAdminCookie"), p).toBeGreaterThan(-1);
-      expect(src.indexOf("verifyAdminCookie"), p).toBeLessThan(src.search(/await (evidenceQueue|reviewEvidence|withdrawEvidence|readJson)/));
+      expect(src.indexOf("verifyAdminCookie"), p).toBeLessThan(src.search(/await (evidenceQueue|reviewEvidence|withdrawEvidence|readJson|adminRuns|adminRunArtifact)/));
     }
   });
 

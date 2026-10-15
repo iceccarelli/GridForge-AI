@@ -25,7 +25,32 @@ import {
 const STATES: EvidenceState[] = ["validated", "invalid", "accepted", "rejected", "superseded", "withdrawn"];
 const eurFmt = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 2 });
 
-export function CostEvidenceReview({ initial, initialError }: { initial: EvidenceRow[]; initialError?: string | null }) {
+export interface AuditRun {
+  id: string;
+  deliverable_id: string;
+  created_at: string;
+  legacy: boolean;
+  run_fingerprint: string | null;
+  accepted_evidence_ids: string[] | null;
+  used_evidence_ids: string[];
+  ignored: unknown[];
+  engine_version: string | null;
+  engine_fingerprint: string | null;
+  report_date: string | null;
+  artifact_sha256: string | null;
+  artifact_bytes: number | null;
+  artifact: "stored" | "legacy_unavailable";
+}
+
+export function CostEvidenceReview({
+  initial,
+  initialError,
+  runs = [],
+}: {
+  initial: EvidenceRow[];
+  initialError?: string | null;
+  runs?: AuditRun[];
+}) {
   const [items, setItems] = useState(initial);
   const [filter, setFilter] = useState<"pending" | "all">("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -131,7 +156,50 @@ export function CostEvidenceReview({ initial, initialError }: { initial: Evidenc
           ))}
         </ul>
       )}
+      <RunAudit runs={runs} />
     </section>
+  );
+}
+
+/** Every recorded run, with the integrity facts an auditor needs. The document is downloaded through the verified
+ * admin route, which re-hashes it first. */
+function RunAudit({ runs }: { runs: AuditRun[] }) {
+  return (
+    <div className="mt-10" aria-label="Evidence run audit">
+      <h3 className="text-sm font-semibold text-ghost">Evidence runs — audit</h3>
+      {runs.length === 0 ? (
+        <p className="mt-2 text-xs text-faint">No evidence run has been recorded.</p>
+      ) : (
+        <ul className="mt-2 space-y-2 text-xs text-mute">
+          {runs.map((r) => (
+            <li key={r.id} className="rounded border border-line p-3" data-run-id={r.id} data-artifact={r.artifact}>
+              <p>
+                <span className="text-ghost">{new Date(r.created_at).toLocaleString()}</span>
+                {r.legacy ? <span className="ml-2 font-mono uppercase text-queue">legacy · no document kept</span> : null}
+                {" · "}engagement <span className="font-mono">{r.deliverable_id}</span>
+              </p>
+              <p className="mt-1">
+                {r.accepted_evidence_ids ? `${r.accepted_evidence_ids.length} offered · ` : ""}
+                {r.used_evidence_ids.length} used · {r.ignored.length} ignored
+                {r.engine_version ? ` · engine ${r.engine_version}` : ""}
+                {r.report_date ? ` · dated ${r.report_date}` : ""}
+              </p>
+              {r.run_fingerprint ? <p className="mt-1 font-mono text-[10px] break-all text-faint">run {r.run_fingerprint}</p> : null}
+              {r.artifact === "stored" ? (
+                <p className="mt-1">
+                  <a className="underline" href={`/api/admin/cost-evidence/runs/${r.id}/artifact`}>
+                    Download (verified)
+                  </a>
+                  <span className="font-mono text-[10px] break-all text-faint">
+                    {" "}· sha256 {r.artifact_sha256} · {r.artifact_bytes} bytes
+                  </span>
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

@@ -15,7 +15,7 @@ import {
 } from "@/lib/admin";
 import { EngagementPipeline } from "@/components/EngagementPipeline";
 import { CostEvidenceReview } from "@/components/CostEvidenceReview";
-import { evidenceQueue } from "@/lib/cost-evidence";
+import { adminRuns, evidenceQueue } from "@/lib/cost-evidence";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -47,12 +47,13 @@ export default async function PipelinePage() {
     redirect("/admin/login");
   }
 
-  const [deliverables, qualifications, watches, apiAccounts, evidence] = await Promise.all([
+  const [deliverables, qualifications, watches, apiAccounts, evidence, runs] = await Promise.all([
     fetchDeliverables(),
     fetchQualifications(),
     fetchWatches(),
     fetchApiAccounts(),
     evidenceQueue("all"),
+    adminRuns(),
   ]);
 
   return (
@@ -71,6 +72,26 @@ export default async function PipelinePage() {
       <CostEvidenceReview
         initial={evidence.ok ? evidence.items : []}
         initialError={evidence.ok ? null : evidence.error}
+        runs={
+          runs.ok
+            ? runs.runs.map((x) => ({
+                id: x.id,
+                deliverable_id: x.deliverable_id,
+                created_at: x.created_at,
+                legacy: x.legacy,
+                run_fingerprint: x.run_fingerprint,
+                accepted_evidence_ids: x.accepted_evidence_ids,
+                used_evidence_ids: x.evidence_ids,
+                ignored: Array.isArray(x.ignored) ? x.ignored : [],
+                engine_version: x.engine_provenance?.engine_version ?? null,
+                engine_fingerprint: x.engine_fingerprint,
+                report_date: x.report_date,
+                artifact_sha256: x.artifact_sha256,
+                artifact_bytes: x.artifact_bytes === null ? null : Number(x.artifact_bytes),
+                artifact: x.legacy || !x.artifact_storage_ref ? ("legacy_unavailable" as const) : ("stored" as const),
+              }))
+            : []
+        }
       />
     </div>
     </>

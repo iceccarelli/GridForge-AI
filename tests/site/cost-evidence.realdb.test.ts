@@ -984,6 +984,48 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     });
   });
 
+  describe("the administrator's audit of runs", () => {
+    const auditList = async () => (await import("@/app/api/admin/cost-evidence/runs/route")).GET();
+    const auditFile = async (runId: string) =>
+      (await import("@/app/api/admin/cost-evidence/runs/[runId]/artifact/route")).GET(new Request(siteUrl("/x")), { params: Promise.resolve({ runId }) });
+
+    it("refuses the unauthenticated, and lists runs with integrity facts but no storage reference", async () => {
+      const e = await engagement();
+      await submitAndAccept(e);
+      const made = await (await run(e.token)).json();
+      asAnonymous();
+      expect((await auditList()).status).toBe(401);
+      expect((await auditFile(made.run.id)).status).toBe(401);
+      jar.length = 0; jar.push({ name: "gf_admin", value: "forged" });
+      expect((await auditFile(made.run.id)).status).toBe(401);
+      asAdmin();
+      const body = await (await auditList()).json();
+      const mine = body.runs.find((r: any) => r.id === made.run.id);
+      expect(mine).toMatchObject({ deliverable_id: e.id, legacy: false, artifact: "stored", artifact_sha256: made.document_sha256, used_evidence_ids: made.evidence_ids });
+      expect(JSON.stringify(body)).not.toContain("cost-evidence-artifacts");
+    });
+
+    it("serves a run's document only after re-hashing it, and fails closed otherwise", async () => {
+      const e = await engagement();
+      await submitAndAccept(e);
+      const made = await (await run(e.token)).json();
+      const ok = await auditFile(made.run.id);
+      expect(ok.status).toBe(200);
+      expect(await ok.text()).toBe(made.document);
+      const [row] = await runRows(e.id);
+      const original = storage!.objects.get(row.artifact_storage_ref)!;
+      storage!.objects.set(row.artifact_storage_ref, { ...original, bytes: Buffer.from(original.bytes.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8") });
+      const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const bad = await auditFile(made.run.id);
+      spy.mockRestore();
+      storage!.objects.set(row.artifact_storage_ref, original);
+      expect(bad.status).toBe(502);
+      expect(await bad.text()).not.toContain("TAMPERED");
+      expect((await auditFile(crypto.randomUUID())).status).toBe(404);
+      expect((await auditFile("nope")).status).toBe(404);
+    });
+  });
+
   describe("the administrator's review workflow, end to end through the existing routes", () => {
     const list = async (state: string) => {
       const { GET } = await import("@/app/api/admin/cost-evidence/route");
