@@ -7,6 +7,12 @@
  * kept private, and what survives a retry, an outage or a race.
  *
  * Skipped unless GF_PGRST_URL and GF_PGRST_JWT are set; with GF_REQUIRE_REALDB=1 a missing stack FAILS this file.
+ *
+ * OBJECT STORE: with GF_STORAGE_URL set (scripts/realdb-up.sh with GF_REAL_STORAGE=1) every scenario below runs against
+ * the REAL supabase/storage-api service. Without it they run against the deterministic stub in tests/site/storage-stub.ts,
+ * which proves the application logic but NOT the Storage contract. GF_REQUIRE_REAL_STORAGE=1 makes a missing real service
+ * FAIL this file. The gateway below only maps /storage/v1/* onto the service (what Supabase's gateway does) and injects
+ * transport faults (outage, truncated write) where a scenario calls for one; it never answers a Storage request itself.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -27,7 +33,18 @@ const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
 const enabled = !!PGRST && !!JWT && spawnSync("python3", ["--version"]).status === 0;
 const required = process.env.GF_REQUIRE_REALDB === "1";
+const STORAGE_URL = process.env.GF_STORAGE_URL ?? "";
+const realStorage = !!STORAGE_URL;
+const requireRealStorage = process.env.GF_REQUIRE_REAL_STORAGE === "1";
 const KEY = "realdb-key";
+
+describe("real-Storage prerequisites (cost evidence)", () => {
+  it.runIf(requireRealStorage)("a real Storage service is configured and answering when it is required", async () => {
+    expect(realStorage, "GF_STORAGE_URL must be set (run scripts/realdb-up.sh with GF_REAL_STORAGE=1)").toBe(true);
+    const v = await fetch(`${STORAGE_URL}/version`);
+    expect(v.status).toBe(200);
+  });
+});
 
 describe("real-database prerequisites (cost evidence)", () => {
   it.runIf(required)("are present when the real database is required", async () => {
@@ -41,6 +58,58 @@ const engines: ChildProcess[] = [];
 let gateway: http.Server | null = null;
 let proxy: http.Server | null = null;
 let storage: StorageStub | null = null;
+/** Faults injected on the gateway's /storage/v1 path, whichever backend sits behind it. */
+const faults = { uploads: false, reads: false, corruptWrites: false };
+/** Every Storage request the application made, as the gateway saw it (never its body). */
+const storageLog: { method: string; path: string; authed: boolean; upsert: string | null }[] = [];
+
+interface Probe {
+  get(ref: string): Promise<Buffer | null>;
+  /** Overwrite an object out-of-band, as an operator or attacker with storage access could. */
+  put(ref: string, bytes: Buffer): Promise<void>;
+  remove(ref: string): Promise<void>;
+  keysFor(deliverableId: string): Promise<string[]>;
+  publicStatus(ref: string): Promise<number>;
+}
+let probe: Probe;
+const svcHeaders = () => ({ Authorization: `Bearer ${JWT}`, apikey: JWT });
+
+function stubProbe(st: StorageStub): Probe {
+  return {
+    get: async (ref) => st.objects.get(ref)?.bytes ?? null,
+    put: async (ref, bytes) => void st.objects.set(ref, { bytes, contentType: "text/html" }),
+    remove: async (ref) => void st.objects.delete(ref),
+    keysFor: async (id) => [...st.objects.keys()].filter((k) => k.includes(id)),
+    publicStatus: async (ref) => (await fetch(`${st.url}/storage/v1/object/public/${ref}`, { headers: { apikey: JWT } })).status,
+  };
+}
+
+/** Talks to the real service directly (not through the application's gateway), with the test-only service credential. */
+function realProbe(base: string): Probe {
+  const list = async (prefix: string) => {
+    const r = await fetch(`${base}/object/list/cost-evidence-artifacts`, {
+      method: "POST", headers: { ...svcHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prefix, limit: 1000 }),
+    });
+    return (await r.json()) as { name: string; id: string | null }[];
+  };
+  return {
+    get: async (ref) => {
+      const r = await fetch(`${base}/object/authenticated/${ref}`, { headers: svcHeaders() });
+      return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null;
+    },
+    put: async (ref, bytes) => {
+      const r = await fetch(`${base}/object/${ref}`, { method: "POST", headers: { ...svcHeaders(), "Content-Type": "text/html", "x-upsert": "true" }, body: new Uint8Array(bytes) });
+      if (!r.ok) throw new Error(`probe put failed ${r.status}`);
+    },
+    remove: async (ref) => void (await fetch(`${base}/object/${ref}`, { method: "DELETE", headers: svcHeaders() })),
+    keysFor: async (id) => {
+      const out: string[] = [];
+      for (const fp of await list(`${id}/`)) for (const f of await list(`${id}/${fp.name}/`)) out.push(`cost-evidence-artifacts/${id}/${fp.name}/${f.name}`);
+      return out;
+    },
+    publicStatus: async (ref) => (await fetch(`${base}/object/public/${ref}`)).status,
+  };
+}
 const KEYS = { A: "", B: "", C: "", S: "" };
 let submitsAllowed = Infinity; // injected outage: gf_submit_cost_evidence answers 503 after this many calls
 const gatewayLog: string[] = [];
@@ -60,7 +129,7 @@ const seam = {
   barrier: 0,
   recordCalls: 0,
   /** Runs once the run-recording RPC has committed, before its answer is returned (a fault between record and reply). */
-  afterRecord: null as null | (() => void),
+  afterRecord: null as null | (() => void | Promise<void>),
 };
 let waiting: (() => void)[] = [];
 
@@ -121,9 +190,15 @@ async function startGateway(): Promise<string> {
     gatewayLog.push(`${req.method} ${url}`);
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && k !== "host" && k !== "content-length") headers[k] = v;
-    // Supabase Storage is not in this stack; a deterministic stub (tests/site/storage-stub.ts) answers /storage/v1.
+    // Supabase's gateway maps /storage/v1/* onto the Storage service; so does this. Nothing here answers for the service.
     if (url.startsWith("/storage/v1/")) {
-      const r = await fetch(storage!.url + url, { method: req.method, headers, body: ["GET", "HEAD"].includes(req.method ?? "") ? undefined : body });
+      storageLog.push({ method: req.method ?? "", path: url.split("?")[0], authed: `${req.headers.authorization ?? ""}${req.headers.apikey ?? ""}`.includes(JWT), upsert: (req.headers["x-upsert"] as string) ?? null });
+      const send = (status: number, text: string) => res.writeHead(status, { "content-type": "application/json" }).end(text);
+      if (req.method === "POST" && faults.uploads) return send(500, '{"statusCode":"500","error":"injected upload failure"}');
+      if (req.method === "GET" && faults.reads) return send(500, '{"statusCode":"500","error":"injected read failure"}');
+      const sent = req.method === "POST" && faults.corruptWrites ? body.subarray(0, Math.max(0, body.length - 1)) : body;
+      const target = realStorage ? STORAGE_URL + url.slice("/storage/v1".length) : storage!.url + url;
+      const r = await fetch(target, { method: req.method, headers, body: ["GET", "HEAD"].includes(req.method ?? "") ? undefined : new Uint8Array(sent) });
       res.writeHead(r.status, { "content-type": r.headers.get("content-type") ?? "application/json" });
       res.end(Buffer.from(await r.arrayBuffer()));
       return;
@@ -146,7 +221,7 @@ async function startGateway(): Promise<string> {
       method: req.method, headers, body: ["GET", "HEAD"].includes(req.method ?? "") ? undefined : body,
     });
     const payload = Buffer.from(await r.arrayBuffer());
-    if (url.startsWith("/rest/v1/rpc/gf_record_cost_evidence_run") && seam.afterRecord) seam.afterRecord();
+    if (url.startsWith("/rest/v1/rpc/gf_record_cost_evidence_run") && seam.afterRecord) await seam.afterRecord();
     res.writeHead(r.status, { "content-type": r.headers.get("content-type") ?? "application/json" });
     res.end(payload);
   });
@@ -171,7 +246,12 @@ beforeAll(async () => {
   // C: the same code and library as A on a later day. S: far enough ahead that a quotation valid today has expired.
   KEYS.C = await startEngine({ date: "2026-11-02" });
   KEYS.S = await startEngine({ date: "2030-01-01" });
-  storage = await startStorageStub(JWT);
+  if (realStorage) {
+    probe = realProbe(STORAGE_URL);
+  } else {
+    storage = await startStorageStub(JWT);
+    probe = stubProbe(storage);
+  }
   process.env.SUPABASE_URL = await startGateway();
   process.env.SUPABASE_SERVICE_ROLE_KEY = JWT;
   process.env.GRIDFORGE_API_URL = await startProxy();
@@ -461,7 +541,7 @@ const artifact = async (token: string, runId: string) => {
   return GET(new Request(siteUrl(`/api/deliverable/${token}/evidence-run/${runId}/artifact`)), { params: Promise.resolve({ token, runId }) });
 };
 const runRows = (deliverableId: string) => rows("cost_evidence_runs", `&deliverable_id=eq.${deliverableId}&order=created_at.asc,id.asc`);
-const stored = (deliverableId: string) => [...(storage?.objects.keys() ?? [])].filter((k) => k.includes(deliverableId));
+const stored = (deliverableId: string) => probe.keysFor(deliverableId);
 const eventTypes = async (projectId: string) => (await rows("project_events", `&project_id=eq.${projectId}`)).map((x) => x.event_type as string);
 const engineProvenance = async (which: keyof typeof KEYS) =>
   (await (await fetch(`${KEYS[which]}/v1/version`, { headers: { "X-API-Key": KEY } })).json()).provenance;
@@ -488,17 +568,197 @@ async function insertValidatedLine(e: { id: string; project: any }, over: Record
   return (await r.json())[0] as { id: string };
 }
 
+// =====================================================================================================================
+// The real Supabase Storage contract. Runs only against the real service (GF_STORAGE_URL); in CI the mandatory
+// `real-storage` job sets GF_REQUIRE_REAL_STORAGE=1 so it cannot be skipped. Every assertion below is about the
+// service's own behaviour or the application's handling of it; none is answered by a test double.
+// =====================================================================================================================
+
+/** SQL against the same database the real Storage service migrated: proof of what ITS schema holds. */
+function pg(sql: string): string {
+  const r = spawnSync("psql", ["-X", "-q", "-At", "-d", process.env.GF_PG_DB ?? "gf", "-c", sql], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`psql failed: ${String(r.stderr).split("\n")[0]}`);
+  return r.stdout.trim();
+}
+/** The test-only signing secret from scripts/realdb-up.sh; never a production value. */
+const TEST_JWT_SECRET = "gridforge-local-test-secret-32-chars-minimum!!";
+function mint(role: string): string {
+  const b = (x: Buffer | string) => Buffer.from(x).toString("base64url");
+  const head = b(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = b(JSON.stringify({ role, exp: Math.floor(Date.now() / 1000) + 3600 }));
+  return `${head}.${body}.${b(crypto.createHmac("sha256", TEST_JWT_SECRET).update(`${head}.${body}`).digest())}`;
+}
+
+describe.runIf(enabled && realStorage)("the REAL Supabase Storage service: contract and integrity (supabase/storage-api)", () => {
+  const BUCKET = "cost-evidence-artifacts";
+  // Fresh per execution: the real store keeps its objects, so fixed paths would make a second run meet the first run's data.
+  const DELIV = crypto.randomUUID();
+  const html = (tag: string) => Buffer.from(`<!doctype html><html><body>SYNTHETIC integration document ${tag}</body></html>`, "utf8");
+  const refFor = (b: Buffer, fp = "a".repeat(64)) => `${BUCKET}/${DELIV}/${fp}/${sha256Hex(b)}.html`;
+  const metaOf = (b: Buffer) => ({ sha256: sha256Hex(b), bytes: b.byteLength });
+  let store: typeof import("@/lib/artifact-store");
+  beforeAll(async () => { store = await import("@/lib/artifact-store"); });
+  beforeEach(() => { faults.uploads = false; faults.reads = false; faults.corruptWrites = false; });
+
+  it("is the pinned supabase/storage-api image, running, with its own schema in the database the migrations used", async () => {
+    const image = process.env.GF_STORAGE_IMAGE ?? "";
+    expect(image).toMatch(/^supabase\/storage-api:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$/);
+    expect((await (await fetch(`${STORAGE_URL}/version`)).text()).trim()).toBe(image.match(/:v([\d.]+)@/)![1]);
+    expect((await fetch(`${STORAGE_URL}/status`)).status).toBe(200);
+    // Columns only the real service's migrations create (the harness's stand-in table has three columns).
+    expect(pg("select count(*) from information_schema.columns where table_schema = 'storage' and table_name = 'buckets' and column_name in ('avif_autodetection','file_size_limit','allowed_mime_types')")).toBe("3");
+    expect(Number(pg("select count(*) from storage.migrations"))).toBeGreaterThan(20);
+    expect(pg("select to_regclass('storage.objects') is not null")).toBe("t");
+    expect(pg("select relrowsecurity from pg_class where oid = 'storage.objects'::regclass")).toBe("t");
+  });
+
+  it("created the artifact bucket through the migrations, private, with no public bucket and no public-read policy", async () => {
+    expect(pg(`select public from storage.buckets where id = '${BUCKET}'`)).toBe("f");
+    expect(pg("select count(*) from storage.buckets where public")).toBe("0");
+    expect(pg(`select count(*) from pg_policies where schemaname = 'storage' and (coalesce(qual,'') ilike '%${BUCKET}%' or coalesce(with_check,'') ilike '%${BUCKET}%')`)).toBe("0");
+    const info = await (await fetch(`${STORAGE_URL}/bucket/${BUCKET}`, { headers: svcHeaders() })).json();
+    expect(info).toMatchObject({ id: BUCKET, public: false });
+  });
+
+  it("stores exact bytes through putVerified, reads them back through readVerified, and its own metadata agrees", async () => {
+    const b = html("write-read");
+    const ref = refFor(b);
+    expect((await store.putVerified(ref, b, metaOf(b))).ok).toBe(true);
+    const back = await store.readVerified(ref, metaOf(b));
+    expect(back.ok && back.bytes.equals(b)).toBe(true);
+    // The row the REAL service wrote for it, in its own table.
+    const path = ref.slice(BUCKET.length + 1);
+    expect(pg(`select count(*) from storage.objects where bucket_id = '${BUCKET}' and name = '${path}'`)).toBe("1");
+    expect(Number(pg(`select metadata->>'size' from storage.objects where bucket_id = '${BUCKET}' and name = '${path}'`))).toBe(b.byteLength);
+    // What the application sent was authenticated, never an upsert.
+    expect(storageLog.filter((l) => l.method === "POST").every((l) => l.authed && l.upsert === "false")).toBe(true);
+    // A direct read with the service credential returns the same bytes (the application did not read from anywhere else).
+    expect((await probe.get(ref))!.equals(b)).toBe(true);
+  });
+
+  it("rejects a wrong digest or length without returning the bytes, and never returns tampered content", async () => {
+    const b = html("integrity");
+    const ref = refFor(b, "b".repeat(64));
+    await store.putVerified(ref, b, metaOf(b));
+    for (const wrong of [{ ...metaOf(b), sha256: "0".repeat(64) }, { ...metaOf(b), bytes: b.byteLength + 1 }, { ...metaOf(b), bytes: b.byteLength - 1 }]) {
+      const r = await store.readVerified(ref, wrong);
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.kind).toBe("corrupt");
+      expect(r).not.toHaveProperty("bytes");
+    }
+    await probe.put(ref, Buffer.from(b.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8"));   // same length, different content
+    const tampered = await store.readVerified(ref, metaOf(b));
+    expect(tampered.ok).toBe(false);
+    expect(tampered).not.toHaveProperty("bytes");
+    expect(JSON.stringify(tampered)).not.toContain("TAMPERED");
+  });
+
+  it("tells a missing object from an unavailable store from corrupt data, using the service's real error shapes", async () => {
+    // The shapes themselves, straight from the service.
+    const gone = await fetch(`${STORAGE_URL}/object/authenticated/${BUCKET}/${DELIV}/nothing/${"e".repeat(64)}.html`, { headers: svcHeaders() });
+    expect(gone.status).toBe(400);
+    expect(await gone.json()).toMatchObject({ statusCode: "404", error: "not_found", code: "NoSuchKey" });
+    const noBucket = await fetch(`${STORAGE_URL}/object/authenticated/no-such-bucket/x/y.html`, { headers: svcHeaders() });
+    expect(await noBucket.json()).toMatchObject({ statusCode: "404", code: "NoSuchBucket" });
+    // And the application's classification of them.
+    const b = html("classify");
+    const ref = refFor(b, "c".repeat(64));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const missing = await store.getArtifact(ref);
+    expect(missing.ok === false && missing.kind).toBe("missing");
+    await store.putVerified(ref, b, metaOf(b));
+    faults.reads = true;                                       // the store answering 500
+    const down = await store.getArtifact(ref);
+    expect(down.ok === false && down.kind).toBe("unavailable");
+    faults.reads = false;
+    await probe.put(ref, html("different bytes"));
+    const corrupt = await store.readVerified(ref, metaOf(b));
+    expect(corrupt.ok === false && corrupt.kind).toBe("corrupt");
+    const logged = spy.mock.calls.flat().map(String).join("\n");
+    spy.mockRestore();
+    expect(logged).not.toMatch(/SYNTHETIC|different bytes|eyJ/);   // no document content and no token reaches a log
+  });
+
+  it("refuses to overwrite: a duplicate is accepted only if the existing object is byte-identical", async () => {
+    const b = html("duplicate");
+    const ref = refFor(b, "d".repeat(64));
+    expect((await store.putVerified(ref, b, metaOf(b))).ok).toBe(true);
+    // The real service's duplicate response, which the client's no-overwrite strategy depends on.
+    const dup = await fetch(`${STORAGE_URL}/object/${ref}`, { method: "POST", headers: { ...svcHeaders(), "Content-Type": "text/html", "x-upsert": "false" }, body: new Uint8Array(b) });
+    expect(dup.status).toBe(400);
+    expect(await dup.json()).toMatchObject({ statusCode: "409", error: "Duplicate", code: "KeyAlreadyExists" });
+    expect((await store.putVerified(ref, b, metaOf(b))).ok).toBe(true);                // identical existing object: fine
+    const objectId = pg(`select id from storage.objects where bucket_id = '${BUCKET}' and name = '${ref.slice(BUCKET.length + 1)}'`);
+    const other = html("a different document");
+    const refused = await store.putVerified(ref, other, metaOf(other));                // different bytes at the same path
+    expect(refused.ok).toBe(false);
+    expect((await probe.get(ref))!.equals(b)).toBe(true);                               // the original is untouched ...
+    expect(pg(`select id from storage.objects where bucket_id = '${BUCKET}' and name = '${ref.slice(BUCKET.length + 1)}'`)).toBe(objectId);   // ... and it is the same stored object
+  });
+
+  it("serves nothing to an unauthenticated caller, a garbage token, the anon role, or the public route", async () => {
+    const b = html("private");
+    const ref = refFor(b, "f".repeat(64));
+    await store.putVerified(ref, b, metaOf(b));
+    const attempts: [string, Response][] = [
+      ["no credentials", await fetch(`${STORAGE_URL}/object/authenticated/${ref}`)],
+      ["garbage token", await fetch(`${STORAGE_URL}/object/authenticated/${ref}`, { headers: { Authorization: "Bearer not-a-token" } })],
+      ["anon role", await fetch(`${STORAGE_URL}/object/authenticated/${ref}`, { headers: { Authorization: `Bearer ${mint("anon")}` } })],
+      ["authenticated role, no policy", await fetch(`${STORAGE_URL}/object/authenticated/${ref}`, { headers: { Authorization: `Bearer ${mint("authenticated")}` } })],
+      ["public route", await fetch(`${STORAGE_URL}/object/public/${ref}`)],
+      ["public route + anon", await fetch(`${STORAGE_URL}/object/public/${ref}`, { headers: { Authorization: `Bearer ${mint("anon")}` } })],
+      ["sign-less path read", await fetch(`${STORAGE_URL}/object/${ref}`)],
+    ];
+    for (const [name, r] of attempts) {
+      expect(r.status, name).not.toBe(200);
+      expect(await r.text(), name).not.toContain("SYNTHETIC");
+    }
+    // The application route with a valid token still returns it; a token for another engagement does not.
+    expect((await fetch(`${STORAGE_URL}/object/authenticated/${ref}`, { headers: svcHeaders() })).status).toBe(200);
+  });
+
+  it("deleteArtifact removes only the object it was asked to, and only its own kind of path", async () => {
+    const b = html("delete");
+    const ref = refFor(b, "9".repeat(64));
+    await store.putVerified(ref, b, metaOf(b));
+    expect(await store.deleteArtifact("project-evidence/anything")).toBe(false);
+    expect(await probe.get(ref)).not.toBeNull();
+    expect(await store.deleteArtifact(ref)).toBe(true);
+    expect(await probe.get(ref)).toBeNull();
+    expect(pg(`select count(*) from storage.objects where bucket_id = '${BUCKET}' and name = '${ref.slice(BUCKET.length + 1)}'`)).toBe("0");
+  });
+
+  it("a recorded run's object exists in the real service with the size and digest on the run, and a retry leaves it untouched", async () => {
+    const e = await engagement();
+    await submitAndAccept(e);
+    const first = await (await run(e.token)).json();
+    const [row] = await runRows(e.id);
+    const path = row.artifact_storage_ref.slice(BUCKET.length + 1);
+    const q = (col: string) => pg(`select ${col} from storage.objects where bucket_id = '${BUCKET}' and name = '${path}'`);
+    expect(Number(q("metadata->>'size'"))).toBe(Number(row.artifact_bytes));
+    const id = q("id"), updated = q("updated_at");
+    expect(sha256Hex((await probe.get(row.artifact_storage_ref))!)).toBe(row.artifact_sha256);
+    seam.suffixEvery = true;
+    const again = await (await run(e.token)).json();
+    seam.suffixEvery = false;
+    expect(again.created).toBe(false);
+    expect(again.document).toBe(first.document);
+    expect([q("id"), q("updated_at")]).toEqual([id, updated]);                          // the authoritative object was not replaced
+    expect(pg(`select count(*) from storage.objects where bucket_id = '${BUCKET}' and name like '${e.id}/%'`)).toBe("1");
+  });
+});
+
 describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL + PostgREST + engines; stubbed Storage)", () => {
   beforeEach(() => {
     seam.upstream = "A"; seam.suffixEvery = false; seam.recordFails = false; seam.barrier = 0; seam.afterRecord = null; waiting = [];
-    if (storage) { storage.fail.uploads = false; storage.fail.reads = false; storage.fail.corruptWrites = false; }
+    faults.uploads = false; faults.reads = false; faults.corruptWrites = false;
     asAdmin();
   });
 
   it("stores the exact bytes privately and records a complete, verifiable identity for the run", async () => {
     const e = await engagement();
     const a = await submitAndAccept(e);
-    storage!.log.length = 0;
+    storageLog.length = 0;
     const res = await run(e.token);
     expect(res.status).toBe(201);
     const out = await res.json();
@@ -507,13 +767,13 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     // The stored object is exactly the generated document, and the record describes exactly those bytes.
     const key = row.artifact_storage_ref as string;
     expect(key).toMatch(new RegExp(`^cost-evidence-artifacts/${e.id}/${row.run_fingerprint}/${row.artifact_sha256}\\.html$`));
-    const obj = storage!.objects.get(key)!;
-    expect(obj).toBeTruthy();
-    expect(obj.bytes.equals(Buffer.from(out.document, "utf8"))).toBe(true);
-    expect(sha256Hex(obj.bytes)).toBe(row.artifact_sha256);
+    const objBytes = (await probe.get(key))!;
+    expect(objBytes).toBeTruthy();
+    expect(objBytes.equals(Buffer.from(out.document, "utf8"))).toBe(true);
+    expect(sha256Hex(objBytes)).toBe(row.artifact_sha256);
     expect(row.document_sha256).toBe(row.artifact_sha256);
     expect(out.document_sha256).toBe(row.artifact_sha256);
-    expect(Number(row.artifact_bytes)).toBe(obj.bytes.byteLength);
+    expect(Number(row.artifact_bytes)).toBe(objBytes.byteLength);
     expect(row.artifact_media_type).toBe("text/html; charset=utf-8");
     // A path made of ids and digests: nothing a supplier or a price said.
     expect(key).not.toMatch(/SYNTHETIC|SUPPLIER|2340000/i);
@@ -536,12 +796,12 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     expect(row.created_at).toBeTruthy();
 
     // Authenticated, never an upsert, never the public route.
-    const writes = storage!.log.filter((l) => l.method === "POST");
+    const writes = storageLog.filter((l) => l.method === "POST");
     expect(writes.length).toBeGreaterThan(0);
-    expect(storage!.log.every((l) => l.authed)).toBe(true);
+    expect(storageLog.every((l) => l.authed)).toBe(true);
     expect(writes.every((l) => l.upsert === "false")).toBe(true);
-    expect(storage!.log.filter((l) => l.method === "GET").every((l) => l.path.includes("/object/authenticated/"))).toBe(true);
-    expect((await fetch(`${storage!.url}/storage/v1/object/${key}`, { headers: { apikey: JWT } })).status).not.toBe(200);
+    expect(storageLog.filter((l) => l.method === "GET").every((l) => l.path.includes("/object/authenticated/"))).toBe(true);
+    expect(await probe.publicStatus(key)).not.toBe(200);
   });
 
   it("a retry returns the persisted artifact, not a newly generated one, even when the engine's next output differs", async () => {
@@ -549,7 +809,7 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     await submitAndAccept(e);
     const first = await (await run(e.token)).json();
     const [before] = await runRows(e.id);
-    const objectsBefore = stored(e.id);
+    const objectsBefore = await stored(e.id);
     const calls = seam.studyCalls;
 
     seam.suffixEvery = true;          // the engine would now produce different HTML for the very same identity
@@ -566,7 +826,7 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     expect(again.run.run_fingerprint).toBe(first.run.run_fingerprint);
     expect(seam.studyCalls).toBe(calls);                                // the engine was not asked again
     expect(await runRows(e.id)).toEqual([before]);                      // one run, unchanged
-    expect(stored(e.id)).toEqual(objectsBefore);                        // no second object
+    expect(await stored(e.id)).toEqual(objectsBefore);                        // no second object
     expect((await eventTypes(e.project.id)).filter((t) => t === "cost_evidence_run")).toHaveLength(1);
   });
 
@@ -591,9 +851,9 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       expect(sha256Hex(Buffer.from(b.document, "utf8"))).toBe(winner.artifact_sha256);   // never the loser's bytes under the winner's hash
     }
     expect(b1.document).toBe(b2.document);
-    expect(storage!.objects.get(winner.artifact_storage_ref)!.bytes.equals(Buffer.from(b1.document, "utf8"))).toBe(true);
+    expect((await probe.get(winner.artifact_storage_ref))!.equals(Buffer.from(b1.document, "utf8"))).toBe(true);
     expect([b1, b2].filter((b) => b.warning)).toHaveLength(1);         // the loser is told the candidates differed
-    expect(stored(e.id)).toEqual([winner.artifact_storage_ref]);       // the unreferenced candidate was cleaned up; the winner's was not
+    expect(await stored(e.id)).toEqual([winner.artifact_storage_ref]);       // the unreferenced candidate was cleaned up; the winner's was not
     expect((await eventTypes(e.project.id)).filter((t) => t === "cost_evidence_run")).toHaveLength(1);
   });
 
@@ -694,13 +954,13 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       const e = await engagement();
       await submitAndAccept(e);
       const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      storage!.fail.uploads = true;
+      faults.uploads = true;
       const res = await run(e.token);
-      storage!.fail.uploads = false;
+      faults.uploads = false;
       expect(res.status).toBe(502);
       expect((await res.json()).ok).toBe(false);
       expect(await runRows(e.id)).toHaveLength(0);
-      expect(stored(e.id)).toHaveLength(0);
+      expect(await stored(e.id)).toHaveLength(0);
       expect((await eventTypes(e.project.id)).filter((t) => t === "cost_evidence_run")).toHaveLength(0);
       const logged = spy.mock.calls.flat().map(String).join("\n");
       spy.mockRestore();
@@ -711,12 +971,12 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     it("a store that acknowledges a write but persists other bytes is detected, recorded as nothing, and does not poison a retry", async () => {
       const e = await engagement();
       await submitAndAccept(e);
-      storage!.fail.corruptWrites = true;
+      faults.corruptWrites = true;
       const res = await run(e.token);
-      storage!.fail.corruptWrites = false;
+      faults.corruptWrites = false;
       expect(res.status).toBe(502);
       expect(await runRows(e.id)).toHaveLength(0);
-      expect(stored(e.id)).toHaveLength(0);       // the bad object was removed: nothing referenced it
+      expect(await stored(e.id)).toHaveLength(0);       // the bad object was removed: nothing referenced it
       expect((await run(e.token)).status).toBe(201);
     });
 
@@ -728,10 +988,10 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       seam.recordFails = false;
       expect(res.status).toBe(502);
       expect(await runRows(e.id)).toHaveLength(0);
-      expect(stored(e.id)).toHaveLength(0);
+      expect(await stored(e.id)).toHaveLength(0);
       const ok = await run(e.token);
       expect(ok.status).toBe(201);
-      expect(stored(e.id)).toHaveLength(1);
+      expect(await stored(e.id)).toHaveLength(1);
     });
 
     it("a missing, changed or unreadable artifact fails closed on retry and on retrieval, and nothing is regenerated", async () => {
@@ -740,29 +1000,29 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       const first = await (await run(e.token)).json();
       const [row] = await runRows(e.id);
       const key = row.artifact_storage_ref as string;
-      const original = storage!.objects.get(key)!;
+      const original = (await probe.get(key))!;
       const calls = seam.studyCalls;
       const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-      storage!.objects.delete(key);                                            // missing
+      await probe.remove(key);                                                  // missing
       for (const res of [await run(e.token), await artifact(e.token, first.run.id)]) {
         expect(res.status).toBe(502);
         expect(await res.text()).not.toContain("<html");
       }
-      storage!.objects.set(key, { ...original, bytes: Buffer.from(original.bytes.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8") });  // changed
+      await probe.put(key, Buffer.from(original.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8"));  // changed
       for (const res of [await run(e.token), await artifact(e.token, first.run.id)]) {
         expect(res.status).toBe(502);
         const text = await res.text();
         expect(text).not.toContain("TAMPERED");
         expect(text).not.toContain("<html");
       }
-      storage!.objects.set(key, { ...original, bytes: original.bytes.subarray(0, original.bytes.length - 5) });                                 // truncated
+      await probe.put(key, original.subarray(0, original.length - 5));                                           // truncated
       expect((await artifact(e.token, first.run.id)).status).toBe(502);
-      storage!.objects.set(key, original);
-      storage!.fail.reads = true;                                              // store outage
+      await probe.put(key, original);
+      faults.reads = true;                                              // store outage
       expect((await artifact(e.token, first.run.id)).status).toBe(502);
       expect((await run(e.token)).status).toBe(502);
-      storage!.fail.reads = false;
+      faults.reads = false;
       spy.mockRestore();
 
       expect(seam.studyCalls).toBe(calls);                                     // no regeneration under the old identity
@@ -775,19 +1035,19 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     it("if the stored object disappears between the record and the reply, identical bytes are restored; if they cannot be, the response is a failure", async () => {
       const e = await engagement();
       await submitAndAccept(e);
-      seam.afterRecord = () => { for (const k of stored(e.id)) storage!.objects.delete(k); };
+      seam.afterRecord = async () => { for (const k of await stored(e.id)) await probe.remove(k); };
       const healed = await run(e.token);
       seam.afterRecord = null;
       expect(healed.status).toBe(201);
       const [row] = await runRows(e.id);
-      expect(sha256Hex(storage!.objects.get(row.artifact_storage_ref)!.bytes)).toBe(row.artifact_sha256);
+      expect(sha256Hex((await probe.get(row.artifact_storage_ref))!)).toBe(row.artifact_sha256);
 
       const e2 = await engagement();
       await submitAndAccept(e2);
       const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      seam.afterRecord = () => { for (const k of stored(e2.id)) storage!.objects.delete(k); storage!.fail.uploads = true; };
+      seam.afterRecord = async () => { for (const k of await stored(e2.id)) await probe.remove(k); faults.uploads = true; };
       const lost = await run(e2.token);
-      seam.afterRecord = null; storage!.fail.uploads = false;
+      seam.afterRecord = null; faults.uploads = false;
       spy.mockRestore();
       expect(lost.status).toBe(502);                                   // never "success" for a run whose document cannot be proven
       expect((await lost.json()).ok).toBe(false);
@@ -801,12 +1061,12 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       await run(e.token);
       const [row] = await runRows(e.id);
       expect(await discardCandidate(row.artifact_storage_ref)).toBe(false);
-      expect(storage!.objects.has(row.artifact_storage_ref)).toBe(true);
+      expect(await probe.get(row.artifact_storage_ref)).not.toBeNull();
       // An unreferenced object (a lost race's candidate) is removed.
       const orphan = `cost-evidence-artifacts/${e.id}/${"c".repeat(64)}/${"d".repeat(64)}.html`;
-      storage!.objects.set(orphan, { bytes: Buffer.from("x"), contentType: "text/html" });
+      await probe.put(orphan, Buffer.from("x"));
       expect(await discardCandidate(orphan)).toBe(true);
-      expect(storage!.objects.has(orphan)).toBe(false);
+      expect(await probe.get(orphan)).toBeNull();
     });
   });
 
@@ -1013,12 +1273,12 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
       expect(ok.status).toBe(200);
       expect(await ok.text()).toBe(made.document);
       const [row] = await runRows(e.id);
-      const original = storage!.objects.get(row.artifact_storage_ref)!;
-      storage!.objects.set(row.artifact_storage_ref, { ...original, bytes: Buffer.from(original.bytes.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8") });
+      const original = (await probe.get(row.artifact_storage_ref))!;
+      await probe.put(row.artifact_storage_ref, Buffer.from(original.toString("utf8").replace("SYNTHETIC", "TAMPERED"), "utf8"));
       const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
       const bad = await auditFile(made.run.id);
       spy.mockRestore();
-      storage!.objects.set(row.artifact_storage_ref, original);
+      await probe.put(row.artifact_storage_ref, original);
       expect(bad.status).toBe(502);
       expect(await bad.text()).not.toContain("TAMPERED");
       expect((await auditFile(crypto.randomUUID())).status).toBe(404);

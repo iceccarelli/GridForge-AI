@@ -45,17 +45,17 @@ export async function startStorageStub(serviceKey: string): Promise<StorageStub>
       if (m[1]) return json(400, { statusCode: "400", error: "bad route" });
       if (fail.uploads) return json(500, { statusCode: "500", error: "injected upload failure" });
       if (objects.has(key) && req.headers["x-upsert"] !== "true") {
-        return json(400, { statusCode: "409", error: "Duplicate", message: "The resource already exists" });
+        return json(400, { statusCode: "409", error: "Duplicate", message: "The resource already exists", code: "KeyAlreadyExists" });
       }
       // corruptWrites models a store that acknowledges a write and persists something else.
       objects.set(key, { bytes: fail.corruptWrites ? body.subarray(0, Math.max(0, body.length - 1)) : body, contentType: String(req.headers["content-type"] ?? "") });
       return json(200, { Key: key });
     }
     if (req.method === "GET") {
-      if (!m[1]) return json(400, { statusCode: "404", error: "Bucket not found" }); // private: the public route does not serve it
+      if (!m[1]) return json(400, { statusCode: "404", error: "Bucket not found", message: "Bucket not found", code: "NoSuchBucket" }); // private: the public route does not serve it
       if (fail.reads) return json(500, { statusCode: "500", error: "injected read failure" });
       const o = objects.get(key);
-      if (!o) return json(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+      if (!o) return json(400, { statusCode: "404", error: "not_found", message: "Object not found", code: "NoSuchKey" });
       return res.writeHead(200, { "content-type": o.contentType }).end(o.bytes);
     }
     if (req.method === "DELETE") {

@@ -42,10 +42,30 @@ Supplier quotations and storage references are never in a customer response.
 
 ## What is proven, and what is not
 
-Proven in CI-style local runs: SQL (fresh database and upgrade of legacy rows), PostgREST contract, the real Python engine, route behaviour,
-fail-closed storage handling, races, authorization.
+**Proven in CI (`real-database` and `real-storage` jobs):** SQL (fresh database and upgrade of legacy rows), the PostgREST contract, the real Python
+engines, route behaviour, fail-closed storage handling, races and authorization.
 
-**Not proven: Supabase Storage.** Tests use `tests/site/storage-stub.ts`, a deterministic stub of the Storage HTTP contract that persists exact bytes.
-Before relying on it in production an operator must confirm, on the real project: migration 0023 applied; bucket `cost-evidence-artifacts` exists and is **private**;
-the service-role key can create, read via `/storage/v1/object/authenticated/…`, and delete objects in it; a 400/404 for a missing object is handled as "missing".
-The migration creates the bucket only where `storage.buckets` exists. Nothing here was applied to production.
+**Proven against the real Storage service (`real-storage` job, mandatory):** the pinned `supabase/storage-api` image
+(version and digest in `scripts/realdb-up.sh`) is started against the same database before the migrations are applied, as in a
+Supabase project. The whole of `tests/site/cost-evidence.realdb.test.ts` then runs against it, plus a contract block that checks, with
+SQL against the service's own schema and direct requests to the service: the bucket created by migration 0023 exists and is private,
+no bucket is public and no policy grants it; `putVerified`/`readVerified` store and return exact bytes and the service's own object row agrees
+on size; a wrong digest or length is refused without returning bytes; missing object, unavailable store and corrupt data are told apart
+using the service's real error responses; a duplicate is accepted only if byte-identical and an existing object is never replaced; an
+unauthenticated caller, a bad token, the `anon` and `authenticated` roles and the public route cannot read an artifact; a retry leaves the
+authoritative object untouched. `GF_REQUIRE_REAL_STORAGE=1` makes an absent service a failure, not a skip.
+
+Run it locally (needs docker, psql, a PostgreSQL superuser via `PG*`):
+
+    GF_REAL_STORAGE=1 bash scripts/realdb-up.sh && set -a && . /tmp/gf-realdb/realdb.env && set +a
+    GF_REQUIRE_REALDB=1 GF_REQUIRE_REAL_STORAGE=1 npx vitest run tests/site/cost-evidence.realdb.test.ts
+    docker rm -f gf-storage
+
+How the real service is reached: Supabase's gateway maps `/storage/v1/*` onto the Storage service; the test gateway does the same mapping and nothing
+else. Faults (an outage, a truncated write) are injected on that path only for the scenarios that need one; the service never has a response invented for it.
+
+**Not proven, and needs separately authorised production verification:** that the production Supabase project has migration 0023 applied and the
+`cost-evidence-artifacts` bucket present and private; that its service key can write, read (`/storage/v1/object/authenticated/...`) and delete there;
+that its Storage version behaves like the pinned one (the client keys off `code` in the body, `NoSuchKey`, `KeyAlreadyExists`, which has been stable, but
+the hosted gateway and API-key format are not exercised here); backups and retention of the bucket; and real-world latency and size limits. A green
+preview deployment proves none of this. Nothing in this repository applies migrations to, or reads from, production.
