@@ -10,7 +10,8 @@
 // cannot hand us a doctored result, and an engine that changed between "compare" and "save" is a 409, never a
 // silently different record.
 
-import { digestOf } from "@/lib/run-identity";
+import { digestOf, sortSnapshot } from "@/lib/run-identity";
+import { acceptedEvidenceForProject, toEngineEntry } from "@/lib/cost-evidence";
 import { creds, ev, rest, rpc, STORE_UNCONFIGURED, type ProjectRow, type Result } from "@/lib/projects";
 import { TTP_COMPARE_SCHEMA, type CompareObjective, type CompareRequest, type CompareResult } from "@/lib/ttp-compare";
 import { resultDigest, runCompare } from "@/lib/ttp-compare-server";
@@ -41,7 +42,7 @@ export interface ComparisonRecord {
 export type ComparisonSummary = Pick<
   ComparisonRecord,
   "id" | "created_at" | "label" | "objective" | "baseline" | "grade" | "request_digest" | "result_digest" | "provenance_digest" | "scenario_ids"
-> & { leader: string | null };
+> & { leader: string | null; quotations_used: number };
 
 export const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{8,128}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,9 +51,73 @@ const q = encodeURIComponent;
 
 export type SaveOutcome = Result<{ created: boolean; reason: "created" | "idempotent_replay" | "already_saved"; comparison: ComparisonRecord }>;
 
+export interface EvidenceOffer {
+  /** Every accepted line, as the engine takes it, sorted by evidence id: the same set is always the same bytes. */
+  snapshot: Record<string, unknown>[];
+  ids: string[];
+}
+
+/** The project's accepted quotations, ready for the engine. Only ACCEPTED lines: nothing validated, rejected,
+ * superseded or withdrawn can reach a price. */
+export async function projectQuotations(project: ProjectRow): Promise<Result<EvidenceOffer>> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  const r = await acceptedEvidenceForProject(project.id);
+  if (!r.ok) return r;
+  const snapshot = sortSnapshot(r.items.map(toEngineEntry));
+  return { ok: true, snapshot, ids: snapshot.map((x) => String(x.evidence_id)) };
+}
+
+const NO_QUOTATIONS: Result<never> = {
+  ok: false,
+  status: 409,
+  error:
+    "No quotation has been accepted on this project, so there is nothing to apply. Compare from the cost library, or " +
+    "have a reviewer accept a supplier quotation first.",
+};
+
+export interface EvidenceUse {
+  offered: string[];
+  used: string[];
+  ignored: { key: string; evidence_id: string | null; reason: string }[];
+}
+
+function evidenceUse(result: CompareResult, offer: EvidenceOffer): Result<{ use: EvidenceUse }> {
+  const block = result.cost_evidence ?? { used: [], ignored: [] };
+  const used = (block.used ?? []).map((u) => String(u.evidence_id));
+  if (used.some((id) => !offer.ids.includes(id))) {
+    return { ok: false, status: 502, error: "The engine reported using a quotation that was not offered. Nothing is shown." };
+  }
+  return { ok: true, use: { offered: offer.ids, used, ignored: block.ignored ?? [] } };
+}
+
+/**
+ * Compare this hall with the project's accepted quotations priced in. Nothing is saved: the answer, its digest, the
+ * exact request (quotations included) and what the engine used or ignored come back for the person to read first.
+ */
+export async function compareForProject(
+  project: ProjectRow,
+  request: CompareRequest
+): Promise<Result<{ result: CompareResult; result_digest: string; engineBody: Record<string, unknown>; evidence: EvidenceUse }>> {
+  const offer = await projectQuotations(project);
+  if (!offer.ok) return offer;
+  if (offer.ids.length === 0) return NO_QUOTATIONS;
+  const run = await runCompare(request, offer.snapshot);
+  if (!run.ok) return { ok: false, status: run.status, error: run.error };
+  const use = evidenceUse(run.result, offer);
+  if (!use.ok) return use;
+  return { ok: true, result: run.result, result_digest: resultDigest(run.result), engineBody: run.engineBody, evidence: use.use };
+}
+
 export async function saveComparison(
   project: ProjectRow,
-  input: { request: CompareRequest; idempotency_key: string; label?: string | null; reviewed_result_digest?: string | null }
+  input: {
+    request: CompareRequest;
+    idempotency_key: string;
+    label?: string | null;
+    reviewed_result_digest?: string | null;
+    /** "project": price the comparison with the project's accepted quotations, as compareForProject does. */
+    evidence?: "project" | null;
+  }
 ): Promise<SaveOutcome> {
   // Fail closed before spending an engine unit: no store, no save.
   if (!creds()) return STORE_UNCONFIGURED;
@@ -66,10 +131,25 @@ export async function saveComparison(
     return { ok: false, status: 422, error: "reviewed_result_digest must be the result digest the comparison returned." };
   }
 
-  const run = await runCompare(input.request);
+  // Quotations are gathered at save time, from the record, never taken from the client: a line accepted (or
+  // withdrawn) since the person compared changes the answer, and the digest check below turns that into a 409.
+  let offer: EvidenceOffer | null = null;
+  if (input.evidence === "project") {
+    const q = await projectQuotations(project);
+    if (!q.ok) return q;
+    if (q.ids.length === 0) return NO_QUOTATIONS;
+    offer = q;
+  }
+  const run = await runCompare(input.request, offer?.snapshot);
   if (!run.ok) return { ok: false, status: run.status, error: run.error };
   const fresh = run.result;
   const rd = resultDigest(fresh);
+  let use: EvidenceUse | null = null;
+  if (offer) {
+    const u = evidenceUse(fresh, offer);
+    if (!u.ok) return u;
+    use = u.use;
+  }
   if (reviewed && reviewed !== rd) {
     return {
       ok: false,
@@ -109,6 +189,9 @@ export async function saveComparison(
       objective: fresh.objective,
       grade: fresh.grade,
       scenario_ids,
+      // Identifiers only: which accepted quotations were offered and which priced a line. Never a price.
+      evidence_offered: use?.offered ?? [],
+      evidence_used: use?.used ?? [],
     }),
   });
   if (!r.ok) {
@@ -132,11 +215,11 @@ export async function saveComparison(
 
 export async function listComparisons(project: ProjectRow): Promise<Result<{ comparisons: ComparisonSummary[] }>> {
   if (!creds()) return STORE_UNCONFIGURED;
-  type Row = Omit<ComparisonSummary, "leader"> & { leader?: string | null; result?: CompareResult };
+  type Row = Omit<ComparisonSummary, "leader" | "quotations_used"> & { leader?: string | null; applied?: unknown; result?: CompareResult };
   const r = await rest<Row[]>(
     "GET",
     `project_comparisons?project_id=eq.${q(project.id)}` +
-      `&select=id,created_at,label,objective,baseline,grade,request_digest,result_digest,provenance_digest,scenario_ids,leader:result->ranking->>leader` +
+      `&select=id,created_at,label,objective,baseline,grade,request_digest,result_digest,provenance_digest,scenario_ids,leader:result->ranking->>leader,applied:result->evidence_applied` +
       `&order=created_at.desc,id.desc`
   );
   if (!r.ok) return { ok: false, status: r.status === 503 ? 503 : 502, error: "The saved comparisons could not be read." };
@@ -155,6 +238,7 @@ export async function listComparisons(project: ProjectRow): Promise<Result<{ com
       scenario_ids: Array.isArray(x.scenario_ids) ? x.scenario_ids : [],
       // Real PostgREST answers the JSON-path select; a store that returns the whole row is read the same way.
       leader: typeof x.leader === "string" ? x.leader : x.result?.ranking?.leader ?? null,
+      quotations_used: Array.isArray(x.applied) ? x.applied.length : Array.isArray(x.result?.evidence_applied) ? x.result!.evidence_applied.length : 0,
     })),
   };
 }

@@ -1372,3 +1372,52 @@ describe.runIf(enabled)("durable, versioned cost-evidence runs (real PostgreSQL 
     });
   });
 });
+
+describe.runIf(enabled)("an accepted quotation prices the project's Time-to-Power comparison (real PostgreSQL + PostgREST + engine)", () => {
+  const HALL = {
+    siteName: "RealDB Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
+    currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180,
+    plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+    // One transformer the hall outgrows, so every scenario that relieves it takes the transformer step a quotation can price.
+    transformers: [{ id: "TX1", unit_rating_MVA: 8, units: 1, redundancy: "N" }],
+  };
+  const REQ = { hall: HALL, objective: "max_compute" };
+
+  it("uses only the line a named reviewer accepted, stores the priced answer with its quotations, and never a price in the event", async () => {
+    const e = await engagement();
+    const pt = e.project.project_token as string;
+    asAdmin();
+    const a = (await (await quotes(e.token, { responses: [response("SYNTHETIC-SUPPLIER-A", 2_340_000)], submitted_by: "Buyer", synthetic: true })).json()).lines[0];
+    const b = (await (await quotes(e.token, { responses: [response("SYNTHETIC-SUPPLIER-B", 9_999_000)], submitted_by: "Buyer", synthetic: true })).json()).lines[0];
+    const { POST: priceWith } = await import("@/app/api/projects/[token]/compare/route");
+    // nothing accepted yet: the project cannot be priced from nothing
+    expect((await priceWith(post("/x", { request: REQ }), { params: Promise.resolve({ token: pt }) })).status).toBe(409);
+    expect((await review(b.id, { decision: "rejected", reviewer: "Test Reviewer", reason: "out of scope" })).status).toBe(201);
+    expect((await review(a.id, ACCEPT)).status).toBe(201);
+
+    const res = await priceWith(post("/x", { request: REQ }), { params: Promise.resolve({ token: pt }) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.evidence).toMatchObject({ offered: [a.id], used: [a.id], ignored: [] });
+    expect(body.request.cost_evidence).toHaveLength(1);
+    expect(JSON.stringify(body.request)).not.toContain("SYNTHETIC-SUPPLIER-B");
+    const moved = (body.result.cost_evidence.effect.scenarios as { scenario: string; capex_delta_eur: number }[]).filter((x) => x.capex_delta_eur !== 0);
+    expect(moved.length).toBeGreaterThan(0);
+    const priced = body.result.scenarios.find((s: { id: string }) => s.id === moved[0].scenario);
+    expect(Object.keys(priced.economics.cost_basis_mix)).toContain("budgetary_quote");
+
+    const { POST: save } = await import("@/app/api/projects/[token]/comparisons/route");
+    const saved = await save(post("/x", { request: REQ, idempotency_key: crypto.randomUUID(), evidence: "project", reviewed_result_digest: body.result_digest }), { params: Promise.resolve({ token: pt }) });
+    expect(saved.status).toBe(201);
+    const [row] = await rows("project_comparisons", `&project_id=eq.${e.project.id}`);
+    expect(row.request.cost_evidence[0].evidence_id).toBe(a.id);
+    expect(row.result.evidence_applied).toHaveLength(1);
+    expect(row.result_digest).toBe(body.result_digest);
+    const [ev] = await rows("project_events", `&project_id=eq.${e.project.id}&event_type=eq.comparison_saved`);
+    expect(ev.payload).toMatchObject({ evidence_used: [a.id], evidence_offered: [a.id] });
+    expect(JSON.stringify(ev.payload)).not.toContain("2340000");
+    const { GET: list } = await import("@/app/api/projects/[token]/comparisons/route");
+    const ls = await (await list(new Request(siteUrl("/x")), { params: Promise.resolve({ token: pt }) })).json();
+    expect(ls.comparisons[0].quotations_used).toBe(1);
+  }, 60_000);
+});

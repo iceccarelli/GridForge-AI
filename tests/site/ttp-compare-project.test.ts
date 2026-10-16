@@ -76,6 +76,8 @@ const HALL = {
   siteName: "Synthetic Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
   currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180,
   plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  // One transformer the hall outgrows, so every scenario that relieves it takes the transformer step a quotation can price.
+  transformers: [{ id: "TX1", unit_rating_MVA: 8, units: 1, redundancy: "N" }],
 };
 const GAS = { id: "gas1", kind: "gas_engine", capacity_MW: 10, lead_time_weeks: 40 };
 const REQ = { hall: HALL, btm_options: [GAS], objective: "fastest" };
@@ -349,5 +351,165 @@ describe.runIf(hasPython)("what did not change", () => {
     expect(st.comparisons).toHaveLength(1);
     expect(st.comparisons[0]).toMatchObject({ id: saved.comparison.id, label: "spring", provenance_digest: saved.comparison.provenance_digest });
     expect(typeof ProjectPanel).toBe("function");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The project's ACCEPTED supplier quotations priced into the comparison. Evidence rows are seeded as the state view
+// holds them (SYNTHETIC suppliers); only `state: "accepted"` lines may reach a price.
+// ---------------------------------------------------------------------------------------------------------------------
+function quotation(project_id: string, n: number, over: Record<string, unknown> = {}) {
+  return {
+    id: `00000000-0000-4000-8000-0000000000e${n}`, deliverable_id: "d", project_id, cost_key: "transformer.replacement",
+    unit: "EUR/MVA", value: 100_000, currency: "EUR", supplier: `SYNTHETIC-SUPPLIER-${n}`, received_on: "2026-10-01",
+    valid_until: "2099-12-31", reference: `SYN-${n}`, scope: "Replace transformer", quoted_quantity: null, quoted_quantity_unit: null,
+    specification: {}, response_digest: String(n).repeat(64), validation_status: "validated", problems: [], limitations: [],
+    comparability: "exact", synthetic: true, submitted_at: "2026-10-01T10:00:00Z", state: "accepted",
+    reviewed_basis: "budgetary_quote", reviewed_comparability: "exact", includes_keys: [], reviewed_region: "IE",
+    reviewer: "Test Reviewer", reviewed_at: "2026-10-05T10:00:00Z", review_reason: null, superseded_by: null,
+    retired_kind: null, retired_at: null, retirement_reason: null, retired_by: null, ...over,
+  };
+}
+const projectId = (token: string) => rowsOf("projects").find((p) => p.project_token === token).id as string;
+const priceWith = async (token: string, body: unknown = { request: REQ }) =>
+  (await import("@/app/api/projects/[token]/compare/route")).POST(json(body), ctx({ token }));
+
+describe.runIf(hasPython)("pricing a comparison with the project's accepted quotations", () => {
+  it("applies only ACCEPTED lines of THIS project, names them, moves the basis off the library, and changes nothing but cost", async () => {
+    const a = await project("A");
+    const b = await project("B");
+    db.seed("cost_evidence_state", [
+      quotation(projectId(a), 1),                                                 // accepted: prices the transformer line
+      quotation(projectId(a), 2, { state: "validated", reviewed_basis: null }),  // reviewed by nobody: never offered
+      quotation(projectId(a), 3, { state: "rejected", reviewed_basis: null }),
+      quotation(projectId(a), 4, { state: "withdrawn", retired_kind: "withdrawn" }),
+      quotation(projectId(b), 5, { value: 1 }),                                   // another project's quotation
+    ]);
+    const library = await compare();
+    const res = await priceWith(a);
+    expect(res.status).toBe(200);
+    const body = await j(res);
+    expect(body.evidence).toEqual({ offered: [quotation(projectId(a), 1).id], used: [quotation(projectId(a), 1).id], ignored: [] });
+    const r = body.result as CompareResult;
+    expect(r.evidence_applied).toHaveLength(1);
+    expect(r.evidence_applied[0]).toMatchObject({ key: "transformer.replacement", basis: "budgetary_quote", synthetic: true });
+    expect(r.cost_evidence!.used.map((u) => u.evidence_id)).toEqual([quotation(projectId(a), 1).id]);
+    expect(r.caveats.join(" ")).toMatch(/accepted supplier quotations/);
+    expect(r.caveats.join(" ")).toMatch(/SYNTHETIC/);
+    // "used" means admitted; a line prices a scenario only where that scenario's ladder takes the step. The engine's
+    // own effect block names the scenarios whose capex moved: at least one must, and only cost may move.
+    const effect = r.cost_evidence!.effect as { scenarios: { scenario: string; capex_delta_eur: number }[] };
+    const moved = effect.scenarios.filter((x) => x.capex_delta_eur !== 0).map((x) => x.scenario);
+    expect(moved.length).toBeGreaterThan(0);
+    for (const id of moved) {
+      const now = r.scenarios.find((s) => s.id === id)!;
+      const was = library.result.scenarios.find((s: { id: string }) => s.id === id);
+      expect(Object.keys(now.economics.cost_basis_mix)).toContain("budgetary_quote");
+      expect(now.economics.capex_total_eur!.value).not.toBe(was.economics.capex_total_eur.value);
+    }
+    for (const now of r.scenarios) {
+      const was = library.result.scenarios.find((s: { id: string }) => s.id === now.id);
+      expect(now.after_ladder.racks).toBe(was.after_ladder.racks);               // physics unchanged
+      expect(now.time_to_power.weeks).toBe(was.time_to_power.weeks);
+    }
+    expect(r.request_digest).not.toBe(library.result.request_digest);             // a different question
+    expect(body.result_digest).not.toBe(library.result_digest);
+    // the request returned carries the quotations, and only the accepted one of this project
+    expect(body.request.cost_evidence).toHaveLength(1);
+    expect(body.request.cost_evidence[0]).toMatchObject({ evidence_id: quotation(projectId(a), 1).id, status: "accepted", value: 100_000 });
+    expect(JSON.stringify(body.request)).not.toContain("SYNTHETIC-SUPPLIER-5");
+    expect(JSON.stringify(body.request)).not.toContain("SYNTHETIC-SUPPLIER-2");
+    // it reproduces at the engine from that request alone
+    const direct = await (await realFetch(`${ENGINE}/v1/compare`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": KEY }, body: JSON.stringify(body.request) })).json();
+    expect(direct.request_digest).toBe(r.request_digest);
+    expect(direct.scenarios).toEqual(r.scenarios);
+  });
+
+  it("with no accepted quotation it says so (409) rather than pricing from nothing, and a library compare is unchanged", async () => {
+    const a = await project("A");
+    db.seed("cost_evidence_state", [quotation(projectId(a), 2, { state: "validated", reviewed_basis: null })]);
+    const res = await priceWith(a);
+    expect(res.status).toBe(409);
+    expect((await j(res)).error).toMatch(/No quotation has been accepted/);
+    storeCalls = [];
+    const plain = await compare();
+    expect(plain.result.evidence_applied).toEqual([]);
+    expect(plain.result.cost_evidence).toBeUndefined();
+    expect(storeCalls).toEqual([]);
+  });
+
+  it("saves the quotation-priced answer with the quotations in the stored request and their ids in the event", async () => {
+    const a = await project("A");
+    db.seed("cost_evidence_state", [quotation(projectId(a), 1)]);
+    const priced = await j(await priceWith(a));
+    const res = await save(a, { request: REQ, idempotency_key: "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4", evidence: "project", reviewed_result_digest: priced.result_digest });
+    expect(res.status).toBe(201);
+    const body = await j(res);
+    const [row] = rowsOf("project_comparisons");
+    expect(row.request.cost_evidence).toHaveLength(1);
+    expect(row.result.evidence_applied).toHaveLength(1);
+    expect(row.result_digest).toBe(priced.result_digest);
+    expect(row.request_digest).toBe(priced.result.request_digest);
+    expect(events()[0].payload).toMatchObject({ evidence_offered: [quotation(projectId(a), 1).id], evidence_used: [quotation(projectId(a), 1).id] });
+    expect(JSON.stringify(events()[0].payload)).not.toContain("100000");          // identifiers, never a price
+    // the stored record reopens with its quotations; the project list counts them
+    const rec = (await j(await one(a, body.comparison.id))).comparison;
+    expect(rec.request.cost_evidence[0].evidence_id).toBe(quotation(projectId(a), 1).id);
+    expect((await j(await list(a))).comparisons[0].quotations_used).toBe(1);
+    expect((await state(a)).comparisons[0].quotations_used).toBe(1);
+    // the library-priced answer of the same hall is a different record, not a replay
+    const lib = await j(await save(a, { request: REQ, idempotency_key: "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5" }));
+    expect(lib.created).toBe(true);
+    expect(rowsOf("project_comparisons")).toHaveLength(2);
+    expect((await j(await list(a))).comparisons.map((c: { quotations_used: number }) => c.quotations_used).sort()).toEqual([0, 1]);
+  });
+
+  it("a quotation accepted after the person compared changes the answer, so the save is refused until they re-read it", async () => {
+    const a = await project("A");
+    db.seed("cost_evidence_state", [quotation(projectId(a), 1)]);
+    const priced = await j(await priceWith(a));
+    db.seed("cost_evidence_state", [quotation(projectId(a), 6, { cost_key: "ups.per_kW", unit: "EUR/kW", value: 250, received_on: "2026-10-02" })]);
+    const res = await save(a, { request: REQ, idempotency_key: "f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6", evidence: "project", reviewed_result_digest: priced.result_digest });
+    expect(res.status).toBe(409);
+    expect((await j(res)).error).toMatch(/no longer the one you reviewed/);
+    expect(rowsOf("project_comparisons")).toHaveLength(0);
+    expect(events()).toHaveLength(0);
+  });
+
+  it("evidence:\"project\" with nothing accepted saves nothing (409); another project's token cannot price with this project's quotations", async () => {
+    const a = await project("A");
+    const b = await project("B");
+    db.seed("cost_evidence_state", [quotation(projectId(a), 1)]);
+    expect((await save(b, { request: REQ, idempotency_key: "a7a7a7a7-a7a7-4a7a-8a7a-a7a7a7a7a7a7", evidence: "project" })).status).toBe(409);
+    expect((await priceWith(b)).status).toBe(409);
+    expect((await priceWith("no-such-project")).status).toBe(404);
+    expect((await priceWith(a, { request: { ...REQ, scenarios: ["rdhx"] } })).status).toBe(422);
+    expect(rowsOf("project_comparisons")).toHaveLength(0);
+  });
+
+  it("a failed read of the quotations is a failed compare, never a silent library price", async () => {
+    const a = await project("A");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    db.dropTable("cost_evidence_state");
+    engineCalls = 0;
+    const res = await priceWith(a);
+    expect(res.status).toBe(502);
+    expect(engineCalls).toBe(0);
+  });
+
+  it("the page shows which quotations priced the answer and the basis of every scenario's capex", async () => {
+    const a = await project("A");
+    db.seed("cost_evidence_state", [quotation(projectId(a), 1)]);
+    const priced = await j(await priceWith(a));
+    const markup = renderToStaticMarkup(React.createElement(ComparisonResults, {
+      out: { result: priced.result, request: priced.request, synthetic: false, result_digest: priced.result_digest, priced: "project" },
+      cli: "", copied: false, onCopy: () => {},
+    }));
+    expect(markup).toMatch(/Quotations applied/);
+    expect(markup).toMatch(/1 accepted quotation priced a line/);
+    expect(markup).toMatch(/transformer\.replacement/);
+    expect(markup).toMatch(/budgetary quote/);
+    expect(markup).toMatch(/SYNTHETIC/);
+    expect(markup).toMatch(/library placeholder \(not a price\) ×/);
   });
 });

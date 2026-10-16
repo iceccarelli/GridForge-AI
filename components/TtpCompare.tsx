@@ -26,6 +26,9 @@ export type OnScreen = {
   synthetic: boolean;
   /** Identity of the answer as the server computed it; echoed back on save so a changed engine cannot slip through. */
   result_digest?: string;
+  /** "project": priced with the project's accepted quotations (the request carries them); otherwise the cost library. */
+  priced?: "library" | "project";
+  evidence?: { offered: number; used: number; ignored: { key: string; reason: string }[] };
   saved?: { id: string; created_at: string; label: string | null; project_token: string };
 };
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
@@ -166,6 +169,10 @@ export function TtpCompare() {
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
+    await runCompare();
+  }
+
+  async function runCompare() {
     setError(null);
     if (missing.length) {
       setError({ message: "These are needed before the engine can solve the hall:", fields: missing });
@@ -191,7 +198,7 @@ export function TtpCompare() {
         return;
       }
       setAsked(build(f, btm, objective));
-      setOut({ result: body.result, request: body.request, synthetic, result_digest: body.result_digest });
+      setOut({ result: body.result, request: body.request, synthetic, result_digest: body.result_digest, priced: "library" });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -369,6 +376,16 @@ export function TtpCompare() {
       {out ? <ComparisonResults out={out} cli={cli} copied={copied} onCopy={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(out.request, null, 2)); setCopied(true); } catch { setCopied(false); }
       }} /> : null}
+      {out && !out.saved && asked && projectToken.trim() ? (
+        <PriceWithQuotations
+          key={`q-${out.result_digest ?? out.result.request_digest}`}
+          asked={asked}
+          projectToken={projectToken.trim()}
+          priced={out.priced ?? "library"}
+          onPriced={(next) => setOut({ ...next, synthetic: out.synthetic })}
+          onLibrary={() => void runCompare()}
+        />
+      ) : null}
       {out && !out.saved && asked ? (
         <SaveToProject
           key={out.result_digest ?? out.result.request_digest}
@@ -377,9 +394,76 @@ export function TtpCompare() {
           projectToken={projectToken}
           onProjectToken={setProjectToken}
           synthetic={out.synthetic}
+          evidence={out.priced === "project" ? "project" : null}
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Price the comparison on screen with the project's ACCEPTED supplier quotations. The server gathers them from the
+ * record (nothing is taken from the browser), the engine says which it used and which it ignored, and the answer
+ * replaces the one on screen -- labelled as quotation-priced, with a way back to the cost library.
+ */
+function PriceWithQuotations({ asked, projectToken, priced, onPriced, onLibrary }: {
+  asked: ReturnType<typeof build>;
+  projectToken: string;
+  priced: "library" | "project";
+  onPriced: (next: OnScreen) => void;
+  onLibrary: () => void;
+}) {
+  const [state, setState] = useState<{ kind: "idle" } | { kind: "busy" } | { kind: "error"; message: string }>({ kind: "idle" });
+  async function price() {
+    setState({ kind: "busy" });
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectToken)}/compare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: asked }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        setState({ kind: "error", message: res.status === 404 ? "No project has that token." : body?.error ?? "The quotations could not be applied. The answer on screen is unchanged." });
+        return;
+      }
+      const ev = body.evidence as { offered: string[]; used: string[]; ignored: { key: string; reason: string }[] };
+      onPriced({ result: body.result, request: body.request, synthetic: false, result_digest: body.result_digest, priced: "project",
+        evidence: { offered: ev.offered.length, used: ev.used.length, ignored: ev.ignored } });
+      setState({ kind: "idle" });
+    } catch {
+      setState({ kind: "error", message: "Could not reach the server. The answer on screen is unchanged." });
+    }
+  }
+  return (
+    <section aria-label="Supplier quotations" className="panel flex flex-col gap-3 p-5">
+      <p className="eyebrow">Supplier quotations on this project</p>
+      {priced === "project" ? (
+        <p className="text-sm text-ghost">
+          This answer is priced with the project&apos;s accepted quotations where one covers a line; every other line is the cost library.{" "}
+          <button type="button" className="underline text-mute" onClick={onLibrary}>Price from the cost library instead</button>
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-mute">
+            Capital cost above is the cost library (a placeholder, not a price). Where a reviewer has accepted a supplier
+            quotation on this project, it can price that line instead; the engine will say which lines it used and which it ignored.
+          </p>
+          <div>
+            <button type="button" onClick={price} disabled={state.kind === "busy"} className="btn-secondary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-60">
+              {state.kind === "busy" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+              {state.kind === "busy" ? "Pricing…" : "Price with the project's accepted quotations"}
+            </button>
+          </div>
+        </>
+      )}
+      {state.kind === "error" ? (
+        <div role="alert" className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-3 text-sm text-ghost">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" aria-hidden />
+          <p>{state.message}</p>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -389,12 +473,14 @@ export function TtpCompare() {
  * refuses to save an answer that no longer matches the one on screen. Success is shown only from the server's own
  * confirmation of the stored record, never assumed.
  */
-function SaveToProject({ asked, resultDigest, projectToken, onProjectToken, synthetic }: {
+function SaveToProject({ asked, resultDigest, projectToken, onProjectToken, synthetic, evidence }: {
   asked: ReturnType<typeof build>;
   resultDigest: string | null;
   projectToken: string;
   onProjectToken: (t: string) => void;
   synthetic: boolean;
+  /** "project": the answer on screen was priced with the project's accepted quotations; save it that way. */
+  evidence: "project" | null;
 }) {
   const uid = useId();
   const [key] = useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(16).slice(2)}`));
@@ -418,7 +504,7 @@ function SaveToProject({ asked, resultDigest, projectToken, onProjectToken, synt
       const res = await fetch(`/api/projects/${encodeURIComponent(token)}/comparisons`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: asked, idempotency_key: key, label: label.trim() || undefined, reviewed_result_digest: resultDigest ?? undefined }),
+        body: JSON.stringify({ request: asked, idempotency_key: key, label: label.trim() || undefined, reviewed_result_digest: resultDigest ?? undefined, ...(evidence ? { evidence } : {}) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok || !body.comparison?.id) {
@@ -458,6 +544,7 @@ function SaveToProject({ asked, resultDigest, projectToken, onProjectToken, synt
       <p className="text-xs text-mute">
         Keeps this exact request, the engine&apos;s answer and its provenance on the project as an immutable record. The engine
         is asked once more for the same inputs and the save is refused if its answer has changed since you read this one.
+        {evidence === "project" ? " The project's accepted quotations are gathered again at save time and stored with the request." : ""}
         {synthetic ? " This is the synthetic example: it will be saved as what it is, not as a finding about a real hall." : ""}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -497,7 +584,8 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: OnScreen;
       {out.saved ? (
         <p className="rounded border border-power/40 bg-power/10 p-3 text-sm text-ghost" data-saved-record={out.saved.id}>
           <strong>Saved record{out.saved.label ? ` · ${out.saved.label}` : ""}.</strong> Generated {new Date(out.saved.created_at).toLocaleString()} by engine{" "}
-          {r.provenance.engine_version} and stored as returned; shown as stored, not recomputed.{" "}
+          {r.provenance.engine_version} and stored as returned; shown as stored, not recomputed.
+          {r.evidence_applied?.length ? ` Priced with ${r.evidence_applied.length} accepted quotation${r.evidence_applied.length === 1 ? "" : "s"}.` : " Priced from the cost library."}{" "}
           <a className="underline" href={`/workspace?project=${encodeURIComponent(out.saved.project_token)}`}>Open the project</a>
         </p>
       ) : null}
@@ -529,6 +617,31 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: OnScreen;
         <ul className="mt-3 list-disc pl-5 text-xs text-mute">{r.caveats.map((c) => (<li key={c}>{c}</li>))}</ul>
       </div>
 
+      {r.cost_evidence ? (
+        <div className="panel p-5" data-quotations={r.cost_evidence.used.length}>
+          <p className="eyebrow">Quotations applied</p>
+          <p className="mt-2 text-sm text-ghost">
+            {r.cost_evidence.used.length} accepted quotation{r.cost_evidence.used.length === 1 ? "" : "s"} priced a line;{" "}
+            {r.cost_evidence.ignored.length} offered line{r.cost_evidence.ignored.length === 1 ? " was" : "s were"} not used.
+          </p>
+          {r.cost_evidence.used.length ? (
+            <ul className="mt-2 list-disc pl-5 text-xs text-mute">
+              {r.cost_evidence.used.map((u) => (
+                <li key={`${u.key}-${u.evidence_id}`}>
+                  <span className="text-ghost">{u.key}</span>: <span className="data">€{u.value.toLocaleString()} {u.unit.replace(/^EUR/, "")}</span> · {u.basis.replace(/_/g, " ")}
+                  {u.supplier ? ` · ${u.supplier}` : ""}{u.reviewer ? ` · accepted by ${u.reviewer}` : ""}{u.synthetic ? " · SYNTHETIC" : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {r.cost_evidence.ignored.length ? (
+            <ul className="mt-2 list-disc pl-5 text-xs text-queue">
+              {r.cost_evidence.ignored.map((g, i) => (<li key={`${g.key}-${i}`}>{g.key}: not used — {g.reason}</li>))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <caption className="sr-only">Scenarios compared</caption>
@@ -557,6 +670,11 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: OnScreen;
                   ) : "—"}
                   {!s.economics.capex_complete ? (
                     <span className="block text-[11px] text-queue">incomplete — {s.economics.unpriced_components.length} unpriced</span>
+                  ) : null}
+                  {s.economics.cost_basis_mix && Object.keys(s.economics.cost_basis_mix).length ? (
+                    <span className="block text-[11px] text-faint">
+                      {Object.values(s.economics.cost_basis_mix).map((b) => `${b.label} ×${b.lines}`).join(" · ")}
+                    </span>
                   ) : null}
                 </td>
               </tr>

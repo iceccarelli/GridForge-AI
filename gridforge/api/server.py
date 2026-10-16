@@ -273,6 +273,22 @@ def handle_screen(body: dict, tier: Tier) -> dict:
     return screen_payload(intake, results, _objective(body), tier=tier)
 
 
+def _applied_evidence() -> list[dict]:
+    """The accepted cost lines the overlay in force actually used, reduced to what identifies them. Empty when no
+    evidence was supplied or none was admitted."""
+    from ..costs import active_evidence
+    block = active_evidence()
+    if not block:
+        return []
+    out = []
+    for e in block.get("used") or []:
+        rec = e if isinstance(e, dict) else {"evidence_id": getattr(e, "evidence_id", None), "key": e.key,
+                                              "unit": e.unit, "value": e.value, "basis": e.basis,
+                                              "quoted_on": e.quoted_on, "synthetic": e.synthetic}
+        out.append({k: rec.get(k) for k in ("evidence_id", "key", "unit", "value", "basis", "quoted_on", "synthetic")})
+    return sorted(out, key=lambda r: (str(r.get("key")), str(r.get("evidence_id"))))
+
+
 def handle_compare(body: dict, tier: Tier) -> dict:
     """Time-to-Power scenario comparison over the scenarios an intake defines. One solve (``_run``), no second model:
     the numbers are the ones /v1/screen reports, laid side by side with only the dates the lead times support."""
@@ -300,7 +316,17 @@ def handle_compare(body: dict, tier: Tier) -> dict:
             notes = ["full_dlc_btm is not compared: the intake declares no behind-the-meter options."]
         else:
             notes = []
-        out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
+        # Accepted supplier quotations applied to THIS call (cost_overlay, via _invoke) are part of the question asked:
+        # the same hall priced from the library and priced from a quotation are two comparisons, with two digests.
+        # Only lines the overlay actually USED count; an ignored line changed nothing and changes no identity.
+        applied = _applied_evidence()
+        if applied:
+            notes.append(f"Capital cost on {len(applied)} line(s) comes from accepted supplier quotations "
+                         f"({', '.join(a['key'] for a in applied)}); every other line is the cost library.")
+            if any(a.get("synthetic") for a in applied):
+                notes.append("At least one applied quotation is SYNTHETIC (a fixture, not a real quotation): this "
+                             "comparison is not decision-grade.")
+        out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes, evidence=applied)
     except CompareError as exc:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
     out["project"] = intake.project
@@ -721,7 +747,7 @@ ROUTES = {
 }
 
 #: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
-EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/diff", "/v1/deck", "/v1/spec"})
+EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff", "/v1/deck", "/v1/spec"})
 MAX_EVIDENCE_LINES = 200
 
 
@@ -748,7 +774,7 @@ def _invoke(endpoint: str, handler, body, tier):
     clean = {k: v for k, v in body.items() if k != "cost_evidence"}
     with cost_overlay(entries) as report:
         effect = None
-        if endpoint in ("/v1/screen", "/v1/study"):
+        if endpoint in ("/v1/screen", "/v1/study", "/v1/compare"):
             from ..scenario.evidence import evidence_effect
             doc = clean.get("intake") or clean
             intake = load_document(doc)          # an invalid intake fails here exactly as the handler would

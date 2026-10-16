@@ -302,3 +302,91 @@ def test_the_cli_reproduces_the_request_file_the_site_offers(tmp_path):
     direct = handle_compare(request, Tier.CLIENT)
     assert written["request_digest"] == direct["request_digest"]
     assert [r["id"] for r in written["scenarios"]] == ["hybrid_dlc", "full_dlc"] and written["objective"] == "fastest"
+
+
+# --- accepted supplier quotations priced into the comparison ------------------------------------------------------
+
+QUOTE = {"key": "transformer.replacement", "label": "transformer (synthetic quotation)", "unit": "EUR/MVA",
+         "value": 100_000.0, "basis": "budgetary_quote", "supplier": "SYNTHETIC-SUPPLIER-A", "quoted_on": "2026-10-01",
+         "valid_until": "2099-12-31", "evidence_id": "ev-a", "reviewer": "Test Reviewer", "reviewed_on": "2026-10-05",
+         "status": "accepted"}
+
+
+def invoke(body):
+    from gridforge.api.server import _invoke
+    return _invoke("/v1/compare", handle_compare, body, Tier.CLIENT)
+
+
+def test_an_accepted_quotation_prices_its_line_and_the_answer_says_so():
+    plain = compare(DUBLIN)
+    priced = invoke({"intake": DUBLIN, "cost_evidence": [QUOTE]})
+    assert [u["evidence_id"] for u in priced["cost_evidence"]["used"]] == ["ev-a"]
+    assert priced["cost_evidence"]["ignored"] == []
+    assert priced["evidence_applied"] == [{"evidence_id": "ev-a", "key": "transformer.replacement", "unit": "EUR/MVA",
+                                           "value": 100_000.0, "basis": "budgetary_quote", "quoted_on": "2026-10-01",
+                                           "synthetic": False}]
+    s = row(priced, "full_dlc")
+    assert "budgetary_quote" in s["economics"]["cost_basis_mix"]
+    assert s["economics"]["capex_total_eur"]["value"] != row(plain, "full_dlc")["economics"]["capex_total_eur"]["value"]
+    assert any("accepted supplier quotations" in c and "transformer.replacement" in c for c in priced["caveats"])
+    # the physics did not move: racks, limits and dates are identical, only cost and its basis changed
+    for a, b in zip(plain["scenarios"], priced["scenarios"]):
+        assert (a["after_ladder"]["racks"], a["time_to_power"]["weeks"]) == (b["after_ladder"]["racks"], b["time_to_power"]["weeks"])
+    assert priced["cost_evidence"]["effect"]["scenarios"]
+
+
+def test_the_applied_evidence_is_part_of_the_questions_identity_and_an_ignored_line_is_not():
+    plain = compare(DUBLIN)
+    priced = invoke({"intake": DUBLIN, "cost_evidence": [QUOTE]})
+    assert priced["request_digest"] != plain["request_digest"]
+    assert invoke({"intake": DUBLIN, "cost_evidence": [QUOTE]})["request_digest"] == priced["request_digest"]
+    unreviewed = invoke({"intake": DUBLIN, "cost_evidence": [{**QUOTE, "status": "validated"}]})
+    assert unreviewed["cost_evidence"]["used"] == []
+    assert unreviewed["cost_evidence"]["ignored"][0]["reason"].startswith("status is validated")
+    assert unreviewed["request_digest"] == plain["request_digest"]        # nothing was applied, so the question is the same
+    assert unreviewed["evidence_applied"] == []
+    assert row(unreviewed, "full_dlc")["economics"]["capex_total_eur"] == row(plain, "full_dlc")["economics"]["capex_total_eur"]
+
+
+def test_without_evidence_the_response_is_exactly_what_it_was():
+    out = compare(DUBLIN)
+    assert "cost_evidence" not in out and out["evidence_applied"] == []
+
+
+def test_a_synthetic_quotation_is_named_and_makes_the_comparison_not_decision_grade():
+    out = invoke({"intake": DUBLIN, "cost_evidence": [{**QUOTE, "synthetic": True}]})
+    assert any("SYNTHETIC" in c and "not decision-grade" in c for c in out["caveats"])
+    assert out["evidence_applied"][0]["synthetic"] is True
+
+
+def test_http_compare_takes_cost_evidence_and_refuses_a_bad_line(server):
+    status, body = post(server, "/v1/compare", {"intake": DUBLIN, "cost_evidence": [QUOTE]}, KEY)
+    assert status == 200 and [u["evidence_id"] for u in body["cost_evidence"]["used"]] == ["ev-a"]
+    assert body["request_digest"] == invoke({"intake": DUBLIN, "cost_evidence": [QUOTE]})["request_digest"]
+    status, body = post(server, "/v1/compare", {"intake": DUBLIN, "cost_evidence": [{"key": "x"}]}, KEY)
+    assert status == 422 and "not a valid cost line" in body["error"]
+    status, body = post(server, "/v1/compare", {"intake": DUBLIN, "cost_evidence": {"not": "a list"}}, KEY)
+    assert status == 422
+
+
+def test_the_cli_applies_the_same_evidence_the_same_way(tmp_path):
+    ev = tmp_path / "evidence.json"
+    ev.write_text(json.dumps([QUOTE]))
+    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(EX / "dublin_hall.json"), "-o", str(tmp_path / "o"),
+                        "--cost-evidence", str(ev)], capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    assert "1 accepted line(s) used, 0 ignored" in p.stdout
+    written = json.loads((tmp_path / "o" / "ttp_compare.json").read_text())
+    direct = invoke({"intake": DUBLIN, "cost_evidence": [QUOTE]})
+    assert written["request_digest"] == direct["request_digest"] and written["scenarios"] == direct["scenarios"]
+    # a request file that carries its own cost_evidence reproduces too
+    req = tmp_path / "request.json"
+    req.write_text(json.dumps({"intake": DUBLIN, "cost_evidence": [QUOTE]}))
+    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(req), "-o", str(tmp_path / "o2")], capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    assert json.loads((tmp_path / "o2" / "ttp_compare.json").read_text())["request_digest"] == direct["request_digest"]
+    bad = tmp_path / "bad.json"
+    bad.write_text("{nope")
+    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(EX / "dublin_hall.json"), "-o", str(tmp_path / "o3"),
+                        "--cost-evidence", str(bad)], capture_output=True, text=True)
+    assert p.returncode == 2 and "unusable" in p.stderr

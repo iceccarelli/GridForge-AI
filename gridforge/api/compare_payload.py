@@ -40,11 +40,15 @@ def _cls(name: str) -> str:
     return name.split("_", 1)[0]          # "E3_ENGINEERING_ESTIMATE" -> "E3"
 
 
-def request_digest(document: dict, ids: list[str], objective: Objective, baseline: str) -> str:
-    """Identity of the question asked: the same inputs, scenarios, objective and baseline give the same digest."""
-    canon = json.dumps({"schema": SCHEMA, "intake": document, "scenarios": ids,
-                        "objective": objective.value, "baseline": baseline},
-                       sort_keys=True, separators=(",", ":"), default=str)
+def request_digest(document: dict, ids: list[str], objective: Objective, baseline: str,
+                   evidence: list[dict] | None = None) -> str:
+    """Identity of the question asked: the same inputs, scenarios, objective, baseline -- and the same accepted
+    quotations applied -- give the same digest. Without evidence the digest is exactly what it was before evidence
+    existed, so library-priced comparisons keep their identity."""
+    q = {"schema": SCHEMA, "intake": document, "scenarios": ids, "objective": objective.value, "baseline": baseline}
+    if evidence:
+        q["evidence"] = evidence
+    canon = json.dumps(q, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
@@ -212,7 +216,8 @@ def _rank(rows: list[dict], objective: Objective) -> dict:
 
 
 def compare_payload(document: dict, results: list[ScenarioResult], *, objective: Objective,
-                    baseline: str | None, notes: list[str] | None = None) -> dict:
+                    baseline: str | None, notes: list[str] | None = None,
+                    evidence: list[dict] | None = None) -> dict:
     if len(results) < 2:
         raise CompareError("a comparison needs at least two scenarios", available=[r.spec.id for r in results])
     ids = [r.spec.id for r in results]
@@ -242,5 +247,8 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
         "ranking": ranking,
         "grade": "indicative" if indicative else "screening",
         "caveats": caveats,
-        "request_digest": request_digest(document, ids, objective, base_id),
+        # The accepted quotations whose prices this answer rests on (ids, keys, values, basis). Empty when the capex is
+        # the cost library throughout. The full used/ignored report, with reasons, is the `cost_evidence` block.
+        "evidence_applied": list(evidence or []),
+        "request_digest": request_digest(document, ids, objective, base_id, evidence),
     }

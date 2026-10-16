@@ -661,6 +661,7 @@ export function ProjectPanel({
                   <Row k="Leader" v={c.leader ?? "none named"} />
                   <Row k="Grade" v={c.grade} />
                   <Row k="Scenarios" v={c.scenario_ids.join(", ")} />
+                  <Row k="Quotations used" v={c.quotations_used ? c.quotations_used : "none — cost library"} />
                   <Row k="Request digest" v={<span className="data">{c.request_digest.slice(0, 16)}</span>} />
                   <Row k="Engine provenance" v={<span className="data">{c.provenance_digest.slice(0, 12)}</span>} />
                   <a

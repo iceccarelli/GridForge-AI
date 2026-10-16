@@ -14,8 +14,10 @@ export type CompareOutcome =
  * message that says what to supply; that is passed through because the person can act on it. Anything else (engine
  * unconfigured, unreachable, refusing our key) is ours to fix, so it is logged and reported without internal detail.
  */
-export async function runCompare(r: CompareRequest): Promise<CompareOutcome> {
-  const engineBody = toEngineBody(r);
+export async function runCompare(r: CompareRequest, evidence?: Record<string, unknown>[]): Promise<CompareOutcome> {
+  // Accepted quotations ride in the same body POST /v1/compare takes, so the request returned (and stored) reproduces
+  // the priced answer at the API or the CLI without anything added.
+  const engineBody = evidence && evidence.length ? { ...toEngineBody(r), cost_evidence: evidence } : toEngineBody(r);
   const out = await callEngine("/v1/compare", engineBody);
   if (out.ok) {
     if (out.body.schema !== TTP_COMPARE_SCHEMA) {
