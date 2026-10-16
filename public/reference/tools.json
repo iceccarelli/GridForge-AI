@@ -49,8 +49,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -82,8 +82,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -96,6 +96,51 @@
               "html"
             ],
             "default": "json"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "gridforge_compare",
+      "description": "Time-to-Power scenario comparison. A full intake in; the scenarios it defines out, side by side: racks as found and after relief, the constraint that binds, the date to full capacity with its low/high band and evidence class, capital and what is unpriced, and how each differs from the baseline. A scenario with an unknown lead time gets no date and a reason, never a small number; nothing is ranked on a figure it does not have. Same solve as gridforge_screen, same inputs, same numbers.",
+      "endpoint": "/v1/compare",
+      "method": "POST",
+      "tier": "client",
+      "units": 1,
+      "returns": "gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, request_digest, provenance.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "intake"
+        ],
+        "properties": {
+          "intake": {
+            "type": "object",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "max_compute",
+              "min_cost",
+              "fastest"
+            ],
+            "default": "max_compute",
+            "description": "What the recommendation optimises for."
+          },
+          "scenarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "description": "Scenario ids to compare, from the intake's own set (retained_air, rdhx, hybrid_dlc, full_dlc, full_dlc_btm). Default: all the intake defines."
+          },
+          "baseline": {
+            "type": "string",
+            "description": "Scenario id the others are compared with. Default: the first."
           }
         },
         "additionalProperties": false
@@ -124,8 +169,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -171,8 +216,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -214,8 +259,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -274,8 +319,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -352,8 +397,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -389,8 +434,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -706,8 +751,8 @@
             "type": "string",
             "enum": [
               "max_compute",
-              "min_capex_per_rack",
-              "fastest_to_power"
+              "min_cost",
+              "fastest"
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
@@ -776,8 +821,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -807,8 +852,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -821,6 +866,49 @@
                 "html"
               ],
               "default": "json"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "gridforge_compare",
+        "description": "Time-to-Power scenario comparison. A full intake in; the scenarios it defines out, side by side: racks as found and after relief, the constraint that binds, the date to full capacity with its low/high band and evidence class, capital and what is unpriced, and how each differs from the baseline. A scenario with an unknown lead time gets no date and a reason, never a small number; nothing is ranked on a figure it does not have. Same solve as gridforge_screen, same inputs, same numbers.",
+        "parameters": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_cost",
+                "fastest"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "description": "Scenario ids to compare, from the intake's own set (retained_air, rdhx, hybrid_dlc, full_dlc, full_dlc_btm). Default: all the intake defines."
+            },
+            "baseline": {
+              "type": "string",
+              "description": "Scenario id the others are compared with. Default: the first."
             }
           },
           "additionalProperties": false
@@ -847,8 +935,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -892,8 +980,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -933,8 +1021,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -991,8 +1079,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1067,8 +1155,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1102,8 +1190,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1411,8 +1499,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1484,8 +1572,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1517,8 +1605,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1542,6 +1630,51 @@
         }
       },
       {
+        "name": "gridforge_compare",
+        "description": "Time-to-Power scenario comparison. A full intake in; the scenarios it defines out, side by side: racks as found and after relief, the constraint that binds, the date to full capacity with its low/high band and evidence class, capital and what is unpriced, and how each differs from the baseline. A scenario with an unknown lead time gets no date and a reason, never a small number; nothing is ranked on a figure it does not have. Same solve as gridforge_screen, same inputs, same numbers.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "intake"
+          ],
+          "properties": {
+            "intake": {
+              "type": "object",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "additionalProperties": true
+            },
+            "objective": {
+              "type": "string",
+              "enum": [
+                "max_compute",
+                "min_cost",
+                "fastest"
+              ],
+              "default": "max_compute",
+              "description": "What the recommendation optimises for."
+            },
+            "scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "description": "Scenario ids to compare, from the intake's own set (retained_air, rdhx, hybrid_dlc, full_dlc, full_dlc_btm). Default: all the intake defines."
+            },
+            "baseline": {
+              "type": "string",
+              "description": "Scenario id the others are compared with. Default: the first."
+            }
+          },
+          "additionalProperties": false
+        },
+        "_meta": {
+          "gridforge/units": 1,
+          "gridforge/tier": "client",
+          "gridforge/endpoint": "/v1/compare"
+        }
+      },
+      {
         "name": "gridforge_study",
         "description": "Capacity & Density Envelope Study. Five architectures compared, the full headroom ladder with costs and lead times, time-to-power, sensitivity, economics, and the provenance of every number. format='csv' returns the working files a client's own engineer can rebuild the answer from.",
         "inputSchema": {
@@ -1559,8 +1692,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1606,8 +1739,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1649,8 +1782,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1709,8 +1842,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1787,8 +1920,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -1824,8 +1957,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
@@ -2141,8 +2274,8 @@
               "type": "string",
               "enum": [
                 "max_compute",
-                "min_capex_per_rack",
-                "fastest_to_power"
+                "min_cost",
+                "fastest"
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."

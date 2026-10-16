@@ -873,6 +873,42 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_compare(args) -> int:
+    """Time-to-Power scenario comparison. Calls the very handler POST /v1/compare calls, so the terminal, the API and
+    the website cannot disagree: same inputs, same numbers, same digest."""
+    from .api.server import ApiError, handle_compare
+    from .api.tiers import Tier
+    doc = json.loads(Path(args.intake).read_text())
+    # Accepts a bare intake, or the request document the website and the API use ({"intake": {...}, ...}), so the
+    # request.json the site offers for download reproduces here unchanged. Flags given on the command line win.
+    body = dict(doc) if isinstance(doc.get("intake"), dict) else {"intake": doc}
+    if args.objective:
+        body["objective"] = args.objective
+    if args.scenarios:
+        body["scenarios"] = args.scenarios
+    if args.baseline:
+        body["baseline"] = args.baseline
+    try:
+        out = handle_compare(body, Tier.CLIENT)
+    except ApiError as exc:
+        print(f"cannot compare: {exc.message}" + (f" {json.dumps(exc.extra)}" if exc.extra else ""), file=sys.stderr)
+        return 2
+    path = Path(args.out)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "ttp_compare.json").write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
+    print(f"Time-to-Power comparison — {out['project'].get('client', '')} ({out['grade']}; baseline {out['baseline']})")
+    for r in out["scenarios"]:
+        t = r["time_to_power"]
+        date = (f"{t['weeks']:g} wk ({t['low']:g}-{t['high']:g}, {t['evidence']})" if t["weeks"] is not None
+                else f"no date — {t['reason']}")
+        print(f"  {r['id']:<13} {r['after_ladder']['racks']:>4} racks  {date}")
+    rk = out["ranking"]
+    print(f"  ranking on {rk['objective']}: " + (", ".join(rk["order"]) or "nothing can be ranked") +
+          (f"  — leader {rk['leader']}" if rk["leader"] else ""))
+    print(f"  digest {out['request_digest'][:16]}  wrote {path / 'ttp_compare.json'}")
+    return 0
+
+
 def cmd_portfolio(args) -> int:
     objective = OBJECTIVES[args.objective]
     entries = []
@@ -1082,6 +1118,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--host", default="0.0.0.0")
     s.add_argument("--port", type=int, default=8080)
     s.set_defaults(func=cmd_serve)
+
+    s = sub.add_parser("compare", help="Time-to-Power scenario comparison: dates only where lead times support them")
+    s.add_argument("intake")
+    s.add_argument("-o", "--out", default="out")
+    s.add_argument("--objective", default=None, choices=sorted(OBJECTIVES),
+                   help="what to rank by (default: max_compute, or the objective in a request file)")
+    s.add_argument("--scenarios", nargs="+", metavar="ID", help="scenario ids to compare (default: all the intake defines)")
+    s.add_argument("--baseline", metavar="ID", help="scenario the others are compared with (default: the first)")
+    s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("portfolio", help="rank several halls with one methodology")
     s.add_argument("intakes", nargs="+")

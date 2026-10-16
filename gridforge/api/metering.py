@@ -40,6 +40,7 @@ from .keys import ApiKey, KeyError_, looks_signed, verify
 UNIT_COST: dict[str, int] = {
     "/v1/qualify": 0,        # free tier: the demo
     "/v1/screen": 1,
+    "/v1/compare": 1,        # the same single solve as a screen, laid side by side
     "/v1/study": 5,          # five architectures, the ladder, sensitivity, the pack
     "/v1/proposal": 2,
     "/v1/deck": 3,

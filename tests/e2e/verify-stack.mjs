@@ -214,6 +214,25 @@ async function main() {
   await waitFor("site", async () => (await fetch(SITE)).ok);
   ok("the production build", true, SITE);
 
+  // --- the Time-to-Power comparison: real build -> real route -> real engine ----
+  head("Time-to-Power scenario comparison");
+  const ttpHall = { siteName: "Verify Hall", hallId: "H1", contractedMW: 12, currentPeakMW: 7.4, currentItLoadMW: 4.9,
+    buswayAmpacityA: 400, tapoffMaxA: 63, positionsAvailable: 180, plantSupplyC: 6, firmCapacityMVA: 15,
+    floorLoadingKPa: 12, plantCapacityKW: 6000, platform: "gb300_nvl72" };
+  const ttpCmpRes = await fetch(`${SITE}/api/power/compare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ hall: ttpHall, objective: "fastest" }) });
+  const ttpCmp = await ttpCmpRes.json();
+  ok("the comparison route answers from the engine", ttpCmpRes.status === 200 && ttpCmp.result?.schema === "gridforge/ttp-compare/1",
+     ttpCmp.result?.request_digest?.slice(0, 12));
+  const undated = (ttpCmp.result?.scenarios || []).find((r) => r.time_to_power.status !== "dated");
+  ok("a scenario with nothing deployable has no date and says why", Boolean(undated) && undated.time_to_power.weeks === null
+     && Boolean(undated.time_to_power.reason));
+  ok("assumed lead times make it indicative", ttpCmp.result?.grade === "indicative");
+  const ttpCmpBad = await fetch(`${SITE}/api/power/compare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ hall: { ...ttpHall, contractedMW: undefined } }) });
+  ok("an incomplete hall is refused, not guessed at", ttpCmpBad.status === 422);
+  ok("the page is served", (await fetch(`${SITE}/power/compare`)).status === 200);
+
   // --- the free funnel -------------------------------------------------------
   head("The free read, and the link that leaves the browser tab");
   const q = await (
