@@ -5,6 +5,7 @@ import {
   latestDeploymentCase,
   runDeploymentAssessment,
 } from "@/lib/power-deploy";
+import { enforceRateLimit, policyFor } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -68,6 +69,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // is only reporting "the battery quote came in at 30 weeks, not 44" should
   // not have to resend the load profile and every generator to say so.
   const request = { ...existing.request, ...patch };
+
+  // Re-solving spends the site key's units exactly as creating a case does, and one case token can be revised without
+  // end: it shares the deploy limits. The decision precedes the engine call.
+  const gate = await enforceRateLimit(req, policyFor("deploy"));
+  if (!gate.ok) return gate.response;
 
   const assessed = await runDeploymentAssessment(request);
   if (!assessed.ok) {

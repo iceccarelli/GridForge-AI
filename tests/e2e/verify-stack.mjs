@@ -210,6 +210,8 @@ async function main() {
     CRON_SECRET,
     NEXT_PUBLIC_SITE_URL: SITE,
     RESEND_API_KEY: "",
+    // `next start` is a production runtime: the rate guard is fail-closed there and uses the stand-in's counter function.
+    GF_RATE_LIMIT_COMPARE: "4/600",
   });
   await waitFor("site", async () => (await fetch(SITE)).ok);
   ok("the production build", true, SITE);
@@ -232,6 +234,22 @@ async function main() {
     body: JSON.stringify({ hall: { ...ttpHall, contractedMW: undefined } }) });
   ok("an incomplete hall is refused, not guessed at", ttpCmpBad.status === 422);
   ok("the page is served", (await fetch(`${SITE}/power/compare`)).status === 200);
+  // The public route spends the site's engine key, so it is limited per caller before the engine is asked (production
+  // runtime: fail-closed, counter in the database). Three more allowed hits (one was used above), then the fifth is refused.
+  for (let n = 2; n <= 4; n++) {
+    const r = await fetch(`${SITE}/api/power/compare`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hall: ttpHall, objective: "fastest" }) });
+    ok(`allowed comparison ${n} of 4`, r.status === 200);
+  }
+  const ttpDenied = await fetch(`${SITE}/api/power/compare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ hall: ttpHall, objective: "fastest" }) });
+  const ttpDeniedBody = await ttpDenied.json();
+  ok("the fifth comparison in the window is 429 with Retry-After and a stable body",
+     ttpDenied.status === 429 && Number(ttpDenied.headers.get("retry-after")) >= 1 && ttpDeniedBody.code === "rate_limited"
+     && ttpDeniedBody.scope === "caller" && ttpDeniedBody.limit === 4, ttpDenied.headers.get("retry-after"));
+  const ttpUsage = await (await fetch(`${ENGINE}/v1/usage`, { headers: { "X-API-Key": ENGINE_KEY } })).json();
+  ok("and the engine's own meter shows exactly four comparisons were paid for", (ttpUsage.by_endpoint || {})["/v1/compare"] === 4,
+     String((ttpUsage.by_endpoint || {})["/v1/compare"]));
 
   // --- the free funnel -------------------------------------------------------
   head("The free read, and the link that leaves the browser tab");

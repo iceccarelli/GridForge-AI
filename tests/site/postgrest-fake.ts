@@ -76,6 +76,28 @@ export class PostgrestFake {
 
   constructor(tableNames: string[] = []) {
     for (const t of tableNames) this.tables.set(t, []);
+    // 0025_rate_limits.sql, restated: the public engine proxies call this before every engine call, so any test that
+    // exercises them against this fake gets a working counter. SUPPLEMENTAL, not verification -- the real function's
+    // atomicity is proven against PostgreSQL in tests/test_projects_migration.py and verified-power-record.realdb.test.ts.
+    this.rpcs.set("gf_rate_limit_hit", ({ p_bucket, p_limit, p_window_seconds }) => {
+      if (!(p_limit >= 1) || !(p_window_seconds >= 1) || p_window_seconds > 86400) throw new PgError("22023", "rate limit needs a positive limit and a window of at most a day", 400);
+      this.createTable("rate_limit_windows");
+      const nowS = Math.floor(Date.now() / 1000);
+      const start = Math.floor(nowS / p_window_seconds) * p_window_seconds;
+      const store = this.tables.get("rate_limit_windows")!;
+      let row = store.find((r) => r.bucket === p_bucket && r.window_start === start);
+      if (!row) {
+        row = { id: this.nextId(), bucket: p_bucket, window_start: start, hits: 0 };
+        store.push(row);
+      }
+      const hits = Number(row.hits) + 1;
+      row.hits = hits;
+      return {
+        allowed: hits <= p_limit, hits, limit: p_limit, remaining: Math.max(p_limit - hits, 0),
+        window_seconds: p_window_seconds, window_start: start,
+        retry_after_seconds: Math.max(1, start + p_window_seconds - nowS),
+      };
+    });
   }
 
   createTable(name: string): void {

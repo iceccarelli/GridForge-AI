@@ -12,7 +12,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
-import { PostgrestFake } from "./postgrest-fake";
+import { PgError, PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 import { ComparisonResults } from "@/components/TtpCompare";
 import type { CompareResult } from "@/lib/ttp-compare";
@@ -276,9 +276,11 @@ describe.runIf(hasPython)("authorization and failure honesty", () => {
     const pt = await project();
     vi.spyOn(console, "error").mockImplementation(() => {});
     // The project lookup (GET) succeeds; the write itself (the POST to the function) fails.
-    db.failMethod = { method: "POST", status: 500, body: JSON.stringify({ message: "boom" }) };
+    // The rate-limit counter (also a POST) must still work: it is the write under test that fails.
+    const base = db.rpcs.get("gf_save_comparison")!;
+    db.rpcs.set("gf_save_comparison", () => { throw new PgError("XX000", "boom", 500); });
     const res = await save(pt, { request: REQ, idempotency_key: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
-    db.failMethod = null;
+    db.rpcs.set("gf_save_comparison", base);
     expect(res.status).toBe(502);
     expect((await j(res)).error).toMatch(/Nothing was recorded/);
     expect(rowsOf("project_comparisons")).toHaveLength(0);
@@ -324,7 +326,7 @@ describe.runIf(hasPython)("what did not change", () => {
     const seen = await compare();
     expect(seen.ok).toBe(true);
     expect(seen.result_digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(storeCalls).toEqual([]);
+    expect(storeCalls.map((c) => c.path)).toEqual(["/rest/v1/rpc/gf_rate_limit_hit", "/rest/v1/rpc/gf_rate_limit_hit"]);   // the counters, nothing else
   });
 
   it("the reopened record is shown as stored, labelled as such, and never recomputed", async () => {
@@ -435,7 +437,7 @@ describe.runIf(hasPython)("pricing a comparison with the project's accepted quot
     const plain = await compare();
     expect(plain.result.evidence_applied).toEqual([]);
     expect(plain.result.cost_evidence).toBeUndefined();
-    expect(storeCalls).toEqual([]);
+    expect(storeCalls.map((c) => c.path)).toEqual(["/rest/v1/rpc/gf_rate_limit_hit", "/rest/v1/rpc/gf_rate_limit_hit"]);   // route-wide + caller counters, nothing else
   });
 
   it("saves the quotation-priced answer with the quotations in the stored request and their ids in the event", async () => {

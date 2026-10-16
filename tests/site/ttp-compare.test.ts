@@ -8,6 +8,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
+import { PostgrestFake } from "./postgrest-fake";
 import { ComparisonResults } from "@/components/TtpCompare";
 import { compareRequestSchema, toEngineBody, TTP_COMPARE_SCHEMA, type CompareResult } from "@/lib/ttp-compare";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
@@ -19,6 +20,8 @@ let engine: ChildProcess | null = null;
 let ENGINE = "";
 const realFetch = globalThis.fetch;
 let calls: string[];
+let db: PostgrestFake;
+let restoreDb: () => void;
 
 async function startEngine(): Promise<string> {
   const code = [
@@ -38,13 +41,33 @@ beforeEach(() => {
   calls = [];
   process.env.GRIDFORGE_API_URL = ENGINE;
   process.env.GRIDFORGE_API_KEY = KEY;
+  // The public route is guarded by a shared counter in the database (lib/rate-limit.ts), so it needs a store; this is the
+  // in-memory PostgREST with the counter function restated. Its ONLY permitted use here is that counter.
+  process.env.SUPABASE_URL = "https://stub.supabase.co";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
+  delete process.env.GF_RATE_LIMIT_COMPARE;
+  delete process.env.GF_RATE_LIMIT_COMPARE_ALL;
+  db = new PostgrestFake();
+  restoreDb = db.install();
+  const dbFetch = globalThis.fetch;
   globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
     calls.push(url);
-    return realFetch(i as RequestInfo, init);
+    if (ENGINE && url.startsWith(ENGINE)) return realFetch(i as RequestInfo, init);
+    return dbFetch(i as RequestInfo, init);
   }) as typeof fetch;
+  restoreDb = () => { globalThis.fetch = dbFetch; };
 });
-afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks(); });
+afterEach(() => { restoreDb(); globalThis.fetch = realFetch; vi.restoreAllMocks(); });
+
+/** Replace what the engine answers; the rate-limit counter keeps talking to the store, as it does in production. */
+function stubEngine(answer: () => Response) {
+  const toStore = globalThis.fetch;
+  globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+    return ENGINE && url.startsWith(ENGINE) ? answer() : toStore(i as RequestInfo, init);
+  }) as typeof fetch;
+}
 
 const HALL = {
   siteName: "Synthetic Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
@@ -68,7 +91,9 @@ describe.runIf(hasPython)("the comparison route runs the real engine and reports
     expect(r.scenarios.map((s) => s.id)).toEqual(["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"]);
     expect(r.request_digest).toMatch(/^[0-9a-f]{64}$/);
     expect(r.provenance.digest).toBeTruthy();
-    expect(calls.every((u) => u.startsWith(ENGINE))).toBe(true);           // only the engine was called: nothing stored
+    // the engine, and the one store call the route is allowed: the rate-limit counter. Nothing else is stored.
+    expect(calls.every((u) => u.startsWith(ENGINE) || u.endsWith("/rest/v1/rpc/gf_rate_limit_hit"))).toBe(true);
+    expect(db.rows("project_comparisons")).toHaveLength(0);
     // the request returned is exactly what the API accepts, and it reproduces the same answer
     const again = await realFetch(`${ENGINE}/v1/compare`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": KEY }, body: JSON.stringify(body.request) });
     const direct = await again.json();
@@ -152,8 +177,8 @@ describe.runIf(hasPython)("a request that cannot be answered honestly is refused
   });
 
   it("passes an engine refusal through when it is the person's to fix", async () => {
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "unknown scenario(s): x", available: ["rdhx"], schema_version: "gridforge/api/1" }), { status: 422 })) as typeof fetch;
+    stubEngine(() =>
+      new Response(JSON.stringify({ error: "unknown scenario(s): x", available: ["rdhx"], schema_version: "gridforge/api/1" }), { status: 422 }));
     const res = await post({ hall: HALL });
     expect(res.status).toBe(422);
     const b = await res.json();
@@ -167,14 +192,14 @@ describe.runIf(hasPython)("a request that cannot be answered honestly is refused
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toMatch(/GRIDFORGE_API|127\.0\.0\.1|X-API-Key/);
     process.env.GRIDFORGE_API_KEY = KEY;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ error: "invalid key" }), { status: 401 })) as typeof fetch;
+    stubEngine(() => new Response(JSON.stringify({ error: "invalid key" }), { status: 401 }));
     res = await post({ hall: HALL });
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toMatch(/invalid key/);
   });
 
   it("refuses an engine answer in a form it does not understand instead of rendering it", async () => {
-    globalThis.fetch = (async () => new Response(JSON.stringify({ schema: "something/else" }), { status: 200 })) as typeof fetch;
+    stubEngine(() => new Response(JSON.stringify({ schema: "something/else" }), { status: 200 }));
     expect((await post({ hall: HALL })).status).toBe(502);
   });
 });

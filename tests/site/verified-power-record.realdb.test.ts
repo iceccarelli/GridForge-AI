@@ -133,6 +133,10 @@ beforeAll(async () => {
   process.env.GRIDFORGE_API_KEY = KEY;
   process.env.GRIDFORGE_KEY_SECRET = "realdb-signing-secret";
   process.env.GRIDFORGE_ADMIN_KEY = "realdb-admin";
+  // The public engine proxies are guarded by a shared counter (lib/rate-limit.ts). These suites make many calls from one
+  // address inside one window against a database that outlives the file, so give every ordinary test a ceiling it cannot
+  // meet; the guard's own behaviour is proven in the dedicated test below with a caller of its own.
+  for (const k of ["COMPARE", "COMPARE_ALL", "DEPLOY", "DEPLOY_ALL"]) process.env[`GF_RATE_LIMIT_${k}`] = "100000/600";
 }, 40_000);
 afterAll(() => { engine?.kill(); gateway?.close(); });
 
@@ -912,5 +916,57 @@ describe.skipIf(!enabled)("a saved Time-to-Power comparison — real PostgreSQL,
     }
     expect(await rows("project_comparisons", `&project_id=eq.${proj.id}`)).toHaveLength(0);
     expect(await rows("project_events", `&project_id=eq.${proj.id}&event_type=eq.comparison_saved`)).toHaveLength(0);
+  }, 60_000);
+
+  it("the public comparison route admits exactly its allowance under concurrent load on real PostgreSQL, and the engine is asked that many times", async () => {
+    // A caller of its own (the operator-named trusted header), so no other test's hits can be in its bucket.
+    const ip = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+    const mine = (path: string) => new Request(siteUrl(path), {
+      method: "POST", headers: { "content-type": "application/json", "x-test-edge-ip": ip }, body: JSON.stringify(REQ) });
+    process.env.GF_TRUSTED_IP_HEADER = "x-test-edge-ip";
+    process.env.GF_RATE_LIMIT_COMPARE = "7/600";
+    try {
+      const { POST: compare } = await import("@/app/api/power/compare/route");
+      const meter = async () => (await (await fetch(`${process.env.GRIDFORGE_API_URL}/v1/usage`, { headers: { "X-API-Key": KEY } })).json()) as { units: number; by_endpoint: Record<string, number> };
+      const before = await meter();
+      const rs = await Promise.all(Array.from({ length: 40 }, () => compare(mine("/api/power/compare"))));
+      const ok = rs.filter((r) => r.status === 200);
+      const denied = rs.filter((r) => r.status === 429);
+      expect(ok).toHaveLength(7);                                   // never 8, however the 40 interleave
+      expect(denied).toHaveLength(33);
+      for (const d of denied) {
+        expect(Number(d.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+        expect(await d.json()).toMatchObject({ ok: false, code: "rate_limited", scope: "caller", limit: 7 });
+      }
+      // the stored counter holds a pseudonym and the hit count, not the address
+      const stored = await rows("rate_limit_windows", `&bucket=like.compare:ip:*`);
+      expect(JSON.stringify(stored)).not.toContain(ip);
+      const mineRow = stored.filter((r) => /^compare:ip:[0-9a-f]{32}$/.test(r.bucket)).find((r) => r.hits === 40);
+      expect(mineRow, "one pseudonymous bucket saw all 40 hits").toBeTruthy();
+      // and the engine was asked 7 times, not 40: the denied requests spent nothing
+      const after = await meter();
+      expect((after.by_endpoint["/v1/compare"] ?? 0) - (before.by_endpoint["/v1/compare"] ?? 0)).toBe(7);   // the ENGINE's own metering
+      expect(after.units - before.units).toBe(7);                                                           // 1 unit per comparison
+      // a second caller is unaffected by the first one's exhaustion
+      const other = new Request(siteUrl("/api/power/compare"), { method: "POST", headers: { "content-type": "application/json", "x-test-edge-ip": "198.51.100.254" }, body: JSON.stringify(REQ) });
+      expect((await compare(other)).status).toBe(200);
+    } finally {
+      delete process.env.GF_TRUSTED_IP_HEADER;
+      process.env.GF_RATE_LIMIT_COMPARE = "100000/600";
+    }
+  }, 120_000);
+
+  it("a limiter outage on real infrastructure is a 503 with no engine call and no stored comparison", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    gatewayOutage = { method: "POST", table: "rpc/gf_rate_limit_hit" };
+    try {
+      const { POST: compare } = await import("@/app/api/power/compare/route");
+      const r = await compare(post("/api/power/compare", REQ));
+      expect(r.status).toBe(503);
+      expect(await r.json()).toMatchObject({ ok: false, code: "rate_limiter_unavailable" });
+    } finally {
+      gatewayOutage = null;
+      vi.restoreAllMocks();
+    }
   }, 60_000);
 });

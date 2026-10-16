@@ -55,6 +55,20 @@ http.createServer((req, res) => {
       const t = /^Bearer tok:(.+)$/.exec(req.headers.authorization || "");
       return t ? send(res, 200, { email: t[1] }) : send(res, 401, {});
     }
+    if (u.pathname === "/rest/v1/rpc/gf_rate_limit_hit" && req.method === "POST") {
+      // 0025_rate_limits.sql, restated (single-threaded, so each hit is serialised exactly as the row lock serialises it).
+      const a = body ? JSON.parse(body) : {};
+      const nowS = Math.floor(Date.now() / 1000);
+      const start = Math.floor(nowS / a.p_window_seconds) * a.p_window_seconds;
+      const wins = tables.get("rate_limit_windows");
+      if (!wins) return send(res, 404, { code: "PGRST202", message: "no rate_limit_windows migration" });
+      let row = wins.find(r => r.bucket === a.p_bucket && r.window_start === start);
+      if (!row) { row = { bucket: a.p_bucket, window_start: start, hits: 0 }; wins.push(row); }
+      row.hits += 1;
+      return send(res, 200, { allowed: row.hits <= a.p_limit, hits: row.hits, limit: a.p_limit,
+        remaining: Math.max(a.p_limit - row.hits, 0), window_seconds: a.p_window_seconds, window_start: start,
+        retry_after_seconds: Math.max(1, start + a.p_window_seconds - nowS) });
+    }
     const m = u.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (!m) return send(res, 404, { message: "no route" });
     const name = m[1];

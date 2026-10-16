@@ -297,7 +297,8 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     entitlement:
       "REST/MCP: gated by API key + unit metering (1 unit, the same single solve as /v1/screen). Web " +
       "(/power/compare): no entitlement gate and no checkout -- there is no product to buy; the site calls the " +
-      "engine with its own platform key and persists nothing.",
+      "engine with its own platform key, behind a per-caller and route-wide rate guard backed by the shared database " +
+      "(docs/10_PUBLIC_ENGINE_RATE_LIMIT.md; fail-closed, needs migration 0025), and persists nothing.",
     stripe_product_or_price: "none",
     deliverable: "JSON comparison (gridforge/ttp-compare/1) with request digest and engine provenance",
     status: "free",
