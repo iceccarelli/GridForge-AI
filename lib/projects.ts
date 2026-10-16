@@ -48,7 +48,8 @@ export type ProjectEventType =
   | "cost_evidence_received"
   | "cost_evidence_reviewed"
   | "cost_evidence_retired"
-  | "cost_evidence_run";
+  | "cost_evidence_run"
+  | "comparison_saved";
 
 export interface ProjectRow {
   id: string;

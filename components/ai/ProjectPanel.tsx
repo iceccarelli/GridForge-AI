@@ -649,6 +649,30 @@ export function ProjectPanel({
               ))}
             </Card>
 
+            <Card title="TIME-TO-POWER COMPARISONS">
+              {state.comparisons.length === 0 && (
+                <p>{NOT_YET} — no scenario comparison has been saved to this project.</p>
+              )}
+              {state.comparisons.map((c) => (
+                <div key={c.id} className="space-y-0.5 border-b border-line pb-2 last:border-0" data-comparison={c.id}>
+                  <Row k="Saved" v={when(c.created_at)} />
+                  {c.label && <Row k="Label" v={c.label} />}
+                  <Row k="Ranked by" v={c.objective.replace(/_/g, " ")} />
+                  <Row k="Leader" v={c.leader ?? "none named"} />
+                  <Row k="Grade" v={c.grade} />
+                  <Row k="Scenarios" v={c.scenario_ids.join(", ")} />
+                  <Row k="Request digest" v={<span className="data">{c.request_digest.slice(0, 16)}</span>} />
+                  <Row k="Engine provenance" v={<span className="data">{c.provenance_digest.slice(0, 12)}</span>} />
+                  <a
+                    href={`/power/compare?project=${encodeURIComponent(projectToken!)}&saved=${encodeURIComponent(c.id)}`}
+                    className="text-power underline"
+                  >
+                    Open the saved comparison
+                  </a>
+                </div>
+              ))}
+            </Card>
+
             <Observed state={state} projectToken={projectToken!} onSaved={() => void load()} />
 
             <SupplierReality state={state} projectToken={projectToken!} onSaved={() => void load()} />

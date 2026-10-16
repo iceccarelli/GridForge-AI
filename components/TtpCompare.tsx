@@ -7,8 +7,8 @@
 // missing inputs and the reason for any date it could not give. The example is labelled synthetic and is only ever
 // loaded by a button press; nothing is shown before a calculation has been run.
 
-import { useId, useMemo, useState } from "react";
-import { CircleAlert, Download, Loader2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { CircleAlert, Download, Loader2, Save } from "lucide-react";
 import {
   BTM_KINDS,
   OBJECTIVES,
@@ -19,6 +19,15 @@ import {
 } from "@/lib/ttp-compare";
 
 type Fields = Record<string, string>;
+/** A comparison on screen: fresh from the engine, or reopened from a project record (then `saved` says which). */
+export type OnScreen = {
+  result: CompareResult;
+  request: Record<string, unknown>;
+  synthetic: boolean;
+  /** Identity of the answer as the server computed it; echoed back on save so a changed engine cannot slip through. */
+  result_digest?: string;
+  saved?: { id: string; created_at: string; label: string | null; project_token: string };
+};
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
 
 const REQUIRED: [string, string, string][] = [
@@ -98,9 +107,56 @@ export function TtpCompare() {
   const [objective, setObjective] = useState<CompareObjective>("max_compute");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; fields?: string[] } | null>(null);
-  const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean } | null>(null);
+  const [out, setOut] = useState<OnScreen | null>(null);
   const [synthetic, setSynthetic] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The project this comparison can be saved to: a bearer token in the URL (?project=...), as the workspace uses it.
+  const [projectToken, setProjectToken] = useState("");
+  const [reopen, setReopen] = useState<{ state: "loading" } | { state: "error"; message: string } | null>(null);
+  // Request state for the form the engine was last asked with, so "save" sends exactly what was compared.
+  const [asked, setAsked] = useState<ReturnType<typeof build> | null>(null);
+
+  useEffect(() => {
+    let project = "";
+    let saved = "";
+    try {
+      const u = new URL(window.location.href);
+      project = u.searchParams.get("project") ?? "";
+      saved = u.searchParams.get("saved") ?? "";
+    } catch {
+      return;
+    }
+    if (project) setProjectToken(project);
+    if (!project || !saved) return;
+    // Reopen a saved record: the stored answer, as generated. Nothing is recomputed.
+    let cancelled = false;
+    setReopen({ state: "loading" });
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(project)}/comparisons/${encodeURIComponent(saved)}`, { cache: "no-store" });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok || !body.ok) {
+          setReopen({ state: "error", message: res.status === 404 ? "No saved comparison with that id exists on this project." : body?.error ?? "The saved comparison could not be read." });
+          return;
+        }
+        const c = body.comparison;
+        setOut({
+          result: c.result,
+          request: c.request,
+          synthetic: false,
+          result_digest: c.result_digest,
+          saved: { id: c.id, created_at: c.created_at, label: c.label ?? null, project_token: project },
+        });
+        setReopen(null);
+      } catch {
+        if (!cancelled) setReopen({ state: "error", message: "Could not reach the server. Nothing is shown rather than something guessed." });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const set = (k: string, v: string) => {
     setF((p) => ({ ...p, [k]: v }));
@@ -116,6 +172,7 @@ export function TtpCompare() {
       return;
     }
     setBusy(true);
+    setOut(null);
     try {
       const res = await fetch("/api/power/compare", {
         method: "POST",
@@ -133,7 +190,8 @@ export function TtpCompare() {
         setError({ message: body?.error ?? "The comparison could not be produced.", fields: problems });
         return;
       }
-      setOut({ result: body.result, request: body.request, synthetic });
+      setAsked(build(f, btm, objective));
+      setOut({ result: body.result, request: body.request, synthetic, result_digest: body.result_digest });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -290,7 +348,18 @@ export function TtpCompare() {
         ) : null}
       </form>
 
-      {!out && !error && !busy ? (
+      {reopen?.state === "loading" ? (
+        <p className="flex items-center gap-2 text-sm text-mute" aria-live="polite">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Reading the saved comparison from the project record.
+        </p>
+      ) : null}
+      {reopen?.state === "error" ? (
+        <div role="alert" className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" aria-hidden />
+          <p>{reopen.message}</p>
+        </div>
+      ) : null}
+      {!out && !error && !busy && !reopen ? (
         <p className="text-sm text-mute">
           No result yet. Enter your hall, or load the synthetic example, then compare. Nothing is shown until the engine has
           solved it.
@@ -300,15 +369,138 @@ export function TtpCompare() {
       {out ? <ComparisonResults out={out} cli={cli} copied={copied} onCopy={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(out.request, null, 2)); setCopied(true); } catch { setCopied(false); }
       }} /> : null}
+      {out && !out.saved && asked ? (
+        <SaveToProject
+          key={out.result_digest ?? out.result.request_digest}
+          asked={asked}
+          resultDigest={out.result_digest ?? null}
+          projectToken={projectToken}
+          onProjectToken={setProjectToken}
+          synthetic={out.synthetic}
+        />
+      ) : null}
     </div>
   );
 }
 
-export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result: CompareResult; request: Record<string, unknown>; synthetic: boolean }; cli: string; copied: boolean; onCopy: () => void }) {
+/**
+ * Save the comparison on screen to a Verified Power Record project. The key is minted once per answer and reused on
+ * every retry of that answer, so a lost response cannot create a second record; the server re-asks the engine and
+ * refuses to save an answer that no longer matches the one on screen. Success is shown only from the server's own
+ * confirmation of the stored record, never assumed.
+ */
+function SaveToProject({ asked, resultDigest, projectToken, onProjectToken, synthetic }: {
+  asked: ReturnType<typeof build>;
+  resultDigest: string | null;
+  projectToken: string;
+  onProjectToken: (t: string) => void;
+  synthetic: boolean;
+}) {
+  const uid = useId();
+  const [key] = useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(16).slice(2)}`));
+  const [label, setLabel] = useState("");
+  const [state, setState] = useState<
+    | { kind: "idle" }
+    | { kind: "saving" }
+    | { kind: "saved"; created: boolean; reason: string; id: string; created_at: string; request_digest: string; provenance_digest: string }
+    | { kind: "error"; message: string; problems?: string[] }
+  >({ kind: "idle" });
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const token = projectToken.trim();
+    if (!token) {
+      setState({ kind: "error", message: "A project token is needed: open the project in the workspace and use its link, or paste its token here." });
+      return;
+    }
+    setState({ kind: "saving" });
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(token)}/comparisons`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: asked, idempotency_key: key, label: label.trim() || undefined, reviewed_result_digest: resultDigest ?? undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok || !body.comparison?.id) {
+        setState({
+          kind: "error",
+          message: res.status === 404 ? "No project has that token. Nothing was saved." : body?.error ?? "The comparison could not be saved. Nothing was recorded.",
+          problems: Array.isArray(body?.problems) ? (body.problems as { path: string; message: string }[]).map((p) => `${p.path}: ${p.message}`) : undefined,
+        });
+        return;
+      }
+      setState({ kind: "saved", created: body.created === true, reason: String(body.reason ?? ""), id: body.comparison.id, created_at: body.comparison.created_at, request_digest: body.comparison.request_digest, provenance_digest: body.comparison.provenance_digest });
+    } catch {
+      setState({ kind: "error", message: "Could not reach the server. Nothing was saved." });
+    }
+  }
+
+  if (state.kind === "saved") {
+    return (
+      <section aria-label="Saved to project" className="panel flex flex-col gap-2 p-5" data-saved={state.id}>
+        <p className="eyebrow">Saved to the project record</p>
+        <p className="text-sm text-ghost">
+          {state.created ? "Saved." : state.reason === "idempotent_replay" ? "Already saved by this same request; nothing was written twice." : "This exact answer was already on the project; it is one record, not two."}
+          {" "}Record <span className="data">{state.id.slice(0, 8)}</span> · {new Date(state.created_at).toLocaleString()} · request digest{" "}
+          <span className="data">{state.request_digest.slice(0, 16)}</span> · engine provenance <span className="data">{state.provenance_digest.slice(0, 12)}</span>.
+        </p>
+        <div className="flex flex-wrap gap-3 text-xs">
+          <a className="btn-secondary px-3 py-1.5" href={`/workspace?project=${encodeURIComponent(projectToken.trim())}`}>Open the project</a>
+          <a className="btn-ghost px-3 py-1.5" href={`/power/compare?project=${encodeURIComponent(projectToken.trim())}&saved=${encodeURIComponent(state.id)}`}>Reopen this saved comparison</a>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <form onSubmit={save} className="panel flex flex-col gap-3 p-5" aria-busy={state.kind === "saving"}>
+      <p className="eyebrow">Save to a Verified Power Record project</p>
+      <p className="text-xs text-mute">
+        Keeps this exact request, the engine&apos;s answer and its provenance on the project as an immutable record. The engine
+        is asked once more for the same inputs and the save is refused if its answer has changed since you read this one.
+        {synthetic ? " This is the synthetic example: it will be saved as what it is, not as a finding about a real hall." : ""}
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor={`${uid}-pt`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">Project token</label>
+          <input id={`${uid}-pt`} className="field w-full" value={projectToken} onChange={(e) => onProjectToken(e.target.value)} autoComplete="off" spellCheck={false} />
+        </div>
+        <div>
+          <label htmlFor={`${uid}-lb`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">Label (optional)</label>
+          <input id={`${uid}-lb`} className="field w-full" maxLength={120} value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <button type="submit" disabled={state.kind === "saving"} className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-60">
+          {state.kind === "saving" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+          {state.kind === "saving" ? "Saving…" : "Save to project"}
+        </button>
+      </div>
+      {state.kind === "error" ? (
+        <div role="alert" className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-3 text-sm text-ghost">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" aria-hidden />
+          <div>
+            <p>{state.message}</p>
+            {state.problems?.length ? <ul className="mt-1 list-disc pl-5 text-mute">{state.problems.map((m) => (<li key={m}>{m}</li>))}</ul> : null}
+          </div>
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+export function ComparisonResults({ out, cli, copied, onCopy }: { out: OnScreen; cli: string; copied: boolean; onCopy: () => void }) {
   const r = out.result;
   const byId = Object.fromEntries(r.scenarios.map((s) => [s.id, s]));
   return (
     <section aria-label="Comparison result" className="flex flex-col gap-6">
+      {out.saved ? (
+        <p className="rounded border border-power/40 bg-power/10 p-3 text-sm text-ghost" data-saved-record={out.saved.id}>
+          <strong>Saved record{out.saved.label ? ` · ${out.saved.label}` : ""}.</strong> Generated {new Date(out.saved.created_at).toLocaleString()} by engine{" "}
+          {r.provenance.engine_version} and stored as returned; shown as stored, not recomputed.{" "}
+          <a className="underline" href={`/workspace?project=${encodeURIComponent(out.saved.project_token)}`}>Open the project</a>
+        </p>
+      ) : null}
       {out.synthetic ? (
         <p className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
           <strong>Synthetic example.</strong> These inputs are not a real hall; do not read the result as a finding about any site.

@@ -293,7 +293,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     cli_command: "gridforge compare",
     web_route: "/power/compare",
     workspace_action: null,
-    database_record: null,
+    database_record: "project_comparisons (only when saved to a project; append-only, trigger-enforced)",
     entitlement:
       "REST/MCP: gated by API key + unit metering (1 unit, the same single solve as /v1/screen). Web " +
       "(/power/compare): no entitlement gate and no checkout -- there is no product to buy; the site calls the " +
@@ -303,9 +303,11 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "not_deployed",
     notes:
-      "Not persisted to a project: saving a comparison to the project record needs a new link/event type and a " +
-      "migration, which this slice deliberately does not add. Accepted supplier cost evidence is not yet applied " +
-      "to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only.",
+      "A comparison can be saved to a Verified Power Record project (POST /api/projects/[token]/comparisons, " +
+      "migration 0024_project_comparisons.sql): the exact request, the engine's answer and its provenance as one " +
+      "append-only record with a comparison_saved event; idempotent per key in the database; reopened from the " +
+      "project or /power/compare?project=&saved= without recomputation. Accepted supplier cost evidence is not yet " +
+      "applied to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only.",
   },
   {
     capability_id: "btm_deploy_assess",
@@ -375,7 +377,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     web_route: "/workspace",
     workspace_action: "ProjectPanel (?project=<token>)",
     database_record:
-      "projects, project_links, project_evidence, project_events (append-only, trigger-enforced)",
+      "projects, project_links, project_evidence, project_events, project_comparisons (append-only, trigger-enforced)",
     entitlement:
       "none — bearer project_token (same magic-link model as case_token); attaching a case also " +
       "needs that case's own token and, when registered, its email. Fails closed (503) without Supabase.",

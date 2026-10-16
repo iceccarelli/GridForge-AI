@@ -14,6 +14,8 @@ const EVENT_TYPES = new Set([
   "supplier_response_received", "comparison_completed", "supplier_selected", "evidence_attached",
   "paid_product_attached", "observation_submitted", "observation_reviewed",
   "supplier_actual_submitted", "supplier_actual_reviewed",
+  "cost_evidence_received", "cost_evidence_reviewed", "cost_evidence_retired", "cost_evidence_run",
+  "comparison_saved",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -192,5 +194,25 @@ export function installProjectRpcs(db: PostgrestFake): void {
     const r = db.insertRow("project_evidence", { evidence_class: null, review_status: "unverified", ...p });
     emit(r.project_id, p_event, { evidence_id: r.id });
     return r;
+  });
+  // 0024_project_comparisons.sql: one record per key and per answer, the event in the same write.
+  db.rpcs.set("gf_save_comparison", ({ p, p_event }) => {
+    if (!p.idempotency_key) throw new PgError("23514", "a saved comparison needs an idempotency_key", 400);
+    const all = db.rows("project_comparisons").filter((x) => x.project_id === p.project_id);
+    const byKey = all.find((x) => x.idempotency_key === p.idempotency_key);
+    if (byKey) {
+      if (byKey.result_digest === p.result_digest && byKey.request_digest === p.request_digest) {
+        return { created: false, reason: "idempotent_replay", comparison: byKey };
+      }
+      throw new PgError("23505", "project_comparisons_idempotency_conflict", 409);
+    }
+    const byAnswer = all.find((x) => x.result_digest === p.result_digest);
+    if (byAnswer) return { created: false, reason: "already_saved", comparison: byAnswer };
+    const r = db.insertRow("project_comparisons", { ...p, label: p.label || null });
+    emit(r.project_id, p_event, {
+      comparison_id: r.id, request_digest: r.request_digest, result_digest: r.result_digest,
+      provenance_digest: r.provenance_digest, objective: r.objective, grade: r.grade, scenario_ids: r.scenario_ids,
+    });
+    return { created: true, comparison: r };
   });
 }

@@ -2,6 +2,7 @@
 // Kept apart from lib/ttp-compare.ts because that file is imported by the browser component.
 
 import { callEngine } from "@/lib/power-deploy";
+import { digestOf } from "@/lib/run-identity";
 import { TTP_COMPARE_SCHEMA, toEngineBody, type CompareRequest, type CompareResult } from "@/lib/ttp-compare";
 
 export type CompareOutcome =
@@ -33,4 +34,16 @@ export async function runCompare(r: CompareRequest): Promise<CompareOutcome> {
     status: 502,
     error: "The comparison service is temporarily unavailable, so no result was produced. Nothing was saved.",
   };
+}
+
+/**
+ * Identity of an answer: sha256 of the canonical result WITHOUT its provenance block (the provenance carries the report
+ * date, which is not part of what was answered). The same inputs on the same engine give the same digest; a changed
+ * engine or a changed input gives a different one. A saved comparison records this beside the answer, and a save is
+ * refused when the engine's answer no longer matches the digest the customer reviewed.
+ */
+export function resultDigest(result: CompareResult): string {
+  const { provenance: _p, ...answer } = result as CompareResult & { provenance?: unknown };
+  void _p;
+  return digestOf(answer);
 }
