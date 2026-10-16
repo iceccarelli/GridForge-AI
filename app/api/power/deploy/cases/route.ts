@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { createDeploymentCase, runDeploymentAssessment } from "@/lib/power-deploy";
 import { attachCase, getProjectByToken } from "@/lib/projects";
+import { enforceRateLimit, policyFor } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 // Create a BTM Power Deployment Case.
 //
@@ -21,9 +24,18 @@ export const maxDuration = 60;
 // at all — see HANDOFF.md on inventing billing products before the capability
 // they meter is real.
 export async function POST(req: Request) {
+  // A deployment request can carry an interval load profile, so the cap is generous; it exists so an oversized body
+  // cannot be used to burn parse time and engine capacity before any other check.
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
+  }
   let body: unknown;
   try {
-    body = await req.json();
+    const text = await req.text();
+    if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
+    }
+    body = JSON.parse(text);
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -44,6 +56,10 @@ export async function POST(req: Request) {
     }
     project = found.project;
   }
+
+  // The decision is made before the engine is asked; a denied or undecidable request never reaches it.
+  const gate = await enforceRateLimit(req, policyFor("deploy"));
+  if (!gate.ok) return gate.response;
 
   const assessed = await runDeploymentAssessment(request);
   if (!assessed.ok) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { resultDigest, runCompare } from "@/lib/ttp-compare-server";
+import { enforceRateLimit, policyFor } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -40,6 +41,10 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
+  // Last gate before the engine is asked: everything above is free to refuse and costs no engine unit. A denied or
+  // undecidable request returns here and the engine is never called (lib/rate-limit.ts).
+  const gate = await enforceRateLimit(req, policyFor("compare"));
+  if (!gate.ok) return gate.response;
   const out = await runCompare(parsed.data);
   if (!out.ok) {
     return NextResponse.json(
@@ -49,6 +54,6 @@ export async function POST(req: Request) {
   }
   return NextResponse.json(
     { ok: true, result: out.result, result_digest: resultDigest(out.result), request: out.engineBody },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store", ...gate.headers } }
   );
 }

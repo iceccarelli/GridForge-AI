@@ -259,6 +259,10 @@ beforeAll(async () => {
   process.env.GRIDFORGE_ADMIN_KEY = "realdb-admin";
   process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
   process.env.GRIDFORGE_KEY_SECRET = "realdb-signing-secret";
+  // The public engine proxies are guarded by a shared counter (lib/rate-limit.ts). These suites make many calls from one
+  // address inside one window against a database that outlives the file, so give every ordinary test a ceiling it cannot
+  // meet; the guard's own behaviour is proven in the dedicated test below with a caller of its own.
+  for (const k of ["COMPARE", "COMPARE_ALL", "DEPLOY", "DEPLOY_ALL"]) process.env[`GF_RATE_LIMIT_${k}`] = "100000/600";
   const spec = await (await fetch(`${KEYS.A}/v1/spec`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": KEY },
     body: JSON.stringify({ intake: INTAKE, constraint: "transformer_capacity" }),

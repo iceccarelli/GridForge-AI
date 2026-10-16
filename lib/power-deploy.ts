@@ -127,7 +127,7 @@ function creds(): { url: string; headers: Record<string, string> } | null {
 // serve the next request.
 const localCases = new Map<string, PowerDeploymentCaseRow[]>();
 
-function isProductionRuntime(): boolean {
+export function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
 }
 

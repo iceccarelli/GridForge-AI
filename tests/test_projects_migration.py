@@ -59,7 +59,7 @@ def db():
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
               "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
-              "0020_function_privileges.sql", "0024_project_comparisons.sql"):
+              "0020_function_privileges.sql", "0024_project_comparisons.sql", "0025_rate_limits.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -153,7 +153,7 @@ def fresh():
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
               "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
-              "0024_project_comparisons.sql"):
+              "0024_project_comparisons.sql", "0025_rate_limits.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -922,3 +922,83 @@ def test_the_comparison_row_refuses_what_it_cannot_vouch_for(fresh):
                    % (_comparison(grade="certain") % pid, GOOD % 'comparison_saved'), "violates check")
     assert count(fresh, "project_comparisons") == 0
     assert count(fresh, "project_events", "event_type = 'comparison_saved'") == 0
+
+
+# --- 0025: the shared request counter behind the public engine proxies -------------------------------------------
+
+def _hit(db, bucket, limit=5, window=60):
+    import json
+    return json.loads(scalar(db, f"select gf_rate_limit_hit('{bucket}', {limit}, {window})"))
+
+
+def test_a_hit_counts_admits_up_to_the_limit_and_then_refuses_with_an_honest_retry_after(fresh):
+    got = [_hit(fresh, "t:one", limit=3, window=3600) for _ in range(5)]
+    assert [g["allowed"] for g in got] == [True, True, True, False, False]
+    assert [g["hits"] for g in got] == [1, 2, 3, 4, 5]
+    assert [g["remaining"] for g in got] == [2, 1, 0, 0, 0]
+    assert all(g["limit"] == 3 and g["window_seconds"] == 3600 for g in got)
+    assert all(1 <= g["retry_after_seconds"] <= 3600 for g in got)
+    assert count(fresh, "rate_limit_windows", "bucket = 't:one'") == 1          # one row per bucket and window
+    assert scalar(fresh, "select hits from rate_limit_windows where bucket = 't:one'") == "5"
+
+
+def test_buckets_and_windows_are_independent_and_aligned_to_the_clock(fresh):
+    assert _hit(fresh, "t:a", limit=1)["allowed"] is True
+    assert _hit(fresh, "t:a", limit=1)["allowed"] is False
+    assert _hit(fresh, "t:b", limit=1)["allowed"] is True                         # another bucket is untouched
+    assert _hit(fresh, "t:a", limit=1, window=3600)["allowed"] is True           # a different window is a different row
+    assert scalar(fresh, "select (extract(epoch from window_start))::bigint % 60 from rate_limit_windows "
+                         "where bucket = 't:a' order by window_start limit 1") == "0"
+
+
+def test_spent_windows_of_a_bucket_are_removed_on_its_next_hit_and_other_buckets_are_left_alone(fresh):
+    psql(fresh, "insert into rate_limit_windows (bucket, window_start, hits) values "
+                "('t:old', now() - interval '10 minutes', 9), ('t:keep', now() - interval '10 minutes', 9)")
+    _hit(fresh, "t:old", limit=5, window=60)
+    assert count(fresh, "rate_limit_windows", "bucket = 't:old' and hits = 9") == 0
+    assert count(fresh, "rate_limit_windows", "bucket = 't:keep'") == 1             # 10 minutes old is not yet two days old
+
+
+def test_a_bad_limit_or_window_is_refused_and_a_bad_row_cannot_be_stored(fresh):
+    for args in ("'t:x', 0, 60", "'t:x', -1, 60", "'t:x', 5, 0", "'t:x', null, 60", "'t:x', 5, null"):
+        refused(fresh, f"select gf_rate_limit_hit({args})", "positive limit and a window of at most a day")
+    refused(fresh, "select gf_rate_limit_hit('t:x', 5, 86401)", "positive limit and a window of at most a day")
+    refused(fresh, "select gf_rate_limit_hit('', 5, 60)", "violates check")
+    refused(fresh, "insert into rate_limit_windows (bucket, window_start, hits) values ('t:neg', now(), -1)", "violates check")
+    assert count(fresh, "rate_limit_windows") == 0
+
+
+def test_every_hit_sweeps_expired_rows_of_other_buckets_in_a_bounded_batch(fresh):
+    """A caller who never comes back must not leave a row forever: growth is bounded by traffic, not by distinct callers."""
+    psql(fresh, "insert into rate_limit_windows (bucket, window_start, hits) "
+                "select 'gone:' || g, now() - interval '3 days', 1 from generate_series(1, 250) g; "
+                "insert into rate_limit_windows (bucket, window_start, hits) values ('recent', now() - interval '1 day', 1)")
+    assert count(fresh, "rate_limit_windows") == 251
+    _hit(fresh, "t:trigger", limit=5, window=60)
+    assert count(fresh, "rate_limit_windows", "bucket like 'gone:%'") == 150         # one batch of 100 per hit
+    assert count(fresh, "rate_limit_windows", "bucket = 'recent'") == 1             # a day-old row (a live window) survives
+    _hit(fresh, "t:trigger", limit=5, window=60)
+    _hit(fresh, "t:trigger", limit=5, window=60)
+    assert count(fresh, "rate_limit_windows", "bucket like 'gone:%'") == 0
+
+
+def test_under_parallel_sessions_exactly_the_limit_is_admitted(fresh):
+    """The property the whole control rests on: not that a counter exists, but that N concurrent callers cannot
+    all be told 'allowed'. Thirty separate PostgreSQL sessions hit one bucket at the same time with a limit of 7."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=30) as pool:
+        outs = list(pool.map(lambda _: _hit(fresh, "t:race", limit=7, window=3600), range(30)))
+    assert sum(1 for o in outs if o["allowed"]) == 7
+    assert sorted(o["hits"] for o in outs) == list(range(1, 31))                  # every hit got its own number: no lost update
+    assert scalar(fresh, "select hits from rate_limit_windows where bucket = 't:race'") == "30"
+
+
+def test_the_counter_is_service_role_only_with_rls_on_and_no_policy(fresh):
+    assert scalar(fresh, "select relrowsecurity from pg_class where oid = 'public.rate_limit_windows'::regclass") == "t"
+    assert count(fresh, "pg_policies", "tablename = 'rate_limit_windows'") == 0
+    if scalar(fresh, "select count(*) from pg_roles where rolname in ('anon', 'service_role')") != "2":
+        pytest.skip("this cluster has no Supabase roles (anon, service_role) to check grants against")
+    fn = "public.gf_rate_limit_hit(text, integer, integer)"
+    assert scalar(fresh, f"select has_function_privilege('service_role', '{fn}', 'execute')") == "t"
+    assert scalar(fresh, f"select has_function_privilege('anon', '{fn}', 'execute')") == "f"

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { compareForProject } from "@/lib/project-comparisons";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { fail, withProject } from "@/lib/project-http";
+import { enforceRateLimit, policyFor } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -36,10 +37,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { status: 422 }
     );
   }
+  // A project token is free to obtain (POST /api/projects), so this is as public an engine proxy as /api/power/compare
+  // and shares its limits. The engine is asked only after the guard decides.
+  const gate = await enforceRateLimit(req, policyFor("compare"));
+  if (!gate.ok) return gate.response;
   const r = await compareForProject(p.project, parsed.data);
   if (!r.ok) return fail(r);
   return NextResponse.json(
     { ok: true, result: r.result, result_digest: r.result_digest, request: r.engineBody, evidence: r.evidence },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store", ...gate.headers } }
   );
 }

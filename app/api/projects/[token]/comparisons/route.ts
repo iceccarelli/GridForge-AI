@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listComparisons, saveComparison } from "@/lib/project-comparisons";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { fail, withProject } from "@/lib/project-http";
+import { enforceRateLimit, policyFor } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { status: 422 }
     );
   }
+  // Saving re-asks the engine (that is what makes a stored result an engine answer), so it spends the site key's
+  // units like a comparison does and shares the comparison limits. Validation above costs no engine unit.
+  const gate = await enforceRateLimit(req, policyFor("compare"));
+  if (!gate.ok) return gate.response;
   const r = await saveComparison(p.project, {
     request: parsed.data,
     idempotency_key: typeof body.idempotency_key === "string" ? body.idempotency_key : "",
