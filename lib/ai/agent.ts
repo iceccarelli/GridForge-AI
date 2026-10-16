@@ -29,6 +29,7 @@ import {
 } from "./schemas";
 import { anthropicTools, callEngineTool, requiredKeys, TOOLS_BY_NAME } from "./tools";
 import type { ChatMessage } from "./context";
+import { anthropicFetch } from "@/lib/rate-limit";
 
 const MODEL = "claude-sonnet-4-6";
 
@@ -55,7 +56,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<AgentTurnResult> {
     return agentTurnResultSchema.parse({ reply: OUT_OF_SCOPE_REPLY, blocks: [], toolCalls: [] });
   }
 
-  const anthropic = new Anthropic({ apiKey });
+  // `fetch` is the spend gate (lib/rate-limit.ts): every HTTP attempt, retries included, is counted against the caller.
+  const anthropic = new Anthropic({ apiKey, fetch: anthropicFetch });
   const system = buildSystemPrompt();
   const blocks: AgentBlock[] = [];
   const toolCalls: ToolCallRecord[] = [];

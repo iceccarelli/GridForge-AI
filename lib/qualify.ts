@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 import { storeFault } from "@/lib/safe-log";
+import { engineFetch } from "@/lib/rate-limit";
 
 export const qualifySchema = z.object({
   // --- the seven questions that decide the answer for almost any hall --------
@@ -115,7 +116,7 @@ export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
   if (process.env.GRIDFORGE_API_KEY) headers["X-API-Key"] = process.env.GRIDFORGE_API_KEY;
 
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/qualify`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/qualify`, {
       method: "POST",
       headers,
       body: JSON.stringify(toEngineBody(input)),

@@ -136,8 +136,11 @@ beforeAll(async () => {
 }, 40_000);
 afterAll(() => { engine?.kill(); gateway?.close(); });
 
+// Each request comes from its own address: these suites are not about the rate limiter, and a request with no address shares
+// one "unattributed" allowance, which a long suite on a shared database would exhaust.
+const anAddress = () => `198.51.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
 const post = (path: string, body: unknown) =>
-  new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": anAddress() }, body: JSON.stringify(body) });
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) });
 const j = async (r: Response) => (await r.json()) as any;
 

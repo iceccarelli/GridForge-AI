@@ -12,6 +12,7 @@ import {
 import { deliverableEndpoint } from "@/lib/products";
 import { sendMail } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
+import { runTrusted } from "@/lib/spend-scope";
 
 export const runtime = "nodejs";
 
@@ -72,7 +73,8 @@ export async function PATCH(req: Request) {
       );
     }
     const { _gridforge: _ours, ...doc } = stored;
-    const out = await generateAndStore(row, doc, endpoint);
+    // The operator's session authenticates this regeneration; it is not metered per caller.
+    const out = await runTrusted("admin-session", () => generateAndStore(row, doc, endpoint));
     if (!out.ok) return NextResponse.json({ ok: false, error: out.error, stage: out.stage }, { status: 502 });
     // The reviewer must echo the hash of the pack as it now stands, so hand it back rather than leave the UI stale.
     const fresh = await getByToken(token);

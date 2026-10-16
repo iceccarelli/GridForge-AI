@@ -16,6 +16,7 @@
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
+import { engineFetch } from "@/lib/rate-limit";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -367,7 +368,7 @@ export async function compareBids(
   delete (engineIntake as Record<string, unknown>)._gridforge;
 
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/bids`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/bids`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify({ intake: engineIntake, responses, constraint }),
@@ -635,7 +636,7 @@ export async function renderDeliverable(
   if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
 
   const call = async (format: "html" | "md", bundle = false) => {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}) }),
@@ -660,7 +661,7 @@ export async function renderDeliverable(
     // what was bought.
     if (endpoint !== "study") return null;
     try {
-      const res = await fetch(`${base.replace(/\/$/, "")}/v1/deck`, {
+      const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/deck`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake }),
@@ -693,7 +694,7 @@ export async function renderDeliverable(
   const structured = async (): Promise<string | null> => {
     if (endpoint === "spec") return null;
     try {
-      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+      const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake }),
@@ -723,7 +724,7 @@ export async function renderDeliverable(
     // four quotations comparable. Same slot, same delivery route.
     try {
       if (endpoint === "spec") {
-        const res = await fetch(`${base.replace(/\/$/, "")}/v1/spec`, {
+        const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/spec`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": key },
           body: JSON.stringify({ intake, format: "md" }),
@@ -746,7 +747,7 @@ export async function renderDeliverable(
         }
         return out;
       }
-      const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
+      const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake, format: "csv" }),

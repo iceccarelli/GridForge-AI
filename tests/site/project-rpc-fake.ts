@@ -196,22 +196,6 @@ export function installProjectRpcs(db: PostgrestFake): void {
     return r;
   });
 
-  // --- 0024_rate_limit.sql: one fixed window per (bucket, subject), counted atomically.
-  db.rpcs.set("gf_rate_limit_hit", ({ p_bucket, p_subject, p_limit, p_window_seconds }) => {
-    if (!(p_limit >= 1 && p_limit <= 100000) || !(p_window_seconds >= 1 && p_window_seconds <= 86400)) {
-      throw new PgError("22023", "p_limit or p_window_seconds out of range", 400);
-    }
-    if (!/^[0-9a-f]{64}$/.test(String(p_subject))) throw new PgError("23514", "rate_limit_windows_subject_check", 400);
-    const nowS = Date.now() / 1000;
-    const ws = Math.floor(nowS / p_window_seconds) * p_window_seconds;
-    const rows = db.rows("rate_limit_windows");
-    let row = rows.find((r) => r.bucket === p_bucket && r.subject === p_subject && r.window_start === ws);
-    if (!row) row = db.insertRow("rate_limit_windows", { bucket: p_bucket, subject: p_subject, window_start: ws, hits: 0 });
-    row.hits = Math.min((row.hits as number) + 1, 2147483000);
-    const hits = row.hits as number;
-    return { allowed: hits <= p_limit, hits, limit: p_limit, retry_after_seconds: Math.max(1, Math.ceil(ws + p_window_seconds - nowS)) };
-  });
-
   // --- 0025_project_comparisons_and_shares.sql
   db.rpcs.set("gf_save_comparison", ({ p, p_event, p_new_project, p_new_event }) => {
     let pid = p.project_id;

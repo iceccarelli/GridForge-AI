@@ -11,6 +11,7 @@
 
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
+import { engineFetch } from "@/lib/rate-limit";
 
 export type WatchStatus = "active" | "paused" | "cancelled";
 export type Cadence = "monthly" | "quarterly";
@@ -273,7 +274,7 @@ export async function runWatch(
   if (!base || !key) return { ok: false, error: "GRIDFORGE_API_URL / _API_KEY are not set" };
 
   const call = async (format: "html" | "md") => {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/diff`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/diff`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify({

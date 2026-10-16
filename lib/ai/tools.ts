@@ -13,6 +13,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { engineFetch } from "@/lib/rate-limit";
 
 export type ToolTier = "public" | "client" | "internal";
 
@@ -292,7 +293,7 @@ export async function callEngineTool(tool: ToolDef, args: Record<string, unknown
   if (process.env.GRIDFORGE_API_KEY) headers["X-API-Key"] = process.env.GRIDFORGE_API_KEY;
 
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}${tool.endpoint}`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}${tool.endpoint}`, {
       method: tool.method,
       headers,
       body: JSON.stringify(args),

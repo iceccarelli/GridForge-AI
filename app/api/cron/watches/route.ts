@@ -12,6 +12,7 @@ import {
   WATCH_RETRY_BACKOFF_MS,
   type WatchRecord,
 } from "@/lib/watches";
+import { runTrusted } from "@/lib/spend-scope";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -43,22 +44,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const watches = await dueWatches();
-  const results: { token: string; status: string; headline?: string }[] = [];
+  // Authenticated by the cron secret above: scheduled re-solves of watches customers pay for, not metered per caller.
+  return runTrusted("cron-secret", async () => {
+    const watches = await dueWatches();
+    const results: { token: string; status: string; headline?: string }[] = [];
 
-  for (const w of watches) {
-    // Lease first: a conditional update of next_run_at, so an overlapping
-    // invocation that read the same due list skips this watch instead of
-    // re-running it and double-notifying the client.
-    const claim = await claimWatch(w);
-    if (claim !== "claimed") {
-      results.push({ token: w.token, status: claim === "lost" ? "skipped_claimed_elsewhere" : "claim_error" });
-      continue;
+    for (const w of watches) {
+      // Lease first: a conditional update of next_run_at, so an overlapping
+      // invocation that read the same due list skips this watch instead of
+      // re-running it and double-notifying the client.
+      const claim = await claimWatch(w);
+      if (claim !== "claimed") {
+        results.push({ token: w.token, status: claim === "lost" ? "skipped_claimed_elsewhere" : "claim_error" });
+        continue;
+      }
+      results.push(await runOne(w));
     }
-    results.push(await runOne(w));
-  }
 
-  return NextResponse.json({ ok: true, considered: watches.length, results });
+    return NextResponse.json({ ok: true, considered: watches.length, results });
+  });
 }
 
 /**

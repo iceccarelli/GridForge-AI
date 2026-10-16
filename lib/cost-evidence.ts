@@ -32,6 +32,7 @@ import {
   sortSnapshot,
 } from "@/lib/run-identity";
 import { creds, ev, rest, rpc, STORE_UNCONFIGURED, type Result } from "@/lib/projects";
+import { engineFetch } from "@/lib/rate-limit";
 
 export const MAX_RESPONSES = 20;
 export const BASES = ["budgetary_quote", "firm_quote", "contracted"] as const;
@@ -113,7 +114,7 @@ async function callEngine(
   const e = engine();
   if (!e) return { ok: false, status: 503, error: "The capacity engine is not connected to this deployment." };
   try {
-    const res = await fetch(`${e.base}${path}`, {
+    const res = await engineFetch(`${e.base}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": e.key },
       body: JSON.stringify(body),

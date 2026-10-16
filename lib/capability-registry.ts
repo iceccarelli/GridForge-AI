@@ -62,7 +62,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     web_route: "/qualify",
     workspace_action: null,
     database_record: "qualifications",
-    entitlement: "none required — free over REST, MCP and web by design",
+    entitlement: "none required — free over REST, MCP and web by design. The web route (POST /api/qualify) is still limited per caller and counted at the provider gate (lib/rate-limit.ts); it answers 429 over its limit and 503, calling nothing, if the guard cannot decide",
     stripe_product_or_price: null,
     deliverable: "On-page result + optional lead capture",
     status: "free",
@@ -298,7 +298,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "REST/MCP: gated by API key + unit metering (1 unit, the same single solve as /v1/screen). Web " +
       "(/power/compare): no entitlement gate and no checkout -- there is no product to buy; the site calls the " +
       "engine with its own platform key, so POST /api/power/compare and POST /api/power/compare/save call " +
-      "enforceRateLimit (lib/rate-limit.ts) first. That guard fails closed: it answers 503 until migration 0024 is " +
+      "guardRequest (lib/rate-limit.ts) first, and every engine call is counted at the provider gate. That guard fails closed: it answers 503 until migration 0024 is " +
       "applied to the database the deployment uses.",
     stripe_product_or_price: "none",
     deliverable: "JSON comparison (gridforge/ttp-compare/1) with request digest and engine provenance",
@@ -356,7 +356,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "REST/MCP: gated by API key + unit metering (5 units, same basis as /v1/study) for " +
       "api_triage/api_scale/api_platform subscribers. Web (/power/deploy): NO entitlement gate " +
       "— free and self-serve, by deliberate decision (see app/api/power/deploy/cases/route.ts) " +
-      "because there is no Stripe product for a self-serve web purchase of this capability yet.",
+      "because there is no Stripe product for a self-serve web purchase of this capability yet. Not " +
+      "unmetered: each case request is limited per caller (deploy_case, lib/rate-limit.ts), its engine call is " +
+      "counted against the public metered-engine budget, and the body is refused above the engine's own 512 KiB " +
+      "ceiling; it answers 429 over a limit and 503, calling nothing, if the guard cannot decide.",
     stripe_product_or_price: "none",
     deliverable: "power_deployment_cases row (case_token) + JSON assessment",
     status: "metered_only",

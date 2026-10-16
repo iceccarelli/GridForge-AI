@@ -183,6 +183,15 @@ async function release(token, cookie) {
 }
 
 async function main() {
+  // The harness plays the trusted proxy: a request to the site carries one client's address unless it names its own.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url, init = {}) => {
+    if (!String(url).startsWith(SITE)) return realFetch(url, init);
+    const headers = new Headers(init.headers);
+    if (!headers.has("x-forwarded-for")) headers.set("x-forwarded-for", "198.51.100.200");
+    return realFetch(url, { ...init, headers });
+  };
+
   head("Starting the stack");
 
   start("postgrest", "node",
@@ -192,6 +201,9 @@ async function main() {
 
   start("engine", PYTHON, ["-m", "gridforge", "serve", "--port", String(ENGINE_PORT)], {
     GRIDFORGE_API_KEYS: ENGINE_KEY,
+    // The engine rate-limits by client address and here every request comes from the one site process, so its own limiter
+    // would mask the site's limits this run is trying to observe. Raised for the harness only.
+    GRIDFORGE_RATE_LIMIT: "100000",
   });
   await waitFor("engine", async () => (await fetch(`${ENGINE}/health`)).ok);
   ok("the capacity engine", true, ENGINE);
@@ -210,6 +222,10 @@ async function main() {
     CRON_SECRET,
     NEXT_PUBLIC_SITE_URL: SITE,
     RESEND_API_KEY: "",
+    // This is a production build, so the rate limiter needs the same thing production gives it: a declared source for the
+    // caller's address. Here the harness plays the proxy and writes x-forwarded-for itself (see the fetch wrapper at the top of main).
+    GRIDFORGE_TRUSTED_IP_HEADER: "x-forwarded-for",
+    RATE_LIMIT_HMAC_KEY: "local-verify-rate-limit-key-0123456789abcdef",
   });
   await waitFor("site", async () => (await fetch(SITE)).ok);
   ok("the production build", true, SITE);
@@ -280,6 +296,31 @@ async function main() {
   const counterRows = await (await sb(`rate_limit_windows?select=subject`)).json();
   ok("the counter holds a keyed hash of the caller, never the address",
      counterRows.length > 0 && counterRows.every((r) => /^[0-9a-f]{64}$/.test(r.subject)) && !JSON.stringify(counterRows).includes("198.51.100"));
+
+  // --- provider spend: the guard on the paths that were open, through the real production build ---------------------------
+  head("Provider-spend guard on the public routes");
+  const hallBody = { contractedMW: 12, currentPeakMW: 7.4, currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, plantSupplyC: 6, positionsAvailable: 180 };
+  const qualifyAs = (via, body = hallBody) => fetch(`${SITE}/api/qualify`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": via }, body: JSON.stringify(body) });
+  const big = await qualifyAs("198.51.100.140", { ...hallBody, name: "x".repeat(40 * 1024) });
+  ok("an oversized qualifier body is refused before the engine (413)", big.status === 413);
+  const deployBig = await fetch(`${SITE}/api/power/deploy/cases`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.141" },
+    body: JSON.stringify({ load_profile: { csv: "x".repeat(600 * 1024) } }) });
+  ok("a deployment request larger than the engine accepts is refused first (413)", deployBig.status === 413);
+  // 30 per 10 minutes per caller. The caller is the LAST address in x-forwarded-for (the one the proxy wrote): what a client
+  // typed in front of it changes nothing.
+  const qs = [];
+  for (let i = 0; i < 32; i++) qs.push((await qualifyAs(`10.9.${i}.1, 198.51.100.150`)).status);
+  ok("the qualifier admits 30 and then refuses, whatever address the client claims", qs.slice(0, 30).every((c) => c === 200) && qs.slice(30).every((c) => c === 429), qs.join(","));
+  const over = await qualifyAs("1.1.1.1, 198.51.100.150");
+  ok("the refusal carries Retry-After", over.status === 429 && Number(over.headers.get("retry-after")) >= 1);
+  ok("a different caller is unaffected", (await qualifyAs("198.51.100.151")).status === 200);
+  const chatRes = await fetch(`${SITE}/api/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }) });
+  ok("chat is closed until its provider is configured, with no spend", chatRes.status === 503);
+  const providerRows = await (await sb(`rate_limit_windows?select=bucket,subject,hits`)).json();
+  const buckets = new Set(providerRows.map((r) => r.bucket));
+  ok("both levels of the counter were used: request and provider",
+     ["qualify", "engine_public_free_caller", "engine_public_free"].every((b) => buckets.has(b)), [...buckets].join(","));
+  ok("and hold only keyed pseudonyms", providerRows.every((r) => /^[0-9a-f]{64}$/.test(r.subject)) && !JSON.stringify(providerRows).includes("198.51.100"));
 
   // --- the free funnel -------------------------------------------------------
   head("The free read, and the link that leaves the browser tab");

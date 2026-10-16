@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
 import { createDeliverable, creditsToward } from "@/lib/deliverables";
 import { toEngineBody, type QualifyInput } from "@/lib/qualify";
+import { engineFetch } from "@/lib/rate-limit";
+import { runTrusted } from "@/lib/spend-scope";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -52,19 +54,22 @@ export async function POST(req: Request) {
   const engineIntake = toEngineBody(body.inputs as QualifyInput);
 
   try {
-    const call = async (format: "html" | "md") => {
-      const res = await fetch(`${base.replace(/\/$/, "")}/v1/proposal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": key },
-        body: JSON.stringify({ intake: qualifyToIntake(engineIntake), engagement, format }),
-        signal: AbortSignal.timeout(120_000),
-        cache: "no-store",
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error ?? `engine ${res.status}`);
-      return payload as { title: string; document: string };
-    };
-    const [html, md] = await Promise.all([call("html"), call("md")]);
+    // The operator's session (verified above) authenticates this call; it is not metered per caller.
+    const [html, md] = await runTrusted("admin-session", async () => {
+      const call = async (format: "html" | "md") => {
+        const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/proposal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-API-Key": key },
+          body: JSON.stringify({ intake: qualifyToIntake(engineIntake), engagement, format }),
+          signal: AbortSignal.timeout(120_000),
+          cache: "no-store",
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error ?? `engine ${res.status}`);
+        return payload as { title: string; document: string };
+      };
+      return Promise.all([call("html"), call("md")]);
+    });
 
     const row = await createDeliverable({
       kind: "proposal",
