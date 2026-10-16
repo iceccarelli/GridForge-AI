@@ -25,6 +25,7 @@ import {
   type ActualReviewRow,
   type ActualRow,
 } from "@/lib/supplier-reality";
+import { listComparisons, type ComparisonSummary } from "@/lib/project-comparisons";
 import {
   latestComparison,
   packageResponses,
@@ -96,6 +97,9 @@ export interface ProjectState {
     items: Pick<EvidenceRow, "id" | "filename" | "media_type" | "sha256" | "byte_size" | "review_status" | "evidence_class" | "source_category" | "uploaded_at">[];
   };
   procurement: { packages: PackageState[] };
+  /** Time-to-Power scenario comparisons saved to this project: identity and provenance only; the record itself is
+   * read through /api/projects/[token]/comparisons/[id]. Nothing here is recomputed. */
+  comparisons: ComparisonSummary[];
   /** Measured outcomes against stored predictions, each with its human review if one exists. */
   observations: {
     id: string;
@@ -247,7 +251,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer] = await Promise.all([
+  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer, cmps] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
@@ -262,11 +266,13 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       "GET",
       `cost_evidence_runs?project_id=eq.${encodeURIComponent(project.id)}&select=id,created_at,run_fingerprint,evidence_ids,accepted_evidence_ids,ignored,engine_provenance,report_date,artifact_sha256,artifact_bytes,artifact_storage_ref&order=created_at.desc,id.desc`
     ),
+    listComparisons(project),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
   // A failed read is a failed read — never rendered as "no evidence" or "no packages".
   if (!ev.ok || !pk.ok || !ob.ok || !rv.ok || !sa.ok || !sr.ok || !sv.ok || !cel.ok || !cer.ok) return { ok: false, status: 502, error: "The project record could not be read." };
+  if (!cmps.ok) return cmps;
 
   const cases: CaseState[] = [];
   const latestRevision = new Map<string, number>();
@@ -418,6 +424,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
         })),
       },
       procurement: { packages },
+      comparisons: cmps.comparisons,
       observations,
       supplier_reality,
       cost_evidence: costEvidenceState(cel.data ?? [], cer.data ?? []),

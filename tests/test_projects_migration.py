@@ -59,7 +59,7 @@ def db():
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
               "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
-              "0020_function_privileges.sql"):
+              "0020_function_privileges.sql", "0024_project_comparisons.sql"):
         psql(name, file=MIGRATIONS / f)
     psql(name, "insert into projects (project_token, project_name) values ('t', 'Hall A');"
                "insert into project_events (project_id, event_type, actor) "
@@ -152,7 +152,8 @@ def fresh():
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
     for f in ("0003_deliverables.sql", "0014_power_deployment_cases.sql", "0015_projects.sql",
               "0016_project_purchases.sql", "0017_project_observations.sql",
-              "0018_supplier_reality.sql", "0019_engagement_deposits.sql"):
+              "0018_supplier_reality.sql", "0019_engagement_deposits.sql",
+              "0024_project_comparisons.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -850,3 +851,74 @@ def test_ambiguous_and_cancelled_are_states_and_only_people_reopen_ambiguous(out
     assert _note(outbox, "k6", kind="marketing").returncode != 0
     assert psql(outbox, "insert into customer_notifications (dedupe_key, kind, subject_table, subject_id, origin) values "
                         f"('k7', 'intake_link', 'deliverables', {SUBJ}, 'somebody')", check=False).returncode != 0
+
+
+# --- 0024: a saved Time-to-Power comparison -----------------------------------------------
+
+def _comparison(key="key-0001", result_digest="a" * 64, request_digest="b" * 64, grade="indicative"):
+    return ('{"project_id": "%s", "schema": "gridforge/ttp-compare/1", "request": {"intake": {}}, '
+            '"request_digest": "' + request_digest + '", "result": {"schema": "gridforge/ttp-compare/1"}, '
+            '"result_digest": "' + result_digest + '", "engine_provenance": {"digest": "' + "c" * 64 + '"}, '
+            '"provenance_digest": "' + "c" * 64 + '", "objective": "fastest", "baseline": "rdhx", '
+            '"grade": "' + grade + '", "scenario_ids": ["rdhx", "full_dlc"], "label": "first look", '
+            '"idempotency_key": "' + key + '", "actor": "project_token_holder"}')
+
+
+def _save(db, project_id, **kw):
+    import json
+    out = scalar(db, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)"
+                     % (_comparison(**kw) % project_id, GOOD % 'comparison_saved'))
+    return json.loads(out)
+
+
+def test_a_saved_comparison_and_its_event_are_one_write_and_cannot_be_changed(fresh):
+    pid = new_project(fresh)
+    first = _save(fresh, pid)
+    assert first["created"] is True and first["comparison"]["label"] == "first look"
+    assert count(fresh, "project_comparisons") == 1
+    assert count(fresh, "project_events", "event_type = 'comparison_saved'") == 1
+    assert scalar(fresh, "select payload->>'comparison_id' from project_events where event_type = 'comparison_saved'") \
+        == first["comparison"]["id"]
+    refused(fresh, "update project_comparisons set label = 'edited'", "append-only")
+    refused(fresh, "delete from project_comparisons", "append-only")
+    assert count(fresh, "project_comparisons") == 1
+
+
+def test_saving_is_idempotent_in_the_database_not_the_application(fresh):
+    pid = new_project(fresh)
+    first = _save(fresh, pid)
+    replay = _save(fresh, pid)                                   # same key, same answer
+    assert replay["created"] is False and replay["reason"] == "idempotent_replay"
+    assert replay["comparison"]["id"] == first["comparison"]["id"]
+    same_answer = _save(fresh, pid, key="key-0002")              # another key, same answer
+    assert same_answer["created"] is False and same_answer["reason"] == "already_saved"
+    assert same_answer["comparison"]["id"] == first["comparison"]["id"]
+    # the same key for a DIFFERENT answer is refused, and the earlier record is untouched
+    refused(fresh, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)"
+                   % (_comparison(result_digest="d" * 64) % pid, GOOD % 'comparison_saved'),
+            "already used for a different comparison")
+    assert count(fresh, "project_comparisons") == 1
+    assert count(fresh, "project_events", "event_type = 'comparison_saved'") == 1
+    changed = _save(fresh, pid, key="key-0003", result_digest="e" * 64, request_digest="f" * 64)   # a new answer
+    assert changed["created"] is True and changed["comparison"]["id"] != first["comparison"]["id"]
+    assert count(fresh, "project_comparisons") == 2
+    assert scalar(fresh, "select label from project_comparisons where id = '%s'" % first["comparison"]["id"]) == "first look"
+
+
+def test_a_comparison_is_not_saved_when_its_event_is_refused(fresh):
+    pid = new_project(fresh)
+    refused(fresh, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)" % (_comparison() % pid, BAD_TYPE),
+            "project_events_event_type_check")
+    assert count(fresh, "project_comparisons") == 0
+
+
+def test_the_comparison_row_refuses_what_it_cannot_vouch_for(fresh):
+    pid = new_project(fresh)
+    refused(fresh, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)"
+                   % (_comparison(key="short") % pid, GOOD % 'comparison_saved'), "violates check")
+    refused(fresh, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)"
+                   % (_comparison(result_digest="not-a-digest") % pid, GOOD % 'comparison_saved'), "violates check")
+    refused(fresh, "select gf_save_comparison('%s'::jsonb, '%s'::jsonb)"
+                   % (_comparison(grade="certain") % pid, GOOD % 'comparison_saved'), "violates check")
+    assert count(fresh, "project_comparisons") == 0
+    assert count(fresh, "project_events", "event_type = 'comparison_saved'") == 0

@@ -814,3 +814,103 @@ describe.skipIf(!enabled)("customer notification outbox, on real PostgreSQL + Po
     }
   }, 60_000);
 });
+
+describe.skipIf(!enabled)("a saved Time-to-Power comparison — real PostgreSQL, real engine, through the routes", () => {
+  const HALL = {
+    siteName: "RealDB Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
+    currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180,
+    plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  };
+  const REQ = { hall: HALL, btm_options: [{ id: "gas1", kind: "gas_engine", capacity_MW: 10, lead_time_weeks: 40 }], objective: "fastest" };
+  const key = () => crypto.randomUUID();
+
+  it("migration 0024 is applied: the table exists, is append-only, and the function is reachable only as service role", async () => {
+    expect((await sql("/project_comparisons?limit=1")).status).toBe(200);
+  });
+
+  it("saves the engine's answer with its event in one transaction, replays idempotently, refuses a reused key, and reads back unchanged", async () => {
+    const { POST: mkProject } = await import("@/app/api/projects/route");
+    const pt = (await j(await mkProject(post("/api/projects", { project_name: `Compare ${crypto.randomUUID().slice(0, 8)}` })))).project_token as string;
+    const [proj] = await rows("projects", `&project_token=eq.${pt}`);
+    const { POST: compare } = await import("@/app/api/power/compare/route");
+    const seen = await j(await compare(post("/api/power/compare", REQ)));
+    expect(seen.ok).toBe(true);
+
+    const { POST: save, GET: list } = await import("@/app/api/projects/[token]/comparisons/route");
+    const { GET: one } = await import("@/app/api/projects/[token]/comparisons/[id]/route");
+    const k = key();
+    const first = await save(post("/x", { request: REQ, idempotency_key: k, label: "real", reviewed_result_digest: seen.result_digest }), ctx({ token: pt }));
+    expect(first.status).toBe(201);
+    const made = (await j(first)).comparison;
+    const stored = await rows("project_comparisons", `&project_id=eq.${proj.id}`);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ id: made.id, request_digest: seen.result.request_digest, result_digest: seen.result_digest, provenance_digest: seen.result.provenance.digest, label: "real", idempotency_key: k });
+    expect(stored[0].result.scenarios).toEqual(seen.result.scenarios);
+    expect(stored[0].request).toEqual(seen.request);
+    const ev = await rows("project_events", `&project_id=eq.${proj.id}&event_type=eq.comparison_saved`);
+    expect(ev).toHaveLength(1);
+    expect(ev[0].payload).toMatchObject({ comparison_id: made.id, request_digest: made.request_digest });
+
+    // replay: same key, same answer
+    const again = await save(post("/x", { request: REQ, idempotency_key: k }), ctx({ token: pt }));
+    expect(again.status).toBe(200);
+    expect(await j(again)).toMatchObject({ created: false, reason: "idempotent_replay" });
+    // same answer, new key: one record
+    const dup = await j(await save(post("/x", { request: REQ, idempotency_key: key() }), ctx({ token: pt })));
+    expect(dup).toMatchObject({ created: false, reason: "already_saved" });
+    expect(dup.comparison.id).toBe(made.id);
+    // same key, different answer: the DATABASE refuses it
+    const clash = await save(post("/x", { request: { ...REQ, objective: "max_compute" }, idempotency_key: k }), ctx({ token: pt }));
+    expect(clash.status).toBe(409);
+    expect(await rows("project_comparisons", `&project_id=eq.${proj.id}`)).toHaveLength(1);
+    expect(await rows("project_events", `&project_id=eq.${proj.id}&event_type=eq.comparison_saved`)).toHaveLength(1);
+
+    // a changed input is a new record; the first is byte-for-byte what it was
+    const before = JSON.stringify(stored[0]);
+    const changed = await j(await save(post("/x", { request: { ...REQ, hall: { ...HALL, contractedMW: 6 } }, idempotency_key: key() }), ctx({ token: pt })));
+    expect(changed.created).toBe(true);
+    const all = await rows("project_comparisons", `&project_id=eq.${proj.id}&order=created_at.asc`);
+    expect(all).toHaveLength(2);
+    expect(JSON.stringify(all[0])).toBe(before);
+
+    // the trigger, not the application, forbids UPDATE and DELETE even for the service role
+    expect((await sql(`/project_comparisons?id=eq.${made.id}`, { method: "PATCH", body: JSON.stringify({ label: "edited" }) })).status).toBe(403);
+    expect((await sql(`/project_comparisons?id=eq.${made.id}`, { method: "DELETE" })).status).toBe(403);
+    expect((await rows("project_comparisons", `&id=eq.${made.id}`))[0].label).toBe("real");
+
+    // read back through the project API, as stored; the list uses PostgREST's JSON-path select for the leader
+    const got = await j(await one(new Request(siteUrl("/x")), ctx({ token: pt, id: made.id })));
+    expect(got.comparison.result).toEqual(stored[0].result);
+    expect(got.comparison.request).toEqual(seen.request);
+    const ls = await j(await list(new Request(siteUrl("/x")), ctx({ token: pt })));
+    expect(ls.comparisons.map((c: { id: string }) => c.id)).toContain(made.id);
+    expect(ls.comparisons.find((c: { id: string }) => c.id === made.id).leader).toBe(seen.result.ranking.leader);
+    const { GET: stateRoute } = await import("@/app/api/projects/[token]/route");
+    const st = await j(await stateRoute(new Request(siteUrl("/x")), ctx({ token: pt })));
+    expect(st.comparisons.map((c: { id: string }) => c.id).sort()).toEqual([made.id, changed.comparison.id].sort());
+
+    // another project cannot see it
+    const other = (await j(await mkProject(post("/api/projects", { project_name: "Other" })))).project_token;
+    expect((await one(new Request(siteUrl("/x")), ctx({ token: other, id: made.id }))).status).toBe(404);
+    expect((await j(await list(new Request(siteUrl("/x")), ctx({ token: other })))).comparisons).toEqual([]);
+  }, 60_000);
+
+  it("a store outage during the save is reported as unavailable (503), not saved, and nothing is recorded", async () => {
+    const { POST: mkProject } = await import("@/app/api/projects/route");
+    const pt = (await j(await mkProject(post("/api/projects", { project_name: "Outage" })))).project_token as string;
+    const [proj] = await rows("projects", `&project_token=eq.${pt}`);
+    const { POST: save } = await import("@/app/api/projects/[token]/comparisons/route");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    gatewayOutage = { method: "POST", table: "rpc/gf_save_comparison" };
+    try {
+      const res = await save(post("/x", { request: REQ, idempotency_key: key() }), ctx({ token: pt }));
+      expect(res.status).toBe(503);                       // the store answered "unavailable": say so, claim nothing
+      expect((await j(res)).error).toMatch(/Nothing was recorded/);
+    } finally {
+      gatewayOutage = null;
+      vi.restoreAllMocks();
+    }
+    expect(await rows("project_comparisons", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect(await rows("project_events", `&project_id=eq.${proj.id}&event_type=eq.comparison_saved`)).toHaveLength(0);
+  }, 60_000);
+});

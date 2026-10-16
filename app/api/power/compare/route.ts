@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { compareRequestSchema } from "@/lib/ttp-compare";
-import { runCompare } from "@/lib/ttp-compare-server";
+import { resultDigest, runCompare } from "@/lib/ttp-compare-server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     );
   }
   return NextResponse.json(
-    { ok: true, result: out.result, request: out.engineBody },
+    { ok: true, result: out.result, result_digest: resultDigest(out.result), request: out.engineBody },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
