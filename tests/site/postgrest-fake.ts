@@ -236,8 +236,15 @@ export class PostgrestFake {
       let out = [...matching];
       const order = params.get("order");
       if (order) {
-        const [col, dir] = order.split(".");
-        out.sort((a, b) => cmp(a[col], b[col]) * (dir === "desc" ? -1 : 1));
+        // "a.desc,b.asc": the first key decides, the next breaks ties, as PostgREST orders.
+        const keys = order.split(",").map((k) => k.split("."));
+        out.sort((a, b) => {
+          for (const [col, dir] of keys) {
+            const c = cmp(a[col], b[col]) * (dir === "desc" ? -1 : 1);
+            if (c !== 0) return c;
+          }
+          return 0;
+        });
       }
       const limit = Number(params.get("limit"));
       if (Number.isFinite(limit) && limit > 0) out = out.slice(0, limit);

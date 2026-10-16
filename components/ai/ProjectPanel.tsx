@@ -249,6 +249,95 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
   );
 }
 
+/** The project's saved Time-to-Power comparisons and its read-only buyer link. The link's secret exists in the browser
+ * only between "create" and the next reload: the server keeps a hash, so a lost link is replaced, not recovered. */
+function Comparisons({ state, projectToken }: { state: ProjectState; projectToken: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Reloading the whole record would unmount this card and lose the one-time link, so the card tracks its own change.
+  const [local, setLocal] = useState<{ active: boolean; issued_at: string | null } | null>(null);
+  const base = `/api/projects/${encodeURIComponent(projectToken)}/share`;
+
+  async function call(method: "POST" | "DELETE") {
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const res = await fetch(base, { method });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) setError(body?.error ?? "The buyer link could not be changed. Nothing was changed.");
+      else if (method === "POST") {
+        setLink(`${window.location.origin}${body.share_path}`);
+        setLocal({ active: true, issued_at: new Date().toISOString() });
+      } else {
+        setLink(null);
+        setLocal({ active: false, issued_at: null });
+      }
+    } catch {
+      setError("Could not reach the server. Nothing was changed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const c = state.comparisons;
+  const s = { ...state.share, ...(local ?? {}) };
+  return (
+    <Card title="TIME-TO-POWER COMPARISONS AND BUYER LINK">
+      {!c.available && <p className="text-flag">Saved comparisons could not be read, so none are shown (not "none saved").</p>}
+      {c.available && c.items.length === 0 && <p>{NOT_YET} — no comparison has been saved to this project.</p>}
+      {c.items.map((x) => (
+        <div key={x.id} className="space-y-0.5 border-b border-line pb-2 last:border-0">
+          <Row k="Saved" v={when(x.saved_at)} />
+          <Row k="Led on its objective" v={x.leader ?? "No scenario ranked"} />
+          <Row k="Grade" v={x.grade} />
+          <Row k="Question / engine" v={`${x.request_digest.slice(0, 12)} · ${x.engine_version}`} />
+        </div>
+      ))}
+      <a href={`/power/compare?project=${encodeURIComponent(projectToken)}`} className="inline-block underline text-faint">
+        Run another comparison and save it to this project
+      </a>
+      {s.available && c.items.length > 0 && (
+        <div className="space-y-1.5 border-t border-line pt-2">
+          <p>
+            {s.active
+              ? `A read-only buyer link has been active since ${when(s.issued_at ?? "")}. Whoever holds it sees the latest saved comparison, its assumptions and what to buy next, and can start a checkout for this project. It cannot change anything.`
+              : "No buyer link is active. A link lets a finance or utility contact read the decision without an account or this project's token."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => void call("POST")} disabled={busy}
+              className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50">
+              {s.active ? "Replace link (the old one stops working)" : "Create buyer link"}
+            </button>
+            {s.active && (
+              <button onClick={() => void call("DELETE")} disabled={busy}
+                className="rounded border border-line px-3 py-1 text-[12px] text-faint disabled:opacity-50">
+                Revoke
+              </button>
+            )}
+          </div>
+          {link && (
+            <div className="space-y-1">
+              <p className="text-faint">Shown once. Copy it now; it cannot be displayed again.</p>
+              <input readOnly value={link} onFocus={(e) => e.currentTarget.select()}
+                className="w-full rounded border border-line bg-ink px-2 py-1.5 text-[11px] text-ghost" aria-label="Buyer link" />
+              <div className="flex gap-3">
+                <button onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setCopied(false); } }}
+                  className="underline text-faint">{copied ? "Copied" : "Copy"}</button>
+                <a href={link} target="_blank" rel="noopener noreferrer" className="underline text-faint">Open as the buyer sees it</a>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {!s.available && <p className="text-faint">The buyer link could not be read on this deployment.</p>}
+      {error && <p className="text-[11px] text-flag">{error}</p>}
+    </Card>
+  );
+}
+
 /** The quotation-to-run loop, as the project record sees it: counts and integrity facts only. Quotations influence a
  * run only once a named reviewer has accepted them; supplier names and prices are not shown here. */
 function CostEvidence({ state }: { state: ProjectState }) {
@@ -652,6 +741,8 @@ export function ProjectPanel({
             <Observed state={state} projectToken={projectToken!} onSaved={() => void load()} />
 
             <SupplierReality state={state} projectToken={projectToken!} onSaved={() => void load()} />
+
+            <Comparisons state={state} projectToken={projectToken!} />
 
             <CostEvidence state={state} />
 

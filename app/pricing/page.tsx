@@ -47,6 +47,20 @@ export default function PricingPage() {
               against the engine's own commercial figures. */}
           <EngagementLadder />
 
+          <section className="mt-12 max-w-3xl rounded border border-line bg-panel-2 p-6" aria-labelledby="start-free">
+            <h2 id="start-free" className="text-lg font-semibold text-ghost">
+              Not sure which step to start with?
+            </h2>
+            <p className="mt-2 text-sm text-mute">
+              Run the free Time-to-Power comparison on your hall: racks as found and after relief, what binds, and the date to full
+              capacity with the evidence class behind it. Save it to a project and send the read-only page to whoever approves the
+              spend; they can commission the next step from it, at the prices above.
+            </p>
+            <Link href="/power/compare" className="mt-3 inline-block text-sm text-power">
+              Run the comparison →
+            </Link>
+          </section>
+
           <div className="mt-12">
             <Link
               href="/#services"

@@ -119,6 +119,10 @@ done
 "${DBQ[@]}" -At -c "select count(*) from information_schema.columns where table_name = 'cost_evidence_runs' and column_name in ('run_fingerprint','artifact_storage_ref','artifact_sha256')" \
   | grep -qx 3 || { echo "[realdb] FAILED: migration 0023 (cost-evidence artifacts) is missing"; exit 1; }
 
+# 0024 (the rate-limit guard) and 0025 (saved comparisons and buyer links) must be present, with their RPCs.
+"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_rate_limit_hit','gf_save_comparison','gf_issue_share','gf_revoke_share')" \
+  | grep -qx 4 || { echo "[realdb] FAILED: migrations 0024/0025 (rate limit, comparisons, buyer links) are missing"; exit 1; }
+
 if [ "$REAL_STORAGE" = 1 ]; then
   # The migrations must have created the bucket in the REAL table, and it must be private.
   [ "$("${DBQ[@]}" -At -c "select public from storage.buckets where id = 'cost-evidence-artifacts'")" = f ] \

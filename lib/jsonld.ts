@@ -1,4 +1,5 @@
 import type { ConstraintDoc, ConstraintReference } from "@/lib/constraints";
+import { capabilityById } from "@/lib/capability-registry";
 import { siteUrl } from "@/lib/site";
 
 /**
@@ -95,5 +96,25 @@ export function constraintRecordJsonLd(c: ConstraintDoc, ref: ConstraintReferenc
       encodingFormat: "application/json",
       contentUrl: siteUrl(`/api/constraints?slug=${c.slug}`),
     },
+  };
+}
+
+/**
+ * The Time-to-Power comparison as a web application. "Free" is read from the capability registry, not typed here, so the
+ * page cannot say it is free once the registry says it is not; no rating, review or usage figure is claimed.
+ */
+export function comparisonToolJsonLd() {
+  const cap = capabilityById("ttp_compare");
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Time-to-Power scenario comparison",
+    description:
+      "Compares cooling and supply scenarios for one data-centre hall: racks as found and after relief, the binding constraint, the date to full capacity with its band and evidence class, and capital. A scenario whose lead time is unknown gets no date. Screening-level engineering, not an issued opinion.",
+    url: siteUrl("/power/compare"),
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Any",
+    isAccessibleForFree: cap?.status === "free",
+    provider: ORG,
   };
 }

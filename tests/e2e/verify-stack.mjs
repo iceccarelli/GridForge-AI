@@ -233,6 +233,54 @@ async function main() {
   ok("an incomplete hall is refused, not guessed at", ttpCmpBad.status === 422);
   ok("the page is served", (await fetch(`${SITE}/power/compare`)).status === 200);
 
+  // --- saved comparison -> read-only buyer page -> checkout guard: real build, real engine, real routes -------------------
+  head("Saved comparison, buyer link and buyer page");
+  const owner = { "content-type": "application/json", "x-forwarded-for": "198.51.100.77" };
+  const saveRes = await fetch(`${SITE}/api/power/compare/save`, { method: "POST", headers: owner,
+    body: JSON.stringify({ compare: { hall: ttpHall, objective: "fastest" }, project: { project_name: "Verify Hall expansion", company: "Verify Co" } }) });
+  const savedText = await saveRes.text();
+  let saved = {};
+  try { saved = JSON.parse(savedText); } catch { console.error(`  save answered ${saveRes.status} with a non-JSON body: ${savedText.slice(0, 160)}`); }
+  ok("a comparison saves to a new project, answered by the engine", saveRes.status === 201 && Boolean(saved.project_token) && saved.request_digest === ttpCmp.result?.request_digest,
+     saved.request_digest?.slice(0, 12));
+  const stored = (await (await sb(`project_comparisons?select=request_digest,grade`)).json())[0];
+  ok("the stored row is the engine's answer to that question", stored?.request_digest === saved.request_digest && stored?.grade === "indicative");
+  const shareRes = await fetch(`${SITE}/api/projects/${saved.project_token}/share`, { method: "POST" });
+  const share = await shareRes.json();
+  ok("the owner mints a read-only buyer link", shareRes.status === 201 && /^\/p\/[A-Za-z0-9_-]{43}$/.test(share.share_path ?? ""));
+  const shareRow = (await (await sb(`project_shares?select=token_hash`)).json())[0];
+  ok("only the hash of the link is stored", Boolean(shareRow?.token_hash) && !JSON.stringify(shareRow).includes(share.share_path.slice(3)));
+  const pageRes = await fetch(`${SITE}${share.share_path}`);
+  const pageHtml = await pageRes.text();
+  ok("the buyer page renders the decision, the evidence class and the quotation basis",
+     pageRes.status === 200 && pageHtml.includes("Verify Hall expansion") && pageHtml.includes("Decision") && /E0/.test(pageHtml) && /not decision-grade/.test(pageHtml));
+  ok("it states the empty calibration ledger", pageHtml.includes("The calibration ledger is empty today"));
+  ok("it offers the Density Screen at the catalogue price, with its credit",
+     pageHtml.includes("Density Screen") && pageHtml.includes("€4,500") && pageHtml.includes("Credits in full against"));
+  ok("it is not indexable, not referred, and carries no credential",
+     /name="robots" content="[^"]*noindex/.test(pageHtml) && /name="referrer" content="no-referrer"/.test(pageHtml)
+     && !pageHtml.includes(saved.project_token) && !/workspace\?project/.test(pageHtml));
+  ok("robots.txt keeps /p/ closed to every crawler", /Disallow: \/p\//.test(await (await fetch(`${SITE}/robots.txt`)).text()));
+  ok("a link that was never minted is a 404", (await fetch(`${SITE}/p/${"a".repeat(43)}`)).status === 404);
+  ok("so is a truncated one", (await fetch(`${SITE}${share.share_path.slice(0, 20)}`)).status === 404);
+  const badBuy = async (body) => (await fetch(`${SITE}/api/checkout`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status;
+  ok("checkout refuses a link that was never minted, before Stripe is touched", (await badBuy({ product: "density_screen", project_share_token: "b".repeat(43) })) === 404);
+  ok("and the edit token is not a buyer link", (await badBuy({ product: "density_screen", project_share_token: saved.project_token })) === 404);
+  ok("and a product that cannot be commissioned for a project", (await badBuy({ product: "api_triage", project_share_token: share.share_path.slice(3) })) === 400);
+  const revoke = await fetch(`${SITE}/api/projects/${saved.project_token}/share`, { method: "DELETE" });
+  ok("the owner revokes the link", revoke.status === 200 && (await revoke.json()).revoked === true);
+  ok("the revoked link is a 404 and cannot start a checkout",
+     (await fetch(`${SITE}${share.share_path}`)).status === 404 && (await badBuy({ product: "density_screen", project_share_token: share.share_path.slice(3) })) === 404);
+  const limited = [];
+  for (let i = 0; i < 8; i++) {
+    limited.push((await fetch(`${SITE}/api/power/compare/save`, { method: "POST", headers: { ...owner, "x-forwarded-for": "198.51.100.99" },
+      body: JSON.stringify({ compare: { hall: ttpHall }, project: { project_name: `Limited ${i}` } }) })).status);
+  }
+  ok("the save route is rate limited per caller, before the engine", limited.slice(0, 6).every((c) => c === 201) && limited.slice(6).every((c) => c === 429), limited.join(","));
+  const counterRows = await (await sb(`rate_limit_windows?select=subject`)).json();
+  ok("the counter holds a keyed hash of the caller, never the address",
+     counterRows.length > 0 && counterRows.every((r) => /^[0-9a-f]{64}$/.test(r.subject)) && !JSON.stringify(counterRows).includes("198.51.100"));
+
   // --- the free funnel -------------------------------------------------------
   head("The free read, and the link that leaves the browser tab");
   const q = await (
@@ -593,6 +641,7 @@ try {
 } catch (err) {
   failures++;
   console.error("\n  ERROR ", err instanceof Error ? err.message : err);
+  for (const name of ["site", "engine", "postgrest"]) if (logs.has(name)) console.error(`  ${name} said:${say(name)}`);
 } finally {
   stopAll();
 }

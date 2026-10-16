@@ -111,6 +111,8 @@ export interface CompareScenario {
     capex_total_eur: Q | null;
     capex_complete: boolean;
     unpriced_components: { component?: string; key?: string }[];
+    /** How many priced lines rest on each cost basis, e.g. a library placeholder, as the engine reports it. */
+    cost_basis_mix?: Record<string, { lines: number; label: string }>;
     decision_grade: boolean;
     basis: string;
     limitations: string[];

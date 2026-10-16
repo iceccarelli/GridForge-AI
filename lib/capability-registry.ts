@@ -293,19 +293,50 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     cli_command: "gridforge compare",
     web_route: "/power/compare",
     workspace_action: null,
-    database_record: null,
+    database_record: "project_comparisons (only when the visitor saves it to a project; otherwise nothing is stored)",
     entitlement:
       "REST/MCP: gated by API key + unit metering (1 unit, the same single solve as /v1/screen). Web " +
       "(/power/compare): no entitlement gate and no checkout -- there is no product to buy; the site calls the " +
-      "engine with its own platform key and persists nothing.",
+      "engine with its own platform key, so POST /api/power/compare and POST /api/power/compare/save call " +
+      "enforceRateLimit (lib/rate-limit.ts) first. That guard fails closed: it answers 503 until migration 0024 is " +
+      "applied to the database the deployment uses.",
     stripe_product_or_price: "none",
     deliverable: "JSON comparison (gridforge/ttp-compare/1) with request digest and engine provenance",
     status: "free",
     production_status: "not_deployed",
     notes:
-      "Not persisted to a project: saving a comparison to the project record needs a new link/event type and a " +
-      "migration, which this slice deliberately does not add. Accepted supplier cost evidence is not yet applied " +
-      "to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only.",
+      "Saving a comparison to a project re-asks the engine on the server and stores its answer verbatim " +
+      "(0025_project_comparisons_and_shares.sql); the browser never supplies a result. Accepted supplier cost evidence " +
+      "is not applied to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only, and each " +
+      "scenario says so in its cost basis.",
+  },
+  {
+    capability_id: "project_buyer_page",
+    family: "project",
+    name: "Shared project page (buyer link)",
+    description:
+      "A read-only page for a project's latest saved Time-to-Power comparison: the decision, the inputs it rests on, " +
+      "the evidence class behind each date, how the capital figure was priced, what is missing, and the next " +
+      "engagement to commission. Opened by a revocable link; no account.",
+    engine_capability: "none -- a read model over the stored /v1/compare result; nothing is recomputed",
+    rest_endpoint: null,
+    mcp_tool: null,
+    cli_command: null,
+    web_route: "/p/[shareToken]",
+    workspace_action: "ProjectPanel: Create buyer link / Replace / Revoke (/api/projects/[token]/share)",
+    database_record: "project_comparisons, project_shares (hash of the link only), project_events (append-only)",
+    entitlement:
+      "none -- a bearer link, weaker than the project token: it reads the decision and can start a checkout that " +
+      "attaches to the project, nothing else. Only the SHA-256 of the link is stored, one link is active per " +
+      "project, and it is revoked or replaced by the project token holder. Checkout: POST /api/checkout with " +
+      "project_share_token, the same prices and the same webhook attachment as project_token.",
+    stripe_product_or_price: "none",
+    deliverable: "A private, noindexed web page; not a document and not sold",
+    status: "free",
+    production_status: "not_deployed",
+    notes:
+      "Prices, turnaround, credits and the order of the next step are read from lib/products.ts through " +
+      "lib/buyer-path.ts; no figure on the page is typed there. Needs migration 0025 (and 0024 for the guard).",
   },
   {
     capability_id: "btm_deploy_assess",

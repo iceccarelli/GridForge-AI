@@ -1,5 +1,6 @@
 import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
+import { projectLadder } from "@/lib/buyer-path";
 import { SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-static";
@@ -59,6 +60,8 @@ export async function GET() {
     (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}/month, ${p.apiUnits?.toLocaleString("en-IE")} units`
   ).join("\n");
 
+  const PROJECT_PRODUCTS = projectLadder().map((p) => p.id).join(", ");
+
   const body = `# Time to Power
 
 > Power-capacity intelligence for AI infrastructure, powered by GridForge Engine.
@@ -77,6 +80,9 @@ seven numbers about a hall in, the binding constraint out.
 - Free qualifier: POST ${ENGINE}/v1/qualify
 - Published unit rates: ${ENGINE}/v1/version
 - Model accuracy record: ${ENGINE}/v1/calibration
+- Time-to-Power scenario comparison, free and without an account: ${SITE}/power/compare
+  (engine: POST ${ENGINE}/v1/compare, MCP tool \`gridforge_compare\`, CLI \`gridforge compare\`). Scenarios whose lead time
+  is unknown are not dated and not ranked. The site's own route is rate limited and may answer 429 with a Retry-After.
 
 ## How to read our numbers
 
@@ -146,6 +152,10 @@ there is no separate machine price list.
 - Status and delivery of a document: \`awaiting_intake\` → \`generating\` → \`draft\`
   (with a senior engineer, unreleased) → \`released\` (the document is live at its
   private link). No engineering opinion is released unread.
+- From a saved comparison: a project's owner can create a read-only buyer link (${SITE}/p/<secret>, private and not indexed). Its
+  holder can start the same checkout with \`{"product": "<id>", "project_share_token": "<secret>"}\`, limited to the ids
+  that can be commissioned for a project: ${PROJECT_PRODUCTS}. The price is the catalogue price; the purchase attaches to the
+  project.
 - Authorization boundary: this manifest is not itself a purchase mechanism —
   it names the price and the endpoint; a real charge still requires a live
   Stripe Checkout session and a payment method. An agent acting under a
