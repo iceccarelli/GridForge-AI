@@ -12,6 +12,7 @@ import { ComparisonResults } from "@/components/TtpCompare";
 import { compareRequestSchema, toEngineBody, TTP_COMPARE_SCHEMA, type CompareResult } from "@/lib/ttp-compare";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { FOOTER_GROUPS } from "@/lib/nav";
+import { resetMemoryLimiter } from "@/lib/rate-limit";
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const KEY = "ttp-compare-key";
@@ -35,6 +36,7 @@ async function startEngine(): Promise<string> {
 beforeAll(async () => { if (hasPython) ENGINE = await startEngine(); }, 30_000);
 afterAll(() => engine?.kill());
 beforeEach(() => {
+  resetMemoryLimiter();
   calls = [];
   process.env.GRIDFORGE_API_URL = ENGINE;
   process.env.GRIDFORGE_API_KEY = KEY;

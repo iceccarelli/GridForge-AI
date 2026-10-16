@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { runCompare } from "@/lib/ttp-compare-server";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
+  // Spends the platform engine key for an anonymous visitor: the limit runs first and fails closed.
+  const limited = await enforceRateLimit(req, "ttp_compare");
+  if (limited) return limited;
   const out = await runCompare(parsed.data);
   if (!out.ok) {
     return NextResponse.json(
