@@ -9,7 +9,9 @@ export const maxDuration = 60;
 // Save a Time-to-Power scenario comparison to this project, and list the ones saved.
 //
 // Needs the project token (this URL). The body is the same comparison request /api/power/compare takes, plus an
-// idempotency_key the caller keeps across retries, an optional label, and the result digest the customer reviewed.
+// idempotency_key the caller keeps across retries, an optional label, the result digest the customer reviewed, and
+// optionally evidence:"project" to price it with the project's accepted supplier quotations (gathered here, never
+// taken from the client).
 // The engine is asked again for exactly that request and its answer is what is stored; if it differs from the
 // reviewed one the save is refused. Nothing is recorded unless the database confirms the row and its event.
 const MAX_BODY_BYTES = 64 * 1024;
@@ -46,6 +48,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     idempotency_key: typeof body.idempotency_key === "string" ? body.idempotency_key : "",
     label: typeof body.label === "string" ? body.label : null,
     reviewed_result_digest: typeof body.reviewed_result_digest === "string" ? body.reviewed_result_digest : null,
+    evidence: body.evidence === "project" ? "project" : null,
   });
   if (!r.ok) return fail(r);
   const { request: _req, result: _res, ...summary } = r.comparison;

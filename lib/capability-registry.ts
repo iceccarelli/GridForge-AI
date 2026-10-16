@@ -306,8 +306,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "A comparison can be saved to a Verified Power Record project (POST /api/projects/[token]/comparisons, " +
       "migration 0024_project_comparisons.sql): the exact request, the engine's answer and its provenance as one " +
       "append-only record with a comparison_saved event; idempotent per key in the database; reopened from the " +
-      "project or /power/compare?project=&saved= without recomputation. Accepted supplier cost evidence is not yet " +
-      "applied to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only.",
+      "project or /power/compare?project=&saved= without recomputation. A project's ACCEPTED supplier quotations can " +
+      "price the comparison (POST /api/projects/[token]/compare; /v1/compare is in EVIDENCE_ROUTES; gridforge compare " +
+      "--cost-evidence): the answer names the lines used and ignored, each scenario shows its cost basis mix, the " +
+      "quotations ride in the stored request, and the request digest includes them.",
   },
   {
     capability_id: "btm_deploy_assess",

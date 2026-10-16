@@ -257,6 +257,20 @@ export async function evidenceFor(deliverable_id: string): Promise<Result<{ item
   return { ok: true, items: r.data ?? [] };
 }
 
+/**
+ * The quotations a reviewer has ACCEPTED across every engagement attached to one project — the only lines that may
+ * price anything. Read from the state view, so a superseded or withdrawn line is already not "accepted" here.
+ */
+export async function acceptedEvidenceForProject(project_id: string): Promise<Result<{ items: EvidenceRow[] }>> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  const r = await rest<EvidenceRow[]>(
+    "GET",
+    `cost_evidence_state?project_id=eq.${encodeURIComponent(project_id)}&state=eq.accepted&select=${COLUMNS}&order=submitted_at.asc,id.asc`
+  );
+  if (!r.ok) return { ok: false, status: r.status === 503 ? 503 : 502, error: "The project's accepted quotations could not be read." };
+  return { ok: true, items: (r.data ?? []).filter((i) => i.state === "accepted") };
+}
+
 /** Every line awaiting a decision, across engagements — the administrator's queue. */
 export async function evidenceQueue(state: "pending" | "all"): Promise<Result<{ items: EvidenceRow[] }>> {
   if (!creds()) return STORE_UNCONFIGURED;

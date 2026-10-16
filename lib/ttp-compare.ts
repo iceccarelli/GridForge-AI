@@ -89,6 +89,16 @@ export interface Q {
   label: string;
 }
 
+export interface AppliedEvidence {
+  evidence_id: string | null;
+  key: string;
+  unit: string;
+  value: number;
+  basis: string;
+  quoted_on: string | null;
+  synthetic: boolean;
+}
+
 export interface CompareScenario {
   id: string;
   name: string;
@@ -111,6 +121,8 @@ export interface CompareScenario {
     capex_total_eur: Q | null;
     capex_complete: boolean;
     unpriced_components: { component?: string; key?: string }[];
+    /** How many priced lines rest on which basis (library placeholder, budgetary quote, firm quote ...), engine-labelled. */
+    cost_basis_mix: Record<string, { lines: number; label: string }>;
     decision_grade: boolean;
     basis: string;
     limitations: string[];
@@ -146,6 +158,14 @@ export interface CompareResult {
   };
   grade: "indicative" | "screening";
   caveats: string[];
+  /** The accepted quotations whose prices this answer rests on; empty when the capex is the cost library throughout. */
+  evidence_applied: AppliedEvidence[];
+  /** Present only when quotations were offered: what the engine used and what it ignored, with the reason. */
+  cost_evidence?: {
+    used: { evidence_id: string | null; key: string; unit: string; value: number; basis: string; supplier: string | null; quoted_on: string | null; reviewer: string | null; synthetic: boolean; scope: string | null }[];
+    ignored: { key: string; evidence_id: string | null; reason: string }[];
+    effect: unknown;
+  };
   request_digest: string;
   intake_completeness: number;
   provenance: { digest: string; engine_version: string; code_sha256: string; report_date: string };

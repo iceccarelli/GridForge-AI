@@ -876,7 +876,7 @@ def cmd_serve(args) -> int:
 def cmd_compare(args) -> int:
     """Time-to-Power scenario comparison. Calls the very handler POST /v1/compare calls, so the terminal, the API and
     the website cannot disagree: same inputs, same numbers, same digest."""
-    from .api.server import ApiError, handle_compare
+    from .api.server import ApiError, _invoke, handle_compare
     from .api.tiers import Tier
     doc = json.loads(Path(args.intake).read_text())
     # Accepts a bare intake, or the request document the website and the API use ({"intake": {...}, ...}), so the
@@ -888,8 +888,16 @@ def cmd_compare(args) -> int:
         body["scenarios"] = args.scenarios
     if args.baseline:
         body["baseline"] = args.baseline
+    if getattr(args, "cost_evidence", None):
+        # Accepted supplier quotations for THIS run only, applied exactly as POST /v1/compare applies them.
+        try:
+            raw = json.loads(Path(args.cost_evidence).read_text())
+            body["cost_evidence"] = raw.get("entries", raw) if isinstance(raw, dict) else raw
+        except (OSError, json.JSONDecodeError, AttributeError) as exc:
+            print(f"refused: cost evidence {args.cost_evidence} is unusable: {exc}", file=sys.stderr)
+            return 2
     try:
-        out = handle_compare(body, Tier.CLIENT)
+        out = _invoke("/v1/compare", handle_compare, body, Tier.CLIENT)
     except ApiError as exc:
         print(f"cannot compare: {exc.message}" + (f" {json.dumps(exc.extra)}" if exc.extra else ""), file=sys.stderr)
         return 2
@@ -902,6 +910,11 @@ def cmd_compare(args) -> int:
         date = (f"{t['weeks']:g} wk ({t['low']:g}-{t['high']:g}, {t['evidence']})" if t["weeks"] is not None
                 else f"no date — {t['reason']}")
         print(f"  {r['id']:<13} {r['after_ladder']['racks']:>4} racks  {date}")
+    ev = out.get("cost_evidence")
+    if ev is not None:
+        print(f"  cost evidence: {len(ev.get('used', []))} accepted line(s) used, {len(ev.get('ignored', []))} ignored")
+        for ig in ev.get("ignored", []):
+            print(f"    not used: {ig['key']} — {ig['reason']}")
     rk = out["ranking"]
     print(f"  ranking on {rk['objective']}: " + (", ".join(rk["order"]) or "nothing can be ranked") +
           (f"  — leader {rk['leader']}" if rk["leader"] else ""))
@@ -1126,6 +1139,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="what to rank by (default: max_compute, or the objective in a request file)")
     s.add_argument("--scenarios", nargs="+", metavar="ID", help="scenario ids to compare (default: all the intake defines)")
     s.add_argument("--baseline", metavar="ID", help="scenario the others are compared with (default: the first)")
+    s.add_argument("--cost-evidence", dest="cost_evidence", metavar="FILE",
+                   help="accepted supplier cost evidence (JSON list of cost lines) to apply to THIS comparison only; "
+                        "lines that are not accepted, have expired or are superseded are named and ignored")
     s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("portfolio", help="rank several halls with one methodology")
