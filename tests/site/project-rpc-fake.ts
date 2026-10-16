@@ -1,5 +1,5 @@
 /**
- * The gf_* functions of 0015_projects.sql, restated against the in-memory fake.
+ * The gf_* functions of 0015_projects.sql (and 0024/0025 for the rate limit, comparisons and share links), restated against the in-memory fake.
  *
  * SUPPLEMENTAL, not verification. These mirror the SQL's behaviour (one transaction:
  * the record and its event, or neither) so the route tests can run without a database.
@@ -14,6 +14,8 @@ const EVENT_TYPES = new Set([
   "supplier_response_received", "comparison_completed", "supplier_selected", "evidence_attached",
   "paid_product_attached", "observation_submitted", "observation_reviewed",
   "supplier_actual_submitted", "supplier_actual_reviewed",
+  "cost_evidence_received", "cost_evidence_reviewed", "cost_evidence_retired", "cost_evidence_run",
+  "comparison_saved", "share_issued", "share_revoked",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -192,5 +194,59 @@ export function installProjectRpcs(db: PostgrestFake): void {
     const r = db.insertRow("project_evidence", { evidence_class: null, review_status: "unverified", ...p });
     emit(r.project_id, p_event, { evidence_id: r.id });
     return r;
+  });
+
+  // --- 0024_rate_limit.sql: one fixed window per (bucket, subject), counted atomically.
+  db.rpcs.set("gf_rate_limit_hit", ({ p_bucket, p_subject, p_limit, p_window_seconds }) => {
+    if (!(p_limit >= 1 && p_limit <= 100000) || !(p_window_seconds >= 1 && p_window_seconds <= 86400)) {
+      throw new PgError("22023", "p_limit or p_window_seconds out of range", 400);
+    }
+    if (!/^[0-9a-f]{64}$/.test(String(p_subject))) throw new PgError("23514", "rate_limit_windows_subject_check", 400);
+    const nowS = Date.now() / 1000;
+    const ws = Math.floor(nowS / p_window_seconds) * p_window_seconds;
+    const rows = db.rows("rate_limit_windows");
+    let row = rows.find((r) => r.bucket === p_bucket && r.subject === p_subject && r.window_start === ws);
+    if (!row) row = db.insertRow("rate_limit_windows", { bucket: p_bucket, subject: p_subject, window_start: ws, hits: 0 });
+    row.hits = Math.min((row.hits as number) + 1, 2147483000);
+    const hits = row.hits as number;
+    return { allowed: hits <= p_limit, hits, limit: p_limit, retry_after_seconds: Math.max(1, Math.ceil(ws + p_window_seconds - nowS)) };
+  });
+
+  // --- 0025_project_comparisons_and_shares.sql
+  db.rpcs.set("gf_save_comparison", ({ p, p_event, p_new_project, p_new_event }) => {
+    let pid = p.project_id;
+    if (p_new_project) {
+      const proj = db.insertRow("projects", { ...p_new_project, status: p_new_project.status ?? "draft" });
+      emit(proj.id, p_new_event);
+      pid = proj.id;
+    } else if (!db.rows("projects").some((x) => x.id === pid)) {
+      throw new PgError("23503", "project_comparisons_project_id_fkey", 409);
+    }
+    const same = db.rows("project_comparisons").find((c) => c.project_id === pid && c.request_digest === p.request_digest && c.provenance_digest === p.provenance_digest);
+    if (same) return { created: false, project_id: pid, comparison_id: same.id };
+    for (const f of ["request", "result", "schema", "request_digest", "provenance_digest", "engine_version"]) {
+      if (p[f] === undefined || p[f] === null || p[f] === "") throw new PgError("23502", `null value in column ${f}`, 400);
+    }
+    if (!["indicative", "screening"].includes(p.grade)) throw new PgError("23514", "project_comparisons_grade_check", 400);
+    const r = db.insertRow("project_comparisons", { project_id: pid, ...p, saved_at: p.saved_at ?? new Date().toISOString() });
+    emit(pid, p_event, { comparison_id: r.id });
+    return { created: true, project_id: pid, comparison_id: r.id };
+  });
+  db.rpcs.set("gf_issue_share", ({ p_project, p_token_hash, p_event }) => {
+    if (!db.rows("projects").some((x) => x.id === p_project)) throw new PgError("23503", "no such project", 409);
+    if (!/^[0-9a-f]{64}$/.test(String(p_token_hash))) throw new PgError("23514", "project_shares_token_hash_check", 400);
+    const active = db.rows("project_shares").filter((s) => s.project_id === p_project && !s.revoked_at);
+    for (const a of active) a.revoked_at = new Date().toISOString();
+    const r = db.insertRow("project_shares", { project_id: p_project, token_hash: p_token_hash, revoked_at: null });
+    emit(p_project, p_event, { share_id: r.id, replaced_previous: active.length > 0 });
+    return { share_id: r.id, created_at: r.created_at, replaced_previous: active.length > 0 };
+  });
+  db.rpcs.set("gf_revoke_share", ({ p_project, p_event }) => {
+    if (!db.rows("projects").some((x) => x.id === p_project)) throw new PgError("23503", "no such project", 409);
+    const a = db.rows("project_shares").find((s) => s.project_id === p_project && !s.revoked_at);
+    if (!a) return { revoked: false };
+    a.revoked_at = new Date().toISOString();
+    emit(p_project, p_event, { share_id: a.id });
+    return { revoked: true };
   });
 }

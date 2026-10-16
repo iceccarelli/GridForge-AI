@@ -26,6 +26,9 @@ const tables = new Map();
 for (const m of sql.matchAll(/create table (?:if not exists )?(?:public\.)?([a-z_]+)/gi)) {
   tables.set(m[1], []);
 }
+// Views the site reads as if they were tables (0022 / 0018). Empty here: the stand-in does not derive them, and the real
+// ones are exercised by the real-database suites.
+for (const v of ["cost_evidence_state", "supplier_reality"]) if (!tables.has(v)) tables.set(v, []);
 console.log("[pgrest] tables from migrations:", [...tables.keys()].join(", "));
 
 const send = (res, code, body) => {
@@ -55,6 +58,44 @@ http.createServer((req, res) => {
       const t = /^Bearer tok:(.+)$/.exec(req.headers.authorization || "");
       return t ? send(res, 200, { email: t[1] }) : send(res, 401, {});
     }
+    // The few server-side functions the verified journeys call. These restate what the SQL does (supabase/migrations/0024 and
+    // 0025) just far enough to drive the site; that the SQL itself is atomic and race-free is proven against PostgreSQL by
+    // tests/test_buyer_page_migration.py and tests/site/buyer-page.realdb.test.ts, not here.
+    const rpc = u.pathname.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/);
+    if (rpc) {
+      const a = body ? JSON.parse(body) : {};
+      const t = (n) => tables.get(n);
+      const row = (n, r) => { const x = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r }; t(n).push(x); return x; };
+      const event = (project_id, e, extra = {}) => row("project_events", { project_id, event_type: e.event_type, actor: e.actor, occurred_at: e.occurred_at, payload: { ...(e.payload || {}), ...extra } });
+      if (rpc[1] === "gf_rate_limit_hit") {
+        const ws = Math.floor(Date.now() / 1000 / a.p_window_seconds) * a.p_window_seconds;
+        let w = t("rate_limit_windows").find((r) => r.bucket === a.p_bucket && r.subject === a.p_subject && r.window_start === ws);
+        if (!w) w = row("rate_limit_windows", { bucket: a.p_bucket, subject: a.p_subject, window_start: ws, hits: 0 });
+        w.hits += 1;
+        return send(res, 200, { allowed: w.hits <= a.p_limit, hits: w.hits, limit: a.p_limit, retry_after_seconds: Math.max(1, Math.ceil(ws + a.p_window_seconds - Date.now() / 1000)) });
+      }
+      if (rpc[1] === "gf_save_comparison") {
+        let pid = a.p?.project_id;
+        if (a.p_new_project) { const p = row("projects", { ...a.p_new_project }); event(p.id, a.p_new_event); pid = p.id; }
+        const c = row("project_comparisons", { ...a.p, project_id: pid });
+        event(pid, a.p_event, { comparison_id: c.id });
+        return send(res, 200, { created: true, project_id: pid, comparison_id: c.id });
+      }
+      if (rpc[1] === "gf_issue_share") {
+        const old = t("project_shares").filter((r) => r.project_id === a.p_project && !r.revoked_at);
+        old.forEach((r) => { r.revoked_at = new Date().toISOString(); });
+        const r = row("project_shares", { project_id: a.p_project, token_hash: a.p_token_hash, revoked_at: null });
+        event(a.p_project, a.p_event, { share_id: r.id });
+        return send(res, 200, { share_id: r.id, created_at: r.created_at, replaced_previous: old.length > 0 });
+      }
+      if (rpc[1] === "gf_revoke_share") {
+        const r = t("project_shares").find((x) => x.project_id === a.p_project && !x.revoked_at);
+        if (r) { r.revoked_at = new Date().toISOString(); event(a.p_project, a.p_event, { share_id: r.id }); }
+        return send(res, 200, { revoked: !!r });
+      }
+      console.log(`[pgrest] 404 rpc ${rpc[1]} — not restated in this stand-in`);
+      return send(res, 404, { code: "PGRST202", message: `Could not find the function public.${rpc[1]}` });
+    }
     const m = u.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (!m) return send(res, 404, { message: "no route" });
     const name = m[1];
@@ -73,8 +114,14 @@ http.createServer((req, res) => {
       let out = [...hit];
       const order = u.searchParams.get("order");
       if (order) {
-        const [col, dir] = order.split(".");
-        out.sort((a, b) => String(a[col] ?? "").localeCompare(String(b[col] ?? "")) * (dir === "desc" ? -1 : 1));
+        const keys = order.split(",").map((k) => k.split("."));
+        out.sort((a, b) => {
+          for (const [col, dir] of keys) {
+            const c = String(a[col] ?? "").localeCompare(String(b[col] ?? "")) * (dir === "desc" ? -1 : 1);
+            if (c) return c;
+          }
+          return 0;
+        });
       }
       const lim = Number(u.searchParams.get("limit"));
       if (lim > 0) out = out.slice(0, lim);

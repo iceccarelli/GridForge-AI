@@ -5,6 +5,7 @@ import { COMMERCE, foundingSlotsRemainingLive } from "@/lib/commerce";
 import { apiSalesReadiness } from "@/lib/api-readiness";
 import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
+import { projectForShare } from "@/lib/project-share";
 
 export const runtime = "nodejs";
 
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
   // store that cannot confirm the project all fail with no session created — the same rule as
   // an invalid product. Only the project's id (not the bearer token) goes into Stripe metadata.
   let projectId = "";
+  let fromBuyerLink = false;
   if ("project_token" in body) {
     if (typeof body.project_token !== "string" || !body.project_token || !product || !isProjectAttachable(product.kind)) {
       return NextResponse.json(
@@ -75,6 +77,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: found.error }, { status: found.status === 404 ? 404 : found.status });
     }
     projectId = found.project.id;
+  }
+  // The same hand-off from a project's read-only buyer link (app/p/[shareToken]). The link is a weaker capability than the
+  // project token: it can start a purchase that attaches to the project and do nothing else to it. A revoked, unknown or
+  // malformed link is one answer, and the link itself never goes into Stripe metadata -- only the project's id does.
+  if ("project_share_token" in body) {
+    if ("project_token" in body) {
+      return NextResponse.json({ ok: false, error: "Name the project by its token or by a buyer link, not both" }, { status: 400 });
+    }
+    if (typeof body.project_share_token !== "string" || !body.project_share_token || !product || !isProjectAttachable(product.kind)) {
+      return NextResponse.json(
+        { ok: false, error: "A project can only be named for a Density Screen, Envelope Study deposit, Procurement Specification or Hall Watch" },
+        { status: 400 }
+      );
+    }
+    const found = await projectForShare(body.project_share_token);
+    if (!found.ok) {
+      return NextResponse.json(
+        { ok: false, error: found.status === 404 ? "This buyer link is no longer valid. Ask the sender for a new one." : found.error },
+        { status: found.status }
+      );
+    }
+    projectId = found.project.id;
+    fromBuyerLink = true;
   }
   // `deliverables.qualification_id` is a uuid with a foreign key to
   // `qualifications`. Anything else fails the insert — and since a failed
@@ -191,7 +216,9 @@ export async function POST(req: Request) {
       success_url: product
         ? `${origin}/commissioned?session_id={CHECKOUT_SESSION_ID}`
         : `${origin}/?deposit=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: product ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
+      // A buyer who came from a shared project page has no use for the qualifier, and the link is a credential that does
+      // not belong in a URL Stripe stores: they return to the price list.
+      cancel_url: product && !fromBuyerLink ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
     });
 
     // Best-effort AI-origin tag: the workspace's CommercialActionCard passes

@@ -7,6 +7,8 @@
 
 import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { listComparisons } from "@/lib/project-comparisons";
+import { shareStatus } from "@/lib/project-share";
 import { LEDGER_MINIMUM_CLASS, type ObservationRow, type ReviewRow } from "@/lib/project-observations";
 import {
   creds,
@@ -162,6 +164,25 @@ export interface ProjectState {
       artifact: { status: "stored" | "legacy_unavailable"; sha256: string | null; bytes: number | null };
     }[];
   };
+  /**
+   * Saved Time-to-Power comparisons, newest first: which question was asked and what the engine named; the full answer is
+   * on the buyer page. `available: false` means the store could not be read for them (migration 0025 not applied, or the
+   * store is down): the rest of the project is still shown, and this section says it is unavailable rather than empty.
+   */
+  comparisons: {
+    available: boolean;
+    items: {
+      id: string;
+      saved_at: string;
+      request_digest: string;
+      grade: "indicative" | "screening";
+      engine_version: string;
+      /** The scenario the engine ranked first on the objective; null when it ranked none. */
+      leader: string | null;
+    }[];
+  };
+  /** Whether a read-only buyer link is active. The link's secret is never retrievable. */
+  share: { available: boolean; active: boolean; issued_at: string | null };
   events: Pick<ProjectEventRow, "id" | "event_type" | "occurred_at" | "actor" | "payload">[];
 }
 
@@ -247,7 +268,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer] = await Promise.all([
+  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer, cmp, shr] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
@@ -262,6 +283,8 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       "GET",
       `cost_evidence_runs?project_id=eq.${encodeURIComponent(project.id)}&select=id,created_at,run_fingerprint,evidence_ids,accepted_evidence_ids,ignored,engine_provenance,report_date,artifact_sha256,artifact_bytes,artifact_storage_ref&order=created_at.desc,id.desc`
     ),
+    listComparisons(project.id),
+    shareStatus(project.id),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
@@ -421,6 +444,20 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       observations,
       supplier_reality,
       cost_evidence: costEvidenceState(cel.data ?? [], cer.data ?? []),
+      comparisons: {
+        available: cmp.ok,
+        items: cmp.ok
+          ? cmp.comparisons.map((c) => ({
+              id: c.id,
+              saved_at: c.saved_at,
+              request_digest: c.request_digest,
+              grade: c.grade,
+              engine_version: c.engine_version,
+              leader: c.result.scenarios.find((x) => x.id === c.result.ranking.leader)?.name ?? null,
+            }))
+          : [],
+      },
+      share: shr.ok ? { available: true, active: shr.active, issued_at: shr.issued_at } : { available: false, active: false, issued_at: null },
       events: events.events.map((e) => ({
         id: e.id,
         event_type: e.event_type,

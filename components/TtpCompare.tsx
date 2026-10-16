@@ -17,6 +17,7 @@ import {
   type CompareResult,
   type CompareScenario,
 } from "@/lib/ttp-compare";
+import { TtpSaveToProject } from "@/components/TtpSaveToProject";
 
 type Fields = Record<string, string>;
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
@@ -98,7 +99,7 @@ export function TtpCompare() {
   const [objective, setObjective] = useState<CompareObjective>("max_compute");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; fields?: string[] } | null>(null);
-  const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean } | null>(null);
+  const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean; compare: Record<string, unknown> } | null>(null);
   const [synthetic, setSynthetic] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -117,10 +118,11 @@ export function TtpCompare() {
     }
     setBusy(true);
     try {
+      const compare = build(f, btm, objective);
       const res = await fetch("/api/power/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(build(f, btm, objective)),
+        body: JSON.stringify(compare),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) {
@@ -133,7 +135,7 @@ export function TtpCompare() {
         setError({ message: body?.error ?? "The comparison could not be produced.", fields: problems });
         return;
       }
-      setOut({ result: body.result, request: body.request, synthetic });
+      setOut({ result: body.result, request: body.request, synthetic, compare });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -300,6 +302,13 @@ export function TtpCompare() {
       {out ? <ComparisonResults out={out} cli={cli} copied={copied} onCopy={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(out.request, null, 2)); setCopied(true); } catch { setCopied(false); }
       }} /> : null}
+
+      {out && !out.synthetic ? <TtpSaveToProject key={out.result.request_digest} compare={out.compare} defaultName={String(f.siteName ?? "").trim()} /> : null}
+      {out?.synthetic ? (
+        <p className="text-sm text-mute">
+          This is a synthetic example, so it cannot be saved or shared. Enter your own hall to save a comparison to a project.
+        </p>
+      ) : null}
     </div>
   );
 }

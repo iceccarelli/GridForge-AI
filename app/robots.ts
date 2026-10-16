@@ -35,7 +35,7 @@ const AI_CRAWLERS = [
  * Closed to every crawler, including the friendly ones.
  *
  * Two kinds of thing. The token-addressed pages (/deliverable/, /intake/,
- * /watch/, /api-access/, /q/, /commissioned) are private by their URL alone: a
+ * /watch/, /api-access/, /q/, /p/, /commissioned) are private by their URL alone: a
  * crawler that indexes one has published a customer's engineering opinion, or
  * their intake credential, to anyone who can run a search. The rest (/admin,
  * /account, /dashboard, /api/) are operator and customer surfaces with nothing
@@ -60,6 +60,7 @@ const PRIVATE_PATHS = [
   "/watch/",
   "/intake/",
   "/q/",
+  "/p/",
   "/commissioned",
   "/workspace",
 ];
