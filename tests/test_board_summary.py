@@ -89,3 +89,53 @@ def test_the_api_serves_the_same_page(tmp_path):
     assert out["document"].startswith("# Board summary")
     study, board, _ = run_study(DUBLIN, tmp_path / "o")
     assert body(out["document"]).strip() == body(board).strip()
+
+
+@pytest.mark.parametrize("fmt", ["md", "html"])
+def test_the_paid_pack_returns_study_and_board_from_one_call_with_the_same_stamp_and_objective(fmt):
+    doc = json.loads(DUBLIN.read_text())
+    out = handle_study({"intake": doc, "format": fmt, "bundle": "board", "objective": "min_cost"}, Tier.CLIENT)
+    board = out["board"]
+    alone = handle_study({"intake": doc, "format": fmt, "view": "board", "objective": "min_cost"}, Tier.CLIENT)
+    assert board["document"] == alone["document"], "the bundled board must be the board the API serves on its own"
+    assert out["title"] != board["title"] and out["document"] != board["document"]
+    stamp = "SYNTHETIC REFERENCE DATA" if "SYNTHETIC REFERENCE DATA" in out["document"] else None
+    assert (stamp in board["document"]) if stamp else True, "the board must carry the study's watermark rule"
+    assert "board" not in alone and "board" not in handle_study({"intake": doc, "format": fmt}, Tier.CLIENT), (
+        "without the bundle flag the response is unchanged (study-only callers, the screen, existing clients)")
+
+
+def test_a_real_clients_pack_is_not_stamped_synthetic_on_either_document():
+    doc = json.loads(DUBLIN.read_text())
+    doc["project"] = {"client": "Acme Data Centres", "reference": "ACME-1"}
+    assert "synthetic" not in json.dumps(doc["project"]).lower()
+    out = handle_study({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert "SYNTHETIC REFERENCE DATA" not in out["document"]
+    assert "SYNTHETIC REFERENCE DATA" not in out["board"]["document"]
+    synth = json.loads(DUBLIN.read_text())
+    both = handle_study({"intake": synth, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert "SYNTHETIC REFERENCE DATA" in both["document"] and "SYNTHETIC REFERENCE DATA" in both["board"]["document"]
+
+
+def test_the_pack_response_carries_both_formats_and_the_engines_own_manifest_from_one_call():
+    doc = json.loads(DUBLIN.read_text())
+    out = handle_study({"intake": doc, "format": "html", "bundle": "board"}, Tier.CLIENT)
+    md = handle_study({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+    assert out["bundle"] == {"kind": "board", "solves": 1, "artifacts": ["study", "board_summary"],
+                             "formats": ["html", "md"]}
+    assert out["document_md"] == md["document"] and out["board"]["document_md"] == md["board"]["document"]
+    assert out["board"]["document_md"].startswith("# Board summary")
+
+
+def test_the_bundle_flag_is_validated_not_silently_ignored():
+    from gridforge.api.server import ApiError
+    doc = json.loads(DUBLIN.read_text())
+    for bad in ({"bundle": "all", "format": "md"}, {"bundle": "board", "format": "json"},
+                {"bundle": "board", "format": "csv"}, {"bundle": "board", "format": "md", "view": "board"}):
+        with pytest.raises(ApiError) as e:
+            handle_study({"intake": doc, **bad}, Tier.CLIENT)
+        assert e.value.status == 422
+    for other in ("screen", "spec"):
+        import gridforge.api.server as srv
+        out = getattr(srv, f"handle_{other}")({"intake": doc, "format": "md", "bundle": "board"}, Tier.CLIENT)
+        assert "board" not in out and "bundle" not in out, f"{other} must not acquire the pack"

@@ -396,6 +396,186 @@ export async function compareBids(
   }
 }
 
+function boardFrom(body: {
+  board?: { document?: string; document_full?: string; document_md?: string };
+  bundle?: { kind?: string; artifacts?: unknown };
+}): { html: string; md: string } | null {
+  // The engine states what it produced; a response that does not claim the board artefact is not a pack, whatever
+  // else it contains. Standalone page for the html (it opens in its own tab, like the deck).
+  const claimed = body.bundle?.kind === "board" && Array.isArray(body.bundle.artifacts) && body.bundle.artifacts.includes("board_summary");
+  const h = body.board?.document_full ?? body.board?.document;
+  const m = body.board?.document_md;
+  return claimed && typeof h === "string" && h && typeof m === "string" && m ? { html: h, md: m } : null;
+}
+
+// --- The paid Envelope Study pack --------------------------------------------------------------------------------
+//
+// An Envelope Study is delivered as a pack: the full study and the one-page board summary a sponsor forwards.
+// The board summary lives in `working_files` beside the other non-column artefacts (the specification and the bid
+// comparison already do), so it belongs to the same engagement row, the same release gate and the same
+// token-gated route, and needs no migration. `bundle.json` records what the pack was supposed to contain, so
+// "complete" is checked against the artefacts actually stored rather than assumed.
+
+export const BOARD_HTML = "board_summary.html";
+export const BOARD_MD = "board_summary.md";
+export const BUNDLE_MANIFEST = "bundle.json";
+const PACK_FILES = new Set([BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST]);
+/** Working files written by someone other than the engine run, which a regeneration must not discard. */
+const KEPT_FILES = new Set(["bid_comparison.json"]);
+
+/** Working files the customer downloads as data; the pack's own artefacts are shown as documents instead. */
+export function isPackFile(name: string): boolean {
+  return PACK_FILES.has(name);
+}
+
+export function packArtifacts(kind: string): string[] {
+  return PRODUCT_BY_KIND[kind]?.endpoint === "study" ? ["study", "board_summary"] : ["study"];
+}
+
+export interface PackState {
+  /** Every artefact the pack promises is stored. */
+  complete: boolean;
+  missing: string[];
+  /** Generated before packs existed: delivered study-only, and still valid to release as such. */
+  legacy: boolean;
+}
+
+export function packState(row: Pick<DeliverableRecord, "kind" | "document_html" | "working_files">): PackState {
+  const files = row.working_files ?? {};
+  const raw = files[BUNDLE_MANIFEST];
+  if (raw === undefined) {
+    // No manifest: a row generated before packs existed. Do not retroactively hold it hostage to a board.
+    return { complete: Boolean(row.document_html), missing: row.document_html ? [] : ["study"], legacy: true };
+  }
+  // The product defines what a pack must contain; the stored manifest can only add to that, never shorten it.
+  const required = packArtifacts(row.kind);
+  let expected = required;
+  try {
+    const m = JSON.parse(raw) as { expected?: unknown };
+    if (Array.isArray(m.expected) && m.expected.every((x) => typeof x === "string")) {
+      expected = [...new Set([...required, ...(m.expected as string[])])];
+    }
+  } catch {
+    // An unreadable manifest is treated as "expects the full pack": fail towards incomplete.
+  }
+  const has: Record<string, boolean> = {
+    study: Boolean(row.document_html),
+    board_summary: Boolean(files[BOARD_HTML]) && Boolean(files[BOARD_MD]),
+  };
+  const missing = expected.filter((a) => !has[a]);
+  return { complete: missing.length === 0, missing, legacy: false };
+}
+
+/**
+ * The fingerprint a reviewer approves and release re-checks. For a pack it covers the board summary as well as the
+ * study, so a reviewer cannot approve one document and release another. A row without board files hashes exactly
+ * as it always did (document_html alone).
+ */
+export function packHash(row: Pick<DeliverableRecord, "document_html" | "working_files">): string {
+  const f = row.working_files ?? {};
+  if (!f[BOARD_HTML] && !f[BOARD_MD]) return documentHash(row.document_html);
+  return documentHash(`${row.document_html ?? ""}\n--board.html--\n${f[BOARD_HTML] ?? ""}\n--board.md--\n${f[BOARD_MD] ?? ""}`);
+}
+
+export type StoreOutcome =
+  | { ok: true; complete: boolean; missing: string[]; title: string }
+  | { ok: false; stage: "render" | "persist"; error: string };
+
+/**
+ * Generate an engagement's deliverables from its intake and store them in ONE row update.
+ *
+ * Used by the customer's intake submission and by the operator's "regenerate", so there is a single fulfilment
+ * path. Status is `draft` only when every artefact the product promises was produced AND stored; otherwise it is
+ * `engine_unavailable` with whatever was produced kept, and the manifest says what is missing. A persistence
+ * failure is reported, not swallowed: the row is never left in `generating` while the caller reports success.
+ */
+export async function generateAndStore(
+  row: Pick<DeliverableRecord, "token" | "kind" | "working_files">,
+  doc: Record<string, unknown>,
+  endpoint: "screen" | "study" | "spec"
+): Promise<StoreOutcome> {
+  // The caller has already claimed the row (`generating`). Every write here is a compare-and-set on that status, so
+  // a release or a second claim that slipped in is never overwritten.
+  const rendered = await renderDeliverable(doc, endpoint);
+  if (!rendered.ok) {
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    return { ok: false, stage: "render", error: rendered.error };
+  }
+
+  const meta: Record<string, unknown> = {};
+  const binding = rendered.binding ?? bindingFrom(rendered.working);
+  if (binding) meta.binding = binding;
+  if (rendered.spec) meta.spec = rendered.spec;
+
+  // Carry forward files this run does not own (a bid comparison), but never a board from an earlier run: a new
+  // study beside an old board would be two documents from two different solves.
+  // Everything the engine generates is replaced; only files this run does not own survive. A stale scenarios.csv
+  // beside a new study would be arithmetic from different numbers.
+  const kept = Object.fromEntries(
+    Object.entries(row.working_files ?? {}).filter(([k]) => KEPT_FILES.has(k))
+  );
+  const files: Record<string, string> = { ...kept, ...(rendered.working ?? {}) };
+  if (endpoint === "study") {
+    if (rendered.board) {
+      files[BOARD_HTML] = rendered.board.html;
+      files[BOARD_MD] = rendered.board.md;
+    }
+    files[BUNDLE_MANIFEST] = JSON.stringify({ expected: packArtifacts(row.kind), generated: new Date().toISOString() });
+  }
+  const candidate = { kind: row.kind, document_html: rendered.html, working_files: files };
+  if (endpoint === "study" && !rendered.md) {
+    // The study is delivered in both formats; an engine answer without the markdown is not a whole study.
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    return { ok: false, stage: "render", error: "The engine returned the study without its markdown form." };
+  }
+  const state = endpoint === "study" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
+  // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
+  meta.document_sha256 = packHash(candidate);
+
+  const saved = await updateByTokenIf(
+    row.token,
+    {
+      status: state.complete ? "draft" : "engine_unavailable",
+      title: rendered.title,
+      intake: { ...doc, _gridforge: meta },
+      document_html: rendered.html,
+      document_md: rendered.md,
+      deck_html: rendered.deck ?? null,
+      working_files: Object.keys(files).length ? files : null,
+    },
+    ["generating"]
+  );
+  if (saved !== "claimed") {
+    console.error("[GridForge] generated documents could not be stored (%s): %s", row.kind, saved);
+    // Best effort: leave a state a human can see and act on rather than "generating" forever.
+    const recovered = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    if (recovered !== "claimed") console.error("[GridForge] could not move %s out of generating (%s)", row.kind, recovered);
+    return { ok: false, stage: "persist", error: "The generated documents could not be stored." };
+  }
+  return { ok: true, complete: state.complete, missing: state.missing, title: rendered.title };
+}
+
+/**
+ * The constraint that binds, from scenarios.csv. Tolerant: a missing or reshaped bundle returns null and the page
+ * falls back to a generic sentence, because guessing a constraint would be worse than not naming one.
+ */
+export function bindingFrom(working: Record<string, string> | null): string | null {
+  const csv = working?.["scenarios.csv"];
+  if (!csv) return null;
+  try {
+    const [header, ...rows] = csv.split("\n").filter((l) => l.trim());
+    const cols = header.split(",");
+    const i = cols.indexOf("binds_first");
+    if (i < 0 || !rows.length) return null;
+    // Split respecting quoted fields — scenario names contain commas.
+    const cells = rows[0].match(/("([^"]|"")*"|[^,]*)(,|$)/g) ?? [];
+    const raw = (cells[i] ?? "").replace(/,$/, "").replace(/^"|"$/g, "").trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
+}
+
 /** The relief a Procurement Specification was written for, from its own bundle. */
 function specFrom(
   files: Record<string, string> | null
@@ -428,6 +608,13 @@ export async function renderDeliverable(
       md: string;
       deck: string | null;
       working: Record<string, string> | null;
+      /**
+       * The one-page board summary of the paid Envelope Study pack, rendered by the engine in the SAME call as
+       * the study (one solve: same model, objective, evidence classes and watermark). Null when the engine did
+       * not return one -- an older engine, or a gate refusing it -- which makes the pack incomplete, never
+       * silently study-only.
+       */
+      board: { html: string; md: string } | null;
       /** What binds the hall as found, straight from the engine's own payload. */
       binding: string | null;
       /**
@@ -447,17 +634,24 @@ export async function renderDeliverable(
   if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
   if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
 
-  const call = async (format: "html" | "md") => {
+  const call = async (format: "html" | "md", bundle = false) => {
     const res = await fetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
-      body: JSON.stringify({ intake, format }),
+      body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}) }),
       signal: AbortSignal.timeout(120_000),
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : `engine ${res.status}`);
-    return body as { title: string; document: string; document_full?: string };
+    return body as {
+      title: string;
+      document: string;
+      document_full?: string;
+      document_md?: string;
+      board?: { title?: string; document?: string; document_full?: string; document_md?: string };
+      bundle?: { kind?: string; artifacts?: unknown };
+    };
   };
 
   const deck = async (): Promise<string | null> => {
@@ -568,9 +762,12 @@ export async function renderDeliverable(
   };
 
   try {
-    const [html, md, deckHtml, files, binding] = await Promise.all([
-      call("html"),
-      call("md"),
+    // The Envelope Study is ONE engine request: study and board summary, both formats, one solve. The other
+    // endpoints still render each format on its own.
+    const pack = endpoint === "study";
+    const [html, mdOnly, deckHtml, files, binding] = await Promise.all([
+      call("html", pack),
+      pack ? Promise.resolve(null) : call("md"),
       deck(),
       working(),
       structured(),
@@ -579,9 +776,10 @@ export async function renderDeliverable(
       ok: true,
       title: html.title,
       html: html.document,
-      md: md.document,
+      md: pack ? (html.document_md ?? "") : (mdOnly?.document ?? ""),
       deck: deckHtml,
       working: files,
+      board: pack ? boardFrom(html) : null,
       binding,
       spec: specFrom(files),
     };

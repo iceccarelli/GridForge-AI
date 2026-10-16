@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
-import { documentHash, getByToken, updateByTokenIf } from "@/lib/deliverables";
+import {
+  BOARD_HTML,
+  generateAndStore,
+  getByToken,
+  packHash,
+  packState,
+  updateByTokenIf,
+} from "@/lib/deliverables";
+import { deliverableEndpoint } from "@/lib/products";
 import { sendMail } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
 
@@ -24,11 +32,57 @@ export async function PATCH(req: Request) {
   }
   const token = typeof body.token === "string" ? body.token : "";
   const action =
-    body.action === "unrelease" ? "unrelease" : body.action === "reopen" ? "reopen" : "release";
+    body.action === "unrelease"
+      ? "unrelease"
+      : body.action === "reopen"
+        ? "reopen"
+        : body.action === "regenerate"
+          ? "regenerate"
+          : "release";
   if (!token) return NextResponse.json({ ok: false, error: "token required" }, { status: 422 });
 
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  if (action === "regenerate") {
+    // Recovery for a pack that is incomplete or whose engine run failed. Re-solves from the stored intake through
+    // the same shared function as the customer's submission, replacing every generated artefact together. Only an
+    // `engine_unavailable` engagement is eligible: a released one is never regenerated over, and a draft a reviewer
+    // may be reading is not silently rewritten (reopen it instead).
+    if (row.status === "released") {
+      return NextResponse.json({ ok: false, error: "Already released; pull it back first." }, { status: 409 });
+    }
+    if (row.status !== "engine_unavailable") {
+      return NextResponse.json(
+        { ok: false, error: `Only an engagement held as engine_unavailable can be regenerated (this one is '${row.status}').` },
+        { status: 409 }
+      );
+    }
+    const endpoint = deliverableEndpoint(row.kind);
+    const stored = (row.intake ?? null) as Record<string, unknown> | null;
+    if (!stored || !endpoint) {
+      return NextResponse.json({ ok: false, error: "There is no intake to regenerate from." }, { status: 409 });
+    }
+    // Claim it, so a release, a customer resubmission or a second regenerate cannot interleave.
+    const claim = await updateByTokenIf(token, { status: "generating" }, ["engine_unavailable"]);
+    if (claim !== "claimed") {
+      return NextResponse.json(
+        { ok: false, error: claim === "error" ? "Could not update this engagement." : "This engagement is no longer held; reload and check it." },
+        { status: claim === "error" ? 503 : 409 }
+      );
+    }
+    const { _gridforge: _ours, ...doc } = stored;
+    const out = await generateAndStore(row, doc, endpoint);
+    if (!out.ok) return NextResponse.json({ ok: false, error: out.error, stage: out.stage }, { status: 502 });
+    // The reviewer must echo the hash of the pack as it now stands, so hand it back rather than leave the UI stale.
+    const fresh = await getByToken(token);
+    return NextResponse.json({
+      ok: true,
+      status: out.complete ? "draft" : "engine_unavailable",
+      ...(fresh?.document_html ? { has_document: true, document_hash: packHash(fresh) } : {}),
+      ...(out.complete ? {} : { missing: out.missing }),
+    });
+  }
 
   if (action === "release") {
     // Idempotent re-click: already released, nothing written, nobody emailed.
@@ -50,10 +104,19 @@ export async function PATCH(req: Request) {
         { status: 409 }
       );
     }
+    // A pack is released whole or not at all. Rows generated before packs existed carry no manifest and release
+    // as the study-only document they always were.
+    const pack = packState(row);
+    if (!pack.complete) {
+      return NextResponse.json(
+        { ok: false, error: `The pack is incomplete (missing: ${pack.missing.join(", ")}). Regenerate it before release.` },
+        { status: 409 }
+      );
+    }
     // What is released must be exactly what was reviewed: the caller names the
-    // sha256 of the draft they read (AdminDeliverable.document_hash), and it must
+    // sha256 of the draft (the whole pack) they read (AdminDeliverable.document_hash), and it must
     // still match the stored document — and the hash recorded at generation.
-    const current = documentHash(row.document_html);
+    const current = packHash(row);
     const reviewed = typeof body.reviewed_hash === "string" ? body.reviewed_hash : "";
     if (!reviewed) {
       return NextResponse.json(
@@ -91,11 +154,17 @@ export async function PATCH(req: Request) {
     // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
     // the link once it is released". Report what actually happened so a failed send is handed to the
     // operator instead of being assumed.
+    const hasBoard = Boolean(row.working_files?.[BOARD_HTML]);
     const sent = await sendMail({
       to: row.email ?? "",
       subject: "Your GridForge document is ready",
+      // Same row, same pack, same payload: a retry after a lost response returns the first result instead of sending
+      // twice. The pack hash is in the key so a re-release of a changed pack is a new mail, not a replay.
+      idempotencyKey: `deliverable-release-${row.id}-${current.slice(0, 16)}`,
       text:
-        "Your document has been reviewed by a senior engineer and released.\n\n" +
+        (hasBoard
+          ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
+          : "Your document has been reviewed by a senior engineer and released.\n\n") +
         `${link}\n\n` +
         "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
         "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +

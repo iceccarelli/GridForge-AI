@@ -83,7 +83,11 @@ export function EngagementPipeline({
     [activeApi]
   );
 
-  async function act(token: string, action: "release" | "unrelease" | "reopen", reviewedHash?: string) {
+  async function act(
+    token: string,
+    action: "release" | "unrelease" | "reopen" | "regenerate",
+    reviewedHash?: string
+  ) {
     setBusy(token);
     setError(null);
     try {
@@ -97,6 +101,9 @@ export function EngagementPipeline({
         setError(body?.error ?? "Could not update this engagement.");
         return;
       }
+      if (action === "regenerate" && Array.isArray(body.missing) && body.missing.length) {
+        setError(`Regenerated, but the pack is still missing: ${body.missing.join(", ")}. It stays held until it is whole.`);
+      }
       // Releasing emails the buyer their link. If that did not happen, say so and hand over the link:
       // the buyer has been promised it, and a released document nobody was told about is not delivered.
       if (body.status === "released" && body.customer_notified === false && body.link && body.notify_error && !/Already released/.test(body.notify_error)) {
@@ -109,7 +116,8 @@ export function EngagementPipeline({
                 ...r,
                 status: body.status,
                 released_at: body.status === "released" ? new Date().toISOString() : null,
-                has_document: body.status === "awaiting_intake" ? false : r.has_document,
+                has_document: body.status === "awaiting_intake" ? false : (body.has_document ?? r.has_document),
+                document_hash: typeof body.document_hash === "string" ? body.document_hash : r.document_hash,
               }
             : r
         )
@@ -258,6 +266,17 @@ export function EngagementPipeline({
                                 <Loader2 className="h-3 w-3 animate-spin" />
                               ) : null}
                               Release
+                            </button>
+                          ) : null}
+                          {d.status === "engine_unavailable" ? (
+                            <button
+                              type="button"
+                              onClick={() => act(d.token, "regenerate")}
+                              disabled={busy === d.token}
+                              className="rounded border border-flag/50 px-3 py-1.5 text-xs text-flag disabled:opacity-60"
+                              title="Re-solve from the stored intake and replace every generated artefact together"
+                            >
+                              Regenerate
                             </button>
                           ) : null}
                           {d.status === "draft" ? (

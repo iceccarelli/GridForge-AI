@@ -5,9 +5,10 @@
 // compared in constant time. This
 // is a deliberate, honest "simple gate" for one operator — swap for Supabase
 // Auth / Clerk when real *clients* get portal logins. Never import this file
-import { storeFault } from "@/lib/safe-log";
 // from a client component.
 
+import { storeFault } from "@/lib/safe-log";
+import { packHash } from "@/lib/deliverables";
 import crypto from "node:crypto";
 
 export const ADMIN_COOKIE = "gf_admin";
@@ -300,7 +301,7 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     return rows.map(({ document_html, deck_html, working_files, ...r }) => ({
       ...r,
       has_document: Boolean(document_html),
-      document_hash: document_html ? crypto.createHash("sha256").update(document_html, "utf8").digest("hex") : null,
+      document_hash: document_html ? packHash({ document_html, working_files }) : null,
       has_deck: Boolean(deck_html),
       has_working_files: Boolean(working_files),
     }));

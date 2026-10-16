@@ -276,6 +276,13 @@ def handle_screen(body: dict, tier: Tier) -> dict:
 def handle_study(body: dict, tier: Tier) -> dict:
     intake, results = _run(body.get("intake") or body)
     fmt = str(body.get("format") or "json").lower()
+    bundle = str(body.get("bundle") or "").lower()
+    if bundle and bundle != "board":
+        raise ApiError(422, f"unknown bundle {bundle!r}", allowed=["board"])
+    if bundle and fmt not in ("html", "md"):
+        raise ApiError(422, "bundle=board needs format html or md", allowed=["html", "md"])
+    if bundle and str(body.get("view") or "").lower() == "board":
+        raise ApiError(422, "bundle=board and view=board cannot be combined")
     if fmt == "csv":
         return {"format": "csv", "files": csv_bundle(intake, results)}
     if fmt in ("html", "md"):
@@ -291,7 +298,23 @@ def handle_study(body: dict, tier: Tier) -> dict:
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
                                     watermark=watermark_for(intake))
-        return _rendered(report, results, fmt)
+        out = _rendered(report, results, fmt)
+        if bundle:
+            # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
+            # two cannot disagree about the model, the objective, the evidence classes or the watermark. Each
+            # passes the report gates; if either fails nothing is returned, never half a pack.
+            from ..reporting.board import build as build_board_report
+            board_report = build_board_report(intake, results, sens, objective=objective)
+            out["board"] = _rendered(board_report, results, fmt)
+            # Both formats of both documents ride in this one response, so the caller never re-solves for the
+            # other format. `bundle` is the engine's own statement of what it produced.
+            out["document_md"] = out["document"] if fmt == "md" else _rendered(report, results, "md")["document"]
+            out["board"]["document_md"] = (out["board"]["document"] if fmt == "md"
+                                           else _rendered(board_report, results, "md")["document"])
+            out["bundle"] = {"kind": "board", "solves": 1,
+                             "artifacts": ["study", "board_summary"],
+                             "formats": ["html", "md"]}
+        return out
     return model_pack(intake, results)
 
 

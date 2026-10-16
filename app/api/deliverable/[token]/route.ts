@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getByToken } from "@/lib/deliverables";
+import { BOARD_HTML, BOARD_MD, getByToken } from "@/lib/deliverables";
 
 export const runtime = "nodejs";
 
@@ -64,6 +64,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     }
     return new NextResponse(row.deck_html, {
       headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
+  if (format === "board" || format === "board_md") {
+    // The board summary of an Envelope Study pack. Behind the same released-only gate as everything else above.
+    const html = format === "board";
+    const body = (row.working_files ?? {})[html ? BOARD_HTML : BOARD_MD];
+    if (typeof body !== "string" || !body) {
+      return NextResponse.json(
+        { ok: false, error: "No board summary was produced for this engagement." },
+        { status: 404 }
+      );
+    }
+    return new NextResponse(body, {
+      headers: {
+        "Content-Type": html ? "text/html; charset=utf-8" : "text/markdown; charset=utf-8",
+        ...(html ? {} : { "Content-Disposition": 'attachment; filename="board_summary.md"' }),
+        "Cache-Control": "no-store",
+      },
     });
   }
   if (format === "md") {
