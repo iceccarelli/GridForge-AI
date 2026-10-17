@@ -28,10 +28,11 @@ import { sendMail, notifyOperator, type MailResult } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
 import { keyLife } from "@/lib/api-access";
 import { creds } from "@/lib/projects";
+import { inviteToken } from "@/lib/team-token";
 
-export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome"] as const;
+export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
-type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions";
+type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations";
 export type NotificationStatus = "pending" | "accepted" | "ambiguous" | "abandoned" | "cancelled";
 
 const SUBJECT: Record<NotificationKind, SubjectTable> = {
@@ -40,6 +41,7 @@ const SUBJECT: Record<NotificationKind, SubjectTable> = {
   watch_link: "watches",
   key_rotation: "api_accounts",
   subscription_welcome: "subscriptions",
+  team_invitation: "subscription_invitations",
 };
 
 const LEASE_MS = 2 * 60_000;
@@ -212,6 +214,27 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `Your ${String(row.plan ?? "")} subscription is active.\n\n` +
         `Sign in to your live dashboard: ${SITE_URL}/account/login\n\n` +
         "— Time to Power",
+    };
+  }
+  if (n.kind === "team_invitation") {
+    // The invitation is the system of record; an offer that is no longer open is not mailed (a stale obligation is cancelled).
+    if (row.status !== "pending") throw new NotApplicable(`invitation ${String(row.status)}`);
+    if (new Date(String(row.expires_at)).getTime() <= Date.now()) throw new NotApplicable("invitation expired");
+    // The link's secret is derived from the invitation's id under a server key (lib/team-token.ts), so it is rebuilt here
+    // for every attempt and never stored in the queue, a log or an operator email.
+    const secret = inviteToken(String(row.id));
+    if (!secret) throw new Blocked("credential_missing");
+    const owner = String(row.owner_email ?? "");
+    return {
+      to,
+      subject: "You have been invited to GridForge Intelligence",
+      text:
+        `${owner} has given you a seat on their GridForge Intelligence subscription.\n\n` +
+        "Open the link below, sign in with this email address, and accept the invitation. " +
+        "The seat gives you the same live siting dashboard the subscription already includes.\n\n" +
+        `${SITE_URL}/account/invite/${secret}` +
+        "\n\nThe link works only for this address, once, and expires " +
+        `${new Date(String(row.expires_at)).toISOString().slice(0, 10)}. If you were not expecting it, ignore this message and nothing changes.`,
     };
   }
   // key_rotation -- rebuilt from the account's CURRENT key. The dedupe key carries the expiry the obligation
@@ -517,7 +540,10 @@ export async function listNotifications(state: "open" | "all" = "open"): Promise
 
 export interface ReconcileCandidate { kind: NotificationKind; subject_id: string; created_at: string | null; eligible: boolean; reason: string }
 
-const SELECT: Record<Exclude<NotificationKind, "key_rotation">, { table: SubjectTable; filter: string }> = {
+/** Obligations that are not a purchase: nothing to reconcile after the fact (a rotation warning, a seat invitation). */
+const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation"]);
+
+const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation">, { table: SubjectTable; filter: string }> = {
   intake_link: { table: "deliverables", filter: "status=eq.awaiting_intake&email=not.is.null" },
   api_access_link: { table: "api_accounts", filter: "status=eq.active&key_id=is.null&email=not.is.null" },
   watch_link: { table: "watches", filter: "status=eq.active&email=not.is.null" },
@@ -535,7 +561,7 @@ export async function inventoryUnnotified(): Promise<{ available: boolean; candi
   if (!probe.ok) return { available: false, candidates: [] };
   const out: ReconcileCandidate[] = [];
   for (const kind of NOTIFICATION_KINDS) {
-    if (kind === "key_rotation") continue;
+    if (kind === "key_rotation" || kind === "team_invitation") continue;
     const { table, filter } = SELECT[kind];
     const cols = `id,created_at${kind === "intake_link" ? ",token,intake_token" : ""}`;
     const rows = await db<{ id: string; created_at?: string; token?: unknown; intake_token?: unknown }[]>(
@@ -570,7 +596,7 @@ export async function enqueueSelected(selection: { kind: string; subject_id: str
   const res = { available: true, enqueued: 0, alreadyPresent: 0, rejected: [] as { subject_id: string; reason: string }[] };
   for (const sel of selection.slice(0, 50)) {
     const kind = NOTIFICATION_KINDS.find((k) => k === sel.kind);
-    if (!kind || kind === "key_rotation") { res.rejected.push({ subject_id: String(sel.subject_id), reason: "unsupported kind" }); continue; }
+    if (!kind || NOT_RECONCILABLE.has(kind)) { res.rejected.push({ subject_id: String(sel.subject_id), reason: "unsupported kind" }); continue; }
     if (!eligible.has(`${kind}:${sel.subject_id}`)) {
       // Either already covered (a concurrent or earlier enqueue) or genuinely ineligible.
       const exists = await db<unknown[]>(c, "GET", `customer_notifications?dedupe_key=eq.${enc(dedupeKey(kind, sel.subject_id))}&select=id&limit=1`);

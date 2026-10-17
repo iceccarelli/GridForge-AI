@@ -20,7 +20,15 @@ import { normaliseEmail } from "./subscribers";
 import { storeFault } from "@/lib/safe-log";
 
 export type Identity =
-  | { ok: true; email: string }
+  | {
+      ok: true;
+      email: string;
+      /**
+       * Supabase has confirmed this address belongs to the person signed in (they followed the emailed link). Granting a
+       * seat or managing one requires it; reading the dashboard keeps its existing, address-only rule.
+       */
+      verified: boolean;
+    }
   | { ok: false; status: 401 | 503; error: string };
 
 /** The bearer token on a request, if it carries one. */
@@ -71,8 +79,11 @@ export async function identify(req: Request): Promise<Identity> {
     return { ok: false, status: 503, error: "Could not check your session just now." };
   }
 
-  const body = (await res.json().catch(() => ({}))) as { email?: string };
+  const body = (await res.json().catch(() => ({}))) as {
+    email?: string;
+    email_confirmed_at?: string | null;
+  };
   const email = normaliseEmail(body?.email);
   if (!email) return { ok: false, status: 401, error: "That session carries no email address." };
-  return { ok: true, email };
+  return { ok: true, email, verified: Boolean(body?.email_confirmed_at) };
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { identify } from "@/lib/portal";
-import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
+import { lookupEntitlement, subscriptionsConfigured } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
 
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const found = await lookupSubscription(email);
+  const found = await lookupEntitlement(email);
   if (!found.reachable) {
     // A store we could not ask says nothing about this customer. Answering
     // `active: false` here is what showed a paying subscriber the upgrade prompt.
@@ -40,6 +40,15 @@ export async function POST(req: Request) {
       { status: 503 }
     );
   }
-  if (!found.subscription) return NextResponse.json({ ok: true, active: false });
-  return NextResponse.json({ ok: true, active: true, plan: found.subscription.plan });
+  if (!found.entitlement) return NextResponse.json({ ok: true, active: false });
+  // `role` says whether this address owns the subscription or holds a seat on someone else's; the page uses it to decide
+  // whether to offer seat management, and the server enforces it again on every /api/team route.
+  const { subscription, role, ownerEmail } = found.entitlement;
+  return NextResponse.json({
+    ok: true,
+    active: true,
+    plan: subscription.plan,
+    role,
+    ...(role === "member" ? { ownerEmail } : {}),
+  });
 }
