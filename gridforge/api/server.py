@@ -744,7 +744,7 @@ ROUTES = {
 }
 
 #: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
-EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/diff", "/v1/deck", "/v1/spec"})
+EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff", "/v1/deck", "/v1/spec"})
 MAX_EVIDENCE_LINES = 200
 
 
@@ -771,7 +771,7 @@ def _invoke(endpoint: str, handler, body, tier):
     clean = {k: v for k, v in body.items() if k != "cost_evidence"}
     with cost_overlay(entries) as report:
         effect = None
-        if endpoint in ("/v1/screen", "/v1/study"):
+        if endpoint in ("/v1/screen", "/v1/study", "/v1/compare"):
             from ..scenario.evidence import evidence_effect
             doc = clean.get("intake") or clean
             intake = load_document(doc)          # an invalid intake fails here exactly as the handler would

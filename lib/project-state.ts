@@ -179,6 +179,8 @@ export interface ProjectState {
       engine_version: string;
       /** The scenario the engine ranked first on the objective; null when it ranked none. */
       leader: string | null;
+      /** How many accepted quotation lines its prices rest on (0 = library cost data only). */
+      quotation_lines: number;
     }[];
   };
   /** Whether a read-only buyer link is active. The link's secret is never retrievable. */
@@ -454,6 +456,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
               grade: c.grade,
               engine_version: c.engine_version,
               leader: c.result.scenarios.find((x) => x.id === c.result.ranking.leader)?.name ?? null,
+              quotation_lines: (c.evidence_ids ?? []).length,
             }))
           : [],
       },

@@ -123,6 +123,10 @@ done
 "${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_rate_limit_hit','gf_save_comparison','gf_issue_share','gf_revoke_share')" \
   | grep -qx 4 || { echo "[realdb] FAILED: migrations 0024/0025 (rate limit, comparisons, buyer links) are missing"; exit 1; }
 
+# 0026 (quotation evidence behind a saved comparison) must be present.
+"${DBQ[@]}" -At -c "select count(*) from information_schema.columns where table_name = 'project_comparisons' and column_name = 'evidence_ids'" \
+  | grep -qx 1 || { echo "[realdb] FAILED: migration 0026 (comparison quotation evidence) is missing"; exit 1; }
+
 if [ "$REAL_STORAGE" = 1 ]; then
   # The migrations must have created the bucket in the REAL table, and it must be private.
   [ "$("${DBQ[@]}" -At -c "select public from storage.buckets where id = 'cost-evidence-artifacts'")" = f ] \

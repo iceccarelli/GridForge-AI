@@ -5,8 +5,11 @@
 // (lib/project-state.ts): no project token, no evidence file names, no supplier names or prices, no event history.
 
 import { buyerPath, type BuyerStep } from "@/lib/buyer-path";
+import { buyerQuotations, publicResult, type BuyerQuotations } from "@/lib/comparison-evidence";
 import { listComparisons, type ComparisonRow } from "@/lib/project-comparisons";
+import { acceptedQuotations, quotationStates } from "@/lib/project-quotations";
 import { projectForShare } from "@/lib/project-share";
+import type { CompareResult } from "@/lib/ttp-compare";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { rest, type ProjectRow, type Result } from "@/lib/projects";
 
@@ -17,14 +20,23 @@ export interface BuyerAssumption {
   value: string;
 }
 
+/**
+ * The saved comparison as a buyer may hold it: the engine's answer, without the request the owner sent and without the
+ * engine's per-line account of the quotations it was handed (supplier names, prices, reviewers, references). What the buyer
+ * may know about those quotations is `backing`, built from an allow-list.
+ */
+export type PublicComparison = Pick<ComparisonRow, "id" | "saved_at" | "grade" | "engine_version"> & { result: CompareResult };
+
 export interface BuyerView {
   project: Pick<ProjectRow, "project_name" | "company" | "site_label" | "created_at">;
-  comparison: ComparisonRow | null;
+  comparison: PublicComparison | null;
+  /** The accepted supplier quotations this comparison's prices rest on; null when it is priced on library data only. */
+  backing: BuyerQuotations | null;
   /** Saved comparisons older than the one shown. */
   earlier_comparisons: number;
   assumptions: BuyerAssumption[];
   engagements: { kind: string; name: string }[];
-  /** Quotation lines recorded against this project's engagements; the comparison itself does not use them. */
+  /** Quotation lines recorded against this project's engagements, whether or not the comparison shown uses them. */
   quotations: { total: number; accepted: number } | null;
   next: BuyerStep | null;
   others: BuyerStep[];
@@ -100,6 +112,23 @@ export async function getBuyerView(shareToken: string): Promise<Result<{ view: B
   const latest = cmp.comparisons[0] ?? null;
   const total = (lines.data ?? []).length;
 
+  // Does the latest comparison rest on quotations, and do they still stand? A read that fails is a failed page, never
+  // "current" and never "library-priced".
+  let backing: BuyerQuotations | null = null;
+  if (latest && (latest.evidence_ids ?? []).length > 0) {
+    const [states, now] = await Promise.all([quotationStates(latest.evidence_ids!), acceptedQuotations(project)]);
+    if (!states.ok) return states;
+    if (!now.ok) return { ok: false, status: 502, error: "The project record could not be read." };
+    const today = new Date().toISOString().slice(0, 10);
+    const offered = new Set(
+      (Array.isArray(latest.request.cost_evidence) ? (latest.request.cost_evidence as { evidence_id?: unknown }[]) : []).map((e) => String(e.evidence_id))
+    );
+    const newer = now.set.entries.filter((e) => !offered.has(String(e.evidence_id)) && !(typeof e.valid_until === "string" && e.valid_until < today)).length;
+    backing = buyerQuotations(latest.result, latest.evidence_ids!, states.rows, newer, today);
+  }
+  // The buyer-facing copy of the answer never carries the engine's per-line account of the quotations.
+  const shown: CompareResult | null = latest ? publicResult(latest.result) : null;
+
   return {
     ok: true,
     view: {
@@ -109,7 +138,8 @@ export async function getBuyerView(shareToken: string): Promise<Result<{ view: B
         site_label: project.site_label,
         created_at: project.created_at,
       },
-      comparison: latest,
+      comparison: latest && shown ? { id: latest.id, saved_at: latest.saved_at, grade: latest.grade, engine_version: latest.engine_version, result: shown } : null,
+      backing,
       earlier_comparisons: Math.max(0, cmp.comparisons.length - 1),
       assumptions: latest ? assumptionsOf(latest.request) : [],
       engagements,

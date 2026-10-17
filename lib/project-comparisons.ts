@@ -20,6 +20,12 @@ export interface ComparisonRow {
   provenance_digest: string;
   engine_version: string;
   grade: "indicative" | "screening";
+  /**
+   * The accepted quotation lines this comparison's numbers were priced on (cost_evidence ids), checked by the database to
+   * be accepted evidence of this project when the row was written. Empty: priced on library cost data only. Rows saved
+   * before migration 0026 have no such column and read as empty, which is true of them.
+   */
+  evidence_ids?: string[];
   saved_at: string;
 }
 
@@ -34,7 +40,9 @@ export type SaveTarget =
 export async function saveComparison(
   target: SaveTarget,
   engineBody: Record<string, unknown>,
-  result: CompareResult
+  result: CompareResult,
+  /** The quotation lines the engine reports it APPLIED (not merely those it was offered). */
+  evidenceIds: string[] = []
 ): Promise<Result<{ project_id: string; comparison_id: string; created: boolean; project_token: string | null }>> {
   if (!creds()) return STORE_UNCONFIGURED;
   const stamp = new Date().toISOString();
@@ -48,6 +56,7 @@ export async function saveComparison(
     provenance_digest: result.provenance.digest,
     engine_version: result.provenance.engine_version,
     grade: result.grade,
+    ...(evidenceIds.length ? { evidence_ids: [...new Set(evidenceIds)].sort() } : {}),
     saved_at: stamp,
   };
   const r = await rpc<{ project_id: string; comparison_id: string; created: boolean }>("gf_save_comparison", {
@@ -56,6 +65,7 @@ export async function saveComparison(
       request_digest: result.request_digest,
       grade: result.grade,
       engine_version: result.provenance.engine_version,
+      ...(evidenceIds.length ? { quotation_lines: new Set(evidenceIds).size } : {}),
     }),
     ...(target.kind === "new"
       ? {
@@ -75,6 +85,13 @@ export async function saveComparison(
   });
   if (!r.ok) {
     if (r.code === "23503") return { ok: false, status: 404, error: "That project was not found." };
+    if (r.code === "23514" && evidenceIds.length) {
+      return {
+        ok: false,
+        status: 409,
+        error: "The project's accepted quotations changed while this comparison was being made, so it was not saved. Run it again.",
+      };
+    }
     return { ok: false, status: r.status === 503 ? 503 : 502, error: "The comparison could not be saved. Nothing was recorded." };
   }
   if (!r.data) return { ok: false, status: 502, error: "The comparison could not be saved. Nothing was recorded." };

@@ -40,11 +40,27 @@ def _cls(name: str) -> str:
     return name.split("_", 1)[0]          # "E3_ENGINEERING_ESTIMATE" -> "E3"
 
 
-def request_digest(document: dict, ids: list[str], objective: Objective, baseline: str) -> str:
-    """Identity of the question asked: the same inputs, scenarios, objective and baseline give the same digest."""
-    canon = json.dumps({"schema": SCHEMA, "intake": document, "scenarios": ids,
-                        "objective": objective.value, "baseline": baseline},
-                       sort_keys=True, separators=(",", ":"), default=str)
+def applied_evidence() -> list[dict] | None:
+    """The accepted cost lines this run actually APPLIED, as the overlay recorded them, or None when none were.
+
+    They are part of the question: the same hall priced on a different set of quotations is a different comparison, so
+    it must not share an identity with the library-priced one (or a record keyed on the digest would hand back the
+    wrong answer). Lines the overlay ignored (expired, superseded) do not change a number and are not part of it."""
+    from ..costs import active_evidence
+    block = active_evidence()
+    used = (block or {}).get("used") or []
+    return sorted(used, key=lambda e: (str(e.get("evidence_id")), str(e.get("key")))) or None
+
+
+def request_digest(document: dict, ids: list[str], objective: Objective, baseline: str,
+                   evidence: list[dict] | None = None) -> str:
+    """Identity of the question asked: the same inputs, scenarios, objective and baseline give the same digest. When
+    accepted cost evidence was applied the digest also covers it; with none, the digest is exactly what it always was."""
+    body = {"schema": SCHEMA, "intake": document, "scenarios": ids,
+            "objective": objective.value, "baseline": baseline}
+    if evidence:
+        body["cost_evidence"] = evidence
+    canon = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
@@ -242,5 +258,5 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
         "ranking": ranking,
         "grade": "indicative" if indicative else "screening",
         "caveats": caveats,
-        "request_digest": request_digest(document, ids, objective, base_id),
+        "request_digest": request_digest(document, ids, objective, base_id, applied_evidence()),
     }

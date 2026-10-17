@@ -13,15 +13,27 @@ export type CompareOutcome =
  * message that says what to supply; that is passed through because the person can act on it. Anything else (engine
  * unconfigured, unreachable, refusing our key) is ours to fix, so it is logged and reported without internal detail.
  */
-export async function runCompare(r: CompareRequest): Promise<CompareOutcome> {
-  const engineBody = toEngineBody(r);
+export async function runCompare(r: CompareRequest, costEvidence?: Record<string, unknown>[]): Promise<CompareOutcome> {
+  const engineBody = toEngineBody(r, costEvidence);
   const out = await callEngine("/v1/compare", engineBody);
   if (out.ok) {
     if (out.body.schema !== TTP_COMPARE_SCHEMA) {
       console.error("[GridForge] compare: the engine answered with an unexpected schema version");
       return { ok: false, status: 502, error: "The comparison service answered in a form this site does not understand." };
     }
-    return { ok: true, result: out.body as unknown as CompareResult, engineBody };
+    const result = out.body as unknown as CompareResult;
+    if (costEvidence?.length) {
+      // The answer must account for every line it was handed, and only those: an engine that does not (an older build)
+      // would otherwise return a library-priced comparison that the caller then stores as quotation-backed.
+      const offered = new Set(costEvidence.map((e) => String(e.evidence_id)));
+      const block = result.cost_evidence;
+      const seen = block ? [...block.used.map((u) => String(u.evidence_id)), ...block.ignored.map((i) => String(i.evidence_id))] : [];
+      if (!block || !block.effect || seen.some((id) => !offered.has(id)) || [...offered].some((id) => !seen.includes(id))) {
+        console.error("[GridForge] compare: the engine did not account for the quotations it was given");
+        return { ok: false, status: 502, error: "The comparison service did not report how it used the quotations, so no result was produced. Nothing was saved." };
+      }
+    }
+    return { ok: true, result, engineBody };
   }
   if (out.status === 422) {
     const { error: _e, schema_version: _s, ...detail } = out.body as Record<string, unknown>;

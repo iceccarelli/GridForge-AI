@@ -18,7 +18,9 @@ def _row(r) -> dict:
             "rests_on_placeholders": e.rests_on_placeholders, "limited_lines": len(e.limited),
             "evidence_class": e.capex_total_eur.evidence.name, "racks": r.unlocked_racks,
             "steps": {s.step: {"constraint": s.binding_id, "capex_eur": s.capex_eur.value if s.capex_eur else None,
-                               "basis": s.cost_basis, "kind": s.cost_kind} for s in r.ladder.taken_steps}}
+                               "basis": s.cost_basis, "kind": s.cost_kind,
+                               "cost_keys": [k for k in (s.cost_key, *s.extra_cost_keys) if k]}
+                      for s in r.ladder.taken_steps}}
 
 
 def evidence_effect(context, specs, entries) -> dict:
@@ -36,7 +38,8 @@ def evidence_effect(context, specs, entries) -> dict:
             if sa and (sa["capex_eur"] != sb["capex_eur"] or sa["basis"] != sb["basis"] or sa["kind"] != sb["kind"]):
                 changed.append({"step": n, "constraint": sb["constraint"], "capex_before_eur": sb["capex_eur"],
                                 "capex_after_eur": sa["capex_eur"], "basis_before": sb["basis"],
-                                "basis_after": sa["basis"], "price_kind_after": sa["kind"]})
+                                "basis_after": sa["basis"], "price_kind_after": sa["kind"],
+                                "cost_keys": sa["cost_keys"]})
         out.append({
             "scenario": sid, "racks_before": b["racks"], "racks_after": a["racks"],
             "capex_before_eur": b["capex_eur"], "capex_after_eur": a["capex_eur"],

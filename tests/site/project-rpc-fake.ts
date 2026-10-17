@@ -199,6 +199,18 @@ export function installProjectRpcs(db: PostgrestFake): void {
   // --- 0025_project_comparisons_and_shares.sql
   db.rpcs.set("gf_save_comparison", ({ p, p_event, p_new_project, p_new_event }) => {
     let pid = p.project_id;
+    // 0026: a comparison may name only accepted, real, EUR quotations of its own project (checked here before anything is written).
+    const evidenceIds: string[] = [...new Set<string>(p.evidence_ids ?? [])];
+    if (evidenceIds.length) {
+      const accepted = evidenceIds.filter((id) => {
+        const s = db.rows("cost_evidence_state").find((x) => x.id === id);
+        return !!s && s.state === "accepted" && s.project_id === pid && s.currency === "EUR" && !s.synthetic &&
+          db.rows("project_links").some((l) => l.project_id === pid && l.object_type === "deliverable" && l.object_id === s.deliverable_id);
+      });
+      if (p_new_project || accepted.length !== evidenceIds.length) {
+        throw new PgError("23514", "a comparison can only rest on accepted quotations of its own project", 400);
+      }
+    }
     if (p_new_project) {
       const proj = db.insertRow("projects", { ...p_new_project, status: p_new_project.status ?? "draft" });
       emit(proj.id, p_new_event);
@@ -212,7 +224,7 @@ export function installProjectRpcs(db: PostgrestFake): void {
       if (p[f] === undefined || p[f] === null || p[f] === "") throw new PgError("23502", `null value in column ${f}`, 400);
     }
     if (!["indicative", "screening"].includes(p.grade)) throw new PgError("23514", "project_comparisons_grade_check", 400);
-    const r = db.insertRow("project_comparisons", { project_id: pid, ...p, saved_at: p.saved_at ?? new Date().toISOString() });
+    const r = db.insertRow("project_comparisons", { project_id: pid, ...p, evidence_ids: evidenceIds, saved_at: p.saved_at ?? new Date().toISOString() });
     emit(pid, p_event, { comparison_id: r.id });
     return { created: true, project_id: pid, comparison_id: r.id };
   });

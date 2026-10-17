@@ -69,7 +69,7 @@ export const compareRequestSchema = z
 export type CompareRequest = z.infer<typeof compareRequestSchema>;
 
 /** The exact body POSTed to /v1/compare for a request: what a CLI or API user would send to reproduce the page. */
-export function toEngineBody(r: CompareRequest): Record<string, unknown> {
+export function toEngineBody(r: CompareRequest, costEvidence?: Record<string, unknown>[]): Record<string, unknown> {
   const intake = toIntakeDocument(r.hall) as Record<string, unknown>;
   if (r.btm_options.length) intake.btm_options = r.btm_options;
   return {
@@ -77,6 +77,8 @@ export function toEngineBody(r: CompareRequest): Record<string, unknown> {
     objective: r.objective,
     ...(r.scenarios ? { scenarios: r.scenarios } : {}),
     ...(r.baseline ? { baseline: r.baseline } : {}),
+    // Server-supplied accepted quotations only; the request schema above has no such field, so a browser cannot send any.
+    ...(costEvidence?.length ? { cost_evidence: costEvidence } : {}),
   };
 }
 
@@ -105,7 +107,7 @@ export interface CompareScenario {
     first_rack_weeks: number | null;
     sets_the_date: string | null;
     reason: string | null;
-    lead_times: { constraint: string; name: string; domain: string; lead_time_weeks: Q | null; missing: boolean; capex_eur: Q | null }[];
+    lead_times: { constraint: string; name: string; domain: string; lead_time_weeks: Q | null; missing: boolean; capex_eur: Q | null; cost_basis?: string | null }[];
   };
   economics: {
     capex_total_eur: Q | null;
@@ -130,6 +132,44 @@ export interface CompareScenario {
   };
 }
 
+/**
+ * What the engine says about accepted cost evidence it was handed for this one request (present only then). `used` lines
+ * moved the cost library for the run; `ignored` lines were not applied, each with the engine's reason. `effect` is the
+ * engine's own before/after for every scenario: which ladder steps were repriced, and by which cost keys.
+ */
+export interface CompareCostEvidence {
+  used: {
+    evidence_id: string | null;
+    key: string;
+    unit: string;
+    value: number;
+    currency: string;
+    basis: string;
+    supplier: string | null;
+    quoted_on: string | null;
+    valid_until: string | null;
+    quoted_quantity: number | null;
+    quoted_quantity_unit: string | null;
+    scope: string | null;
+    comparability: "exact" | "limited";
+    response_ref: string | null;
+    reviewer: string | null;
+    reviewed_on: string | null;
+    synthetic: boolean;
+  }[];
+  ignored: { key: string; evidence_id: string | null; reason: string }[];
+  effect: null | {
+    used: string[];
+    scenarios: {
+      scenario: string;
+      capex_before_eur: number;
+      capex_after_eur: number;
+      capex_complete_after: boolean;
+      steps_changed: { step: number; constraint: string; basis_before: string; basis_after: string; cost_keys: string[] }[];
+    }[];
+  };
+}
+
 export interface CompareResult {
   schema: typeof TTP_COMPARE_SCHEMA;
   objective: CompareObjective;
@@ -151,4 +191,6 @@ export interface CompareResult {
   request_digest: string;
   intake_completeness: number;
   provenance: { digest: string; engine_version: string; code_sha256: string; report_date: string };
+  /** Only when accepted quotations were supplied for this request. */
+  cost_evidence?: CompareCostEvidence;
 }

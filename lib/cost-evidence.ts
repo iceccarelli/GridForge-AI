@@ -242,7 +242,7 @@ export async function submitQuotes(
 
 // ------------------------------------------------------------------------ read
 
-const COLUMNS =
+export const COLUMNS =
   "id,deliverable_id,project_id,cost_key,unit,value,currency,supplier,received_on,valid_until,reference,scope," +
   "quoted_quantity,quoted_quantity_unit,specification,response_digest,validation_status,problems,limitations," +
   "comparability,synthetic,submitted_at,state,reviewed_basis,reviewed_comparability,includes_keys,reviewed_region," +
