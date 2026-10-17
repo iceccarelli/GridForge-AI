@@ -8,6 +8,7 @@ import type { BuyerStep } from "@/lib/buyer-path";
 import { CALIBRATION_NOTICE } from "@/lib/ai/provenance";
 import { eurFromCents } from "@/lib/products";
 import { OBJECTIVE_LABEL, type CompareResult, type CompareScenario } from "@/lib/ttp-compare";
+import type { Standing } from "@/lib/comparison-evidence";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -110,6 +111,13 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
             {r.grade}
           </span>
           <span className="text-xs text-faint">saved {new Date(savedAt).toISOString().slice(0, 10)}</span>
+          {v.backing ? (
+            <span className={`rounded border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.1em] ${v.backing.current ? "border-verified/50 text-verified" : "border-queue/50 text-queue"}`}>
+              {v.backing.lines.length} accepted quotation{v.backing.lines.length === 1 ? "" : "s"}{v.backing.current ? "" : " · not current"}
+            </span>
+          ) : (
+            <span className="rounded border border-line px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.1em] text-faint">library-priced · no supplier quotation</span>
+          )}
         </div>
         <p className="mt-3 text-ghost">
           {leader ? (
@@ -177,6 +185,8 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
         </div>
       </section>
 
+      <PricingBasis v={v} r={r} />
+
       <section className="mt-8 grid gap-4 sm:grid-cols-2">
         <div className="panel p-5">
           <h2 className="text-lg font-semibold text-ghost">What it rests on</h2>
@@ -205,22 +215,129 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
           ) : (
             <p className="mt-3 text-sm text-mute">The engine flagged no missing inputs for these scenarios.</p>
           )}
-          <h3 className="mt-5 text-sm font-semibold text-ghost">Quotations</h3>
-          <p className="mt-1 text-sm text-mute">
-            This comparison is computed from the inputs listed here and library cost data; it does not use supplier quotations, and the basis column says so line by line.
-            {v.quotations
-              ? ` ${v.quotations.total} quotation line${v.quotations.total === 1 ? " has" : "s have"} been recorded against this project's engagements, ${v.quotations.accepted} accepted by a named reviewer; they apply to a priced run, not to this comparison.`
-              : " No supplier quotations have been recorded for this project."}
-          </p>
           <h3 className="mt-5 text-sm font-semibold text-ghost">Provenance</h3>
           <p className="mt-1 text-xs text-mute">
             Engine {r.provenance.engine_version} · report date {r.provenance.report_date} · question{" "}
             <span className="data">{r.request_digest.slice(0, 16)}</span> · provenance <span className="data">{r.provenance.digest.slice(0, 12)}</span>. The same request to the API or{" "}
-            <code className="data">gridforge compare</code> returns the same numbers.
+            <code className="data">gridforge compare</code> returns the same numbers{v.backing ? ", with the accepted quotations the owner holds supplied to it" : ""}.
           </p>
         </div>
       </section>
     </>
+  );
+}
+
+const STANDING_TEXT: Record<Standing, string> = {
+  current: "still accepted and in date",
+  replaced: "replaced by a newer accepted quotation",
+  withdrawn: "withdrawn",
+  expired: "past its validity date",
+  unknown: "current standing not confirmed",
+};
+
+/**
+ * How the capital figures were priced, and whether they can be compared. Everything is read from the stored engine answer
+ * and from the database's record of which accepted quotations the comparison was saved on; supplier names, prices and
+ * references are not part of what a buyer link discloses.
+ */
+function PricingBasis({ v, r }: { v: BuyerView; r: CompareResult }) {
+  const priced = r.scenarios.filter((s) => s.after_ladder.racks > 0);
+  const whole = priced.filter((s) => s.economics.capex_complete);
+  const partial = priced.filter((s) => !s.economics.capex_complete);
+  const b = v.backing;
+  // The engine's own statement of why a capital figure is not decision-grade, once each, across the scenarios shown.
+  const limits = Array.from(new Set(priced.flatMap((s) => s.economics.limitations)));
+  return (
+    <section className="mt-8 panel p-5" aria-labelledby="pricing-basis">
+      <h2 id="pricing-basis" className="text-xl font-semibold text-ghost">
+        What the capital figures rest on
+      </h2>
+      {b ? (
+        <>
+          <p className="mt-2 text-sm text-mute">
+            Part of the capital in this comparison is priced on <strong className="text-ghost">{b.lines.length} accepted supplier quotation{b.lines.length === 1 ? "" : "s"}</strong>{" "}
+            for this project. A quotation counts only after a named reviewer accepted it. Quotations price the capital items below; they do not date anything, and every
+            date still rests on the lead-time evidence class shown in its row. Every other capital line is a library placeholder — an engineering estimate, not a price —
+            and each row above says how many of its lines are quoted and how many are not.
+          </p>
+          {!b.current ? (
+            <div role="note" className="mt-3 rounded border border-queue/50 bg-queue/10 p-3 text-sm text-ghost">
+              <strong>This comparison is no longer current.</strong> It records what the quotations said when it was saved; since then {b.reasons.join("; ")}. The figures below
+              are not updated — ask the project&apos;s owner for a new comparison before relying on them.
+            </div>
+          ) : null}
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <caption className="sr-only">Accepted quotations behind this comparison</caption>
+              <thead>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
+                  <th scope="col" className="py-2 pr-4">Quotation</th>
+                  <th scope="col" className="py-2 pr-4">Prices</th>
+                  <th scope="col" className="py-2 pr-4">Kind</th>
+                  <th scope="col" className="py-2 pr-4">Quoted · valid until · accepted</th>
+                  <th scope="col" className="py-2 pr-4">Used in</th>
+                  <th scope="col" className="py-2 pr-4">Now</th>
+                </tr>
+              </thead>
+              <tbody>
+                {b.lines.map((q) => (
+                  <tr key={q.label} className="border-b border-line/60 align-top">
+                    <th scope="row" className="py-2 pr-4 font-medium text-ghost">{q.label}</th>
+                    <td className="py-2 pr-4 text-mute">{q.item}</td>
+                    <td className="py-2 pr-4 text-mute">
+                      {q.basis}
+                      {q.comparability === "limited" ? <span className="block text-[11px] text-queue">limited comparability — scaled to a quantity the supplier did not quote, or scope not fully stated</span> : null}
+                    </td>
+                    <td className="data py-2 pr-4 text-[12px] text-mute">{q.quoted_on ?? "—"} · {q.valid_until ?? "no date given"} · {q.accepted_on ?? "—"}</td>
+                    <td className="py-2 pr-4 text-mute">{q.priced.map((p) => `${p.scenario} (${p.steps} step${p.steps === 1 ? "" : "s"})`).join(", ")}</td>
+                    <td className={`py-2 pr-4 text-[12px] ${q.standing === "current" ? "text-verified" : "text-queue"}`}>{STANDING_TEXT[q.standing]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {b.not_applied.length ? (
+            <p className="mt-2 text-xs text-faint">
+              Other accepted quotations were offered but not applied: {b.not_applied.join("; ")}.
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-mute">
+          No supplier quotation is applied to this comparison: every capital figure is priced from library cost data, which is an engineering estimate, not a price.
+          {v.quotations && v.quotations.accepted > 0
+            ? ` ${v.quotations.accepted} quotation line${v.quotations.accepted === 1 ? " has" : "s have"} been accepted for this project's engagements, but this comparison was not saved on ${v.quotations.accepted === 1 ? "it" : "them"}.`
+            : v.quotations
+              ? ` ${v.quotations.total} quotation line${v.quotations.total === 1 ? " has" : "s have"} been recorded against this project's engagements; none is accepted yet.`
+              : " No supplier quotations have been recorded for this project."}
+        </p>
+      )}
+      <h3 className="mt-5 text-sm font-semibold text-ghost">Can the scenarios be compared on cost?</h3>
+      {priced.length === 0 ? (
+        <p className="mt-1 text-sm text-mute">No scenario deploys any racks, so there is no cost to compare.</p>
+      ) : (
+        <ul className="mt-1 list-disc pl-5 text-sm text-mute">
+          {whole.length ? <li>Complete capital figure (every component priced): <span className="text-ghost">{whole.map((s) => s.name).join(", ")}</span>.</li> : null}
+          {partial.length ? (
+            <li>
+              Incomplete — a lower bound, not a price, and not comparable on cost:{" "}
+              <span className="text-ghost">{partial.map((s) => `${s.name} (${s.economics.unpriced_components.length} unpriced)`).join(", ")}</span>.
+            </li>
+          ) : null}
+          {whole.length === 0 ? <li>No scenario has a complete capital figure, so none is ranked on cost.</li> : null}
+        </ul>
+      )}
+      {limits.length ? (
+        <>
+          <h3 className="mt-5 text-sm font-semibold text-ghost">What the engine says limits these figures</h3>
+          <ul className="mt-1 list-disc pl-5 text-sm text-mute">
+            {limits.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
   );
 }
 

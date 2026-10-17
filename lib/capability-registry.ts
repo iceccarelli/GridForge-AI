@@ -306,9 +306,12 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     production_status: "not_deployed",
     notes:
       "Saving a comparison to a project re-asks the engine on the server and stores its answer verbatim " +
-      "(0025_project_comparisons_and_shares.sql); the browser never supplies a result. Accepted supplier cost evidence " +
-      "is not applied to /v1/compare (it is not in EVIDENCE_ROUTES), so capex here is the library basis only, and each " +
-      "scenario says so in its cost basis.",
+      "(0025_project_comparisons_and_shares.sql); the browser never supplies a result. The free web route and an " +
+      "unsaved comparison use the library cost basis only, and each scenario says so in its cost basis. Accepted " +
+      "supplier cost evidence (0022) is applied to /v1/compare only for the request in hand, and on the web only when " +
+      "the holder of a project's token saves a comparison with use_accepted_quotations: the server reads that " +
+      "project's own accepted lines, the engine reports which it applied and which steps they repriced, and the saved " +
+      "row names them (0026_comparison_quotation_evidence.sql). A caller can never name a line or an amount.",
   },
   {
     capability_id: "project_buyer_page",
@@ -336,7 +339,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     production_status: "not_deployed",
     notes:
       "Prices, turnaround, credits and the order of the next step are read from lib/products.ts through " +
-      "lib/buyer-path.ts; no figure on the page is typed there. Needs migration 0025 (and 0024 for the guard).",
+      "lib/buyer-path.ts; no figure on the page is typed there. Needs migration 0025 (and 0024 for the guard). When the " +
+      "latest comparison was saved on accepted quotations (0026) the page lists them without supplier names, prices or " +
+      "references, says which capital lines are quoted and which are library estimates, and says when the quotations " +
+      "have since been replaced, withdrawn or expired.",
   },
   {
     capability_id: "btm_deploy_assess",

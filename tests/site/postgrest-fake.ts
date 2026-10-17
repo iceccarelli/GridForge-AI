@@ -257,6 +257,12 @@ export class PostgrestFake {
     ).includes("return=representation");
 
     if (method === "GET") {
+      // Verbatim shape of PostgREST refusing a select that names a column the table does not have.
+      const absentCols = this.missingColumns.get(table);
+      const named = absentCols && [...absentCols].find((c) => (params.get("select") ?? "").split(",").includes(c));
+      if (named) {
+        return json(JSON.stringify({ code: "42703", message: `column ${table}.${named} does not exist` }), 400);
+      }
       let out = [...matching];
       const order = params.get("order");
       if (order) {

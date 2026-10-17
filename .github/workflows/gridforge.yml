@@ -606,6 +606,10 @@ jobs:
         run: python -m pytest tests/test_buyer_page_migration.py -q
       - name: Saved comparison to buyer page to checkout to webhook - real engine + PostgREST + PostgreSQL (fails, never skips)
         run: npx vitest run tests/site/buyer-page.realdb.test.ts
+      - name: Comparison quotation evidence - the save guard, upgrade and lock ordering against real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_comparison_evidence_migration.py -q
+      - name: Accepted quotations to comparison to buyer page - real engine + PostgREST + PostgreSQL (fails, never skips)
+        run: npx vitest run tests/site/ttp-quotation-backed.realdb.test.ts
       - name: Provider-spend gate - concurrency, separate instances, shared ceilings and chat fan-out on real PostgreSQL (fails, never skips)
         run: npx vitest run tests/site/provider-spend.realdb.test.ts
       - name: PostgREST log, for diagnosis

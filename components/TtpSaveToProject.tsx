@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-type Saved = { token: string; name: string; created: boolean };
+type Saved = { token: string; name: string; created: boolean; quotations: number | null };
 
 function Secret({ label, value, note }: { label: string; value: string; note: string }) {
   const [copied, setCopied] = useState(false);
@@ -33,6 +33,7 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
   const [name, setName] = useState(defaultName);
   const [company, setCompany] = useState("");
   const [existing, setExisting] = useState<string | null>(null);
+  const [useQuotations, setUseQuotations] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
@@ -59,6 +60,8 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
         body: JSON.stringify({
           compare,
           project: existing ? { project_token: existing } : { project_name: name.trim(), ...(company.trim() ? { company: company.trim() } : {}) },
+          // The server reads the project's accepted quotations itself; the browser only asks for them.
+          ...(existing && useQuotations ? { use_accepted_quotations: true } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -67,7 +70,12 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
         setError([body?.error ?? "The comparison could not be saved.", problems].filter(Boolean).join(" "));
         return;
       }
-      setSaved({ token: body.project_token ?? existing, name: body.project_name, created: body.created === true });
+      setSaved({
+        token: body.project_token ?? existing,
+        name: body.project_name,
+        created: body.created === true,
+        quotations: typeof body.quotations?.applied === "number" ? body.quotations.applied : null,
+      });
     } catch {
       setError("Could not reach the server. Nothing was saved.");
     } finally {
@@ -103,7 +111,16 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
             save, and what is stored is its answer.
           </p>
           {existing ? (
-            <p className="text-sm text-mute">It will be added to the project you came from. <button type="button" className="underline" onClick={() => setExisting(null)}>Save to a new project instead</button></p>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-mute">It will be added to the project you came from. <button type="button" className="underline" onClick={() => { setExisting(null); setUseQuotations(false); }}>Save to a new project instead</button></p>
+              <label className="flex items-start gap-2 text-sm text-mute">
+                <input type="checkbox" className="mt-1" checked={useQuotations} onChange={(e) => setUseQuotations(e.target.checked)} />
+                <span>
+                  Price it on this project&apos;s accepted supplier quotations. Only quotations a named reviewer has accepted count; anything they do not cover stays a
+                  library estimate, and the buyer page says which is which. If none applies, nothing is saved.
+                </span>
+              </label>
+            </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-xs text-mute">Project name
@@ -124,6 +141,7 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
       ) : (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-ghost">{saved.created ? `Saved to “${saved.name}”.` : `This exact comparison was already saved to “${saved.name}”; nothing changed.`}</p>
+          {saved.quotations ? <p className="text-sm text-mute">Priced on {saved.quotations} accepted supplier quotation{saved.quotations === 1 ? "" : "s"}; the buyer page lists them without supplier names or prices.</p> : null}
           <Secret
             label="Your project link (edit access)"
             value={`${typeof window === "undefined" ? "" : window.location.origin}/workspace?project=${saved.token}`}

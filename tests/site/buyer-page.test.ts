@@ -340,7 +340,7 @@ describe.runIf(hasPython)("the buyer page", () => {
     expect(html).toContain("12 MW");                               // an assumption, as entered
     expect(html).toContain("indicative");
     expect(html).toContain(CALIBRATION_NOTICE);                    // the empty ledger is stated on the page
-    expect(html).toMatch(/does not use supplier quotations/);
+    expect(html).toMatch(/No supplier quotation is applied to this comparison/);
   });
 
   it("is read-only and carries no credential, no free text the owner typed, and no way to change the project", async () => {
@@ -438,9 +438,10 @@ describe.runIf(hasPython)("the buyer page", () => {
     db.insertRow("cost_evidence_state", { project_id: pid, state: "accepted" });
     db.insertRow("cost_evidence_state", { project_id: pid, state: "validated" });
     const html = await page(await issue(token));
-    expect(html).toMatch(/2 quotation lines have been recorded/);
-    expect(html).toMatch(/1 accepted by a named reviewer/);
-    expect(html).toMatch(/they apply to a priced run, not to this comparison/);
+    // Accepted lines exist, but this comparison was not saved on them, and the page says exactly that.
+    expect(html).toMatch(/No supplier quotation is applied to this comparison/);
+    expect(html).toMatch(/1 quotation line has been accepted for this project&#x27;s engagements, but this comparison was not saved on it/);
+    expect(html).toContain("library-priced · no supplier quotation");
   });
 });
 
