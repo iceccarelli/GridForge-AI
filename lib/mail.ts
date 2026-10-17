@@ -22,7 +22,7 @@ export type MailResult =
 export function redact(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[email]")
-    .replace(/(\/(?:intake|watch|api-access|deliverable|qualify|project)\/)[A-Za-z0-9_-]{8,}/g, "$1[redacted]");
+    .replace(/(\/(?:intake|watch|api-access|deliverable|qualify|project|account\/invite)\/)[A-Za-z0-9_-]{8,}/g, "$1[redacted]");
 }
 
 /**

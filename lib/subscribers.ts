@@ -100,28 +100,121 @@ export type SubscriptionLookup =
 
 const UNREACHABLE: SubscriptionLookup = { reachable: false, subscription: null };
 
-/** The caller's entitling subscription, and whether we managed to ask at all. */
-export async function lookupSubscription(email: string): Promise<SubscriptionLookup> {
+export type EntitlementRole = "owner" | "member";
+
+/**
+ * What a verified address is entitled to, and by what right.
+ *
+ * `owner` is the billing owner of the subscription (subscriptions.email). `member` holds a seat on somebody else's: the
+ * subscription is theirs, the access is the same, and it ends the moment the owner's subscription stops entitling or the seat
+ * is removed (migration 0027). There is no second copy of "is this plan paid" for a member: it is the owner's row, read now.
+ */
+export interface Entitlement {
+  subscription: SubscriptionRecord;
+  role: EntitlementRole;
+  /** The billing owner's address: the caller's own for an owner. */
+  ownerEmail: string;
+}
+
+export type EntitlementLookup =
+  | { reachable: true; entitlement: Entitlement | null }
+  | { reachable: false; entitlement: null };
+
+const ENTITLEMENT_UNREACHABLE: EntitlementLookup = { reachable: false, entitlement: null };
+
+const ENTITLING_STATUSES: ReadonlySet<string> = new Set(["active", "past_due"]);
+
+/**
+ * The seat a non-owner holds, asked of the database in one snapshot (gf_member_entitlement).
+ *
+ * A database that does not have the function yet answers 404 PGRST202. Memberships cannot exist before migration 0027 created
+ * their table, so that is an accurate "this address has no seat", not a guess, and it keeps the deploy window harmless for
+ * every non-subscriber (the repository's rule: make the deploy order not matter). Anything else that is not a clean answer is
+ * "could not ask", which denies and is reported as our fault.
+ */
+let warnedNoMembership = false;
+
+async function lookupMembership(email: string): Promise<EntitlementLookup> {
+  const r = rest("rpc/gf_member_entitlement");
+  if (!r) return ENTITLEMENT_UNREACHABLE;
+  let res: Response;
+  try {
+    res = await fetch(r.url, {
+      method: "POST",
+      headers: r.headers,
+      body: JSON.stringify({ p_email: email }),
+      cache: "no-store",
+    });
+  } catch (err) {
+    console.error("[GridForge] membership lookup unreachable:", err);
+    return ENTITLEMENT_UNREACHABLE;
+  }
+  if (!res.ok) {
+    if (res.status === 404) {
+      const code = ((await res.clone().json().catch(() => ({}))) as { code?: unknown }).code;
+      if (code === "PGRST202") {
+        if (!warnedNoMembership) {
+          warnedNoMembership = true;
+          console.error("[GridForge] gf_member_entitlement not found (migration 0027 not applied, or PostgREST's schema cache is stale): no seats are honoured until it is");
+        }
+        return { reachable: true, entitlement: null };
+      }
+    }
+    console.error("[GridForge] membership lookup failed:", await storeFault(res));
+    return ENTITLEMENT_UNREACHABLE;
+  }
+  const found = (await res.json().catch(() => undefined)) as
+    | { owner_email?: unknown; subscription?: SubscriptionRecord }
+    | null
+    | undefined;
+  if (found === undefined) return ENTITLEMENT_UNREACHABLE;
+  if (found === null) return { reachable: true, entitlement: null };
+  const sub = found.subscription;
+  // Belt and braces: whatever the database said, a row that is not an entitling subscription of that owner grants nothing.
+  if (
+    !sub || typeof sub.id !== "string" || !ENTITLING_STATUSES.has(sub.status) ||
+    typeof found.owner_email !== "string" || normaliseEmail(sub.email) !== found.owner_email
+  ) {
+    return { reachable: true, entitlement: null };
+  }
+  return { reachable: true, entitlement: { subscription: sub, role: "member", ownerEmail: found.owner_email } };
+}
+
+/**
+ * The caller's entitlement and whether we managed to ask at all. Every subscriber-only route gates on this (directly or through
+ * lookupSubscription), so a seat is honoured on the server for the web page and a direct API call alike.
+ *
+ * The owner's own subscription is read first and exactly as before; only an address with none of its own is checked for a seat.
+ */
+export async function lookupEntitlement(email: string): Promise<EntitlementLookup> {
   const e = normaliseEmail(email);
-  if (!e) return { reachable: true, subscription: null };
+  if (!e) return { reachable: true, entitlement: null };
   const r = rest(
     `subscriptions?email=eq.${encodeURIComponent(e)}&status=${ENTITLING}` +
       `&select=*&order=created_at.desc&limit=1`
   );
-  if (!r) return UNREACHABLE;
+  if (!r) return ENTITLEMENT_UNREACHABLE;
   let res: Response;
   try {
     res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
   } catch (err) {
     console.error("[GridForge] subscription lookup unreachable:", err);
-    return UNREACHABLE;
+    return ENTITLEMENT_UNREACHABLE;
   }
   if (!res.ok) {
     console.error("[GridForge] subscription lookup failed:", await storeFault(res));
-    return UNREACHABLE;
+    return ENTITLEMENT_UNREACHABLE;
   }
   const rows = (await res.json()) as SubscriptionRecord[];
-  return { reachable: true, subscription: rows[0] ?? null };
+  if (rows[0]) return { reachable: true, entitlement: { subscription: rows[0], role: "owner", ownerEmail: e } };
+  return lookupMembership(e);
+}
+
+/** The caller's entitling subscription (their own, or the one they hold a seat on), and whether we managed to ask at all. */
+export async function lookupSubscription(email: string): Promise<SubscriptionLookup> {
+  const found = await lookupEntitlement(email);
+  if (!found.reachable) return UNREACHABLE;
+  return { reachable: true, subscription: found.entitlement?.subscription ?? null };
 }
 
 /** Convenience for gates. Fails closed — a store we cannot reach grants nothing. */
