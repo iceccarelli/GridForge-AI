@@ -104,7 +104,7 @@ const HALL = {
   buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12, positionsAvailable: 180, plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
 };
 // A unique caller per test so earlier tests' counters cannot bleed into later ones on a shared database.
-const post = (path: string, body: unknown, ip = `198.51.100.${Math.floor(Math.random() * 250) + 1}-${crypto.randomUUID()}`) =>
+const post = (path: string, body: unknown, ip = `198.51.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify(body) });
 const ctx = (token: string) => ({ params: Promise.resolve({ token }) });
 const j = async (r: Response) => (await r.json()) as any;
@@ -199,7 +199,7 @@ describe.skipIf(!enabled)("buyer page chain — real PostgreSQL via PostgREST", 
   });
 
   it("the real counter refuses a caller over its allowance before the engine is called", async () => {
-    const ip = `192.0.2.${Math.floor(Math.random() * 200) + 1}-${crypto.randomUUID()}`;
+    const ip = `192.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
     const statuses: number[] = [];
     for (let i = 0; i < RATE_POLICIES.ttp_compare_save.limit + 2; i++) {
       statuses.push((await (await saveRoute()).POST(post("/api/power/compare/save", { compare: { hall: HALL }, project: { project_name: `Limited ${i}` } }, ip))).status);

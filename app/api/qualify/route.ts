@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { engineUnavailableMessage } from "./unavailable-message";
 import { callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { guardRequest, spendRefused } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
+
+/** The seven numbers and a few short strings: the schema bounds every field, so anything near this size is not a hall. */
+const MAX_BODY_BYTES = 32 * 1024;
 
 export const runtime = "nodejs";
 
@@ -13,12 +18,11 @@ export const runtime = "nodejs";
 // ladder stay behind the engagement; the engine enforces that server-side, not
 // this route.
 export async function POST(req: Request) {
-  let raw: unknown;
-  try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  const body = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!body.ok) {
+    return NextResponse.json({ ok: false, error: body.status === 413 ? body.error : "Invalid payload" }, { status: body.status });
   }
+  const raw = body.value;
 
   const parsed = qualifySchema.safeParse(raw);
   if (!parsed.success) {
@@ -40,44 +44,53 @@ export async function POST(req: Request) {
     );
   }
 
-  // Minted before the engine runs, so a result that fails to persist still has an
-  // identity and an unreachable engine still produces a row we can come back to.
-  const token = newQualificationToken();
+  // Free-tier engine call, but still the company's engine: admitted by the request limit first (fails closed), and the call
+  // itself is counted against the caller's provider budget and the shared free-tier ceiling.
+  const g = await guardRequest(req, "qualify");
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    // Minted before the engine runs, so a result that fails to persist still has an
+    // identity and an unreachable engine still produces a row we can come back to.
+    const token = newQualificationToken();
 
-  const outcome = await callEngine(input);
+    const outcome = await callEngine(input);
 
-  if (!outcome.ok) {
-    // Never invent a number when the engine is unavailable. Capture the enquiry
-    // and say plainly what happened.
-    const persisted = await persist(input, null, token).then(
-      () => true,
-      () => false
-    );
-    const status = outcome.reason === "unconfigured" ? 503 : 502;
-    return NextResponse.json(
-      {
-        ok: false,
-        error: engineUnavailableMessage(persisted, Boolean(input.email)),
-        saved: persisted,
-        reason: outcome.reason,
-      },
-      { status }
-    );
-  }
+    if (!outcome.ok) {
+      // Never invent a number when the engine is unavailable. Capture the enquiry
+      // and say plainly what happened.
+      // A refusal by the spend gate is not an engine outage and is not a lead to chase: nothing is stored for it.
+      const persisted = spendRefused()
+        ? false
+        : await persist(input, null, token).then(
+            () => true,
+            () => false
+          );
+      const status = outcome.reason === "unconfigured" ? 503 : 502;
+      return NextResponse.json(
+        {
+          ok: false,
+          error: engineUnavailableMessage(persisted, Boolean(input.email)),
+          saved: persisted,
+          reason: outcome.reason,
+        },
+        { status }
+      );
+    }
 
-  const qualificationId = await persist(input, outcome.result, token).catch(() => undefined);
-  const stored = qualificationId !== undefined;
+    const qualificationId = await persist(input, outcome.result, token).catch(() => undefined);
+    const stored = qualificationId !== undefined;
 
-  return NextResponse.json({
-    ok: true,
-    headline: headline(outcome.result),
-    result: outcome.result,
-    // Only offered when the row actually landed. A share link to a row that was
-    // never written is a 404 sent to somebody's director.
-    share: stored ? `/q/${token}` : null,
-    // So a purchase made from this tab carries the read it came from. The id is
-    // not a credential — the token in `share` is — and /q/ already renders it.
-    qualificationId: qualificationId ?? null,
+    return NextResponse.json({
+      ok: true,
+      headline: headline(outcome.result),
+      result: outcome.result,
+      // Only offered when the row actually landed. A share link to a row that was
+      // never written is a 404 sent to somebody's director.
+      share: stored ? `/q/${token}` : null,
+      // So a purchase made from this tab carries the read it came from. The id is
+      // not a credential — the token in `share` is — and /q/ already renders it.
+      qualificationId: qualificationId ?? null,
+    });
   });
 }
 

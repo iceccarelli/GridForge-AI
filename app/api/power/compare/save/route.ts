@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { runCompare } from "@/lib/ttp-compare-server";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
 import { saveComparison, type SaveTarget } from "@/lib/project-comparisons";
 import { getProjectByToken } from "@/lib/projects";
 
@@ -41,20 +42,9 @@ const saveSchema = z
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function POST(req: Request) {
-  const declared = Number(req.headers.get("content-length") ?? 0);
-  if (declared > MAX_BODY_BYTES) {
-    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413, headers: NO_STORE });
-  }
-  const text = await req.text().catch(() => "");
-  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
-    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413, headers: NO_STORE });
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400, headers: NO_STORE });
-  }
+  const body = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!body.ok) return NextResponse.json({ ok: false, error: body.error }, { status: body.status, headers: NO_STORE });
+  const raw = body.value;
   const parsed = saveSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
@@ -67,9 +57,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const limited = await enforceRateLimit(req, "ttp_compare_save");
-  if (limited) return limited;
-
+  // Authorise first: the project token is resolved before any limit is spent or any provider is touched.
   let target: SaveTarget;
   if (parsed.data.project.project_token) {
     const found = await getProjectByToken(parsed.data.project.project_token);
@@ -84,30 +72,34 @@ export async function POST(req: Request) {
     target = { kind: "new", project_name: parsed.data.project.project_name!, company: parsed.data.project.company || null };
   }
 
-  const out = await runCompare(parsed.data.compare);
-  if (!out.ok) {
-    return NextResponse.json(
-      { ok: false, error: out.error, ...(out.detail ? { detail: out.detail } : {}) },
-      { status: out.status, headers: NO_STORE }
-    );
-  }
+  const g = await guardRequest(req, "ttp_compare_save");
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const out = await runCompare(parsed.data.compare);
+    if (!out.ok) {
+      return NextResponse.json(
+        { ok: false, error: out.error, ...(out.detail ? { detail: out.detail } : {}) },
+        { status: out.status, headers: NO_STORE }
+      );
+    }
 
-  const saved = await saveComparison(target, out.engineBody, out.result);
-  if (!saved.ok) {
-    return NextResponse.json({ ok: false, error: saved.error }, { status: saved.status, headers: NO_STORE });
-  }
-  const token = saved.project_token ?? (target.kind === "existing" ? target.project.project_token : null);
-  return NextResponse.json(
-    {
-      ok: true,
-      created: saved.created,
-      comparison_id: saved.comparison_id,
-      request_digest: out.result.request_digest,
-      project_name: target.kind === "existing" ? target.project.project_name : target.project_name,
-      // Only a project created by this call hands its token back; an existing project's holder already has it.
-      ...(saved.project_token ? { project_token: saved.project_token } : {}),
-      workspace_path: token ? `/workspace?project=${encodeURIComponent(token)}` : null,
-    },
-    { status: saved.created ? 201 : 200, headers: NO_STORE }
-  );
+    const saved = await saveComparison(target, out.engineBody, out.result);
+    if (!saved.ok) {
+      return NextResponse.json({ ok: false, error: saved.error }, { status: saved.status, headers: NO_STORE });
+    }
+    const token = saved.project_token ?? (target.kind === "existing" ? target.project.project_token : null);
+    return NextResponse.json(
+      {
+        ok: true,
+        created: saved.created,
+        comparison_id: saved.comparison_id,
+        request_digest: out.result.request_digest,
+        project_name: target.kind === "existing" ? target.project.project_name : target.project_name,
+        // Only a project created by this call hands its token back; an existing project's holder already has it.
+        ...(saved.project_token ? { project_token: saved.project_token } : {}),
+        workspace_path: token ? `/workspace?project=${encodeURIComponent(token)}` : null,
+      },
+      { status: saved.created ? 201 : 200, headers: NO_STORE }
+    );
+  });
 }

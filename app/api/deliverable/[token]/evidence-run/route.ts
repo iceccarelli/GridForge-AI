@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getByToken } from "@/lib/deliverables";
 import { currentRunFingerprint, runView, runWithEvidence, runsFor } from "@/lib/cost-evidence";
 import { fail } from "@/lib/project-http";
+import { guardRequest } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -40,28 +41,34 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
  * its document is stored privately and verified. The stored deliverable and every earlier run are untouched. Repeating
  * the request for the same inputs returns the SAME recorded run and its original document.
  */
-export async function POST(_req: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  const r = await runWithEvidence(row, "customer");
-  if (!r.ok) return fail(r);
-  const { result } = r;
-  return NextResponse.json(
-    {
-      ok: true,
-      created: result.created,
-      run: { ...runView(result.run, result.run.run_fingerprint), artifact_url: artifactUrl(token, result.run.id) },
-      evidence_ids: result.evidence_ids,
-      accepted_evidence_ids: result.accepted_evidence_ids,
-      effect: result.effect,
-      ignored: result.ignored,
-      document_sha256: result.document_sha256,
-      document: result.document,
-      ...(result.determinism_warning
-        ? { warning: "A concurrent request produced a different document for this identity. The persisted one is returned." }
-        : {}),
-    },
-    { status: result.created ? 201 : 200, headers: NO_STORE }
-  );
+  // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
+  // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
+  const g = await guardRequest(req, "customer_generate", { cls: "customer" });
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const r = await runWithEvidence(row, "customer");
+    if (!r.ok) return fail(r);
+    const { result } = r;
+    return NextResponse.json(
+      {
+        ok: true,
+        created: result.created,
+        run: { ...runView(result.run, result.run.run_fingerprint), artifact_url: artifactUrl(token, result.run.id) },
+        evidence_ids: result.evidence_ids,
+        accepted_evidence_ids: result.accepted_evidence_ids,
+        effect: result.effect,
+        ignored: result.ignored,
+        document_sha256: result.document_sha256,
+        document: result.document,
+        ...(result.determinism_warning
+          ? { warning: "A concurrent request produced a different document for this identity. The persisted one is returned." }
+          : {}),
+      },
+      { status: result.created ? 201 : 200, headers: NO_STORE }
+    );
+  });
 }

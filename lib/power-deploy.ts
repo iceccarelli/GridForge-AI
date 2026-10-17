@@ -15,6 +15,7 @@
 
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
+import { engineFetch } from "@/lib/rate-limit";
 
 export interface PowerDeploymentCaseRow {
   id: string;
@@ -71,7 +72,7 @@ export async function callEngine(
     return { ok: false, status: 0, body: {}, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
   }
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}${path}`, {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify(request),

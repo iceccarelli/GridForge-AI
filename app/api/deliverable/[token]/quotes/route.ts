@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getByToken } from "@/lib/deliverables";
 import { evidenceFor, submitQuotes, type EvidenceRow } from "@/lib/cost-evidence";
 import { fail, readJson } from "@/lib/project-http";
+import { guardRequest } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -50,19 +51,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   const body = await readJson(req);
   if (!body) return fail({ status: 400, error: "Invalid payload" });
-  const r = await submitQuotes(row, body.responses as unknown[], {
-    synthetic: body.synthetic === true,
-    submitted_by: typeof body.submitted_by === "string" ? body.submitted_by : "",
+  // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
+  // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
+  const g = await guardRequest(req, "customer_generate", { cls: "customer" });
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const r = await submitQuotes(row, body.responses as unknown[], {
+      synthetic: body.synthetic === true,
+      submitted_by: typeof body.submitted_by === "string" ? body.submitted_by : "",
+    });
+    if (!r.ok) return fail(r);
+    const items = await evidenceFor(row.id);
+    const byId = new Map((items.ok ? items.items : []).map((i) => [i.id, i]));
+    return NextResponse.json(
+      {
+        ok: true,
+        note: "Recorded as received. A quotation influences no study until a named reviewer accepts it.",
+        lines: r.lines.map((l) => ({ created: l.created, ...(byId.get(l.id) ? view(byId.get(l.id)!) : { id: l.id }) })),
+      },
+      { status: r.lines.some((l) => l.created) ? 201 : 200, headers: { "Cache-Control": "no-store" } }
+    );
   });
-  if (!r.ok) return fail(r);
-  const items = await evidenceFor(row.id);
-  const byId = new Map((items.ok ? items.items : []).map((i) => [i.id, i]));
-  return NextResponse.json(
-    {
-      ok: true,
-      note: "Recorded as received. A quotation influences no study until a named reviewer accepts it.",
-      lines: r.lines.map((l) => ({ created: l.created, ...(byId.get(l.id) ? view(byId.get(l.id)!) : { id: l.id }) })),
-    },
-    { status: r.lines.some((l) => l.created) ? 201 : 200, headers: { "Cache-Control": "no-store" } }
-  );
 }

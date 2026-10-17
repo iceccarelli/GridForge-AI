@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { compareBids, getByToken, updateByToken } from "@/lib/deliverables";
+import { guardRequest } from "@/lib/rate-limit";
+import { ENGINE_BODY_MAX_BYTES, readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -49,12 +51,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  const read = await readBoundedJson(req, ENGINE_BODY_MAX_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? read.error : "Invalid payload" }, { status: read.status });
   }
+  const body = (read.value && typeof read.value === "object" ? read.value : {}) as Record<string, unknown>;
 
   const responses = body?.responses;
   if (!Array.isArray(responses) || responses.length === 0) {
@@ -84,36 +85,42 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     );
   }
 
-  const out = await compareBids(row, responses as unknown[]);
-  if (!out.ok) {
-    return NextResponse.json({ ok: false, error: out.error }, { status: out.status });
-  }
+  // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
+  // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
+  const g = await guardRequest(req, "customer_generate", { cls: "customer" });
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const out = await compareBids(row, responses as unknown[]);
+    if (!out.ok) {
+      return NextResponse.json({ ok: false, error: out.error }, { status: out.status });
+    }
 
-  // Kept with the engagement, as a working file, so it downloads through the same
-  // route as everything else the customer bought and survives them closing the tab.
-  const stored = await updateByToken(row.token, {
-    working_files: {
-      ...(row.working_files ?? {}),
-      "bid_comparison.json": JSON.stringify(
-        { relief: out.relief, sized_for_racks: out.sized_for_racks, ranked: out.ranked, note: out.note },
-        null,
-        2
-      ),
-    },
-  });
-  if (!stored) {
-    // The comparison is still correct and still worth returning; say plainly that
-    // it was not kept rather than implying they can come back to it.
-    console.error("[GridForge] bid comparison not persisted for deliverable", row.id);
-  }
+    // Kept with the engagement, as a working file, so it downloads through the same
+    // route as everything else the customer bought and survives them closing the tab.
+    const stored = await updateByToken(row.token, {
+      working_files: {
+        ...(row.working_files ?? {}),
+        "bid_comparison.json": JSON.stringify(
+          { relief: out.relief, sized_for_racks: out.sized_for_racks, ranked: out.ranked, note: out.note },
+          null,
+          2
+        ),
+      },
+    });
+    if (!stored) {
+      // The comparison is still correct and still worth returning; say plainly that
+      // it was not kept rather than implying they can come back to it.
+      console.error("[GridForge] bid comparison not persisted for deliverable", row.id);
+    }
 
-  return NextResponse.json({
-    ok: true,
-    relief: out.relief,
-    sized_for_racks: out.sized_for_racks,
-    ranked: out.ranked,
-    leading: out.leading,
-    note: out.note,
-    saved: stored,
+    return NextResponse.json({
+      ok: true,
+      relief: out.relief,
+      sized_for_racks: out.sized_for_racks,
+      ranked: out.ranked,
+      leading: out.leading,
+      note: out.note,
+      saved: stored,
+    });
   });
 }

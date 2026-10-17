@@ -5,6 +5,8 @@ import {
   latestDeploymentCase,
   runDeploymentAssessment,
 } from "@/lib/power-deploy";
+import { guardRequest } from "@/lib/rate-limit";
+import { ENGINE_BODY_MAX_BYTES, readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -36,13 +38,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const existing = await latestDeploymentCase(token);
   if (!existing) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
-  if (!body || typeof body !== "object") {
+  const read = await readBoundedJson(req, ENGINE_BODY_MAX_BYTES);
+  if (!read.ok) return NextResponse.json({ ok: false, error: read.error }, { status: read.status });
+  const body = read.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ ok: false, error: "Expected a deployment request object." }, {
       status: 400,
     });
@@ -69,26 +68,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // not have to resend the load profile and every generator to say so.
   const request = { ...existing.request, ...patch };
 
-  const assessed = await runDeploymentAssessment(request);
-  if (!assessed.ok) {
-    return NextResponse.json(
-      { ok: false, error: `The engine could not re-solve this case: ${assessed.error}` },
-      { status: 502 }
-    );
-  }
+  // Authorised above (the case exists and, where one is registered, its email matches). Only now is the request admitted
+  // by the limit, and every engine call inside `run` is counted against the caller's provider budget.
+  const g = await guardRequest(req, "deploy_case");
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const assessed = await runDeploymentAssessment(request);
+    if (!assessed.ok) {
+      return NextResponse.json(
+        { ok: false, error: `The engine could not re-solve this case: ${assessed.error}` },
+        { status: 502 }
+      );
+    }
 
-  const row = await appendDeploymentRevision(token, request, assessed.result);
-  if (!row) {
-    return NextResponse.json(
-      { ok: false, error: "The case was re-solved but the new revision could not be saved." },
-      { status: 502 }
-    );
-  }
+    const row = await appendDeploymentRevision(token, request, assessed.result);
+    if (!row) {
+      return NextResponse.json(
+        { ok: false, error: "The case was re-solved but the new revision could not be saved." },
+        { status: 502 }
+      );
+    }
 
-  return NextResponse.json({
-    ok: true, case_token: row.case_token, revision: row.revision,
-    result: row.result, changed_fields: row.changed_fields,
-    // Written in the same transaction as the revision, so present or absent — never partial.
-    ...(row.project_events ? { project_history: "recorded" } : {}),
+    return NextResponse.json({
+      ok: true, case_token: row.case_token, revision: row.revision,
+      result: row.result, changed_fields: row.changed_fields,
+      // Written in the same transaction as the revision, so present or absent — never partial.
+      ...(row.project_events ? { project_history: "recorded" } : {}),
+    });
   });
 }

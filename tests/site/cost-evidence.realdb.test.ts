@@ -232,8 +232,11 @@ async function startGateway(): Promise<string> {
 const db = async (p: string, init: RequestInit = {}) =>
   fetch(PGRST + p, { ...init, headers: { Authorization: `Bearer ${JWT}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } });
 const rows = async (table: string, q = "") => (await (await db(`/${table}?select=*${q}`)).json()) as any[];
+// Each request comes from its own address: these suites are not about the rate limiter, and the guarded customer routes
+// would otherwise count the whole file as one caller (a request with no address shares one "unattributed" allowance).
+const anAddress = () => `198.51.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
 const post = (p: string, body: unknown) =>
-  new Request(siteUrl(p), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  new Request(siteUrl(p), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": anAddress() }, body: JSON.stringify(body) });
 
 const INTAKE = JSON.parse(fs.readFileSync(path.join(process.cwd(), "examples/intake/dublin_hall.json"), "utf8"));
 

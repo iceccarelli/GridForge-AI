@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { compareRequestSchema } from "@/lib/ttp-compare";
 import { runCompare } from "@/lib/ttp-compare-server";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,20 +16,9 @@ export const maxDuration = 60;
 const MAX_BODY_BYTES = 64 * 1024;
 
 export async function POST(req: Request) {
-  const declared = Number(req.headers.get("content-length") ?? 0);
-  if (declared > MAX_BODY_BYTES) {
-    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
-  }
-  const text = await req.text().catch(() => "");
-  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
-    return NextResponse.json({ ok: false, error: "Request too large." }, { status: 413 });
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
+  const body = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!body.ok) return NextResponse.json({ ok: false, error: body.error }, { status: body.status });
+  const raw = body.value;
   const parsed = compareRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
@@ -41,18 +31,21 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  // Spends the platform engine key for an anonymous visitor: the limit runs first and fails closed.
-  const limited = await enforceRateLimit(req, "ttp_compare");
-  if (limited) return limited;
-  const out = await runCompare(parsed.data);
-  if (!out.ok) {
+  // Spends the platform engine key for an anonymous visitor: admitted by the request limit first (fails closed), and every
+  // engine call made inside `run` is counted against the caller's provider budget and the shared ceiling.
+  const g = await guardRequest(req, "ttp_compare");
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const out = await runCompare(parsed.data);
+    if (!out.ok) {
+      return NextResponse.json(
+        { ok: false, error: out.error, ...(out.detail ? { detail: out.detail } : {}) },
+        { status: out.status, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: out.error, ...(out.detail ? { detail: out.detail } : {}) },
-      { status: out.status, headers: { "Cache-Control": "no-store" } }
+      { ok: true, result: out.result, request: out.engineBody },
+      { headers: { "Cache-Control": "no-store" } }
     );
-  }
-  return NextResponse.json(
-    { ok: true, result: out.result, request: out.engineBody },
-    { headers: { "Cache-Control": "no-store" } }
-  );
+  });
 }

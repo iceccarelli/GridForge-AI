@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createDeploymentCase, runDeploymentAssessment } from "@/lib/power-deploy";
 import { attachCase, getProjectByToken } from "@/lib/projects";
+import { guardRequest } from "@/lib/rate-limit";
+import { ENGINE_BODY_MAX_BYTES, readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,13 +23,11 @@ export const maxDuration = 60;
 // at all — see HANDOFF.md on inventing billing products before the capability
 // they meter is real.
 export async function POST(req: Request) {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
-  if (!body || typeof body !== "object") {
+  // At most what the engine itself accepts: nothing larger is ever forwarded to it.
+  const read = await readBoundedJson(req, ENGINE_BODY_MAX_BYTES);
+  if (!read.ok) return NextResponse.json({ ok: false, error: read.error }, { status: read.status });
+  const body = read.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ ok: false, error: "Expected a deployment request object." }, {
       status: 400,
     });
@@ -45,54 +45,60 @@ export async function POST(req: Request) {
     project = found.project;
   }
 
-  const assessed = await runDeploymentAssessment(request);
-  if (!assessed.ok) {
-    // Engine and configuration detail (env var names, upstream URLs) is for the
-    // server log, not the person filling in the form.
-    console.error("[GridForge] power deploy assessment failed:", assessed.error);
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "The assessment service is temporarily unavailable, so no result was produced. Nothing was saved. Please try again later.",
-      },
-      { status: 502 }
-    );
-  }
-
-  const row = await createDeploymentCase({
-    request,
-    result: assessed.result,
-    email: typeof email === "string" ? email : null,
-    company: typeof company === "string" ? company : null,
-    project_name: typeof project_name === "string" ? project_name : null,
-  });
-  if (!row) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "The assessment ran, but the case could not be saved. Nothing was invented — "
-          + "retry, or read the result below without a token to come back to.",
-        result: assessed.result,
-      },
-      { status: 502 }
-    );
-  }
-
-  if (project) {
-    // The case exists and stands on its own; say explicitly whether the attachment landed.
-    const attached = await attachCase(project, row.case_token, typeof email === "string" ? email : null);
-    if (!attached.ok) {
+  // Admitted by the request limit (fails closed) only once the body and the project token are good, and every engine call
+  // made inside `run` is counted against the caller's provider budget and the shared ceiling.
+  const g = await guardRequest(req, "deploy_case");
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    const assessed = await runDeploymentAssessment(request);
+    if (!assessed.ok) {
+      // Engine and configuration detail (env var names, upstream URLs) is for the
+      // server log, not the person filling in the form.
+      console.error("[GridForge] power deploy assessment failed:", assessed.error);
       return NextResponse.json(
-        { ok: true, case_token: row.case_token, revision: row.revision, result: row.result,
-          project_attached: false, project_error: attached.error },
-        { status: 207 }
+        {
+          ok: false,
+          error:
+            "The assessment service is temporarily unavailable, so no result was produced. Nothing was saved. Please try again later.",
+        },
+        { status: 502 }
       );
     }
-    return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,
-      result: row.result, project_attached: true });
-  }
 
-  return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,
-    result: row.result });
+    const row = await createDeploymentCase({
+      request,
+      result: assessed.result,
+      email: typeof email === "string" ? email : null,
+      company: typeof company === "string" ? company : null,
+      project_name: typeof project_name === "string" ? project_name : null,
+    });
+    if (!row) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "The assessment ran, but the case could not be saved. Nothing was invented — "
+            + "retry, or read the result below without a token to come back to.",
+          result: assessed.result,
+        },
+        { status: 502 }
+      );
+    }
+
+    if (project) {
+      // The case exists and stands on its own; say explicitly whether the attachment landed.
+      const attached = await attachCase(project, row.case_token, typeof email === "string" ? email : null);
+      if (!attached.ok) {
+        return NextResponse.json(
+          { ok: true, case_token: row.case_token, revision: row.revision, result: row.result,
+            project_attached: false, project_error: attached.error },
+          { status: 207 }
+        );
+      }
+      return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,
+        result: row.result, project_attached: true });
+    }
+
+    return NextResponse.json({ ok: true, case_token: row.case_token, revision: row.revision,
+      result: row.result });
+  });
 }

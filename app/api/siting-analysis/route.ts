@@ -3,6 +3,12 @@ import { identify } from "@/lib/portal";
 import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 import Anthropic from "@anthropic-ai/sdk";
 import { SITING_REGIONS, sitingScore } from "@/lib/siting";
+import { anthropicFetch, guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
+
+/** A site brief is a few sentences. The ceiling bounds what a subscriber can make the paid model read. */
+const MAX_BRIEF_CHARS = 4000;
+const MAX_BODY_BYTES = 16 * 1024;
 
 export const runtime = "nodejs";
 
@@ -20,12 +26,16 @@ export async function POST(req: Request) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return NextResponse.json({ ok: false, error: "Analyst unavailable" }, { status: 503 });
 
-  let body: { brief?: string } = {};
-  try { body = await req.json(); } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  const read = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? read.error : "Invalid payload" }, { status: read.status });
   }
-  const brief = (body.brief || "").trim();
+  const body = (read.value && typeof read.value === "object" ? read.value : {}) as { brief?: unknown };
+  const brief = (typeof body.brief === "string" ? body.brief : "").trim();
   if (!brief) return NextResponse.json({ ok: false, error: "Missing input" }, { status: 400 });
+  if (brief.length > MAX_BRIEF_CHARS) {
+    return NextResponse.json({ ok: false, error: `The brief is too long (at most ${MAX_BRIEF_CHARS} characters).` }, { status: 413 });
+  }
 
   // Verify the subscription server-side, through the one module that knows how.
   //
@@ -78,18 +88,25 @@ Rules:
 - This is DIRECTIONAL, not bankable. End by pointing to the paid Density Screen for hall-specific confirmation.
 - Be concise and technical: ~4-6 short paragraphs. You are an engineer, not a marketer.`;
 
-  try {
-    const anthropic = new Anthropic({ apiKey: key });
-    const resp = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1200,
-      system,
-      messages: [{ role: "user", content: brief }],
-    });
-    const text = resp.content.map((b) => (b.type === "text" ? b.text : "")).filter(Boolean).join("\n");
-    return NextResponse.json({ ok: true, analysis: text });
-  } catch (err) {
-    console.error("[GridForge] siting analysis error:", err);
-    return NextResponse.json({ ok: false, error: "Analyst error" }, { status: 500 });
-  }
+  // Identity is verified and the subscription is active. Only now is the request admitted: per caller address AND per verified
+  // account (so one subscriber cannot multiply the analyst budget across addresses), and the model call itself is counted
+  // against the customer Anthropic budget.
+  const g = await guardRequest(req, "siting", { cls: "customer", account: { verifiedEmail: email, policy: "siting_account" } });
+  if (g.denied) return g.denied;
+  return g.run(async () => {
+    try {
+      const anthropic = new Anthropic({ apiKey: key, fetch: anthropicFetch });
+      const resp = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1200,
+        system,
+        messages: [{ role: "user", content: brief }],
+      });
+      const text = resp.content.map((b) => (b.type === "text" ? b.text : "")).filter(Boolean).join("\n");
+      return NextResponse.json({ ok: true, analysis: text });
+    } catch (err) {
+      console.error("[GridForge] siting analysis error:", err);
+      return NextResponse.json({ ok: false, error: "Analyst error" }, { status: 500 });
+    }
+  });
 }

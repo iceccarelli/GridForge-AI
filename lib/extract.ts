@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { URGENCY_OPTIONS, GRID_STATUS_OPTIONS, SERVICE_OPTIONS } from "@/lib/lead";
+import { anthropicFetch } from "@/lib/rate-limit";
 
 // Pulls structured lead fields from a conversation. Returns null when the
 // dialogue lacks enough signal (so we never persist a half-empty "hello").
@@ -39,7 +40,7 @@ export async function extractLead(
   messages: { role: "user" | "assistant"; content: string }[],
   apiKey: string
 ): Promise<ExtractedLead | null> {
-  const anthropic = new Anthropic({ apiKey });
+  const anthropic = new Anthropic({ apiKey, fetch: anthropicFetch });
   const transcript = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
   try {
     const resp = await anthropic.messages.create({

@@ -13,6 +13,21 @@ export interface ChatMessage {
  *  `messages.slice(-20)`. */
 export const MAX_TRANSCRIPT_MESSAGES = 20;
 
+/** One message's ceiling. Generous for a user turn; a model reply (max_tokens 1024) is ~4k characters, so replies fit too. */
+export const MAX_MESSAGE_CHARS = 4500;
+/** The whole transcript a request may carry to the model, in characters (~8k tokens): bounds input tokens per provider call. */
+export const MAX_TRANSCRIPT_CHARS = 32_000;
+
+/** True when a transcript is too large to send to a paid model. Checked before any provider work. */
+export function transcriptTooLarge(messages: ChatMessage[]): boolean {
+  let total = 0;
+  for (const m of messages) {
+    if (m.content.length > MAX_MESSAGE_CHARS) return true;
+    total += m.content.length;
+  }
+  return total > MAX_TRANSCRIPT_CHARS;
+}
+
 export function normalizeTranscript(raw: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) return [];
   const out: ChatMessage[] = [];
