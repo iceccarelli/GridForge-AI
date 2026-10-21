@@ -13,9 +13,10 @@ import {
   Clock,
 } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
-import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { CommissionScreen } from "@/components/CommissionScreen";
+import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { HeroReel } from "@/components/HeroReel";
 import dynamic from "next/dynamic";
 import { TimeToPower } from "@/components/TimeToPower";
@@ -288,6 +289,26 @@ export function HomeClient() {
             id="ttp-04"
             className="rounded-2xl overflow-hidden border border-line aspect-[3/2] hidden lg:block"
           />
+        </div>
+      </section>
+
+      {/* Software that calls the engine. Separate from the engagements below: a free allowance, then metered, is
+          a different purchase from a fixed-fee engineering deliverable, and says so. No card for the allowance. */}
+      <section id="developers-free" className="max-w-5xl mx-auto px-6 pb-8">
+        <div className="panel p-6 sm:p-8 grid md:grid-cols-[1.1fr_1fr] gap-8 items-start">
+          <div>
+            <div className="eyebrow mb-3">FOR SOFTWARE THAT CALLS THE ENGINE</div>
+            <h2 className="section-title">Put the engine in your own tooling, free to start.</h2>
+            <p className="text-mute text-[15px] leading-relaxed mt-4">
+              {PAYG.freeAllowanceUnits} units a month with an email address and no card. Past that you choose: pay as
+              you go under a monthly cap you set, or a plan once the volume warrants one.{" "}
+              <Link href="/developers#rates" className="text-power underline">
+                See what it costs
+              </Link>
+              . Screening output only; an engagement is what carries an engineer&apos;s sign-off.
+            </p>
+          </div>
+          <FreeAllowanceForm compact heading="Get the free allowance" />
         </div>
       </section>
 

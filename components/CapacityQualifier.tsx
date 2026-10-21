@@ -5,6 +5,8 @@ import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
+import { PAYG } from "@/lib/products";
+import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 
 /**
  * Capacity qualifier.
@@ -225,7 +227,7 @@ export function CapacityQualifier() {
       </form>
 
       {error ? (
-        <div className="mt-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
+        <div role="alert" className="mt-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
           <CircleAlert className="h-4 w-4 shrink-0 text-flag mt-0.5" />
           <p>{error}</p>
         </div>
@@ -342,8 +344,73 @@ function QualifyReadout({
         qualificationId={qualificationId}
       />
 
+      <NextSteps share={share} />
+
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
     </div>
+  );
+}
+
+/**
+ * Save and continue. Four next steps, each a real route that exists today, in the order most people want them:
+ * keep this read, get the free allowance to call the engine yourself, see what running more would cost, or
+ * commission the engagement. Nothing here sends the figures typed above anywhere new: the first step is the
+ * permanent page this qualification already produced, and the rest are ordinary pages.
+ */
+function NextSteps({ share }: { share: string | null }) {
+  return (
+    <section aria-labelledby="next-steps" className="mt-6 rounded border border-line bg-panel-2 p-4 sm:p-5">
+      <h4 id="next-steps" className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
+        Save and continue
+      </h4>
+      <ol className="mt-3 grid gap-4 md:grid-cols-2">
+        <li className="min-w-0">
+          <p className="text-sm font-semibold text-ghost">1. Keep this read</p>
+          <p className="mt-1 text-xs text-mute">
+            {share
+              ? "It has a permanent page, private to whoever holds the link. Open it, or copy the link above to send on."
+              : "It was not saved to a page on this deployment, so copy the figures above before you leave."}
+          </p>
+          {share ? (
+            <a href={share} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
+              Open the saved page
+            </a>
+          ) : null}
+        </li>
+        <li className="min-w-0">
+          <p className="text-sm font-semibold text-ghost">2. Compare the relief options, then save a project</p>
+          <p className="mt-1 text-xs text-mute">
+            The free Time-to-Power comparison puts dates and evidence classes on each option and can be saved to a project
+            for whoever approves the spend.
+          </p>
+          <a href="/power/compare" className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
+            Run the comparison
+          </a>
+        </li>
+        <li className="min-w-0 md:col-span-2">
+          <p className="text-sm font-semibold text-ghost">3. Run more halls yourself, free to start</p>
+          <p className="mt-1 text-xs text-mute">
+            An email address gets {PAYG.freeAllowanceUnits} units a month, no card, to call the engine from your own
+            tooling. <a href="/developers#rates" className="text-power underline">See what the next operation would cost</a>{" "}
+            before you run it.
+          </p>
+          <div className="mt-3 max-w-xl">
+            <FreeAllowanceForm compact heading="Get the free allowance" />
+          </div>
+        </li>
+        <li className="min-w-0 md:col-span-2">
+          <p className="text-sm font-semibold text-ghost">4. Commission the engagement</p>
+          <p className="mt-1 text-xs text-mute">
+            The panel above carries this read into the engagement, so the intake starts from the numbers you already
+            entered.{" "}
+            <a href="/pricing#engagements" className="text-power underline">
+              Compare the engagements
+            </a>
+            .
+          </p>
+        </li>
+      </ol>
+    </section>
   );
 }
 
@@ -421,7 +488,7 @@ function CommissionPanel({
           <ArrowRight className="h-3.5 w-3.5" />
         </a>
       </div>
-      {error ? <p className="mt-3 text-sm text-flag">{error}</p> : null}
+      {error ? <p role="alert" className="mt-3 text-sm text-flag">{error}</p> : null}
     </div>
   );
 }
