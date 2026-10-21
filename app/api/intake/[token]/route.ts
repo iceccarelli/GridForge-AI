@@ -121,6 +121,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // document itself; this is so the confirmation they see on submit says the same
   // thing, rather than the first they hear of it being a document footnote.
   const assumed = assumedFields(parsed.data as Record<string, unknown>);
+  // A Procurement Specification quotes duties "at the site conditions stated". The summer design dry bulb is optional in the
+  // schema (the engine has a library default), so when it is left blank the buyer is told at submission that the duties
+  // rest on a default and not on their site, rather than finding out on the released page.
+  const specAssumptions =
+    row.kind === "procurement_spec" && (parsed.data as { designDrybulbC?: unknown }).designDrybulbC === undefined
+      ? [{ field: "designDrybulbC", source: "your site's summer design dry-bulb temperature (the climate basis the suppliers must quote at)" }]
+      : [];
 
   // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
   // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
@@ -204,7 +211,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         message:
           "Received. Part of your pack is still being produced; we will complete it, have a senior engineer " +
           "review it and come back to you. Nothing has been published.",
-        assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
+        assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
       });
     }
 
@@ -229,7 +236,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       // Said here as well as in the document. A customer who left three numbers
       // blank should hear what we assumed at the moment they submitted, not
       // discover it in a footnote a week later.
-      assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
+      assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
     });
   });
 }

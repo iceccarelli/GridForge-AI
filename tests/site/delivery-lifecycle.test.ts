@@ -212,6 +212,7 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     const body: any = await res.json();
     expect(res.status, JSON.stringify(body)).toBe(200);
     expect(body.status).toBe("draft");
+    expect(body.assumed).toEqual([]);                      // they gave the site's design dry bulb: nothing about their site is assumed
 
     // the right endpoint: a specification purchase never calls the screen (the EUR 18,000 wrong-document regression)
     expect(engineUrls).toContain("/v1/spec");
@@ -245,7 +246,10 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
   it("when the buyer gave no site design dry bulb, the page says the specification rests on a default, not on THEIR site conditions", async () => {
     await buy("procurement_spec", 1_800_000);
     const d = rowOf("procurement_spec");
-    expect((await submit(d, INTAKE)).status).toBe(200);
+    const res = await submit(d, INTAKE);
+    expect(res.status).toBe(200);
+    // and the buyer is told at SUBMISSION, not first on the released page
+    expect(((await res.json()) as any).assumed).toEqual([expect.objectContaining({ field: "designDrybulbC" })]);
     const row = rowOf("procurement_spec");
     signIn();
     await releaseWith(row.token, packHash(row), "A. Rivera");
