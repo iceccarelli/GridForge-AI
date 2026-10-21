@@ -33,7 +33,7 @@ export function installProjectRpcs(db: PostgrestFake): void {
   db.rpcs.set("gf_attach_purchase", ({ p_project, p_object_type, p_object_id, p_event }) => {
     if (!db.rows("projects").some((x) => x.id === p_project)) throw new PgError("23503", "project_id foreign key", 409);
     // This Stripe session was already attached: the SQL catches the unique violation and answers created:false.
-    if (db.rows("project_events").some((e) => e.event_type === "paid_product_attached" && (e.payload as any)?.stripe_session_id === p_event.payload.stripe_session_id)) {
+    if (db.rows("project_events").some((e) => e.event_type === "paid_product_attached" && (e.payload as any)?.session_ref === p_event.payload.session_ref)) {
       return { created: false };
     }
     if (p_object_type) {

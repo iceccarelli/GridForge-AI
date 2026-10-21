@@ -29,6 +29,7 @@ import type { ProductId } from "@/lib/products";
 export function CommissionScreen({
   productId,
   qualificationId,
+  qualificationToken,
   company,
   capacityMW,
   label,
@@ -39,6 +40,8 @@ export function CommissionScreen({
   productId: ProductId;
   /** The read this purchase came from. Null when we could not resolve one. */
   qualificationId?: string | null;
+  /** The q-token of that read; checkout accepts the id only together with it. */
+  qualificationToken?: string | null;
   company?: string | null;
   capacityMW?: number | null;
   /** Defaults to DENSITY_SCREEN_CTA, which is built from the catalogue. */
@@ -53,7 +56,7 @@ export function CommissionScreen({
   async function commission() {
     setBusy(true);
     setError(null);
-    const ctx: CommissionContext = { qualificationId, company, capacityMW, context };
+    const ctx: CommissionContext = { qualificationId, qualificationToken, company, capacityMW, context };
     const outcome = await startCommission(productId, ctx);
     if (!outcome.ok) setError(outcome.error);
     setBusy(false);

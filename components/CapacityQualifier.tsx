@@ -87,6 +87,7 @@ export function CapacityQualifier() {
    * qualification; the tab it was produced in did not.
    */
   const [qualificationId, setQualificationId] = useState<string | null>(null);
+  const [qualificationToken, setQualificationToken] = useState<string | null>(null);
 
   const set = (key: keyof Values, raw: string) =>
     setValues((v) => ({ ...v, [key]: raw === "" ? 0 : Number(raw) }));
@@ -112,6 +113,7 @@ export function CapacityQualifier() {
       setHeadline(String(body.headline ?? ""));
       setShare(typeof body.share === "string" ? body.share : null);
       setQualificationId(typeof body.qualificationId === "string" ? body.qualificationId : null);
+      setQualificationToken(typeof body.qualificationToken === "string" ? body.qualificationToken : null);
     } catch {
       setError("Could not reach the server. Your figures were not saved — please check your connection and try again.");
     } finally {
@@ -242,6 +244,7 @@ export function CapacityQualifier() {
           headline={headline}
           share={share}
           qualificationId={qualificationId}
+          qualificationToken={qualificationToken}
         />
       ) : null}
     </div>
@@ -253,11 +256,13 @@ function QualifyReadout({
   headline,
   share,
   qualificationId,
+  qualificationToken,
 }: {
   result: QualifyResult;
   headline: string;
   share: string | null;
   qualificationId: string | null;
+  qualificationToken: string | null;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
   return (
@@ -345,6 +350,7 @@ function QualifyReadout({
         summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
         capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
         qualificationId={qualificationId}
+        qualificationToken={qualificationToken}
       />
 
       <NextSteps share={share} />
@@ -422,12 +428,15 @@ function CommissionPanel({
   summary,
   capacityMW,
   qualificationId,
+  qualificationToken,
 }: {
   recommendation: string;
   summary: string;
   capacityMW: number;
   /** The read being commissioned, so the engagement opens joined to it. */
   qualificationId: string | null;
+  /** Its q-token: /api/checkout drops the id without it. */
+  qualificationToken: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -447,6 +456,7 @@ function CommissionPanel({
           product: screen.id,
           capacityMW,
           qualificationId: qualificationId ?? undefined,
+          qualificationToken: qualificationToken ?? undefined,
         }),
       });
       const body = await res.json();

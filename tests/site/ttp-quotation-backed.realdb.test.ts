@@ -125,7 +125,7 @@ const hex = () => crypto.randomBytes(32).toString("hex");
 /** An engagement (a released procurement_spec deliverable), optionally linked to a project. */
 async function engagement(projectId: string | null) {
   const d = (await (await sql("/deliverables", {
-    method: "POST", body: JSON.stringify({ token: crypto.randomBytes(12).toString("hex"), kind: "procurement_spec", status: "released", intake: {} }),
+    method: "POST", body: JSON.stringify({ token: crypto.randomBytes(12).toString("hex"), kind: "procurement_spec", status: "released", intake: { _gridforge: { review: { by: "A. Reviewer" } } } }),
   })).json())[0];
   if (projectId) await sql("/project_links", { method: "POST", body: JSON.stringify({ project_id: projectId, object_type: "deliverable", object_id: d.id }) });
   return d.id as string;

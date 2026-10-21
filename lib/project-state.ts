@@ -481,8 +481,32 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
         event_type: e.event_type,
         occurred_at: e.occurred_at,
         actor: e.actor,
-        payload: e.payload,
+        payload: publicEventPayload(e.payload),
       })),
     },
   };
+}
+
+
+/**
+ * The only keys of a history event a project's state returns. A project token (and a share link) is a bearer capability held by
+ * more than one person, and an event payload can carry an id that acts as a credential for SOMEONE ELSE'S purchase: a Stripe
+ * session id (turned by /commissioned into that buyer's private link), the id of the purchased object, a case or package token.
+ * So this is an allow-list of descriptive keys, never a deny-list: a key added to an event tomorrow stays private until it is
+ * listed here.
+ */
+export const PUBLIC_EVENT_KEYS: ReadonlySet<string> = new Set([
+  "project_name", "via", "revision", "changed_fields", "kind", "object_type", "amount_cents",
+  "filename", "media_type", "sha256", "byte_size", "review_status", "architecture", "units", "case_revision",
+  "supplier", "response_id", "received_at", "supplier_count", "leading", "comparison_id",
+  "request_digest", "grade", "engine_version", "quotation_lines",
+  "observation_id", "calibration_key", "installed_attested", "evidence_id", "predicted_value", "observed_value", "delta_pct",
+  "decision", "evidence_class", "actual_id", "package_id", "selected_response_id", "supersedes_id", "verified_fields",
+  "cost_key", "validation_status", "synthetic", "basis", "superseded", "run_id", "evidence_ids",
+  "selected_at", "rank_at_selection", "was_leading", "compliant", "share_id", "replaced_previous",
+]);
+
+export function publicEventPayload(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  return Object.fromEntries(Object.entries(payload as Record<string, unknown>).filter(([k]) => PUBLIC_EVENT_KEYS.has(k)));
 }

@@ -273,7 +273,8 @@ afterAll(async () => { engines.forEach((e) => e.kill()); gateway?.close(); proxy
 /** An engagement as the site holds it after release: a procurement_spec deliverable attached to a project. */
 async function engagement(opts: { withProject?: boolean; status?: string; kind?: string } = {}) {
   const token = crypto.randomBytes(12).toString("hex");
-  const stored = { ...INTAKE, _gridforge: { spec: { constraint_id: "transformer_capacity" } } };
+  // a released row names its reviewer: 0040 refuses `released` without intake._gridforge.review.by
+  const stored = { ...INTAKE, _gridforge: { spec: { constraint_id: "transformer_capacity" }, review: { by: "A. Reviewer" } } };
   const d = (await (await db("/deliverables", {
     method: "POST",
     body: JSON.stringify({ token, kind: opts.kind ?? "procurement_spec", status: opts.status ?? "released", intake: stored,

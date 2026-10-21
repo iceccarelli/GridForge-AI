@@ -173,6 +173,7 @@ export default async function QualificationPage({
         <CommissionScreen
           productId={screen.id}
           qualificationId={q.id}
+          qualificationToken={q.token}
           company={q.company}
           capacityMW={
             typeof q.inputs?.contractedMW === "number" ? q.inputs.contractedMW : null
