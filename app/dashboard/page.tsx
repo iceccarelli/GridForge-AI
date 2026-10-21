@@ -7,6 +7,7 @@ import { getSupabase } from "@/lib/supabase-client";
 import { eurFromCents } from "@/lib/products";
 import { CommissionScreen } from "@/components/CommissionScreen";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { CONFIRM_EMAIL_TEXT, documentHref, intakeHref, isUnverified, watchHref } from "@/lib/portal-links";
 
 /**
  * The client portal. Real rows or an honest empty state — nothing else.
@@ -47,7 +48,7 @@ interface Engagement {
 }
 
 interface Watch {
-  token: string;
+  token: string | null;
   status: string;
   cadence: string;
   siteName: string | null;
@@ -61,7 +62,7 @@ type State =
   | { phase: "loading" }
   | { phase: "anonymous" }
   | { phase: "error"; message: string }
-  | { phase: "ready"; email: string; engagements: Engagement[]; watches: Watch[] };
+  | { phase: "ready"; email: string; verified: boolean; engagements: Engagement[]; watches: Watch[] };
 
 /** What each status means to the person who paid, in their words rather than ours. */
 const STATUS_COPY: Record<string, string> = {
@@ -116,6 +117,7 @@ export default function Dashboard() {
       setState({
         phase: "ready",
         email: body.email,
+        verified: !isUnverified(body),
         engagements: body.engagements ?? [],
         watches: body.watches ?? [],
       });
@@ -255,21 +257,24 @@ export default function Dashboard() {
                       {STATUS_COPY[e.status] ?? e.status}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-3">
-                      {e.documentToken ? (
+                      {documentHref(e) ? (
                         <Link
-                          href={`/deliverable/${e.documentToken}`}
+                          href={documentHref(e) as string}
                           className="inline-flex items-center gap-2 rounded-xl bg-power px-4 py-2 text-sm font-semibold text-ink"
                         >
                           <FileText size={15} /> Read the document
                         </Link>
                       ) : null}
-                      {e.intakeToken ? (
+                      {intakeHref(e) ? (
                         <Link
-                          href={`/intake/${e.intakeToken}`}
+                          href={intakeHref(e) as string}
                           className="inline-flex items-center gap-2 rounded-xl border border-power/50 px-4 py-2 text-sm font-medium text-power"
                         >
                           Submit the hall&apos;s numbers <ArrowRight size={15} />
                         </Link>
+                      ) : null}
+                      {!state.verified ? (
+                        <p role="status" className="text-sm text-queue">{CONFIRM_EMAIL_TEXT}</p>
                       ) : null}
                     </div>
                   </article>
@@ -284,8 +289,8 @@ export default function Dashboard() {
                 Hall Watch
               </h2>
               <div className="mt-4 grid gap-4">
-                {state.watches.map((w) => (
-                  <article key={w.token} className="rounded border border-line bg-panel p-5">
+                {state.watches.map((w, i) => (
+                  <article key={w.token ?? `watch-${i}`} className="rounded border border-line bg-panel p-5">
                     <div className="flex flex-wrap items-baseline justify-between gap-3">
                       <h3 className="text-lg font-semibold text-ghost">
                         {[w.siteName, w.hallId].filter(Boolean).join(" · ") || "Hall Watch"}
@@ -297,12 +302,16 @@ export default function Dashboard() {
                     <p className="mt-2 text-sm text-mute">
                       Last re-solved {day(w.lastRunAt)} · next {day(w.nextRunAt)}
                     </p>
-                    <Link
-                      href={`/watch/${w.token}`}
-                      className="mt-4 inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2 text-sm text-ghost hover:border-power/50"
-                    >
-                      <Radar size={15} /> Open the watch
-                    </Link>
+                    {watchHref(w) ? (
+                      <Link
+                        href={watchHref(w) as string}
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2 text-sm text-ghost hover:border-power/50"
+                      >
+                        <Radar size={15} /> Open the watch
+                      </Link>
+                    ) : (
+                      <p role="status" className="mt-4 text-sm text-queue">{CONFIRM_EMAIL_TEXT}</p>
+                    )}
                   </article>
                 ))}
               </div>

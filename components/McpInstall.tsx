@@ -27,10 +27,16 @@ const TABS = {
     "gridforge": {
       "type": "http",
       "url": "{ENGINE}/mcp",
-      "headers": { "x-api-key": "YOUR_KEY" }
+      "headers": {
+        "x-api-key": "YOUR_KEY",
+        "X-GridForge-Project": "my-project"
+      }
     }
   }
 }`,
+  "Claude Code + key": `claude mcp add --transport http gridforge {ENGINE}/mcp \\
+  --header "x-api-key: $GRIDFORGE_KEY" \\
+  --header "X-GridForge-Project: my-project"`,
   curl: `curl -s -X POST {ENGINE}/mcp \\
   -H 'content-type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
@@ -74,8 +80,10 @@ export default function McpInstall({ engine }: { engine: string }) {
         {(Object.keys(TABS) as Tab[]).map((t) => (
           <button
             key={t}
+            type="button"
+            aria-pressed={t === tab}
             onClick={() => setTab(t)}
-            className={`rounded border px-3 py-1.5 font-mono text-xs transition-colors ${
+            className={`min-h-11 rounded border px-3 py-1.5 font-mono text-xs transition-colors ${
               t === tab
                 ? "border-power/60 bg-power/10 text-power"
                 : "border-line text-mute hover:text-ghost"
@@ -91,7 +99,9 @@ export default function McpInstall({ engine }: { engine: string }) {
           {snippet}
         </pre>
         <button
+          type="button"
           onClick={copy}
+          aria-label={copied ? "Copied" : `Copy the ${tab} snippet`}
           className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded border border-line bg-panel px-2.5 py-1 text-xs text-mute hover:text-ghost"
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -99,6 +109,12 @@ export default function McpInstall({ engine }: { engine: string }) {
         </button>
       </div>
 
+      <p className="mt-3 text-[11px] text-faint">
+        <span className="font-mono text-mute">X-GridForge-Project</span> is optional: up to 64 characters of letters,
+        digits and <span className="font-mono text-mute">. _ : -</span>. When the engine records it, your usage can be
+        read back per project; a value outside that set is ignored, not rejected. Without a key, only the free
+        qualifier answers. Every other tool asks for one.
+      </p>
       <p className="mt-3 text-[11px] text-faint">
         The handshake tells the model not to present a modelled figure as a property of a
         physical asset, and every result carries our calibration state. An E0 number loose

@@ -4,9 +4,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
+import CostEstimator from "@/components/CostEstimator";
+import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import McpInstall from "@/components/McpInstall";
+import PaygRateCard from "@/components/PaygRateCard";
+import ThreePaths from "@/components/ThreePaths";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { PAYG } from "@/lib/products";
+import { parseToolRates } from "@/lib/payg-pricing";
 
 export const metadata: Metadata = {
   title: "Machine interface — call the engine",
@@ -77,6 +83,7 @@ export default async function DevelopersPage() {
   const cat = await readJson<Catalogue>("tools.json");
   const acc = await readJson<Accuracy>("calibration.json");
   const tools = cat?.tools ?? [];
+  const rates = parseToolRates(cat);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
@@ -103,10 +110,16 @@ export default async function DevelopersPage() {
             Tool schemas <ArrowRight className="h-4 w-4" />
           </a>
           <a
-            href="#plans"
+            href="#free"
             className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink"
           >
-            Get a key <ArrowRight className="h-4 w-4" />
+            Get the free allowance <ArrowRight className="h-4 w-4" />
+          </a>
+          <a
+            href="#rates"
+            className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+          >
+            What it costs
           </a>
           <a
             href="/reference/tools.json"
@@ -116,6 +129,10 @@ export default async function DevelopersPage() {
           </a>
         </div>
       </header>
+
+      <div className="mt-10">
+        <ThreePaths />
+      </div>
 
       <TtpPhoto
         id="ttp-16"
@@ -223,7 +240,7 @@ export default async function DevelopersPage() {
         </div>
       </section>
 
-      <section className="mt-12 rounded border border-line bg-panel-2 p-6">
+      <section id="accuracy" className="mt-12 scroll-mt-24 rounded border border-line bg-panel-2 p-6">
         <div className="flex items-start gap-3">
           <Boxes className="mt-0.5 h-4 w-4 shrink-0 text-power" />
           <div className="max-w-3xl">
@@ -267,15 +284,40 @@ export default async function DevelopersPage() {
         </section>
       ) : null}
 
-      <section id="plans" className="mt-12 scroll-mt-24">
-        <h2 className="text-xl font-semibold text-ghost">Metered access</h2>
+      <section id="free" className="mt-12 scroll-mt-24">
+        <div className="rounded border border-power/40 bg-panel-2 p-5 sm:p-6">
+          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-power">
+            Free allowance · {PAYG.freeAllowanceUnits} units a month · no card
+          </p>
+          <div className="mt-3 max-w-2xl">
+            <FreeAllowanceForm heading="Try the engine on your own hall, free" />
+          </div>
+        </div>
+      </section>
+
+      <section id="rates" className="mt-12 scroll-mt-24">
+        <h2 className="text-xl font-semibold text-ghost">What it costs</h2>
         <p className="mt-2 max-w-3xl text-sm text-mute">
-          Run a free capacity check first — if it answers your question you do not need a key. If
-          you have two hundred halls and a model that needs re-running every time a tariff or a
-          platform spec moves, this is what that costs.
+          Free first, then metered, then a plan if the volume warrants one. Every number below is generated from the
+          engine&apos;s own tool catalogue and the published unit price: there is no second price list.
         </p>
         <div className="mt-6">
-          <ApiPlans />
+          <PaygRateCard rates={rates} />
+        </div>
+        <div className="mt-6">
+          <CostEstimator rates={rates} engine={API} />
+        </div>
+      </section>
+
+      <section id="plans" className="mt-12 scroll-mt-24">
+        <h2 className="text-xl font-semibold text-ghost">Monthly plans</h2>
+        <p className="mt-2 max-w-3xl text-sm text-mute">
+          Plans are for steady volume: a fixed price a month for a fixed number of units. If you are not there yet,
+          the free allowance and pay-as-you-go above cost less. Past a plan&apos;s units the engine returns 402; there
+          is no overage billing.
+        </p>
+        <div className="mt-6">
+          <ApiPlans rates={rates} />
         </div>
       </section>
 
