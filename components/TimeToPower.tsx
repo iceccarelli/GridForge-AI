@@ -42,7 +42,7 @@ export function TimeToPower() {
       { title: "Illustrative — transformer-bound hall", sub: "100 MW contracted, 160-week lead time on the fix", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
       { title: "Illustrative — grid-queue-blocked site", sub: "New connection years out, existing hall under-used", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
       { title: "Illustrative — floor-loading-bound hall", sub: "300 MW contracted, structural limit sets the ceiling", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
-      { title: "Your site — modelled by the engine", sub: "This is what a Density Screen confirms for you", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
+      { title: "Your site — placeholder inputs", sub: "Not an engine result: a Density Screen replaces these with your hall's numbers", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },
     ],
     []
   );
@@ -153,12 +153,12 @@ export function TimeToPower() {
 
         <Track
           label="New grid connection" sub="wait on the utility" tone="queue"
-          fraction={m.qFrac} markerLabel={`energized · year ${queueYrs.toFixed(1).replace(/\.0$/, "")}`}
+          fraction={m.qFrac} markerLabel={`energized · year ${queueYrs.toFixed(1).replace(/\.0$/, "")} (assumed)`}
         />
         <div className="h-4" />
         <Track
           label="Density unlocked in your existing hall" sub="Headroom Ladder" tone="power"
-          fraction={m.oFrac} markerLabel={`unlocked · month ${Math.round(onsiteMo)}`}
+          fraction={m.oFrac} markerLabel={`unlocked · month ${Math.round(onsiteMo)} (assumed)`}
         />
 
         <div className="data text-[10px] text-faint mt-2 px-1 flex justify-between">
@@ -171,7 +171,7 @@ export function TimeToPower() {
       <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4">
         <Knob label="Capacity" value={mw} unit="MW" min={10} max={500} step={10} onChange={setMW} onNudge={nudge} />
         <Knob label="Queue wait" value={queueYrs} unit="yr" min={2} max={8} step={0.5} onChange={setQueueYrs} fixed={1} onNudge={nudge} />
-        <Knob label="Headroom Ladder time-to-power" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
+        <Knob label="Headroom Ladder time-to-power (your assumption)" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
         <Knob label="Revenue / MW-yr" value={revPerMW} unit="$M" min={0.5} max={4} step={0.1} onChange={setRevPerMW} fixed={1} assumption onNudge={nudge} />
 
         {/* Scene dots — show the reel is alive and progressing */}

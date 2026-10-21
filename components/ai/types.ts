@@ -118,6 +118,11 @@ export const timeToPowerMetricSchema = z.object({
   onSiteMonths: quantitySchema,
   monthsRecovered: quantitySchema,
   series: z.array(timeToPowerPointSchema).optional(),
+  // What the on-site figure rests on (lib/date-basis.ts). A block without them is shown as "lead time unverified".
+  dateBasis: z.enum(["none", "assumed", "supported"]).optional(),
+  dateEvidenceClass: z.string().nullable().optional(),
+  dateBindingItem: z.string().nullable().optional(),
+  dateLabel: z.string().optional(),
 });
 export type TimeToPowerMetricBlock = z.infer<typeof timeToPowerMetricSchema>;
 

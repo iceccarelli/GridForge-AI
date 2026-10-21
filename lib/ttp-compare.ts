@@ -21,7 +21,7 @@ export type CompareObjective = (typeof OBJECTIVES)[number];
 export const OBJECTIVE_LABEL: Record<CompareObjective, string> = {
   max_compute: "Most racks",
   min_cost: "Lowest capex per rack",
-  fastest: "Earliest full energisation",
+  fastest: "Shortest time to full capacity",
 };
 
 /** Supply kinds the engine models with firm-capacity defaults (gridforge/power/btm.py). PV and wind are not firm. */
@@ -107,6 +107,11 @@ export interface CompareScenario {
     first_rack_weeks: number | null;
     sets_the_date: string | null;
     reason: string | null;
+    /** What the figure rests on (lib/date-basis.ts). Absent from an engine older than the date-basis keys and from results stored before them. */
+    date_basis?: "none" | "assumed" | "supported";
+    date_evidence_class?: string | null;
+    date_binding_item?: string | null;
+    date_label?: string;
     lead_times: { constraint: string; name: string; domain: string; lead_time_weeks: Q | null; missing: boolean; capex_eur: Q | null; cost_basis?: string | null }[];
   };
   economics: {
@@ -118,6 +123,10 @@ export interface CompareScenario {
     decision_grade: boolean;
     basis: string;
     limitations: string[];
+    date_basis?: "none" | "assumed" | "supported";
+    date_evidence_class?: string | null;
+    date_binding_item?: string | null;
+    date_label?: string;
   };
   weakest_lead_time_evidence: string | null;
   grade: "indicative" | "screening" | "undated";

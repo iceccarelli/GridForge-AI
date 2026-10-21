@@ -1,3 +1,4 @@
+import { formatLeadTime } from "@/lib/date-basis";
 import { AlertTriangle, Gauge } from "lucide-react";
 import { EvidenceBadge, ProvenanceLine } from "./EvidenceBadge";
 import type { ConstraintBlock } from "./types";
@@ -54,7 +55,7 @@ export function BindingConstraintCard({ block }: { block: ConstraintBlock }) {
           {block.relief.leadTimeWeeks && (
             <span className="text-faint">
               {" "}
-              · {block.relief.leadTimeWeeks.value} wk lead
+              · {formatLeadTime(block.relief.leadTimeWeeks.value, block.relief.leadTimeWeeks.evidenceClass)}
             </span>
           )}
         </div>
