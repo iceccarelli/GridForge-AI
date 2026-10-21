@@ -210,7 +210,8 @@ describe("POST /api/power/deploy/cases and /cases/[token]", () => {
     const res = await (await create()).POST(post("/api/power/deploy/cases", DEPLOY));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, case_token: expect.any(String), revision: 1 });
-    expect(engine.map((e) => e.path)).toEqual(["/v1/power/deploy/assess"]);
+    // the metered assessment, then the unmetered read of the engine's own build identity that the case revision records
+    expect(engine.map((e) => e.path)).toEqual(["/v1/power/deploy/assess", "/v1/version"]);
     expect([hitsOf("deploy_case"), hitsOf("engine_public_caller"), hitsOf("engine_public")]).toEqual([1, 1, 1]);
   });
 

@@ -57,9 +57,9 @@ async function newProject(name = "Hall A") {
   const made: any = await (await POST(json("/api/projects", { project_name: name }))).json();
   return { token: made.project_token as string, id: db.rows("projects").find((p) => p.project_token === made.project_token)!.id as string };
 }
-const evidence = (projectId: string): string => db.insertRow("project_evidence", {
+const evidence = (projectId: string, review_status = "verified"): string => db.insertRow("project_evidence", {
   project_id: projectId, filename: "po.pdf", media_type: "application/pdf", sha256: "c".repeat(64), byte_size: 10,
-  storage_ref: "b/po", source_category: "supplier_document", evidence_class: null, review_status: "unverified",
+  storage_ref: "b/po", source_category: "supplier_document", evidence_class: null, review_status,
 }).id as string;
 /** A package with a recorded selection, exactly as gf_select_supplier leaves it. */
 function selectedPackage(projectId: string, values: Record<string, number> = { capex_eur: 4_000_000, lead_time_weeks: 20, install_weeks: 6 }, select = true) {
@@ -101,13 +101,71 @@ describe("recording what happened", () => {
     const [row] = db.rows("supplier_actuals") as any[];
     expect(row).toMatchObject({ supplier: "Voltek", quoted_capex_eur: 4_000_000, quoted_lead_time_weeks: 20, quoted_install_weeks: 6, architecture: ARCH, case_revision: 1 });
     expect(db.rows("project_events").map((e) => e.event_type)).toContain("supplier_actual_submitted");
+    // The view computed 23 weeks, 6 weeks and +300,000 EUR from what was SUBMITTED. None of it is shown as a result
+    // until a reviewer vouches for the facts it is computed from; the quote side is the vendor's, labelled as such.
     const s = await state(p.token);
     expect(s.supplier_reality).toEqual([expect.objectContaining({
       supplier: "Voltek", state: "submitted", superseded: false,
-      lead_time: expect.objectContaining({ quoted_weeks: 20, actual_weeks: 23 }),
-      install: expect.objectContaining({ quoted_weeks: 6, actual_weeks: 6 }),
-      price: expect.objectContaining({ quoted_eur: 4_000_000, delta_eur: 300_000 }),
+      lead_time: expect.objectContaining({ quoted_weeks: 20, actual_weeks: null, review_state: "submitted", basis: expect.stringMatching(/^Withheld: po_date and on_site_date/) }),
+      install: expect.objectContaining({ quoted_weeks: 6, actual_weeks: null, review_state: "submitted", basis: expect.stringMatching(/^Withheld/) }),
+      price: expect.objectContaining({ quoted_eur: 4_000_000, delta_eur: null, review_state: "submitted", basis: expect.stringMatching(/^Withheld: actual_cost/) }),
     })]);
+    // the raw view row says what it computed, which proves the gate (not the arithmetic) is what withholds it
+    expect(db.rows("supplier_reality")[0]).toMatchObject({ actual_lead_time_weeks: 23, cost_delta_eur: 300_000 });
+  });
+
+  it("shows each derived figure only when EVERY fact it is computed from is verified, with its review state", async () => {
+    signIn();
+    const p = await newProject();
+    const pkg = selectedPackage(p.id);
+    await submit(p.token, pkg.package_token, good(p.id));
+    const id = (db.rows("supplier_actuals")[0] as any).id as string;
+    expect((await review(id, { decision: "verified", verified_fields: ["po_date", "actual_cost"], reviewer: "R. Chen" })).res.status).toBe(201);
+    const s = (await state(p.token)).supplier_reality[0];
+    // po_date alone (no on_site_date) does not verify the lead time; the cost is verified, so its delta shows
+    expect(s.lead_time).toMatchObject({ actual_weeks: null, review_state: "verified" });
+    expect(s.lead_time.basis).toMatch(/^Withheld: on_site_date has not been verified/);
+    expect(s.install).toMatchObject({ actual_weeks: null, review_state: "verified" });
+    expect(s.price).toMatchObject({ delta_eur: 300_000, review_state: "verified" });
+  });
+
+  it("shows lead and install times when all of their dates are verified, and nothing after a rejection", async () => {
+    signIn();
+    const a = await newProject("A");
+    await submit(a.token, selectedPackage(a.id).package_token, good(a.id));
+    await review((db.rows("supplier_actuals")[0] as any).id, { decision: "verified", verified_fields: ["po_date", "on_site_date", "energised_date"], reviewer: "R. Chen" });
+    const s = (await state(a.token)).supplier_reality[0];
+    expect(s.lead_time).toMatchObject({ actual_weeks: 23, review_state: "verified" });
+    expect(s.install).toMatchObject({ actual_weeks: 6, review_state: "verified" });
+    expect(s.price).toMatchObject({ delta_eur: null, review_state: "verified" });        // the cost itself was not vouched for
+    const b = await newProject("B");
+    await submit(b.token, selectedPackage(b.id).package_token, good(b.id));
+    await review((db.rows("supplier_actuals")[1] as any).id, { decision: "rejected", reviewer: "R. Chen", reason: "PO is for another order" });
+    const r = (await state(b.token)).supplier_reality[0];
+    expect(r.lead_time).toMatchObject({ actual_weeks: null, review_state: "rejected" });
+    expect(r.price).toMatchObject({ delta_eur: null, review_state: "rejected" });
+    expect(r.lead_time.basis).toMatch(/was rejected by the reviewer/);
+  });
+
+  it("withholds the same figures from the admin queue until they are verified", async () => {
+    signIn();
+    const p = await newProject();
+    await submit(p.token, selectedPackage(p.id).package_token, good(p.id));
+    const { GET } = await import("@/app/api/admin/supplier-actuals/route");
+    const q: any = await (await GET(new Request(siteUrl("/x")))).json();
+    expect(q.items[0].reality).toMatchObject({ actual_lead_time_weeks: null, cost_delta_eur: null, review_state: "submitted", withheld: ["lead_time", "install", "cost_delta"] });
+    expect(q.items[0].actual).toMatchObject({ po_date: "2026-01-12", actual_cost: 4_300_000 });   // the submitted facts themselves are there to be checked
+  });
+
+  it("refuses a review by the submitter, and a verification whose evidence artifact is not verified", async () => {
+    signIn();
+    const p = await newProject();
+    await submit(p.token, selectedPackage(p.id).package_token, good(p.id, { evidence_id: evidence(p.id, "unverified") }));
+    const id = (db.rows("supplier_actuals")[0] as any).id as string;
+    expect((await review(id, { decision: "rejected", reviewer: " a. rivera ", reason: "x" })).res.status).toBe(403);
+    expect((await review(id, { decision: "verified", verified_fields: ["po_date"], reviewer: "R. Chen" })).res.status).toBe(409);
+    expect(db.rows("supplier_actual_reviews")).toHaveLength(0);
+    expect((await review(id, { decision: "rejected", reviewer: "R. Chen", reason: "no verified source" })).res.status).toBe(201);
   });
 
   it("keeps unknown unknown: one date alone yields no derived figure and says why", async () => {

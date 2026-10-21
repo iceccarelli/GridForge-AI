@@ -8,6 +8,7 @@
 // unknown. A cost is only ever compared against the quote when the submitter states it covers the same
 // scope and the currency matches. A correction is a new record superseding exactly one earlier one.
 
+import { createHash } from "node:crypto";
 import {
   creds,
   ev,
@@ -77,6 +78,66 @@ export interface RealityRow {
   cost_scope: string | null;
   cost_delta_eur: number | null;
   cost_basis: string;
+}
+
+export type ReviewState = "submitted" | "verified" | "rejected";
+
+/** A derived quoted-vs-actual row after review gating: see `gateReality`. */
+export interface GatedReality extends RealityRow {
+  review_state: ReviewState;
+  /** Derived figures held back because a contributing fact is not verified: "lead_time", "install", "cost_delta". */
+  withheld: string[];
+}
+
+// The facts each derived figure is computed from. A figure is shown only when EVERY one of them is in the
+// reviewer's verified_fields; a submitted-but-unreviewed (or rejected, or partly verified) fact never becomes a
+// number a reader can mistake for an established one.
+const NEEDS = {
+  lead_time: ["po_date", "on_site_date"],
+  install: ["on_site_date", "energised_date"],
+  cost_delta: ["actual_cost"],
+} as const;
+
+/**
+ * Hold back every derived delta (actual lead time, actual install time, cost delta) unless the review verified the
+ * facts it is computed from, and attach the review state either way. The database view computes the arithmetic
+ * from whatever was SUBMITTED; this is the gate between that arithmetic and any reader. Pure.
+ */
+export function gateReality(
+  review: ActualReviewRow | null | undefined,
+  v: RealityRow | null | undefined,
+  actualId: string
+): GatedReality {
+  const state: ReviewState = review ? review.decision : "submitted";
+  const verified = new Set(review?.decision === "verified" ? review.verified_fields : []);
+  const base: RealityRow = v ?? {
+    actual_id: actualId, quoted_lead_time_weeks: null, actual_lead_time_weeks: null, lead_time_basis: "unknown",
+    quoted_install_weeks: null, actual_install_weeks: null, install_basis: "unknown", quoted_capex_eur: null,
+    actual_cost: null, actual_cost_currency: null, cost_scope: null, cost_delta_eur: null, cost_basis: "unknown",
+  };
+  const withheld: string[] = [];
+  const gate = (name: keyof typeof NEEDS, value: number | null, basis: string): { value: number | null; basis: string } => {
+    if (value === null || value === undefined) return { value: null, basis };
+    const missing = NEEDS[name].filter((f) => !verified.has(f));
+    if (missing.length === 0) return { value, basis };
+    withheld.push(name);
+    return {
+      value: null,
+      basis: `Withheld: ${missing.join(" and ")} ${state === "rejected" ? "was rejected by the reviewer" : "has not been verified by a reviewer"} (review: ${state}). A figure computed from a submitted fact is not shown as a result.`,
+    };
+  };
+  const lead = gate("lead_time", base.actual_lead_time_weeks, base.lead_time_basis);
+  const install = gate("install", base.actual_install_weeks, base.install_basis);
+  const cost = gate("cost_delta", base.cost_delta_eur, base.cost_basis);
+  return {
+    ...base,
+    actual_lead_time_weeks: lead.value, lead_time_basis: lead.basis,
+    actual_install_weeks: install.value, install_basis: install.basis,
+    cost_delta_eur: cost.value, cost_basis: cost.basis,
+    // The submitted cost figure itself stays out of the derived row unless it is verified.
+    actual_cost: verified.has("actual_cost") ? base.actual_cost : null,
+    review_state: state, withheld,
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -172,6 +233,9 @@ export async function submitSupplierActual(
     p: {
       project_id: project.id, package_id: pk.pkg.id, ...dates, actual_cost, actual_cost_currency, cost_scope,
       cost_scope_note, evidence_id, method, submitted_by, supersedes_id, note,
+      // Who submitted, as far as the site can know it: the project token's hash, stored so a review by the same
+      // party can be refused (migration 0038).
+      submitted_by_ref: createHash("sha256").update(project.project_token).digest("hex"),
     },
     p_event: ev("supplier_actual_submitted", submitted_by, {}),
   });
@@ -230,6 +294,8 @@ export async function reviewSupplierActual(input: {
     if (done.ok === false && done.code === "23503") return { ok: false, status: 404, error: "Not found." };
     if (done.ok === false && done.code === "23514") return { ok: false, status: 422, error: "You can only verify facts the record actually supplies." };
     if (done.ok === false && done.code === "23505") return { ok: false, status: 409, error: "This record has already been reviewed." };
+    if (done.ok === false && done.code === "GF001") return { ok: false, status: 403, error: "A submission cannot be reviewed by the person who submitted it." };
+    if (done.ok === false && done.code === "GF002") return { ok: false, status: 409, error: "The supporting evidence artifact is not verified, so this record cannot be verified. Reject it, or verify the artifact first." };
     return { ok: false, status: 502, error: "The review could not be saved. Nothing was recorded." };
   }
   return { ok: true, review: done.data };
@@ -245,7 +311,7 @@ export async function realityFor(projectId: string): Promise<Result<{ byActual: 
 /** Every record with its review, newest first — for the admin queue. */
 export async function supplierActualQueue(
   state: "pending" | "all"
-): Promise<Result<{ items: { actual: ActualRow; review: ActualReviewRow | null; reality: RealityRow | null }[] }>> {
+): Promise<Result<{ items: { actual: ActualRow; review: ActualReviewRow | null; reality: GatedReality }[] }>> {
   if (!creds()) return STORE_UNCONFIGURED;
   const [a, r, v] = await Promise.all([
     rest<ActualRow[]>("GET", "supplier_actuals?select=*&order=submitted_at.desc"),
@@ -255,6 +321,9 @@ export async function supplierActualQueue(
   if (!a.ok || !r.ok || !v.ok) return { ok: false, status: 502, error: "The supplier-record queue could not be read." };
   const rv = new Map((r.data ?? []).map((x) => [x.actual_id, x]));
   const re = new Map((v.data ?? []).map((x) => [x.actual_id, x]));
-  const items = (a.data ?? []).map((actual) => ({ actual, review: rv.get(actual.id) ?? null, reality: re.get(actual.id) ?? null }));
+  const items = (a.data ?? []).map((actual) => {
+    const review = rv.get(actual.id) ?? null;
+    return { actual, review, reality: gateReality(review, re.get(actual.id), actual.id) };
+  });
   return { ok: true, items: state === "pending" ? items.filter((i) => !i.review) : items };
 }

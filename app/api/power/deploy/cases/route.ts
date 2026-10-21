@@ -68,6 +68,7 @@ export async function POST(req: Request) {
     const row = await createDeploymentCase({
       request,
       result: assessed.result,
+      engine_provenance: assessed.provenance,
       email: typeof email === "string" ? email : null,
       company: typeof company === "string" ? company : null,
       project_name: typeof project_name === "string" ? project_name : null,
