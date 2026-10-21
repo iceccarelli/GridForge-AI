@@ -49,7 +49,8 @@ def row(out, sid):
 
 
 def capex(out, sid):
-    return row(out, sid)["economics"]["capex_total_eur"]["value"]
+    q = row(out, sid)["economics"]["capex_total_eur"]
+    return None if q is None else q["value"]          # None: nothing deployable, so there is no capex to state
 
 
 # --- no evidence: exactly what it was ----------------------------------------------------------------------------------

@@ -53,9 +53,13 @@ def build(intake: Intake, results: list[ScenarioResult],
         db = date_basis(rec.ladder, ttp)
         s.blocks.append(Statement("Time to full capacity", fq, date_basis_text(
             db, f"set by {ttp.critical_item.lower()}; works run in parallel")))
-    s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur,
-                              rec.economics.aace_class + ("" if rec.economics.capex_complete else
-                                                          " · LOWER BOUND: a cost it needs has no price")))
+    if rec.economics.nothing_deployable:
+        s.blocks.append(Para("Indicative capital cost: n/a: nothing deployable (there is no capex to state, not a "
+                             "zero one)."))
+    else:
+        s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur,
+                                  rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                                              " · LOWER BOUND: a cost it needs has no price")))
     if rec.envelope.max_racks == 0:
         s.blocks.append(Callout("warning",
             "As the hall stands it cannot host a single rack of the target platform. Stopping here is a "

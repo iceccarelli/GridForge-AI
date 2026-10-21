@@ -171,9 +171,12 @@ def _absolute_capex(relief, racks_after: int, evidence: EvidenceClass = ESTIMATE
         relief.description + f" for {n} racks", "envelope.relief_capex", step_evidence=evidence)
 
 
-class LadderDidNotConverge(RuntimeError):
+class LadderDidNotConverge(RuntimeError, ValueError):
     """The ladder was still finding reliefs when the step budget ran out. Reporting
-    the rung it happened to stop on would publish a capacity that is not the ceiling."""
+    the rung it happened to stop on would publish a capacity that is not the ceiling.
+
+    It is also a ValueError: the cause is the input (a hall so unbounded the ladder never settles), so the API
+    answers 422 "could not be processed as given" and refunds the call, rather than a 500 that blames the engine."""
 
 
 def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *, taken: bool = True) -> LadderStep:

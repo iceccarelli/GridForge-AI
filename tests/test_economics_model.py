@@ -696,7 +696,9 @@ def test_every_reference_scenario_still_solves_and_reconciles(name):
             assert not r.ladder.taken_steps and e.capex_cdu_kit_eur is None
         lo, hi = e.capex_total_eur.band
         assert lo <= e.capex_total_eur.value <= hi
-        assert e.capex_complete == (not e.unpriced and all(s.capex_eur is not None for s in r.ladder.taken_steps))
+        # A scenario that deploys nothing has no capex to state (n/a), so it is never 'complete' at 0 EUR.
+        assert e.capex_complete == (not e.unpriced and all(s.capex_eur is not None for s in r.ladder.taken_steps)
+                                    and not e.nothing_deployable)
 
 
 def test_the_cli_never_reads_cleaner_than_the_report():

@@ -61,7 +61,8 @@ def test_an_expired_quote_is_downgraded_not_trusted():
 def test_the_accuracy_class_follows_the_weakest_line():
     lib = CostLibrary()
     lib.put(CostEntry(key="a", label="a", unit="EUR", value=1, basis="contracted"))
-    assert lib.aace_class(["a"]) == AACE_BY_EVIDENCE[EvidenceClass.E7_DEPLOYED]
+    # 'contracted' is capped at E5 (E7 is observed in operation, earned by measurement, not by a cost line).
+    assert lib.aace_class(["a"]) == AACE_BY_EVIDENCE[EvidenceClass.E5_CUSTOMER_DATA]
     assert lib.aace_class(["a", "b"]) == AACE_BY_EVIDENCE[EvidenceClass.E0_ASSUMPTION], (
         "one placeholder drags the whole estimate back; averaging would be dishonest"
     )

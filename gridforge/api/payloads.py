@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..calibration import accuracy_block, constraint_key
 from ..envelope.time_to_power import date_basis, schedule
 from ..intake.loader import Intake
+from ..power.plausibility import intake_warnings
 from ..reporting.study import Objective, _pick_recommended
 from ..scenario.run import ScenarioResult
 from ..serialize import _q, scenario_dict
@@ -66,7 +67,7 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
             "required_inputs_missing": len(intake.report.required_gaps),
             "can_issue_a_study": intake.report.can_issue,
             "gaps": _gap_list(intake, public=True),
-            "warnings": intake.report.warnings,
+            "warnings": intake_warnings(intake),
             "recommended_engagement": intake.report.engagement_recommendation,
         },
         "calibration": calibration_block(results),
@@ -86,7 +87,7 @@ def screen_payload(intake: Intake, results: list[ScenarioResult],
         "intake": {"completeness": round(intake.report.completeness, 3),
                    "can_issue_a_study": intake.report.can_issue,
                    "gaps": _gap_list(intake),
-                   "warnings": intake.report.warnings,
+                   "warnings": intake_warnings(intake),
                    "recommended_engagement": intake.report.engagement_recommendation},
         "calibration": calibration_block(results),
     }
