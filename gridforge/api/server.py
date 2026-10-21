@@ -659,6 +659,11 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
     key_id = str(body.get("key_id") or "").strip()
     if not key_id:
         raise ApiError(422, "key_id is required")
+    # Never "revoked" on a machine whose store would not survive a restart (a Fly machine with no volume): a write there succeeds, the
+    # key is dead until the next restart, and the caller has been told it is gone. Ask the same question the operator tier reports.
+    if not revocation_persistable():
+        raise ApiError(503, "revocation is not persistable on this deployment",
+                       fix="the revocation file must be on the mounted /data volume; check GET /v1/version (operator) revocation_persistable")
     stored = revoke(key_id)
     if not stored:
         # Never report a revocation that did not happen. A caller told "revoked"

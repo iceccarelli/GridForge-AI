@@ -31,6 +31,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .keys import on_volume
+
 SCHEMA = "gridforge/costs/1"
 #: Upper bounds of the wall-time buckets, milliseconds. A final overflow bucket catches anything slower.
 BUCKET_BOUNDS_MS: tuple[float, ...] = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
@@ -151,6 +153,8 @@ class CostMeter:
             probe = self._path.parent / (self._path.name + ".probe")
             probe.write_text("ok")
             probe.unlink()
+            if not on_volume(self._path.parent):
+                raise OSError("not a mounted volume")
         except Exception as exc:
             self._problem = (f"{self._path} is not writable ({type(exc).__name__}); timings are held in "
                              f"memory only.")

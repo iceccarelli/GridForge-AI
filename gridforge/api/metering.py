@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..commercial import PAYG
-from .keys import CAPPED_SCOPES, ApiKey, KeyError_, looks_signed, verify
+from .keys import CAPPED_SCOPES, ApiKey, KeyError_, looks_signed, on_volume, verify
 from .costs import CostMeter
 from .ledger import Ledger, LedgerError, parse_ts
 
@@ -281,6 +281,8 @@ class Meter:
             probe = self._path.parent / (self._path.name + ".probe")
             probe.write_text("ok")
             probe.unlink()
+            if not on_volume(self._path.parent):
+                raise OSError("not a mounted volume")
         except Exception as exc:
             self._problem = (f"{self._path} is not writable ({type(exc).__name__}). "
                              f"On Fly.io this usually means no volume is mounted at "
