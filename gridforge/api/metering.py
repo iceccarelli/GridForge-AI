@@ -220,6 +220,30 @@ class Usage:
     by_endpoint: dict[str, int] = field(default_factory=dict)
     first_seen: str = ""
     last_seen: str = ""
+    #: Units per key scope. A cap is counted against its OWN scope only: the free allowance (`trial`) is free and
+    #: separate, and must never eat into a pay-as-you-go cap (or the reverse).
+    by_scope: dict[str, int] = field(default_factory=dict)
+    #: Units recorded before scopes were tracked (a usage file from an older engine). Their scope is unknown, so
+    #: they count against EVERY scope's cap for that month: conservative, and it ends with the month.
+    legacy: int = 0
+    old_format: bool = False          # loaded from a row with no by_scope; not persisted
+
+    def scope_units(self, scope: str) -> int:
+        return self.by_scope.get(scope, 0) + self.legacy
+
+    def add(self, scope: str, n: int) -> None:
+        self.units += n
+        self.by_scope[scope] = self.by_scope.get(scope, 0) + n
+
+    def take_back(self, scope: str, n: int) -> None:
+        """Reverse n units of a charge made under `scope`."""
+        self.units = max(0, self.units - n)
+        have = self.by_scope.get(scope, 0)
+        used = min(have, n)
+        if used:
+            self.by_scope[scope] = have - used
+        if n > used:
+            self.legacy = max(0, self.legacy - (n - used))
 
 
 @dataclass
@@ -240,6 +264,7 @@ class Reservation:
     month: str = ""
     event: dict | None = None
     reason: str = ""
+    scope: str = "client"
 
 
 class Meter:
@@ -317,6 +342,11 @@ class Meter:
                           by_endpoint=dict(row.get("by_endpoint") or {}),
                           first_seen=row.get("first_seen", ""),
                           last_seen=row.get("last_seen", ""))
+                if isinstance(row.get("by_scope"), dict):
+                    u.by_scope = {str(k): max(0, int(v)) for k, v in row["by_scope"].items()}
+                    u.legacy = max(0, int(row.get("legacy_units", 0)))
+                else:
+                    u.legacy, u.old_format = max(0, u.units), True      # unknown scope: counts against all
                 self._usage[(row["key"], row["month"])] = u
             except Exception:
                 continue
@@ -330,11 +360,25 @@ class Meter:
             for (account, month), t in self.ledger.totals().items():
                 cur = self._usage.get((account, month))
                 exact = bool(t.scopes & CAPPED_SCOPES)
-                if cur is None or exact or cur.units < t.units:
-                    self._usage[(account, month)] = Usage(
-                        month=month, units=max(0, t.units), calls=max(0, t.calls),
-                        by_endpoint={k: v for k, v in t.by_endpoint.items() if v > 0},
-                        first_seen=t.first, last_seen=t.last)
+                ledger_scopes = {k: max(0, v) for k, v in t.by_scope.items()}
+                fresh = Usage(month=month, units=sum(ledger_scopes.values()), calls=max(0, t.calls),
+                              by_endpoint={k: v for k, v in t.by_endpoint.items() if v > 0},
+                              first_seen=t.first, last_seen=t.last, by_scope=ledger_scopes)
+                if cur is None:
+                    self._usage[(account, month)] = fresh
+                elif exact:
+                    # payg/trial: the ledger is exact per scope. Other scopes in the same month keep the larger
+                    # figure. A pre-scope usage row's unattributed units are reduced by what the ledger now
+                    # attributes, so they are not counted twice.
+                    for sc, v in ledger_scopes.items():
+                        cur.by_scope[sc] = v if sc in CAPPED_SCOPES else max(cur.by_scope.get(sc, 0), v)
+                    if cur.old_format:
+                        cur.legacy = max(0, cur.legacy - sum(ledger_scopes.values()))
+                    cur.units = sum(cur.by_scope.values()) + cur.legacy
+                    cur.calls, cur.by_endpoint = fresh.calls, fresh.by_endpoint
+                    cur.first_seen, cur.last_seen = fresh.first_seen, fresh.last_seen
+                elif cur.units < fresh.units:
+                    self._usage[(account, month)] = fresh
         except Exception:      # a ledger problem must not stop the engine serving
             pass
 
@@ -344,7 +388,7 @@ class Meter:
         try:
             rows = [{"key": k, "month": m, "units": u.units, "calls": u.calls,
                      "by_endpoint": u.by_endpoint, "first_seen": u.first_seen,
-                     "last_seen": u.last_seen}
+                     "last_seen": u.last_seen, "by_scope": u.by_scope, "legacy_units": u.legacy}
                     for (k, m), u in self._usage.items()]
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._path.with_suffix(self._path.suffix + ".tmp")
@@ -359,23 +403,22 @@ class Meter:
         with self._lock:
             return self._usage.get((account, m)) or Usage(month=m)
 
-    def would_exceed(self, account: str, units: int, quota: int = 0) -> bool:
+    def would_exceed(self, account: str, units: int, quota: int = 0, scope: str | None = None) -> bool:
         if not quota:
             return False
-        return self.current(account).units + units > quota
+        u = self.current(account)
+        return (u.units if scope is None else u.scope_units(scope)) + units > quota
 
     def record(self, key: str, path: str, units: int) -> Usage:
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         m = _month()
         with self._lock:
             u = self._usage.setdefault((key, m), Usage(month=m, first_seen=now))
-            u.units += units
+            u.add("client", units)
             u.calls += 1
             u.by_endpoint[path] = u.by_endpoint.get(path, 0) + units
             u.last_seen = now
-            snapshot = Usage(month=u.month, units=u.units, calls=u.calls,
-                             by_endpoint=dict(u.by_endpoint),
-                             first_seen=u.first_seen, last_seen=u.last_seen)
+            snapshot = self._snap(u)
         self._flush()
         return snapshot
 
@@ -403,7 +446,7 @@ class Meter:
                                            reason="this Idempotency-Key was already used with a different request body")
                     u = self._usage.get((account, m)) or Usage(month=m)
                     return Reservation("replay", usage=self._snap(u), account=account, endpoint=path,
-                                       units=0, month=m)
+                                       units=0, month=m, scope=scope)
             if capped and not quota:
                 # Defence in depth: verify() already refuses these, and a cap of 0 must never mean unlimited.
                 return Reservation("unavailable", account=account, endpoint=path, units=units, month=m,
@@ -412,9 +455,9 @@ class Meter:
                 return Reservation("unavailable", account=account, endpoint=path, units=units, month=m,
                                    reason=led.status())
             u = self._usage.setdefault((account, m), Usage(month=m, first_seen=now))
-            if quota and u.units + units > quota:
+            if quota and u.scope_units(scope) + units > quota:
                 return Reservation("over", usage=self._snap(u), account=account, endpoint=path,
-                                   units=units, month=m)
+                                   units=units, month=m, scope=scope)
             event = None
             if led.available():
                 try:
@@ -427,19 +470,20 @@ class Meter:
                         return Reservation("unavailable", account=account, endpoint=path, units=units,
                                            month=m, reason=str(exc))
                     event = None       # static/machine keys keep today's behaviour: the call still runs
-            u.units += units
+            u.add(scope, units)
             u.calls += 1
             u.by_endpoint[path] = u.by_endpoint.get(path, 0) + units
             u.last_seen = now
             snapshot = self._snap(u)
         self._flush()
         return Reservation("ok", usage=snapshot, account=account, endpoint=path, units=units, month=m,
-                           event=event)
+                           event=event, scope=scope)
 
     @staticmethod
     def _snap(u: Usage) -> Usage:
         return Usage(month=u.month, units=u.units, calls=u.calls, by_endpoint=dict(u.by_endpoint),
-                     first_seen=u.first_seen, last_seen=u.last_seen)
+                     first_seen=u.first_seen, last_seen=u.last_seen, by_scope=dict(u.by_scope),
+                     legacy=u.legacy)
 
     def _drain_pending_refunds(self) -> None:
         """Refunds that could not be written when they happened are retried before any new event, so a
@@ -457,7 +501,8 @@ class Meter:
         with self._lock:
             u = self._usage.get((r.account, r.month))
             if u is not None:
-                u.units = max(0, u.units - r.units)
+                # Reverse the scope the charge was made under, not whatever scope is asking now.
+                u.take_back(r.event["scope"] if r.event is not None else r.scope, r.units)
                 u.calls = max(0, u.calls - 1)
                 if r.endpoint in u.by_endpoint:
                     u.by_endpoint[r.endpoint] = max(0, u.by_endpoint[r.endpoint] - r.units)
@@ -506,7 +551,7 @@ class Meter:
         except Exception:
             pass
 
-    def refund(self, account: str, path: str, units: int) -> None:
+    def refund(self, account: str, path: str, units: int, scope: str = "client") -> None:
         """Give back units for a call that produced no answer (the work failed on our side or the
         request was invalid). A caller is billed for results, not for errors."""
         m = _month()
@@ -514,7 +559,7 @@ class Meter:
             u = self._usage.get((account, m))
             if u is None:
                 return
-            u.units = max(0, u.units - units)
+            u.take_back(scope, units)
             u.calls = max(0, u.calls - 1)
             if path in u.by_endpoint:
                 u.by_endpoint[path] = max(0, u.by_endpoint[path] - units)
@@ -524,6 +569,8 @@ class Meter:
         account = account or (plan.account if plan else "unknown")
         u = self.current(account)
         quota = plan.monthly_quota if plan else 0
+        # The figure a cap is judged on: this key's own scope. Account-wide units are shown beside it.
+        used = u.scope_units(plan.scope) if plan else u.units
         return {
             "account": account,
             "key": plan.masked if plan else "…",
@@ -531,16 +578,18 @@ class Meter:
             "scope": plan.scope if plan else "",
             "expires": (plan.expires or None) if plan else None,
             "month": u.month,
-            "units": u.units,
+            "units": used,
+            "account_units": u.units,
+            "by_scope": dict(sorted(u.by_scope.items())),
             "calls": u.calls,
             "by_endpoint": dict(sorted(u.by_endpoint.items())),
             "monthly_quota": quota or None,
-            "units_remaining": (quota - u.units) if quota else None,
+            "units_remaining": max(0, quota - used) if quota else None,
             "unit_rates": dict(sorted(UNIT_COST.items())),
             "durable": self.durable,
             "note": self.durability_note,
             "ledger_durable": self.ledger.available(),
-            **({"unit_price_cents": PAYG.unit_price_cents, "accrued_cents": PAYG.charge_cents(u.units)}
+            **({"unit_price_cents": PAYG.unit_price_cents, "accrued_cents": PAYG.charge_cents(used)}
                if plan and plan.scope == "payg" else {}),
         }
 
