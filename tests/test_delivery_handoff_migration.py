@@ -56,7 +56,7 @@ def db():
     psql("postgres", f"create database {name}")
     psql(name, "create extension if not exists pgcrypto")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
-    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0021_customer_notifications.sql", "0030_delivery_handoff.sql", "0034_deposit_receipt_notice.sql", "0036_release_notice_and_row_version.sql"):
+    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0021_customer_notifications.sql", "0030_delivery_handoff.sql", "0034_deposit_receipt_notice.sql", "0037_release_notice_and_row_version.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")

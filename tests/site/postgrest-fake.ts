@@ -375,7 +375,7 @@ export class PostgrestFake {
       for (const row of matching) {
         const old = { ...row };
         Object.assign(row, body as Row);
-        // migration 0036: every UPDATE bumps the row's version (a trigger in the real database)
+        // migration 0037: every UPDATE bumps the row's version (a trigger in the real database)
         if (typeof row.row_version === "number") row.row_version += 1;
         this.rowHooks.get(table)?.(row, old);
       }

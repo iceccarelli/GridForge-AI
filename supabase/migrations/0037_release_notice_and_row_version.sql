@@ -1,4 +1,4 @@
--- 0036_release_notice_and_row_version.sql — the release email is a durable obligation; a deliverable row has a version
+-- 0037_release_notice_and_row_version.sql — the release email is a durable obligation; a deliverable row has a version
 --
 -- 1. RELEASE NOTICE. The email that tells a buyer their reviewed document is ready was one best-effort send whose failure
 --    (or a buyer with no address on record) was returned to the operator and persisted nowhere: nothing retried it and nothing

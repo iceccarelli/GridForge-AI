@@ -3,7 +3,7 @@
  * reviewer; the buyer's email is a durable obligation, retried and observable; a re-click never claims "already emailed" while
  * the email is still pending; and a buyer's bid comparison never overwrites a concurrent change.
  *
- * MOCKS: PostgREST fake database, intercepted mail. The version trigger and the check constraint of 0036 are proven on
+ * MOCKS: PostgREST fake database, intercepted mail. The version trigger and the check constraint of 0037 are proven on
  * PostgreSQL in tests/test_delivery_handoff_migration.py and the realdb journey.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -262,7 +262,7 @@ describe("a buyer's bid comparison never overwrites a concurrent change (compare
     expect(row().working_files["bid_comparison.json"]).toBeUndefined();
   });
 
-  it("without the version column (migration 0036 not applied) it still stores the file", async () => {
+  it("without the version column (migration 0037 not applied) it still stores the file", async () => {
     draft({ status: "released" });
     delete row().row_version;
     expect(await putWorkingFile(TOKEN, "bid_comparison.json", "{}")).toBe(true);
