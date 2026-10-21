@@ -243,7 +243,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "deployable IT load",
           "model": "envelope.it_load@0.1",
-          "digest": "a4e3fd845acb"
+          "digest": "7878bb4e6931"
         },
         "gpus": 0
       },
@@ -290,6 +290,7 @@
       "time_to_power": {
         "weeks_to_first_rack": null,
         "weeks_to_full": null,
+        "schedule_complete": true,
         "sets_the_date": "\u2014",
         "curve": []
       },
@@ -354,7 +355,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "9fa64c70303b"
+          "digest": "7fbf738609fa"
         },
         "annual_grid_energy_cost_eur": {
           "value": 0.0,
@@ -364,7 +365,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual grid energy cost",
           "model": "economics.grid_energy_cost@0.1",
-          "digest": "e4c2ba60d951"
+          "digest": "d62a201b98e1"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -393,6 +394,7 @@
         "opex_complete": true,
         "lifecycle": null,
         "critical_path_weeks": 0.0,
+        "critical_path_complete": true,
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -773,7 +775,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "deployable IT load",
           "model": "envelope.it_load@0.1",
-          "digest": "a4e3fd845acb"
+          "digest": "7878bb4e6931"
         },
         "gpus": 0
       },
@@ -820,6 +822,7 @@
       "time_to_power": {
         "weeks_to_first_rack": null,
         "weeks_to_full": null,
+        "schedule_complete": true,
         "sets_the_date": "\u2014",
         "curve": []
       },
@@ -884,7 +887,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "a4b1b00fafbf"
+          "digest": "bc93400e02b4"
         },
         "annual_grid_energy_cost_eur": {
           "value": 0.0,
@@ -894,7 +897,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual grid energy cost",
           "model": "economics.grid_energy_cost@0.1",
-          "digest": "8d67a81dd6ce"
+          "digest": "0cc9ec61028c"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0,
@@ -923,6 +926,7 @@
         "opex_complete": true,
         "lifecycle": null,
         "critical_path_weeks": 0.0,
+        "critical_path_complete": true,
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -1326,7 +1330,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "deployable IT load",
           "model": "envelope.it_load@0.1",
-          "digest": "a4e3fd845acb"
+          "digest": "7878bb4e6931"
         },
         "gpus": 1872
       },
@@ -1690,6 +1694,7 @@
       "time_to_power": {
         "weeks_to_first_rack": 24,
         "weeks_to_full": 160.0,
+        "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
         "curve": [
           {
@@ -1748,7 +1753,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "39c2c194dfb5"
+          "digest": "9821d28f0d09"
         },
         "capex_components": {
           "relief_works_eur": {
@@ -1832,7 +1837,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "f35d99e09dad"
+          "digest": "83ceb2eba697"
         },
         "annual_grid_energy_cost_eur": {
           "value": 4200000.0,
@@ -1842,7 +1847,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual grid energy cost",
           "model": "economics.grid_energy_cost@0.1",
-          "digest": "85a461c1f878"
+          "digest": "591ceee11ad1"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.256,
@@ -1852,7 +1857,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "3e1397117363"
+          "digest": "55da6a68d11a"
         },
         "grid_tariff": {
           "eur_per_MWh": {
@@ -1880,12 +1885,13 @@
             "evidence": "E0_ASSUMPTION",
             "label": "lifecycle cost over 10 years",
             "model": "economics.lifecycle_cost@0.1",
-            "digest": "c0c7b3b2c957"
+            "digest": "0590aba4b7e0"
           },
           "complete": false,
           "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
+        "critical_path_complete": true,
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -2312,7 +2318,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "deployable IT load",
           "model": "envelope.it_load@0.1",
-          "digest": "a4e3fd845acb"
+          "digest": "7878bb4e6931"
         },
         "gpus": 2016
       },
@@ -2676,6 +2682,7 @@
       "time_to_power": {
         "weeks_to_first_rack": 32,
         "weeks_to_full": 160.0,
+        "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
         "curve": [
           {
@@ -2724,7 +2731,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "700f5ebffdb0"
+          "digest": "2c66b8baa94d"
         },
         "capex_components": {
           "relief_works_eur": {
@@ -2808,7 +2815,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "c6e2b66f7cd7"
+          "digest": "4243b5b63dd0"
         },
         "annual_grid_energy_cost_eur": {
           "value": 4170000.0,
@@ -2818,7 +2825,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual grid energy cost",
           "model": "economics.grid_energy_cost@0.1",
-          "digest": "40503427ac6d"
+          "digest": "016a688ae5cc"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -2828,7 +2835,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "9f0764431542"
+          "digest": "640cd8206ed8"
         },
         "grid_tariff": {
           "eur_per_MWh": {
@@ -2856,12 +2863,13 @@
             "evidence": "E0_ASSUMPTION",
             "label": "lifecycle cost over 10 years",
             "model": "economics.lifecycle_cost@0.1",
-            "digest": "a7fe3ba3d2a3"
+            "digest": "a8d29bc15951"
           },
           "complete": false,
           "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
+        "critical_path_complete": true,
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -3288,7 +3296,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "deployable IT load",
           "model": "envelope.it_load@0.1",
-          "digest": "a4e3fd845acb"
+          "digest": "7878bb4e6931"
         },
         "gpus": 4464
       },
@@ -4147,6 +4155,7 @@
       "time_to_power": {
         "weeks_to_first_rack": 32,
         "weeks_to_full": 160.0,
+        "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
         "curve": [
           {
@@ -4250,7 +4259,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "capex per kW of IT load deployed",
           "model": "economics.capex_per_kW@0.1",
-          "digest": "13152a4b6cf1"
+          "digest": "e566a902486d"
         },
         "capex_components": {
           "relief_works_eur": {
@@ -4382,7 +4391,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual energy cost",
           "model": "economics.energy_cost@0.1",
-          "digest": "c6e2b66f7cd7"
+          "digest": "4243b5b63dd0"
         },
         "annual_grid_energy_cost_eur": {
           "value": 9240000.0,
@@ -4392,7 +4401,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "annual grid energy cost",
           "model": "economics.grid_energy_cost@0.1",
-          "digest": "40503427ac6d"
+          "digest": "016a688ae5cc"
         },
         "energy_cost_per_gpu_hour_eur": {
           "value": 0.236,
@@ -4402,7 +4411,7 @@
           "evidence": "E0_ASSUMPTION",
           "label": "energy cost per GPU-hour",
           "model": "economics.energy_per_gpu_hour@0.1",
-          "digest": "9f0764431542"
+          "digest": "640cd8206ed8"
         },
         "grid_tariff": {
           "eur_per_MWh": {
@@ -4462,12 +4471,13 @@
             "evidence": "E0_ASSUMPTION",
             "label": "lifecycle cost over 10 years",
             "model": "economics.lifecycle_cost@0.1",
-            "digest": "099a6a050f4a"
+            "digest": "dab46789983e"
           },
           "complete": false,
           "basis": "capex at year 0 plus the annual energy cost for 10 years, undiscounted, flat prices, no escalation; excludes IT hardware, migration, lost tenancy revenue, non-energy operating cost of the cooling plant, and decommissioning"
         },
         "critical_path_weeks": 160.0,
+        "critical_path_complete": true,
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [

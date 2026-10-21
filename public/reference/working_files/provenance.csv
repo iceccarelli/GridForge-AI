@@ -1,10 +1,10 @@
 digest,quantity,evidence,model,assumptions,sources,derived_from
-a4e3fd845acb,deployable IT load,E0_ASSUMPTION,envelope.it_load@0.1,,,310c71a3d6f8
-310c71a3d6f8,(deployable rack count * GB300 NVL72 rack TDP),E0_ASSUMPTION,arith:*@0.1,,,8720a64fe164 e6476e7cd728
-8720a64fe164,deployable rack count,E3_ENGINEERING_ESTIMATE,input@0.1,,,
+7878bb4e6931,deployable IT load,E0_ASSUMPTION,envelope.it_load@0.1,,,5868b3808593
+5868b3808593,(deployable rack count * GB300 NVL72 rack TDP),E0_ASSUMPTION,arith:*@0.1,,,6e4a6658fdc4 e6476e7cd728
+6e4a6658fdc4,deployable rack count,E0_ASSUMPTION,input@0.1,,,
 e6476e7cd728,GB300 NVL72 rack TDP,E0_ASSUMPTION,input@0.1,,"Lenovo Press LP2357, GB300 NVL72, 2026 [V] | NVIDIA NVL72 AI Factory Reference Architecture, 2026 [V]",
-0db17abd8f0c,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,5ad604c99130
-5ad604c99130,"(deployable IT load * PUE, retained air architecture)",E0_ASSUMPTION,arith:*@0.1,,,a4e3fd845acb 9f96820c74f4
+84f12253d69d,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,021fecdbf023
+021fecdbf023,"(deployable IT load * PUE, retained air architecture)",E0_ASSUMPTION,arith:*@0.1,,,7878bb4e6931 9f96820c74f4
 9f96820c74f4,"PUE, retained air architecture",E0_ASSUMPTION,input@0.1,,"Uptime Institute Global Survey, 2025",
 f7495c34f50b,total capex,E0_ASSUMPTION,economics.total_capex@0.1,,,d137ccbdacf7
 d137ccbdacf7,(in-hall conversion capex + capex of relief measures taken along the headroom ladder),E0_ASSUMPTION,arith:+@0.1,,,31aac42971b6 0bbdb0027436
@@ -14,26 +14,26 @@ a72d867f274a,deployable racks,E0_ASSUMPTION,input@0.1,,,
 ee94bf911a63,"in-hall conversion per rack (manifolds, QDs, rack fit-out, commissioning)",E0_ASSUMPTION,input@0.1,"Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a benchmark. | Library default, not a price. Replace with a quotation before this figure supports a capital decision.",,
 0bbdb0027436,capex of relief measures taken along the headroom ladder,E1_MODEL,input@0.1,No relief was needed or priced.,,
 fa43210b5cde,capex per kW (no deployable load),E1_MODEL,input@0.1,,,
-9fa64c70303b,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,e4c2ba60d951
-e4c2ba60d951,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,6b3277a3d160
-6b3277a3d160,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,dd5ca33ba487 ee5beeda32eb
-dd5ca33ba487,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,2294d9107abe
-2294d9107abe,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,2aa944c3ba77 dd3de22bd110
-2aa944c3ba77,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,0db17abd8f0c 732fe5a2b7ad
+7fbf738609fa,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,d62a201b98e1
+d62a201b98e1,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,51636f2cf279
+51636f2cf279,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,a5b66f8a2f67 ee5beeda32eb
+a5b66f8a2f67,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,ec917dd99a0b
+ec917dd99a0b,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,1819df16842d dd3de22bd110
+1819df16842d,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,84f12253d69d 732fe5a2b7ad
 732fe5a2b7ad,annual average rack utilisation,E3_ENGINEERING_ESTIMATE,input@0.1,,,
 dd3de22bd110,hours per year,E3_ENGINEERING_ESTIMATE,input@0.1,,,
 ee5beeda32eb,all-in electricity price,E0_ASSUMPTION,input@0.1,Placeholder. Replace with the site's actual contracted tariff.,,
-d9e76af19374,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,edebaf079f15
-edebaf079f15,"(deployable IT load * PUE, rear-door heat exchanger architecture)",E0_ASSUMPTION,arith:*@0.1,,,a4e3fd845acb 9cd90386fca6
+e989b1830a7e,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,a8edea1016a1
+a8edea1016a1,"(deployable IT load * PUE, rear-door heat exchanger architecture)",E0_ASSUMPTION,arith:*@0.1,,,7878bb4e6931 9cd90386fca6
 9cd90386fca6,"PUE, rear-door heat exchanger architecture",E0_ASSUMPTION,input@0.1,,"Uptime Institute Global Survey, 2025",
-a4b1b00fafbf,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,8d67a81dd6ce
-8d67a81dd6ce,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,132dd8c00ede
-132dd8c00ede,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,2614dcb7fab9 ee5beeda32eb
-2614dcb7fab9,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,1e19e05bc1f6
-1e19e05bc1f6,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,1db5d78bbf97 dd3de22bd110
-1db5d78bbf97,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,d9e76af19374 732fe5a2b7ad
-65b104555ffb,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,55bb8c815a6b
-55bb8c815a6b,"(deployable IT load * PUE, hybrid DLC on legacy plant)",E0_ASSUMPTION,arith:*@0.1,,,a4e3fd845acb 9c10874a8f81
+bc93400e02b4,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,0cc9ec61028c
+0cc9ec61028c,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,f6c4e711daf6
+f6c4e711daf6,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,691acf6c73f4 ee5beeda32eb
+691acf6c73f4,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,964075717738
+964075717738,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,e3cf84b0d01b dd3de22bd110
+e3cf84b0d01b,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,e989b1830a7e 732fe5a2b7ad
+d52c4d6b6653,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,41e9ba0e8277
+41e9ba0e8277,"(deployable IT load * PUE, hybrid DLC on legacy plant)",E0_ASSUMPTION,arith:*@0.1,,,7878bb4e6931 9c10874a8f81
 9c10874a8f81,"PUE, hybrid DLC on legacy plant",E0_ASSUMPTION,input@0.1,"Legacy low-temperature plant retained for residual air load, so free-cooling benefit is largely forgone","Vertiv, quantifying PUE when introducing liquid cooling (modelled), 2023 [V]",
 2942aa2c020c,total capex,E0_ASSUMPTION,economics.total_capex@0.1,,,2467ddceebbf
 2467ddceebbf,"((in-hall conversion capex + capex of relief measures taken along the headroom ladder) + initial CDU kit (assumed, not installed): supplied and mechanically installed)",E0_ASSUMPTION,arith:+@0.1,,,5dbcdda4d0f6 457085eb7b50
@@ -75,16 +75,16 @@ c99d9529d1e9,additional CDU: supplied and mechanically installed,E0_ASSUMPTION,i
 457085eb7b50,"initial CDU kit (assumed, not installed): supplied and mechanically installed",E0_ASSUMPTION,costs.scaled_relief@0.1,,,26d001b4efcb
 26d001b4efcb,"(initial CDU kit (assumed, not installed): supplied and mechanically installed * unit added by this relief)",E0_ASSUMPTION,arith:*@0.1,,,6e05cbffa853 752a3f9edaf5
 6e05cbffa853,"initial CDU kit (assumed, not installed): supplied and mechanically installed",E0_ASSUMPTION,input@0.1,"Placeholder covering the unit supplied and mechanically installed only. Hydraulic integration, controls and commissioning are separate components. | Library default, not a price. Replace with a quotation before this figure supports a capital decision.",,
-39c2c194dfb5,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,9b050fa28a1c
-9b050fa28a1c,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,2942aa2c020c a4e3fd845acb
-f35d99e09dad,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,85a461c1f878
-85a461c1f878,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,148e0f6cbfeb
-148e0f6cbfeb,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,3fe0e10b892f ee5beeda32eb
-3fe0e10b892f,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,8f199f181e49
-8f199f181e49,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,e12bb731dc38 dd3de22bd110
-e12bb731dc38,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,65b104555ffb 732fe5a2b7ad
-fb85ab271ff0,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,b0a482d9c396
-b0a482d9c396,"(deployable IT load * PUE, full DLC with high-temperature loop)",E0_ASSUMPTION,arith:*@0.1,,,a4e3fd845acb 37e16e4a98d9
+9821d28f0d09,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,3284916a8356
+3284916a8356,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,2942aa2c020c 7878bb4e6931
+83ceb2eba697,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,591ceee11ad1
+591ceee11ad1,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,3a8de9bb0173
+3a8de9bb0173,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,e7c815c90aed ee5beeda32eb
+e7c815c90aed,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,4ce08701eb42
+4ce08701eb42,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,cc370ff71082 dd3de22bd110
+cc370ff71082,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,d52c4d6b6653 732fe5a2b7ad
+1375af0be058,total facility load,E0_ASSUMPTION,envelope.facility_load@0.1,,,4b672668476f
+4b672668476f,"(deployable IT load * PUE, full DLC with high-temperature loop)",E0_ASSUMPTION,arith:*@0.1,,,7878bb4e6931 37e16e4a98d9
 37e16e4a98d9,"PUE, full DLC with high-temperature loop",E0_ASSUMPTION,input@0.1,Vendor claims of 1.05-1.15 are unproven; 1.15-1.25 used for design per docs/02 §7,"Vertiv, quantifying PUE when introducing liquid cooling (modelled), 2023 [V]",
 c9c2f31d3126,total capex,E0_ASSUMPTION,economics.total_capex@0.1,,,7b1cb65709b6
 7b1cb65709b6,"((in-hall conversion capex + capex of relief measures taken along the headroom ladder) + initial CDU kit (assumed, not installed): supplied and mechanically installed)",E0_ASSUMPTION,arith:+@0.1,,,9950fbb47727 457085eb7b50
@@ -103,14 +103,14 @@ f378b9f4a4ac,"((((((Higher-rated tap-off units (and busway if ampacity does not 
 7b85e2520908,Add in-row cooling or rear-door heat exchangers for the residual air load for 28 racks,E0_ASSUMPTION,envelope.relief_capex@0.1,,,9be05972187f
 9be05972187f,"(in-row cooling or rear-door heat exchanger, installed * racks fitted out (28))",E0_ASSUMPTION,arith:*@0.1,,,0a4be3458324 4c156fba3f5f
 af0380aad4fa,adiabatic assist and trim chiller,E0_ASSUMPTION,input@0.1,"Library default, not a price. Replace with a quotation before this figure supports a capital decision.",,
-700f5ebffdb0,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,fc449f7ec5ab
-fc449f7ec5ab,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,c9c2f31d3126 a4e3fd845acb
-c6e2b66f7cd7,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,40503427ac6d
-40503427ac6d,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,7ec2d00ada1c
-7ec2d00ada1c,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,215ce7188587 ee5beeda32eb
-215ce7188587,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,d9af26069bd3
-d9af26069bd3,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,16b5eafdd763 dd3de22bd110
-16b5eafdd763,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,fb85ab271ff0 732fe5a2b7ad
+2c66b8baa94d,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,cead2f7c659b
+cead2f7c659b,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,c9c2f31d3126 7878bb4e6931
+4243b5b63dd0,annual energy cost,E0_ASSUMPTION,economics.energy_cost@0.1,,,016a688ae5cc
+016a688ae5cc,annual grid energy cost,E0_ASSUMPTION,economics.grid_energy_cost@0.1,,,d89516cce4ee
+d89516cce4ee,(annual site energy for the deployed load * all-in electricity price),E0_ASSUMPTION,arith:*@0.1,,,beb6d1c08f7a ee5beeda32eb
+beb6d1c08f7a,annual site energy for the deployed load,E0_ASSUMPTION,convert@0.1,,,985a88b86c38
+985a88b86c38,((total facility load * annual average rack utilisation) * hours per year),E0_ASSUMPTION,arith:*@0.1,,,337e0c6b88b1 dd3de22bd110
+337e0c6b88b1,(total facility load * annual average rack utilisation),E0_ASSUMPTION,arith:*@0.1,,,1375af0be058 732fe5a2b7ad
 9eed5fbc0658,total capex,E0_ASSUMPTION,economics.total_capex@0.1,,,c1bac9783339
 c1bac9783339,"((in-hall conversion capex + capex of relief measures taken along the headroom ladder) + initial CDU kit (assumed, not installed): supplied and mechanically installed)",E0_ASSUMPTION,arith:+@0.1,,,adc8da691199 457085eb7b50
 adc8da691199,(in-hall conversion capex + capex of relief measures taken along the headroom ladder),E0_ASSUMPTION,arith:+@0.1,,,31aac42971b6 dee1a6789921
@@ -149,5 +149,5 @@ edd4d4501790,Add in-row cooling or rear-door heat exchangers for the residual ai
 be9752e4f9d4,GEN-5MW capacity in kW,E0_ASSUMPTION,convert@0.1,,,a6ca1624c7dc
 a6ca1624c7dc,GEN-5MW capacity,E0_ASSUMPTION,input@0.1,,,
 a90021661055,GEN-5MW installed capex,E0_ASSUMPTION,input@0.1,,,
-13152a4b6cf1,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,1510e1ce9278
-1510e1ce9278,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,9eed5fbc0658 a4e3fd845acb
+e566a902486d,capex per kW of IT load deployed,E0_ASSUMPTION,economics.capex_per_kW@0.1,,,147da3f17b3e
+147da3f17b3e,(total capex / deployable IT load),E0_ASSUMPTION,arith:/@0.1,,,9eed5fbc0658 7878bb4e6931
