@@ -20,7 +20,7 @@
 
 **Time to full capacity:** 160 [80–210] weeks (E0)
 
-*Limited by: set by transformer capacity; works run in parallel*
+*Limited by: assumed lead time, not a date (E0) · set by transformer capacity; works run in parallel*
 
 **Indicative capital cost:** 18,800,000 [9,420,000–37,700,000] EUR (E0)
 
@@ -34,7 +34,7 @@
 | --- | --- | --- | --- | --- |
 | binds first | Achievable facility water temperature | Adiabatic assist plus trim chiller on the high-temperature loop | 350,000 [175,000–700,000] EUR (E0) | 32 [20–48] weeks (E0) |
 | largest cost | Firm supply (grid import + behind-the-meter) | Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW) | 4,000,000 [2,800,000–5,200,000] EUR (E0) | 44 [28.6–59.4] weeks (E0) |
-| sets the date | Transformer capacity | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 160 [80–210] weeks (E0) |
+| sets the date (assumed, E0) | Transformer capacity | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 160 [80–210] weeks (E0) |
 
 *Of 20 steps on the full ladder; the study lists all of them.*
 

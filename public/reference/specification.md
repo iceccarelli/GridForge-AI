@@ -20,9 +20,9 @@ The budget figure is our modelled estimate, not a price. It is stated so the cli
 
 *Limited by: Our estimate, not a price. Stated so a response that is in the wrong universe is visible immediately.*
 
-**Modelled lead time:** 36 [24–52] weeks (E0)
+**Modelled lead time (assumed lead time, not a date):** 36 [24–52] weeks (E0)
 
-*Limited by: What the capacity model assumed. A response that differs materially moves the energisation date.*
+*Limited by: assumed lead time, not a date (E0): what the capacity model assumed, not a quotation or a commitment. A response that differs materially moves the energisation date.*
 
 > ⚠️ EVIDENCE DISCLOSURE: the duties in section 3 are derived from a capacity model built partly on library defaults and assumed inputs, not on a measured survey of this hall. The claim kinds still below the evidence required for an issued deliverable are: capex, cooling performance, electrical capacity. These duties are sufficient to obtain comparable, competent quotations and to see which supplier moves the energisation date. They are NOT sufficient on their own to raise a purchase order for long-lead plant: confirm the governing figures against site measurement first. The study's evidence appendix names exactly which ones those are.
 

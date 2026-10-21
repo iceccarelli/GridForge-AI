@@ -5,6 +5,10 @@
     "constraint": "busway_ampacity",
     "sized_for_racks": 62,
     "reference": "REF-TND-01",
+    "date_basis": "assumed",
+    "date_evidence_class": "E0",
+    "date_binding_item": "Busway ampacity",
+    "date_label": "assumed lead time, not a date (E0; set by busway ampacity)",
     "site_conditions": [
       {
         "id": "SC-01",
