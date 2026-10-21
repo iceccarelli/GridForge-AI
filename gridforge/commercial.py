@@ -79,6 +79,10 @@ ENGAGEMENTS: dict[str, Engagement] = {
             "A model pack you keep, so you can re-run our conclusion when your inputs change.",
         ),
         scope_out=SCOPE_OUT_COMMON,
+        payment_terms=("A deposit on commissioning, credited in full against the agreed fee. The fee is "
+                       "agreed in writing at scoping and falls inside the quoted band; the balance is the "
+                       "agreed fee less the deposit and any credit. The engagement opens when the deposit "
+                       "clears and the scoping call has agreed the scope."),
     ),
     "procurement_spec": Engagement(
         id="procurement_spec",
@@ -130,6 +134,10 @@ ENGAGEMENTS: dict[str, Engagement] = {
             "constraint is a programme, not a site problem.",
         ),
         scope_out=SCOPE_OUT_COMMON,
+        payment_terms=("A deposit on commissioning, credited in full against the agreed fee. The fee is "
+                       "agreed in writing at scoping and falls inside the quoted band; the balance is the "
+                       "agreed fee less the deposit and any credit. The engagement opens when the deposit "
+                       "clears and the scoping call has agreed the scope."),
     ),
 }
 

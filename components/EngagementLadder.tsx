@@ -62,7 +62,9 @@ function FeaturedRung({
             <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
               Turnaround
             </dt>
-            <dd className="mt-1 text-sm text-ghost">{product.turnaroundDays} working days</dd>
+            <dd className="mt-1 text-sm text-ghost">
+              {product.turnaroundDays} working days{product.opensBandCents ? ", counted from the scoping call, not from payment" : ""}
+            </dd>
           </div>
           <div className="col-span-2">
             <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
@@ -202,7 +204,9 @@ export function EngagementLadder() {
                   <span className="text-[11px] text-faint">
                     {band}{NOTE[id]}
                     {p.turnaroundDays && !p.recurring
-                      ? ` ${p.turnaroundDays} working days from a complete intake.`
+                      ? p.opensBandCents
+                        ? ` ${p.turnaroundDays} working days from a complete intake and the scoping call, not from payment.`
+                        : ` ${p.turnaroundDays} working days from a complete intake.`
                       : ""}
                   </span>
                 </div>
