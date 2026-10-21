@@ -4,7 +4,173 @@
     "hall": "DH-02",
     "constraint": "busway_ampacity",
     "sized_for_racks": 62,
-    "reference": "REF-TND-01"
+    "reference": "REF-TND-01",
+    "site_conditions": [
+      {
+        "id": "SC-01",
+        "label": "Design ambient dry bulb (summer)",
+        "path": "site.design_drybulb_C",
+        "status": "supplied",
+        "value": 34.0,
+        "text": null,
+        "unit": "degC",
+        "evidence": "E3",
+        "statement": "supplied by the client (not measured or surveyed by us)"
+      },
+      {
+        "id": "SC-02",
+        "label": "Design ambient wet bulb (summer)",
+        "path": "site.design_wetbulb_C",
+        "status": "supplied",
+        "value": 21.0,
+        "text": null,
+        "unit": "degC",
+        "evidence": "E5",
+        "statement": "supplied by the client (not measured or surveyed by us)"
+      },
+      {
+        "id": "SC-03",
+        "label": "Facility-water supply temperature (existing plant)",
+        "path": "thermal.plant.design_supply_C",
+        "status": "supplied",
+        "value": 6.0,
+        "text": null,
+        "unit": "degC",
+        "evidence": "E5",
+        "statement": "supplied by the client (not measured or surveyed by us)"
+      },
+      {
+        "id": "SC-04",
+        "label": "Technology-loop (TCS) supply target",
+        "path": "thermal.tcs_target_supply_C",
+        "status": "assumed",
+        "value": 30,
+        "text": null,
+        "unit": "degC",
+        "evidence": "E0",
+        "statement": "not supplied: assumed 30 degC (E0)"
+      },
+      {
+        "id": "SC-05",
+        "label": "Site altitude",
+        "path": null,
+        "status": "not_modelled",
+        "value": null,
+        "text": "not modelled",
+        "unit": null,
+        "evidence": null,
+        "statement": "not supplied: the capacity model has no altitude input, so no altitude derating of air-cooled plant, motors or electrical equipment has been applied to any duty. Responders shall quote at the site altitude the client confirms and state it."
+      },
+      {
+        "id": "SC-06",
+        "label": "LV distribution voltage",
+        "path": "lv.voltage_V",
+        "status": "supplied",
+        "value": 400.0,
+        "text": null,
+        "unit": "V",
+        "evidence": "E5",
+        "statement": "supplied by the client (not measured or surveyed by us) \u00b7 3-phase"
+      },
+      {
+        "id": "SC-07",
+        "label": "Supply frequency",
+        "path": null,
+        "status": "not_modelled",
+        "value": null,
+        "text": "not modelled",
+        "unit": null,
+        "evidence": null,
+        "statement": "not supplied: the capacity model has no frequency input. Responders shall state the frequency they have assumed for the equipment quoted."
+      },
+      {
+        "id": "SC-08",
+        "label": "Site power factor",
+        "path": "grid.power_factor",
+        "status": "supplied",
+        "value": 0.97,
+        "text": null,
+        "unit": "1",
+        "evidence": "E3",
+        "statement": "supplied by the client (not measured or surveyed by us)"
+      },
+      {
+        "id": "SC-09",
+        "label": "Rack power basis: NVIDIA GB300 NVL72",
+        "path": null,
+        "status": "library",
+        "value": 135,
+        "text": null,
+        "unit": "kW",
+        "evidence": "E0",
+        "statement": "per-rack total TDP from the platform library, used for every electrical and thermal duty (utilisation is not applied to a duty)"
+      },
+      {
+        "id": "SC-10",
+        "label": "Liquid heat-capture fraction: NVIDIA GB300 NVL72",
+        "path": null,
+        "status": "library",
+        "value": 0.9,
+        "text": null,
+        "unit": "1",
+        "evidence": "E0",
+        "statement": "platform library figure; the remainder is residual air load per rack"
+      },
+      {
+        "id": "SC-11",
+        "label": "Redundancy, transformer bank TX-A/B",
+        "path": null,
+        "status": "supplied",
+        "value": null,
+        "text": "N+1 on 3 units",
+        "unit": null,
+        "evidence": null,
+        "statement": "supplied by the client"
+      },
+      {
+        "id": "SC-12",
+        "label": "Redundancy, UPS bank UPS-1",
+        "path": null,
+        "status": "supplied",
+        "value": null,
+        "text": "N+1 on 6 units",
+        "unit": null,
+        "evidence": null,
+        "statement": "supplied by the client"
+      }
+    ],
+    "assumed_inputs": [
+      {
+        "path": "thermal.cdus",
+        "label": "Installed CDU schedule",
+        "unit": "",
+        "assumed": "nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)"
+      },
+      {
+        "path": "thermal.tcs_target_supply_C",
+        "label": "TCS target supply temperature",
+        "unit": "degC",
+        "assumed": "30 [27\u201332] degC (E0)"
+      },
+      {
+        "path": "thermal.rdhx.capacity_kW_per_rack",
+        "label": "Rear-door heat exchanger capacity per rack",
+        "unit": "kW",
+        "assumed": "60 [20\u201380] kW (E0)"
+      },
+      {
+        "path": "economics.electricity_eur_per_MWh",
+        "label": "All-in grid electricity price",
+        "unit": "EUR/MWh",
+        "assumed": "library placeholder of 140 EUR/MWh (E0)"
+      },
+      {
+        "path": "economics.discount_rate",
+        "label": "Discount rate",
+        "unit": "",
+        "assumed": "no value (none: the lifecycle value is undiscounted) (E0)"
+      }
+    ]
   },
   "supplier": "",
   "received_on": "",

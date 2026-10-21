@@ -343,10 +343,10 @@ def _load_document(doc: dict) -> Intake:
         country=str(r.raw("site.country", "—")),
         metro=str(r.raw("site.metro", "—")),
         design_drybulb_C=r.q("site.design_drybulb_C", "degC", "summer design dry-bulb",
-                             V(32, "degC", "assumed summer design dry-bulb", ESTIMATED,
+                             V(32, "degC", "assumed summer design dry-bulb", ASSUMED,
                                band=(30, 36))),
         design_wetbulb_C=r.q("site.design_wetbulb_C", "degC", "summer design wet-bulb",
-                             V(21, "degC", "assumed summer design wet-bulb", ESTIMATED,
+                             V(21, "degC", "assumed summer design wet-bulb", ASSUMED,
                                band=(19, 23))),
         halls=[hall],
     )
@@ -519,7 +519,7 @@ def _load_document(doc: dict) -> Intake:
                                    V(250, "kPa", "assumed available pump head", ASSUMED, band=0.3)),
             free_cooling_hours_per_year=r.q(
                 "thermal.plant.free_cooling_hours_per_year", "h", "free cooling hours",
-                V(2500, "h", "assumed free cooling hours", ESTIMATED, band=0.3)),
+                V(2500, "h", "assumed free cooling hours", ASSUMED, band=0.3)),
             dry_cooler_capacity_kW=None,
             dry_cooler_approach_K=None,
         ),

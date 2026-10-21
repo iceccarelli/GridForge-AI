@@ -16,12 +16,12 @@ short of. Every procurement engagement upgrades the evidence class of the figure
 that every future study rests on. That is the flywheel: the work that pays for
 itself twice.
 """
-from .schema import (EvaluationCriterion, Requirement, ResponseField, ScopeItem,
-                     SpecPackage, SupplierResponse, ProcurementError)
+from .schema import (AssumedInput, EvaluationCriterion, Requirement, ResponseField, ScopeItem,
+                     SiteCondition, SpecPackage, SupplierResponse, ProcurementError)
 from .build import build_spec, relief_steps
 from .evaluate import BidAssessment, assess, rank_bids
 from .ingest import cost_entries_from
 
-__all__ = ["EvaluationCriterion", "Requirement", "ResponseField", "ScopeItem",
+__all__ = ["AssumedInput", "SiteCondition", "EvaluationCriterion", "Requirement", "ResponseField", "ScopeItem",
            "SpecPackage", "SupplierResponse", "ProcurementError", "build_spec",
            "relief_steps", "BidAssessment", "assess", "rank_bids", "cost_entries_from"]
