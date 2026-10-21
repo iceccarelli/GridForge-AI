@@ -236,6 +236,7 @@ const RAW_ENGINE_FETCH_ALLOWED: { file: string; snippet: string; why: string }[]
   { file: "lib/cost-evidence.ts", snippet: "/v1/version", why: "GET of the engine's public provenance (digest and version): no units, read by GET routes that have no spend scope, and cheap enough to be bounded by the route's own request limits" },
   { file: "lib/api-readiness.ts", snippet: "/v1/version", why: "a GET with a minted probe key and the operator key to prove key issuance works; never the platform key, cached per process" },
   { file: "lib/api-access.ts", snippet: "/v1/revoke", why: "revokes a customer's key with the operator key when a subscription ends or is withdrawn; not the platform key" },
+  { file: "lib/payg-usage.ts", snippet: "/v1/admin/ledger", why: "the daily cron reads the engine's operator-only usage ledger with the operator key (never the platform key); it spends no units and runs only behind CRON_SECRET" },
 ];
 
 const rawFetches = (file: string, src: string) =>

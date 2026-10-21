@@ -6,8 +6,18 @@ import { apiSalesReadiness } from "@/lib/api-readiness";
 import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 import { projectForShare } from "@/lib/project-share";
+import { pg, rpc } from "@/lib/payg-store";
 
 export const runtime = "nodejs";
+
+/** How long a Founding Partner slot stays reserved for a checkout that has not completed. */
+const FOUNDING_RESERVATION_MINUTES = 35;
+
+/** Give a reserved slot back when no session carries it (best effort: an unreleased one simply expires). */
+async function releaseFoundingReservation(id: string | null): Promise<void> {
+  if (!id) return;
+  await pg("DELETE", `founding_reservations?id=eq.${encodeURIComponent(id)}`, undefined, "return=minimal");
+}
 
 /** RFC 4122 shape. The database column is a uuid; nothing else can be stored. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -139,6 +149,7 @@ export async function POST(req: Request) {
   // granted blind: the request is refused (no session, no coupon). When no slot remains the buyer gets the
   // ordinary deposit and the response says the credit was not applied. No coupon is created without a discount.
   let applyFounding = false;
+  let foundingReservation: string | null = null;
   if (!product && wantsFounding && COMMERCE.founding.enabled) {
     const remaining = await foundingSlotsRemainingLive();
     if (remaining === null) {
@@ -148,18 +159,42 @@ export async function POST(req: Request) {
         { status: 503 }
       );
     }
-    applyFounding = remaining > 0;
+    if (remaining > 0) {
+      // "Remaining" is read from PAID deposits only, so N concurrent checkouts would each see the last slot and each be given
+      // the credit (EUR 2,500 each). A slot is therefore RESERVED, atomically in the database (gf_founding_reserve, 0028), before any
+      // coupon exists: paid + live reservations < total, serialised. No reservation -> no coupon, and the buyer gets the ordinary
+      // deposit. If the reservation cannot be made at all (store down, migration not applied) the credit is NOT granted blind.
+      const reserved = await rpc<string | null>("gf_founding_reserve", {
+        p_paid: COMMERCE.founding.totalSlots - remaining,
+        p_total: COMMERCE.founding.totalSlots,
+        p_ttl_minutes: FOUNDING_RESERVATION_MINUTES,
+      });
+      if (!reserved.ok) {
+        console.error("[GridForge] founding slot could not be reserved; checkout refused (fail closed)");
+        return NextResponse.json(
+          { ok: false, error: "We cannot confirm Founding Partner availability right now. No payment was taken. Please try again shortly." },
+          { status: 503 }
+        );
+      }
+      foundingReservation = typeof reserved.data === "string" && reserved.data ? reserved.data : null;
+      applyFounding = foundingReservation !== null;
+    }
   }
   const discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
   if (applyFounding) {
-    const coupon = await stripe.coupons.create({
-      amount_off: COMMERCE.founding.creditCents,
-      currency: COMMERCE.currency,
-      duration: "once",
-      name: "Founding Partner credit",
-      max_redemptions: 1,
-    });
-    discounts.push({ coupon: coupon.id });
+    try {
+      const coupon = await stripe.coupons.create({
+        amount_off: COMMERCE.founding.creditCents,
+        currency: COMMERCE.currency,
+        duration: "once",
+        name: "Founding Partner credit",
+        max_redemptions: 1,
+      });
+      discounts.push({ coupon: coupon.id });
+    } catch (err) {
+      await releaseFoundingReservation(foundingReservation);
+      throw err;
+    }
   }
 
   try {
@@ -191,6 +226,9 @@ export async function POST(req: Request) {
       // Stripe rejects one-off discounts on a subscription session; a recurring
       // engagement is not the place for a founding credit anyway.
       ...(recurring ? {} : { discounts }),
+      // A credited session lapses before its reserved slot does (Stripe's minimum session life is 30 minutes), so a slot is never
+      // spent by a session that outlived its reservation.
+      ...(applyFounding ? { expires_at: Math.floor(Date.now() / 1000) + (FOUNDING_RESERVATION_MINUTES - 4) * 60 } : {}),
       customer_email: email,
       ...(recurring
         ? {
@@ -209,6 +247,7 @@ export async function POST(req: Request) {
         capacity_mw: capacityMW ? String(capacityMW) : "",
         service: service ?? "",
         founding_applied: applyFounding ? "yes" : "no",
+        ...(foundingReservation ? { founding_reservation: foundingReservation } : {}),
         kind: product ? product.kind : "engagement_deposit",
         qualification_id: qualificationId,
         ...(projectId ? { project_id: projectId } : {}),
@@ -241,6 +280,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("[GridForge] Stripe checkout error:", err);
+    await releaseFoundingReservation(foundingReservation);
     return NextResponse.json(
       { ok: false, error: "Could not start checkout" },
       { status: 500 }
