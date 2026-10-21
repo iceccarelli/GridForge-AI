@@ -256,8 +256,19 @@ export class PostgrestFake {
 
     const params = parsed.searchParams;
     const filters: Filter[] = [];
+    // `or=(a.is.null,a.lte.X)`: a row matches if ANY term does (flat terms only, which is all the application writes).
+    const orGroups: Filter[][] = [];
     for (const [key, raw] of params.entries()) {
       if (["select", "order", "limit", "offset"].includes(key)) continue;
+      if (key === "or") {
+        orGroups.push(
+          raw.replace(/^\(|\)$/g, "").split(",").map((term) => {
+            const [column, op, ...rest] = term.split(".");
+            return { column, op, value: rest.join(".") };
+          })
+        );
+        continue;
+      }
       const dot = raw.indexOf(".");
       if (dot < 0) continue;
       filters.push({ column: key, op: raw.slice(0, dot), value: raw.slice(dot + 1) });
@@ -271,7 +282,7 @@ export class PostgrestFake {
     }
 
     const store = this.tables.get(table)!;
-    const matching = store.filter((row) => filters.every((f) => match(row, f)));
+    const matching = store.filter((row) => filters.every((f) => match(row, f)) && orGroups.every((g) => g.some((f) => match(row, f))));
     const wantsRepresentation = String(
       (init?.headers as Record<string, string> | undefined)?.Prefer ?? ""
     ).includes("return=representation");
@@ -388,6 +399,19 @@ function match(row: Row, f: Filter): boolean {
       return String(actual ?? "") === f.value;
     case "neq":
       return String(actual ?? "") !== f.value;
+    case "ilike": {
+      // Postgres ILIKE with the default backslash escape: % and _ are wildcards unless escaped.
+      const lit = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let re = "";
+      for (let i = 0; i < f.value.length; i++) {
+        const ch = f.value[i];
+        if (ch === "\\" && i + 1 < f.value.length) re += lit(f.value[++i]);
+        else if (ch === "%") re += ".*";
+        else if (ch === "_") re += ".";
+        else re += lit(ch);
+      }
+      return new RegExp(`^${re}$`, "i").test(String(actual ?? ""));
+    }
     case "in": {
       const set = f.value.replace(/^\(|\)$/g, "").split(",").map((s) => s.trim());
       return set.includes(String(actual ?? ""));

@@ -619,6 +619,6 @@ async function notifyFounder(p: { email: string; company: string; amount: number
   // Best effort and never throws; sendMail validates the provider's answer and logs a category only.
   await notifyOperator(
     `💳 Deposit paid — ${p.company || "a buyer"} (${eur(p.amount)})`,
-    `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nIt is recorded in engagement_deposits (GET /api/admin/deposits). Contact the buyer to scope the engagement and record who did.`
+    `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nIt is recorded in engagement_deposits (GET /api/admin/deposits). Contact the buyer to scope the engagement and record who did. Scoping records the fee agreed (inside the published band), the delivery date you commit to, and applies any earlier Density Screen as a one-time credit.`
   );
 }

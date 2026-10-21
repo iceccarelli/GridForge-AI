@@ -1,7 +1,7 @@
-import crypto from "node:crypto";
-import { SITE_URL } from "@/lib/site";
-import { sendMail } from "@/lib/mail";
+import { notifyOperator } from "@/lib/mail";
+import { announceNote } from "@/lib/watch-notices";
 import { NextResponse } from "next/server";
+import { cronAuthorised as authorised } from "@/lib/cron-auth";
 import {
   claimWatch,
   dueWatches,
@@ -9,6 +9,7 @@ import {
   recordNote,
   runWatch,
   updateWatch,
+  WATCH_CRON_START_BY_MS,
   WATCH_RETRY_BACKOFF_MS,
   type WatchRecord,
 } from "@/lib/watches";
@@ -27,18 +28,6 @@ export const maxDuration = 300;
 // A run that finds nothing material still records a note. "Nothing changed" is a
 // real answer and the subscription is partly paying for the confidence of hearing
 // it; manufacturing a finding to justify the fee is how this product would die.
-// Header-only authorization (Authorization: Bearer <CRON_SECRET>), constant-time.
-// A secret in the query string ends up in access logs, so ?key= is not accepted.
-// With no CRON_SECRET configured nothing is authorised.
-function authorised(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const auth = req.headers.get("authorization") || "";
-  const given = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const a = Buffer.from(given), b = Buffer.from(secret);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
 export async function GET(req: Request) {
   if (!authorised(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -46,24 +35,57 @@ export async function GET(req: Request) {
 
   // Authenticated by the cron secret above: scheduled re-solves of watches customers pay for, not metered per caller.
   return runTrusted("cron-secret", async () => {
-    const watches = await dueWatches();
+    // Drain EVERY due watch inside the run budget, not the first 25. The schedule is weekly, so a watch left over waits a
+    // week; a run that cannot finish says so to the operator instead of leaving the remainder to be discovered.
+    // WATCH_CRON_BUDGET_MS exists so a test can shrink the budget; production uses the default.
+    const startBy = Number(process.env.WATCH_CRON_BUDGET_MS) > 0 ? Number(process.env.WATCH_CRON_BUDGET_MS) : WATCH_CRON_START_BY_MS;
+    const t0 = Date.now();
+    const seen = new Set<string>();
     const results: { token: string; status: string; headline?: string }[] = [];
+    let considered = 0;
+    let exhausted = false;
 
-    for (const w of watches) {
-      // Lease first: a conditional update of next_run_at, so an overlapping
-      // invocation that read the same due list skips this watch instead of
-      // re-running it and double-notifying the client.
-      const claim = await claimWatch(w);
-      if (claim !== "claimed") {
-        results.push({ token: w.token, status: claim === "lost" ? "skipped_claimed_elsewhere" : "claim_error" });
-        continue;
+    drain: for (;;) {
+      // Everything already handled is skipped, however many are still due (a claim error leaves a row due).
+      const batch = (await dueWatches(seen.size + 25)).filter((w) => !seen.has(w.token));
+      if (batch.length === 0) break;
+      for (const w of batch) {
+        if (Date.now() - t0 > startBy) {
+          exhausted = true;
+          break drain;
+        }
+        seen.add(w.token);
+        considered += 1;
+        // Lease first: a conditional update of next_run_at, so an overlapping
+        // invocation that read the same due list skips this watch instead of
+        // re-running it and double-notifying the client.
+        const claim = await claimWatch(w);
+        if (claim !== "claimed") {
+          results.push({ token: w.token, status: claim === "lost" ? "skipped_claimed_elsewhere" : "claim_error" });
+          continue;
+        }
+        results.push(await runOne(w));
       }
-      results.push(await runOne(w));
     }
 
-    return NextResponse.json({ ok: true, considered: watches.length, results });
+    const remaining = exhausted ? (await dueWatches(seen.size + 200)).filter((w) => !seen.has(w.token)).length : 0;
+    const failed = results.filter((r) => FAILED.test(r.status));
+    if (exhausted || failed.length) {
+      // Page a person. The failed watches are pushed back by the retry backoff and the next scheduled run is a week away,
+      // so without this a failed watch is silently a week late, or more.
+      await notifyOperator(
+        `Hall Watch run needs attention — ${failed.length} failed${exhausted ? `, ${remaining} not reached` : ""}`,
+        `Considered ${considered}. ${failed.length} failed (${[...new Set(failed.map((f) => f.status.split(":")[0]))].join(", ") || "none"}).` +
+          (exhausted ? ` The run budget was used up with ${remaining} due watch(es) not started; they stay due and run next time.` : "") +
+          `\n\nThe schedule is weekly: a watch that failed is not retried until the next scheduled run unless you call /api/cron/watches again with the cron secret.`
+      );
+    }
+    return NextResponse.json({ ok: true, considered, remaining, budget_exhausted: exhausted, results });
   });
 }
+
+/** Statuses that mean a watch did NOT get its run. */
+const FAILED = /^(engine_error|store_error|note_not_stored|state_not_advanced|claim_error)/;
 
 /**
  * A failed attempt (engine down, note or state not stored) pushes next_run_at
@@ -109,7 +131,7 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
   // The note is the durable record of what moved. last_state is the baseline the
   // NEXT run compares against, so it advances only once the note is stored: if it
   // advanced without one, the change would be lost and the next note misattributed.
-  const noted = await recordNote({
+  const noteId = await recordNote({
     watch_id: w.id,
     material: Boolean(d.material),
     headline: d.headline,
@@ -121,7 +143,7 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
     change: d,
     trigger: "scheduled",
   });
-  if (!noted) {
+  if (!noteId) {
     await backOff(w);
     return { token: w.token, status: "note_not_stored" };
   }
@@ -136,21 +158,7 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
     return { token: w.token, status: "state_not_advanced" };
   }
 
-  if (d.material) await notify(w, d.headline);
+  // The change note is stored and on the watch page; its email is a durable obligation retried by the engagements sweep.
+  if (d.material) await announceNote({ id: noteId, watch_id: w.id }, w, d.headline);
   return { token: w.token, status: d.material ? "changed" : "no_change", headline: d.headline };
-}
-
-async function notify(w: WatchRecord, headline: string): Promise<void> {
-  // The change note itself is stored (watch_notes) and readable on the watch page, so this email is a
-  // courtesy pointer to it, not the only copy: a failure is logged by record id and category only.
-  if (!w.email) {
-    console.error(`[GridForge] watch change NOT emailed: no address on record (watch ${w.id})`);
-    return;
-  }
-  const r = await sendMail({
-    to: w.email,
-    subject: `${w.site_name ?? "Your hall"} ${w.hall_id ?? ""} — the answer moved`.trim(),
-    text: `${headline}\n\nThe change note, with the input that moved it:\n${SITE_URL}/watch/${w.token}\n`,
-  });
-  if (!r.sent) console.error(`[GridForge] watch change NOT emailed (watch ${w.id}): ${r.category}${r.status ? ` (HTTP ${r.status})` : ""}`);
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { EngagementIntake } from "@/components/EngagementIntake";
 import { getWatch, notesFor } from "@/lib/watches";
+import { RATE_POLICIES } from "@/lib/rate-limit";
 
 export const metadata: Metadata = {
   title: "Hall Watch",
@@ -44,6 +45,18 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
         </p>
       </header>
 
+      {w.status === "paused" ? (
+        <p className="mb-8 max-w-3xl rounded border border-queue/50 bg-queue/10 p-4 text-sm text-ghost">
+          This watch is paused because the last payment did not clear. No runs happen while it is paused, and re-solving is
+          off. Your numbers and every note are kept, and it resumes by itself when a payment clears.
+        </p>
+      ) : null}
+      {w.status === "cancelled" ? (
+        <p className="mb-8 max-w-3xl rounded border border-line bg-panel-2 p-4 text-sm text-mute">
+          This watch was cancelled: no further runs happen. The notes below stay readable here.
+        </p>
+      ) : null}
+
       {notes.length ? (
         <section className="mb-10">
           <h2 className="mb-3 text-sm font-semibold text-ghost">Change notes</h2>
@@ -58,7 +71,7 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-faint">
                     {new Date(n.created_at).toLocaleDateString()} ·{" "}
-                    {n.trigger === "inputs_updated" ? "you updated an input" : "scheduled run"}
+                    {n.trigger === "inputs_updated" ? "you updated an input" : n.trigger === "baseline" ? "baseline" : "scheduled run"}
                   </span>
                   {typeof n.racks_delta === "number" && n.racks_delta !== 0 ? (
                     <span className="font-mono text-sm text-queue">
@@ -82,20 +95,26 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
         </section>
       ) : null}
 
-      <section>
-        <h2 className="mb-1 text-sm font-semibold text-ghost">
-          {w.intake ? "Update the hall's numbers" : "Give the model the hall's numbers"}
-        </h2>
-        <p className="mb-4 text-xs text-faint">
-          Submitting re-solves immediately — you do not wait for the next scheduled run to learn
-          that your answer moved.
-        </p>
-        <EngagementIntake
-          token={token}
-          endpoint={`/api/watch/${token}`}
-          submitLabel={w.intake ? "Re-solve the hall" : "Start the watch"}
-        />
-      </section>
+      {w.status === "active" ? (
+        <section>
+          <h2 className="mb-1 text-sm font-semibold text-ghost">
+            {w.intake ? "Update the hall's numbers" : "Give the model the hall's numbers"}
+          </h2>
+          <p className="mb-4 max-w-3xl text-xs text-faint">
+            Submitting re-solves immediately — you do not wait for the next scheduled run to learn that your answer moved.
+            Re-solves are limited to {RATE_POLICIES.customer_generate.limit} an hour per connection (a fair-use limit shared with
+            other work on your engagements); a refused request says when to retry.
+            {w.intake
+              ? ` Scheduled runs happen at the first weekly check after the next run date${w.next_run_at ? ` (${new Date(w.next_run_at).toLocaleDateString("en-IE")})` : ""}, so a run can follow that date by up to a week.`
+              : " Nothing runs on a schedule until the first numbers are in; the first submission records the baseline later notes compare against."}
+          </p>
+          <EngagementIntake
+            token={token}
+            endpoint={`/api/watch/${token}`}
+            submitLabel={w.intake ? "Re-solve the hall" : "Start the watch"}
+          />
+        </section>
+      ) : null}
     </main>
   );
 }

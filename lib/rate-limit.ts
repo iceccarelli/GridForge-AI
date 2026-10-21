@@ -63,6 +63,10 @@ export const RATE_POLICIES = {
   deploy_case: { bucket: "deploy_case", limit: 20, windowSeconds: HOUR },
   /** The project procurement routes that call the engine (RFQ package, supplier response check, bid comparison). */
   project_rfq: { bucket: "project_rfq", limit: 30, windowSeconds: HOUR },
+  /** POST /api/projects: an unauthenticated write that stores a row and an event. 30 an hour per caller address is a team setting up halls, not a loop. */
+  project_create: { bucket: "project_create", limit: 30, windowSeconds: HOUR },
+  /** POST /api/projects/[token]/evidence: an unauthenticated upload (up to EVIDENCE_MAX_BYTES) into the object store. */
+  project_evidence: { bucket: "project_evidence", limit: 60, windowSeconds: HOUR },
   /** POST /api/chat. A scoping conversation is ~10-20 requests; each runs at most CHAT_MAX_ANTHROPIC_CALLS Anthropic calls. */
   chat: { bucket: "chat", limit: 40, windowSeconds: HOUR },
   /** POST /api/siting-analysis, per caller address (a verified subscriber is limited per account as well, below). */

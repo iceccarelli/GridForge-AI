@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
-import { getWatch, nextRun, notesFor, recordNote, runWatch, updateWatch } from "@/lib/watches";
+import { BASELINE_HEADLINE, getWatch, nextRun, notesFor, recordNote, runWatch, updateWatch } from "@/lib/watches";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 
@@ -48,7 +48,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const w = await getWatch(token);
   if (!w) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   if (w.status !== "active") {
-    return NextResponse.json({ ok: false, error: "This watch is not active." }, { status: 409 });
+    return NextResponse.json(
+      {
+        ok: false,
+        status: w.status,
+        error:
+          w.status === "paused"
+            ? "This watch is paused because the last payment did not clear. Nothing is re-solved while it is paused; your numbers are kept and it resumes when a payment clears."
+            : "This watch was cancelled. Nothing is re-solved.",
+      },
+      { status: 409 }
+    );
   }
 
   const read = await readBoundedJson(req, MAX_INTAKE_BYTES);
@@ -70,9 +80,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   return g.run(async () => {
     const doc = toIntakeDocument(parsed.data, w.company ?? undefined);
 
+    // The FIRST submission of a newly bought watch has no hall on record and no answer on record, so there is nothing
+    // to compare against. It used to be sent to the engine as a comparison with no baseline, which the engine layer
+    // refuses: every buyer's first "Start the watch" failed with a 502 and the watch could never begin. The first
+    // submission is the baseline, exactly as the scheduled run treats a watch that has numbers but no answer yet.
+    const first = !w.last_state && !w.intake;
     // Compare the hall as it was on record against the hall as it is now, so the
     // note can name the input that moved rather than only the size of the move.
-    const out = await runWatch(doc, w.last_state, w.intake ?? undefined);
+    const out = first ? await runWatch(doc, null, doc) : await runWatch(doc, w.last_state, w.intake ?? undefined);
     if (!out.ok) {
       // intake and last_state move together or not at all. Saving the new intake
       // here without a matching last_state would make the NEXT change be diffed
@@ -93,15 +108,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     if (w.id !== "local") {
       const noted = await recordNote({
         watch_id: w.id,
-        material: Boolean(d.material),
-        headline: d.headline,
-        racks_delta: d.racks_delta,
-        weeks_delta: d.weeks_delta,
-        binding_moved: d.binding_moved,
-        document_html: (d.document_full as string) ?? (d.document as string) ?? null,
-        document_md: d.markdown ?? null,
-        change: d,
-        trigger: "inputs_updated",
+        // A baseline is not a change: say so, rather than showing the engine's comparison of the hall with itself.
+        headline: first ? BASELINE_HEADLINE : d.headline,
+        racks_delta: first ? null : d.racks_delta,
+        weeks_delta: first ? null : d.weeks_delta,
+        binding_moved: first ? null : d.binding_moved,
+        document_html: first ? null : ((d.document_full as string) ?? (d.document as string) ?? null),
+        document_md: first ? null : (d.markdown ?? null),
+        change: first ? null : d,
+        material: first ? false : Boolean(d.material),
+        trigger: first ? "baseline" : "inputs_updated",
       });
       if (!noted) {
         return NextResponse.json(
@@ -125,6 +141,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       );
     }
 
-    return NextResponse.json({ ok: true, headline: d.headline, material: d.material });
+    return NextResponse.json(
+      first
+        ? { ok: true, headline: BASELINE_HEADLINE, material: false, baseline: true }
+        : { ok: true, headline: d.headline, material: d.material }
+    );
   });
 }

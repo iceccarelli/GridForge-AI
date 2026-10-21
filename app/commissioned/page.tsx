@@ -3,7 +3,8 @@ import Link from "next/link";
 import { deliverableBySession } from "@/lib/deliverables";
 import { depositBySession, type DepositStatus } from "@/lib/deposits";
 import { accessForSession } from "@/lib/purchase-access";
-import { PRODUCT_BY_KIND } from "@/lib/products";
+import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
+import { balanceDueCents, depositTerms } from "@/lib/engagement-state";
 
 export const metadata: Metadata = {
   title: "Engagement commissioned",
@@ -84,6 +85,9 @@ export default async function CommissionedPage({
       scoped: "The scope has been agreed. The work is under way.",
       delivered: "Delivered.",
     };
+    // What this payment reserves, what it opens and how it is credited: from the catalogue, never typed here.
+    const terms = depositTerms(deposit.kind);
+    const fee = deposit.agreed_fee_cents;
     return (
       <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
@@ -102,10 +106,39 @@ export default async function CommissionedPage({
               {product.deliverable}
             </p>
           ) : null}
+          {terms ? (
+            <dl className="grid gap-3 rounded border border-line bg-panel p-4 text-sm">
+              <div>
+                <dt className="text-faint">What this deposit reserves</dt>
+                <dd>{terms.reserves}</dd>
+              </div>
+              <div>
+                <dt className="text-faint">What it opens</dt>
+                <dd>{terms.opens}</dd>
+              </div>
+              <div>
+                <dt className="text-faint">How it is credited</dt>
+                <dd>{terms.credit}</dd>
+              </div>
+              <div>
+                <dt className="text-faint">When</dt>
+                <dd>{terms.timing}</dd>
+              </div>
+            </dl>
+          ) : null}
           <p className="rounded border border-line bg-panel p-4 text-sm">
             <span className="text-faint">Status: </span>
             {stage[deposit.status]}
           </p>
+          {typeof fee === "number" ? (
+            <p className="rounded border border-line bg-panel p-4 text-sm">
+              <span className="text-faint">Agreed: </span>
+              fee {eurFromCents(fee)}, less your deposit of {eurFromCents(deposit.amount_cents)}
+              {deposit.credit_applied_cents ? ` and an earlier payment credited at ${eurFromCents(deposit.credit_applied_cents)}` : ""}
+              {" "}— balance {eurFromCents(balanceDueCents(fee, deposit.amount_cents, deposit.credit_applied_cents ?? 0))}.
+              {deposit.delivery_due_on ? ` Delivery date recorded when the scope was agreed: ${deposit.delivery_due_on}.` : ""}
+            </p>
+          ) : null}
           <p className="text-faint text-sm">
             No contact from us? Reply to the Stripe receipt and we will pick it up.
           </p>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import { generateAndStore, getByIntakeToken, updateByToken, updateByTokenIf } from "@/lib/deliverables";
+import { claimForGeneration, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -61,8 +61,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
-  const row = await getByIntakeToken(token);
+  let row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A row still `generating` long after its request could have lived is one whose invocation died (the platform killed
+  // the function mid-generation). It used to answer 409 "already being processed" for ever, with no recovery path. Move
+  // it to `engine_unavailable` (nothing was stored; resubmitting loses nothing) and carry on as a fresh submission.
+  if (row.status === "generating") {
+    const rec = await recoverStaleGenerating(row);
+    if (rec === "recovered") row = { ...row, status: "engine_unavailable" };
+    else if (rec === "error") {
+      return NextResponse.json({ ok: false, error: "We could not read the state of your submission just now. Please try again shortly." }, { status: 503 });
+    }
+  }
   // Resubmission policy (explicit, minimal): the customer may submit only while
   // the engagement is `awaiting_intake`, or `engine_unavailable` (nothing was
   // generated, so retrying loses nothing). Once a draft exists — or is being
@@ -111,6 +121,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // document itself; this is so the confirmation they see on submit says the same
   // thing, rather than the first they hear of it being a document footnote.
   const assumed = assumedFields(parsed.data as Record<string, unknown>);
+  // A Procurement Specification quotes duties "at the site conditions stated". The summer design dry bulb is optional in the
+  // schema (the engine has a library default), so when it is left blank the buyer is told at submission that the duties
+  // rest on a default and not on their site, rather than finding out on the released page.
+  const specAssumptions =
+    row.kind === "procurement_spec" && (parsed.data as { designDrybulbC?: unknown }).designDrybulbC === undefined
+      ? [{ field: "designDrybulbC", source: "your site's summer design dry-bulb temperature (the climate basis the suppliers must quote at)" }]
+      : [];
 
   // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
   // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
@@ -120,10 +137,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
     // Claim the engagement atomically: only one submission can move it out of an
     // intake-accepting status, so two concurrent POSTs cannot both generate.
-    const claim = await updateByTokenIf(row.token, { intake: doc, status: "generating" }, [
-      "awaiting_intake",
-      "engine_unavailable",
-    ]);
+    const claim = await claimForGeneration(row.token, doc, ["awaiting_intake", "engine_unavailable"]);
     if (claim === "error") {
       return NextResponse.json(
         { ok: false, error: "We could not save your numbers just now. Please try again shortly." },
@@ -197,7 +211,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         message:
           "Received. Part of your pack is still being produced; we will complete it, have a senior engineer " +
           "review it and come back to you. Nothing has been published.",
-        assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
+        assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
       });
     }
 
@@ -222,7 +236,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       // Said here as well as in the document. A customer who left three numbers
       // blank should hear what we assumed at the moment they submitted, not
       // discover it in a footnote a week later.
-      assumed: assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })),
+      assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
     });
   });
 }
