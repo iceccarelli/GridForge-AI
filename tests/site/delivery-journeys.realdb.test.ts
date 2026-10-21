@@ -162,7 +162,8 @@ describe.skipIf(!enabled)("Procurement Specification, payment to release, on rea
     const { default: Page } = await import("@/app/deliverable/[token]/page");
     const page = renderToStaticMarkup(await Page({ params: Promise.resolve({ token: draft.token }) }));
     expect(page).toContain("Basis of this specification");
-    expect(page).toContain("38 °C (supplied by you)");
+    expect(page).toContain("Design ambient dry bulb (summer)");
+    expect(page).toMatch(/38 degC \(evidence E3\): supplied/);
     expect(page).toContain("by A. Rivera");
   }, 120_000);
 

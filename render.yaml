@@ -1,5 +1,9 @@
 # render.yaml — alternative host for the capacity engine.
 #
+# NOT SUPPORTED FOR SELLING API PLANS, PAY-AS-YOU-GO OR THE FREE ALLOWANCE. Those need a persistent volume for the usage
+# ledger, the usage counter and the revocation list (fly.toml mounts one) and exactly ONE instance; this file defines
+# neither, so payg/trial keys are refused with a 503 and the website will not sell API plans against it. Use fly.toml.
+#
 # Set GRIDFORGE_API_KEYS in the Render dashboard before you point the website at
 # it. Without it the paid endpoints refuse: a misconfigured deployment must fail
 # closed, not serve the deliverable for free.

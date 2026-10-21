@@ -13,7 +13,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
    the cost file are local state. `fly scale count 1`. A second machine would split the ledger.
 3. Set on the engine: `GRIDFORGE_KEY_SECRET` (same value as the site), `GRIDFORGE_ADMIN_KEY`,
    `GRIDFORGE_LEDGER_FILE=/data/ledger.jsonl`, `GRIDFORGE_USAGE_FILE`, `GRIDFORGE_REVOKED_FILE`.
-4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033 (0029 is intentionally unused).
+4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035 (0029 is intentionally unused, and any later number the repository now carries). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
    All are additive and idempotent. Re-applying an older one out of order can narrow a later constraint; apply in order.
 5. Site env: `GRIDFORGE_API_URL`, `GRIDFORGE_ADMIN_KEY`, `GRIDFORGE_KEY_SECRET`, `CRON_SECRET`, `STRIPE_SECRET_KEY`,
    `STRIPE_WEBHOOK_SECRET`, Supabase service role, `ADMIN_SESSION_SECRET`, optional `FUNNEL_REF_KEY`.
