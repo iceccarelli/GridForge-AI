@@ -6,6 +6,7 @@ import { apiSalesReadiness } from "@/lib/api-readiness";
 import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
 import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 import { projectForShare } from "@/lib/project-share";
+import { qualificationForCheckout } from "@/lib/qualify";
 import { pg, rpc } from "@/lib/payg-store";
 
 export const runtime = "nodejs";
@@ -127,18 +128,25 @@ export async function POST(req: Request) {
     projectId = found.project.id;
     fromBuyerLink = true;
   }
-  // `deliverables.qualification_id` is a uuid with a foreign key to
-  // `qualifications`. Anything else fails the insert — and since a failed
-  // fulfilment now (correctly) returns 500 so Stripe redelivers, a malformed id
-  // from the client would turn a real payment into one that can never be
-  // fulfilled, retried forever. The id is a convenience, not a requirement, so a
-  // value that cannot possibly be one is dropped rather than carried into the
-  // payment. The purchase still completes; it simply arrives unattached.
+  // `deliverables.qualification_id` is a uuid with a foreign key to `qualifications`, and it seeds the buyer's intake form from
+  // the numbers behind that read. Two things follow. (1) Anything that is not a real id fails the insert -- and a failed
+  // fulfilment returns 500 so Stripe redelivers, so a malformed id would turn a real payment into one that can never be
+  // fulfilled. (2) An id the caller merely NAMES would let one buyer pull another buyer's read into their own intake. So an id
+  // is carried only when it exists, is under 24 hours old, and the caller presents the read's q-token (the secret in its
+  // /q/<token> link); anything else is dropped and the purchase completes unattached. The id is a convenience, not a requirement.
   const rawQualificationId =
     typeof body.qualificationId === "string" ? body.qualificationId.trim() : "";
-  const qualificationId = UUID.test(rawQualificationId) ? rawQualificationId : "";
-  if (rawQualificationId && !qualificationId) {
-    console.warn("[GridForge] checkout ignored a malformed qualificationId:", rawQualificationId.slice(0, 64));
+  const hasClaim = Boolean(rawQualificationId) || typeof body.qualificationToken === "string";
+  let qualificationId = "";
+  if (hasClaim) {
+    const verified =
+      (!rawQualificationId || UUID.test(rawQualificationId))
+        ? await qualificationForCheckout(body.qualificationToken, rawQualificationId || undefined)
+        : null;
+    qualificationId = verified ?? "";
+    if (!qualificationId) {
+      console.warn("[GridForge] checkout dropped an unverified qualification reference (no matching, recent q-token)");
+    }
   }
 
   // An API plan is a promise: a key the engine accepts, and a way to end it. Prove both against the engine

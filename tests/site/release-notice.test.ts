@@ -227,6 +227,52 @@ describe("the release email is a durable obligation", () => {
   });
 });
 
+describe("a release is a compare-and-set on the version of the row that was HASHED (F4)", () => {
+  it("a document changed between the hash check and the write is NOT released under the stale approval — THE race", async () => {
+    draft();
+    const real = globalThis.fetch;
+    let raced = false;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      // the release's own write: another writer lands first (a regeneration, an edit of the document) and bumps the version
+      if (!raced && (init?.method ?? "GET") === "PATCH" && url.includes("/deliverables?") && String(init?.body).includes('"released"')) {
+        raced = true;
+        row().document_html = "<p>changed after the hash was taken</p>";
+        row().row_version += 1;
+      }
+      return real(i, init);
+    }) as typeof fetch;
+    let res: Response;
+    try { res = await release(); } finally { globalThis.fetch = real; }
+    expect(raced).toBe(true);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toMatch(/changed since you reviewed it.*Nothing was released and the buyer was not emailed/);
+    expect(row().status).toBe("draft");
+    expect(row().document_html).toBe("<p>changed after the hash was taken</p>");
+    expect(toBuyer()).toHaveLength(0);
+    expect(notices()).toHaveLength(0);
+    // re-reading and releasing the CURRENT draft works
+    expect((await release()).status).toBe(200);
+  });
+
+  it("two writers: the one holding a stale version gets 'lost' from the store, the current one wins", async () => {
+    draft({ row_version: 5 });
+    const { updateByTokenIf } = await import("@/lib/deliverables");
+    expect(await updateByTokenIf(TOKEN, { title: "stale" }, ["draft"], undefined, 4)).toBe("lost");
+    expect(row().title).toBe("Density Screen");
+    expect(await updateByTokenIf(TOKEN, { title: "current" }, ["draft"], undefined, 5)).toBe("claimed");
+    expect(row().row_version).toBe(6);
+    expect(await updateByTokenIf(TOKEN, { title: "stale again" }, ["draft"], undefined, 5)).toBe("lost");
+  });
+
+  it("without the version column the status compare-and-set alone still applies", async () => {
+    draft();
+    delete row().row_version;
+    expect((await release()).status).toBe(200);
+    expect(row().status).toBe("released");
+  });
+});
+
 describe("a buyer's bid comparison never overwrites a concurrent change (compare-and-set on the row version)", () => {
   it("a lost race is re-read and retried: BOTH the concurrent file and the comparison survive", async () => {
     draft({ status: "released", row_version: 3 });

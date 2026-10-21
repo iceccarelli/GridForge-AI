@@ -360,7 +360,9 @@ describe.skipIf(!enabled)("third-pass fixes on real PostgreSQL (0036): claim-sta
 
   it("a bid comparison is stored on the row version it read: a lost race re-reads and keeps the concurrent change", async () => {
     const d = await paidScreen(`ver-${uid()}@hall.example`);
-    await patch("deliverables", `id=eq.${d.id}`, { status: "released", working_files: { "scenarios.csv": "v1\n" } });
+    const [cur] = await rows("deliverables", `&id=eq.${d.id}`);
+    const intake = { ...cur.intake, _gridforge: { ...(cur.intake?._gridforge ?? {}), review: { by: "A. Rivera" } } };   // 0040: released names a reviewer
+    await patch("deliverables", `id=eq.${d.id}`, { status: "released", intake, working_files: { "scenarios.csv": "v1\n" } });
     const { putWorkingFile } = await import("@/lib/deliverables");
     const before = (await rows("deliverables", `&id=eq.${d.id}`))[0];
     expect(typeof before.row_version).toBe("number");

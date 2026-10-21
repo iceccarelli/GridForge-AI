@@ -109,6 +109,7 @@ def test_no_migration_in_the_repository_is_refused_by_the_destructive_gate():
     "DELETE   FROM public.users where true;",
     "truncate table users;",
     "truncate users;",
+    "revoke truncate on t from x; truncate t;",   # the exemption is for the revoke only
     "drop table users;",
     "drop schema public cascade;",
     "alter table t drop column c;",
@@ -134,6 +135,8 @@ def test_a_destructive_statement_that_actually_runs_is_still_refused(sql):
     "select 'delete from users' as t;",
     "create trigger g before truncate on t for each statement execute function f();",
     "create trigger g before update or truncate on t for each statement execute function f();",
+    "revoke truncate on all tables in schema public from service_role;",   # 0040: removing the privilege is not truncating
+    "do $$ begin revoke truncate on all tables in schema public from service_role; end $$;",
     "alter table t add column c int;",
 ])
 def test_a_definition_a_comment_or_a_string_is_not_a_destructive_statement(sql):

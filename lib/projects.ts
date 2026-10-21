@@ -194,6 +194,11 @@ export async function getProjectByToken(token: string): Promise<Result<{ project
  * object) and a `paid_product_attached` event, in one transaction, idempotent per
  * Stripe session. `permanent` tells the webhook whether retrying can ever help.
  */
+/** The one-way reference of a Stripe checkout session id stored in the project history (see attachPurchase). */
+export function sessionRef(sessionId: string): string {
+  return crypto.createHash("sha256").update(sessionId, "utf8").digest("hex");
+}
+
 export async function attachPurchase(input: {
   project_id: string;
   kind: string;
@@ -212,7 +217,10 @@ export async function attachPurchase(input: {
       object_type: input.object_type,
       object_id: input.object_id,
       amount_cents: input.amount_cents,
-      stripe_session_id: input.session_id,
+      // A ONE-WAY reference, never the Stripe session id: the id is what /commissioned turns into its buyer's private intake,
+      // API-access or watch link (lib/purchase-access.ts), and a project's event history is readable by whoever holds the project
+      // token (or a share link). The reference is enough to refuse a second attachment of the same session.
+      session_ref: sessionRef(input.session_id),
     }),
   });
   if (r.ok) return { ok: true, created: r.data?.created === true };

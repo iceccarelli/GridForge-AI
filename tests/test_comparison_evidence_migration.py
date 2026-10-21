@@ -91,7 +91,7 @@ def project(db):
 
 
 def engagement(db, pid=None):
-    d = psql(db, "insert into deliverables (token, kind, status) values ('" + uuid.uuid4().hex + "', 'procurement_spec', 'released') returning id").stdout.split("\n")[0]
+    d = psql(db, "insert into deliverables (token, kind, status, intake) values ('" + uuid.uuid4().hex + "', 'procurement_spec', 'released', '{\"_gridforge\": {\"review\": {\"by\": \"A. Reviewer\"}}}') returning id").stdout.split("\n")[0]
     if pid:
         psql(db, f"insert into project_links (project_id, object_type, object_id) values ('{pid}', 'deliverable', '{d}')")
     return d

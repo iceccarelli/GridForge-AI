@@ -107,6 +107,8 @@ def checkable_sql(sql):
     text = re.sub(r"'(?:[^']|'')*'", "''", text)
     # `create trigger ... before truncate on t` DEFINES a guard against truncation; it is not a truncation.
     text = re.sub(r"\b(?:before|after|or)\s+truncate\b", " ", text, flags=re.I)
+    # `revoke truncate on ...` REMOVES the privilege to truncate (0040); it is not a truncation either.
+    text = re.sub(r"\brevoke\s+truncate\b", " ", text, flags=re.I)
     return text
 
 
