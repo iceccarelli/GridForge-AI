@@ -11,7 +11,7 @@
  * (a token whose role is service_role) are set — a skip is a gap in what was checked.
  */
 import { adminToken } from "@/lib/admin";
-import { documentHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import fs from "node:fs";
 
 import os from "node:os";
@@ -752,7 +752,7 @@ describe.skipIf(!enabled)("paid Density Screen, payment to released document, on
     const read = await import("@/app/api/deliverable/[token]/route");
     expect((await read.GET(new Request(siteUrl("/x")), it(draft.token))).status).toBe(409);
     const admin = await import("@/app/api/admin/deliverables/route");
-    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token, reviewed_hash: documentHash(draft.document_html) }) }));
+    const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: draft.token, reviewed_by: "A. Rivera", reviewed_hash: reviewHash(draft) }) }));
     expect((await release()).status).toBe(401);
     jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await release()).status).toBe(200);

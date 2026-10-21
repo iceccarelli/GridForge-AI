@@ -420,7 +420,7 @@ function match(row: Row, f: Filter): boolean {
       for (let i = 0; i < f.value.length; i++) {
         const ch = f.value[i];
         if (ch === "\\" && i + 1 < f.value.length) re += lit(f.value[++i]);
-        else if (ch === "%") re += ".*";
+        else if (ch === "%" || ch === "*") re += ".*";            // PostgREST turns `*` in a like/ilike value into `%`
         else if (ch === "_") re += ".";
         else re += lit(ch);
       }

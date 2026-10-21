@@ -14,7 +14,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { adminToken } from "@/lib/admin";
-import { BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST, isPackFile, packHash, packState } from "@/lib/deliverables";
+import { BOARD_HTML, BOARD_MD, BUNDLE_MANIFEST, isPackFile, packHash, packState, reviewHash } from "@/lib/deliverables";
 import { PostgrestFake } from "./postgrest-fake";
 
 const jar: { name: string; value: string }[] = [];
@@ -102,9 +102,9 @@ const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
 /** An operator action. A release names the hash of the pack as it now stands, as the pipeline UI does. */
 const admin = async (token: string, action?: string, reviewed_hash?: string | null) => {
   const r = db.rows("deliverables").find((x: any) => x.token === token) as any;
-  const hash = reviewed_hash === undefined ? (r?.document_html ? packHash(r) : undefined) : (reviewed_hash ?? undefined);
+  const hash = reviewed_hash === undefined ? (r?.document_html ? reviewHash(r) : undefined) : (reviewed_hash ?? undefined);
   return (await import("@/app/api/admin/deliverables/route")).PATCH(
-    json({ token, ...(action ? { action } : {}), ...(!action && hash ? { reviewed_hash: hash } : {}) }, "PATCH"));
+    json({ token, ...(action ? { action } : {}), ...(!action && hash ? { reviewed_hash: hash } : {}), ...(!action ? { reviewed_by: "A. Rivera" } : {}) }, "PATCH"));
 };
 const row = () => db.rows("deliverables")[0] as any;
 const submit = async (token = "intake-tok") => (await import("@/app/api/intake/[token]/route")).POST(json(INTAKE), ctx(token));
@@ -175,7 +175,7 @@ describe.runIf(hasPython)("the pack is generated whole, from one solve, behind t
     const m = toBuyer();
     expect(m).toHaveLength(1);
     expect(m[0].text).toContain("board summary");
-    expect(m[0].headers["Idempotency-Key"]).toBe(`deliverable-release-d1-${packHash(row()).slice(0, 16)}`);
+    expect(m[0].headers["Idempotency-Key"]).toBe(`deliverable-release-d1-${reviewHash(row()).slice(0, 16)}`);
     expect(m[0].text).not.toContain(row().intake_token);        // the intake credential never goes in a mail
     const again = await (await admin("doc-tok")).json();
     expect(again.customer_notified).toBe(false);
@@ -352,7 +352,7 @@ describe.runIf(hasPython)("one solve, one persisted pack, one authority for comp
     delete r.working_files[BOARD_HTML];
     r.status = "draft";                                     // simulate a row corrupted into a releasable-looking draft
     signIn();
-    const rel = await admin("doc-tok", undefined, packHash(r));
+    const rel = await admin("doc-tok", undefined, reviewHash(r));
     expect(rel.status).toBe(409);
     const body = JSON.stringify(await rel.json());
     expect(body).toContain("incomplete");
@@ -372,7 +372,7 @@ describe.runIf(hasPython)("one solve, one persisted pack, one authority for comp
     openStudy();
     await submit();
     signIn();
-    const reviewed = packHash(row());
+    const reviewed = reviewHash(row());
     row().working_files[BOARD_HTML] = "<p>a different board</p>";
     const rel = await admin("doc-tok", undefined, reviewed);
     expect(rel.status).toBe(409);
@@ -414,7 +414,7 @@ describe.runIf(hasPython)("one solve, one persisted pack, one authority for comp
     engineMode.dropBoard = false;
     signIn();
     const out = await (await admin("doc-tok", "regenerate")).json();
-    expect(out.document_hash).toBe(packHash(row()));
+    expect(out.document_hash).toBe(reviewHash(row()));
     expect((await (await admin("doc-tok", undefined, out.document_hash)).json()).status).toBe("released");
   });
 });

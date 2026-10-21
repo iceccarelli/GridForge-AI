@@ -55,6 +55,8 @@ export interface DeliverableRecord {
   title: string | null;
   created_at?: string;
   released_at?: string | null;
+  /** Bumped by every UPDATE (migration 0036); absent where that migration is not applied. */
+  row_version?: number;
 }
 
 export function newToken(): string {
@@ -351,6 +353,32 @@ export async function updateByTokenIf(
     console.error("[GridForge] deliverable conditional update unreachable:", err);
     return "error";
   }
+}
+
+/**
+ * Store one working file on an engagement without overwriting what a concurrent writer stored. A read-modify-write of the
+ * whole `working_files` object loses a concurrent change to ANY file (a regeneration, another comparison), so the write is a
+ * compare-and-set on the row version it read, re-read and retried a few times on a lost race. Without the version column
+ * (migration 0036 not applied) it degrades to the previous single read-modify-write, and says so in the log.
+ */
+export async function putWorkingFile(token: string, name: string, body: string, attempts = 4): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const cur = await getByToken(token);
+    if (!cur) return false;
+    const version = typeof cur.row_version === "number" ? cur.row_version : undefined;
+    if (version === undefined && i === 0) console.error("[GridForge] deliverables.row_version is missing (migration 0036): working file written without a version check");
+    const r = await updateByTokenIf(
+      token,
+      { working_files: { ...(cur.working_files ?? {}), [name]: body } },
+      [...DELIVERABLE_STATUSES],
+      undefined,
+      version
+    );
+    if (r === "claimed") return true;
+    if (r === "error") return false;
+    // "lost": somebody else wrote the row since we read it; read it again and apply our file on top.
+  }
+  return false;
 }
 
 /**

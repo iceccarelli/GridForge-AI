@@ -17,7 +17,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import Stripe from "stripe";
 import { adminToken } from "@/lib/admin";
-import { packHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import { screenIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
 import { siteUrl } from "@/lib/site";
 
@@ -152,11 +152,11 @@ describe.skipIf(!enabled)("Procurement Specification, payment to release, on rea
 
     jar.push({ name: "gf_admin", value: adminToken()! });
     const { PATCH } = await import("@/app/api/admin/deliverables/route");
-    const rel = await PATCH(json({ token: draft.token, reviewed_hash: packHash(draft), reviewed_by: "A. Rivera" }, "PATCH"));
+    const rel = await PATCH(json({ token: draft.token, reviewed_hash: reviewHash(draft), reviewed_by: "A. Rivera" }, "PATCH"));
     expect(rel.status, await rel.clone().text()).toBe(200);
     const [released] = await rows("deliverables", `&id=eq.${d.id}`);
     expect(released.status).toBe("released");
-    expect(released.intake._gridforge.review).toMatchObject({ by: "A. Rivera", pack_sha256: packHash(draft) });
+    expect(released.intake._gridforge.review).toMatchObject({ by: "A. Rivera", pack_sha256: reviewHash(draft) });
     expect(mail.filter((m) => to(m).includes(email) && /document is ready/.test(m.subject))).toHaveLength(1);
 
     const { default: Page } = await import("@/app/deliverable/[token]/page");
@@ -307,4 +307,102 @@ describe.skipIf(!enabled)("deposit receipt, scoping and the credit ledger, on re
     const table = await depositTable();
     expect(table.ok && table.items.find((x) => x.id === dep.id)).toMatchObject({ status: "scoped", fee_cents: 2_500_000, credit_cents: 450_000, due: "2099-01-31", owner: "A. Rivera" });
   }, 120_000);
+});
+
+describe.skipIf(!enabled)("third-pass fixes on real PostgreSQL (0036): claim-stamp CAS, release outbox, row version, exact credit identity", () => {
+  async function paidScreen(email: string) {
+    const session = `cs_ds_${uid()}`;
+    await checkout(session, "density_screen", 450_000, email);
+    return (await rows("deliverables", `&stripe_session_id=eq.${session}`))[0];
+  }
+
+  it("a sweep holding a stale read cannot flip a re-claimed live generation (PostgREST's JSON-path filter on the claim stamp)", async () => {
+    const d = await paidScreen(`cas-${uid()}@hall.example`);
+    const old = new Date(Date.now() - 30 * 60_000).toISOString();
+    await patch("deliverables", `id=eq.${d.id}`, { status: "generating", intake: { siteName: "H", _gridforge: { generating_since: old } } });
+    const { recoverStaleGenerating } = await import("@/lib/deliverables");
+    const staleRead = (await rows("deliverables", `&id=eq.${d.id}`))[0];
+    const fresh = new Date().toISOString();
+    await patch("deliverables", `id=eq.${d.id}`, { intake: { siteName: "H", _gridforge: { generating_since: fresh } } });   // re-claimed meanwhile
+    expect(await recoverStaleGenerating(staleRead)).toBe("lost");
+    const [after] = await rows("deliverables", `&id=eq.${d.id}`);
+    expect(after.status).toBe("generating");
+    expect(after.intake._gridforge.generating_since).toBe(fresh);
+    // and the claim it DOES hold is recoverable
+    await patch("deliverables", `id=eq.${d.id}`, { intake: { siteName: "H", _gridforge: { generating_since: old } } });
+    expect(await recoverStaleGenerating((await rows("deliverables", `&id=eq.${d.id}`))[0])).toBe("recovered");
+    expect((await rows("deliverables", `&id=eq.${d.id}`))[0].status).toBe("engine_unavailable");
+  });
+
+  it("the release email is a durable obligation: queued through an outage, observable, delivered once; and release needs a named reviewer", async () => {
+    const email = `rel-${uid()}@hall.example`;
+    const d = await paidScreen(email);
+    await patch("deliverables", `id=eq.${d.id}`, { status: "draft", document_html: "<p>study</p>", document_md: "# study", intake: { siteName: "H", _gridforge: { hash_version: 2 } } });
+    jar.push({ name: "gf_admin", value: adminToken()! });
+    const { PATCH } = await import("@/app/api/admin/deliverables/route");
+    const draft = (await rows("deliverables", `&id=eq.${d.id}`))[0];
+    expect((await PATCH(json({ token: d.token, reviewed_hash: reviewHash(draft) }, "PATCH"))).status).toBe(422);      // no reviewer
+    mailDown = true;
+    mail.length = 0;
+    const out: any = await (await PATCH(json({ token: d.token, reviewed_hash: reviewHash(draft), reviewed_by: "A. Rivera" }, "PATCH"))).json();
+    expect(out).toMatchObject({ status: "released", customer_notified: false, buyer_email: "pending" });
+    const [n] = await rows("customer_notifications", `&kind=eq.deliverable_release&subject_id=eq.${d.id}`);
+    expect(n).toMatchObject({ status: "pending", subject_table: "deliverables" });
+    const click: any = await (await PATCH(json({ token: d.token, reviewed_hash: reviewHash(draft), reviewed_by: "A. Rivera" }, "PATCH"))).json();
+    expect(click.notify_error).not.toMatch(/Already released/);
+    mailDown = false;
+    await patch("customer_notifications", `id=eq.${n.id}`, { next_attempt_at: new Date(Date.now() - 1000).toISOString() });
+    const { sweepNotifications } = await import("@/lib/notifications");
+    await sweepNotifications();
+    expect(mail.filter((m) => to(m).includes(email) && /document is ready/.test(m.subject))).toHaveLength(1);
+    expect((await rows("customer_notifications", `&id=eq.${n.id}`))[0].status).toBe("accepted");
+  });
+
+  it("a bid comparison is stored on the row version it read: a lost race re-reads and keeps the concurrent change", async () => {
+    const d = await paidScreen(`ver-${uid()}@hall.example`);
+    await patch("deliverables", `id=eq.${d.id}`, { status: "released", working_files: { "scenarios.csv": "v1\n" } });
+    const { putWorkingFile } = await import("@/lib/deliverables");
+    const before = (await rows("deliverables", `&id=eq.${d.id}`))[0];
+    expect(typeof before.row_version).toBe("number");
+    // a concurrent regeneration lands between our read and our write
+    let raced = false;
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      if (!raced && (init?.method ?? "GET") === "PATCH" && url.includes("/deliverables?token=")) {
+        raced = true;
+        await patch("deliverables", `id=eq.${d.id}`, { working_files: { "scenarios.csv": "regenerated\n" } });
+      }
+      return inner(i as RequestInfo, init);
+    }) as typeof fetch;
+    try { expect(await putWorkingFile(d.token, "bid_comparison.json", "{\"ranked\":[]}")).toBe(true); } finally { globalThis.fetch = inner; }
+    const [after] = await rows("deliverables", `&id=eq.${d.id}`);
+    expect(after.working_files).toEqual({ "scenarios.csv": "regenerated\n", "bid_comparison.json": "{\"ranked\":[]}" });
+    expect(after.row_version).toBeGreaterThan(before.row_version + 1);
+  });
+
+  it("credit identity is the exact normalised address in code: a wildcard character in an address matches nobody else's credit", async () => {
+    const tag = uid();
+    const buyer = `a*${tag}@hall.example`;
+    for (const other of [`ab${tag}@hall.example`, `a1${tag}@hall.example`, `a_${tag}@hall.example`, `a%${tag}@hall.example`]) await paidScreen(other);
+    const mine = await paidScreen(buyer.toUpperCase());
+    const { creditsToward } = await import("@/lib/deliverables");
+    const found = await creditsToward(buyer, "envelope_study");
+    expect(found.ok).toBe(true);
+    expect(found.from.map((f) => f.id)).toEqual([mine.id]);
+    // a deposit by that buyer lists exactly their own Screen to confirm, and scoping with it applies only that one
+    const session = `cs_dep_${uid()}`;
+    await checkout(session, "envelope_study_deposit", 900_000, buyer);
+    const [dep] = await rows("engagement_deposits", `&stripe_session_id=eq.${session}`);
+    jar.push({ name: "gf_admin", value: adminToken()! });
+    const { POST: step } = await import("@/app/api/admin/deposits/[id]/route");
+    const go = (b: Record<string, unknown>) => step(json(b), { params: Promise.resolve({ id: dep.id }) });
+    await go({ owner: "A. Rivera" });
+    const listed = await go({ scope_note: "x", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    const body: any = await listed.json();
+    expect(listed.status).toBe(409);
+    expect(body.details.credits_available.map((c: any) => c.source_deliverable_id)).toEqual([mine.id]);
+    const done: any = await (await go({ scope_note: "x", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31", confirm_credit_ids: [mine.id] })).json();
+    expect(done.deposit.credit_applied_cents).toBe(450_000);
+  });
 });

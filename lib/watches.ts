@@ -12,6 +12,7 @@
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
+import { formatWeeksDelta, type DateBasisKeys } from "@/lib/date-basis";
 
 export type WatchStatus = "active" | "paused" | "cancelled";
 export type Cadence = "monthly" | "quarterly";
@@ -273,7 +274,36 @@ export interface DiffOutcome {
   document?: string;
   document_full?: string;
   markdown?: string;
+  /** What the movement in weeks rests on (the engine's /v1/diff; absent from an older engine or an older stored diff). */
+  date_basis?: string;
+  date_evidence_class?: string | null;
+  date_binding_item?: string | null;
+  date_label?: string;
   [k: string]: unknown;
+}
+
+/** The four date-basis keys of a stored diff, only the ones present: absence stays absence (it reads as "lead time unverified"). */
+export function dateKeysOf(change: Record<string, unknown> | DateBasisKeys | null | undefined): DateBasisKeys {
+  const src = (change ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ["date_basis", "date_evidence_class", "date_binding_item", "date_label"]) if (k in src) out[k] = src[k];
+  return out as DateBasisKeys;
+}
+
+/** The record stored as a note's `change`: the diff, carrying its date-basis keys beside the figures they qualify. */
+export function storedChange(d: DiffOutcome): Record<string, unknown> {
+  return { ...d, ...dateKeysOf(d) };
+}
+
+/**
+ * The movement in weeks as a reader may see it, through the one shared formatter (lib/date-basis.ts): the number always with
+ * what it rests on, or "lead time unverified" and no number for a note whose stored diff predates the keys. Null when the
+ * note has no weeks figure at all.
+ */
+export function weeksLine(n: { weeks_delta?: number | null; change?: Record<string, unknown> | null }): string | null {
+  if (typeof n.weeks_delta !== "number" || !Number.isFinite(n.weeks_delta)) return null;
+  const keys = dateKeysOf(n.change);
+  return formatWeeksDelta(n.weeks_delta, keys, keys);
 }
 
 /** Re-solve a watched hall and compare against the answer last reported.

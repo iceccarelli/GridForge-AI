@@ -56,7 +56,7 @@ def db():
     psql("postgres", f"create database {name}")
     psql(name, "create extension if not exists pgcrypto")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
-    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0021_customer_notifications.sql", "0030_delivery_handoff.sql", "0034_deposit_receipt_notice.sql"):
+    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0021_customer_notifications.sql", "0030_delivery_handoff.sql", "0034_deposit_receipt_notice.sql", "0036_release_notice_and_row_version.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -206,3 +206,40 @@ def test_the_outbox_accepts_one_deposit_receipt_per_deposit_and_still_refuses_un
     refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('y:{dep}', 'deposit_receipt', 'invoices', '{dep}')", "violates check")
     # the kinds 0021 started with still exist
     psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('z:{dep}', 'intake_link', 'deliverables', '{dep}')")
+
+
+def test_the_outbox_accepts_a_release_notice_per_pack_and_still_refuses_unknown_kinds(db):
+    d = new_screen(db)
+    row = f"('deliverable_release:{d}:abcd', 'deliverable_release', 'deliverables', '{d}')"
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values {row}")
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values {row} on conflict (dedupe_key) do nothing")
+    assert psql(db, f"select count(*) from customer_notifications where kind='deliverable_release' and subject_id='{d}'").stdout.strip() == "1"
+    # a re-release of a CHANGED pack is a different obligation
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('deliverable_release:{d}:ef01', 'deliverable_release', 'deliverables', '{d}')")
+    refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('q:{d}', 'deliverable_release_typo', 'deliverables', '{d}')", "violates check")
+    # the earlier kinds survive the restated check
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('r:{d}', 'deposit_receipt', 'engagement_deposits', '{d}')")
+
+
+def test_every_update_of_a_deliverable_bumps_its_version_so_a_stale_write_can_be_refused(db):
+    d = new_screen(db)
+    assert psql(db, f"select row_version from deliverables where id='{d}'").stdout.strip() == "0"
+    psql(db, f"update deliverables set title='a' where id='{d}'")
+    psql(db, f"update deliverables set title='b' where id='{d}'")
+    assert psql(db, f"select row_version from deliverables where id='{d}'").stdout.strip() == "2"
+    # a compare-and-set on the version it read matches nothing once somebody else has written
+    r = psql(db, f"update deliverables set title='stale' where id='{d}' and row_version=1 returning id")
+    assert r.stdout.strip() == ""
+    assert psql(db, f"select title from deliverables where id='{d}'").stdout.strip() == "b"
+    # the version cannot be set by the writer: the trigger overrides it
+    psql(db, f"update deliverables set row_version=999 where id='{d}'")
+    assert psql(db, f"select row_version from deliverables where id='{d}'").stdout.strip() == "3"
+
+
+def test_a_compare_and_set_on_the_claim_stamp_inside_the_intake_json_matches_only_that_claim(db):
+    d = new_screen(db)
+    psql(db, "update deliverables set status='generating', intake='{\"_gridforge\":{\"generating_since\":\"2027-01-01T00:00:00.000Z\"}}'::jsonb where id='" + d + "'")
+    stamp = "intake->'_gridforge'->>'generating_since'"
+    assert psql(db, f"update deliverables set status='engine_unavailable' where id='{d}' and status='generating' and {stamp}='2026-12-31T00:00:00.000Z' returning id").stdout.strip() == ""
+    assert psql(db, f"select status from deliverables where id='{d}'").stdout.strip() == "generating"
+    assert psql(db, f"update deliverables set status='engine_unavailable' where id='{d}' and status='generating' and {stamp}='2027-01-01T00:00:00.000Z' returning id").stdout.strip() == d

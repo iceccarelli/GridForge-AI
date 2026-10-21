@@ -7,14 +7,15 @@ import {
   claimStamp,
   generateAndStore,
   getByToken,
-  packHash,
   packState,
+  reviewHash,
   recoverStaleGenerating,
   updateByTokenIf,
 } from "@/lib/deliverables";
 import { attentionList } from "@/lib/attention";
 import { deliverableEndpoint } from "@/lib/products";
 import { sendMail } from "@/lib/mail";
+import { ensureNotification, notificationState, type Outcome } from "@/lib/notifications";
 import { SITE_URL } from "@/lib/site";
 import { runTrusted } from "@/lib/spend-scope";
 
@@ -112,16 +113,26 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       ok: true,
       status: out.complete ? "draft" : "engine_unavailable",
-      ...(fresh?.document_html ? { has_document: true, document_hash: packHash(fresh) } : {}),
+      ...(fresh?.document_html ? { has_document: true, document_hash: reviewHash(fresh) } : {}),
       ...(out.complete ? {} : { missing: out.missing }),
     });
   }
 
   if (action === "release") {
-    // Idempotent re-click: already released, nothing written, nobody emailed.
+    // Idempotent re-click: already released, nothing written. What it says about the buyer's email is what the outbox says: a
+    // release email that is still queued (or was refused, or had no address) is NOT "already sent", and a click while it is
+    // pending makes the attempt again if it is due.
     if (row.status === "released") {
       const link = `${SITE_URL}/deliverable/${token}`;
-      return NextResponse.json({ ok: true, status: "released", customer_notified: false, notify_error: "Already released; the buyer was not emailed again.", link });
+      const disc = String((row.intake as { _gridforge?: { review?: { pack_sha256?: unknown } } } | null)?._gridforge?.review?.pack_sha256 ?? reviewHash(row)).slice(0, 16);
+      const n = await releaseNotice(row.id, disc);
+      if (n.state === "unavailable") {
+        return NextResponse.json({ ok: true, status: "released", customer_notified: false, notify_error: "Already released; the buyer was not emailed again.", link });
+      }
+      if (n.state === "accepted") {
+        return NextResponse.json({ ok: true, status: "released", customer_notified: false, buyer_email: "accepted", notify_error: "Already released; the buyer was emailed and the provider accepted it.", link });
+      }
+      return NextResponse.json({ ok: true, status: "released", customer_notified: false, buyer_email: n.state, notify_error: n.message, link });
     }
     // Only a draft can be released. `generating`, `awaiting_intake` and
     // `engine_unavailable` rows may hold a stale or half-written document_html.
@@ -149,11 +160,20 @@ export async function PATCH(req: Request) {
     // What is released must be exactly what was reviewed: the caller names the
     // sha256 of the draft (the whole pack) they read (AdminDeliverable.document_hash), and it must
     // still match the stored document — and the hash recorded at generation.
-    const current = packHash(row);
+    const current = reviewHash(row);
     const reviewed = typeof body.reviewed_hash === "string" ? body.reviewed_hash : "";
     if (!reviewed) {
       return NextResponse.json(
         { ok: false, error: "reviewed_hash is required: release names the exact draft that was reviewed." },
+        { status: 422 }
+      );
+    }
+    // The buyer is emailed that "a senior engineer" reviewed it: a release without a name on the record makes that sentence
+    // uncheckable, so the name is required.
+    const reviewerName = typeof body.reviewed_by === "string" ? body.reviewed_by.trim() : "";
+    if (!reviewerName) {
+      return NextResponse.json(
+        { ok: false, error: "reviewed_by is required: the name of the engineer who reviewed this draft. It is recorded with the release and shown to the buyer." },
         { status: 422 }
       );
     }
@@ -169,7 +189,7 @@ export async function PATCH(req: Request) {
     // Who put their name to it, recorded WITH the release (one compare-and-set): the buyer is emailed that "a senior
     // engineer" reviewed it, and without a name on the record that sentence cannot be checked. The API accepts a release
     // without a name (older callers) and says so in its answer; the pipeline asks for one.
-    const reviewer = typeof body.reviewed_by === "string" ? body.reviewed_by.trim().slice(0, 120) : "";
+    const reviewer = reviewerName.slice(0, 120);
     const releasedAt = new Date().toISOString();
     const priorMeta = (row.intake as { _gridforge?: Record<string, unknown> } | null)?._gridforge ?? {};
     const written = await updateByTokenIf(
@@ -200,27 +220,40 @@ export async function PATCH(req: Request) {
     // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
     // the link once it is released". Report what actually happened so a failed send is handed to the
     // operator instead of being assumed.
-    const hasBoard = Boolean(row.working_files?.[BOARD_HTML]);
-    const sent = await sendMail({
-      to: row.email ?? "",
-      subject: "Your GridForge document is ready",
-      // Same row, same pack, same payload: a retry after a lost response returns the first result instead of sending
-      // twice. The pack hash is in the key so a re-release of a changed pack is a new mail, not a replay.
-      idempotencyKey: `deliverable-release-${row.id}-${current.slice(0, 16)}`,
-      text:
-        (hasBoard
-          ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
-          : "Your document has been reviewed by a senior engineer and released.\n\n") +
-        `${link}\n\n` +
-        "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
-        "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +
-        "own evidence classes and assumptions, and it is not an issued engineering opinion.",
-    });
+    // The release email is a durable obligation of its own (lib/notifications.ts, kind deliverable_release): attempted now,
+    // retried by the sweep when the provider fails, observable when it cannot be delivered. Without the outbox (migration
+    // 0021/0036 not applied) it is one direct attempt, as it always was.
+    const disc = current.slice(0, 16);
+    const queued = await releaseNotice(row.id, disc);
+    let notifiedNow = queued.state === "accepted";
+    let notifyError: string | undefined = queued.state === "accepted" ? undefined : queued.message;
+    if (queued.state === "unavailable") {
+      const hasBoard = Boolean(row.working_files?.[BOARD_HTML]);
+      const sent = await sendMail({
+        to: row.email ?? "",
+        subject: "Your GridForge document is ready",
+        // Same row, same pack, same payload: a retry after a lost response returns the first result instead of sending
+        // twice. The pack hash is in the key so a re-release of a changed pack is a new mail, not a replay.
+        idempotencyKey: `deliverable-release-${row.id}-${current.slice(0, 16)}`,
+        text:
+          (hasBoard
+            ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
+            : "Your document has been reviewed by a senior engineer and released.\n\n") +
+          `${link}\n\n` +
+          "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
+          "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +
+          "own evidence classes and assumptions, and it is not an issued engineering opinion.",
+      });
+      notifiedNow = sent.sent;
+      notifyError = sent.sent ? undefined : sent.reason;
+    }
+    const sent = { sent: notifiedNow, reason: notifyError ?? "" };
     return NextResponse.json({
       ok: true,
       status: "released",
       customer_notified: sent.sent,
       ...(sent.sent ? {} : { notify_error: sent.reason }),
+      ...(queued.state === "unavailable" ? {} : { buyer_email: queued.state }),
       reviewer_recorded: Boolean(reviewer),
       // Which engine build the document was read against at generation; false = it could not be read and the page says so.
       provenance_recorded: Boolean((priorMeta as { provenance?: unknown }).provenance),
@@ -249,4 +282,30 @@ export async function PATCH(req: Request) {
     );
   }
   return NextResponse.json({ ok: true, status: "draft" });
+}
+
+/**
+ * Queue the release email through the outbox and report where it stands. "unavailable": the outbox cannot hold it (the caller
+ * falls back to one direct send). Every other state is the outbox's own, with a message an operator can act on.
+ */
+async function releaseNotice(id: string, discriminator: string): Promise<{ state: "accepted" | "pending" | "abandoned" | "ambiguous" | "cancelled" | "unavailable"; message: string }> {
+  const out: Outcome = await ensureNotification("deliverable_release", id, discriminator);
+  if (out.state === "unavailable") return { state: "unavailable", message: "" };
+  let status: string = out.state;
+  let category = "category" in out ? out.category : "";
+  if (out.state === "skipped" || out.state === "accepted_unrecorded") {
+    const n = await notificationState("deliverable_release", id, discriminator);
+    status = n?.status ?? (out.state === "accepted_unrecorded" ? "pending" : "pending");
+    category = n?.last_error ?? category;
+  }
+  if (status === "accepted") return { state: "accepted", message: "" };
+  if (status === "abandoned") {
+    return {
+      state: "abandoned",
+      message: (category === "no_recipient" ? "There is no email address on record for this buyer" : `The release email could not be delivered (${category || "refused"})`) + ", and it will not be retried. Send them the link yourself.",
+    };
+  }
+  if (status === "ambiguous") return { state: "ambiguous", message: "The release email may or may not have been accepted; an operator must confirm it in /api/admin/notifications." };
+  if (status === "cancelled") return { state: "cancelled", message: "The release email no longer applies (the engagement is not released)." };
+  return { state: "pending", message: `The release email has not been delivered yet${category ? ` (${category})` : ""}. It is queued and retried automatically, and listed in /api/admin/notifications until it is accepted.` };
 }

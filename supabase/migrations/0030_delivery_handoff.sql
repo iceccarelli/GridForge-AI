@@ -29,7 +29,9 @@
 
 alter table public.engagement_deposits
   add column if not exists agreed_fee_cents int check (agreed_fee_cents is null or agreed_fee_cents > 0),
-  add column if not exists credit_applied_cents int not null default 0 check (credit_applied_cents >= 0),
+  -- nullable on purpose: a restore of an export taken before this column existed (jsonb_populate_recordset gives a missing key as
+  -- NULL, not as the default) must still load; code reads NULL as 0.
+  add column if not exists credit_applied_cents int default 0 check (credit_applied_cents >= 0),
   add column if not exists delivery_due_on date;
 
 create or replace function public.gf_deposit_guard() returns trigger

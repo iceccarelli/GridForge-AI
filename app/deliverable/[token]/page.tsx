@@ -1,7 +1,7 @@
 import React from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BOARD_HTML, getByToken, isPackFile, packHash } from "@/lib/deliverables";
+import { BOARD_HTML, getByToken, isPackFile, reviewHash } from "@/lib/deliverables";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
 import { BidComparison } from "@/components/BidComparison";
@@ -197,7 +197,7 @@ const short = (h?: string | null) => (h ? `${h.slice(0, 12)}…` : null);
  * Where this document came from, from what was recorded when it was generated and released. Nothing here is computed for
  * display: a field that was not recorded is said to be unrecorded rather than filled in.
  */
-function Provenance({ row }: { row: { intake?: unknown; document_html?: string | null; working_files?: Record<string, string> | null; released_at?: string | null } }) {
+function Provenance({ row }: { row: { intake?: unknown; document_html?: string | null; document_md?: string | null; deck_html?: string | null; working_files?: Record<string, string> | null; released_at?: string | null } }) {
   const m = metaOf(row.intake);
   const engine = m.provenance;
   return (
@@ -216,12 +216,12 @@ function Provenance({ row }: { row: { intake?: unknown; document_html?: string |
             : "not recorded for this document"}
         </dd>
         <dt className="text-faint">Document fingerprint</dt>
-        <dd className="font-mono text-xs">sha256 {short(packHash({ document_html: row.document_html ?? null, working_files: row.working_files ?? null })) ?? "—"}</dd>
+        <dd className="font-mono text-xs">sha256 {short(reviewHash({ document_html: row.document_html ?? null, document_md: row.document_md, deck_html: row.deck_html, working_files: row.working_files ?? null, intake: row.intake as Record<string, unknown> | null })) ?? "—"}</dd>
         <dt className="text-faint">Reviewed and released</dt>
         <dd>
           {m.review?.by ? `by ${m.review.by}` : "by a person; the reviewer's name was not recorded"}
           {m.review?.at ? ` on ${new Date(m.review.at).toLocaleDateString("en-IE")}` : row.released_at ? ` on ${new Date(row.released_at).toLocaleDateString("en-IE")}` : ""}
-          {m.review?.pack_sha256 && m.review.pack_sha256 === packHash({ document_html: row.document_html ?? null, working_files: row.working_files ?? null }) ? ", and the text above is the text that was reviewed" : ""}
+          {m.review?.pack_sha256 && m.review.pack_sha256 === reviewHash({ document_html: row.document_html ?? null, document_md: row.document_md, deck_html: row.deck_html, working_files: row.working_files ?? null, intake: row.intake as Record<string, unknown> | null }) ? ", and the text above is the text that was reviewed" : ""}
         </dd>
       </dl>
     </section>
