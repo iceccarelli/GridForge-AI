@@ -44,7 +44,8 @@ beforeEach(() => {
   mail = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
-  db = new PostgrestFake(["subscriptions", "subscription_members", "subscription_invitations", "customer_notifications", "api_accounts", "watches", "watch_notes", "leads", "deliverables"]);
+  db = new PostgrestFake(["subscriptions", "subscription_members", "subscription_invitations", "customer_notifications", "api_accounts", "watches", "watch_notes", "leads", "deliverables", "engagement_deposits"]);
+  db.uniqueKeys.set("engagement_deposits", [["stripe_session_id"]]);
   db.uniqueKeys.set("customer_notifications", [["dedupe_key"]]);
   db.rowDefaults.set("customer_notifications", () => ({ status: "pending", attempts: 0, max_attempts: 6, next_attempt_at: new Date(0).toISOString(), claimed_until: null, last_error: null, accepted_at: null, origin: "webhook", reopened_count: 0 }));
   const { restore } = installWithAuth(db);
@@ -149,5 +150,17 @@ describe("/api/subscribe never takes the email from the request", () => {
     expect(sessions[0]).not.toHaveProperty("customer_email");
     await subscribe({ plan: "developer" }, { authorization: "Bearer forged" });
     expect(sessions[1]).not.toHaveProperty("customer_email");
+  });
+});
+
+describe("QA6-8: the webhook still fulfils a generic deposit session created BEFORE the legacy flag existed", () => {
+  it("flag off, a completed legacy deposit session is still recorded (only NEW sessions are refused)", async () => {
+    delete process.env.GRIDFORGE_LEGACY_DEPOSIT;
+    const payload = JSON.stringify({ id: "evt_old_dep", type: "checkout.session.completed", data: { object: { id: "cs_old_dep", object: "checkout_session", customer_email: "buyer@hall.example", amount_total: 500_000, currency: "eur", metadata: { kind: "engagement_deposit", company: "Old Co" } } } });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const send = () => POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sdk.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200); // a redelivery is still one record
+    expect(db.rows("engagement_deposits")).toHaveLength(1);
   });
 });

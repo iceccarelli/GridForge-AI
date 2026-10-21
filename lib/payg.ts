@@ -90,12 +90,29 @@ export function scopeForPlan(plan: string): "trial" | "payg" | "machine" {
 
 let processKey: Buffer | null = null;
 
-/** The key for account references: dedicated FUNNEL_REF_KEY, else derived (domain-separated) from the key-signing secret. */
+let warned = false;
+function warnOnce(message: string): void {
+  if (warned) return;
+  warned = true;
+  console.warn(`[GridForge] ${message}`);
+}
+
+/**
+ * The key for account references and once-only keys: FUNNEL_REF_KEY. It is REQUIRED for stable funnel cohorts: references and
+ * once-only keys derived from the key-signing secret change when that secret is rotated, which would re-fire every once-only event and
+ * split every cohort in two. The old derivation from GRIDFORGE_KEY_SECRET remains only as a fallback, with a warning, so a deployment
+ * that never set FUNNEL_REF_KEY keeps the references it already has until it does (set it to the SAME value you are using today only if
+ * you want continuity: the two derivations differ, so switching starts new references).
+ */
 function refKey(): Buffer {
   const dedicated = process.env.FUNNEL_REF_KEY;
   if (dedicated && dedicated.length >= 16) return crypto.createHmac("sha256", dedicated).update("gf-funnel-ref-v2").digest();
   const secret = process.env.GRIDFORGE_KEY_SECRET;
-  if (secret) return crypto.createHmac("sha256", secret).update("gf-funnel-ref-v2").digest();
+  if (secret) {
+    warnOnce("FUNNEL_REF_KEY is not set: funnel references are derived from GRIDFORGE_KEY_SECRET and will change if it is rotated. Set FUNNEL_REF_KEY (16+ characters) for stable cohorts.");
+    return crypto.createHmac("sha256", secret).update("gf-funnel-ref-v2").digest();
+  }
+  warnOnce("Neither FUNNEL_REF_KEY nor GRIDFORGE_KEY_SECRET is set: funnel references use a per-process key and are not stable across restarts.");
   // Development and tests only: a per-process key. Never a constant: a bare hash of an account id could be recomputed from a guess.
   return (processKey ??= crypto.randomBytes(32));
 }

@@ -43,21 +43,27 @@ export async function usageActivity(): Promise<Activity | null> {
 
 /**
  * First engine use, derived from the ledger copy: the first charge that stood, per account. Once per account (the dedupe key), dated
- * when the use happened. Called by the daily cron after ingest. Bounded per run.
+ * when the use happened. Called by the daily cron after ingest.
+ *
+ * Bounded per run, and it PAGES: accounts that already have their event are skipped before the limit is counted, so each run records
+ * the next `limit` accounts that do not, and a ledger with more accounts than the limit is covered over successive runs (before, the
+ * same first `limit` accounts were re-tried forever and the rest were never recorded). Returns how many are still waiting.
  */
-export async function deriveFirstUse(limit = 500): Promise<{ considered: number; recorded: number }> {
+export async function deriveFirstUse(limit = 500): Promise<{ considered: number; recorded: number; remaining: number }> {
   const act = await usageActivity();
-  if (!act) return { considered: 0, recorded: 0 };
+  if (!act) return { considered: 0, recorded: 0, remaining: 0 };
+  const known = await rpc<{ refs?: Record<string, string[]> }>("gf_funnel_summary", { p_since: "2999-01-01T00:00:00Z" });
+  if (!known.ok) return { considered: 0, recorded: 0, remaining: 0 }; // cannot tell who is done: do nothing rather than redo everyone
+  const done = new Set(known.data?.refs?.first_engine_use ?? []);
+  const todo = Object.entries(act).filter(([account]) => !done.has(accountRef(account))).sort(([, a], [, b]) => (a.first < b.first ? -1 : 1));
   let considered = 0;
   let recorded = 0;
-  for (const [account, a] of Object.entries(act)) {
-    if (considered >= limit) break;
+  for (const [account, a] of todo.slice(0, Math.max(1, limit))) {
     considered++;
     const ref = accountRef(account);
-    const at = new Date(a.first);
-    if (await recordFunnelEvent("first_engine_use", { account_ref: ref }, { dedupeKey: `first_engine_use:${ref}`, at })) recorded++;
+    if (await recordFunnelEvent("first_engine_use", { account_ref: ref }, { dedupeKey: `first_engine_use:${ref}`, at: new Date(a.first) })) recorded++;
   }
-  return { considered, recorded };
+  return { considered, recorded, remaining: Math.max(0, todo.length - considered) };
 }
 
 // ----------------------------------------------------------------------------------------------------------------- funnel
@@ -335,6 +341,8 @@ export async function economicsReport(month: string, fetcher: EconomicsFetcher |
   }
 
   const accrued = payg * PAYG.unitPriceCents;
+  // EVERY scope the ledger holds (payg, trial, machine and the older `client`): leaving one out made a spurious "difference".
+  const allScopes = Object.values(scope).reduce((n, v) => n + Number(v ?? 0), 0);
   const computeSeconds = engine.available ? engine.totals.wall_ms_total / 1000 : null;
   return {
     ok: true as const,
@@ -346,7 +354,7 @@ export async function economicsReport(month: string, fetcher: EconomicsFetcher |
       accrued_payg_cents: accrued,
       payg_units: payg,
       free_units: Number(scope.trial ?? 0),
-      subscription_units: Number(scope.machine ?? 0),
+      subscription_units: Number(scope.machine ?? 0) + Number(scope.client ?? 0),
       active_accounts: Number(usage.data.accounts ?? 0),
       settlements: {
         by_status: byStatus,
@@ -362,7 +370,7 @@ export async function economicsReport(month: string, fetcher: EconomicsFetcher |
     compute: engine,
     reconciliation:
       engine.available && engine.durable
-        ? { engine_units: engine.totals.units, ledger_units: payg + Number(scope.trial ?? 0) + Number(scope.machine ?? 0), difference: engine.totals.units - (payg + Number(scope.trial ?? 0) + Number(scope.machine ?? 0)), basis: "Units the engine metered vs the units in the website's ledger copy (ingest is daily, so a small gap on the current month is expected)." }
+        ? { engine_units: engine.totals.units, ledger_units: allScopes, difference: engine.totals.units - allScopes, basis: "Units the engine metered vs the units in the website's ledger copy (ingest is daily, so a small gap on the current month is expected)." }
         : null,
     revenue_per_compute_second_cents: computeSeconds && computeSeconds > 0 ? Math.round((accrued / computeSeconds) * 100) / 100 : null,
     margin: {

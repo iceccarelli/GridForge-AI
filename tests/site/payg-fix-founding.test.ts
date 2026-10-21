@@ -25,6 +25,7 @@ let restore: () => void;
 
 beforeEach(() => {
   process.env.STRIPE_SECRET_KEY = "sk_test_x";
+  process.env.GRIDFORGE_LEGACY_DEPOSIT = "1"; // the off-catalogue path is opt-in (QA6-8); the reservation tests exercise it deliberately
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   coupons.length = 0; sessions.length = 0; failSession = false;
@@ -32,7 +33,7 @@ beforeEach(() => {
   db = new PostgrestFake(["engagement_deposits"]);
   restore = db.install();
 });
-afterEach(() => { restore(); vi.restoreAllMocks(); });
+afterEach(() => { delete process.env.GRIDFORGE_LEGACY_DEPOSIT; restore(); vi.restoreAllMocks(); });
 
 const paid = (n: number) => db.seed("engagement_deposits", Array.from({ length: n }, (_, i) => ({ stripe_session_id: `cs_${i}`, kind: "engagement_deposit", amount_cents: COMMERCE.deposit.amountCents - COMMERCE.founding.creditCents, status: "paid" })));
 const checkout = async () =>
@@ -100,5 +101,47 @@ describe("the last Founding slots go to exactly as many sessions as there are sl
     const body = await (await checkout()).json();
     expect(body.founding_applied).toBe(false);
     expect(coupons).toHaveLength(0);
+  });
+});
+
+describe("QA6-8: a NEW generic deposit or Founding session needs the explicit legacy flag", () => {
+  const post = async (body: unknown) =>
+    (await import("@/app/api/checkout/route")).POST(new Request(siteUrl("/api/checkout"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+  it("by default `{}`, `{founding:true}` and a body with no product are refused (400, naming the catalogue): no coupon, no session, nothing charged", async () => {
+    delete process.env.GRIDFORGE_LEGACY_DEPOSIT;
+    for (const body of [{}, { founding: true }, { company: "X", email: "a@b.example", capacityMW: 20 }]) {
+      const res = await post(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      const j = await res.json();
+      expect(j.ok).toBe(false);
+      expect(j.error).toMatch(/no generic deposit/i);
+      expect(j.error).toMatch(/catalogue/i);
+    }
+    expect(coupons).toHaveLength(0);
+    expect(sessions).toHaveLength(0);
+    expect(db.rows("founding_reservations")).toHaveLength(0);
+  });
+
+  it("any value other than exactly 1 leaves it off", async () => {
+    for (const v of ["0", "true", "yes", ""]) {
+      process.env.GRIDFORGE_LEGACY_DEPOSIT = v;
+      expect((await post({ founding: true })).status, v).toBe(400);
+    }
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("with the flag on, the old path works unchanged (including the Founding reservation)", async () => {
+    process.env.GRIDFORGE_LEGACY_DEPOSIT = "1";
+    expect((await post({ founding: true })).status).toBe(200);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].metadata.kind).toBe("engagement_deposit");
+  });
+
+  it("a CATALOGUE product is never affected by the flag", async () => {
+    delete process.env.GRIDFORGE_LEGACY_DEPOSIT;
+    const res = await post({ product: "density_screen" });
+    expect(res.status).toBe(200);
+    expect(sessions[0].metadata.kind).toBe("density_screen");
   });
 });

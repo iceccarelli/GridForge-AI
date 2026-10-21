@@ -273,6 +273,19 @@ export class MockStripe implements PaygStripe {
       return si;
     },
   } as unknown as PaygStripe["setupIntents"];
+  portalSessions: { customer: string; return_url: string }[] = [];
+  /** Set to make the Billing Portal refuse, as Stripe does until the portal is configured in the dashboard. */
+  portalConfigured = true;
+  billingPortal = {
+    sessions: {
+      create: async (params: { customer: string; return_url: string }) => {
+        this.maybeFail("billingPortal.sessions.create");
+        if (!this.portalConfigured) throw Object.assign(new Error("No configuration provided and your live mode default configuration has not been created."), { type: "StripeInvalidRequestError", statusCode: 400 });
+        this.portalSessions.push(params);
+        return { id: `bps_mock_${++this.n}`, url: `https://billing.stripe.test/p/session_${this.n}` };
+      },
+    },
+  };
   customers = {
     update: async (id: string, params: any) => {
       this.maybeFail("customers.update");

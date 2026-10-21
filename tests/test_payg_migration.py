@@ -119,6 +119,8 @@ def test_applying_the_migration_again_changes_nothing(db):
     psql(db, file=MIGRATIONS / "0033_payg_hardening.sql")
     psql(db, file=MIGRATIONS / "0035_funnel_measurement.sql")
     psql(db, file=MIGRATIONS / "0035_funnel_measurement.sql")
+    psql(db, file=MIGRATIONS / "0036_funnel_events_comment.sql")
+    psql(db, file=MIGRATIONS / "0036_funnel_events_comment.sql")
     assert q(db, "select count(*) from usage_events") == before
     assert q(db, "select last_seq from payg_cursor where id = 1") is not None
 
@@ -545,3 +547,12 @@ def test_the_month_summary_is_net_by_scope(db):
     m = json.loads(q(db, "select public.gf_usage_month_summary('2031-03-01Z', '2031-04-01Z')"))
     assert m["by_scope"] == {"payg": 10, "trial": 0, "machine": 3} and m["accounts"] == 1
     assert json.loads(q(db, "select public.gf_usage_month_summary('2040-01-01Z', '2040-02-01Z')")) == {"by_scope": {}, "accounts": 0}
+
+
+def test_the_funnel_table_documents_what_the_database_does_and_does_not_fence(db):
+    table = q(db, "select obj_description('public.funnel_events'::regclass, 'pg_class')")
+    assert "name is one of a fixed list" in table and "NOT fenced in the database" in table and "lib/funnel.ts" in table
+    col = q(db, "select col_description('public.funnel_events'::regclass, (select attnum from pg_attribute where attrelid = 'public.funnel_events'::regclass and attname = 'props'))")
+    assert "not by a database constraint" in col
+    # and the claim is true: the database really does not constrain keys or values inside props
+    psql(db, "insert into funnel_events (name, props) values ('key_minted', '{\"anything\": \"goes@here.example\"}')")
