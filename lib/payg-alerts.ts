@@ -46,6 +46,12 @@ export async function sendUsageAlerts(now: Date = new Date()): Promise<AlertRepo
     if (!acct || !cap || acct.status !== "active") continue;
     report.considered++;
     const pct = (t.net_units / cap) * 100;
+    // Adoption funnel: the allowance (or the customer's own cap) is fully used. The engine records no refusals, so this is derived at
+    // ingest from used >= cap; once per account and month.
+    if (t.net_units >= cap) {
+      const ref = accountRef(acct.account);
+      await recordFunnelEvent("allowance_exhausted", { plan: acct.plan, month, account_ref: ref }, { dedupeKey: `allowance_exhausted:${ref}:${month}` });
+    }
     for (const p of percents) {
       if (pct < p) continue;
       const have = await pg<unknown[]>("GET", `usage_alerts?account=eq.${enc(acct.account)}&month=eq.${month}&percent=eq.${p}&select=percent&limit=1`);

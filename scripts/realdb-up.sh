@@ -145,6 +145,10 @@ done
 "${DBQ[@]}" -At -c "select count(*) from information_schema.tables where table_name = 'usage_quarantine'" \
   | grep -qx 1 || { echo "[realdb] FAILED: migration 0033 tables are missing"; exit 1; }
 
+# 0035 (the funnel and economics read functions) must be present.
+"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_funnel_summary','gf_usage_activity','gf_usage_month_summary')" \
+  | grep -qx 3 || { echo "[realdb] FAILED: migration 0035 (funnel measurement) is missing"; exit 1; }
+
 if [ "$REAL_STORAGE" = 1 ]; then
   # The migrations must have created the bucket in the REAL table, and it must be private.
   [ "$("${DBQ[@]}" -At -c "select public from storage.buckets where id = 'cost-evidence-artifacts'")" = f ] \

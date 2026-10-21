@@ -1,3 +1,4 @@
+import { recordFunnelEvent } from "@/lib/funnel";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { compareRequestSchema } from "@/lib/ttp-compare";
@@ -149,6 +150,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: saved.error }, { status: saved.status, headers: NO_STORE });
     }
     const token = saved.project_token ?? (target.kind === "existing" ? target.project.project_token : null);
+    // Adoption funnel: counted, never described (no project name, token, hall or result goes into the event).
+    if (saved.project_token) await recordFunnelEvent("project_created");
+    if (saved.created) await recordFunnelEvent("project_saved_result", { kind: "comparison" });
     return NextResponse.json(
       {
         ok: true,

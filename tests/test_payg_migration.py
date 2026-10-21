@@ -117,6 +117,8 @@ def test_applying_the_migration_again_changes_nothing(db):
     psql(db, file=MIGRATIONS / "0032_payg_payment_failed_notice.sql")
     psql(db, file=MIGRATIONS / "0033_payg_hardening.sql")
     psql(db, file=MIGRATIONS / "0033_payg_hardening.sql")
+    psql(db, file=MIGRATIONS / "0035_funnel_measurement.sql")
+    psql(db, file=MIGRATIONS / "0035_funnel_measurement.sql")
     assert q(db, "select count(*) from usage_events") == before
     assert q(db, "select last_seq from payg_cursor where id = 1") is not None
 
@@ -134,7 +136,7 @@ def test_every_new_table_has_row_level_security_and_the_api_roles_have_no_privil
 
 
 def test_the_gf_functions_of_this_migration_are_service_role_only(db):
-    fns = ["gf_founding_reserve(integer,integer,integer)", "gf_usage_ingest(jsonb,bigint,jsonb)", "gf_free_account_verify(text,integer)", "gf_usage_net(text,timestamptz,timestamptz)",
+    fns = ["gf_founding_reserve(integer,integer,integer)", "gf_usage_ingest(jsonb,bigint,jsonb)", "gf_free_account_verify(text,integer)", "gf_funnel_summary(timestamptz)", "gf_usage_activity()", "gf_usage_month_summary(timestamptz,timestamptz)", "gf_usage_net(text,timestamptz,timestamptz)",
            "gf_usage_month_totals(timestamptz,timestamptz)", "gf_payg_unsettled(text)",
            "gf_free_account_create(text,text,text,text,text,integer)"]
     for f in fns:
@@ -462,3 +464,84 @@ def test_a_failed_payment_notice_is_one_obligation_per_settlement_and_the_earlie
     aid = q(db, f"select id from api_accounts where account = '{a}'")
     psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('team_invitation:{aid}', 'team_invitation', 'subscription_invitations', '{aid}')")
     psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('usage_alert:{aid}:2026-10:100', 'usage_alert', 'api_accounts', '{aid}')")
+
+
+# ------------------------------------------------------------------------------------------------ 0035: the funnel
+
+NEW_EVENTS = ["qualify_started", "qualify_completed", "project_created", "project_saved_result", "first_engine_use", "allowance_exhausted",
+              "engagement_commissioned", "subscription_started", "subscription_cancelled", "refund_issued", "dispute_opened"]
+
+
+def test_the_funnel_name_list_is_widened_to_exactly_the_new_events_and_still_closed(db):
+    for n in NEW_EVENTS:
+        psql(db, f"insert into funnel_events (name, props) values ('{n}', '{{}}')")
+    for bad in ("page_view", "email_captured", "qualify"):
+        refused(db, f"insert into funnel_events (name, props) values ('{bad}', '{{}}')", "violates check")
+
+
+def summary(db, since="2000-01-01Z"):
+    return json.loads(q(db, f"select public.gf_funnel_summary('{since}')"))
+
+
+def test_the_funnel_summary_counts_the_window_and_returns_the_cohort_and_account_steps(db):
+    tag = uid()
+    ref = lambda i: (f"{i:02d}" + uid() + uid())[:12].replace("-", "a")
+    before = summary(db)
+    r1, r2, r3 = f"{tag[:6]}aaaaaa", f"{tag[:6]}bbbbbb", f"{tag[:6]}cccccc"
+    psql(db, f"insert into funnel_events (name, props, created_at) values "
+             f"('free_account_created', '{{\"account_ref\": \"{r1}\"}}', '2026-10-01Z'), "
+             f"('free_account_created', '{{\"account_ref\": \"{r2}\"}}', '2026-10-02Z'), "
+             f"('free_account_created', '{{\"account_ref\": \"{r3}\"}}', '2026-01-01Z'), "
+             f"('key_minted', '{{\"account_ref\": \"{r1}\"}}', '2026-10-03Z'), "
+             f"('key_minted', '{{\"account_ref\": \"{r1}\"}}', '2026-10-04Z'), "
+             f"('payg_enabled', '{{\"account_ref\": \"{r1}\"}}', '2026-10-05Z'), "
+             f"('subscription_started', '{{\"kind\": \"zz{tag}\"}}', '2026-10-05Z'), "
+             f"('subscription_started', '{{\"kind\": \"zz{tag}\"}}', '2026-10-06Z'), "
+             f"('subscription_cancelled', '{{\"kind\": \"zz{tag}\", \"reason\": \"payment_failed\"}}', '2026-10-07Z'), "
+             f"('qualify_completed', '{{\"evidence_class\": \"E7\"}}', '2026-10-07Z')")
+    after = summary(db, "2026-09-01Z")
+    cohort = {c["ref"] for c in after["cohort"]}
+    assert {r1, r2} <= cohort and r3 not in cohort  # the cohort is the window
+    assert set(after["refs"]["key_minted"]) >= {r1} and after["refs"]["key_minted"].count(r1) == 1  # distinct accounts, all time
+    assert r1 in after["refs"]["payg_enabled"]
+    assert after["by_kind"]["subscription_started"][f"zz{tag}"] == 2
+    assert after["by_kind"]["subscription_cancelled"][f"zz{tag}"] == 1
+    assert after["cancel_reasons"]["payment_failed"] >= 1
+    assert after["evidence_classes"]["E7"] >= 1
+    assert after["counts"]["key_minted"] >= 2
+    # the window really bounds the counts: an old window sees none of these
+    old = summary(db, "2099-01-01Z")
+    assert old["counts"] == {} and old["cohort"] == []
+    # an empty database range is a well-formed object, not null
+    assert set(after) == {"counts", "cohort", "refs", "by_kind", "cancel_reasons", "evidence_classes"}
+    assert before is not None
+
+
+def test_usage_activity_is_net_of_refunds_by_utc_week_with_the_first_charge_time(db):
+    a, b = account(db), account(db)
+    event(db, a, 5, ts="2026-10-06T10:00:00Z")           # Tuesday of week 2026-10-05
+    event(db, a, 5, ts="2026-10-14T10:00:00Z")           # week 2026-10-12
+    c = event(db, b, 5, ts="2026-10-06T10:00:00Z")
+    event(db, b, 5, kind="refund", ts="2026-10-06T10:00:01Z", ref=c)  # refunded in full: not use
+    d = event(db, b, 4, ts="2026-10-20T10:00:00Z")
+    event(db, b, 1, kind="refund", ts="2026-10-20T10:00:01Z", ref=d)  # partly refunded: 3 units stand
+    act = json.loads(q(db, "select public.gf_usage_activity()"))
+    assert act[a]["weeks"] == ["2026-10-05", "2026-10-12"]
+    assert act[a]["first"].startswith("2026-10-06")
+    assert act[b]["weeks"] == ["2026-10-19"]  # the fully refunded week is not activity
+    # Sunday night belongs to the week that is ending, Monday morning to the next
+    e = account(db)
+    event(db, e, 1, ts="2026-11-01T23:59:59Z"); event(db, e, 1, ts="2026-11-02T00:00:01Z")
+    assert json.loads(q(db, "select public.gf_usage_activity()"))[e]["weeks"] == ["2026-10-26", "2026-11-02"]
+
+
+def test_the_month_summary_is_net_by_scope(db):
+    a = account(db)
+    event(db, a, 10, scope="payg", ts="2031-03-10T00:00:00Z")
+    c = event(db, a, 4, scope="trial", ts="2031-03-11T00:00:00Z")
+    event(db, a, 4, kind="refund", scope="payg", ts="2031-03-11T00:00:01Z", ref=c)  # a refund inherits the charge's scope
+    event(db, a, 3, scope="machine", ts="2031-03-12T00:00:00Z")
+    event(db, a, 99, scope="payg", ts="2031-04-01T00:00:00Z")  # next month
+    m = json.loads(q(db, "select public.gf_usage_month_summary('2031-03-01Z', '2031-04-01Z')"))
+    assert m["by_scope"] == {"payg": 10, "trial": 0, "machine": 3} and m["accounts"] == 1
+    assert json.loads(q(db, "select public.gf_usage_month_summary('2040-01-01Z', '2040-02-01Z')")) == {"by_scope": {}, "accounts": 0}

@@ -58,8 +58,9 @@ export async function createFreeAccount(rawEmail: unknown, rawCompany: unknown, 
 
   // A colliding account id or token (unique_violation) is retried with fresh random values; it cannot be steered by an attacker.
   let created: { created: boolean; id?: string } | null = null;
+  let account = "";
   for (let attempt = 0; attempt < 4 && !created; attempt++) {
-    const account = freeAccountId(norm);
+    account = freeAccountId(norm);
     const r = await rpc<{ created: boolean; id?: string }>("gf_free_account_create", {
       p_email_norm: norm, p_email: email, p_company: cleanCompany(rawCompany), p_token: newToken(), p_account: account, p_units: PAYG.freeAllowanceUnits,
     });
@@ -73,7 +74,8 @@ export async function createFreeAccount(rawEmail: unknown, rawCompany: unknown, 
   const id = created.id;
 
   if (created.created) {
-    const ref = accountRef(`free:${id}`);
+    // The account NAME, so the same account carries the same reference at every later step (key, first use, pay-as-you-go, first charge).
+    const ref = accountRef(account);
     await recordFunnelEvent("free_account_created", { plan: "api_free", account_ref: ref }, { dedupeKey: `free_account_created:${ref}` });
     const o = await ensureNotification("api_access_link", id);
     return o.state === "unavailable" && o.reason === "store_error" ? { ok: true, created: true, delivery: "retry" } : { ok: true, created: true, delivery: "queued" };
