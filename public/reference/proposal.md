@@ -16,9 +16,9 @@ We ran your hall through the capacity engine before writing this. The following 
 
 *Limited by: Full DLC plus behind-the-meter supply*
 
-**Time to full capacity:** 160 [112–256] weeks (E3)
+**Time to full capacity:** 160 [80–210] weeks (E0)
 
-*Limited by: set by transformer capacity*
+*Limited by: assumed lead time, not a date (E0) · set by transformer capacity*
 
 > ➡️ Binding constraint: Rack feed / tap-off rating (electrical). platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5).
 
@@ -90,7 +90,7 @@ Commission the engagement and you will receive an intake link for the hall's num
 
 > ℹ️ Before you spend anything with us: get the DSO position in writing on firm capacity and any flexibility product. It costs nothing but time, and on some sites it ends the question entirely. We would rather tell you that now than bill you to discover it.
 
-> ⚠️ EVIDENCE DISCLOSURE: the findings in section 1 are a screening read built partly on library defaults. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. They are sufficient to decide whether this engagement is worth commissioning, and not sufficient to support procurement, construction or an investment committee decision. Closing the gaps in section 3 is what changes that.
+> ⚠️ EVIDENCE DISCLOSURE: the findings in section 1 are a screening read built partly on library defaults. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. They are sufficient to decide whether this engagement is worth commissioning, and not sufficient to support procurement, construction or an investment committee decision. Closing the gaps in section 3 is what changes that.
 
 ## Appendix A — Assumptions, provenance and validation status
 
@@ -121,7 +121,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | --- | --- | --- | --- |
 | deployable racks as found | E0 | input@0.1 | `2251cf0df6fb` |
 | deployable racks after relief | E0 | input@0.1 | `8869e76332d4` |
-| elapsed weeks to full energisation | E3 | input@0.1 | `85cf5cf7107b` |
+| elapsed weeks to full energisation | E0 | input@0.1 | `6fc4e6a9b6e3` |
 | Density Screen fixed fee | E3 | input@0.1 | `7ca2ecfa0a05` |
 
 ---

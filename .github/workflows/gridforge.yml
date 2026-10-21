@@ -620,6 +620,10 @@ jobs:
         run: python -m pytest tests/test_payg_migration.py -q
       - name: Pay-as-you-go ingest, settlement, webhook, compare-and-set mint, free allowance and alerts - real PostgREST + PostgreSQL, Stripe mocked (fails, never skips)
         run: npx vitest run tests/site/payg.realdb.test.ts
+      - name: Delivery hand-off - deposit credit ledger, scoping guard, release notice and row version on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_delivery_handoff_migration.py tests/test_leads_rls_migration.py -q
+      - name: Paid journeys - Procurement Specification, stuck generation, Hall Watch, deposit - real engine + PostgREST + PostgreSQL, mail and Stripe events local (fails, never skips)
+        run: npx vitest run tests/site/delivery-journeys.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true

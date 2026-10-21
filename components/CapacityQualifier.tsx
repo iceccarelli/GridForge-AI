@@ -6,6 +6,7 @@ import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
+import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 
 /**
@@ -15,9 +16,10 @@ import FreeAllowanceForm from "@/components/FreeAllowanceForm";
  * that produces the paid study. It returns the binding constraint — the thing that
  * actually stops the hall — and the list of inputs nobody has measured.
  *
- * What it deliberately withholds: capital cost, programme duration, the full
- * constraint ladder. The API enforces that server-side; this component could not
- * show them if it tried.
+ * It shows the constraint and the rack count. The free Time-to-Power comparison
+ * (/power/compare) also shows scenarios with indicative capital cost and a time to
+ * full capacity, each with its evidence class. What is paid is human-reviewed
+ * engagement work and metered engine usage beyond the free allowance.
  *
  * Every figure it displays comes back from the engine with an evidence class
  * attached. Nothing here is computed in the browser.
@@ -129,7 +131,8 @@ export function CapacityQualifier() {
         <p className="text-mute mt-2 max-w-2xl text-sm">
           Seven numbers you already know. The same engine that produces our paid study returns the
           binding constraint, the deployable rack count, and the inputs nobody has measured yet.
-          Capital cost and programme duration are part of the engagement, not of this read.
+          For scenarios with indicative capital cost and time to full capacity, the free Time-to-Power comparison goes
+          further; a human-reviewed engagement is the paid step.
         </p>
       </div>
 
@@ -265,7 +268,7 @@ function QualifyReadout({
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
         <Readout label="After the ladder" value={String(after.racks)} suffix="racks" tone="power" />
-        <Readout label="Sets the date" value={after.sets_the_date} tone="queue" small />
+        <SetsTheDate after={after} />
       </div>
 
       <div className="mt-5 rounded border border-line bg-panel-2 p-4">
@@ -489,6 +492,24 @@ function CommissionPanel({
         </a>
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-flag">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * "Sets the date" never reads as a date on its own: the item that sets it is shown with what the figure rests on, an
+ * assumed lead time is named as one, and a hall with no date says so. The weeks themselves are withheld from the
+ * free read by the engine; this is only the label that must travel with the item.
+ */
+function SetsTheDate({ after }: { after: QualifyResult["after_relief"] }) {
+  const f = formatSetsTheDate(after.sets_the_date, after);
+  return (
+    <div className="rounded border border-line bg-panel-2 px-4 py-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        {f.info.basis === "none" ? "Date" : "Sets the lead time"}
+      </p>
+      <p className="font-mono text-base font-semibold text-queue mt-1">{f.value}</p>
+      <p className="mt-1 text-[11px] leading-snug text-queue">{f.label}</p>
     </div>
   );
 }

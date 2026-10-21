@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from ..envelope.time_to_power import full_capacity_band, schedule, schedule_complete
+from ..envelope.time_to_power import date_basis, full_capacity_band, schedule, schedule_complete
 from ..serialize import _q, economics_dict
 from ..scenario.objective import Objective
 from ..scenario.run import ScenarioResult
@@ -83,23 +83,24 @@ def select(results: list[ScenarioResult], ids: list[str] | None) -> list[Scenari
 
 def _date(res: ScenarioResult) -> dict:
     t = schedule(res.ladder)
+    basis = date_basis(res.ladder, t).to_dict()      # additive: date_basis, date_evidence_class, date_binding_item, date_label
     if not t.max_racks:
         return {"status": "no_deployable_racks", "weeks": None, "low": None, "high": None, "evidence": None,
                 "first_rack_weeks": None, "sets_the_date": None,
-                "reason": "No rack is deployable in this scenario, so there is nothing to date."}
+                "reason": "No rack is deployable in this scenario, so there is nothing to date.", **basis}
     if not schedule_complete(res.ladder):
         gaps = [s.binding_name for s in res.ladder.taken_steps if s.lead_time_weeks is None]
         return {"status": "lead_time_missing", "weeks": None, "low": None, "high": None, "evidence": None,
                 "first_rack_weeks": None, "sets_the_date": None,
-                "reason": "No defensible date: no lead time is known for " + ", ".join(gaps) + "."}
+                "reason": "No defensible date: no lead time is known for " + ", ".join(gaps) + ".", **basis}
     band = full_capacity_band(res.ladder, t)
     if band is None:
         return {"status": "no_date", "weeks": None, "low": None, "high": None, "evidence": None,
                 "first_rack_weeks": None, "sets_the_date": None,
-                "reason": "The energisation curve never reaches the full envelope."}
+                "reason": "The energisation curve never reaches the full envelope.", **basis}
     weeks, lo, hi, cls = band
     return {"status": "dated", "weeks": weeks, "low": lo, "high": hi, "evidence": _cls(cls.name),
-            "first_rack_weeks": t.weeks_to_first_rack, "sets_the_date": t.critical_item, "reason": None}
+            "first_rack_weeks": t.weeks_to_first_rack, "sets_the_date": t.critical_item, "reason": None, **basis}
 
 
 def _grade(status: str, weakest, has_missing_lead_time: bool) -> str:
@@ -166,7 +167,8 @@ def _vs(base: dict, s: dict) -> dict:
     if racks:
         why.append(f"{abs(racks)} {'more' if racks > 0 else 'fewer'} racks deployable")
     if sd["sets_the_date"] and sd["sets_the_date"] != bd["sets_the_date"]:
-        why.append(f"the date is set by {sd['sets_the_date']}")
+        why.append(f"the {'assumed lead time (not a date)' if sd.get('date_basis') == 'assumed' else 'date'} "
+                   f"is set by {sd['sets_the_date']}")
     return {"racks_delta": racks,
             "weeks_delta": weeks,
             "weeks_delta_unknown_reason": None if weeks is not None else (

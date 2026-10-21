@@ -9,6 +9,7 @@ import pytest
 from gridforge.api import keys as K
 from gridforge.api import server as S
 from gridforge.api.ledger import Ledger
+from gridforge.api.costs import CostMeter
 from gridforge.api.metering import UNIT_COST, Meter
 from gridforge.commercial import PAYG
 import threading
@@ -27,6 +28,7 @@ class Rig:
         monkeypatch.setattr(S.Handler.limiter, "per_minute", 0)
         self.monkeypatch = monkeypatch
         self.ledger_path = tmp_path / "ledger.jsonl"
+        self.cost_path = tmp_path / "costs.json"
         self.meter = None
         self.httpd = None
         self.restart()
@@ -35,7 +37,7 @@ class Rig:
         """A new engine process over the same files: a fresh meter and an empty response cache."""
         if self.httpd:
             self.httpd.shutdown()
-        self.meter = Meter(None, Ledger(self.ledger_path))
+        self.meter = Meter(None, Ledger(self.ledger_path), CostMeter(self.cost_path))
         self.monkeypatch.setattr(S, "METER", self.meter)
         self.monkeypatch.setattr(S, "IDEMPOTENCY", S._IdempotencyCache())
         self.httpd = S.make_server("127.0.0.1", 0)

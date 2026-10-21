@@ -17,6 +17,7 @@ import { siteUrl } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { balanceDueCents, depositTerms } from "@/lib/engagement-state";
 import { classify } from "@/lib/attention";
+import * as shape from "@/lib/attention";
 import { PostgrestFake } from "./postgrest-fake";
 import { installDepositRpcs } from "./deposit-rpc-fake";
 
@@ -40,12 +41,21 @@ function screen(over: Record<string, unknown> = {}) {
   db.seed("deliverables", [{ token: `t${db.rows("deliverables").length}`, kind: "density_screen", email: BUYER, amount_cents: 450_000, stripe_session_id: "cs_s", status: "released", ...over }]);
   return db.rows("deliverables").at(-1) as any;
 }
-async function step(id: string, body: Record<string, unknown>) {
+async function stepRaw(id: string, body: Record<string, unknown>) {
   const { POST } = await import("@/app/api/admin/deposits/[id]/route");
   const res = await POST(new Request(siteUrl("/x"), { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
   return { res, body: (await res.json()) as any };
 }
-const scoping = (over: Record<string, unknown> = {}) => ({ scope_note: "One hall, grid and thermal, two architectures", agreed_fee_cents: FEE, delivery_due_on: DUE, ...over });
+/** Credits need an operator's confirmation: `__confirm_all` plays the operator who has checked every candidate and confirms it. */
+async function step(id: string, body: Record<string, unknown>) {
+  const { __confirm_all: confirmAll, ...rest } = body;
+  let r = await stepRaw(id, rest);
+  if (confirmAll && r.res.status === 409 && r.body.details?.credits_available) {
+    r = await stepRaw(id, { ...rest, confirm_credit_ids: r.body.details.credits_available.map((c: any) => c.source_deliverable_id) });
+  }
+  return r;
+}
+const scoping = (over: Record<string, unknown> = {}) => ({ scope_note: "One hall, grid and thermal, two architectures", agreed_fee_cents: FEE, delivery_due_on: DUE, __confirm_all: true, ...over });
 
 beforeEach(() => {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
@@ -161,6 +171,58 @@ describe("scoping records the fee, the date and the credit — or refuses", () =
     const d2 = deposit({ email: "%@hall.example" });
     expect((await step(d2.id, scoping())).body.deposit.credit_applied_cents).toBe(0);
     expect(db.rows("engagement_credits")).toHaveLength(0);
+  });
+
+  it.each(["a*@x.com", "a%b@x.com", "a_b@x.com", "A\\b@x.com"])("%s: identity is the exact normalised address, in code — a wildcard character matches nobody else's credit", async (typed) => {
+    // addresses that a LIKE/ILIKE pattern built from `typed` would also match (and that PostgREST's `*` would)
+    for (const other of ["ab@x.com", "aXb@x.com", "a-b@x.com", "a1b@x.com", "ac@x.com"]) screen({ email: other });
+    const mine = screen({ email: typed.toUpperCase() });          // the buyer's own, typed with other capitals
+    const { creditsToward } = await import("@/lib/deliverables");
+    const found = await creditsToward(typed, "envelope_study");
+    expect(found.from.map((f) => f.id)).toEqual([mine.id]);
+    const d = deposit({ email: typed });
+    const r = await step(d.id, scoping());                        // would 409 every time if a foreign credit were auto-selected
+    expect(r.res.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.credits_applied).toEqual([expect.objectContaining({ source_deliverable_id: mine.id })]);
+    expect(db.rows("engagement_credits")).toHaveLength(1);
+  });
+
+  it("credits are applied only when the operator confirms them: an unconfirmed call lists the candidates and records nothing", async () => {
+    const s = screen({ company: "Hall Co" });
+    const d = deposit();
+    const r = await step(d.id, scoping({ __confirm_all: false }));
+    expect(r.res.status).toBe(409);
+    expect(r.body.error).toMatch(/confirm_credit_ids/);
+    expect(r.body.details.credits_available).toEqual([expect.objectContaining({ source_deliverable_id: s.id, amount_cents: 450_000, email: BUYER, company: "Hall Co" })]);
+    expect(JSON.stringify(r.body)).not.toContain(s.token);            // the document token is a credential: never listed
+    expect(db.rows("engagement_deposits")[0].status).toBe("contacted");
+    expect(db.rows("engagement_credits")).toHaveLength(0);
+  });
+
+  it("[] confirms none (the deposit is scoped with no credit and the Screen stays available); a subset applies only that", async () => {
+    const a = screen(), b = screen();
+    const d = deposit();
+    const none = await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [] }));
+    expect(none.res.status).toBe(200);
+    expect(none.body.deposit.credit_applied_cents).toBe(0);
+    const d2 = deposit();
+    const some = await step(d2.id, scoping({ __confirm_all: false, confirm_credit_ids: [a.id] }));
+    expect(some.body.credits_applied).toEqual([expect.objectContaining({ source_deliverable_id: a.id })]);
+    expect(some.body.credits_unapplied).toEqual([expect.objectContaining({ source_deliverable_id: b.id })]);
+  });
+
+  it("refuses to confirm a credit that is not this buyer's, already credited, or not a list — nothing recorded", async () => {
+    const foreign = screen({ email: "someone.else@rival.example" });
+    const mine = screen();
+    const d = deposit();
+    const bad = await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [foreign.id] }));
+    expect(bad.res.status).toBe(422);
+    expect(bad.body.details.not_available).toEqual([foreign.id]);
+    expect((await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: "all" }))).res.status).toBe(422);
+    expect(db.rows("engagement_deposits")[0].status).toBe("contacted");
+    expect((await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [mine.id] }))).res.status).toBe(200);
+    const d2 = deposit();
+    expect((await step(d2.id, scoping({ __confirm_all: false, confirm_credit_ids: [mine.id] }))).res.status).toBe(422);   // already credited
   });
 
   it("does not credit an engagement that credits nothing (the Portfolio Screen)", async () => {
@@ -305,5 +367,73 @@ describe("a paid deposit cannot be stuck with nobody and nothing to be late agai
     expect(listed.items.find((d: any) => d.stripe_session_id === "cs_sc").balance_due_cents).toBe(FEE - 900_000);
     const att: any = await (await (await import("@/app/api/admin/deliverables/route")).GET()).json();
     expect(att.items.map((i: any) => i.kind)).toContain("deposit_uncontacted");
+  });
+});
+
+describe("the operator's deposits table", () => {
+  const NOW = Date.parse("2027-02-01T12:00:00Z");
+  const at = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
+  const base = { kind: "envelope_study_deposit", amount_cents: 900_000, email: BUYER, company: "Hall Co" };
+
+  it("shapes status, age, owner/contact, fee, credit, balance and date per deposit, oldest payment first", () => {
+    const rows = [
+      { id: "b", ...base, status: "scoped", paid_at: at(20), owner: "Ada", contacted_at: at(18), scoped_at: at(10),
+        agreed_fee_cents: 2_500_000, credit_applied_cents: 450_000, delivery_due_on: "2027-03-01" },
+      { id: "a", ...base, kind: "portfolio_screen_deposit", amount_cents: 1_500_000, status: "paid", paid_at: at(30) },
+    ];
+    const { shapeDeposits } = shape;
+    const t = shapeDeposits(rows, NOW);
+    expect(t.map((d) => d.id)).toEqual(["a", "b"]);
+    expect(t[0]).toMatchObject({ what: "Portfolio Screen — deposit", status: "paid", age_days: 30, owner: null, fee_cents: null, credit_cents: null, balance_due_cents: null, due: null, flag: "deposit_uncontacted" });
+    expect(t[1]).toMatchObject({ status: "scoped", age_days: 20, owner: "Ada", fee_cents: 2_500_000, credit_cents: 450_000, balance_due_cents: 1_150_000, due: "2027-03-01", flag: null });
+  });
+
+  it("flags an overdue and a no-date scoped deposit, and never shows a negative balance", () => {
+    const { shapeDeposits } = shape;
+    const t = shapeDeposits([
+      { id: "o", ...base, status: "scoped", paid_at: at(60), owner: "Ada", scoped_at: at(40), agreed_fee_cents: 800_000, credit_applied_cents: 0, delivery_due_on: "2027-01-10" },
+      { id: "n", ...base, status: "scoped", paid_at: at(60), owner: "Ada", scoped_at: at(40) },
+    ], NOW);
+    expect(t.find((d) => d.id === "o")).toMatchObject({ flag: "deposit_overdue", balance_due_cents: 0 });
+    expect(t.find((d) => d.id === "n")).toMatchObject({ flag: "deposit_no_date", fee_cents: null });
+  });
+
+  it("keeps delivered deposits visible, with when they were delivered", () => {
+    const { shapeDeposits } = shape;
+    const [d] = shapeDeposits([{ id: "d", ...base, status: "delivered", paid_at: at(90), owner: "Ada", agreed_fee_cents: 2_500_000, credit_applied_cents: 0, delivery_due_on: "2027-01-01", delivered_at: at(5) }], NOW);
+    expect(d).toMatchObject({ status: "delivered", flag: null });
+    expect(d.delivered_at).toBeTruthy();
+  });
+
+  it("the pipeline panel renders them, says 'nobody yet' and 'no date on file', and an unreadable list is an error not an empty table", async () => {
+    const { EngagementPipeline } = await import("@/components/EngagementPipeline");
+    const { summariseQualifications } = await import("@/lib/admin");
+    const { shapeDeposits } = await import("@/lib/attention");
+    const props = { deliverables: [], qualifications: [], watches: [], insights: summariseQualifications([]), supabaseReady: true };
+    const html = renderToStaticMarkup(React.createElement(EngagementPipeline, {
+      ...props,
+      deposits: shapeDeposits([
+        { id: "a", ...base, status: "paid", paid_at: at(5) },
+        { id: "b", ...base, status: "scoped", paid_at: at(50), owner: "Ada", scoped_at: at(40) },
+      ], NOW),
+    }));
+    expect(html).toContain("Deposits");
+    expect(html).toContain("nobody yet");
+    expect(html).toContain("no date on file");
+    expect(html).toContain("deposit uncontacted");
+    const failed = renderToStaticMarkup(React.createElement(EngagementPipeline, { ...props, deposits: null, depositsError: "The deposit list could not be read." }));
+    expect(failed).toContain("This is not a statement that there are none");
+    const none = renderToStaticMarkup(React.createElement(EngagementPipeline, { ...props, deposits: [] }));
+    expect(none).toContain("No deposit has been paid yet");
+  });
+
+  it("the table's source lists delivered deposits too and reports a failed read", async () => {
+    const { depositTable } = await import("@/lib/attention");
+    deposit({ stripe_session_id: "cs_t1", status: "delivered", delivered_at: new Date().toISOString(), delivery_ref: "r" });
+    deposit({ stripe_session_id: "cs_t2", status: "paid", owner: null, contacted_at: null });
+    const ok = await depositTable();
+    expect(ok.ok && ok.items.map((d) => d.status).sort()).toEqual(["delivered", "paid"]);
+    db.dropTable("engagement_deposits");
+    expect((await depositTable()).ok).toBe(false);
   });
 });

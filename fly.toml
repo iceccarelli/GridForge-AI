@@ -46,6 +46,9 @@ primary_region = "ams"
   # be written, because serving them unrecorded would be serving them for free; it must be on the volume above
   # and, like revocation, is only coherent while the app runs exactly ONE machine.
   GRIDFORGE_LEDGER_FILE = "/data/ledger.jsonl"
+  # Measured handler time per billable endpoint (GET /v1/admin/economics, operator tier). Same volume, same
+  # single-machine rule. If unset it defaults to costs.json beside GRIDFORGE_USAGE_FILE.
+  GRIDFORGE_COST_FILE = "/data/costs.json"
 
 [http_service]
   internal_port = 8080

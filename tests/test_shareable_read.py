@@ -80,15 +80,19 @@ def test_the_page_names_the_binding_constraint_and_links_to_its_reference():
 
 def test_the_page_keeps_the_disclosure_the_paid_document_carries():
     """A shareable page that softened the caveats would be a brochure."""
+    flat = re.sub(r"\s+", " ", PAGE)
     for phrase in ["not a bankable number", "not a design",
                    "not a measurement of this asset",
                    "has not yet been reconciled against any instrumented site"]:
-        assert phrase in PAGE, f"the shared read drops {phrase!r}"
+        assert phrase in flat, f"the shared read drops {phrase!r}"
 
 
-def test_the_page_states_what_is_behind_the_paid_engagement():
-    for phrase in ["Capital cost", "programme duration", "full constraint\n          ladder",
-                   "paid\n          engagement"]:
+def test_the_page_states_what_is_free_and_what_is_paid():
+    # The earlier wording said capital cost and programme duration were part of the paid engagement. They are not withheld:
+    # the free Time-to-Power comparison returns indicative capex and time with their evidence classes. What is paid is a
+    # human-reviewed engagement, and the page must say both, and must still say the model is uncalibrated.
+    for phrase in ["Indicative capital cost", "time to full capacity", "free Time-to-Power comparison",
+                   "human-reviewed engagement"]:
         flat = re.sub(r"\s+", " ", PAGE)
         assert re.sub(r"\s+", " ", phrase) in flat, f"missing: {phrase!r}"
 

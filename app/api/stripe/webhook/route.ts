@@ -7,6 +7,7 @@ import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { createWatch, lookupWatchBySubscription, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
+import { recordFunnelEvent } from "@/lib/funnel";
 import { pg } from "@/lib/payg-store";
 import { paygStripe } from "@/lib/payg-stripe";
 import {
@@ -20,7 +21,8 @@ import {
   type ApiAccount,
 } from "@/lib/api-access";
 import { lookupSubscriptionByStripeId, recordSubscription, subscriptionBySession, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
-import { recordDeposit } from "@/lib/deposits";
+import { depositBySession, recordDeposit } from "@/lib/deposits";
+import { depositTerms } from "@/lib/engagement-state";
 import { notifyCustomer } from "@/lib/notifications";
 import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
@@ -116,6 +118,8 @@ export async function POST(req: Request) {
       });
       if (!opened) return fulfilmentFailed("api account", session.id);
       if (opened === "created") await notifyFounder({ email, company, amount });
+      // Adoption funnel: the product kind only (never the buyer), once per Stripe subscription however often this is delivered.
+      await recordFunnelEvent("subscription_started", { kind }, { dedupeKey: `subscription_started:${typeof session.subscription === "string" ? session.subscription : session.id}` });
     } else if (kind === "hall_watch") {
       const opened = await openWatch({
         email,
@@ -126,6 +130,7 @@ export async function POST(req: Request) {
       });
       if (!opened) return fulfilmentFailed("hall watch", session.id);
       if (opened === "created") await notifyFounder({ email, company, amount });
+      await recordFunnelEvent("subscription_started", { kind }, { dedupeKey: `subscription_started:${typeof session.subscription === "string" ? session.subscription : session.id}` });
       const subId = typeof session.subscription === "string" ? session.subscription : null;
       const attachedWatch = await attachToProject(session, kind, amount, async () =>
         subId ? (await watchBySubscription(subId))?.id ?? null : null
@@ -145,6 +150,8 @@ export async function POST(req: Request) {
       });
       if (!opened) return fulfilmentFailed("engagement", session.id);
       if (opened === "created") await notifyFounder({ email, company, amount });
+      // Adoption funnel: that an engagement was commissioned, and which product (a catalogue kind); never who or how much.
+      await recordFunnelEvent("engagement_commissioned", { kind }, { dedupeKey: `engagement_commissioned:${session.id}` });
       const attachedDeliverable = await attachToProject(session, kind, amount, async () =>
         (await deliverableBySession(session.id))?.id ?? null
       );
@@ -179,6 +186,7 @@ export async function POST(req: Request) {
         // The operator hears of a NEW subscriber once, not on every Stripe redelivery; the customer's welcome
         // is a durable obligation of its own (a failed email never touches the paid subscription).
         if (!existedBefore) await notifyOperator("New Intelligence subscriber", `Plan: ${plan}. Subscription record ${row.id}.`);
+        await recordFunnelEvent("subscription_started", { kind: "intelligence_subscription", plan }, { dedupeKey: `subscription_started:${typeof session.subscription === "string" ? session.subscription : session.id}` });
         if ((await notifyCustomer("subscription_welcome", row.id, "", { replay: Boolean(existedBefore) })) === "retry_webhook") {
           return fulfilmentFailed("subscription notification", session.id);
         }
@@ -225,6 +233,16 @@ export async function POST(req: Request) {
       if (/^[0-9a-f-]{36}$/i.test(reserved)) await pg("DELETE", `founding_reservations?id=eq.${reserved}`, undefined, "return=minimal");
       // One email per payment, not one per redelivery.
       if (recorded.created) await notifyFounder({ email, company, amount });
+      await recordFunnelEvent("engagement_commissioned", { kind }, { dedupeKey: `engagement_commissioned:${session.id}` });
+      // The buyer's own receipt of what the deposit states: a durable obligation of its own (one per deposit, redelivery-safe),
+      // for the deposits this site sells. A redelivery retries it if it never went out.
+      if (depositTerms(kind)) {
+        const dep = await depositBySession(session.id);
+        if (!dep) return fulfilmentFailed("deposit receipt (record unreadable)", session.id);
+        if ((await notifyCustomer("deposit_receipt", dep.id, "", { replay: !recorded.created })) === "retry_webhook") {
+          return fulfilmentFailed("deposit receipt", session.id);
+        }
+      }
     }
   }
 
@@ -236,6 +254,17 @@ export async function POST(req: Request) {
   // (A store outage used to be read as "no such account" and a failed write was ignored, so a
   // cancellation could be acknowledged without ever being applied — a cancelled customer's account
   // stayed active and could mint fresh keys indefinitely.)
+  // Counted when Stripe sends them (the webhook endpoint must be subscribed to charge.refunded and charge.dispute.created, which this site
+  // cannot verify): an amount and, for a dispute, Stripe's own reason code. Never the customer, the charge's description or its metadata.
+  if (event.type === "charge.refunded") {
+    const ch = event.data.object as Stripe.Charge;
+    await recordFunnelEvent("refund_issued", { amount_cents: ch.amount_refunded ?? 0 }, { dedupeKey: `refund_issued:${ch.id}:${ch.amount_refunded ?? 0}` });
+  }
+  if (event.type === "charge.dispute.created") {
+    const d = event.data.object as Stripe.Dispute;
+    await recordFunnelEvent("dispute_opened", { amount_cents: d.amount ?? 0, ...(typeof d.reason === "string" && /^[a-z_]{1,40}$/.test(d.reason) ? { reason: d.reason } : {}) }, { dedupeKey: `dispute_opened:${d.id}` });
+  }
+
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
     const found = await resolveSubscription(sub.id);
@@ -278,6 +307,12 @@ export async function POST(req: Request) {
       else console.log(`[GridForge] intelligence subscription ${found.intelligence.id} cancelled; /account drops to the free view`);
     }
     if (!applied) return lifecycleRetry("cancellation (write failed)", sub.id);
+    // Adoption funnel: which kind of subscription ended, and Stripe's own stated reason when it gives one (a fixed vocabulary, never a
+    // free-text field: cancellation_details.comment is deliberately NOT read).
+    const stated = sub.cancellation_details?.reason;
+    const reason = stated === "cancellation_requested" || stated === "payment_failed" || stated === "payment_disputed" ? stated : undefined;
+    const endedKind = found.api ? found.api.plan : found.watch ? "hall_watch" : "intelligence_subscription";
+    await recordFunnelEvent("subscription_cancelled", { kind: endedKind, ...(reason ? { reason } : {}) }, { dedupeKey: `subscription_cancelled:${sub.id}` });
   }
 
   // Pay-as-you-go month-end invoices carry metadata.kind === "payg_settlement" and no subscription: they are settled against their
@@ -311,6 +346,8 @@ export async function POST(req: Request) {
         if (!(await updateSubscription(found.intelligence.id, { status: "past_due" }))) applied = false;
       }
       if (!applied) return lifecycleRetry("payment failure (write failed)", subId);
+      // Once per invoice however many times Stripe retries and reports it.
+      await recordFunnelEvent("payment_failed", { kind: "subscription" }, { dedupeKey: `payment_failed:${(event.data.object as Stripe.Invoice).id ?? subId}` });
     }
   }
 

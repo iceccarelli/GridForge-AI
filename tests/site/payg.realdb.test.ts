@@ -264,9 +264,43 @@ describe.skipIf(!enabled)("pay-as-you-go — real PostgreSQL via PostgREST", () 
     expect(await recordFunnelEvent("key_minted", { scope: "payg" })).toBe(true);
     expect(await recordFunnelEvent("key_minted", { scope: "payg" })).toBe(true);
     expect(await recordFunnelEvent("key_minted", { email: "a@b.example" } as never)).toBe(false);
-    const rows = ((await rest<any[]>("GET", `funnel_events?dedupe_key=eq.${key}`)) as { data: any[] }).data;
+    const { funnelKey } = await import("@/lib/payg");
+    const rows = ((await rest<any[]>("GET", `funnel_events?dedupe_key=eq.${funnelKey(key)}`)) as { data: any[] }).data;
     expect(rows).toHaveLength(1);
     expect(rows[0].props).toEqual({ cap_eur: 100 });
+  });
+
+  it("the admin funnel and economics reports against the real SQL read functions (cohort, strict steps, ledger-derived use and retention, month revenue)", async () => {
+    const { funnelReport, economicsReport } = await import("@/lib/payg-analytics");
+    const { recordFunnelEvent } = await import("@/lib/funnel");
+    const { accountRef } = await import("@/lib/payg");
+    const step = (r: any, key: string) => r.steps.find((x: any) => x.key === key);
+    const base: any = await funnelReport(30);
+    expect(base.ok).toBe(true);
+    const a = await newAccount();
+    const ref = accountRef(a.account);
+    await recordFunnelEvent("free_account_created", { plan: "api_free", account_ref: ref }, { dedupeKey: `rd-fc:${a.account}` });
+    await recordFunnelEvent("key_minted", { scope: "trial", plan: "api_free", account_ref: ref }, { dedupeKey: `rd-km:${a.account}` });
+    await recordFunnelEvent("payg_enabled", { cap_eur: 100, account_ref: ref }, { dedupeKey: `rd-pe:${a.account}` });
+    await recordFunnelEvent("first_charge", { month: "2026-09", account_ref: ref }, { dedupeKey: `rd-ch:${a.account}` });
+    const d = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    for (const [i, at] of [d(10), d(2)].entries()) await rest("POST", "usage_events", { event_id: `fr${uid()}${i}`, seq: ++seqBase, account: a.account, scope: "payg", units: 3, kind: "charge", occurred_at: at });
+    const after: any = await funnelReport(30);
+    expect(after.ok).toBe(true);
+    for (const key of ["free_account_created", "key_minted", "first_engine_use", "payg_enabled", "first_charge", "repeat_usage"]) {
+      expect(step(after, key).count - step(base, key).count, key).toBe(1);
+    }
+    expect(step(after, "first_engine_use").source).toBe("derived");
+    expect(JSON.stringify(after)).not.toMatch(new RegExp(`${a.account}|${ref}|@`));
+    // economics: this month's ledger and a month with nothing in it, through the real month-summary function
+    const month = new Date().toISOString().slice(0, 7);
+    const econ: any = await economicsReport(month, null);
+    expect(econ.ok).toBe(true);
+    expect(econ.revenue.payg_units).toBeGreaterThanOrEqual(6);
+    expect(econ.compute).toMatchObject({ available: false });
+    expect(econ.margin.claimed).toBe(false);
+    const empty: any = await economicsReport("2001-01", null);
+    expect(empty.revenue).toMatchObject({ payg_units: 0, accrued_payg_cents: 0, active_accounts: 0 });
   });
 
   it("usage alerts: once per account / month / percent through the real unique keys and the real outbox", async () => {

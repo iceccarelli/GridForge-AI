@@ -61,7 +61,8 @@ TOOLS: list[dict] = [
         "gridforge_qualify",
         ("Free. Seven numbers about an existing air-cooled hall in, one answer out: which "
          "physical constraint binds first when you try to deploy AI racks in it, how many "
-         "racks fit as found, and which item sets the energisation date. Use this to triage "
+         "racks fit as found, and which item sets the time to power (labelled 'assumed lead time, not a date' "
+         "when that item's lead time is an assumption). Use this to triage "
          "a portfolio before paying for anything."),
         "/v1/qualify",
         {
@@ -120,8 +121,9 @@ TOOLS: list[dict] = [
     _tool(
         "gridforge_compare",
         ("Time-to-Power scenario comparison. A full intake in; the scenarios it defines out, side by side: racks "
-         "as found and after relief, the constraint that binds, the date to full capacity with its low/high "
-         "band and evidence class, capital and what is unpriced, and how each differs from the baseline. "
+         "as found and after relief, the constraint that binds, the time to full capacity with its low/high "
+         "band and evidence class (and, in date_basis / date_label, whether an assumed lead time sits behind it: "
+         "'assumed lead time, not a date'), capital and what is unpriced, and how each differs from the baseline. "
          "A scenario with an unknown lead time gets no date and a reason, never a small number; nothing is "
          "ranked on a figure it does not have. Same solve as gridforge_screen, same inputs, same numbers."),
         "/v1/compare",
@@ -235,7 +237,7 @@ TOOLS: list[dict] = [
          "Composes the same solved scenario as gridforge_screen/gridforge_study into one "
          "decision object: current deployable racks vs. the target, the binding constraint, "
          "every priced and dated rung on the headroom ladder, the critical-path dependencies "
-         "that set the earliest credible energisation date, the calibration state behind every "
+         "that set the earliest time to power (each marked when its lead time is only assumed), the calibration state behind every "
          "number, and one deterministic next action. Never invents a price, a lead time or a "
          "date — every figure traces to the engine or an explicit input, with its evidence "
          "class attached."),

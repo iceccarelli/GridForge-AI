@@ -14,7 +14,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import Stripe from "stripe";
 import { adminToken } from "@/lib/admin";
-import { packHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 
@@ -64,6 +64,11 @@ beforeEach(() => {
   process.env.LEAD_TO_EMAIL = "ops@example.test";
   db = new PostgrestFake(["deliverables", "leads", "qualifications", "customer_notifications"]);
   db.uniqueKeys.set("deliverables", [["stripe_session_id"]]);
+  db.uniqueKeys.set("customer_notifications", [["dedupe_key"]]);
+  db.rowDefaults.set("customer_notifications", () => ({
+    status: "pending", attempts: 0, max_attempts: 6, next_attempt_at: new Date(0).toISOString(),
+    claimed_until: null, last_error: null, last_http_status: null, provider_message_id: null, accepted_at: null,
+  }));
   const restoreDb = db.install();
   const dbFetch = globalThis.fetch;
   globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
@@ -145,7 +150,7 @@ describe.runIf(hasPython)("Density Screen: payment -> intake -> screen -> draft 
     const meta = draft.intake._gridforge;
     expect(meta).toMatchObject({ endpoint: "screen" });
     expect(meta.generated_at).toBeTruthy();
-    expect(meta.document_sha256).toBe(packHash(draft));
+    expect(meta.document_sha256).toBe(reviewHash(draft));
     expect(meta.provenance.engine_version).toMatch(/\d/);
     expect(meta.provenance.code_sha256).toMatch(/^[0-9a-f]{16,}$/);
 
@@ -154,9 +159,15 @@ describe.runIf(hasPython)("Density Screen: payment -> intake -> screen -> draft 
     expect((await read.GET(new Request(siteUrl("/x")), ctx(draft.token))).status).toBe(409);
     signIn();
     expect((await releaseWith(draft.token, undefined)).status).toBe(422);
-    expect((await releaseWith(draft.token, "0".repeat(64))).status).toBe(409);
+    expect((await releaseWith(draft.token, "0".repeat(64), "A. Rivera")).status).toBe(409);
+    // the right hash but no named reviewer: refused (the buyer is told an engineer reviewed it)
+    const noName = await releaseWith(draft.token, reviewHash(draft));
+    expect(noName.status).toBe(422);
+    expect(((await noName.json()) as any).error).toMatch(/reviewed_by is required/);
+    expect((await releaseWith(draft.token, reviewHash(draft), "   ")).status).toBe(422);
+    expect(rowOf("density_screen").status).toBe("draft");
     mail.length = 0;
-    const rel = await releaseWith(draft.token, packHash(draft), "A. Rivera, P.Eng.");
+    const rel = await releaseWith(draft.token, reviewHash(draft), "A. Rivera, P.Eng.");
     const relBody: any = await rel.json();
     expect(rel.status, JSON.stringify(relBody)).toBe(200);
     expect(relBody).toMatchObject({ status: "released", customer_notified: true, reviewer_recorded: true, provenance_recorded: true });
@@ -187,7 +198,7 @@ describe.runIf(hasPython)("Density Screen: payment -> intake -> screen -> draft 
     for (const status of ["awaiting_intake", "generating", "engine_unavailable"]) {
       d.status = status;
       d.document_html = "<p>half written</p>";
-      expect((await releaseWith(d.token, packHash(d), "x")).status, status).toBe(409);
+      expect((await releaseWith(d.token, reviewHash(d), "x")).status, status).toBe(409);
       expect(d.status).toBe(status);
     }
   });
@@ -232,14 +243,18 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     // the numbers trace to the capacity model and the site conditions are stated in the document
     expect(row.document_html).toContain("From constraint");
     expect(row.document_html).toContain("Technical requirements");
+    // the engine's document states its site conditions and assumptions itself (section 2A)
+    expect(row.document_html).toContain("Site conditions and assumptions");
     expect(row.document_html).toMatch(/site conditions/i);
 
     // released: the page states the site conditions it was derived from and where each came from
     signIn();
-    expect((await releaseWith(row.token, packHash(row), "A. Rivera")).status).toBe(200);
+    expect((await releaseWith(row.token, reviewHash(row), "A. Rivera")).status).toBe(200);
     const page = await deliverablePage(row.token);
     expect(page).toContain("Basis of this specification");
-    expect(page).toContain("38 °C (supplied by you)");
+    // the engine's own basis is carried onto the page now that /v1/spec returns it (section 2A of the document)
+    expect(page).toContain("Design ambient dry bulb (summer)");
+    expect(page).toMatch(/38 degC \(evidence E3\): supplied/);
     expect(page).toContain("Every numeric requirement in it names the constraint of the capacity model it came from");
   }, 120_000);
 
@@ -252,11 +267,12 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     expect(((await res.json()) as any).assumed).toEqual([expect.objectContaining({ field: "designDrybulbC" })]);
     const row = rowOf("procurement_spec");
     signIn();
-    await releaseWith(row.token, packHash(row), "A. Rivera");
+    await releaseWith(row.token, reviewHash(row), "A. Rivera");
     const page = await deliverablePage(row.token);
-    expect(page).toContain("Summer design dry bulb");
-    expect(page).toMatch(/not supplied — the engine used its library default for it/);
-    expect(page).toContain("Quotations at a different site condition are not comparable");
+    expect(page).toContain("Design ambient dry bulb (summer)");
+    expect(page).toMatch(/32 degC \(evidence E0\): assumed/);
+    expect(page).toContain("Inputs that were assumed rather than supplied");
+    expect(page).toMatch(/dry bulb[^<]*: not supplied, assumed 32/i);
   }, 120_000);
 
   it("a specification the engine could not complete is HELD, announced, and cannot be released — then regenerates and releases", async () => {
@@ -273,10 +289,10 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     expect(mail.some((m) => to(m).includes("ops@example.test") && /incomplete/i.test(m.subject) && /response_schedule/.test(m.text))).toBe(true);
 
     signIn();
-    const blocked = await releaseWith(held.token, packHash(held), "A. Rivera");
+    const blocked = await releaseWith(held.token, reviewHash(held), "A. Rivera");
     expect(blocked.status).toBe(409);
     held.status = "draft";                                   // even forced to a draft, the pack gate holds it
-    const gate = await releaseWith(held.token, packHash(held), "A. Rivera");
+    const gate = await releaseWith(held.token, reviewHash(held), "A. Rivera");
     expect(gate.status).toBe(409);
     expect(((await gate.json()) as any).error).toMatch(/pack is incomplete.*response_schedule/);
     held.status = "engine_unavailable";
@@ -286,6 +302,37 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     expect(regen.status, await regen.clone().text()).toBe(200);
     const fixed = rowOf("procurement_spec");
     expect(fixed.status).toBe("draft");
-    expect((await releaseWith(fixed.token, packHash(fixed), "A. Rivera")).status).toBe(200);
+    expect((await releaseWith(fixed.token, reviewHash(fixed), "A. Rivera")).status).toBe(200);
   }, 120_000);
+});
+
+describe("the spec's site conditions, as the ENGINE reports them with the result", () => {
+  it("the page lists them (and the assumed inputs) when specification.json carries them, and does not reconstruct them when it does not", async () => {
+    await buy("procurement_spec", 1_800_000);
+    const d = rowOf("procurement_spec");
+    Object.assign(d, {
+      status: "released", document_html: "<p>spec</p>", released_at: new Date().toISOString(),
+      intake: { site: { design_drybulb_C: 38 }, _gridforge: { endpoint: "spec" } },
+      working_files: {
+        "specification.json": JSON.stringify({
+          constraint_id: "cdu_capacity",
+          site_conditions: [
+            { id: "SC-1", label: "Summer design dry bulb", value: 38, unit: "degC", evidence: "E5", status: "supplied" },
+            { id: "SC-2", label: "Altitude", value: null, text: "not modelled", status: "not_modelled" },
+          ],
+          assumed_inputs: [{ path: "grid.firm_capacity_MVA", label: "Firm connection capacity", unit: "MVA", assumed: "15.0 MVA (E0)" }],
+        }),
+      },
+    });
+    let page = await deliverablePage(d.token);
+    expect(page).toContain("Summer design dry bulb");
+    expect(page).toContain("38 degC (evidence E5): supplied");
+    expect(page).toContain("Altitude");
+    expect(page).toContain("Firm connection capacity: not supplied, assumed 15.0 MVA (E0)");
+    // without them, only what the buyer supplied is shown, labelled as theirs
+    d.working_files = { "specification.json": JSON.stringify({ constraint_id: "cdu_capacity" }) };
+    page = await deliverablePage(d.token);
+    expect(page).toContain("38 °C (supplied by you)");
+    expect(page).not.toContain("assumed 15.0 MVA");
+  });
 });

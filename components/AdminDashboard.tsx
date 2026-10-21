@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, LogOut, ChevronDown, ChevronUp, AlertTriangle, RefreshCw } from "lucide-react";
 import type { AdminLead, LeadStatus } from "@/lib/admin";
+import { AdminFunnelPanel } from "@/components/AdminFunnelPanel";
 
 const STATUSES: LeadStatus[] = ["new", "reviewed", "call_booked", "proposal", "won", "lost"];
 const STATUS_LABEL: Record<LeadStatus, string> = {
@@ -120,6 +121,8 @@ export function AdminDashboard({
           </p>
         </div>
       )}
+
+      <AdminFunnelPanel />
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

@@ -22,7 +22,9 @@ from ..common import ASSUMED, V
 from ..power.generation import GenerationUnit
 from ..power.load_profile import LoadProfile
 from ..power.readiness_gates import GateResult, GateStatus, evaluate_gates
-from ..power.reliability import ContingencyCase, ContingencyStatus, Redundancy, evaluate
+from ..envelope.time_to_power import NO_DATE, DateBasis, date_basis_of
+from ..power.reliability import (UNDECLARED_RIDE_THROUGH_LABEL, ContingencyCase, ContingencyStatus,
+                                 Redundancy, evaluate)
 from ..power.storage import BatteryEnergyStorageSystem
 from ..scenario.objective import Objective
 from ..validation import Quantity
@@ -108,6 +110,16 @@ def _critical_path_weeks(units: list) -> tuple[Quantity | None, list[str]]:
     return worst, missing
 
 
+def _lead_time_basis(units: list) -> DateBasis:
+    """The weakest evidence class among the units' lead times and the unit that sets the longest one. A lead time
+    declared in an intake or a request is an assumption (E0) until a supplier's quotation says otherwise."""
+    if not units or any(u.lead_time_weeks is None for u in units):
+        return NO_DATE
+    weakest = min(u.lead_time_weeks.evidence for u in units)
+    binding = max(units, key=lambda u: u.lead_time_weeks.value)
+    return date_basis_of(weakest, binding.id)
+
+
 @dataclass
 class ArchitectureAssessment:
     label: str
@@ -117,6 +129,8 @@ class ArchitectureAssessment:
     lead_time_weeks: Quantity | None
     lead_time_undated_units: list[str]
     gates: list[GateResult] = field(default_factory=list)
+    #: What the architecture's lead time rests on: the weakest class among its units and the unit that sets it.
+    date: DateBasis = NO_DATE
 
     @property
     def buildable(self) -> bool:
@@ -182,7 +196,7 @@ def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quant
                           interconnection=interconnection, permitting=permitting,
                           contingency=result)
     return ArchitectureAssessment(candidate.label, result, capex, uncosted, lead_time, undated,
-                                  gates)
+                                  gates, date=_lead_time_basis(candidate.generation + candidate.bess))
 
 
 def _rank(buildable: list[ArchitectureAssessment], objective: Objective) -> list[ArchitectureAssessment]:
@@ -378,8 +392,10 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
     peak_MW = V(load_profile.peak_kW().value / 1000.0, "MW",
                "load profile peak", load_profile.evidence)
     critical = critical_load_MW if critical_load_MW is not None else peak_MW
+    # An undeclared window is the ContingencyCase default and is flagged by it as blocking: a PASS on a 2 h library
+    # figure becomes REQUIRES_ENGINEERING_STUDY, and the result says so.
     ride = ride_through_hours if ride_through_hours is not None else V(
-        2.0, "h", "ride-through window (undeclared default)", ASSUMED)
+        2.0, "h", UNDECLARED_RIDE_THROUGH_LABEL, ASSUMED)
 
     gap_MW = max(target_MW.value - grid_firm_MW.value, 0.0)
     architectures = candidate_architectures(generation, bess)
@@ -408,6 +424,7 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
             "gap_MW": round(gap_MW, 3),
             "critical_load_MW": round(critical.value, 3),
             "ride_through_hours": round(ride.value, 3),
+            "ride_through_declared": ride_through_hours is not None,
             "redundancy": redundancy.value,
             "objective": objective.value,
         },
@@ -424,6 +441,7 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
                 "capex_uncosted_units": a.capex_uncosted_units,
                 "lead_time_weeks": a.lead_time_weeks.rounded() if a.lead_time_weeks is not None else None,
                 "lead_time_undated_units": a.lead_time_undated_units,
+                **a.date.to_dict(),
                 "buildable": a.buildable,
                 # `rfq_ready`: GridForge has enough information to prepare an RFQ.
                 # `execution_ready`: cleared to build — almost never true for an

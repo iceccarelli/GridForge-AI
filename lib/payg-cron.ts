@@ -14,6 +14,7 @@
 import { retryRevocations } from "@/lib/api-access";
 import { notifyOperator } from "@/lib/mail";
 import { sendUsageAlerts, type AlertReport } from "@/lib/payg-alerts";
+import { deriveFirstUse } from "@/lib/payg-analytics";
 import { remindExpiringKeys, type ReminderReport } from "@/lib/payg-reminders";
 import { settleClosedMonths, type SettleReport } from "@/lib/payg-settle";
 import type { PaygStripe } from "@/lib/payg-stripe";
@@ -60,6 +61,9 @@ export async function runPaygCron(deps: CronDeps): Promise<CronReport> {
         "No month they could belong to will be settled until you acknowledge them (ackQuarantinedEvent / update usage_quarantine set acked_at)."
     );
   }
+
+  // First engine use is derived from the ledger copy (the first charge that stood, per account), once per account.
+  if (ingest.ok) await deriveFirstUse();
 
   // Alerts read whatever is durable; they do not need the copy to be complete (a late alert is better than none).
   const alerts = await sendUsageAlerts(now);

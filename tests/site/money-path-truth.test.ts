@@ -16,7 +16,7 @@
  *   NOT proven anywhere in this repository: a live or test-mode Stripe Checkout round trip.
  */
 import { adminToken } from "@/lib/admin";
-import { documentHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -315,7 +315,7 @@ describe.each(Object.values(PRODUCTS))("$id", (p) => {
       const read = await import("@/app/api/deliverable/[token]/route");
       expect((await read.GET(new Request(siteUrl("/x")), ctx(row.token))).status).toBe(409);
       const admin = await import("@/app/api/admin/deliverables/route");
-      const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: row.token, reviewed_hash: documentHash(row.document_html) }) }));
+      const release = () => admin.PATCH(new Request(siteUrl("/x"), { method: "PATCH", body: JSON.stringify({ token: row.token, reviewed_by: "A. Rivera", reviewed_hash: reviewHash(row) }) }));
       expect((await release()).status).toBe(401);
       jar.push({ name: "gf_admin", value: adminToken()! });
       expect((await release()).status).toBe(200);

@@ -32,3 +32,28 @@ export function readReturnCookie(req: Request): string | null {
   }
   return null;
 }
+
+// ---- the Billing Portal's way back: the same idea, for an API/PAYG portal token or a Hall Watch token --------------------------------
+
+export const BILLING_RETURN_COOKIE = "gf_billing_return";
+export const BILLING_RETURN_PATH = "/api/billing/return";
+export type BillingSubject = "api" | "watch";
+
+/** `api:TOKEN` or `watch:TOKEN`: which page to go back to, and the token that opens it. HttpOnly, SameSite=Lax, scoped to /api/billing. */
+export function billingReturnCookie(subject: BillingSubject, token: string): string {
+  return `${BILLING_RETURN_COOKIE}=${subject}:${token}; Path=/api/billing; HttpOnly; SameSite=Lax; Max-Age=${RETURN_MAX_AGE_SECONDS}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+
+export function clearedBillingReturnCookie(): string {
+  return `${BILLING_RETURN_COOKIE}=; Path=/api/billing; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+
+export function readBillingReturn(req: Request): { subject: BillingSubject; token: string } | null {
+  for (const part of (req.headers.get("cookie") ?? "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k !== BILLING_RETURN_COOKIE) continue;
+    const m = /^(api|watch):(.+)$/.exec(v.join("="));
+    return m && isPortalToken(m[2]) ? { subject: m[1] as BillingSubject, token: m[2] } : null;
+  }
+  return null;
+}

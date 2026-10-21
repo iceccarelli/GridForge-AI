@@ -62,6 +62,9 @@ function start(name, cmd, args, env = {}) {
     cwd: ROOT,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    // Own process group: `npx next start` is a wrapper, and killing only the wrapper leaves next-server running on the
+    // port, so the NEXT run died with EADDRINUSE. stopAll() signals the whole group.
+    detached: true,
   });
   children.push(c);
 
@@ -92,9 +95,9 @@ function say(name) {
 function stopAll() {
   for (const c of children) {
     try {
-      c.kill("SIGTERM");
+      process.kill(-c.pid, "SIGTERM");
     } catch {
-      /* already gone */
+      try { c.kill("SIGTERM"); } catch { /* already gone */ }
     }
   }
 }
@@ -173,12 +176,33 @@ const HALL = {
 };
 
 /** Release the draft exactly as the operator's button does: bound to the hash of the document that was read. */
+/**
+ * The fingerprint a reviewer approves, re-implemented here on purpose (an independent statement of lib/deliverables.ts
+ * packHashV2): every delivered file, name and length prefixed, except the bid comparison the buyer creates afterwards.
+ */
+function packHashV2(row) {
+  const h = crypto.createHash("sha256");
+  const part = (name, body) => {
+    const b = Buffer.from(body ?? "", "utf8");
+    h.update(`${name}\0${b.length}\0`, "utf8");
+    h.update(b);
+  };
+  h.update("gridforge-pack-v2\0", "utf8");
+  part("document_html", row.document_html);
+  part("document_md", row.document_md);
+  part("deck_html", row.deck_html);
+  const files = row.working_files ?? {};
+  for (const name of Object.keys(files).filter((n) => n !== "bid_comparison.json").sort()) part(`file:${name}`, files[name]);
+  return h.digest("hex");
+}
+
 async function release(token, cookie) {
-  const row = (await (await sb(`deliverables?token=eq.${token}&select=document_html`)).json())[0];
-  const hash = crypto.createHash("sha256").update(row?.document_html ?? "", "utf8").digest("hex");
+  const row = (await (await sb(`deliverables?token=eq.${token}&select=document_html,document_md,deck_html,working_files,intake`)).json())[0] ?? {};
+  const v2 = row?.intake?._gridforge?.hash_version === 2;
+  const hash = v2 ? packHashV2(row) : crypto.createHash("sha256").update(row?.document_html ?? "", "utf8").digest("hex");
   return fetch(`${SITE}/api/admin/deliverables`, {
     method: "PATCH", headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ token, action: "release", reviewed_hash: hash }),
+    body: JSON.stringify({ token, action: "release", reviewed_hash: hash, reviewed_by: "A. Reviewer" }),
   });
 }
 
@@ -439,7 +463,11 @@ async function main() {
   ok("release refuses a document that is not the one that was reviewed",
      (await fetch(`${SITE}/api/admin/deliverables`, { method: "PATCH",
        headers: { "content-type": "application/json", cookie },
-       body: JSON.stringify({ token, action: "release", reviewed_hash: "0".repeat(64) }) })).status === 409);
+       body: JSON.stringify({ token, action: "release", reviewed_hash: "0".repeat(64), reviewed_by: "A. Reviewer" }) })).status === 409);
+  ok("release refuses without a named reviewer",
+     (await fetch(`${SITE}/api/admin/deliverables`, { method: "PATCH",
+       headers: { "content-type": "application/json", cookie },
+       body: JSON.stringify({ token, action: "release", reviewed_hash: "0".repeat(64) }) })).status === 422);
   ok("and succeeds with the hash of the draft that was read",
      (await release(token, cookie)).status === 200);
 

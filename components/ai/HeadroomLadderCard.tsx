@@ -1,5 +1,7 @@
 "use client";
 
+import { quantityText } from "@/lib/quantity-text";
+import { formatLeadTime } from "@/lib/date-basis";
 import { Layers } from "lucide-react";
 import {
   Bar,
@@ -90,8 +92,8 @@ export function HeadroomLadderCard({ block }: { block: HeadroomLadderMetricBlock
               <div className="text-[12px] text-mute mt-1">{s.reliefDescription}</div>
             )}
             <div className="flex items-center gap-3 mt-1 text-[11px] text-faint">
-              {s.capexEur && <span>{s.capexEur.value.toLocaleString()} {s.capexEur.unit}</span>}
-              {s.leadTimeWeeks && <span>{s.leadTimeWeeks.value} wk lead</span>}
+              {s.capexEur && <span>{quantityText(s.capexEur.value.toLocaleString(), s.capexEur.unit)}</span>}
+              {s.leadTimeWeeks && <span>{formatLeadTime(s.leadTimeWeeks.value, s.leadTimeWeeks.evidenceClass)}</span>}
             </div>
             <ProvenanceLine provenance={s.racks.provenance} />
           </li>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { compareBids, getByToken, updateByToken } from "@/lib/deliverables";
+import { compareBids, getByToken, putWorkingFile } from "@/lib/deliverables";
 import { guardRequest } from "@/lib/rate-limit";
 import { ENGINE_BODY_MAX_BYTES, readBoundedJson } from "@/lib/http-body";
 
@@ -97,16 +97,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     // Kept with the engagement, as a working file, so it downloads through the same
     // route as everything else the customer bought and survives them closing the tab.
-    const stored = await updateByToken(row.token, {
-      working_files: {
-        ...(row.working_files ?? {}),
-        "bid_comparison.json": JSON.stringify(
-          { relief: out.relief, sized_for_racks: out.sized_for_racks, ranked: out.ranked, note: out.note },
-          null,
-          2
-        ),
-      },
-    });
+    // A compare-and-set on the row's version (lib/deliverables.ts putWorkingFile): a concurrent regeneration or comparison is
+    // never overwritten by a stale copy of the whole working_files object.
+    const stored = await putWorkingFile(
+      row.token,
+      "bid_comparison.json",
+      JSON.stringify({ relief: out.relief, sized_for_racks: out.sized_for_racks, ranked: out.ranked, note: out.note }, null, 2)
+    );
     if (!stored) {
       // The comparison is still correct and still worth returning; say plainly that
       // it was not kept rather than implying they can come back to it.

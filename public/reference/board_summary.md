@@ -20,7 +20,7 @@
 
 **Time to full capacity:** 160 [80–210] weeks (E0)
 
-*Limited by: set by transformer capacity; works run in parallel*
+*Limited by: assumed lead time, not a date (E0) · set by transformer capacity; works run in parallel*
 
 **Indicative capital cost:** 18,800,000 [9,420,000–37,700,000] EUR (E0)
 
@@ -34,7 +34,7 @@
 | --- | --- | --- | --- | --- |
 | binds first | Achievable facility water temperature | Adiabatic assist plus trim chiller on the high-temperature loop | 350,000 [175,000–700,000] EUR (E0) | 32 [20–48] weeks (E0) |
 | largest cost | Firm supply (grid import + behind-the-meter) | Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW) | 4,000,000 [2,800,000–5,200,000] EUR (E0) | 44 [28.6–59.4] weeks (E0) |
-| sets the date | Transformer capacity | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 160 [80–210] weeks (E0) |
+| sets the date (assumed, E0) | Transformer capacity | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 160 [80–210] weeks (E0) |
 
 *Of 20 steps on the full ladder; the study lists all of them.*
 
@@ -45,7 +45,7 @@
 - The answer depends most on one assumed input: contracted power 20% lower takes it from 62 to 48 racks.
 - This model has not yet been checked against any instrumented site (0 reconciled observations); every figure here is modelled, not measured.
 
-> ⚠️ EVIDENCE DISCLOSURE: screening study on library defaults and assumed inputs: electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. Sufficient to decide whether to spend money finding out; not sufficient for procurement, construction or an investment committee decision.
+> ⚠️ EVIDENCE DISCLOSURE: screening study on library defaults: electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. Enough to decide whether to spend money finding out; not for procurement, construction or an investment decision.
 
 ## What to decide next
 

@@ -110,6 +110,72 @@ def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, Evi
     return out
 
 
+#: What a figure in weeks must be called while the lead time that sets it is an assumption.
+ASSUMED_DATE_LABEL = "assumed lead time, not a date"
+
+DATE_BASIS_NONE = "none"          # no date can be given (nothing deployable, or a lead time is missing)
+DATE_BASIS_ASSUMED = "assumed"    # the weakest lead time behind the figure is an E0 assumption
+DATE_BASIS_SUPPORTED = "supported"  # every lead time behind the figure is above E0 (declared, quoted, ...)
+
+
+@dataclass(frozen=True)
+class DateBasis:
+    """What an elapsed-weeks figure rests on, for every renderer and payload that prints one.
+
+    ``basis``           none | assumed | supported
+    ``evidence_class``  the WEAKEST class among the lead times behind the figure, e.g. "E0" (None when no date)
+    ``binding_item``    the item whose lead time sets the figure (None when no date)
+    ``label``           the sentence a reader sees next to the figure; never a bare date
+    """
+    basis: str
+    evidence_class: str | None
+    binding_item: str | None
+    label: str
+
+    @property
+    def assumed(self) -> bool:
+        return self.basis == DATE_BASIS_ASSUMED
+
+    @property
+    def caption(self) -> str:
+        """The label without the item name, for renderers that already say "set by ..." themselves."""
+        if self.basis == DATE_BASIS_ASSUMED:
+            return f"{ASSUMED_DATE_LABEL} ({self.evidence_class})"
+        if self.basis == DATE_BASIS_SUPPORTED:
+            return f"lead times of class {self.evidence_class} at best"
+        return "no date"
+
+    def to_dict(self) -> dict:
+        """The additive machine keys. Contains no number of weeks, so it is safe on the public tier."""
+        return {"date_basis": self.basis, "date_evidence_class": self.evidence_class,
+                "date_binding_item": self.binding_item, "date_label": self.label}
+
+
+NO_DATE = DateBasis(DATE_BASIS_NONE, None, None, "no date: nothing is deployable or a lead time on the path is missing")
+
+
+def date_basis(ladder: HeadroomLadder, ttp: "TimeToPower | None" = None) -> DateBasis:
+    """Classify the time-to-full-capacity figure of a ladder by the evidence behind its lead times.
+
+    A figure whose weakest lead time is an assumption (E0) is not a date: it is an assumed lead time and is
+    labelled as one, with the weakest class and the name of the item that sets it."""
+    ttp = ttp if ttp is not None else schedule(ladder)
+    got = full_capacity_band(ladder, ttp)
+    if got is None:
+        return NO_DATE
+    item = ttp.critical_item if ttp.critical_item and ttp.critical_item != "—" else None
+    return date_basis_of(got[3], item)
+
+
+def date_basis_of(cls: EvidenceClass, item: str | None) -> DateBasis:
+    """The same classification from a recorded class and item name (a stored state, a change note)."""
+    if cls <= EvidenceClass.E0_ASSUMPTION:
+        return DateBasis(DATE_BASIS_ASSUMED, cls.short, item,
+                         f"{ASSUMED_DATE_LABEL} ({cls.short}" + (f"; set by {item.lower()}" if item else "") + ")")
+    return DateBasis(DATE_BASIS_SUPPORTED, cls.short, item,
+                     f"lead times of class {cls.short} at best" + (f"; set by {item.lower()}" if item else ""))
+
+
 def schedule_complete(ladder: HeadroomLadder) -> bool:
     """True when every relief taken has a lead time. A missing one is not 'zero weeks': ``schedule`` would
     treat it as such and understate the date, so an incomplete schedule yields no date at all."""

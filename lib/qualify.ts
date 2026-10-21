@@ -59,6 +59,11 @@ export interface QualifyResult {
     architecture: string;
     then_binds_on: string | null;
     sets_the_date: string;
+    /** What the date rests on (lib/date-basis.ts). Absent from an engine older than the date-basis keys. */
+    date_basis?: "none" | "assumed" | "supported";
+    date_evidence_class?: string | null;
+    date_binding_item?: string | null;
+    date_label?: string;
   };
   first_three_constraints: { name: string; domain: string; relief: string | null }[];
   intake: {

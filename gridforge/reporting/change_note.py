@@ -14,7 +14,9 @@ from ..clock import report_date_iso
 from ..common import V
 from ..change import EnvelopeDiff, EnvelopeState
 from ..validation import EvidenceClass
+from ..envelope.time_to_power import date_basis_of
 from .gates import DISCLOSURE_MARKER
+from .labels import date_basis_text
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 
 _LABELS = {
@@ -40,6 +42,11 @@ def label_for(path: str) -> str:
     return tail.replace("_", " ").replace("[", " ").replace("]", "").strip().capitalize()
 
 
+def _assumed_weeks(d: EnvelopeDiff) -> bool:
+    c = _cls(d.after.weeks_class)
+    return c is None or c <= EvidenceClass.E0_ASSUMPTION
+
+
 def _cls(name: str) -> EvidenceClass | None:
     return EvidenceClass[name] if name in EvidenceClass.__members__ else None
 
@@ -63,11 +70,14 @@ def _was_racks(st: EnvelopeState) -> str:
     return f"was {st.racks_after_ladder}" + (f" ({c.short})" if c is not None else " (evidence class not recorded)")
 
 
-def _was_weeks(st: EnvelopeState) -> str:
+def _was_weeks(st: EnvelopeState, *, caption: bool = True) -> str:
     if st.weeks_to_full is None:
         return "no prior date"
+    c = _cls(st.weeks_class)
+    assumed = c is None or c <= EvidenceClass.E0_ASSUMPTION      # an unrecorded class is never a claim
     return (f"was {st.weeks_to_full:.0f}{_band_text(st.weeks_lo, st.weeks_hi, st.weeks_to_full, '.0f')}"
-            + ("" if st.weeks_lo is not None else " (band not recorded)"))
+            + ("" if st.weeks_lo is not None else " (band not recorded)")
+            + (" (assumed lead time, not a date)" if assumed and caption else ""))
 
 
 def _was_capex(st: EnvelopeState) -> str:
@@ -128,12 +138,16 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             _was_racks(d.before)))
         if d.after.weeks_to_full is not None:
             wl, wh = d.after.weeks_lo, d.after.weeks_hi
+            # the weaker of the two sides: a movement between two figures is no better than the worse of them
+            known = [_known(d.after.weeks_class)] + ([_known(d.before.weeks_class)]
+                                                     if d.before.weeks_to_full is not None else [])
+            db = date_basis_of(min(known), d.after.sets_the_date)
             s.blocks.append(Statement(
                 "Time to full capacity",
                 V(d.after.weeks_to_full, "weeks", "weeks to full capacity, current inputs",
                   _known(d.after.weeks_class),
                   band=(wl, wh) if wl is not None and wh is not None and wh > wl else None),
-                _was_weeks(d.before) + f" · set by {d.after.sets_the_date.lower()}"))
+                date_basis_text(db, _was_weeks(d.before, caption=False) + f" · set by {d.after.sets_the_date.lower()}")))
         elif d.after.racks_after_ladder:
             s.blocks.append(Para(
                 "No date is given for full capacity: a relief on the path has no lead time on record, and "
@@ -251,7 +265,7 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             actions.append("Capacity rose. Check whether the commercial commitments made against "
                            "the old number can now be enlarged.")
         if (d.weeks_delta or 0) > 0:
-            actions.append(f"The date slipped by {d.weeks_delta:.0f} weeks. Lead time, not "
+            actions.append(f"The {'assumed lead time' if _assumed_weeks(d) else 'date'} moved by {d.weeks_delta:.0f} weeks. Lead time, not "
                            "construction, usually governs — look at the item that sets it before "
                            "anything else.")
         actions.append("If more than a handful of inputs have moved, commission a fresh study "

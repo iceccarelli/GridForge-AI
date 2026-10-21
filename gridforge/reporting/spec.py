@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from ..clock import report_date_iso
 from ..procurement.schema import (INFORMATIVE, MANDATORY, PREFERRED, SpecPackage)
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from ..envelope.time_to_power import ASSUMED_DATE_LABEL
+from ..validation import EvidenceClass
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 
 OBLIGATION_NOTE = {
@@ -58,17 +60,21 @@ def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
                                   basis="Our estimate, not a price. Stated so a response "
                                         "that is in the wrong universe is visible immediately."))
     if pkg.lead_time_weeks is not None:
-        s.blocks.append(Statement("Modelled lead time", pkg.lead_time_weeks,
-                                  basis="What the capacity model assumed. A response that "
-                                        "differs materially moves the energisation date."))
+        assumed = pkg.lead_time_weeks.evidence <= EvidenceClass.E0_ASSUMPTION
+        s.blocks.append(Statement(
+            f"Modelled lead time ({ASSUMED_DATE_LABEL})" if assumed else "Modelled lead time",
+            pkg.lead_time_weeks,
+            basis=(f"{ASSUMED_DATE_LABEL} (E0): what the capacity model assumed, not a quotation or a "
+                   "commitment. " if assumed else "What the capacity model assumed. ")
+                  + "A response that differs materially moves the energisation date."))
     # Unconditional, because it is unconditionally true. The duties below are
     # derived from a screening model of this hall; some rest on inputs nobody has
     # measured. A supplier is entitled to know which figures they are being asked
     # to guarantee against, and a client is entitled to know before a purchase
     # order is raised against them.
     below = claims_below_floor(claims or {})
-    named = ", ".join(sorted(k.replace("_", " ") for k in below)) or \
-        "electrical capacity, cooling performance, capex"
+    named = ", ".join(sorted(claim_label(k) for k in below)) or \
+        "electrical capacity, cooling performance, capex, schedule (lead times)"
     s.blocks.append(Callout("warning",
         f"{DISCLOSURE_MARKER} the duties in section 3 are derived from a capacity model "
         f"built partly on library defaults and assumed inputs, not on a measured survey of "

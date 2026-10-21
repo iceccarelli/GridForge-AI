@@ -1,3 +1,5 @@
+import { formatLeadTime } from "@/lib/date-basis";
+import { displayUnit } from "@/lib/quantity-text";
 import { AlertTriangle, Gauge } from "lucide-react";
 import { EvidenceBadge, ProvenanceLine } from "./EvidenceBadge";
 import type { ConstraintBlock } from "./types";
@@ -37,7 +39,7 @@ export function BindingConstraintCard({ block }: { block: ConstraintBlock }) {
           </div>
           <div className="data text-2xl font-semibold text-ghost mt-1">
             {block.maxRacks.value.toLocaleString()}
-            <span className="text-sm text-faint ml-1">{block.maxRacks.unit}</span>
+            <span className="text-sm text-faint ml-1">{displayUnit(block.maxRacks.unit)}</span>
             {block.maxRacks.low != null && block.maxRacks.high != null && (
               <span className="text-xs text-faint ml-2">
                 ({block.maxRacks.low.toLocaleString()}–{block.maxRacks.high.toLocaleString()})
@@ -54,7 +56,7 @@ export function BindingConstraintCard({ block }: { block: ConstraintBlock }) {
           {block.relief.leadTimeWeeks && (
             <span className="text-faint">
               {" "}
-              · {block.relief.leadTimeWeeks.value} wk lead
+              · {formatLeadTime(block.relief.leadTimeWeeks.value, block.relief.leadTimeWeeks.evidenceClass)}
             </span>
           )}
         </div>

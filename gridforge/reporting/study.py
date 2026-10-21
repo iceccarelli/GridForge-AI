@@ -17,10 +17,10 @@ from ..scenario.run import ScenarioResult
 # Kept as a module-level alias so existing call sites keep working.
 _pick_recommended = pick_recommended
 from ..costs import BASIS_LABEL, active_evidence
-from ..validation import Quantity
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from ..validation import EvidenceClass, Quantity
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
-from .labels import (capex_per_rack_q, critical_path_q, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
+from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, critical_path_q, date_basis, date_basis_text, date_title, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
                      racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
 
 
@@ -33,12 +33,22 @@ def collect_claims(results) -> dict[str, list]:
         "cooling_performance": [c.max_racks for r in results for c in r.envelope.constraints
                                 if c.domain == "thermal" and c.max_racks.value != inf],
         "capex": [r.economics.capex_total_eur for r in results],
-        "schedule": [Quantity.given(r.economics.critical_path_weeks, "weeks",
-                                    f"{r.spec.id}: critical path"
-                                    + ("" if r.economics.critical_path_complete else
-                                       " (lower bound: a relief on the path has no lead time)"),
-                                    ESTIMATED) for r in results],
+        "schedule": [_schedule_claim(r) for r in results],
     }
+
+
+def _schedule_claim(r) -> Quantity:
+    """The critical path as a claim, classed by the WEAKEST lead time behind it (``full_capacity_band``), not by a
+    flat E3: with every lead time an E0 assumption the claim is E0 and falls below its evidence floor. A scenario
+    that deploys nothing, or whose schedule is incomplete, has no date to stand behind: E0."""
+    from ..envelope.time_to_power import full_capacity_band, schedule
+    got = full_capacity_band(r.ladder, schedule(r.ladder))
+    cls = got[3] if got is not None else EvidenceClass.E0_ASSUMPTION
+    return Quantity.given(r.economics.critical_path_weeks, "weeks",
+                          f"{r.spec.id}: critical path"
+                          + ("" if r.economics.critical_path_complete else
+                             " (lower bound: a relief on the path has no lead time)"),
+                          cls)
 
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "
              "All values are modelled or assumed; none is a measurement of a real site.")
@@ -128,10 +138,11 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     ttp = schedule(rec.ladder)
     full_q = full_capacity_q(rec.ladder, ttp, "elapsed weeks to energise the full envelope")
     if full_q is not None:
+        db = date_basis(rec.ladder, ttp)
         s.blocks.append(Statement(
             "Time to full capacity", full_q,
-            f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel; the range is "
-            "that item's own lead-time range"))
+            date_basis_text(db, f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel; the "
+                                "range is that item's own lead-time range")))
     s.blocks.append(Statement(
         "Indicative capex to reach it",
         rec.economics.capex_total_eur,
@@ -223,23 +234,36 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     rows = [[weeks_q(p.weeks, lo, hi, cls, f"elapsed at {p.racks} racks"),
              racks_q(p.racks, f"racks energised at week {p.weeks:g}", rec),
              p.unlocked_by, p.domain] for p, (_w, lo, hi, cls) in zip(ttp.points, elapsed_bands(rec.ladder))]
+    db_curve = date_basis(rec.ladder, ttp)
     if rows:
-        s.blocks.append(Table(["Elapsed", "Racks energised", "Unlocked by", "Domain"], rows,
-                              caption="Energisation curve for the recommended architecture."))
+        s.blocks.append(Table([date_title("Elapsed", db_curve) if db_curve.assumed else "Elapsed",
+                               "Racks energised", "Unlocked by", "Domain"], rows,
+                              caption="Energisation curve for the recommended architecture."
+                                      + (f" Every elapsed figure is an {ASSUMED_DATE_LABEL} "
+                                         f"({db_curve.evidence_class}), not a committed energisation date."
+                                         if db_curve.assumed else "")))
     s.blocks.append(Callout("note",
-        f"The date is set by {ttp.critical_item.lower()}. Every week of that lead time is a week "
+        f"The {'assumed lead time, not a date, is' if db_curve.assumed else 'date is'} set by "
+        f"{ttp.critical_item.lower()}. Every week of that lead time is a week "
         "of the site's contracted power earning nothing, so it is the first thing to attack — "
         "before any further engineering optimisation."))
     rows = []
+    any_assumed = False
     for res in results:
         t = schedule(res.ladder)
+        any_assumed = any_assumed or date_basis(res.ladder, t).assumed
         fq = full_capacity_q(res.ladder, t, f"{res.spec.id}: weeks to full capacity")
         rows.append([res.spec.name,
                      racks_q(res.unlocked_racks, f"{res.spec.id}: racks after ladder", res),
                      fq if fq is not None else "—",
                      t.critical_item])
-    s.blocks.append(Table(["Scenario", "Racks", "Time to full capacity", "Item that sets the date"],
-                          rows, caption="Time to power across the architectures compared."))
+    s.blocks.append(Table(["Scenario", "Racks",
+                           f"Time to full capacity ({ASSUMED_DATE_LABEL})" if any_assumed else "Time to full capacity",
+                           "Item that sets the date"],
+                          rows, caption="Time to power across the architectures compared."
+                                        + (f" Where a figure is marked E0 it is an {ASSUMED_DATE_LABEL}: the item "
+                                           "named in the last column carries an assumed lead time."
+                                           if any_assumed else "")))
     r.sections.append(s)
 
     # 4 ------------------------------------------------------------- the baseline
@@ -563,7 +587,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     below = claims_below_floor(collect_claims(results))
     if below:
         detail = "; ".join(
-            f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
+            f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable "
             f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
         s.blocks.append(Callout("warning",
             f"{DISCLOSURE_MARKER} this is a screening study built on library defaults and assumed "

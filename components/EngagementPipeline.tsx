@@ -12,7 +12,7 @@ import type {
   QualificationInsights,
 } from "@/lib/admin";
 import { eur } from "@/lib/commerce";
-import type { AttentionItem } from "@/lib/attention";
+import type { AttentionItem, DepositView } from "@/lib/attention";
 import { PRODUCT_BY_KIND, PRODUCTS, type ProductId } from "@/lib/products";
 
 /**
@@ -40,6 +40,8 @@ export function EngagementPipeline({
   supabaseReady,
   attention = null,
   attentionError = null,
+  deposits = null,
+  depositsError = null,
 }: {
   deliverables: AdminDeliverable[];
   qualifications: AdminQualification[];
@@ -51,6 +53,9 @@ export function EngagementPipeline({
   /** Paid work that needs a person (lib/attention.ts), or null when it could not be read (attentionError says why). */
   attention?: AttentionItem[] | null;
   attentionError?: string | null;
+  /** Every Envelope Study / Portfolio Screen deposit (lib/attention.ts shapeDeposits), or null when unreadable. */
+  deposits?: DepositView[] | null;
+  depositsError?: string | null;
 }) {
   const [rows, setRows] = useState(deliverables);
   const [busy, setBusy] = useState<string | null>(null);
@@ -247,6 +252,53 @@ export function EngagementPipeline({
                     <Td className="text-mute">{a.owner ?? "nobody"}</Td>
                     <Td className="font-mono text-faint">{a.due ?? "—"}</Td>
                     <Td className="text-xs text-mute">{a.action}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="mb-12" aria-label="Deposits">
+        <h2 className="mb-1 text-sm font-semibold text-ghost">Deposits</h2>
+        <p className="mb-3 max-w-3xl text-xs text-faint">
+          Envelope Study and Portfolio Screen deposits open no document: a named person scopes the work. Move one forward with
+          POST /api/admin/deposits/[id] (contacted needs an owner; scoped needs the scope, the fee inside the published band and a
+          delivery date; delivered needs a reference).
+        </p>
+        {deposits === null ? (
+          <Empty>{depositsError ?? "The deposit list could not be read."} This is not a statement that there are none.</Empty>
+        ) : deposits.length === 0 ? (
+          <Empty>No deposit has been paid yet.</Empty>
+        ) : (
+          <div className="overflow-x-auto rounded border border-line">
+            <table className="w-full text-sm">
+              <Head cols={["Paid", "Buyer", "Deposit", "Status", "Owner", "Fee", "Credit", "Balance", "Due"]} />
+              <tbody>
+                {deposits.map((d) => (
+                  <tr key={d.id} className={`border-t border-line align-top ${d.flag ? "bg-queue/5" : ""}`}>
+                    <Td className="font-mono text-faint">
+                      {d.paid_at ? new Date(d.paid_at).toLocaleDateString("en-IE") : "—"}
+                      <span className="block text-[11px]">{d.age_days === null ? "" : `${d.age_days} d`}</span>
+                    </Td>
+                    <Td>
+                      <span className="text-ghost">{d.company || "—"}</span>
+                      <span className="block text-xs text-faint">{d.buyer || "—"}</span>
+                    </Td>
+                    <Td className="text-mute">{d.what}</Td>
+                    <Td>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-mute">{d.status}</span>
+                      {d.flag ? <span className="block font-mono text-[10px] uppercase tracking-[0.1em] text-queue">{d.flag.replace(/_/g, " ")}</span> : null}
+                    </Td>
+                    <Td className="text-mute">
+                      {d.owner ?? "nobody yet"}
+                      {d.contacted_at ? <span className="block text-[11px] text-faint">contacted {new Date(d.contacted_at).toLocaleDateString("en-IE")}</span> : null}
+                    </Td>
+                    <Td className="font-mono text-mute">{d.fee_cents === null ? "—" : eurFromCents(d.fee_cents)}</Td>
+                    <Td className="font-mono text-mute">{d.credit_cents === null ? "—" : eurFromCents(d.credit_cents)}</Td>
+                    <Td className="font-mono text-mute">{d.balance_due_cents === null ? "—" : eurFromCents(d.balance_due_cents)}</Td>
+                    <Td className="font-mono text-faint">{d.due ?? (d.status === "scoped" ? "no date on file" : "—")}</Td>
                   </tr>
                 ))}
               </tbody>

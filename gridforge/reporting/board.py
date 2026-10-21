@@ -14,8 +14,10 @@ from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.objective import Objective, pick_recommended
 from ..scenario.run import ScenarioResult
-from .gates import DISCLOSURE_MARKER, claims_below_floor
-from .labels import dominant_sensitivity, economics_limitations, full_capacity_q, is_zero_gain, racks_q
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
+from ..validation import EvidenceClass
+from .labels import (date_basis, date_basis_text, dominant_sensitivity, economics_limitations,
+                     full_capacity_q, is_zero_gain, racks_q)
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import DECISION_GATES, collect_claims, watermark_for
 
@@ -48,8 +50,9 @@ def build(intake: Intake, results: list[ScenarioResult],
         s.blocks.append(Statement("IT load at that point", final.it_load_kW, "at the recommended architecture"))
     fq = full_capacity_q(rec.ladder, ttp, "elapsed weeks to full capacity")
     if fq is not None:
-        s.blocks.append(Statement("Time to full capacity", fq,
-                                  f"set by {ttp.critical_item.lower()}; works run in parallel"))
+        db = date_basis(rec.ladder, ttp)
+        s.blocks.append(Statement("Time to full capacity", fq, date_basis_text(
+            db, f"set by {ttp.critical_item.lower()}; works run in parallel")))
     s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur,
                               rec.economics.aace_class + ("" if rec.economics.capex_complete else
                                                           " · LOWER BOUND: a cost it needs has no price")))
@@ -77,7 +80,8 @@ def build(intake: Intake, results: list[ScenarioResult],
             tags.append("largest cost")
         if st.lead_time_weeks is not None and st.lead_time_weeks.value == max(
                 x.lead_time_weeks.value for x in steps if x.lead_time_weeks is not None):
-            tags.append("sets the date")
+            tags.append("sets the date" if st.lead_time_weeks.evidence > EvidenceClass.E0_ASSUMPTION
+                        else "sets the date (assumed, E0)")
         rows.append([Lit(", ".join(tags) or "—"), st.binding_name, (st.relief_description or "")[:80], st.capex_eur,
                      st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
     if rows:
@@ -117,12 +121,12 @@ def build(intake: Intake, results: list[ScenarioResult],
     s.blocks.append(Bullets(items))
     below = claims_below_floor(collect_claims(results))
     if below:
-        detail = "; ".join(f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
+        detail = "; ".join(f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable "
                            f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
         s.blocks.append(Callout("warning",
-            f"{DISCLOSURE_MARKER} screening study on library defaults and assumed inputs: {detail}. "
-            "Sufficient to decide whether to spend money finding out; not sufficient for procurement, "
-            "construction or an investment committee decision."))
+            f"{DISCLOSURE_MARKER} screening study on library defaults: {detail}. "
+            "Enough to decide whether to spend money finding out; not for procurement, construction "
+            "or an investment decision."))
     r.sections.append(s)
 
     s = Section("What to decide next")

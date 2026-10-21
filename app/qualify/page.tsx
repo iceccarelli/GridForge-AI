@@ -71,8 +71,8 @@ export default function QualifyPage() {
             v: "The binding constraint and why, deployable racks as the hall stands and after relief, the item that sets the date, and the list of inputs still assumed.",
           },
           {
-            k: "What you do not",
-            v: "Capital cost, programme duration in weeks, the full constraint ladder and the scenario comparison. Those are the paid engagement, and the engine withholds them server-side.",
+            k: "Where the paid line is",
+            v: "The free qualifier shows the binding constraint and the rack count. The free Time-to-Power comparison also shows scenarios with indicative capital cost and time to full capacity, each with its evidence class, and a time that rests on an assumed lead time is labelled as one, not as a date. What is paid is engineering you can rely on: human-reviewed engagements, and metered engine usage beyond the free allowance.",
           },
           {
             k: "Why it is honest",

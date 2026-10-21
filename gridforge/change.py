@@ -113,6 +113,17 @@ class EnvelopeState:
     price_basis_digest: str = ""
     relief_path_digest: str = ""
 
+    def date_basis(self) -> dict:
+        """date_basis / date_evidence_class / date_binding_item / date_label for the recorded figure. A class that
+        was not recorded is read as E0, never as a stronger one."""
+        from .envelope.time_to_power import NO_DATE, date_basis_of
+        from .validation import EvidenceClass
+        if self.weeks_to_full is None:
+            return NO_DATE.to_dict()
+        cls = EvidenceClass[self.weeks_class] if self.weeks_class in EvidenceClass.__members__ \
+            else EvidenceClass.E0_ASSUMPTION
+        return date_basis_of(cls, self.sets_the_date or None).to_dict()
+
     @staticmethod
     def of(res: ScenarioResult, doc: dict | None = None) -> "EnvelopeState":
         t = schedule(res.ladder)
@@ -191,6 +202,20 @@ class EnvelopeDiff:
         a, b = self.before.weeks_to_full, self.after.weeks_to_full
         return None if (a is None or b is None) else b - a
 
+    def date_basis(self) -> dict:
+        """date_basis / date_evidence_class / date_binding_item / date_label for the movement in weeks.
+
+        A movement between two figures is only as good as the weaker of them: assumed when either side's weakest
+        lead time is E0 (or was not recorded, which is never a claim), none when either side has no date."""
+        from .envelope.time_to_power import NO_DATE, date_basis_of
+        from .validation import EvidenceClass
+        if self.before.weeks_to_full is None or self.after.weeks_to_full is None:
+            return NO_DATE.to_dict()
+        names = [n if n in EvidenceClass.__members__ else "E0_ASSUMPTION"
+                 for n in (self.before.weeks_class, self.after.weeks_class)]
+        cls = min(EvidenceClass[n] for n in names)
+        return date_basis_of(cls, self.after.sets_the_date or None).to_dict()
+
     @property
     def capex_delta(self) -> float:
         return self.after.capex_eur - self.before.capex_eur
@@ -243,7 +268,9 @@ class EnvelopeDiff:
                         f"to {self.after.binding_name.lower()}")
         w = self.weeks_delta
         if w:
-            bits.append(f"{w:+.0f} weeks to full capacity")
+            # never a bare number of weeks while either side's lead time is an assumption
+            tail = "" if self.date_basis()["date_basis"] == "supported" else " (assumed lead time, not a date)"
+            bits.append(f"{w:+.0f} weeks to full capacity{tail}")
         if self.recommendation_changed:
             bits.append("the recommended architecture changed to "
                         f"{self.recommendation_changed[1]}")

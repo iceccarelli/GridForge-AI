@@ -8,6 +8,8 @@ import type { BuyerStep } from "@/lib/buyer-path";
 import { CALIBRATION_NOTICE } from "@/lib/ai/provenance";
 import { eurFromCents } from "@/lib/products";
 import { OBJECTIVE_LABEL, type CompareResult, type CompareScenario } from "@/lib/ttp-compare";
+import { DateFigure } from "@/components/DateFigure";
+import { formatRankingValue } from "@/lib/date-basis";
 import type { Standing } from "@/lib/comparison-evidence";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +125,7 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
           {leader ? (
             <>
               On <strong>{OBJECTIVE_LABEL[r.objective].toLowerCase()}</strong> the engine ranks <strong>{leader.name}</strong> first (
-              {r.ranking.metric}: <span className="data">{r.ranking.values[leader.id]?.toLocaleString()}</span>).
+              {r.ranking.metric}: <span className="data">{formatRankingValue(r.ranking.metric, r.ranking.values[leader.id], leader.time_to_power)}</span>).
             </>
           ) : (
             <>The engine ranks no scenario first on {OBJECTIVE_LABEL[r.objective].toLowerCase()}. {r.ranking.note}</>
@@ -343,21 +345,7 @@ function PricingBasis({ v, r }: { v: BuyerView; r: CompareResult }) {
 
 function When({ s }: { s: CompareScenario }) {
   const t = s.time_to_power;
-  if (t.status !== "dated" || t.weeks === null) {
-    return (
-      <span className="text-mute">
-        <span className="font-semibold text-ghost">No date.</span> {t.reason}
-      </span>
-    );
-  }
-  return (
-    <span>
-      <span className="data text-ghost">{t.weeks.toLocaleString()} wk</span>{" "}
-      <span className="data text-mute">({t.low?.toLocaleString()}–{t.high?.toLocaleString()})</span>{" "}
-      <span className="data text-[11px] text-queue">{evidenceCode(t.evidence)}</span>
-      {t.sets_the_date ? <span className="block text-[11px] text-faint">set by {t.sets_the_date}</span> : null}
-    </span>
-  );
+  return <DateFigure t={t} evidenceText={evidenceCode(t.evidence)} />;
 }
 
 function Capex({ s }: { s: CompareScenario }) {

@@ -215,7 +215,8 @@ def test_objective_changes_which_architecture_wins():
     def winner_label(objective):
         r = assess_deployment(load_profile=flat(15000), grid_firm_MW=V(5.0, "MW", "g", ASSUMED),
                               generation=[gen], bess=[bess], target_MW=V(30.0, "MW", "t", ASSUMED),
-                              redundancy=Redundancy.N, objective=objective)
+                              redundancy=Redundancy.N, objective=objective,
+                              ride_through_hours=V(2.0, "h", "declared ride-through", ASSUMED))
         # both winners land on the missing-data branch (no interconnection/fuel/
         # permitting declared) -- the architecture NAME in the action is what
         # this test is checking, not the RFQ/procurement wording.
@@ -250,7 +251,8 @@ def test_trade_offs_name_the_runner_up_not_a_hidden_second_ranking():
     r = assess_deployment(load_profile=flat(15000), grid_firm_MW=V(5.0, "MW", "g", ASSUMED),
                           generation=[gen], bess=[bess], target_MW=V(30.0, "MW", "t", ASSUMED),
                           redundancy=Redundancy.N, objective=Objective.MAX_COMPUTE,
-                          interconnection=INTERCONNECTION, permitting=PERMITTING)
+                          interconnection=INTERCONNECTION, permitting=PERMITTING,
+                          ride_through_hours=V(2.0, "h", "declared ride-through", ASSUMED))
     assert r["next_action"]["action"].startswith("Proceed to RFQ"), r["next_action"]["action"]
     trade_offs = r["next_action"].get("trade_offs", [])
     assert trade_offs, "choosing the max-capacity winner over a cheaper alternative must name the trade-off"

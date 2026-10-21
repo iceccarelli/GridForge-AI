@@ -7,6 +7,8 @@ import {
   dueWatches,
   nextRun,
   recordNote,
+  storedChange,
+  weeksLine,
   runWatch,
   updateWatch,
   WATCH_CRON_START_BY_MS,
@@ -140,7 +142,7 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
     binding_moved: d.binding_moved,
     document_html: (d.document_full as string) ?? (d.document as string) ?? null,
     document_md: d.markdown ?? null,
-    change: d,
+    change: storedChange(d),
     trigger: "scheduled",
   });
   if (!noteId) {
@@ -159,6 +161,6 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
   }
 
   // The change note is stored and on the watch page; its email is a durable obligation retried by the engagements sweep.
-  if (d.material) await announceNote({ id: noteId, watch_id: w.id }, w, d.headline);
+  if (d.material) await announceNote({ id: noteId, watch_id: w.id }, w, d.headline, weeksLine({ weeks_delta: d.weeks_delta, change: d }));
   return { token: w.token, status: d.material ? "changed" : "no_change", headline: d.headline };
 }

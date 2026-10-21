@@ -10,7 +10,7 @@
  * FAKE-BACKED store; the engine is the REAL Python engine; email is intercepted (Resend is not contacted).
  */
 import { adminToken } from "@/lib/admin";
-import { documentHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,7 +90,7 @@ async function buy(email = "buyer@hall.example") {
 }
 const submit = async (d: any) => (await import("@/app/api/intake/[token]/route")).POST(json(INTAKE), ctx(d.intake_token));
 const signIn = () => jar.push({ name: "gf_admin", value: adminToken()! });
-const release = async (d: any) => (await import("@/app/api/admin/deliverables/route")).PATCH(json({ token: d.token, reviewed_hash: documentHash((db.rows("deliverables").find((r: any) => r.token === d.token) as any)?.document_html) }, "PATCH"));
+const release = async (d: any) => (await import("@/app/api/admin/deliverables/route")).PATCH(json({ token: d.token, reviewed_by: "A. Rivera", reviewed_hash: reviewHash((db.rows("deliverables").find((r: any) => r.token === d.token) as any)) }, "PATCH"));
 const to = (m: { to: string[] | string }) => ([] as string[]).concat(m.to).join(",");
 
 describe.runIf(hasPython)("a draft waiting for review is announced to the operator", () => {

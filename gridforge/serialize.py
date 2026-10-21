@@ -15,7 +15,7 @@ from typing import Any
 from .clock import report_date_iso
 from .costs import active_evidence
 
-from .envelope.time_to_power import schedule
+from .envelope.time_to_power import date_basis, schedule
 from .intake.loader import Intake
 from .scenario.run import ScenarioResult
 from .validation import Quantity
@@ -78,6 +78,7 @@ def economics_dict(res: ScenarioResult) -> dict:
             "cost_eur": _q(e.lifecycle_cost_eur), "complete": e.lifecycle_complete, "basis": e.lifecycle_basis},
         "critical_path_weeks": e.critical_path_weeks if e.critical_path_complete else None,
         "critical_path_complete": e.critical_path_complete,
+        **date_basis(res.ladder).to_dict(),
         "basis": e.aace_class,
         "decision_grade": e.decision_grade,
         "limitations": e.limitations,
@@ -115,6 +116,7 @@ def scenario_dict(res: ScenarioResult) -> dict:
                           "weeks_to_full": t.weeks_to_full,
                           "schedule_complete": t.complete,
                           "sets_the_date": t.critical_item,
+                          **date_basis(res.ladder, t).to_dict(),
                           "curve": [{"weeks": p.weeks, "racks": p.racks,
                                      "unlocked_by": p.unlocked_by} for p in t.points]},
         "economics": economics_dict(res),
@@ -191,7 +193,7 @@ _Q_HEAD = ["value", "low", "high", "unit", "evidence", "label", "provenance"]
 def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
     """Every table behind the study, as files a client's own engineer can open."""
     from .change import flatten
-    from .envelope.time_to_power import schedule
+    from .envelope.time_to_power import date_basis, schedule
 
     out: dict[str, str] = {}
 
@@ -204,7 +206,7 @@ def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
             r.envelope.max_racks, r.unlocked_racks,
             r.envelope.binding.id, r.envelope.binding.name,
             final.gpus, t.weeks_to_full if t.weeks_to_full is not None else "",
-            t.critical_item,
+            t.critical_item, date_basis(r.ladder, t).basis, date_basis(r.ladder, t).evidence_class or "",
             *_q_cells(final.it_load_kW),
             *_q_cells(r.economics.capex_total_eur),
             r.economics.aace_class,
@@ -212,7 +214,8 @@ def csv_bundle(intake: Intake, results: list[ScenarioResult]) -> dict[str, str]:
         ])
     out["scenarios.csv"] = _csv(
         ["scenario_id", "scenario", "architecture", "racks_as_found", "racks_after_ladder",
-         "binds_first_id", "binds_first", "gpus", "weeks_to_full", "sets_the_date",
+         "binds_first_id", "binds_first", "gpus", "weeks_to_full", "sets_the_date", "date_basis",
+         "date_evidence_class",
          *[f"it_load_kW.{h}" for h in _Q_HEAD], *[f"capex_eur.{h}" for h in _Q_HEAD],
          "accuracy_class", "capex_complete", "opex_complete", "decision_grade"], rows)
 

@@ -12,6 +12,7 @@ import {
   changeCap,
   enablePayg,
   getUsage,
+  openBillingPortal,
   replaceCard,
   planLabel,
   type ClientFailure,
@@ -50,6 +51,7 @@ export default function PaygPortal({
   status: statusProp,
   monthlyUnits,
   returned = null,
+  hasStripeCustomer = false,
 }: {
   token: string;
   plan: string;
@@ -57,6 +59,8 @@ export default function PaygPortal({
   monthlyUnits: number;
   /** ?payg= on the page URL after Stripe sent the customer back (the Stripe URL itself carries no token). */
   returned?: "success" | "cancelled" | null;
+  /** The account has a Stripe customer, so Stripe's billing page can be opened for it. */
+  hasStripeCustomer?: boolean;
 }) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [refreshing, setRefreshing] = useState(false);
@@ -164,6 +168,8 @@ export default function PaygPortal({
         <ReplaceCard token={token} urgent={false} saved={usage?.account.paymentMethodSaved ?? null} />
       ) : null}
       {isPayg && active ? <ChangeCap token={token} currentEur={usage?.account.capEur ?? null} onChanged={refresh} /> : null}
+
+      {!isFree && !isPayg && hasStripeCustomer && status !== "cancelled" ? <ManageSubscription token={token} /> : null}
 
       <WhenRefused isFree={isFree} isPayg={isPayg} />
 
@@ -605,6 +611,56 @@ function ReplaceCard({ token, urgent, saved }: { token: string; urgent: boolean;
         className={`mt-4 inline-flex min-h-11 items-center gap-2 rounded px-5 py-2.5 font-semibold disabled:opacity-60 ${urgent ? "bg-power text-ink" : "border border-line text-ghost hover:border-power/50"}`}
       >
         {busy ? "Opening Stripe" : "Replace payment card"}
+      </button>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-flag">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ManageSubscription({ token }: { token: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+
+  async function go() {
+    setBusy(true);
+    setError(null);
+    const res = await openBillingPortal(token);
+    if (res.ok) {
+      window.location.href = res.data.url;
+      return; // leaving the page: stay busy so it is not pressed twice
+    }
+    setBusy(false);
+    // 409: there is no Stripe customer to manage, so the control has nothing to offer and goes away.
+    if (res.status === 409) {
+      setHidden(true);
+      return;
+    }
+    setError(res.message);
+  }
+
+  return (
+    <section aria-labelledby="manage-heading" className="rounded border border-line bg-panel-2 p-5 sm:p-6">
+      <h2 id="manage-heading" className="text-lg font-semibold text-ghost">
+        Manage or cancel subscription
+      </h2>
+      <p className="mt-2 text-sm text-mute">
+        This opens Stripe&apos;s billing page for your subscription, where you can update the card, see invoices and cancel. What
+        cancelling does, and when it takes effect, follows the terms Stripe shows you there. When the subscription ends, access
+        stops and its key is revoked; a revoked key does not return, and a new subscription gets a new key.
+      </p>
+      <button
+        type="button"
+        onClick={() => void go()}
+        disabled={busy}
+        className="mt-4 inline-flex min-h-11 items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50 disabled:opacity-60"
+      >
+        {busy ? "Opening Stripe" : "Manage or cancel subscription"}
       </button>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-flag">

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
-import { BASELINE_HEADLINE, getWatch, nextRun, notesFor, recordNote, runWatch, updateWatch } from "@/lib/watches";
+import { BASELINE_HEADLINE, weeksLine, getWatch, nextRun, notesFor, recordNote, runWatch, storedChange, updateWatch } from "@/lib/watches";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 
@@ -38,6 +38,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       material: n.material,
       headline: n.headline,
       racks_delta: n.racks_delta,
+      // the weeks figure with what it rests on (lib/date-basis.ts); "lead time unverified" for a note that predates the keys
+      weeks: weeksLine(n),
       trigger: n.trigger,
     })),
   });
@@ -115,7 +117,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         binding_moved: first ? null : d.binding_moved,
         document_html: first ? null : ((d.document_full as string) ?? (d.document as string) ?? null),
         document_md: first ? null : (d.markdown ?? null),
-        change: first ? null : d,
+        change: first ? null : storedChange(d),
         material: first ? false : Boolean(d.material),
         trigger: first ? "baseline" : "inputs_updated",
       });

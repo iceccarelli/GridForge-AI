@@ -57,7 +57,7 @@ export function TimeToPowerComparator() {
           label="New grid connection"
           sub="wait on the utility"
           frac={m.queueFrac}
-          marker={`energized · month ${queueMonths}`}
+          marker={`energized · month ${queueMonths} (assumed)`}
           tone="queue"
         />
         <div className="h-4" />
@@ -65,7 +65,7 @@ export function TimeToPowerComparator() {
           label="Density unlocked in your existing hall"
           sub="Headroom Ladder"
           frac={m.onSiteFrac}
-          marker={`unlocked · month ${m.onSite}`}
+          marker={`unlocked · month ${m.onSite} (assumed)`}
           tone="power"
         />
         <div className="data text-[10px] text-faint mt-2 px-1 text-right">

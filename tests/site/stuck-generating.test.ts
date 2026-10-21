@@ -220,3 +220,62 @@ describe("the operator can SEE stuck and overdue paid work", () => {
     expect(res.status).toBe(502);
   });
 });
+
+describe("a stale reader cannot disturb a generation that was re-claimed since (the compare-and-set names the claim)", () => {
+  it("a sweep holding a stale read does NOT flip the freshly re-claimed live generation", async () => {
+    dead(30);
+    const { recoverStaleGenerating } = await import("@/lib/deliverables");
+    const staleRead = JSON.parse(JSON.stringify(row()));           // what the sweep read: stale claim S1
+    // meanwhile the customer's resubmission recovered it and re-claimed it: generating again, a NEW stamp S2
+    const fresh = minutesAgo(0);
+    row().intake = { ...row().intake, _gridforge: { generating_since: fresh } };
+    const out = await recoverStaleGenerating(staleRead);
+    expect(out).toBe("lost");
+    expect(row().status).toBe("generating");
+    expect(row().intake._gridforge.generating_since).toBe(fresh);
+  });
+
+  it("the same for a read of a row that had NO stamp when it has been stamped since", async () => {
+    dead(null);
+    const { recoverStaleGenerating } = await import("@/lib/deliverables");
+    const staleRead = JSON.parse(JSON.stringify(row()));
+    row().intake = { ...row().intake, _gridforge: { generating_since: minutesAgo(0) } };
+    expect(await recoverStaleGenerating(staleRead)).toBe("lost");
+    expect(row().status).toBe("generating");
+  });
+
+  it("a generation that lost its claim persists NOTHING and does not move the new claim's row to engine_unavailable", async () => {
+    const { generateAndStore, claimStamp } = await import("@/lib/deliverables");
+    const first = new Date(Date.now() - 20 * 60_000);
+    const second = new Date();
+    db.seed("deliverables", [{ token: "doc-tok", intake_token: "intake-tok", kind: "density_screen", status: "generating", stripe_session_id: "cs_1",
+      intake: { siteName: "North Hall", _gridforge: { generating_since: claimStamp(second) } } }]);
+    // the OLD request (claim `first`) finishes rendering after the row was re-claimed by `second`
+    const out = await generateAndStore({ token: "doc-tok", kind: "density_screen", working_files: null, claim: claimStamp(first) }, { siteName: "North Hall" }, "screen");
+    expect(out.ok).toBe(false);
+    expect(row().status).toBe("generating");
+    expect(row().document_html ?? null).toBeNull();
+    expect(row().intake._gridforge.generating_since).toBe(claimStamp(second));
+  });
+
+  it("an engine failure of the OLD request does not flip the new claim to engine_unavailable either", async () => {
+    const { generateAndStore, claimStamp } = await import("@/lib/deliverables");
+    const second = new Date();
+    db.seed("deliverables", [{ token: "doc-tok", intake_token: "intake-tok", kind: "density_screen", status: "generating", stripe_session_id: "cs_1",
+      intake: { siteName: "North Hall", _gridforge: { generating_since: claimStamp(second) } } }]);
+    engineUp = false;
+    const out = await generateAndStore({ token: "doc-tok", kind: "density_screen", working_files: null, claim: claimStamp(new Date(Date.now() - 20 * 60_000)) }, { siteName: "North Hall" }, "screen");
+    expect(out.ok).toBe(false);
+    expect(row().status).toBe("generating");
+  });
+
+  it("the live claim's own persist still works (its stamp matches)", async () => {
+    const { generateAndStore, claimStamp } = await import("@/lib/deliverables");
+    const at = new Date();
+    db.seed("deliverables", [{ token: "doc-tok", intake_token: "intake-tok", kind: "density_screen", status: "generating", stripe_session_id: "cs_1",
+      intake: { siteName: "North Hall", _gridforge: { generating_since: claimStamp(at) } } }]);
+    const out = await generateAndStore({ token: "doc-tok", kind: "density_screen", working_files: null, claim: claimStamp(at) }, { siteName: "North Hall" }, "screen");
+    expect(out.ok).toBe(true);
+    expect(row().status).toBe("draft");
+  });
+});

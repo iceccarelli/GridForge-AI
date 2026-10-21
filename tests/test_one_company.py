@@ -116,6 +116,7 @@ def test_no_price_hides_from_the_guard_by_being_written_in_cents():
         ROOT / "lib" / "commerce.ts": "the deposit rule",
         ROOT / "lib" / "admin.ts": "reads amounts back out of Stripe, sets none",
         ROOT / "lib" / "deliverables.ts": "records what was charged, sets nothing",
+        ROOT / "tests" / "site" / "payg-funnel-report.test.ts": "a canned engine economics response (revenue_cents_at_payg_price), sets no price",
     }
     offenders = []
     for f in tracked():

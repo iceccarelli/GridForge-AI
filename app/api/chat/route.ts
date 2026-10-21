@@ -170,8 +170,8 @@ export async function POST(req: Request) {
           // Template literals, not the double-quoted strings this used to be: those
           // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
           const next = hot
-            ? `Your site qualifies as a priority engagement. We will respond within 1 business day. Commission the Density Screen now: ${siteUrl('/pricing')}`
-            : `We will review your site and respond within 1 business day. Start with the Density Screen: ${siteUrl('/pricing')}`;
+            ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply. Commission the Density Screen when you are ready: ${siteUrl('/pricing')}`
+            : `We will review your site. We make no promise about when we will reply. Start with the Density Screen: ${siteUrl('/pricing')}`;
           try {
             await sendMail({
                 from,

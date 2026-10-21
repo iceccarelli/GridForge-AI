@@ -22,7 +22,7 @@ The binding constraint as found is rack feed / tap-off rating (electrical). plat
 
 **Time to full capacity:** 160 [80–210] weeks (E0)
 
-*Limited by: set by transformer capacity; reliefs assumed to run in parallel; the range is that item's own lead-time range*
+*Limited by: assumed lead time, not a date (E0) · set by transformer capacity; reliefs assumed to run in parallel; the range is that item's own lead-time range*
 
 **Indicative capex to reach it:** 18,800,000 [9,420,000–37,700,000] EUR (E0)
 
@@ -84,7 +84,7 @@ Rungs 1, 2, 4, 18 are charged but add no racks on their own. Each relieves one o
 
 Capacity without a date is not a decision. Each relief on the ladder carries a lead time; reliefs are assumed to run in parallel, so the racks unlocked by the first N steps become available at the longest lead time among those N. One item sets the date, and it is almost never the construction work.
 
-| Elapsed | Racks energised | Unlocked by | Domain |
+| Elapsed (assumed lead time, not a date) | Racks energised | Unlocked by | Domain |
 | --- | --- | --- | --- |
 | 32 [20–48] weeks (E0) | 8 racks (E0) | Achievable facility water temperature | thermal |
 | 160 [80–210] weeks (E0) | 12 racks (E0) | UPS capacity (protected load) | electrical |
@@ -103,11 +103,11 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 | 160 [80–210] weeks (E0) | 61 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
 | 160 [80–210] weeks (E0) | 62 racks (E0) | UPS capacity (protected load) | electrical |
 
-*Energisation curve for the recommended architecture.*
+*Energisation curve for the recommended architecture. Every elapsed figure is an assumed lead time, not a date (E0), not a committed energisation date.*
 
-> ℹ️ The date is set by transformer capacity. Every week of that lead time is a week of the site's contracted power earning nothing, so it is the first thing to attack — before any further engineering optimisation.
+> ℹ️ The assumed lead time, not a date, is set by transformer capacity. Every week of that lead time is a week of the site's contracted power earning nothing, so it is the first thing to attack — before any further engineering optimisation.
 
-| Scenario | Racks | Time to full capacity | Item that sets the date |
+| Scenario | Racks | Time to full capacity (assumed lead time, not a date) | Item that sets the date |
 | --- | --- | --- | --- |
 | Retained air, grid only | 0 racks (E0) | — | — |
 | Rear-door heat exchangers, grid only | 0 racks (E0) | — | — |
@@ -115,7 +115,7 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 | Full DLC, grid only | 28 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
 | Full DLC plus behind-the-meter supply | 62 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
 
-*Time to power across the architectures compared.*
+*Time to power across the architectures compared. Where a figure is marked E0 it is an assumed lead time, not a date: the item named in the last column carries an assumed lead time.*
 
 ## 4. Site and baseline
 
@@ -315,7 +315,7 @@ This study is an engineering opinion supported by a documented model. It is not 
 
 Every quantity in this report carries an evidence class; Appendix A lists the assumptions and sources relied upon and the provenance digest of each headline quantity. No number here is a measurement of a physical asset unless it is labelled E5 or above — and E5 means supplied by the client (a declared rating, contract term or design value, or the client's own data as given), not measured or surveyed by us.
 
-> ⚠️ EVIDENCE DISCLOSURE: this is a screening study built on library defaults and assumed inputs. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. These conclusions are not sufficient to support procurement, construction or an investment committee decision on their own; they are sufficient to decide whether to spend money finding out. The inputs listed in Appendix A.1 are what must be measured to lift them.
+> ⚠️ EVIDENCE DISCLOSURE: this is a screening study built on library defaults and assumed inputs. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. These conclusions are not sufficient to support procurement, construction or an investment committee decision on their own; they are sufficient to decide whether to spend money finding out. The inputs listed in Appendix A.1 are what must be measured to lift them.
 
 ## 14. Model accuracy against instrumented sites
 

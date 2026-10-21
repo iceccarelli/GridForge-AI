@@ -18,6 +18,7 @@
 import { sendMail, notifyOperator, type MailFailure } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
 import { creds, rest } from "@/lib/pgrest";
+import { weeksLine } from "@/lib/watches";
 
 const q = encodeURIComponent;
 const MINUTE = 60_000;
@@ -39,10 +40,15 @@ interface NoticeRow {
 
 type Outcome = "sent" | "retry" | "abandoned" | "skipped";
 
+/** The body of a change-note email. Any weeks figure wears what it rests on (lib/date-basis.ts), on its own line. */
+function noteText(headline: string, weeks: string | null, token: string): string {
+  return `${headline}\n\n${weeks ? `Time to full capacity: ${weeks}\n\n` : ""}The change note, with the input that moved it:\n${SITE_URL}/watch/${token}\n`;
+}
+
 async function build(n: Pick<NoticeRow, "watch_note_id" | "watch_id">): Promise<{ to: string; subject: string; text: string; key: string } | "gone"> {
   const [w, note] = await Promise.all([
     rest<Record<string, unknown>[]>("GET", `watches?id=eq.${q(n.watch_id)}&select=token,email,site_name,hall_id,status&limit=1`),
-    rest<Record<string, unknown>[]>("GET", `watch_notes?id=eq.${q(n.watch_note_id)}&select=headline,material&limit=1`),
+    rest<Record<string, unknown>[]>("GET", `watch_notes?id=eq.${q(n.watch_note_id)}&select=headline,material,weeks_delta,change&limit=1`),
   ]);
   if (!w.ok || !note.ok) throw new Error("read failed");
   const watch = w.data?.[0];
@@ -52,7 +58,7 @@ async function build(n: Pick<NoticeRow, "watch_note_id" | "watch_id">): Promise<
   return {
     to: email,
     subject: `${watch.site_name ?? "Your hall"} ${watch.hall_id ?? ""} — the answer moved`.trim(),
-    text: `${row.headline ?? "Your hall's answer moved."}\n\nThe change note, with the input that moved it:\n${SITE_URL}/watch/${watch.token}\n`,
+    text: noteText(String(row.headline ?? "Your hall's answer moved."), weeksLine({ weeks_delta: row.weeks_delta as number | null, change: row.change as Record<string, unknown> | null }), String(watch.token)),
     key: `watch-note-${n.watch_note_id}`,
   };
 }
@@ -139,7 +145,7 @@ export async function sweepNotices(now: Date = new Date(), limit = 50): Promise<
  * Tell the buyer a stored change note exists: record the obligation and make the first attempt now. If the store cannot
  * hold the obligation, make one direct attempt and log a failure (the previous behaviour).
  */
-export async function announceNote(note: { id: string; watch_id: string }, watch: { email: string | null; site_name: string | null; hall_id: string | null; token: string }, headline: string): Promise<void> {
+export async function announceNote(note: { id: string; watch_id: string }, watch: { email: string | null; site_name: string | null; hall_id: string | null; token: string }, headline: string, weeks: string | null = null): Promise<void> {
   const queued = await queueNotice(note.id, note.watch_id);
   if (queued === "queued") {
     const row = await rest<NoticeRow[]>("GET", `watch_note_notices?watch_note_id=eq.${q(note.id)}&select=*&limit=1`);
@@ -153,7 +159,7 @@ export async function announceNote(note: { id: string; watch_id: string }, watch
   const r = await sendMail({
     to: watch.email,
     subject: `${watch.site_name ?? "Your hall"} ${watch.hall_id ?? ""} — the answer moved`.trim(),
-    text: `${headline}\n\nThe change note, with the input that moved it:\n${SITE_URL}/watch/${watch.token}\n`,
+    text: noteText(headline, weeks, watch.token),
     idempotencyKey: `watch-note-${note.id}`,
   });
   if (!r.sent) console.error(`[GridForge] watch change NOT emailed (watch ${note.watch_id}): ${r.category}${r.status ? ` (HTTP ${r.status})` : ""}; the retry record is unavailable (migration 0030)`);
