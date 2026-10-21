@@ -20,7 +20,7 @@ from ..constraints import EnvelopeContext
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .labels import date_basis, date_basis_text, full_capacity_q, racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
@@ -168,7 +168,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     below = claims_below_floor(collect_claims(results))
     if below:
         detail = "; ".join(
-            f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
+            f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable "
             f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
         s.blocks.append(Callout("warning",
             f"{DISCLOSURE_MARKER} the findings in section 1 are a screening read built partly on "

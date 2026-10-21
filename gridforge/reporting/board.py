@@ -14,7 +14,7 @@ from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.objective import Objective, pick_recommended
 from ..scenario.run import ScenarioResult
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from ..validation import EvidenceClass
 from .labels import (date_basis, date_basis_text, dominant_sensitivity, economics_limitations,
                      full_capacity_q, is_zero_gain, racks_q)
@@ -121,12 +121,12 @@ def build(intake: Intake, results: list[ScenarioResult],
     s.blocks.append(Bullets(items))
     below = claims_below_floor(collect_claims(results))
     if below:
-        detail = "; ".join(f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
+        detail = "; ".join(f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable "
                            f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
         s.blocks.append(Callout("warning",
-            f"{DISCLOSURE_MARKER} screening study on library defaults and assumed inputs: {detail}. "
-            "Sufficient to decide whether to spend money finding out; not sufficient for procurement, "
-            "construction or an investment committee decision."))
+            f"{DISCLOSURE_MARKER} screening study on library defaults: {detail}. "
+            "Enough to decide whether to spend money finding out; not for procurement, construction "
+            "or an investment decision."))
     r.sections.append(s)
 
     s = Section("What to decide next")

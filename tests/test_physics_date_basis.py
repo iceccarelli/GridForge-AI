@@ -292,3 +292,123 @@ class TestAssessDeployment:
         assert both["lead_time_weeks"] == 50 and both["date_basis"] == "assumed"
         assert both["date_binding_item"] == "GEN-A" and both["date_evidence_class"] == "E0"
         assert both["date_label"] == "assumed lead time, not a date (E0; set by gen-a)"
+
+
+# --- /v1/diff, the headline, and the change note's was-values ---------------------------------------------------------
+class TestChangeNoteAndDiff:
+    @staticmethod
+    def _moved(doc, weeks=200):
+        after = copy.deepcopy(doc)
+        after["transformers"][0]["replacement_lead_time_weeks"] = weeks      # 160 -> 200: +40 weeks
+        return after
+
+    def test_the_headline_never_carries_a_bare_number_of_weeks(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        assert d.weeks_delta == 40
+        assert "+40 weeks to full capacity (assumed lead time, not a date)" in d.headline()
+        assert "weeks to full capacity." not in d.headline()
+
+    def test_the_diff_carries_the_basis_keys_and_so_does_the_server_payload(self, solved):
+        from gridforge.api.server import handle_diff
+        doc = solved[0]
+        after = self._moved(doc)
+        d = diff(doc, after, attribute=False)
+        assert d.date_basis() == {"date_basis": "assumed", "date_evidence_class": "E0",
+                                  "date_binding_item": "Transformer capacity",
+                                  "date_label": "assumed lead time, not a date (E0; set by transformer capacity)"}
+        out = handle_diff({"before": doc, "after": after, "attribute": False}, Tier.CLIENT)
+        assert KEYS <= set(out) and out["date_basis"] == "assumed" and out["weeks_delta"] == 40
+        assert "assumed lead time, not a date" in out["headline"]
+
+    def test_the_movement_is_only_as_good_as_the_weaker_side(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        d.after.weeks_class = "E5_CUSTOMER_DATA"
+        assert d.date_basis()["date_basis"] == "assumed"          # the earlier side is still E0
+        d.before.weeks_class = "E5_CUSTOMER_DATA"
+        assert d.date_basis()["date_basis"] == "supported"
+        assert d.headline().startswith("+40 weeks to full capacity")
+        assert "assumed lead time" not in d.headline().split(";")[0]
+
+    def test_an_unrecorded_class_is_never_a_claim(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        d.before.weeks_class = ""
+        assert d.date_basis()["date_basis"] == "assumed"
+
+    def test_nothing_numeric_is_said_when_either_side_is_undated(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        d.before.weeks_to_full = None
+        assert d.weeks_delta is None and d.date_basis() == NO_DATE.to_dict()
+        assert "weeks" not in d.headline().split("indicative")[0]
+
+    def test_the_was_value_names_its_basis(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        assert change_note._was_weeks(d.before) == "was 160 [80–210] (assumed lead time, not a date)"
+        d.before.weeks_class = "E5_CUSTOMER_DATA"
+        assert change_note._was_weeks(d.before) == "was 160 [80–210]"
+        d.before.weeks_class = ""
+        assert change_note._was_weeks(d.before).endswith("(assumed lead time, not a date)")
+
+    def test_the_first_paragraph_of_the_change_note_carries_the_caption(self, solved):
+        doc = solved[0]
+        d = diff(doc, self._moved(doc), attribute=False)
+        md = to_markdown(change_note.build(d, site="S", hall="H", client="C"))
+        first = md.split("## 1. What moved")[1].split("\n\n")[1]
+        assert "+40 weeks to full capacity (assumed lead time, not a date)" in first
+
+
+# --- the schedule claim ------------------------------------------------------------------------------------------------
+class TestScheduleClaim:
+    def test_every_lead_time_is_e0_so_the_claim_is_e0_and_below_its_floor(self, solved):
+        from gridforge.reporting.gates import claims_below_floor
+        results = solved[2]
+        claim = collect_claims(results)["schedule"]
+        assert {q.evidence for q in claim} == {EvidenceClass.E0_ASSUMPTION}
+        below = claims_below_floor(collect_claims(results))
+        assert below["schedule"] == (EvidenceClass.E0_ASSUMPTION, EvidenceClass.E1_MODEL)
+
+    def test_the_disclosures_name_the_lead_times(self, solved):
+        _, intake, results = solved
+        expected = "schedule (lead times) is E0 where an issued deliverable requires E1"
+        for md in (to_markdown(study.build(intake.context, results, client=intake.client)),
+                   to_markdown(screen_mod.build(intake, results)),
+                   to_markdown(proposal.build(intake, results, engagement("density_screen")))):
+            assert expected in md
+        board = to_markdown(board_mod.build(intake, results))
+        assert expected in board
+
+    def test_the_specification_disclosure_names_the_schedule(self, solved):
+        from gridforge.procurement import build_spec
+        _, intake, results = solved
+        best = max(results, key=lambda r: r.unlocked_racks)
+        pkg = build_spec(intake, best, constraint_id="busway_ampacity")
+        with_claims = to_markdown(spec_mod.build(pkg, claims=collect_claims(results)))
+        assert "schedule (lead times)" in with_claims
+        no_claims = to_markdown(spec_mod.build(pkg))
+        assert "electrical capacity, cooling performance, capex, schedule (lead times)" in no_claims
+
+    def test_a_quoted_schedule_is_not_below_the_floor(self, solved):
+        from gridforge.reporting.gates import claims_below_floor
+        _, intake, _ = solved
+        results = run_all(intake.context, intake.scenarios)
+        for r in results:
+            _quote_every_lead_time(r)
+        claim = collect_claims(results)["schedule"]
+        deployed = [q for q in claim if q.value > 0]
+        assert deployed and all(q.evidence == EvidenceClass.E5_CUSTOMER_DATA for q in deployed)
+        # scenarios that deploy nothing have no date and stay E0, so the claim as a whole is still disclosed
+        assert "schedule" in claims_below_floor(collect_claims(results))
+
+
+# --- the screen's next-step turnaround ------------------------------------------------------------------------------------
+def test_the_screen_reads_the_study_turnaround_from_the_catalogue(solved):
+    from gridforge.commercial import ENGAGEMENTS
+    _, intake, results = solved
+    md = to_markdown(screen_mod.build(intake, results))
+    days = ENGAGEMENTS["envelope_study"].turnaround_days
+    assert f"{days} working days from a complete intake" in md and days == 25
+    assert "3-5 weeks" not in md

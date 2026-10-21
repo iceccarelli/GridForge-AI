@@ -75,6 +75,12 @@ def check_language(rendered_text: str, report: Report) -> None:
             )
 
 
+def claim_label(kind: str) -> str:
+    """How a claim kind is named in a disclosure. 'schedule' is the lead times behind every date, and says so."""
+    text = kind.replace("_", " ")
+    return "schedule (lead times)" if kind == "schedule" else text
+
+
 def claims_below_floor(claims: dict[str, list[Quantity]]) -> dict[str, tuple[EvidenceClass, EvidenceClass]]:
     """Which claim kinds do not meet their evidence floor, and by how much."""
     out: dict[str, tuple[EvidenceClass, EvidenceClass]] = {}

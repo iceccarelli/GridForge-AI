@@ -405,6 +405,7 @@ def handle_diff(body: dict, tier: Tier) -> dict:
         "after": d.after.__dict__,
         "racks_delta": d.racks_delta,
         "weeks_delta": d.weeks_delta,
+        **d.date_basis(),
         "capex_delta_eur": d.capex_delta,
         "binding_moved": d.binding_moved,
         "changed_inputs": d.changed_paths,

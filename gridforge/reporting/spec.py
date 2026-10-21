@@ -15,7 +15,7 @@ from ..clock import report_date_iso
 from ..procurement.schema import (INFORMATIVE, MANDATORY, PREFERRED, SpecPackage)
 from ..envelope.time_to_power import ASSUMED_DATE_LABEL
 from ..validation import EvidenceClass
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 
 OBLIGATION_NOTE = {
@@ -73,8 +73,8 @@ def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
     # to guarantee against, and a client is entitled to know before a purchase
     # order is raised against them.
     below = claims_below_floor(claims or {})
-    named = ", ".join(sorted(k.replace("_", " ") for k in below)) or \
-        "electrical capacity, cooling performance, capex"
+    named = ", ".join(sorted(claim_label(k) for k in below)) or \
+        "electrical capacity, cooling performance, capex, schedule (lead times)"
     s.blocks.append(Callout("warning",
         f"{DISCLOSURE_MARKER} the duties in section 3 are derived from a capacity model "
         f"built partly on library defaults and assumed inputs, not on a measured survey of "

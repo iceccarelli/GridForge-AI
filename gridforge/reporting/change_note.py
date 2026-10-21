@@ -70,11 +70,14 @@ def _was_racks(st: EnvelopeState) -> str:
     return f"was {st.racks_after_ladder}" + (f" ({c.short})" if c is not None else " (evidence class not recorded)")
 
 
-def _was_weeks(st: EnvelopeState) -> str:
+def _was_weeks(st: EnvelopeState, *, caption: bool = True) -> str:
     if st.weeks_to_full is None:
         return "no prior date"
+    c = _cls(st.weeks_class)
+    assumed = c is None or c <= EvidenceClass.E0_ASSUMPTION      # an unrecorded class is never a claim
     return (f"was {st.weeks_to_full:.0f}{_band_text(st.weeks_lo, st.weeks_hi, st.weeks_to_full, '.0f')}"
-            + ("" if st.weeks_lo is not None else " (band not recorded)"))
+            + ("" if st.weeks_lo is not None else " (band not recorded)")
+            + (" (assumed lead time, not a date)" if assumed and caption else ""))
 
 
 def _was_capex(st: EnvelopeState) -> str:
@@ -135,13 +138,16 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             _was_racks(d.before)))
         if d.after.weeks_to_full is not None:
             wl, wh = d.after.weeks_lo, d.after.weeks_hi
-            db = date_basis_of(_known(d.after.weeks_class), d.after.sets_the_date)
+            # the weaker of the two sides: a movement between two figures is no better than the worse of them
+            known = [_known(d.after.weeks_class)] + ([_known(d.before.weeks_class)]
+                                                     if d.before.weeks_to_full is not None else [])
+            db = date_basis_of(min(known), d.after.sets_the_date)
             s.blocks.append(Statement(
                 "Time to full capacity",
                 V(d.after.weeks_to_full, "weeks", "weeks to full capacity, current inputs",
                   _known(d.after.weeks_class),
                   band=(wl, wh) if wl is not None and wh is not None and wh > wl else None),
-                date_basis_text(db, _was_weeks(d.before) + f" · set by {d.after.sets_the_date.lower()}")))
+                date_basis_text(db, _was_weeks(d.before, caption=False) + f" · set by {d.after.sets_the_date.lower()}")))
         elif d.after.racks_after_ladder:
             s.blocks.append(Para(
                 "No date is given for full capacity: a relief on the path has no lead time on record, and "
