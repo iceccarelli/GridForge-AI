@@ -41,12 +41,21 @@ function screen(over: Record<string, unknown> = {}) {
   db.seed("deliverables", [{ token: `t${db.rows("deliverables").length}`, kind: "density_screen", email: BUYER, amount_cents: 450_000, stripe_session_id: "cs_s", status: "released", ...over }]);
   return db.rows("deliverables").at(-1) as any;
 }
-async function step(id: string, body: Record<string, unknown>) {
+async function stepRaw(id: string, body: Record<string, unknown>) {
   const { POST } = await import("@/app/api/admin/deposits/[id]/route");
   const res = await POST(new Request(siteUrl("/x"), { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
   return { res, body: (await res.json()) as any };
 }
-const scoping = (over: Record<string, unknown> = {}) => ({ scope_note: "One hall, grid and thermal, two architectures", agreed_fee_cents: FEE, delivery_due_on: DUE, ...over });
+/** Credits need an operator's confirmation: `__confirm_all` plays the operator who has checked every candidate and confirms it. */
+async function step(id: string, body: Record<string, unknown>) {
+  const { __confirm_all: confirmAll, ...rest } = body;
+  let r = await stepRaw(id, rest);
+  if (confirmAll && r.res.status === 409 && r.body.details?.credits_available) {
+    r = await stepRaw(id, { ...rest, confirm_credit_ids: r.body.details.credits_available.map((c: any) => c.source_deliverable_id) });
+  }
+  return r;
+}
+const scoping = (over: Record<string, unknown> = {}) => ({ scope_note: "One hall, grid and thermal, two architectures", agreed_fee_cents: FEE, delivery_due_on: DUE, __confirm_all: true, ...over });
 
 beforeEach(() => {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
@@ -162,6 +171,58 @@ describe("scoping records the fee, the date and the credit — or refuses", () =
     const d2 = deposit({ email: "%@hall.example" });
     expect((await step(d2.id, scoping())).body.deposit.credit_applied_cents).toBe(0);
     expect(db.rows("engagement_credits")).toHaveLength(0);
+  });
+
+  it.each(["a*@x.com", "a%b@x.com", "a_b@x.com", "A\\b@x.com"])("%s: identity is the exact normalised address, in code — a wildcard character matches nobody else's credit", async (typed) => {
+    // addresses that a LIKE/ILIKE pattern built from `typed` would also match (and that PostgREST's `*` would)
+    for (const other of ["ab@x.com", "aXb@x.com", "a-b@x.com", "a1b@x.com", "ac@x.com"]) screen({ email: other });
+    const mine = screen({ email: typed.toUpperCase() });          // the buyer's own, typed with other capitals
+    const { creditsToward } = await import("@/lib/deliverables");
+    const found = await creditsToward(typed, "envelope_study");
+    expect(found.from.map((f) => f.id)).toEqual([mine.id]);
+    const d = deposit({ email: typed });
+    const r = await step(d.id, scoping());                        // would 409 every time if a foreign credit were auto-selected
+    expect(r.res.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.credits_applied).toEqual([expect.objectContaining({ source_deliverable_id: mine.id })]);
+    expect(db.rows("engagement_credits")).toHaveLength(1);
+  });
+
+  it("credits are applied only when the operator confirms them: an unconfirmed call lists the candidates and records nothing", async () => {
+    const s = screen({ company: "Hall Co" });
+    const d = deposit();
+    const r = await step(d.id, scoping({ __confirm_all: false }));
+    expect(r.res.status).toBe(409);
+    expect(r.body.error).toMatch(/confirm_credit_ids/);
+    expect(r.body.details.credits_available).toEqual([expect.objectContaining({ source_deliverable_id: s.id, amount_cents: 450_000, email: BUYER, company: "Hall Co" })]);
+    expect(JSON.stringify(r.body)).not.toContain(s.token);            // the document token is a credential: never listed
+    expect(db.rows("engagement_deposits")[0].status).toBe("contacted");
+    expect(db.rows("engagement_credits")).toHaveLength(0);
+  });
+
+  it("[] confirms none (the deposit is scoped with no credit and the Screen stays available); a subset applies only that", async () => {
+    const a = screen(), b = screen();
+    const d = deposit();
+    const none = await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [] }));
+    expect(none.res.status).toBe(200);
+    expect(none.body.deposit.credit_applied_cents).toBe(0);
+    const d2 = deposit();
+    const some = await step(d2.id, scoping({ __confirm_all: false, confirm_credit_ids: [a.id] }));
+    expect(some.body.credits_applied).toEqual([expect.objectContaining({ source_deliverable_id: a.id })]);
+    expect(some.body.credits_unapplied).toEqual([expect.objectContaining({ source_deliverable_id: b.id })]);
+  });
+
+  it("refuses to confirm a credit that is not this buyer's, already credited, or not a list — nothing recorded", async () => {
+    const foreign = screen({ email: "someone.else@rival.example" });
+    const mine = screen();
+    const d = deposit();
+    const bad = await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [foreign.id] }));
+    expect(bad.res.status).toBe(422);
+    expect(bad.body.details.not_available).toEqual([foreign.id]);
+    expect((await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: "all" }))).res.status).toBe(422);
+    expect(db.rows("engagement_deposits")[0].status).toBe("contacted");
+    expect((await step(d.id, scoping({ __confirm_all: false, confirm_credit_ids: [mine.id] }))).res.status).toBe(200);
+    const d2 = deposit();
+    expect((await step(d2.id, scoping({ __confirm_all: false, confirm_credit_ids: [mine.id] }))).res.status).toBe(422);   // already credited
   });
 
   it("does not credit an engagement that credits nothing (the Portfolio Screen)", async () => {

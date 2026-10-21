@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
 import { engineFetch } from "@/lib/rate-limit";
-import { ENGINE_CALL_TIMEOUT_MS, claimMeta, isStaleGenerating } from "@/lib/engagement-state";
+import { ENGINE_CALL_TIMEOUT_MS, claimMeta, generatingStampOf, isStaleGenerating } from "@/lib/engagement-state";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -55,6 +55,8 @@ export interface DeliverableRecord {
   title: string | null;
   created_at?: string;
   released_at?: string | null;
+  /** Bumped by every UPDATE (migration 0036); absent where that migration is not applied. */
+  row_version?: number;
 }
 
 export function newToken(): string {
@@ -173,9 +175,17 @@ export async function deliverableBySession(
   }
 }
 
-/** Escape the LIKE metacharacters (backslash is Postgres' default escape character). */
-export function likeEscape(v: string): string {
-  return v.replace(/[\\%_]/g, (ch) => "\\" + ch);
+/** The one normal form of an address for comparing identity: trimmed and lower-cased. */
+export const normalisedEmail = (v: unknown): string => (typeof v === "string" ? v.trim().toLowerCase() : "");
+
+/**
+ * A pattern for NARROWING a fetch by address, never for deciding identity. LIKE/ILIKE wildcards (%, _, and the `*` PostgREST
+ * turns into %) are each replaced by a single-character wildcard, so the database returns a superset (every address that
+ * differs from this one only at those positions, in any case) and the caller keeps only rows whose normalised address is
+ * EXACTLY equal. An escape scheme is not relied on: `a*@x.com` once matched `ab@x.com`, `a_b@x.com` and `a%b@x.com`.
+ */
+export function narrowPattern(v: string): string {
+  return v.replace(/[\\%_*]/g, "_");
 }
 
 /**
@@ -194,7 +204,7 @@ export function likeEscape(v: string): string {
 export async function creditsToward(
   email: string,
   engagement: string
-): Promise<{ ok: boolean; cents: number; from: { id: string; kind: string; token: string; amount_cents: number }[] }> {
+): Promise<{ ok: boolean; cents: number; from: { id: string; kind: string; token: string; amount_cents: number; email: string; company: string | null; created_at: string | null }[] }> {
   const empty = { ok: true, cents: 0, from: [] };
   const e = (email ?? "").trim().toLowerCase();
   if (!e || !engagement) return empty;
@@ -208,11 +218,9 @@ export async function creditsToward(
   if (!c) return empty;
   const kinds = crediting.map((p) => p.kind);
   const res = await fetch(
-    // Case-insensitive on purpose: a buyer who typed the same address with different capitals at two checkouts is one buyer,
-    // and the stored address is whatever Stripe handed us. `ilike` treats % and _ as wildcards, and "_" is common in an
-    // address, so they are escaped: an unescaped one would match a DIFFERENT buyer and give them somebody else's credit.
-    `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(likeEscape(e))}` +
-      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=id,kind,token,amount_cents`,
+    // Narrow by address (superset, case-insensitive), then decide identity in code on the exact normalised address below.
+    `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(narrowPattern(e))}` +
+      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=id,kind,token,amount_cents,email,company,created_at`,
     { headers: c.headers, cache: "no-store" }
   );
   if (!res.ok) {
@@ -221,14 +229,19 @@ export async function creditsToward(
     console.error("[GridForge] credit lookup failed:", await storeFault(res));
     return { ...empty, ok: false };
   }
-  const rows = (await res.json()) as { id: string; kind: string; token: string; amount_cents: number | null }[];
-  const from = rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    token: r.token,
-    // Fall back to the catalogue price when the row did not record one.
-    amount_cents: r.amount_cents ?? PRODUCT_BY_KIND[r.kind]?.amountCents ?? 0,
-  }));
+  const rows = (await res.json()) as { id: string; kind: string; token: string; amount_cents: number | null; email: string | null; company: string | null; created_at: string | null }[];
+  const from = rows
+    .filter((r) => normalisedEmail(r.email) === e)
+    .map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      token: r.token,
+      // Fall back to the catalogue price when the row did not record one.
+      amount_cents: r.amount_cents ?? PRODUCT_BY_KIND[r.kind]?.amountCents ?? 0,
+      email: String(r.email),
+      company: r.company ?? null,
+      created_at: r.created_at ?? null,
+    }));
   return { ok: true, cents: from.reduce((a, r) => a + r.amount_cents, 0), from };
 }
 
@@ -305,14 +318,25 @@ export async function updateByToken(
 export async function updateByTokenIf(
   token: string,
   patch: Partial<DeliverableRecord>,
-  statuses: DeliverableStatus[]
+  statuses: DeliverableStatus[],
+  /**
+   * The generation claim this write belongs to. A string is the stamp the caller holds (the write applies only to THAT
+   * claim, so a stale reader cannot flip a freshly re-claimed live generation); null means "a row with no stamp";
+   * undefined means no condition on the stamp (writes that are not part of a generation).
+   */
+  stamp?: string | null,
+  /** Optimistic version (migration 0036): the write applies only if the row is still at this version. */
+  version?: number
 ): Promise<"claimed" | "lost" | "error"> {
   const c = creds();
   if (!c) return "error";
+  const stampFilter =
+    stamp === undefined ? "" : stamp === null ? "&intake->_gridforge->>generating_since=is.null" : `&intake->_gridforge->>generating_since=eq.${encodeURIComponent(stamp)}`;
+  const versionFilter = version === undefined ? "" : `&row_version=eq.${version}`;
   try {
     const res = await fetch(
       `${c.url}/rest/v1/deliverables?token=eq.${encodeURIComponent(token)}` +
-        `&status=in.(${statuses.join(",")})`,
+        `&status=in.(${statuses.join(",")})${stampFilter}${versionFilter}`,
       {
         method: "PATCH",
         headers: { ...c.headers, Prefer: "return=representation" },
@@ -329,6 +353,32 @@ export async function updateByTokenIf(
     console.error("[GridForge] deliverable conditional update unreachable:", err);
     return "error";
   }
+}
+
+/**
+ * Store one working file on an engagement without overwriting what a concurrent writer stored. A read-modify-write of the
+ * whole `working_files` object loses a concurrent change to ANY file (a regeneration, another comparison), so the write is a
+ * compare-and-set on the row version it read, re-read and retried a few times on a lost race. Without the version column
+ * (migration 0036 not applied) it degrades to the previous single read-modify-write, and says so in the log.
+ */
+export async function putWorkingFile(token: string, name: string, body: string, attempts = 4): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const cur = await getByToken(token);
+    if (!cur) return false;
+    const version = typeof cur.row_version === "number" ? cur.row_version : undefined;
+    if (version === undefined && i === 0) console.error("[GridForge] deliverables.row_version is missing (migration 0036): working file written without a version check");
+    const r = await updateByTokenIf(
+      token,
+      { working_files: { ...(cur.working_files ?? {}), [name]: body } },
+      [...DELIVERABLE_STATUSES],
+      undefined,
+      version
+    );
+    if (r === "claimed") return true;
+    if (r === "error") return false;
+    // "lost": somebody else wrote the row since we read it; read it again and apply our file on top.
+  }
+  return false;
 }
 
 /**
@@ -350,6 +400,9 @@ export async function claimForGeneration(
   );
 }
 
+/** The stamp a claim taken at `now` carries: pass it to generateAndStore as `claim` so every write belongs to THAT claim. */
+export const claimStamp = (now: Date): string => now.toISOString();
+
 /**
  * Move a stale `generating` row to `engine_unavailable`, where every recovery path (customer resubmission, operator
  * regenerate or reopen) already applies. "recovered": it was stale and has been moved. "fresh": its request may still
@@ -361,7 +414,9 @@ export async function recoverStaleGenerating(
 ): Promise<"recovered" | "fresh" | "lost" | "error"> {
   if (row.status !== "generating") return "lost";
   if (!isStaleGenerating(row, now)) return "fresh";
-  const r = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+  // Conditional on the claim the caller READ (or on there being none): a sweep or a resubmission holding a stale read
+  // cannot flip a generation that was re-claimed since.
+  const r = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], generatingStampOf(row));
   return r === "claimed" ? "recovered" : r;
 }
 
@@ -533,6 +588,45 @@ export function packHash(row: Pick<DeliverableRecord, "document_html" | "working
   return documentHash(`${row.document_html ?? ""}\n--board.html--\n${f[BOARD_HTML] ?? ""}\n--board.md--\n${f[BOARD_MD] ?? ""}`);
 }
 
+type Reviewable = Pick<DeliverableRecord, "document_html" | "working_files"> & Partial<Pick<DeliverableRecord, "document_md" | "deck_html" | "intake">>;
+
+/** Working files that are NOT part of what a reviewer approves: written after release by the buyer's own use of the page. */
+const POST_RELEASE_FILES = new Set(["bid_comparison.json"]);
+
+/**
+ * The fingerprint of EVERYTHING the buyer will be given: the document in both formats, the walkthrough deck and every
+ * working file (the board summary, the response schedule, the specification, the CSV tables, the manifest). Each part is
+ * length-prefixed and named, so no two different packs concatenate to the same bytes. The reviewer approves this hash and
+ * release re-checks it, so what was read is what is delivered. Only the bid comparison is left out: it is created after
+ * release, by the buyer.
+ */
+export function packHashV2(row: Reviewable): string {
+  const h = crypto.createHash("sha256");
+  const part = (name: string, body: string | null | undefined) => {
+    const b = Buffer.from(body ?? "", "utf8");
+    h.update(`${name}\0${b.length}\0`, "utf8");
+    h.update(b);
+  };
+  h.update("gridforge-pack-v2\0", "utf8");
+  part("document_html", row.document_html);
+  part("document_md", row.document_md);
+  part("deck_html", row.deck_html);
+  const files = row.working_files ?? {};
+  for (const name of Object.keys(files).filter((n) => !POST_RELEASE_FILES.has(n)).sort()) part(`file:${name}`, files[name]);
+  return h.digest("hex");
+}
+
+/**
+ * The hash a reviewer approves and release re-checks, for this row. A pack generated by this code is stamped
+ * `hash_version: 2` and covers every delivered file. A row generated before that carries the older fingerprint (the
+ * study and the board only) and keeps it until it is regenerated: re-hashing it under the new definition would refuse every
+ * release of a pack that was already reviewed.
+ */
+export function reviewHash(row: Reviewable): string {
+  const v = (row.intake as { _gridforge?: { hash_version?: unknown } } | null | undefined)?._gridforge?.hash_version;
+  return v === 2 ? packHashV2(row) : packHash(row);
+}
+
 export type StoreOutcome =
   | { ok: true; complete: boolean; missing: string[]; title: string }
   | { ok: false; stage: "render" | "persist"; error: string };
@@ -546,7 +640,7 @@ export type StoreOutcome =
  * failure is reported, not swallowed: the row is never left in `generating` while the caller reports success.
  */
 export async function generateAndStore(
-  row: Pick<DeliverableRecord, "token" | "kind" | "working_files">,
+  row: Pick<DeliverableRecord, "token" | "kind" | "working_files"> & { claim?: string },
   doc: Record<string, unknown>,
   endpoint: "screen" | "study" | "spec"
 ): Promise<StoreOutcome> {
@@ -554,7 +648,7 @@ export async function generateAndStore(
   // a release or a second claim that slipped in is never overwritten.
   const rendered = await renderDeliverable(doc, endpoint);
   if (!rendered.ok) {
-    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], row.claim);
     return { ok: false, stage: "render", error: rendered.error };
   }
 
@@ -582,10 +676,10 @@ export async function generateAndStore(
     }
     files[BUNDLE_MANIFEST] = JSON.stringify({ expected: packArtifacts(row.kind), generated: new Date().toISOString() });
   }
-  const candidate = { kind: row.kind, document_html: rendered.html, working_files: files };
+  const candidate = { kind: row.kind, document_html: rendered.html, working_files: files, document_md: rendered.md, deck_html: rendered.deck ?? null };
   if (endpoint === "study" && !rendered.md) {
     // The study is delivered in both formats; an engine answer without the markdown is not a whole study.
-    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], row.claim);
     return { ok: false, stage: "render", error: "The engine returned the study without its markdown form." };
   }
   if (endpoint === "spec") {
@@ -593,7 +687,8 @@ export async function generateAndStore(
   }
   const state = endpoint === "study" || endpoint === "spec" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
   // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
-  meta.document_sha256 = packHash(candidate);
+  meta.hash_version = 2;
+  meta.document_sha256 = packHashV2(candidate);
 
   const saved = await updateByTokenIf(
     row.token,
@@ -606,12 +701,13 @@ export async function generateAndStore(
       deck_html: rendered.deck ?? null,
       working_files: Object.keys(files).length ? files : null,
     },
-    ["generating"]
+    ["generating"],
+    row.claim
   );
   if (saved !== "claimed") {
     console.error("[GridForge] generated documents could not be stored (%s): %s", row.kind, saved);
     // Best effort: leave a state a human can see and act on rather than "generating" forever.
-    const recovered = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+    const recovered = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], row.claim);
     if (recovered !== "claimed") console.error("[GridForge] could not move %s out of generating (%s)", row.kind, recovered);
     return { ok: false, stage: "persist", error: "The generated documents could not be stored." };
   }

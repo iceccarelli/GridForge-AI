@@ -8,7 +8,7 @@
 // from a client component.
 
 import { storeFault } from "@/lib/safe-log";
-import { packHash } from "@/lib/deliverables";
+import { reviewHash } from "@/lib/deliverables";
 import { callerIdentity } from "@/lib/rate-limit";
 import crypto from "node:crypto";
 
@@ -307,7 +307,7 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     // engagements, it does not need to ship two megabytes of HTML to render a row.
     const cols =
       "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
-      "document_html,deck_html,working_files";
+      "document_html,document_md,deck_html,working_files,intake";
     const res = await fetch(
       `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
       { headers: c.headers, cache: "no-store" }
@@ -318,13 +318,17 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     }
     const rows = (await res.json()) as (AdminDeliverable & {
       document_html: string | null;
+      document_md: string | null;
       deck_html: string | null;
       working_files: Record<string, string> | null;
+      intake: Record<string, unknown> | null;
     })[];
-    return rows.map(({ document_html, deck_html, working_files, ...r }) => ({
+    // The reviewer approves the hash shown here (what the buyer will be given: every delivered file), so it is the same
+    // function the release route re-checks (reviewHash), not a second definition.
+    return rows.map(({ document_html, document_md, deck_html, working_files, intake, ...r }) => ({
       ...r,
       has_document: Boolean(document_html),
-      document_hash: document_html ? packHash({ document_html, working_files }) : null,
+      document_hash: document_html ? reviewHash({ document_html, document_md, deck_html, working_files, intake }) : null,
       has_deck: Boolean(deck_html),
       has_working_files: Boolean(working_files),
     }));

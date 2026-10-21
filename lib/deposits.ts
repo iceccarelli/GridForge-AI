@@ -110,10 +110,21 @@ export async function openDeposits(all = false): Promise<Result<{ items: Deposit
   return { ok: true, items: r.data ?? [] };
 }
 
+/** One earlier payment that MAY be credited. The identity is the address typed at that checkout (unverified), so an operator confirms it. */
+export interface CreditCandidate {
+  source_deliverable_id: string;
+  kind: string;
+  amount_cents: number;
+  /** The address as typed at that checkout, the company and the date: what the operator compares with the deposit's buyer. */
+  email: string;
+  company: string | null;
+  paid_on: string | null;
+}
+
 /** The paid Density Screens of this buyer that credit against this deposit's engagement and have not been credited yet. */
 export async function availableCredits(
   dep: Pick<DepositRow, "email" | "kind">
-): Promise<Result<{ credits: { source_deliverable_id: string; kind: string; amount_cents: number }[] }>> {
+): Promise<Result<{ credits: CreditCandidate[] }>> {
   const engagement = dep.kind.replace(/_deposit$/, "");
   const found = await creditsToward(dep.email ?? "", engagement);
   if (!found.ok) return { ok: false, status: 502, error: "The buyer's earlier payments could not be read, so no credit was applied. Nothing was recorded." };
@@ -130,7 +141,7 @@ export async function availableCredits(
   const applied = new Set((ledger.data ?? []).map((r) => r.source_deliverable_id));
   return {
     ok: true,
-    credits: found.from.filter((f) => f.id && !applied.has(f.id)).map((f) => ({ source_deliverable_id: f.id, kind: f.kind, amount_cents: f.amount_cents })),
+    credits: found.from.filter((f) => f.id && !applied.has(f.id)).map((f) => ({ source_deliverable_id: f.id, kind: f.kind, amount_cents: f.amount_cents, email: f.email, company: f.company, paid_on: f.created_at ? f.created_at.slice(0, 10) : null })),
   };
 }
 
@@ -146,6 +157,7 @@ export async function advanceDeposit(
     delivery_due_on?: unknown;
     delivery_ref?: unknown;
     applied_by?: unknown;
+    confirm_credit_ids?: unknown;
   },
   today: string = new Date().toISOString().slice(0, 10)
 ): Promise<Result<{ deposit: DepositRow; balance_due_cents: number | null; credits: { source_deliverable_id: string; amount_cents: number }[]; credits_unapplied?: { source_deliverable_id: string; amount_cents: number }[] }>> {
@@ -195,7 +207,7 @@ function balanceOf(d: DepositRow): number | null {
  */
 async function scope(
   row: DepositRow,
-  input: { scope_note?: unknown; agreed_fee_cents?: unknown; delivery_due_on?: unknown; applied_by?: unknown; owner?: unknown },
+  input: { scope_note?: unknown; agreed_fee_cents?: unknown; delivery_due_on?: unknown; applied_by?: unknown; owner?: unknown; confirm_credit_ids?: unknown },
   today: string
 ): Promise<Result<{ deposit: DepositRow; balance_due_cents: number | null; credits: { source_deliverable_id: string; amount_cents: number }[]; credits_unapplied?: { source_deliverable_id: string; amount_cents: number }[] }>> {
   const note = typeof input.scope_note === "string" ? input.scope_note.trim() : "";
@@ -223,12 +235,35 @@ async function scope(
   }
   const available = await availableCredits(row);
   if (!available.ok) return available;
-  // Apply whole credits while the deposit plus the credits still fit inside the fee. A credit that would take the total past
-  // the fee is NOT applied (and is not consumed: it stays available for the buyer's next engagement), because a credit
-  // reduces what is owed and never creates a refund. Largest first, ties by id, so the choice is the same every time.
-  const credits: { source_deliverable_id: string; kind: string; amount_cents: number }[] = [];
+  // A credit is money not collected, and its identity is only the address typed (unverified) at an earlier checkout. So the
+  // operator confirms WHICH of the buyer's earlier payments to credit: a call that leaves credits unconfirmed is refused with
+  // the candidates listed (nothing recorded), and is repeated with confirm_credit_ids (an empty list applies none).
+  const confirmed = input.confirm_credit_ids;
+  if (available.credits.length > 0 && confirmed === undefined) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        "This buyer has earlier payments that may be credited against this fee. Check each one is the same buyer (the address was typed at checkout and is not verified), " +
+        "then repeat the request with confirm_credit_ids listing the ones to apply ([] applies none). Nothing was recorded.",
+      details: { credits_available: available.credits, needs: "confirm_credit_ids" },
+    } as Result<never>;
+  }
+  if (confirmed !== undefined && (!Array.isArray(confirmed) || !confirmed.every((x) => typeof x === "string"))) {
+    return { ok: false, status: 422, error: "confirm_credit_ids must be a list of credit source ids." };
+  }
+  const chosen = new Set<string>((confirmed as string[] | undefined) ?? []);
+  const known = new Set(available.credits.map((c) => c.source_deliverable_id));
+  const stray = [...chosen].filter((id) => !known.has(id));
+  if (stray.length) {
+    return { ok: false, status: 422, error: "A credit you confirmed is not available for this buyer (already credited, or not theirs). Nothing was recorded.", details: { not_available: stray } } as Result<never>;
+  }
+  // Apply the confirmed credits whole while the deposit plus the credits still fit inside the fee. A credit that would take
+  // the total past the fee is NOT applied (and is not consumed: it stays available), because a credit reduces what is owed and
+  // never creates a refund. Largest first, ties by id, so the choice is the same every time.
+  const credits: CreditCandidate[] = [];
   let creditTotal = 0;
-  for (const c of [...available.credits].sort((a, b) => b.amount_cents - a.amount_cents || (a.source_deliverable_id < b.source_deliverable_id ? -1 : 1))) {
+  for (const c of available.credits.filter((x) => chosen.has(x.source_deliverable_id)).sort((a, b) => b.amount_cents - a.amount_cents || (a.source_deliverable_id < b.source_deliverable_id ? -1 : 1))) {
     if (row.amount_cents + creditTotal + c.amount_cents <= fee) {
       credits.push(c);
       creditTotal += c.amount_cents;

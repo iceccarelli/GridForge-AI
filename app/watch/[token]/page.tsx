@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { EngagementIntake } from "@/components/EngagementIntake";
-import { getWatch, notesFor } from "@/lib/watches";
+import { getWatch, notesFor, weeksLine } from "@/lib/watches";
 import { RATE_POLICIES } from "@/lib/rate-limit";
+import { WatchManage } from "@/components/WatchManage";
+import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Hall Watch",
@@ -81,6 +83,7 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
                   ) : null}
                 </div>
                 <p className="mt-1 text-ghost">{n.headline}</p>
+                {weeksLine(n) ? <p className="mt-1 text-sm text-mute">Time to full capacity: {weeksLine(n)}</p> : null}
                 {n.document_html ? (
                   <a
                     href={`/api/watch/${token}/note/${n.id}`}
@@ -115,6 +118,7 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
           />
         </section>
       ) : null}
+      {w.status !== "cancelled" ? <WatchManage token={token} email={SITE.email} /> : null}
     </main>
   );
 }

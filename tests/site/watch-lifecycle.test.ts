@@ -47,13 +47,15 @@ function installEngine() {
     if (engineMode === "down") return new Response(JSON.stringify({ error: "down" }), { status: 502 });
     return new Response(
       JSON.stringify({ headline: `Racks ${racks}`, material: true, racks_delta: 4, weeks_delta: null,
-        binding_moved: false, after: { racks }, document: "<p>n</p>" }),
+        binding_moved: false, after: { racks }, document: "<p>n</p>", ...diffExtra }),
       { status: 200, headers: { "content-type": "application/json" } }
     );
   }) as typeof fetch;
   return () => { globalThis.fetch = pg; };
 }
 let engineStepMs = 0;
+/** Extra keys on the engine's /v1/diff answer (the date-basis keys of the physics change). */
+let diffExtra: Record<string, unknown> = {};
 
 const INTAKE = {
   siteName: "North Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4,
@@ -97,7 +99,7 @@ beforeEach(() => {
   process.env.GRIDFORGE_API_KEY = "k";
   process.env.CRON_SECRET = "cron-secret-value";
   delete process.env.WATCH_CRON_BUDGET_MS;
-  sent.length = 0; operator.length = 0; engineBodies = []; engineMode = "ok"; mailFailure = null; racks = 40; engineStepMs = 0;
+  sent.length = 0; operator.length = 0; engineBodies = []; engineMode = "ok"; mailFailure = null; racks = 40; engineStepMs = 0; diffExtra = {};
   db = new PostgrestFake(["watches", "watch_notes", "watch_note_notices", "customer_notifications", "leads", "deliverables", "api_accounts", "subscriptions", "deliverables"]);
   db.uniqueKeys.set("watches", [["stripe_subscription_id"]]);
   db.uniqueKeys.set("watch_note_notices", [["watch_note_id"]]);
@@ -341,5 +343,126 @@ describe("the watch page is honest about what it can do", () => {
     expect(html).toMatch(/limited to 20 an hour/);
     expect(html).toMatch(/by up to a week/);
     expect(html).toContain("baseline");
+  });
+});
+
+describe("'Cancel any time' has a path: manage or cancel the subscription", () => {
+  const pageOf = async (token: string) => {
+    const { default: Page } = await import("@/app/watch/[token]/page");
+    return renderToStaticMarkup(await Page({ params: Promise.resolve({ token }) }));
+  };
+
+  it("an active and a paused watch show the control with honest copy; a cancelled one does not", async () => {
+    await started();
+    let html = await pageOf(watch().token);
+    expect(html).toContain("Manage or cancel subscription");
+    expect(html).toContain("Cancelling is handled by Stripe");
+    expect(html).toContain("Nothing is cancelled by opening the portal");
+    expect(html).toContain("scheduled runs stop");
+    await failedPayment();
+    html = await pageOf(watch().token);
+    expect(html).toContain("Manage or cancel subscription");
+    await cancelled();
+    html = await pageOf(watch().token);
+    expect(html).not.toContain("Manage or cancel subscription");
+  });
+
+  it("opens the portal route with this watch's token and follows only a real https URL", async () => {
+    const { requestPortal } = await import("@/components/WatchManage");
+    const calls: { url: string; body: string }[] = [];
+    const ok = (async (u: RequestInfo | URL, init?: RequestInit) => { calls.push({ url: String(u), body: String(init?.body) }); return new Response(JSON.stringify({ ok: true, url: "https://billing.stripe.com/p/session_1" }), { status: 200 }); }) as typeof fetch;
+    expect(await requestPortal("tok123", ok)).toEqual({ url: "https://billing.stripe.com/p/session_1" });
+    expect(calls).toEqual([{ url: "/api/billing/portal", body: JSON.stringify({ token: "tok123" }) }]);
+    const evil = (async () => new Response(JSON.stringify({ url: "javascript:alert(1)" }), { status: 200 })) as typeof fetch;
+    expect(await requestPortal("t", evil)).toEqual({ message: "We could not open the billing portal just now." });
+  });
+
+  it("degrades to 'email us' when the route is not deployed (404), refuses, or cannot be reached — never pretending it cancelled", async () => {
+    const { requestPortal } = await import("@/components/WatchManage");
+    expect(await requestPortal("t", (async () => new Response("{}", { status: 404 })) as typeof fetch))
+      .toEqual({ message: "Self-service cancellation is not available on this deployment yet." });
+    expect(await requestPortal("t", (async () => new Response(JSON.stringify({ error: "This watch is already cancelled." }), { status: 409 })) as typeof fetch))
+      .toEqual({ message: "This watch is already cancelled." });
+    expect(await requestPortal("t", (async () => { throw new Error("offline"); }) as typeof fetch))
+      .toEqual({ message: "We could not reach the billing portal just now." });
+  });
+
+  it("the email fallback names the real contact address", async () => {
+    const { WatchManage } = await import("@/components/WatchManage");
+    const { SITE } = await import("@/lib/site");
+    expect(renderToStaticMarkup(React.createElement(WatchManage, { token: "t", email: SITE.email }))).toContain("Manage or cancel subscription");
+    expect(SITE.email).toBe("power@timetopower.ai");
+  });
+});
+
+describe("a weeks figure always wears what it rests on (lib/date-basis.ts)", () => {
+  const ASSUMED = {
+    headline: "+40 weeks to full capacity (assumed lead time, not a date)", weeks_delta: 40,
+    date_basis: "assumed", date_evidence_class: "E0", date_binding_item: "Transformer capacity",
+    date_label: "assumed lead time, not a date (E0; set by Transformer capacity)",
+  };
+  const pageOf = async (token: string) => {
+    const { default: Page } = await import("@/app/watch/[token]/page");
+    return renderToStaticMarkup(await Page({ params: Promise.resolve({ token }) }));
+  };
+
+  it("stores the date-basis keys with the change, and the email and the page print the labelled figure", async () => {
+    await started();
+    diffExtra = ASSUMED;
+    await runCron();
+    const note = notes().find((n) => n.trigger === "scheduled");
+    expect(note.weeks_delta).toBe(40);
+    expect(note.change).toMatchObject({ date_basis: "assumed", date_evidence_class: "E0", date_binding_item: "Transformer capacity",
+      date_label: "assumed lead time, not a date (E0; set by Transformer capacity)" });
+    const m = sent.find((x) => x.idempotencyKey === `watch-note-${note.id}`)!;
+    expect(m.text).toContain("Time to full capacity: +40 wk (assumed lead time, not a date (E0; set by Transformer capacity))");
+    expect(await pageOf(watch().token)).toContain("Time to full capacity: +40 wk (assumed lead time, not a date (E0; set by Transformer capacity))");
+  });
+
+  it("a retried email carries the same labelled figure", async () => {
+    await started();
+    diffExtra = ASSUMED;
+    mailFailure = { category: "provider_error", status: 503 };
+    await runCron();
+    mailFailure = null;
+    notices()[0].next_attempt_at = new Date(Date.now() - 1000).toISOString();
+    await runSweep();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Time to full capacity: +40 wk (assumed lead time, not a date (E0; set by Transformer capacity))");
+  });
+
+  it("a note built from an older stored diff (no date keys) says 'lead time unverified' and shows NO number of weeks", async () => {
+    await started();
+    const w = watch();
+    db.seed("watch_notes", [{ watch_id: w.id, material: true, headline: "+12 weeks to full capacity", racks_delta: 2, weeks_delta: 12,
+      change: { headline: "+12 weeks to full capacity", weeks_delta: 12 }, trigger: "scheduled", created_at: new Date().toISOString() }]);
+    const html = await pageOf(w.token);
+    expect(html).toContain("Time to full capacity: lead time unverified");
+    expect(html).not.toContain("12 wk");
+    const old = notes().find((n) => n.weeks_delta === 12);
+    db.rows("watch_note_notices").push({ id: "n1", watch_note_id: old.id, watch_id: w.id, status: "pending", attempts: 0, next_attempt_at: new Date(0).toISOString() });
+    await runSweep();
+    const mail = sent.find((x) => x.idempotencyKey === `watch-note-${old.id}`)!;
+    expect(mail.text).toContain("Time to full capacity: lead time unverified");
+    expect(mail.text).not.toContain("12 wk");
+  });
+
+  it("no weeks figure, no weeks line; a supported basis keeps the engine's label; a 'none' basis prints no number", async () => {
+    const { weeksLine } = await import("@/lib/watches");
+    expect(weeksLine({ weeks_delta: null, change: { date_basis: "assumed", date_label: "x" } })).toBeNull();
+    expect(weeksLine({ weeks_delta: -3, change: { date_basis: "supported", date_evidence_class: "E4", date_label: "lead times of class E4 at best" } }))
+      .toBe("-3 wk (lead times of class E4 at best)");
+    expect(weeksLine({ weeks_delta: 5, change: { date_basis: "none", date_label: "no date: nothing is deployable or a lead time on the path is missing" } }))
+      .toBe("no date: nothing is deployable or a lead time on the path is missing");
+    expect(weeksLine({ weeks_delta: 5, change: null })).toBe("lead time unverified");
+  });
+
+  it("the watch API shows the labelled figure too", async () => {
+    await started();
+    diffExtra = ASSUMED;
+    await runCron();
+    const { GET } = await import("@/app/api/watch/[token]/route");
+    const body: any = await (await GET(new Request(siteUrl("/x")), ctx(watch().token))).json();
+    expect(body.notes.find((n: any) => n.trigger === "scheduled").weeks).toBe("+40 wk (assumed lead time, not a date (E0; set by Transformer capacity))");
   });
 });

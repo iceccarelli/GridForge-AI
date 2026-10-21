@@ -80,7 +80,7 @@ describe("release", () => {
   it("releases the reviewed draft, then emails the buyer", async () => {
     seed();
     const { PATCH } = await admin();
-    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC) }));
+    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC), reviewed_by: "A. Rivera" }));
     expect(res.status).toBe(200);
     expect(row().status).toBe("released");
     expect(sent).toHaveLength(1);
@@ -99,7 +99,7 @@ describe("release", () => {
     const reviewed = documentHash(DOC);
     row().document_html = "<p>rewritten after review</p>";
     const { PATCH } = await admin();
-    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: reviewed }));
+    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: reviewed, reviewed_by: "A. Rivera" }));
     expect(res.status).toBe(409);
     expect(row().status).toBe("draft");
     expect(sent).toHaveLength(0);
@@ -108,7 +108,7 @@ describe("release", () => {
   it.each(["generating", "awaiting_intake", "engine_unavailable"])("refuses a '%s' engagement even if it holds a document", async (status) => {
     seed({ status });
     const { PATCH } = await admin();
-    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC) }));
+    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC), reviewed_by: "A. Rivera" }));
     expect(res.status).toBe(409);
     expect(row().status).toBe(status);
     expect(sent).toHaveLength(0);
@@ -118,7 +118,7 @@ describe("release", () => {
     seed();
     db.failMethod = { method: "PATCH", status: 500, body: '{"message":"down"}' };
     const { PATCH } = await admin();
-    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC) }));
+    const res = await PATCH(patch({ token: "doc-token", reviewed_hash: documentHash(DOC), reviewed_by: "A. Rivera" }));
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect((await res.json()).ok).toBe(false);
     expect(row().status).toBe("draft");
@@ -128,7 +128,7 @@ describe("release", () => {
   it("does not email twice on a repeated click", async () => {
     seed();
     const { PATCH } = await admin();
-    const b = { token: "doc-token", reviewed_hash: documentHash(DOC) };
+    const b = { token: "doc-token", reviewed_hash: documentHash(DOC), reviewed_by: "A. Rivera" };
     await PATCH(patch(b));
     const again = await PATCH(patch(b));
     expect((await again.json()).customer_notified).toBe(false);

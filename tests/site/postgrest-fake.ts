@@ -375,6 +375,8 @@ export class PostgrestFake {
       for (const row of matching) {
         const old = { ...row };
         Object.assign(row, body as Row);
+        // migration 0036: every UPDATE bumps the row's version (a trigger in the real database)
+        if (typeof row.row_version === "number") row.row_version += 1;
         this.rowHooks.get(table)?.(row, old);
       }
       return json(wantsRepresentation ? JSON.stringify(matching) : "", 200);
@@ -392,8 +394,20 @@ export class PostgrestFake {
   }
 }
 
+/** `intake->_gridforge->>generating_since`: PostgREST's JSON path in a filter column (the last `->>` yields text). */
+function valueAt(row: Row, column: string): unknown {
+  if (!column.includes("->")) return row[column];
+  const [head, ...path] = column.split(/->>?/);
+  let cur: unknown = row[head];
+  for (const key of path) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
 function match(row: Row, f: Filter): boolean {
-  const actual = row[f.column];
+  const actual = valueAt(row, f.column);
   switch (f.op) {
     case "eq":
       return String(actual ?? "") === f.value;
@@ -406,7 +420,7 @@ function match(row: Row, f: Filter): boolean {
       for (let i = 0; i < f.value.length; i++) {
         const ch = f.value[i];
         if (ch === "\\" && i + 1 < f.value.length) re += lit(f.value[++i]);
-        else if (ch === "%") re += ".*";
+        else if (ch === "%" || ch === "*") re += ".*";            // PostgREST turns `*` in a like/ilike value into `%`
         else if (ch === "_") re += ".";
         else re += lit(ch);
       }
