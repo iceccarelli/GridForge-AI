@@ -4,7 +4,7 @@ retained_air,capex: relief works along the ladder,0.0,0.0,0.0,EUR,E1_MODEL,capex
 retained_air,capex: total,0.0,0.0,0.0,EUR,E0_ASSUMPTION,total capex,f7495c34f50b
 retained_air,annual: grid energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual grid energy cost,d62a201b98e1
 retained_air,annual: total energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual energy cost,7fbf738609fa
-retained_air,capex complete,True,,,,,,
+retained_air,capex complete,False,,,,,,
 retained_air,operating cost complete,True,,,,,,
 retained_air,decision grade,False,,,,,,
 rdhx,capex: in-hall conversion,0.0,0.0,0.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6
@@ -12,7 +12,7 @@ rdhx,capex: relief works along the ladder,0.0,0.0,0.0,EUR,E1_MODEL,capex of reli
 rdhx,capex: total,0.0,0.0,0.0,EUR,E0_ASSUMPTION,total capex,f7495c34f50b
 rdhx,annual: grid energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual grid energy cost,0cc9ec61028c
 rdhx,annual: total energy cost,0.0,0.0,0.0,EUR,E0_ASSUMPTION,annual energy cost,bc93400e02b4
-rdhx,capex complete,True,,,,,,
+rdhx,capex complete,False,,,,,,
 rdhx,operating cost complete,True,,,,,,
 rdhx,decision grade,False,,,,,,
 hybrid_dlc,capex: in-hall conversion,1430000.0,715000.0,2860000.0,EUR,E0_ASSUMPTION,in-hall conversion capex,31aac42971b6

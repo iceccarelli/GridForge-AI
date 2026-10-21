@@ -51,8 +51,10 @@ def economics_dict(res: ScenarioResult) -> dict:
     e = res.economics
     btm = e.btm
     return {
-        "capex_total_eur": _q(e.capex_total_eur),
-        "capex_per_kW_it": _q(e.capex_eur_per_kW_it),
+        # A hall that can carry nothing has no capex to quote: null with the reason, never 0 EUR.
+        "capex_total_eur": None if e.nothing_deployable else _q(e.capex_total_eur),
+        "capex_na_reason": "n/a: nothing deployable" if e.nothing_deployable else None,
+        "capex_per_kW_it": None if e.nothing_deployable else _q(e.capex_eur_per_kW_it),
         "capex_components": {
             "relief_works_eur": _q(e.capex_relief_eur),
             "in_hall_conversion_eur": _q(e.capex_conversion_eur),

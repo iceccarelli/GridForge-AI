@@ -370,7 +370,13 @@ function ChangeCap({
         <div className="mt-4" aria-live="polite">
           <p className="mb-3 text-sm text-verified">Cap changed. This is your new key.</p>
           <OneTimeKey secret={minted.key} expires={minted.expires}>
-            {minted.revocationPending ? (
+            {minted.newKeyUnverified ? (
+              <p className="mt-3 text-sm text-queue">
+                {minted.rotationNote ??
+                  "We could not confirm with the engine that this new key works yet, so your previous key has not been revoked and stays valid for now. Try the new key; the previous one is revoked automatically once the engine confirms."}
+              </p>
+            ) : null}
+            {minted.revocationPending && !minted.newKeyUnverified ? (
               <p className="mt-3 text-sm text-queue">
                 {minted.revocationNote ??
                   "We could not confirm the engine has revoked the previous key yet. Treat it as still working until it is."}

@@ -440,6 +440,9 @@ export interface MintedKey {
   expires: string | null;
   revocationPending: boolean;
   revocationNote: string | null;
+  /** The engine could not be shown to verify this new key, so the previous key was NOT revoked yet (it stays valid until it can be). */
+  newKeyUnverified: boolean;
+  rotationNote: string | null;
 }
 
 /** POST /api/payg/cap. The cap lives in the signed key, so a change mints a new key, shown once. */
@@ -460,6 +463,8 @@ export function changeCap(
         expires: str(j.expires),
         revocationPending: j.revocation_pending === true,
         revocationNote: str(j.revocation_note),
+        newKeyUnverified: j.new_key_unverified === true,
+        rotationNote: str(j.rotation_note),
       };
     }
   );

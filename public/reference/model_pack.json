@@ -299,26 +299,9 @@
         "curve": []
       },
       "economics": {
-        "capex_total_eur": {
-          "value": 0.0,
-          "low": 0.0,
-          "high": 0.0,
-          "unit": "EUR",
-          "evidence": "E0_ASSUMPTION",
-          "label": "total capex",
-          "model": "economics.total_capex@0.1",
-          "digest": "f7495c34f50b"
-        },
-        "capex_per_kW_it": {
-          "value": 0,
-          "low": 0,
-          "high": 0,
-          "unit": "EUR/kW",
-          "evidence": "E1_MODEL",
-          "label": "capex per kW (no deployable load)",
-          "model": "input@0.1",
-          "digest": "fa43210b5cde"
-        },
+        "capex_total_eur": null,
+        "capex_na_reason": "n/a: nothing deployable",
+        "capex_per_kW_it": null,
         "capex_components": {
           "relief_works_eur": {
             "value": 0.0,
@@ -343,7 +326,7 @@
           "initial_cdu_kit_eur": null,
           "initial_cdu_kit_scope": null
         },
-        "capex_complete": true,
+        "capex_complete": false,
         "unpriced_components": [],
         "cost_basis_mix": {
           "library_default": {
@@ -403,9 +386,12 @@
         "date_evidence_class": null,
         "date_binding_item": null,
         "date_label": "no date: nothing is deployable or a lead time on the path is missing",
-        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "basis": "n/a: nothing deployable (no capex to classify)",
         "decision_grade": false,
         "limitations": [
+          "nothing is deployable, so there is no capex to state: capex is n/a (nothing deployable), not zero",
+          "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+          "the capex total inherits class E0 from its inputs, below E3",
           "1 of 1 priced lines are library placeholders, not prices",
           "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
           "no lifecycle horizon was declared, so no lifecycle value is computed"
@@ -839,26 +825,9 @@
         "curve": []
       },
       "economics": {
-        "capex_total_eur": {
-          "value": 0.0,
-          "low": 0.0,
-          "high": 0.0,
-          "unit": "EUR",
-          "evidence": "E0_ASSUMPTION",
-          "label": "total capex",
-          "model": "economics.total_capex@0.1",
-          "digest": "f7495c34f50b"
-        },
-        "capex_per_kW_it": {
-          "value": 0,
-          "low": 0,
-          "high": 0,
-          "unit": "EUR/kW",
-          "evidence": "E1_MODEL",
-          "label": "capex per kW (no deployable load)",
-          "model": "input@0.1",
-          "digest": "fa43210b5cde"
-        },
+        "capex_total_eur": null,
+        "capex_na_reason": "n/a: nothing deployable",
+        "capex_per_kW_it": null,
         "capex_components": {
           "relief_works_eur": {
             "value": 0.0,
@@ -883,7 +852,7 @@
           "initial_cdu_kit_eur": null,
           "initial_cdu_kit_scope": null
         },
-        "capex_complete": true,
+        "capex_complete": false,
         "unpriced_components": [],
         "cost_basis_mix": {
           "library_default": {
@@ -943,9 +912,12 @@
         "date_evidence_class": null,
         "date_binding_item": null,
         "date_label": "no date: nothing is deployable or a lead time on the path is missing",
-        "basis": "Class 5 (order of magnitude): -50% / +100%",
+        "basis": "n/a: nothing deployable (no capex to classify)",
         "decision_grade": false,
         "limitations": [
+          "nothing is deployable, so there is no capex to state: capex is n/a (nothing deployable), not zero",
+          "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+          "the capex total inherits class E0 from its inputs, below E3",
           "1 of 1 priced lines are library placeholders, not prices",
           "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
           "no lifecycle horizon was declared, so no lifecycle value is computed"
@@ -1765,6 +1737,7 @@
           "model": "economics.total_capex@0.1",
           "digest": "2942aa2c020c"
         },
+        "capex_na_reason": null,
         "capex_per_kW_it": {
           "value": 1890.0,
           "low": 897.3456121343445,
@@ -1920,6 +1893,8 @@
         "decision_grade": false,
         "limitations": [
           "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+          "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+          "the capex total inherits class E0 from its inputs, below E3",
           "8 of 8 priced lines are library placeholders, not prices",
           "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff"
         ]
@@ -2751,6 +2726,7 @@
           "model": "economics.total_capex@0.1",
           "digest": "c9c2f31d3126"
         },
+        "capex_na_reason": null,
         "capex_per_kW_it": {
           "value": 1640.0,
           "low": 781.6901408450705,
@@ -2906,6 +2882,8 @@
         "decision_grade": false,
         "limitations": [
           "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+          "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+          "the capex total inherits class E0 from its inputs, below E3",
           "8 of 8 priced lines are library placeholders, not prices",
           "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff"
         ]
@@ -4287,6 +4265,7 @@
           "model": "economics.total_capex@0.1",
           "digest": "9eed5fbc0658"
         },
+        "capex_na_reason": null,
         "capex_per_kW_it": {
           "value": 2250.0,
           "low": 1070.0817810086323,
@@ -4522,6 +4501,8 @@
         "decision_grade": false,
         "limitations": [
           "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places)",
+          "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+          "the capex total inherits class E0 from its inputs, below E3",
           "8 of 8 priced lines are library placeholders, not prices",
           "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
           "installed behind-the-meter generation has no usable operating cost: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The energy cost prices all energy at the grid tariff"

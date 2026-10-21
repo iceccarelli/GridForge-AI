@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 interface BillingPortalHealth {
+  warnings?: string[];
   configured: boolean;
   reachable: boolean;
   ok: boolean;
@@ -107,6 +108,9 @@ export function StripeHealthPanel() {
           )}
           {(health.missingRecommended?.length ?? 0) > 0 && (
             <p className="text-faint">Not subscribed (refund and dispute counts only; nothing depends on them): {health.missingRecommended!.join(", ")}</p>
+          )}
+          {portal && (portal.warnings?.length ?? 0) > 0 && (
+            <p className="text-queue">Billing Portal warnings: {portal.warnings!.join(" ")}</p>
           )}
           {portal && (
             <div className="flex items-start gap-2 pt-1">
