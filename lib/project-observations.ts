@@ -11,6 +11,7 @@
 // or above is what the existing `gridforge calibrate add` would accept; that final step stays a
 // person's, so the ledger's observation count is untouched by anything in this file.
 
+import { createHash } from "node:crypto";
 import { deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
 import {
   creds,
@@ -31,6 +32,8 @@ export const OBSERVATION_METRICS = {
     unit: "MW",
     label: "Firm MW the delivered architecture actually holds under its contingency case",
     // Where the prediction lives in the stored result, as the record states it.
+    /** A physical sanity bound on what may be reported, in this unit: above it the number is a typo, not a plant. */
+    max: 10_000,
     read: (arch: Record<string, unknown>): number | null =>
       typeof arch.available_MW === "number" && Number.isFinite(arch.available_MW) ? arch.available_MW : null,
     source: (label: string) => `result.architectures["${label}"].available_MW`,
@@ -40,8 +43,16 @@ export const OBSERVATION_METRICS = {
 export type ObservationKey = keyof typeof OBSERVATION_METRICS;
 
 export const EVIDENCE_CLASSES = ["E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7"] as const;
-/** The lowest class `gridforge calibrate add` accepts: site data, never another run of the model. */
-export const LEDGER_MINIMUM_CLASS = "E5";
+/**
+ * The ONE class a reviewer may assign to a measured observation. E6 and E7 are outputs of computation (a model
+ * reconciled against the ledger, a deployed system), not of a person's review; anything weaker than E5 is a
+ * rejection, not a verification. The database refuses everything else.
+ */
+export const REVIEW_CLASS = "E5";
+/** How a measurement was made. A quote, an assumed value and a simulation have no kind: they are not measurements. */
+export const MEASUREMENT_KINDS = ["metered", "bms_trend", "commissioning_record"] as const;
+export type MeasurementKind = (typeof MEASUREMENT_KINDS)[number];
+export const EXPORT_SCHEMA = "gridforge/calibration-export/1";
 
 export interface ObservationRow {
   id: string;
@@ -65,6 +76,14 @@ export interface ObservationRow {
   submitted_at: string;
   delta_value: number;
   delta_pct: number;
+  /** Null on rows written before migration 0038; such a row is never ledger-eligible. */
+  measurement_kind: MeasurementKind | null;
+  /** Site-only reference derived by the database from the project's site label. */
+  site_ref: string | null;
+  /** The engine build that produced the prediction, from the case revision; null when none was stored. */
+  engine_provenance_digest: string | null;
+  report_date: string | null;
+  submitted_by_ref: string | null;
 }
 
 export interface ReviewRow {
@@ -76,6 +95,8 @@ export interface ReviewRow {
   reviewer: string;
   reason: string | null;
   reviewed_at: string;
+  /** The evidence artifact's digest at the moment the reviewer vouched for it (null for reviews before 0038). */
+  evidence_sha256: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -98,8 +119,18 @@ export async function submitObservation(
     return { ok: false, status: 422, error: "case_token and architecture identify the prediction." };
   }
   const observed = input.observed_value;
-  if (typeof observed !== "number" || !Number.isFinite(observed) || observed < 0) {
-    return { ok: false, status: 422, error: "observed_value must be a non-negative number you measured." };
+  if (typeof observed !== "number" || !Number.isFinite(observed) || observed <= 0 || observed > metric.max) {
+    return { ok: false, status: 422, error: `observed_value must be a positive number of ${metric.unit} you measured (at most ${metric.max}).` };
+  }
+  // What kind of measurement it is. A vendor quote, an assumed value or a simulation is not a measurement and
+  // has no kind, so it cannot be entered here at all.
+  const measurement_kind = typeof input.measurement_kind === "string" ? input.measurement_kind : "";
+  if (!(MEASUREMENT_KINDS as readonly string[]).includes(measurement_kind)) {
+    return {
+      ok: false,
+      status: 422,
+      error: `measurement_kind is required: ${MEASUREMENT_KINDS.join(", ")}. A vendor quote, an assumed value or a simulation is not a measurement.`,
+    };
   }
   const observed_on = typeof input.observed_on === "string" ? input.observed_on : "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(observed_on) || Number.isNaN(Date.parse(observed_on))) {
@@ -184,6 +215,10 @@ export async function submitObservation(
       installed_basis,
       note,
       submitted_by,
+      measurement_kind,
+      // Who submitted, as far as the site can know it: the project token's hash. Stored so a review by the same
+      // party can be refused; the site_ref and the prediction's engine digest are read by the database, not sent.
+      submitted_by_ref: createHash("sha256").update(project.project_token).digest("hex"),
     },
     p_event: ev("observation_submitted", submitted_by, {}),
   });
@@ -192,7 +227,7 @@ export async function submitObservation(
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
     }
     if (added.ok === false && (added.code === "23502" || added.code === "23514")) {
-      return { ok: false, status: 422, error: "The observation was refused: it needs its evidence artifact and the installed-architecture attestation." };
+      return { ok: false, status: 422, error: "The observation was refused: it needs its evidence artifact, the installed-architecture attestation and a measurement kind, and its values must be physical." };
     }
     if (added.ok === false && added.code === "23503") {
       return { ok: false, status: 403, error: "That evidence does not belong to this project." };
@@ -217,6 +252,8 @@ export async function reviewObservation(input: {
   if (decision !== "verified" && decision !== "rejected") {
     return { ok: false, status: 422, error: "decision must be 'verified' or 'rejected'." };
   }
+  // Self-asserted: the admin console has one shared password, so this is the name the reviewer typed, not an
+  // authenticated identity. It is stored and shown as such.
   const reviewer = typeof input.reviewer === "string" ? input.reviewer.trim() : "";
   if (!reviewer || reviewer.length > 120) {
     return { ok: false, status: 422, error: "reviewer is required: the person taking this decision." };
@@ -226,6 +263,13 @@ export async function reviewObservation(input: {
     // Never inferred and never defaulted: the reviewer states the class.
     if (typeof input.evidence_class !== "string" || !(EVIDENCE_CLASSES as readonly string[]).includes(input.evidence_class)) {
       return { ok: false, status: 422, error: `A verified observation needs an evidence_class (${EVIDENCE_CLASSES.join(", ")}).` };
+    }
+    if (input.evidence_class !== REVIEW_CLASS) {
+      return {
+        ok: false,
+        status: 422,
+        error: `A reviewer may assign only ${REVIEW_CLASS} to a measured observation (E6 and E7 are computation outputs; weaker data is a rejection).`,
+      };
     }
     evidence_class = input.evidence_class;
   } else if (input.evidence_class != null && input.evidence_class !== "") {
@@ -241,6 +285,15 @@ export async function reviewObservation(input: {
     if (done.ok === false && done.code === "23503") return { ok: false, status: 404, error: "Not found." };
     if (done.ok === false && done.code === "23505") {
       return { ok: false, status: 409, error: "This observation has already been reviewed." };
+    }
+    if (done.ok === false && done.code === "GF001") {
+      return { ok: false, status: 403, error: "A submission cannot be reviewed by the person who submitted it." };
+    }
+    if (done.ok === false && done.code === "GF002") {
+      return { ok: false, status: 409, error: "The supporting evidence artifact is not verified, so this observation cannot be verified. Reject it, or verify the artifact first." };
+    }
+    if (done.ok === false && done.code === "GF003") {
+      return { ok: false, status: 422, error: `A reviewer may assign only ${REVIEW_CLASS} to a measured observation.` };
     }
     return { ok: false, status: 502, error: "The review could not be saved. Nothing was recorded." };
   }
@@ -260,5 +313,93 @@ export async function observationQueue(
   const byObs = new Map((r.data ?? []).map((x) => [x.observation_id, x]));
   const items = (o.data ?? []).map((observation) => ({ observation, review: byObs.get(observation.id) ?? null }));
   return { ok: true, items: state === "pending" ? items.filter((i) => !i.review) : items };
+}
+
+/**
+ * Whether a reviewed observation clears every gate the ledger applies. A person still imports it.
+ * Mirrors the `calibration_ledger_rows` view (migration 0038): verified, E5 only, a measurement kind, a site, the
+ * engine digest of the prediction, an evidence artifact that is verified now and is the one the reviewer saw, and a
+ * reviewer who is not the submitter.
+ */
+export function ledgerBlockers(
+  o: Pick<ObservationRow, "measurement_kind" | "site_ref" | "engine_provenance_digest" | "submitted_by">,
+  r: Pick<ReviewRow, "decision" | "evidence_class" | "reviewer" | "evidence_sha256"> | null | undefined,
+  evidence: { review_status: string; sha256: string } | null | undefined
+): string[] {
+  if (!r) return ["not reviewed yet"];
+  if (r.decision !== "verified") return ["rejected by the reviewer"];
+  const why: string[] = [];
+  if (r.evidence_class !== REVIEW_CLASS) why.push(`evidence class is not ${REVIEW_CLASS}`);
+  if (o.measurement_kind === null || !(MEASUREMENT_KINDS as readonly string[]).includes(o.measurement_kind)) {
+    why.push("no measurement kind was recorded");
+  }
+  if (!o.site_ref) why.push("the project has no site label, so there is no site reference");
+  if (!o.engine_provenance_digest) why.push("the prediction's engine build was not recorded");
+  if (!r.evidence_sha256) why.push("the review did not record the evidence digest");
+  if (!evidence || evidence.review_status !== "verified") why.push("the evidence artifact is not verified");
+  else if (r.evidence_sha256 && evidence.sha256 !== r.evidence_sha256) why.push("the evidence artifact changed after review");
+  if (r.reviewer.trim().toLowerCase() === o.submitted_by.trim().toLowerCase()) why.push("reviewer is the submitter");
+  return why;
+}
+
+export function ledgerEligible(
+  o: Parameters<typeof ledgerBlockers>[0],
+  r: Parameters<typeof ledgerBlockers>[1],
+  evidence: Parameters<typeof ledgerBlockers>[2]
+): boolean {
+  return ledgerBlockers(o, r, evidence).length === 0;
+}
+
+export interface CalibrationExportRow {
+  id: string;
+  key: string;
+  observed_value: number;
+  predicted_value: number;
+  unit: string;
+  site_ref: string;
+  measurement_kind: MeasurementKind;
+  evidence_sha256: string;
+  engine_provenance_digest: string;
+  report_date: string | null;
+  observed_on: string;
+  method: string;
+  evidence_class: string;
+  reviewed_by: string;
+  reviewed_at: string;
+}
+
+/**
+ * The rows `gridforge calibrate import` may take, and only those. Read through a database view that encodes the gates
+ * (see `ledgerEligible`); this adds a finiteness check and nothing else. With none verified the list is empty and the
+ * ledger stays empty. Nothing here imports anything: a person runs the CLI on the saved file.
+ */
+export async function calibrationExport(): Promise<
+  Result<{ schema: typeof EXPORT_SCHEMA; count: number; rows: CalibrationExportRow[]; reviewer_identity: string }>
+> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  const r = await rest<Record<string, unknown>[]>("GET", "calibration_ledger_rows?select=*&order=reviewed_at.asc");
+  if (!r.ok) return { ok: false, status: 502, error: "The calibration export could not be read. Nothing was exported." };
+  const rows: CalibrationExportRow[] = [];
+  for (const x of r.data ?? []) {
+    const observed = Number(x.observed_value);
+    const predicted = Number(x.predicted_value);
+    // A row that cannot be stated as finite numbers is dropped, never repaired.
+    if (!Number.isFinite(observed) || !Number.isFinite(predicted)) continue;
+    rows.push({
+      id: String(x.id), key: String(x.key), observed_value: observed, predicted_value: predicted, unit: String(x.unit),
+      site_ref: String(x.site_ref), measurement_kind: x.measurement_kind as MeasurementKind,
+      evidence_sha256: String(x.evidence_sha256), engine_provenance_digest: String(x.engine_provenance_digest),
+      report_date: x.report_date === null || x.report_date === undefined ? null : String(x.report_date),
+      observed_on: String(x.observed_on), method: String(x.method), evidence_class: String(x.evidence_class),
+      reviewed_by: String(x.reviewed_by), reviewed_at: String(x.reviewed_at),
+    });
+  }
+  return {
+    ok: true,
+    schema: EXPORT_SCHEMA,
+    count: rows.length,
+    rows,
+    reviewer_identity: "self-asserted: one shared admin password exists; reviewed_by is the name the reviewer typed",
+  };
 }
 

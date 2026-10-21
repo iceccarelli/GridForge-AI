@@ -28,6 +28,12 @@ export interface PowerDeploymentCaseRow {
   request: Record<string, unknown>;
   result: Record<string, unknown>;
   changed_fields: string[];
+  /**
+   * The engine's /v1/version provenance (digest, report_date, ...) read around the assessment that produced `result`;
+   * null for revisions written before migration 0038 or when the engine did not report one. Never inferred. A
+   * calibration observation takes its engine digest from here.
+   */
+  engine_provenance?: Record<string, unknown> | null;
   /** Set only when the revision was written together with project history events. */
   project_events?: number;
 }
@@ -45,10 +51,61 @@ export function newCaseToken(): string {
  */
 export async function runDeploymentAssessment(
   request: Record<string, unknown>
-): Promise<{ ok: true; result: Record<string, unknown> } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; result: Record<string, unknown>; provenance: Record<string, unknown> | null }
+  | { ok: false; error: string }
+> {
+  // The engine build is read before AND after the assessment and kept only when both reads agree, so a redeploy in
+  // between cannot attach the wrong build's identity to this answer. If the engine will not say what it is, the
+  // revision is stored without one (and its observations are not ledger-eligible); nothing is invented.
+  const before = await engineProvenance();
   const out = await callEngine("/v1/power/deploy/assess", request);
   if (!out.ok) return { ok: false, error: out.error };
-  return { ok: true, result: out.body };
+  const after = before ? await engineProvenance() : null;
+  const provenance = before && after && before.digest === after.digest ? before : null;
+  return { ok: true, result: out.body, provenance };
+}
+
+/** The engine's own provenance record (GET /v1/version), or null when it cannot be read or is malformed. */
+async function engineProvenance(): Promise<Record<string, unknown> | null> {
+  const base = process.env.GRIDFORGE_API_URL;
+  const key = process.env.GRIDFORGE_API_KEY;
+  if (!base || !key) return null;
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/version`, {
+      headers: { "X-API-Key": key },
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const p = ((await res.json().catch(() => null)) as { provenance?: Record<string, unknown> } | null)?.provenance;
+    if (!p || typeof p.digest !== "string" || !/^[0-9a-f]{64}$/.test(p.digest)) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+/** Insert a revision row directly. If the store predates migration 0038 (no engine_provenance column) retry once
+ * without it, so a deployment that has not applied the migration yet keeps saving cases. */
+async function insertRevisionRow(
+  c: { url: string; headers: Record<string, string> },
+  record: Record<string, unknown>
+): Promise<Response> {
+  const post = (body: Record<string, unknown>) =>
+    fetch(`${c.url}/rest/v1/power_deployment_cases`, {
+      method: "POST",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  const res = await post(record);
+  if (res.ok || !("engine_provenance" in record)) return res;
+  const text = await res.clone().text().catch(() => "");
+  if (!text.includes("engine_provenance")) return res;
+  const { engine_provenance: _drop, ...rest } = record;
+  void _drop;
+  return post(rest);
 }
 
 /**
@@ -161,6 +218,7 @@ export async function createDeploymentCase(row: {
   email?: string | null;
   company?: string | null;
   project_name?: string | null;
+  engine_provenance?: Record<string, unknown> | null;
 }): Promise<PowerDeploymentCaseRow | null> {
   const case_token = newCaseToken();
   const record = {
@@ -172,6 +230,7 @@ export async function createDeploymentCase(row: {
     request: row.request,
     result: row.result,
     changed_fields: [] as string[],
+    ...(row.engine_provenance ? { engine_provenance: row.engine_provenance } : {}),
   };
   const c = creds();
   if (!c) {
@@ -185,12 +244,7 @@ export async function createDeploymentCase(row: {
     return row;
   }
   try {
-    const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
-      method: "POST",
-      headers: { ...c.headers, Prefer: "return=representation" },
-      body: JSON.stringify(record),
-      cache: "no-store",
-    });
+    const res = await insertRevisionRow(c, record);
     if (!res.ok) {
       console.error("[GridForge] power deployment case insert failed:", await storeFault(res));
       return null;
@@ -269,7 +323,8 @@ export async function deploymentCaseHistory(
 export async function appendDeploymentRevision(
   case_token: string,
   request: Record<string, unknown>,
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
+  engine_provenance?: Record<string, unknown> | null
 ): Promise<PowerDeploymentCaseRow | null> {
   const previous = await latestDeploymentCase(case_token);
   if (!previous) return null;
@@ -282,6 +337,7 @@ export async function appendDeploymentRevision(
     request,
     result,
     changed_fields: changedFields(previous.request, request),
+    ...(engine_provenance ? { engine_provenance } : {}),
   };
   const c = creds();
   if (!c) {
@@ -322,12 +378,7 @@ export async function appendDeploymentRevision(
       const out = (await res.json()) as { row: PowerDeploymentCaseRow; events: number };
       return { ...out.row, project_events: out.events };
     }
-    const res = await fetch(`${c.url}/rest/v1/power_deployment_cases`, {
-      method: "POST",
-      headers: { ...c.headers, Prefer: "return=representation" },
-      body: JSON.stringify(record),
-      cache: "no-store",
-    });
+    const res = await insertRevisionRow(c, record);
     if (!res.ok) {
       console.error("[GridForge] power deployment revision insert failed:", await storeFault(res));
       return null;

@@ -143,6 +143,7 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
   const [evidence, setEvidence] = useState("");
   const [attested, setAttested] = useState(false);
   const [basis, setBasis] = useState("");
+  const [kind, setKind] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sel = options[pick];
@@ -164,6 +165,7 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           observed_value: Number(observed),
           observed_on: on,
           method,
+          measurement_kind: kind,
           submitted_by: by,
           evidence_id: evidence || undefined,
           attests_installed_architecture: attested,
@@ -198,12 +200,15 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <Row k="Review" v={STATE_LABEL[o.state]} />
           <Row k="Evidence class" v={o.evidence_class ?? "Not assigned"} />
           <Row k="Installed (attested by)" v={`${o.submitted_by} — ${o.installed_basis}`} />
-          {o.state === "verified" && <Row k="Ledger" v={o.ledger_eligible ? "Eligible — a person adds it" : "Below the ledger's minimum (E5)"} />}
+          <Row k="Measured by" v={o.measurement_kind ?? "Not recorded"} />
+          {o.state !== "submitted" && (
+            <Row k="Ledger" v={o.ledger_eligible ? "Eligible — a person imports it" : `Not eligible — ${o.ledger_blockers.join("; ")}`} />
+          )}
         </div>
       ))}
       <p className="text-faint">
-        Not part of the accuracy record until it is reviewed at E5 or above and a person adds it to the
-        calibration ledger.
+        Not part of the accuracy record until a reviewer other than the submitter verifies it as E5 against a verified
+        evidence artifact and a person imports it into the calibration ledger.
       </p>
       {options.length === 0 ? (
         <p className="text-faint">Unknown — no attached architecture holds a positive predicted firm MW to compare with.</p>
@@ -223,6 +228,13 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <input value={observed} onChange={(e) => setObserved(e.target.value)} placeholder="measured firm MW" inputMode="decimal" className={input} />
           <input type="date" value={on} onChange={(e) => setOn(e.target.value)} className={input} />
           <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how it was measured" className={input} />
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className={input} required>
+            <option value="">Kind of measurement (required)</option>
+            <option value="metered">Metered</option>
+            <option value="bms_trend">BMS trend</option>
+            <option value="commissioning_record">Commissioning record</option>
+          </select>
+          <p className="text-faint">A vendor quote, an assumed value or a simulation is not a measurement.</p>
           <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
             <option value="">Source artifact (required)</option>
             {state.evidence.items.map((it) => (
@@ -238,7 +250,7 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <input value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="how you know it is installed (e.g. commissioning record)" className={input} />
           <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
           <button
-            disabled={busy || !observed || !on || !method.trim() || !by.trim() || !evidence || !attested || !basis.trim()}
+            disabled={busy || !observed || !on || !method.trim() || !by.trim() || !evidence || !attested || !basis.trim() || !kind}
             className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50"
           >
             {busy ? "Saving" : "Record observation"}
@@ -449,11 +461,11 @@ function SupplierReality({ state, projectToken, onSaved }: { state: ProjectState
           {state.supplier_reality.map((r) => (
             <div key={r.id} className={`space-y-0.5 border-b border-line pb-2 ${r.superseded ? "opacity-60" : ""}`}>
               <Row k="Supplier" v={`${r.supplier}${r.superseded ? " (corrected by a later record)" : ""}`} />
-              <Row k="Lead time" v={`quoted ${wk(r.lead_time.quoted_weeks)} · actual ${wk(r.lead_time.actual_weeks)}`} />
+              <Row k="Lead time" v={`quoted ${wk(r.lead_time.quoted_weeks)} · actual ${wk(r.lead_time.actual_weeks)} (${STATE_LABEL[r.lead_time.review_state]})`} />
               <p className="text-faint">{r.lead_time.basis}</p>
-              <Row k="Installation" v={`quoted ${wk(r.install.quoted_weeks)} · actual ${wk(r.install.actual_weeks)}`} />
+              <Row k="Installation" v={`quoted ${wk(r.install.quoted_weeks)} · actual ${wk(r.install.actual_weeks)} (${STATE_LABEL[r.install.review_state]})`} />
               <p className="text-faint">{r.install.basis}</p>
-              <Row k="Price vs quote" v={r.price.delta_eur === null ? UNKNOWN : `${r.price.delta_eur > 0 ? "+" : ""}${r.price.delta_eur.toLocaleString("en")} EUR`} />
+              <Row k="Price vs quote" v={`${r.price.delta_eur === null ? UNKNOWN : `${r.price.delta_eur > 0 ? "+" : ""}${r.price.delta_eur.toLocaleString("en")} EUR`} (${STATE_LABEL[r.price.review_state]})`} />
               <p className="text-faint">{r.price.basis}</p>
               <Row k="Review" v={STATE_LABEL[r.state]} />
               {r.state === "verified" && <Row k="Verified facts" v={r.verified_fields.join(", ")} />}

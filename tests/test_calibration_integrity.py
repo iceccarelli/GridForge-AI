@@ -108,6 +108,15 @@ def test_an_observation_with_an_unknown_key_cannot_suppress_the_n0_sentence():
         obs(key="constraint.invented_constraint.racks")
 
 
+def test_every_key_in_the_vocabulary_can_actually_be_recorded():
+    """The key pattern once demanded lowercase while four vocabulary keys (btm.firm_MW, envelope.it_load_kW, ...) carry a
+    capital unit: those could never be recorded, so the ledger could not hold the one BTM output it exists for."""
+    from gridforge.calibration.keys import expected_unit
+    for k in all_keys():
+        assert Observation(key=k, site_ref=site_only_ref("S"), predicted=2.0, observed=1.0, unit=expected_unit(k),
+                           observed_on="2026-01-01", evidence=EvidenceClass.E5_CUSTOMER_DATA, method="m").key == k
+
+
 def test_a_ledger_file_holding_an_unknown_key_fails_to_load_instead_of_loading_silently(tmp_path):
     p = tmp_path / "l.json"
     p.write_text(json.dumps({"observations": [{**obs().to_dict(), "key": "foo.bar"}]}))

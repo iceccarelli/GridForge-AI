@@ -398,7 +398,8 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(before).toBe(0);
 
     const { POST: mk } = await import("@/app/api/projects/route");
-    const made = await j(await mk(post("/api/projects", { project_name: `Observed ${crypto.randomUUID().slice(0, 6)}` })));
+    const site = `Dublin DC ${crypto.randomUUID().slice(0, 6)}`;
+    const made = await j(await mk(post("/api/projects", { project_name: `Observed ${crypto.randomUUID().slice(0, 6)}`, site_label: site })));
     const [proj] = await rows("projects", `&project_token=eq.${made.project_token}`);
     const { POST: mkCase } = await import("@/app/api/power/deploy/cases/route");
     const c = await j(await mkCase(post("/api/power/deploy/cases", REQUEST)));
@@ -419,10 +420,11 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     const obs = (body: Record<string, unknown>) => submit(post("/x", body), ctx({ token: made.project_token }));
     const input = { calibration_key: "btm.firm_MW", case_token: c.case_token, architecture: ARCH, observed_value: engineMW - 3,
       observed_on: "2026-09-30", method: "revenue-meter export, 30-day trend", submitted_by: "A. Rivera", evidence_id: evidenceId,
-      attests_installed_architecture: true, installed_basis: "commissioning certificate CC-114" };
+      measurement_kind: "metered", attests_installed_architecture: true, installed_basis: "commissioning certificate CC-114" };
     // refusals write neither a record nor an event
     const eventsBefore = (await rows("project_events", `&project_id=eq.${proj.id}`)).length;
-    for (const bad of [{ evidence_id: undefined }, { attests_installed_architecture: false }, { installed_basis: "" }]) {
+    for (const bad of [{ evidence_id: undefined }, { attests_installed_architecture: false }, { installed_basis: "" },
+      { measurement_kind: "quoted" }, { measurement_kind: undefined }, { observed_value: 0 }, { observed_value: 1e9 }]) {
       expect((await obs({ ...input, ...bad })).status).toBe(422);
     }
     expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
@@ -432,6 +434,13 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's
     expect(Number(row.delta_value)).toBeCloseTo(-3, 6);
     expect(sub.observation.state).toBe("submitted");
+    // captured by the database, not the caller: the site-only reference and the engine build that made the prediction
+    const { createHash } = await import("node:crypto");
+    expect(row.site_ref).toBe(`site_${createHash("sha256").update(site.toLowerCase()).digest("hex").slice(0, 12)}`);
+    const live = await (await fetch(`${process.env.GRIDFORGE_API_URL}/v1/version`, { headers: { "x-api-key": KEY } })).json();
+    expect(row.engine_provenance_digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(row.engine_provenance_digest).toBe(live.provenance.digest);       // the running engine's own identity, read around the assessment
+    expect(row.measurement_kind).toBe("metered");
     expect((await obs(input)).status).toBe(409);                          // same prediction, same day: once
     expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
 
@@ -439,16 +448,46 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     const { POST: rev } = await import("@/app/api/admin/observations/[id]/review/route");
     const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(401);
-    const { createHash } = await import("node:crypto");
     jar.push({ name: "gf_admin", value: adminToken()! });
     expect((await decide({ decision: "verified", reviewer: "J. Ortiz" })).status).toBe(422);
+    expect((await decide({ decision: "verified", evidence_class: "E6", reviewer: "J. Ortiz" })).status).toBe(422);   // E5 is the only class a reviewer assigns
+    // the uploaded artifact has not been verified by anyone, so the database refuses to verify what rests on it
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(409);
+    expect((await sql(`/project_evidence?id=eq.${evidenceId}`, { method: "PATCH", body: JSON.stringify({ review_status: "verified" }) })).status).toBe(200);
+    // the submitter cannot review their own submission, however they write their name
+    expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: " a. RIVERA " })).status).toBe(403);
+    expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect(await rows("calibration_ledger_rows", `&id=eq.${row.id}`)).toHaveLength(0);       // submitted, not eligible
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches" })).status).toBe(201);
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz" })).status).toBe(409);
     expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(1);
 
     const { GET: state } = await import("@/app/api/projects/[token]/route");
     const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
-    expect(s.observations).toEqual([expect.objectContaining({ state: "verified", evidence_class: "E5", reviewed_by: "J. Ortiz", ledger_eligible: true })]);
+    expect(s.observations).toEqual([expect.objectContaining({
+      state: "verified", evidence_class: "E5", reviewed_by: "J. Ortiz", ledger_eligible: true, ledger_blockers: [], measurement_kind: "metered" })]);
+
+    // the admin export carries exactly this row; `gridforge calibrate import` takes it into a hash-chained ledger, and nothing else does
+    const { GET: exportGet } = await import("@/app/api/admin/calibration-export/route");
+    const exported = await j(await exportGet());
+    const mine = exported.rows.filter((r: any) => r.id === row.id);
+    expect(mine).toEqual([expect.objectContaining({
+      key: "btm.firm_MW", unit: "MW", measurement_kind: "metered", evidence_class: "E5", reviewed_by: "J. Ortiz",
+      evidence_sha256: crypto.createHash("sha256").update(csv).digest("hex"), engine_provenance_digest: live.provenance.digest,
+      site_ref: row.site_ref, observed_value: engineMW - 3 })]);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gf-cal-"));
+    fs.writeFileSync(path.join(tmp, "export.json"), JSON.stringify({ ...exported, rows: mine }));
+    const imp = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+      { encoding: "utf8", cwd: process.cwd() });
+    expect(imp.status, imp.stderr).toBe(0);
+    expect(imp.stdout).toMatch(/imported 1 verified/);
+    const chain = JSON.parse(fs.readFileSync(path.join(tmp, "ledger.json"), "utf8")).observations;
+    expect(chain).toHaveLength(1);
+    expect(chain[0]).toMatchObject({ source: "import", source_ref: `${row.id}:${mine[0].evidence_sha256}`, model_digest: live.provenance.digest, kind: "measured" });
+    expect(chain[0].prev_hash).toBe("0".repeat(64));
+    const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+      { encoding: "utf8", cwd: process.cwd() });
+    expect(again.status).toBe(2);                                          // the same row cannot be imported twice
 
     // the database itself refuses to rewrite either record, even for service_role
     expect((await sql(`/project_observations?id=eq.${row.id}`, { method: "PATCH", body: JSON.stringify({ observed_value: 99 }) })).status).toBe(403);
@@ -542,6 +581,14 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
     const decide = (body: Record<string, unknown>) => rev(post("/x", body), ctx({ id: row.id }));
     expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(401);
     jar.push({ name: "gf_admin", value: adminToken()! });
+    // nothing derived is shown while unreviewed, though the view computed it
+    const unrev = await j(await (await import("@/app/api/projects/[token]/route")).GET(new Request(siteUrl("/x")), ctx({ token: pt })));
+    expect(unrev.supplier_reality[0].lead_time).toMatchObject({ actual_weeks: null, review_state: "submitted" });
+    expect(unrev.supplier_reality[0].price).toMatchObject({ delta_eur: null, review_state: "submitted" });
+    // the submitter cannot review it, and nothing verifies against an artifact nobody has verified
+    expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "a. rivera" })).status).toBe(403);
+    expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(409);
+    expect((await sql(`/project_evidence?id=eq.${evidenceId}`, { method: "PATCH", body: JSON.stringify({ review_status: "verified" }) })).status).toBe(200);
     expect((await decide({ decision: "verified", verified_fields: ["dispatch_date"], reviewer: "J. Ortiz" })).status).toBe(422);
     expect((await decide({ decision: "verified", verified_fields: ["po_date", "on_site_date"], reviewer: "J. Ortiz" })).status).toBe(201);
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz", reason: "no" })).status).toBe(409);

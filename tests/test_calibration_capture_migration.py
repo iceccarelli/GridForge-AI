@@ -426,8 +426,7 @@ def review_actual(db, aid, decision="verified", fields=("po_date", "on_site_date
 
 def test_supplier_actual_reviews_follow_the_same_two_rules(db):
     sub = supplier_actual(db, evidence_verified=False)
-    if sub.returncode != 0:
-        pytest.skip(f"supplier-selection helper functions differ in this schema: {sub.stderr[:200]}")
+    assert sub.returncode == 0, sub.stderr
     a = json.loads(sub.stdout)
     assert a["submitted_by_ref"]
     assert "cannot be reviewed by the person who submitted" in review_actual(db, a["id"], reviewer="a. rivera").stderr
@@ -438,8 +437,7 @@ def test_supplier_actual_reviews_follow_the_same_two_rules(db):
 
 def test_a_verified_supplier_actual_review_needs_verified_evidence(db):
     sub = supplier_actual(db, evidence_verified=True)
-    if sub.returncode != 0:
-        pytest.skip(f"supplier-selection helper functions differ in this schema: {sub.stderr[:200]}")
+    assert sub.returncode == 0, sub.stderr
     a = json.loads(sub.stdout)
     r = review_actual(db, a["id"])
     assert r.returncode == 0, r.stderr

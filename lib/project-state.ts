@@ -9,7 +9,7 @@ import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { listComparisons } from "@/lib/project-comparisons";
 import { shareStatus } from "@/lib/project-share";
-import { LEDGER_MINIMUM_CLASS, type ObservationRow, type ReviewRow } from "@/lib/project-observations";
+import { ledgerBlockers, ledgerEligible, type MeasurementKind, type ObservationRow, type ReviewRow } from "@/lib/project-observations";
 import {
   creds,
   getProjectByToken,
@@ -23,6 +23,7 @@ import {
   type Result,
 } from "@/lib/projects";
 import {
+  gateReality,
   realityFor,
   type ActualReviewRow,
   type ActualRow,
@@ -117,8 +118,15 @@ export interface ProjectState {
     state: "submitted" | "verified" | "rejected";
     evidence_class: string | null;
     reviewed_by: string | null;
-    /** Verified at or above the class the calibration ledger accepts. A person still adds it. */
+    /** How it was measured; null on rows from before the kind was captured (those are never ledger-eligible). */
+    measurement_kind: MeasurementKind | null;
+    /**
+     * Cleared every gate the calibration ledger applies: verified as E5, a measurement kind, a site, the prediction's
+     * engine build, an evidence artifact that is verified, a reviewer who is not the submitter. A person still imports it.
+     */
     ledger_eligible: boolean;
+    /** Why it is not (empty when it is). */
+    ledger_blockers: string[];
   }[];
   /**
    * What each selected supplier promised against what happened. A record, not a signal: nothing here
@@ -139,9 +147,13 @@ export interface ProjectState {
     state: "submitted" | "verified" | "rejected";
     verified_fields: string[];
     reviewed_by: string | null;
-    lead_time: { quoted_weeks: number | null; actual_weeks: number | null; basis: string };
-    install: { quoted_weeks: number | null; actual_weeks: number | null; basis: string };
-    price: { quoted_eur: number | null; delta_eur: number | null; basis: string };
+    /**
+     * Derived figures. `actual_weeks` and `delta_eur` are null unless the review verified the facts they are
+     * computed from, and every one carries the review state it stands on: a number is never shown without it.
+     */
+    lead_time: { quoted_weeks: number | null; actual_weeks: number | null; basis: string; review_state: "submitted" | "verified" | "rejected" };
+    install: { quoted_weeks: number | null; actual_weeks: number | null; basis: string; review_state: "submitted" | "verified" | "rejected" };
+    price: { quoted_eur: number | null; delta_eur: number | null; basis: string; review_state: "submitted" | "verified" | "rejected" };
   }[];
   /**
    * The quotation-to-run loop for this project's engagements, as COUNTS and integrity facts only. Supplier names,
@@ -354,6 +366,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   }
 
   const reviewOf = new Map((rv.data ?? []).map((r) => [r.observation_id, r]));
+  const evidenceById = new Map((ev.data ?? []).map((e) => [e.id, e]));
   const observations: ProjectState["observations"] = (ob.data ?? []).map((o) => {
     const r = reviewOf.get(o.id);
     return {
@@ -372,8 +385,9 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       state: r ? r.decision : "submitted",
       evidence_class: r?.evidence_class ?? null,
       reviewed_by: r?.reviewer ?? null,
-      ledger_eligible:
-        r?.decision === "verified" && r.evidence_class !== null && r.evidence_class >= LEDGER_MINIMUM_CLASS,
+      measurement_kind: o.measurement_kind ?? null,
+      ledger_eligible: ledgerEligible(o, r, evidenceById.get(o.evidence_id)),
+      ledger_blockers: ledgerBlockers(o, r, evidenceById.get(o.evidence_id)),
     };
   });
 
@@ -382,7 +396,8 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   const corrected = new Set((sa.data ?? []).map((a) => a.supersedes_id).filter(Boolean));
   const supplier_reality: ProjectState["supplier_reality"] = (sa.data ?? []).map((a) => {
     const r = reviewOfActual.get(a.id);
-    const v = sv.byActual.get(a.id);
+    // Derived figures pass through the review gate: none is shown unless the facts it is computed from are verified.
+    const v = gateReality(r, sv.byActual.get(a.id), a.id);
     const n = (x: unknown) => (x === null || x === undefined ? null : Number(x));
     return {
       id: a.id,
@@ -401,9 +416,9 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       state: r ? r.decision : "submitted",
       verified_fields: r?.verified_fields ?? [],
       reviewed_by: r?.reviewer ?? null,
-      lead_time: { quoted_weeks: n(a.quoted_lead_time_weeks), actual_weeks: n(v?.actual_lead_time_weeks), basis: v?.lead_time_basis ?? "unknown" },
-      install: { quoted_weeks: n(a.quoted_install_weeks), actual_weeks: n(v?.actual_install_weeks), basis: v?.install_basis ?? "unknown" },
-      price: { quoted_eur: n(a.quoted_capex_eur), delta_eur: n(v?.cost_delta_eur), basis: v?.cost_basis ?? "unknown" },
+      lead_time: { quoted_weeks: n(a.quoted_lead_time_weeks), actual_weeks: n(v.actual_lead_time_weeks), basis: v.lead_time_basis, review_state: v.review_state },
+      install: { quoted_weeks: n(a.quoted_install_weeks), actual_weeks: n(v.actual_install_weeks), basis: v.install_basis, review_state: v.review_state },
+      price: { quoted_eur: n(a.quoted_capex_eur), delta_eur: n(v.cost_delta_eur), basis: v.cost_basis, review_state: v.review_state },
     };
   });
 
