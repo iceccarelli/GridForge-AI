@@ -17,7 +17,7 @@ import type { InvoiceLite, PaygStripe } from "@/lib/payg-stripe";
 
 export const PAYG_TABLES = [
   "api_accounts", "usage_events", "usage_settlements", "usage_quarantine", "payg_cursor", "usage_alerts", "funnel_events",
-  "customer_notifications", "subscriptions", "scenarios", "watches", "watch_notes", "deliverables", "leads",
+  "customer_notifications", "subscriptions", "scenarios", "watches", "watch_notes", "deliverables", "leads", "operator_notices",
 ];
 
 export function newPaygDb(): PostgrestFake {
@@ -29,6 +29,7 @@ export function newPaygDb(): PostgrestFake {
   db.uniqueKeys.set("usage_alerts", [["account", "month", "percent"]]);
   db.uniqueKeys.set("funnel_events", [["dedupe_key"]]);
   db.uniqueKeys.set("customer_notifications", [["dedupe_key"]]);
+  db.uniqueKeys.set("operator_notices", [["dedupe_key"]]);
   db.rowDefaults.set("customer_notifications", () => ({
     status: "pending", attempts: 0, max_attempts: 6, next_attempt_at: new Date(0).toISOString(), claimed_until: null, last_error: null,
     last_http_status: null, provider_message_id: null, accepted_at: null, origin: "webhook", reopened_count: 0,
@@ -288,11 +289,33 @@ export class MockStripe implements PaygStripe {
       },
     },
   };
+  /**
+   * The customer's CURRENT default payment method at Stripe, by customer id. `customers.update` with an invoice default writes it (as the
+   * real API does); a test that replaces the card in the Billing Portal sets it directly, WITHOUT any webhook, because that is what the
+   * portal does. An id with no entry (or null) is a customer Stripe names no default for.
+   */
+  customerDefaults = new Map<string, string | null>();
   customers = {
     update: async (id: string, params: any) => {
       this.maybeFail("customers.update");
       this.customerUpdates.push({ id, params });
+      const pm = params?.invoice_settings?.default_payment_method;
+      if (typeof pm === "string") this.customerDefaults.set(id, pm);
       return { id };
+    },
+    retrieve: async (id: string) => {
+      this.maybeFail("customers.retrieve");
+      return { id, invoice_settings: { default_payment_method: this.customerDefaults.get(id) ?? null } };
+    },
+  };
+  /** Charge id -> customer id, for a dispute's lookup. An unknown charge is a Stripe 404. */
+  chargeCustomers = new Map<string, string>();
+  charges = {
+    retrieve: async (id: string) => {
+      this.maybeFail("charges.retrieve");
+      const customer = this.chargeCustomers.get(id);
+      if (!customer) throw Object.assign(new Error("No such charge"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
+      return { id, customer };
     },
   };
   invoices: PaygStripe["invoices"] = {

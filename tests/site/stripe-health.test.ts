@@ -1,7 +1,7 @@
 /**
  * lib/stripe-health.ts -- detects the gap between what
  * app/api/stripe/webhook/route.ts depends on (checkout.session.completed,
- * invoice.paid, customer.subscription.deleted, invoice.payment_failed) and
+ * invoice.paid, customer.subscription.deleted, invoice.payment_failed, customer.subscription.updated) and
  * what the live Stripe account's webhook endpoint is actually configured to
  * send. This never assumes health from the handler code alone; every case
  * here goes through the same function the admin health check calls against
@@ -138,7 +138,7 @@ describe("recommended webhook events are reported but never make an endpoint unh
     expect(star.missingRecommended).toEqual([]);
   });
 
-  it("the handlers' real dependencies are the four required events: the webhook route names no other event for money or access", async () => {
+  it("the handlers' real dependencies are the required events: the webhook route names no other event for money or access", async () => {
     const fs = await import("node:fs");
     const src = fs.readFileSync("app/api/stripe/webhook/route.ts", "utf8");
     const used = [...src.matchAll(/event\.type === "([a-z_.]+)"/g)].map((m) => m[1]);
@@ -178,5 +178,75 @@ describe("checkBillingPortal", () => {
   it("cancel, card update and invoices all enabled: ok", async () => {
     const r = await checkBillingPortal(portalClient([{ is_default: true, features: features(["subscription_cancel", "payment_method_update", "invoice_history"]) }]));
     expect(r).toMatchObject({ ok: true, missing: [], error: null });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// customer.subscription.updated is REQUIRED (a portal plan switch or cancellation reaches the site only as that event);
+// charge.dispute.closed is recommended (the operator is mailed how a dispute ended); the portal check warns about features the
+// site does not handle. MOCKS: a fake Stripe client.
+// ---------------------------------------------------------------------------------------------------------------------
+describe("the subscription-update and dispute-closed events", () => {
+  it("customer.subscription.updated is required: an endpoint without it is unhealthy and the error names it", async () => {
+    expect(REQUIRED_WEBHOOK_EVENTS).toContain("customer.subscription.updated");
+    const without = REQUIRED_WEBHOOK_EVENTS.filter((e) => e !== "customer.subscription.updated");
+    const health = await checkStripeWebhookHealth(
+      fakeClient([{ id: "we_1", url: EXPECTED_URL, status: "enabled", enabled_events: [...without, ...RECOMMENDED_WEBHOOK_EVENTS] }]),
+      EXPECTED_URL
+    );
+    expect(health.healthy).toBe(false);
+    expect(health.missingEvents).toEqual(["customer.subscription.updated"]);
+    expect(health.error).toMatch(/customer\.subscription\.updated/);
+  });
+
+  it("charge.dispute.closed is recommended, never required: its absence is reported and does not make the endpoint unhealthy", async () => {
+    expect(RECOMMENDED_WEBHOOK_EVENTS).toContain("charge.dispute.closed");
+    expect(REQUIRED_WEBHOOK_EVENTS as readonly string[]).not.toContain("charge.dispute.closed");
+    const health = await checkStripeWebhookHealth(
+      fakeClient([{ id: "we_1", url: EXPECTED_URL, status: "enabled", enabled_events: [...REQUIRED_WEBHOOK_EVENTS, "charge.refunded", "charge.dispute.created"] }]),
+      EXPECTED_URL
+    );
+    expect(health.healthy).toBe(true);
+    expect(health.missingRecommended).toEqual(["charge.dispute.closed"]);
+  });
+
+  it("the route handles the events the health check requires and recommends", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("app/api/stripe/webhook/route.ts", "utf8");
+    for (const e of [...REQUIRED_WEBHOOK_EVENTS, ...RECOMMENDED_WEBHOOK_EVENTS]) expect(src, e).toContain(`"${e}"`);
+  });
+});
+
+describe("checkBillingPortal warns about enabled features the site does not handle", () => {
+  const portalClient = (data: unknown[]) => ({ billingPortal: { configurations: { list: async () => ({ data }) } } });
+  const on = (names: string[]) => Object.fromEntries(names.map((f) => [f, { enabled: true }]));
+  const wanted = ["subscription_cancel", "payment_method_update", "invoice_history"];
+
+  it("subscription_update and subscription_pause enabled on the DEFAULT configuration are warnings, and ok stays true", async () => {
+    const r = await checkBillingPortal(portalClient([{ is_default: true, features: on([...wanted, "subscription_update", "subscription_pause"]) }]));
+    expect(r.ok).toBe(true);
+    expect(r.missing).toEqual([]);
+    expect(r.error).toBeNull();
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings.join(" ")).toMatch(/subscription_update/);
+    expect(r.warnings.join(" ")).toMatch(/subscription_pause/);
+  });
+
+  it("only the default configuration counts, and a plain configuration carries no warning", async () => {
+    const plain = await checkBillingPortal(portalClient([{ is_default: true, features: on(wanted) }]));
+    expect(plain.warnings).toEqual([]);
+    const other = await checkBillingPortal(portalClient([
+      { is_default: false, features: on([...wanted, "subscription_update"]) },
+      { is_default: true, features: on(wanted) },
+    ]));
+    expect(other.warnings).toEqual([]);
+    const onlyUpdate = await checkBillingPortal(portalClient([{ is_default: true, features: on([...wanted, "subscription_update"]) }]));
+    expect(onlyUpdate.warnings).toHaveLength(1);
+    expect(onlyUpdate.warnings[0]).toMatch(/subscription_update/);
+  });
+
+  it("every unreachable or unconfigured answer carries an empty warnings list", async () => {
+    expect((await checkBillingPortal(null)).warnings).toEqual([]);
+    expect((await checkBillingPortal(portalClient([]))).warnings).toEqual([]);
   });
 });

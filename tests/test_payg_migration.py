@@ -556,3 +556,65 @@ def test_the_funnel_table_documents_what_the_database_does_and_does_not_fence(db
     assert "not by a database constraint" in col
     # and the claim is true: the database really does not constrain keys or values inside props
     psql(db, "insert into funnel_events (name, props) values ('key_minted', '{\"anything\": \"goes@here.example\"}')")
+
+
+# ------------------------------------------------------------------------------- 0039: the billing event clock and friends
+
+def test_0039_is_additive_idempotent_and_leaves_row_level_security_as_it_was(db):
+    def rls(t):
+        return q(db, f"select relrowsecurity from pg_class where relname = '{t}' and relnamespace = 'public'::regnamespace")
+
+    def policies(t):
+        return q(db, f"select count(*) from pg_policies where tablename = '{t}'")
+
+    before = {t: (rls(t), policies(t)) for t in ("watches", "subscriptions", "api_accounts")}
+    a = account(db)
+    psql(db, f"update api_accounts set last_revocation_attempt_at = '2026-10-21T03:23:00Z' where account = '{a}'")
+    psql(db, file=MIGRATIONS / "0039_billing_event_clock.sql")
+    psql(db, file=MIGRATIONS / "0039_billing_event_clock.sql")
+    assert q(db, f"select last_revocation_attempt_at is not null from api_accounts where account = '{a}'") == "t"  # data survives a re-apply
+    assert {t: (rls(t), policies(t)) for t in before} == before
+    assert q(db, "select relrowsecurity from pg_class where relname = 'operator_notices' and relnamespace = 'public'::regnamespace") == "t"
+
+
+def test_0039_columns_exist_with_their_types_and_default_to_null(db):
+    def col(table, name):
+        return q(db, f"select data_type from information_schema.columns where table_schema = 'public' and table_name = '{table}' and column_name = '{name}'")
+
+    assert col("watches", "last_billing_event_ts") == "bigint"
+    assert col("subscriptions", "last_billing_event_ts") == "bigint"
+    assert col("api_accounts", "last_revocation_attempt_at") == "timestamp with time zone"
+    w = f"w-{uid()}{uid()}"
+    psql(db, f"insert into watches (token) values ('{w}')")
+    assert q(db, f"select last_billing_event_ts is null from watches where token = '{w}'") == "t"
+    psql(db, f"update watches set last_billing_event_ts = 1790000000 where token = '{w}'")  # a unix time does not fit an int4 clock
+    assert q(db, f"select last_billing_event_ts from watches where token = '{w}'") == "1790000000"
+    s = f"cs_{uid()}"
+    psql(db, f"insert into subscriptions (email, plan, stripe_session_id) values ('{s}@x.example', 'team', '{s}')")
+    psql(db, f"update subscriptions set last_billing_event_ts = 1790000000 where stripe_session_id = '{s}'")
+    assert q(db, f"select last_billing_event_ts from subscriptions where stripe_session_id = '{s}'") == "1790000000"
+
+
+def test_0039_operator_notices_is_once_only_service_role_only_and_holds_no_blank_key(db):
+    k = f"digest-{uid()}"
+    psql(db, f"insert into operator_notices (dedupe_key) values ('{k}')")
+    refused(db, f"insert into operator_notices (dedupe_key) values ('{k}')", "duplicate key")
+    psql(db, f"insert into operator_notices (dedupe_key) values ('{k}') on conflict (dedupe_key) do nothing")
+    assert q(db, f"select count(*) from operator_notices where dedupe_key = '{k}'") == "1"
+    refused(db, "insert into operator_notices (dedupe_key) values ('   ')", "check constraint")
+    assert q(db, "select count(*) from pg_policies where tablename = 'operator_notices'") == "0"
+    for role in ("anon", "authenticated"):
+        for priv in ("select", "insert", "update", "delete"):
+            assert q(db, f"select has_table_privilege('{role}', 'public.operator_notices', '{priv}')") == "f", (role, priv)
+    assert q(db, "select has_table_privilege('service_role', 'public.operator_notices', 'select')") == "t"
+
+
+def test_0039_the_sweep_index_exists_and_the_ordered_read_puts_never_attempted_first(db):
+    assert q(db, "select count(*) from pg_indexes where tablename = 'api_accounts' and indexname = 'api_accounts_revocation_sweep_idx'") == "1"
+    old, never = account(db, plan="api_scale"), account(db, plan="api_scale")
+    for a, ids in ((old, "'{o1}'"), (never, "'{n1}'")):
+        psql(db, f"update api_accounts set revoked_key_ids = {ids} where account = '{a}'")
+    psql(db, f"update api_accounts set last_revocation_attempt_at = '2020-01-01Z' where account = '{old}'")
+    order = q(db, "select string_agg(account, ',') from (select account from api_accounts where revocation_pending "
+                  f"and account in ('{old}', '{never}') order by last_revocation_attempt_at asc nulls first, created_at asc) s")
+    assert order == f"{never},{old}"  # never attempted first, then the least recently attempted

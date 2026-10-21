@@ -33,6 +33,8 @@ export interface WatchRecord {
   next_run_at: string | null;
   stripe_subscription_id: string | null;
   stripe_customer_id: string | null;
+  /** Stripe event.created of the newest invoice event applied to this watch (migration 0039): orders a late payment_failed against a later paid. */
+  last_billing_event_ts?: number | null;
 }
 
 export interface WatchNote {

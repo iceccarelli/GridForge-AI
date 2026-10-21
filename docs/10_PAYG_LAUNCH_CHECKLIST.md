@@ -13,7 +13,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
    the cost file are local state. `fly scale count 1`. A second machine would split the ledger.
 3. Set on the engine: `GRIDFORGE_KEY_SECRET` (same value as the site), `GRIDFORGE_ADMIN_KEY`,
    `GRIDFORGE_LEDGER_FILE=/data/ledger.jsonl`, `GRIDFORGE_USAGE_FILE`, `GRIDFORGE_REVOKED_FILE`.
-4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
+4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0039 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
    All are additive and idempotent. Re-applying an older one out of order can narrow a later constraint; apply in order.
 5. Site env: `GRIDFORGE_API_URL`, `GRIDFORGE_ADMIN_KEY`, `GRIDFORGE_KEY_SECRET`, `CRON_SECRET`, `STRIPE_SECRET_KEY`,
    `STRIPE_WEBHOOK_SECRET`, Supabase service role, `ADMIN_SESSION_SECRET`, and `FUNNEL_REF_KEY` (16+ characters; REQUIRED for stable funnel cohorts: without it the account references and once-only keys derive from `GRIDFORGE_KEY_SECRET` and change if it is rotated, re-firing every once-only event). `GRIDFORGE_LEGACY_DEPOSIT` stays unset: the off-catalogue generic deposit and Founding credit are only created with `=1`.
@@ -22,8 +22,11 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
    Whether the plan allows these schedules is not verifiable from the repository.
 
 ## 2. Stripe test-mode script (owner action)
-- Webhook endpoint subscribed to: `checkout.session.completed`, `customer.subscription.deleted`, `invoice.paid`,
-  `invoice.payment_failed`.
+- Webhook endpoint subscribed to: `checkout.session.completed`, `customer.subscription.deleted`,
+  `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed` (all required: a plan switch, a pause or a cancellation made
+  in the Stripe Billing Portal reaches the site only as `customer.subscription.updated`), and, recommended,
+  `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` (the operator is mailed when a dispute opens, with its
+  evidence deadline, and how it ended). `/api/admin/stripe-health` reports what is missing.
 - Settings: enable Stripe's customer emails for failed payments (the site sends its own as well); decide VAT/Stripe Tax
   for the settlement invoices (the code does not configure tax).
 - Free account: `POST /api/free-account` -> open the emailed link -> mint a trial key -> `GET /v1/usage` shows the allowance.
@@ -38,8 +41,23 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
   the endpoint answers 502; nothing in the repository can configure or verify it. Cancelling there reaches the site through the existing
   `customer.subscription.deleted` webhook (key revoked, account cancelled). Pay-as-you-go has no subscription to cancel: stopping use and
   setting the cap to the minimum is how a customer stops spending; their saved card and invoices are managed in the same portal.
+  **Leave `subscription_update` and `subscription_pause` OFF in the portal configuration.** The site does not implement plan switches
+  or pauses: a switch changes what Stripe bills but not what the site entitles (the webhook mails the operator once per subscription
+  and changes nothing), and a pause is not seen at all. `/api/admin/stripe-health` warns when either is on.
 - Failure path: use a card that declines on charge (4000 0000 0000 0341): settlement fails -> account past_due -> key revoked
-  on the engine -> failure email -> replace card in the portal -> unpaid invoice retried -> mint a new key.
+  on the engine -> failure email -> the customer replaces the card -> the invoice is paid -> account active -> mint a new key.
+  Which "replace the card" does what, exactly:
+  - **"Replace card" on the site** (Stripe Checkout in setup mode): the new card becomes the customer's default and the account's card,
+    every UNPAID failed settlement invoice is pointed at it and paid at once, and the result arrives as `invoice.paid`
+    (account reinstated) or `invoice.payment_failed`.
+  - **Replacing the card in the Stripe Billing Portal**: this changes the customer's default payment method at Stripe and sends the site
+    NO event it acts on. The daily settlement then bills the customer's CURRENT default (resolved from Stripe at invoice time, recorded
+    on the account, and also used for a settlement invoice that is still a draft), so the next month, or a month still waiting to be
+    invoiced, is charged to the new card. An invoice that was already finalised and failed keeps the card it was created with, so
+    Stripe's own retries of it do NOT use the new card, and the site does not re-point or re-pay it after a portal change: collect it with
+    "Replace card" on the site, or from the invoice's hosted page / the Stripe Dashboard.
+  - A settlement the site cannot invoice (no payment method, a detached card, a Stripe error) is mailed to the operator, once per
+    settlement per day, with its category (never Stripe's message or the customer's details).
 - Webhook replay from the Stripe dashboard: a repeated event changes nothing.
 
 ## 3. Known limits (stated, not hidden)
