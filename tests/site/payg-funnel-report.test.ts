@@ -216,8 +216,8 @@ describe("events are recorded at the real points, and carry nothing about the pe
       { event_id: "e4", seq: 4, account: "unused-1", scope: "payg", kind: "refund", units: 5, occurred_at: "2026-09-11T12:00:01.000Z", ref: "e3" },
     );
     const { deriveFirstUse } = await import("@/lib/payg-analytics");
-    expect(await deriveFirstUse()).toEqual({ considered: 1, recorded: 1 });
-    expect(await deriveFirstUse()).toEqual({ considered: 1, recorded: 0 });
+    expect(await deriveFirstUse()).toEqual({ considered: 1, recorded: 1, remaining: 0 });
+    expect(await deriveFirstUse()).toEqual({ considered: 0, recorded: 0, remaining: 0 }); // done is done: not re-tried, not counted against the limit
     expect(events("first_engine_use")).toHaveLength(1);
     expect(events("first_engine_use")[0]).toMatchObject({ props: { account_ref: accountRef("used-1") }, created_at: "2026-09-10T12:00:00.000Z" });
   });
@@ -525,5 +525,81 @@ describe("economics: measured revenue beside measured compute, no margin claimed
     const j = await call();
     e.restore();
     expect(j.compute.endpoints).toHaveLength(1);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------------------ QA6-11
+
+describe("QA6-11: first use pages through every account; reconciliation counts every scope; references do not depend on the signing secret", () => {
+  const useOnce = (account: string, n: number) =>
+    db.rows("usage_events").push({ event_id: `p${n}`, seq: 9000 + n, account, scope: "payg", kind: "charge", units: 1, occurred_at: `2026-09-${String(10 + n).padStart(2, "0")}T10:00:00.000Z`, ref: "" });
+
+  it("with more accounts than the per-run limit, successive runs cover ALL of them (the old code re-tried the first N forever)", async () => {
+    const { deriveFirstUse } = await import("@/lib/payg-analytics");
+    for (let i = 1; i <= 7; i++) { paygAccount(db, { account: `page-${i}`, token: `tok-page${i}-0123456789abcdefghijk` }); useOnce(`page-${i}`, i); }
+    expect(await deriveFirstUse(3)).toEqual({ considered: 3, recorded: 3, remaining: 4 });
+    expect(await deriveFirstUse(3)).toEqual({ considered: 3, recorded: 3, remaining: 1 });
+    expect(await deriveFirstUse(3)).toEqual({ considered: 1, recorded: 1, remaining: 0 });
+    expect(await deriveFirstUse(3)).toEqual({ considered: 0, recorded: 0, remaining: 0 });
+    const refs = events("first_engine_use").map((e) => e.props.account_ref);
+    expect(new Set(refs).size).toBe(7);
+    for (let i = 1; i <= 7; i++) expect(refs).toContain(accountRef(`page-${i}`));
+    // oldest first use is recorded first
+    expect(events("first_engine_use")[0].props.account_ref).toBe(accountRef("page-1"));
+  });
+
+  it("when it cannot tell who is already recorded it does nothing (never redoes everyone)", async () => {
+    const { deriveFirstUse } = await import("@/lib/payg-analytics");
+    paygAccount(db, { account: "u1" });
+    useOnce("u1", 1);
+    db.rpcs.delete("gf_funnel_summary");
+    expect(await deriveFirstUse()).toEqual({ considered: 0, recorded: 0, remaining: 0 });
+    expect(events("first_engine_use")).toHaveLength(0);
+  });
+
+  it("the economics reconciliation includes the `client` scope, so a month with client usage shows no spurious difference", async () => {
+    signIn();
+    paygAccount(db, { account: "c1" });
+    const add = (scope: string, units: number, n: number) => db.rows("usage_events").push({ event_id: `c${n}`, seq: 7000 + n, account: "c1", scope, kind: "charge", units, occurred_at: "2026-09-10T10:00:00.000Z", ref: "" });
+    add("payg", 10, 1); add("trial", 5, 2); add("machine", 3, 3); add("client", 7, 4);
+    process.env.GRIDFORGE_API_URL = "https://engine.test";
+    process.env.GRIDFORGE_ADMIN_KEY = "k";
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) =>
+      String(i).startsWith("https://engine.test/v1/admin/economics")
+        ? new Response(JSON.stringify({ month: "2026-09", endpoints: [{ endpoint: "/v1/study", calls: 5, units: 25, wall_ms_total: 1000, wall_ms_p50: 1, wall_ms_p95: 2, units_per_call: 5, revenue_cents_at_payg_price: 5000, free_units: 5 }], basis: "b", durable: true }), { status: 200 })
+        : inner(i as RequestInfo, init)) as typeof fetch;
+    const { GET } = await import("@/app/api/admin/economics/route");
+    const j = await (await GET(new Request(siteUrl("/api/admin/economics?month=2026-09")))).json();
+    globalThis.fetch = inner;
+    expect(j.reconciliation).toMatchObject({ engine_units: 25, ledger_units: 25, difference: 0 });
+    expect(j.revenue.subscription_units).toBe(10); // machine + client
+  });
+
+  it("FUNNEL_REF_KEY keeps references and once-only keys STABLE across a rotation of the key-signing secret", async () => {
+    process.env.FUNNEL_REF_KEY = "stable-funnel-reference-key-0123456789";
+    vi.resetModules();
+    process.env.GRIDFORGE_KEY_SECRET = "signing-secret-one";
+    const one = await import("@/lib/payg");
+    const a1 = one.accountRef("acme-123456"), k1 = one.funnelKey("subscription_started:sub_1");
+    process.env.GRIDFORGE_KEY_SECRET = "a-completely-different-rotated-secret";
+    vi.resetModules();
+    const two = await import("@/lib/payg");
+    expect(two.accountRef("acme-123456")).toBe(a1);
+    expect(two.funnelKey("subscription_started:sub_1")).toBe(k1);
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("FUNNEL_REF_KEY is not set"));
+    delete process.env.FUNNEL_REF_KEY;
+  });
+
+  it("without FUNNEL_REF_KEY it falls back to the old derivation WITH a warning (and a rotation changes the references: the reason the key is required)", async () => {
+    delete process.env.FUNNEL_REF_KEY;
+    process.env.GRIDFORGE_KEY_SECRET = "signing-secret-one";
+    vi.resetModules();
+    const one = await import("@/lib/payg");
+    const a1 = one.accountRef("acme-123456");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringMatching(/FUNNEL_REF_KEY is not set.*rotated/));
+    process.env.GRIDFORGE_KEY_SECRET = "rotated";
+    vi.resetModules();
+    expect((await import("@/lib/payg")).accountRef("acme-123456")).not.toBe(a1);
   });
 });

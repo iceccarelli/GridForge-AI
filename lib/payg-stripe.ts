@@ -29,6 +29,8 @@ export interface PaygStripe {
     }>;
   };
   customers: { update(id: string, params: Stripe.CustomerUpdateParams): Promise<unknown> };
+  /** Stripe's hosted Billing Portal (cancel, payment method, invoice history). Needs the portal configured in the Stripe dashboard. */
+  billingPortal: { sessions: { create(params: { customer: string; return_url: string }): Promise<{ id: string; url: string | null }> } };
   invoices: {
     create(params: Stripe.InvoiceCreateParams, options?: { idempotencyKey?: string }): Promise<InvoiceLite>;
     finalizeInvoice(id: string, params?: Stripe.InvoiceFinalizeInvoiceParams, options?: { idempotencyKey?: string }): Promise<InvoiceLite>;

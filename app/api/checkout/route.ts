@@ -69,6 +69,22 @@ export async function POST(req: Request) {
   }
   const product = productId ? PRODUCTS[productId] : null;
 
+  // The generic EUR 5,000 "engagement reservation deposit" and its Founding Partner credit are OFF the catalogue: nothing on the site starts
+  // them, and the public price list (lib/products.ts, /pricing, llms.txt) says there is no other. A NEW session of either kind is therefore
+  // refused unless the operator has switched the legacy path on, so the bare `{}` / `{founding:true}` POST cannot create an off-catalogue
+  // price. Sessions created before are unaffected: the webhook still fulfils them.
+  if (!productId && process.env.GRIDFORGE_LEGACY_DEPOSIT !== "1") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "There is no generic deposit. Everything on sale is in the catalogue (lib/products.ts, listed at /pricing): name one of its products with `product`. " +
+          "Nothing was created and nothing was charged.",
+      },
+      { status: 400 }
+    );
+  }
+
   // Commissioning a paid product FOR a project. The project token is the authority and is
   // checked here, before Stripe is touched: a wrong token, a product that cannot attach, or a
   // store that cannot confirm the project all fail with no session created — the same rule as

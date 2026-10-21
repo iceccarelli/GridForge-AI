@@ -53,6 +53,7 @@ const post = (b: unknown) =>
   new Request(siteUrl("/api/keys"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
 
 beforeEach(() => {
+  process.env.GRIDFORGE_LEGACY_DEPOSIT = "1"; // the off-catalogue deposit path is opt-in (QA6-8); these tests exercise it deliberately
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   process.env.GRIDFORGE_KEY_SECRET = "test-signing-secret";
