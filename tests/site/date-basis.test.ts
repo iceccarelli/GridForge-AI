@@ -220,7 +220,9 @@ describe("source guard: no surface prints a time-to-power figure outside the sha
   const USES_FORMATTER = /from "@\/lib\/date-basis"|from "@\/components\/DateFigure"/;
 
   it("every component or page that reads those fields goes through lib/date-basis.ts", () => {
-    const offenders = files.filter((f) => READS.test(read(f)) && !USES_FORMATTER.test(read(f))).map(rel);
+    // Not time-to-power: the admin funnel panel's retention table counts weeks of customer activity, not an engine lead time.
+    const NOT_TIME_TO_POWER = new Set(["components/AdminFunnelPanel.tsx"]);
+    const offenders = files.filter((f) => READS.test(read(f)) && !USES_FORMATTER.test(read(f))).map(rel).filter((f) => !NOT_TIME_TO_POWER.has(f));
     expect(offenders).toEqual([]);
   });
   it("no component formats a weeks figure by hand", () => {
