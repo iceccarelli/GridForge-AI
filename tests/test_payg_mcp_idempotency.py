@@ -119,7 +119,7 @@ def test_the_header_is_ignored_without_an_api_key_and_for_the_estimator(rig):
 
 def test_an_overlong_mcp_key_is_refused_and_charges_nothing(rig):
     _, b, _ = rig.post("/mcp", call(1), key=rig.key(), headers={"Idempotency-Key": "k" * 201})
-    assert b["error"]["code"] == -32602 and "200" in b["error"]["message"]
+    assert b["error"]["code"] == -32602 and "150" in b["error"]["message"]
     assert rig.events() == []
 
 
