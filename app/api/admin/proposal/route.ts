@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
-import { createDeliverable, creditsToward } from "@/lib/deliverables";
+import { createDeliverable } from "@/lib/deliverables";
+import { availableCredits } from "@/lib/deposits";
 import { toEngineBody, type QualifyInput } from "@/lib/qualify";
 import { engineFetch } from "@/lib/rate-limit";
 import { runTrusted } from "@/lib/spend-scope";
@@ -86,7 +87,17 @@ export async function POST(req: Request) {
     // quoted. The catalogue has always declared it and two customer-facing pages
     // promise it; until now honouring it depended on whoever raised the invoice
     // remembering a purchase that could be months old.
-    const credit = await creditsToward(String(body.email ?? ""), String(engagement));
+    //
+    // Only credit NOT yet applied: a Density Screen already credited against a Study deposit (engagement_credits) is not
+    // owed again, and a ledger that cannot be read is reported as unknown, never as "none" and never as a guess.
+    const found = await availableCredits({ email: String(body.email ?? ""), kind: String(engagement) });
+    const credit = found.ok
+      ? {
+          ok: true as const,
+          cents: found.credits.reduce((a, c) => a + c.amount_cents, 0),
+          from: found.credits.map((c) => ({ kind: c.kind, amount_cents: c.amount_cents })),
+        }
+      : { ok: false as const, cents: 0, from: [], error: found.error };
 
     return NextResponse.json({
       ok: true,

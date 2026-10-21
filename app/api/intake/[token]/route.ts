@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import { generateAndStore, getByIntakeToken, updateByToken, updateByTokenIf } from "@/lib/deliverables";
+import { claimForGeneration, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -61,8 +61,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
-  const row = await getByIntakeToken(token);
+  let row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A row still `generating` long after its request could have lived is one whose invocation died (the platform killed
+  // the function mid-generation). It used to answer 409 "already being processed" for ever, with no recovery path. Move
+  // it to `engine_unavailable` (nothing was stored; resubmitting loses nothing) and carry on as a fresh submission.
+  if (row.status === "generating") {
+    const rec = await recoverStaleGenerating(row);
+    if (rec === "recovered") row = { ...row, status: "engine_unavailable" };
+    else if (rec === "error") {
+      return NextResponse.json({ ok: false, error: "We could not read the state of your submission just now. Please try again shortly." }, { status: 503 });
+    }
+  }
   // Resubmission policy (explicit, minimal): the customer may submit only while
   // the engagement is `awaiting_intake`, or `engine_unavailable` (nothing was
   // generated, so retrying loses nothing). Once a draft exists — or is being
@@ -120,10 +130,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
     // Claim the engagement atomically: only one submission can move it out of an
     // intake-accepting status, so two concurrent POSTs cannot both generate.
-    const claim = await updateByTokenIf(row.token, { intake: doc, status: "generating" }, [
-      "awaiting_intake",
-      "engine_unavailable",
-    ]);
+    const claim = await claimForGeneration(row.token, doc, ["awaiting_intake", "engine_unavailable"]);
     if (claim === "error") {
       return NextResponse.json(
         { ok: false, error: "We could not save your numbers just now. Please try again shortly." },

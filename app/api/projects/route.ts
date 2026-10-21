@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createProject } from "@/lib/projects";
 import { fail, readJson } from "@/lib/project-http";
+import { guardRequest } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,10 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const body = await readJson(req);
   if (!body) return fail({ status: 400, error: "Expected a JSON object." });
+  // Anyone can create a project (there are no accounts), so creation is bounded per caller address. Counted after the body
+  // is read and before anything is written, so a malformed request never uses the allowance.
+  const g = await guardRequest(req, "project_create");
+  if (g.denied) return g.denied;
   const made = await createProject(body);
   if (!made.ok) return fail(made);
   return NextResponse.json(

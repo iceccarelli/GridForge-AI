@@ -386,9 +386,14 @@ describe.runIf(hasPython)("one solve, one persisted pack, one authority for comp
     signIn();
     const before = JSON.stringify(row());
     expect((await admin("doc-tok", "regenerate")).status).toBe(409);        // a draft is not silently rewritten
+    // An in-flight row carries the claim stamp; an unstamped `generating` row is a stale claim and IS recoverable
+    // (tests/site/stuck-generating.test.ts).
+    row().intake = { ...row().intake, _gridforge: { ...row().intake?._gridforge, generating_since: new Date().toISOString() } };
+    const inFlight = JSON.parse(JSON.stringify({ ...row(), status: "generating" }));
     row().status = "generating";
     expect((await admin("doc-tok", "regenerate")).status).toBe(409);
-    expect(JSON.stringify({ ...row(), status: "draft" })).toBe(before);
+    expect(JSON.parse(JSON.stringify(row()))).toEqual(inFlight);                // refused, and not a byte written
+    expect(before).toContain('"status":"draft"');
   });
 
   it("regenerating a held row never touches a released one: the claim is compare-and-set", async () => {

@@ -6,8 +6,10 @@ import { fail, readJson } from "@/lib/project-http";
 
 export const runtime = "nodejs";
 
-// Move a paid deposit forward exactly one step. paid -> contacted needs `owner`; contacted -> scoped
-// needs `scope_note`; scoped -> delivered needs `delivery_ref`. Steps are never skipped or reversed.
+// Move a paid deposit forward exactly one step. paid -> contacted needs `owner`; contacted -> scoped needs `scope_note`,
+// `agreed_fee_cents` (inside the band the deposit was sold against) and `delivery_due_on` (YYYY-MM-DD), and applies any
+// earlier paid Density Screen as a credit, once; scoped -> delivered needs `delivery_ref`. Steps are never skipped or
+// reversed.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
@@ -18,5 +20,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!body) return fail({ status: 400, error: "Expected a JSON object." });
   const r = await advanceDeposit(id, body);
   if (!r.ok) return fail(r);
-  return NextResponse.json({ ok: true, deposit: r.deposit });
+  return NextResponse.json({ ok: true, deposit: r.deposit, balance_due_cents: r.balance_due_cents, credits_applied: r.credits, credits_unapplied: r.credits_unapplied ?? [] });
 }

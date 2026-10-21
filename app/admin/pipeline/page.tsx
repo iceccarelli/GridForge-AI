@@ -16,6 +16,7 @@ import {
 import { EngagementPipeline } from "@/components/EngagementPipeline";
 import { CostEvidenceReview } from "@/components/CostEvidenceReview";
 import { adminRuns, evidenceQueue } from "@/lib/cost-evidence";
+import { attentionList } from "@/lib/attention";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -47,13 +48,14 @@ export default async function PipelinePage() {
     redirect("/admin/login");
   }
 
-  const [deliverables, qualifications, watches, apiAccounts, evidence, runs] = await Promise.all([
+  const [deliverables, qualifications, watches, apiAccounts, evidence, runs, attention] = await Promise.all([
     fetchDeliverables(),
     fetchQualifications(),
     fetchWatches(),
     fetchApiAccounts(),
     evidenceQueue("all"),
     adminRuns(),
+    attentionList(),
   ]);
 
   return (
@@ -66,6 +68,8 @@ export default async function PipelinePage() {
       revoked={revocationList(apiAccounts)}
       insights={summariseQualifications(qualifications)}
       supabaseReady={supabaseConfigured()}
+      attention={attention.ok ? attention.items : null}
+      attentionError={attention.ok ? null : attention.error}
     />
     {/* Supplier pricing: this page is behind the admin cookie check above, and so are the routes the panel calls. */}
     <div className="mx-auto w-full max-w-7xl px-5 pb-24 sm:px-8">

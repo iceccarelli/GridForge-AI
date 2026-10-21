@@ -1,6 +1,7 @@
+import React from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BOARD_HTML, getByToken, isPackFile } from "@/lib/deliverables";
+import { BOARD_HTML, getByToken, isPackFile, packHash } from "@/lib/deliverables";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
 import { BidComparison } from "@/components/BidComparison";
@@ -126,6 +127,8 @@ export default async function DeliverablePage({
           </div>
         </section>
       ) : null}
+      {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? <SpecBasis intake={row.intake} /> : null}
+      {row.kind === "proposal" ? null : <Provenance row={row} />}
       {/* A Procurement Specification is only two thirds delivered without this:
           its catalogue entry promises the comparison, and until now there was
           nowhere for the supplier responses to go. */}
@@ -178,6 +181,86 @@ function priorComparison(row: { working_files?: Record<string, string> | null })
   } catch {
     return null;
   }
+}
+
+type Meta = {
+  endpoint?: string;
+  generated_at?: string;
+  provenance?: { engine_version?: string; code_sha256?: string | null; cost_library_sha256?: string | null; calibration_sha256?: string | null; read_at?: string } | null;
+  review?: { by?: string | null; at?: string; pack_sha256?: string };
+  spec?: { constraint?: string; relief?: string; sized_for_racks?: number };
+};
+const metaOf = (intake: unknown): Meta => ((intake as { _gridforge?: Meta } | null)?._gridforge ?? {}) as Meta;
+const short = (h?: string | null) => (h ? `${h.slice(0, 12)}…` : null);
+
+/**
+ * Where this document came from, from what was recorded when it was generated and released. Nothing here is computed for
+ * display: a field that was not recorded is said to be unrecorded rather than filled in.
+ */
+function Provenance({ row }: { row: { intake?: unknown; document_html?: string | null; working_files?: Record<string, string> | null; released_at?: string | null } }) {
+  const m = metaOf(row.intake);
+  const engine = m.provenance;
+  return (
+    <section className="mt-8 rounded border border-line bg-panel-2 p-5" aria-label="Provenance">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Provenance</p>
+      <dl className="mt-2 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">
+        <dt className="text-faint">Produced by</dt>
+        <dd>
+          {m.endpoint ? `the capacity engine, ${m.endpoint} endpoint` : "the capacity engine"}
+          {m.generated_at ? `, generated ${new Date(m.generated_at).toLocaleDateString("en-IE")}` : ""}
+        </dd>
+        <dt className="text-faint">Engine build</dt>
+        <dd>
+          {engine?.engine_version
+            ? `version ${engine.engine_version}; code ${short(engine.code_sha256) ?? "unrecorded"}, cost library ${short(engine.cost_library_sha256) ?? "unrecorded"}, calibration ${short(engine.calibration_sha256) ?? "unrecorded"} (read from the engine at generation)`
+            : "not recorded for this document"}
+        </dd>
+        <dt className="text-faint">Document fingerprint</dt>
+        <dd className="font-mono text-xs">sha256 {short(packHash({ document_html: row.document_html ?? null, working_files: row.working_files ?? null })) ?? "—"}</dd>
+        <dt className="text-faint">Reviewed and released</dt>
+        <dd>
+          {m.review?.by ? `by ${m.review.by}` : "by a person; the reviewer's name was not recorded"}
+          {m.review?.at ? ` on ${new Date(m.review.at).toLocaleDateString("en-IE")}` : row.released_at ? ` on ${new Date(row.released_at).toLocaleDateString("en-IE")}` : ""}
+          {m.review?.pack_sha256 && m.review.pack_sha256 === packHash({ document_html: row.document_html ?? null, working_files: row.working_files ?? null }) ? ", and the text above is the text that was reviewed" : ""}
+        </dd>
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * The numbers a Procurement Specification was derived from, as the buyer gave them, and which of the site conditions were
+ * NOT given and so rest on a library default. A duty quoted at a site condition nobody supplied is not quoted at "your"
+ * site conditions, and the buyer is entitled to see which kind they have.
+ */
+function SpecBasis({ intake }: { intake: unknown }) {
+  const doc = (intake ?? {}) as Record<string, any>;
+  const m = metaOf(intake);
+  const dry = doc?.site?.design_drybulb_C;
+  const rows: [string, string][] = [
+    ["Summer design dry bulb", typeof dry === "number" ? `${dry} °C (supplied by you)` : "not supplied — the engine used its library default for it. Quotations at a different site condition are not comparable: give suppliers the real figure."],
+    ["Chilled-water supply", typeof doc?.thermal?.plant?.design_supply_C === "number" ? `${doc.thermal.plant.design_supply_C} °C (supplied by you)` : "not supplied"],
+    ["Installed plant capacity", typeof doc?.thermal?.plant?.chilled_water_capacity_kW === "number" ? `${doc.thermal.plant.chilled_water_capacity_kW} kW (supplied by you)` : "not supplied"],
+    ["Firm connection capacity", typeof doc?.grid?.firm_capacity_MVA === "number" ? `${doc.grid.firm_capacity_MVA} MVA (supplied by you)` : "not supplied"],
+  ];
+  return (
+    <section className="mt-8 rounded border border-line bg-panel-2 p-5" aria-label="Basis of this specification">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Basis of this specification</p>
+      <p className="mt-2 max-w-3xl text-sm text-mute">
+        Every numeric requirement in it names the constraint of the capacity model it came from.
+        {m.spec?.constraint ? ` It is written for one relief: ${m.spec.relief || m.spec.constraint}${m.spec.sized_for_racks ? `, sized for ${m.spec.sized_for_racks} racks` : ""}.` : ""}{" "}
+        These are the site conditions it was derived from and where each came from.
+      </p>
+      <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">
+        {rows.map(([k, v]) => (
+          <React.Fragment key={k}>
+            <dt className="text-faint">{k}</dt>
+            <dd>{v}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </section>
+  );
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
