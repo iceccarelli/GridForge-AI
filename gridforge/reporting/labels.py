@@ -20,7 +20,7 @@ import math
 from ..common import V
 from ..envelope.solver import HeadroomLadder, rack_evidence
 from ..envelope.time_to_power import (  # noqa: F401  (re-exported for the report modules)
-    elapsed_bands, full_capacity_band, schedule_complete)
+    ASSUMED_DATE_LABEL, DateBasis, date_basis, date_basis_of, elapsed_bands, full_capacity_band, schedule_complete)
 from ..scenario.run import ScenarioResult
 from ..validation import EvidenceClass, Quantity
 
@@ -71,6 +71,19 @@ def full_capacity_q(ladder: HeadroomLadder, ttp, label: str) -> Quantity | None:
     a relief taken has no lead time)."""
     got = full_capacity_band(ladder, ttp)
     return None if got is None else weeks_q(got[0], got[1], got[2], got[3], label)
+
+
+def date_title(base: str, db: DateBasis) -> str:
+    """A heading or row label for a time figure: never the bare words "Time to full capacity" while the lead time
+    behind it is an assumption."""
+    return f"{base} ({ASSUMED_DATE_LABEL})" if db.assumed else base
+
+
+def date_basis_text(db: DateBasis, basis: str = "") -> str:
+    """The caption under a time figure: what it rests on, then whatever else the renderer says about it."""
+    if db.basis == "none":
+        return basis
+    return f"{db.caption}" + (f" · {basis}" if basis else "")
 
 
 def dominant_sensitivity(sensitivities, base: int):

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..calibration import accuracy_block, constraint_key
-from ..envelope.time_to_power import schedule
+from ..envelope.time_to_power import date_basis, schedule
 from ..intake.loader import Intake
 from ..reporting.study import Objective, _pick_recommended
 from ..scenario.run import ScenarioResult
@@ -53,6 +53,9 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
             "architecture": rec.spec.name,
             "then_binds_on": rec.ladder.final.binding.name if rec.ladder.final else None,
             "sets_the_date": t.critical_item,
+            # What the date rests on (no number of weeks: safe on the public tier). "assumed" means the item that
+            # sets it carries an assumed lead time: it is not a date.
+            **date_basis(rec.ladder, t).to_dict(),
         },
         "first_three_constraints": [
             {"name": s.binding_name, "domain": s.domain, "relief": s.relief_description}

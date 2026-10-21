@@ -110,6 +110,66 @@ try {
     await ctx.close();
   }
 
+  // Journey: the free-allowance form (no card, email only) must not claim a link was sent when the backend is unconfigured,
+  // must re-enable its button, and must show an error a person can read, at phone width.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/developers", { waitUntil: "networkidle" });
+    const field = page.getByLabel(/email/i).first();
+    await field.fill("someone@example.com");
+    const submit = field.locator("xpath=ancestor::form//button[@type='submit']");
+    await submit.click();
+    await page.waitForTimeout(2000);
+    const body = (await page.locator("body").innerText()).toLowerCase();
+    if (/check your email|we have sent|link is on its way/.test(body)) fail("free allowance journey", "claims an email was sent although the backend is not configured");
+    if (await submit.isDisabled()) fail("free allowance journey", "button still disabled after the failure");
+    if (!(await page.locator("[role=alert]").count())) fail("free allowance journey", "failure shown with no alert role");
+    await ctx.close();
+  }
+
+  // Journey: the cost estimator answers from the published registry with no network, for a one-hall and a many-hall request.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/developers", { waitUntil: "networkidle" });
+    const op = page.getByLabel(/operation/i).first();
+    const text = async () => (await page.locator("body").innerText());
+    const options = await op.locator("option").allTextContents();
+    if (options.length < 3) fail("estimator journey", `only ${options.length} operations offered`);
+    const portfolio = options.find((o) => /portfolio/i.test(o));
+    if (!portfolio) fail("estimator journey", "no portfolio operation");
+    else {
+      await op.selectOption({ label: portfolio });
+      const halls = page.getByLabel(/halls in one request/i).first();
+      await halls.fill("10");
+      await page.waitForTimeout(300);
+      if (!/€\s?20\b|20\.00/.test(await text())) fail("estimator journey", "10 halls at 1 unit each should price at EUR 20 (10 units x EUR 2)");
+    }
+    await ctx.close();
+  }
+
+  // Journey: an unknown portal token is a not-found page, not a crash and not an empty account.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
+    const page = await ctx.newPage();
+    const res = await page.goto(BASE + "/api-access/not-a-real-token", { waitUntil: "networkidle" });
+    if (!res || res.status() !== 404) fail("portal journey", `unknown token answered ${res && res.status()}`);
+    await ctx.close();
+  }
+
+  // Journey: pricing states the billing rule and the free path before any paid one.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/pricing", { waitUntil: "networkidle" });
+    const t = (await page.locator("body").innerText()).toLowerCase();
+    if (!/in arrears/.test(t)) fail("pricing journey", "billing in arrears is not stated");
+    if (!/free/.test(t) || !/no card|without a card|no payment card/.test(t)) fail("pricing journey", "the no-card free path is not stated");
+    if (/unlimited re-run|named engineer|priority on new/.test(t)) fail("pricing journey", "an unbuilt promise is advertised");
+    await ctx.close();
+  }
+
   // Keyboard: the primary CTA on the home page is reachable by Tab and shows a focus ring.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -139,4 +199,4 @@ if (failures.length) {
   for (const f of failures) console.error("  - " + f);
   process.exit(1);
 }
-console.log(`browser journeys: ${PAGES.length * WIDTHS.length} page renders and 4 journeys passed`);
+console.log(`browser journeys: ${PAGES.length * WIDTHS.length} page renders and 8 journeys passed`);

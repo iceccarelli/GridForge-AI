@@ -21,7 +21,7 @@ from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
-from .labels import racks_q
+from .labels import date_basis, date_basis_text, date_title, full_capacity_q, racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 
@@ -64,12 +64,14 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         "Deployable after the costed ladder",
         racks_q(rec.unlocked_racks, "deployable racks after relief", rec),
         rec.spec.name))
-    if t.weeks_to_full is not None:
+    # The figure is banded and classed by the lead times that set it (it used to be a flat E3 with an invented
+    # x0.7 / x1.6 band, above the E0 of the assumed lead time behind it).
+    full_q = full_capacity_q(rec.ladder, t, "elapsed weeks to full energisation")
+    if full_q is not None:
+        db = date_basis(rec.ladder, t)
         s.blocks.append(Statement(
-            "Time to full capacity",
-            V(t.weeks_to_full, "weeks", "elapsed weeks to full energisation", ESTIMATED,
-              band=(t.weeks_to_full * 0.7, t.weeks_to_full * 1.6)),
-            f"set by {t.critical_item.lower()}"))
+            date_title("Time to full capacity", db), full_q,
+            date_basis_text(db, f"set by {t.critical_item.lower()}")))
     s.blocks.append(Callout("answer",
         f"Binding constraint: {rec.envelope.binding.name} ({rec.envelope.binding.domain}). "
         f"{rec.envelope.binding.basis}."))

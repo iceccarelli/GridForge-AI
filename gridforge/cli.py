@@ -157,6 +157,8 @@ def cmd_power_deploy_assess(args) -> int:
     for a in result["architectures"]:
         capex = f"EUR {a['capex_eur']:,.0f}" if a["capex_eur"] is not None else "UNKNOWN"
         lead = f"{a['lead_time_weeks']:.0f}w" if a["lead_time_weeks"] is not None else "UNKNOWN"
+        if a.get("date_basis") == "assumed":
+            lead += " (assumed lead time, not a date)"
         print(f"    {a['status'].upper():25s} {a['label']:28s} capex={capex:>16s}  lead={lead}")
         if a["rfq_ready"]:
             if a["execution_ready"]:
@@ -225,7 +227,8 @@ def cmd_power_assess(args) -> int:
           f"{case['capacity']['racks_after_full_headroom_ladder']} racks")
     if ttp["weeks_to_full"] is not None:
         print(f"  Time to full power : {ttp['weeks_to_full']:.0f} weeks "
-              f"(critical: {ttp['critical_item']})")
+              f"(critical: {ttp['critical_item']})"
+              + (f" — {ttp['date_label']}" if ttp.get("date_basis") == "assumed" else ""))
     print(f"  Calibration        : {case['evidence']['calibration']['state']}")
     print(f"  Next action        : {case['next_action']['action']}")
     return 0
@@ -347,6 +350,7 @@ def cmd_diff(args) -> int:
         "after": d.after.__dict__,
         "racks_delta": d.racks_delta,
         "weeks_delta": d.weeks_delta,
+        **d.after.date_basis(),
         "capex_delta_eur": d.capex_delta,
         "binding_moved": d.binding_moved,
         "changed_inputs": d.changed_paths,
@@ -675,6 +679,15 @@ def cmd_key(args) -> int:
     return 0
 
 
+def _spec_lead_basis(pkg) -> dict:
+    """date_basis / date_evidence_class / date_binding_item / date_label for the specification's modelled lead
+    time: an assumed lead time (E0) is labelled as one."""
+    from .envelope.time_to_power import NO_DATE, date_basis_of
+    if pkg.lead_time_weeks is None:
+        return NO_DATE.to_dict()
+    return date_basis_of(pkg.lead_time_weeks.evidence, pkg.constraint_name).to_dict()
+
+
 def cmd_spec(args) -> int:
     """A tender-ready specification for one relief, and the template for responses."""
     from .procurement import ProcurementError, build_spec, relief_steps
@@ -731,6 +744,7 @@ def cmd_spec(args) -> int:
                           "constraint": pkg.constraint_id,
                           "sized_for_racks": pkg.sized_for_racks,
                           "reference": args.reference,
+                          **_spec_lead_basis(pkg),
                           "site_conditions": [c.to_dict() for c in pkg.site_conditions],
                           "assumed_inputs": [a.to_dict() for a in pkg.assumed_inputs]},
         "supplier": "",
@@ -901,8 +915,9 @@ def cmd_compare(args) -> int:
     print(f"Time-to-Power comparison — {out['project'].get('client', '')} ({out['grade']}; baseline {out['baseline']})")
     for r in out["scenarios"]:
         t = r["time_to_power"]
-        date = (f"{t['weeks']:g} wk ({t['low']:g}-{t['high']:g}, {t['evidence']})" if t["weeks"] is not None
-                else f"no date — {t['reason']}")
+        date = (f"{t['weeks']:g} wk ({t['low']:g}-{t['high']:g}, {t['evidence']})"
+                + (" — assumed lead time, not a date" if t.get("date_basis") == "assumed" else "")
+                if t["weeks"] is not None else f"no date — {t['reason']}")
         print(f"  {r['id']:<13} {r['after_ladder']['racks']:>4} racks  {date}")
     rk = out["ranking"]
     print(f"  ranking on {rk['objective']}: " + (", ".join(rk["order"]) or "nothing can be ranked") +

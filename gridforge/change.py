@@ -113,6 +113,17 @@ class EnvelopeState:
     price_basis_digest: str = ""
     relief_path_digest: str = ""
 
+    def date_basis(self) -> dict:
+        """date_basis / date_evidence_class / date_binding_item / date_label for the recorded figure. A class that
+        was not recorded is read as E0, never as a stronger one."""
+        from .envelope.time_to_power import NO_DATE, date_basis_of
+        from .validation import EvidenceClass
+        if self.weeks_to_full is None:
+            return NO_DATE.to_dict()
+        cls = EvidenceClass[self.weeks_class] if self.weeks_class in EvidenceClass.__members__ \
+            else EvidenceClass.E0_ASSUMPTION
+        return date_basis_of(cls, self.sets_the_date or None).to_dict()
+
     @staticmethod
     def of(res: ScenarioResult, doc: dict | None = None) -> "EnvelopeState":
         t = schedule(res.ladder)

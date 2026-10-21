@@ -18,7 +18,8 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from ..validation import EvidenceClass, Quantity
-from .labels import capex_per_rack_q, full_capacity_q, rack_class, schedule_complete
+from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, date_basis, full_capacity_q, rack_class,
+                     schedule_complete)
 from .study import Objective, _pick_recommended, collect_claims
 
 INF = math.inf
@@ -64,6 +65,11 @@ class SiteEntry:
         relief taken has no lead time (a missing lead time is unknown, not zero)."""
         return full_capacity_q(self.best.ladder, schedule(self.best.ladder),
                                f"{self.intake.context.hall.id}: time to full capacity")
+
+    @property
+    def date_basis(self):
+        """What the time-to-power figure rests on (assumed lead time, supported, or none)."""
+        return date_basis(self.best.ladder, schedule(self.best.ladder))
 
     @property
     def weeks(self) -> float:
@@ -177,7 +183,8 @@ def _weeks_text(e: SiteEntry) -> str:
     if q is None:
         return "no schedule available"
     lo, hi = q.band
-    return f"{q.value:.0f} weeks" + (f" ({lo:.0f}–{hi:.0f})" if hi > lo else "")
+    return (f"{q.value:.0f} weeks" + (f" ({lo:.0f}–{hi:.0f})" if hi > lo else "")
+            + (f" — {ASSUMED_DATE_LABEL}" if e.date_basis.assumed else ""))
 
 
 def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MAX_COMPUTE) -> list[dict]:
@@ -196,6 +203,7 @@ def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MA
             "weeks_band": None if w is None else list(w.band),
             "weeks_evidence": None if w is None else w.evidence.name,
             "schedule_complete": e.schedule_complete,
+            **e.date_basis.to_dict(),
             "capex_eur": c.value, "capex_band_eur": list(c.band), "capex_evidence": c.evidence.name,
             "capex_complete": e.best.economics.capex_complete,
             "decision_grade": e.best.economics.decision_grade,
@@ -254,12 +262,16 @@ def build(entries: list[SiteEntry], *, client: str = "Portfolio",
             e.best.envelope.binding.name,
             note,
         ])
-    s.blocks.append(Table(["#", "Hall", "Metro", "Racks", "Time to power", "Capex",
+    any_assumed = any(e.date_basis.assumed for e in ordered)
+    s.blocks.append(Table(["#", "Hall", "Metro", "Racks",
+                           f"Time to power ({ASSUMED_DATE_LABEL})" if any_assumed else "Time to power", "Capex",
                            "Capex per rack", "Binds first", "Ranking note"], rows,
                           caption="Ranked portfolio. Each figure carries the evidence class of the weakest "
                                   "input that determines it. Time to power and capex are bounded by the lead "
                                   "times and prices on each hall's relief path, not by a fixed multiplier. "
-                                  "Capex excludes IT hardware, migration and lost tenancy revenue."))
+                                  "Capex excludes IT hardware, migration and lost tenancy revenue."
+                                  + (f" A time figure marked E0 is an {ASSUMED_DATE_LABEL}, not an "
+                                     "energisation date." if any_assumed else "")))
     r.sections.append(s)
 
     s = Section("2. Where the portfolio is constrained")

@@ -24,7 +24,7 @@ this codebase spends its test suite guarding against.
 from __future__ import annotations
 
 from ..calibration import accuracy_block, constraint_key
-from ..envelope.time_to_power import schedule
+from ..envelope.time_to_power import date_basis, schedule
 from ..intake.loader import Intake
 from ..procurement import relief_steps
 from ..scenario.run import ScenarioResult
@@ -197,6 +197,7 @@ def assess(intake: Intake, results: list[ScenarioResult], *,
             "critical_item": t.critical_item,
             "critical_path_weeks": t.critical_weeks if t.complete else None,
             "schedule_complete": t.complete,
+            **date_basis(rec.ladder, t).to_dict(),
             "dependencies": _dependencies(steps),
         },
         "evidence": {

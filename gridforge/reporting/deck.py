@@ -27,7 +27,8 @@ from ..envelope.time_to_power import TimeToPower, schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .study import Objective, _pick_recommended
-from .labels import full_capacity_q, is_zero_gain
+from ..validation import EvidenceClass
+from .labels import ASSUMED_DATE_LABEL, date_basis, date_title, full_capacity_q, is_zero_gain
 
 MARK = "#1193A8"       # capacity — dimmed step of the brand's `power`
 MARK_ALT = "#BD8318"   # delay    — dimmed step of the brand's `queue`
@@ -54,7 +55,7 @@ class Deck:
 
 
 # --- charts ------------------------------------------------------------------
-def _energisation_svg(t: TimeToPower) -> str:
+def _energisation_svg(t: TimeToPower, assumed: bool = False) -> str:
     """Racks energised against elapsed weeks. A step chart, because capacity arrives
     in discrete unlocks rather than continuously."""
     # One point per distinct week, keeping the highest rack count at that week.
@@ -107,12 +108,12 @@ def _energisation_svg(t: TimeToPower) -> str:
     labels = []
     if first:
         labels.append(f'<text x="{px(first[0]) + 12:.1f}" y="{py(first[1]) - 12:.1f}" '
-                      f'class="lbl">{first[1]:.0f} racks · week {first[0]:.0f}</text>')
+                      f'class="lbl">{first[1]:.0f} racks · week {first[0]:.0f}{" (assumed)" if assumed else ""}</text>')
     lx, ly = pts[-1]
     labels.append(f'<text x="{px(lx) + 14:.1f}" y="{py(ly) + 4:.1f}" class="lbl big">'
                   f'{ly:.0f} racks</text>')
     labels.append(f'<text x="{px(lx) + 14:.1f}" y="{py(ly) + 24:.1f}" class="lbl dim">'
-                  f'week {lx:.0f}</text>')
+                  f'week {lx:.0f}{" (assumed)" if assumed else ""}</text>')
 
     return f'''<svg viewBox="0 0 {w} {h}" role="img"
   aria-label="Racks energised against elapsed weeks. {ly:.0f} racks at week {lx:.0f}.">
@@ -126,7 +127,7 @@ def _energisation_svg(t: TimeToPower) -> str:
   <path d="{area}" fill="{MARK}" fill-opacity="0.12"/>
   <path d="{line}" fill="none" stroke="{MARK}" stroke-width="2" stroke-linejoin="round"/>
   {''.join(marks)}{''.join(ticks)}{''.join(labels)}
-  <text x="{ml}" y="{h - 8}" class="cap">elapsed weeks — reliefs run in parallel</text>
+  <text x="{ml}" y="{h - 8}" class="cap">elapsed weeks — reliefs run in parallel{" · assumed lead times, not dates" if assumed else ""}</text>
   <text x="{ml - 54}" y="16" class="cap">racks energised</text>
 </svg>'''
 
@@ -189,6 +190,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
              "carries its evidence class and range. This deck shows them rounded and without the "
              "labels, so read it as modelled, not measured."))
 
+    _db = date_basis(rec.ladder, t)
     _fq = full_capacity_q(rec.ladder, t, "weeks to full capacity")
     _range = (f" (range {_fq.band[0]:.0f}–{_fq.band[1]:.0f})" if _fq is not None and _fq.band[1] > _fq.band[0] else "")
     d.slides.append(Slide(
@@ -198,10 +200,10 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         figures=[
             ("Deployable today", str(rec.envelope.max_racks), "racks, as the hall stands"),
             ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
-            ("Time to full capacity",
+            (date_title("Time to full capacity", _db),
              "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
-             (f"weeks{_range} · set by {t.critical_item.lower()}" if t.complete else
-              "no date: a lead time on the path is missing")),
+             (f"weeks{_range} · set by {t.critical_item.lower()}" + (f" · {_db.caption}" if _db.assumed else "")
+              if t.complete else "no date: a lead time on the path is missing")),
         ]))
 
     def _relief(s):
@@ -223,14 +225,19 @@ def build(intake: Intake, results: list[ScenarioResult], *,
               + (f" Showing the first 8 of the {n_rungs} rungs taken; the full ladder is in the written study "
                  f"(section 2) and the final answer, {rec.unlocked_racks} racks, is reached only "
                  "after all of them." if n_rungs > 8 else "")),
-        table=(["#", "Constraint", "Racks", "Relief", "Capex", "Lead time"], ladder_rows)))
+        table=(["#", "Constraint", "Racks", "Relief", "Capex",
+                "Lead time (assumed, E0)" if any(s.lead_time_weeks is not None
+                                                 and s.lead_time_weeks.evidence <= EvidenceClass.E0_ASSUMPTION
+                                                 for s in rec.ladder.steps[:8]) else "Lead time"],
+               ladder_rows)))
 
     d.slides.append(Slide(
         kicker="When",
         title="Time to power",
         lead=("Reliefs run in parallel, so the racks unlocked by the first N steps arrive at the "
-              f"longest lead time among them. One item sets the date: {t.critical_item.lower()}."),
-        svg=_energisation_svg(t),
+              f"longest lead time among them. One item sets the "
+              f"{'assumed lead time (not a date)' if _db.assumed else 'date'}: {t.critical_item.lower()}."),
+        svg=_energisation_svg(t, _db.assumed),
         note="Capacity arrives in steps, not continuously — each step is a constraint relieved."))
 
     d.slides.append(Slide(
