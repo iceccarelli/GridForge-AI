@@ -20,7 +20,8 @@ import {
   type ApiAccount,
 } from "@/lib/api-access";
 import { lookupSubscriptionByStripeId, recordSubscription, subscriptionBySession, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
-import { recordDeposit } from "@/lib/deposits";
+import { depositBySession, recordDeposit } from "@/lib/deposits";
+import { depositTerms } from "@/lib/engagement-state";
 import { notifyCustomer } from "@/lib/notifications";
 import { attachPurchase, isProjectAttachable, purchaseObjectType } from "@/lib/projects";
 
@@ -225,6 +226,15 @@ export async function POST(req: Request) {
       if (/^[0-9a-f-]{36}$/i.test(reserved)) await pg("DELETE", `founding_reservations?id=eq.${reserved}`, undefined, "return=minimal");
       // One email per payment, not one per redelivery.
       if (recorded.created) await notifyFounder({ email, company, amount });
+      // The buyer's own receipt of what the deposit states: a durable obligation of its own (one per deposit, redelivery-safe),
+      // for the deposits this site sells. A redelivery retries it if it never went out.
+      if (depositTerms(kind)) {
+        const dep = await depositBySession(session.id);
+        if (!dep) return fulfilmentFailed("deposit receipt (record unreadable)", session.id);
+        if ((await notifyCustomer("deposit_receipt", dep.id, "", { replay: !recorded.created })) === "retry_webhook") {
+          return fulfilmentFailed("deposit receipt", session.id);
+        }
+      }
     }
   }
 

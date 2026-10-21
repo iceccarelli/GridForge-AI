@@ -234,3 +234,22 @@ export function toIntakeDocument(i: ScreenIntake, company?: string): Record<stri
     scenarios: ["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"],
   });
 }
+
+/**
+ * What a scoping call needs from the buyer, keyed by the engagement intake's own fields (a test checks every key is a real
+ * field of the schema, so this list cannot drift from the form). Used by the deposit receipt: a deposit opens no intake
+ * form, so the buyer is told up front which numbers to have to hand. Anything not available is not a blocker: it becomes a
+ * named assumption, exactly as in an intake.
+ */
+export const SCOPING_PREPARATION: { field: keyof typeof baseShape; label: string; from: string }[] = [
+  { field: "firmCapacityMVA", label: "Firm connection capacity (MVA)", from: ASSUMABLE_SOURCE.firmCapacityMVA },
+  { field: "contractedMW", label: "Contracted capacity (MW)", from: "your supply contract" },
+  { field: "currentPeakMW", label: "Current site peak demand (MW) and current IT load (MW)", from: "your metering or operations team" },
+  { field: "buswayAmpacityA", label: "Busway ampacity (A) and tap-off rating (A)", from: "the LV distribution schedule" },
+  { field: "floorLoadingKPa", label: "Floor loading (kPa)", from: ASSUMABLE_SOURCE.floorLoadingKPa },
+  { field: "plantCapacityKW", label: "Chilled-water plant capacity (kW) and design supply temperature (C)", from: ASSUMABLE_SOURCE.plantCapacityKW },
+  { field: "positionsAvailable", label: "Rack positions available in the hall", from: "the hall layout" },
+  { field: "transformers", label: "Transformer and UPS schedules (rating, units, redundancy)", from: "the electrical single-line diagram" },
+  { field: "designDrybulbC", label: "Site summer design dry-bulb temperature (C)", from: "the site's climate basis of design" },
+  { field: "platform", label: "The compute platform you intend to deploy, and the utilisation you expect", from: "your own plan" },
+];

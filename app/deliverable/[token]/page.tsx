@@ -127,7 +127,7 @@ export default async function DeliverablePage({
           </div>
         </section>
       ) : null}
-      {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? <SpecBasis intake={row.intake} /> : null}
+      {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? <SpecBasis intake={row.intake} files={row.working_files} /> : null}
       {row.kind === "proposal" ? null : <Provenance row={row} />}
       {/* A Procurement Specification is only two thirds delivered without this:
           its catalogue entry promises the comparison, and until now there was
@@ -233,7 +233,22 @@ function Provenance({ row }: { row: { intake?: unknown; document_html?: string |
  * NOT given and so rest on a library default. A duty quoted at a site condition nobody supplied is not quoted at "your"
  * site conditions, and the buyer is entitled to see which kind they have.
  */
-function SpecBasis({ intake }: { intake: unknown }) {
+type CarriedCondition = { id?: string; label?: string; status?: string; value?: number | null; text?: string | null; unit?: string | null; evidence?: string | null };
+type CarriedAssumption = { label?: string; path?: string; unit?: string; assumed?: string };
+
+/** The conditions and assumptions the ENGINE reported with the specification, if its result carried them; otherwise null. */
+function carriedBasis(files: Record<string, string> | null | undefined): { conditions: CarriedCondition[]; assumed: CarriedAssumption[] } | null {
+  try {
+    const d = JSON.parse(files?.["specification.json"] ?? "null") as { site_conditions?: unknown; assumed_inputs?: unknown } | null;
+    if (!d || !Array.isArray(d.site_conditions) || d.site_conditions.length === 0) return null;
+    return { conditions: d.site_conditions as CarriedCondition[], assumed: Array.isArray(d.assumed_inputs) ? (d.assumed_inputs as CarriedAssumption[]) : [] };
+  } catch {
+    return null;
+  }
+}
+
+function SpecBasis({ intake, files }: { intake: unknown; files?: Record<string, string> | null }) {
+  const carried = carriedBasis(files);
   const doc = (intake ?? {}) as Record<string, any>;
   const m = metaOf(intake);
   const dry = doc?.site?.design_drybulb_C;
@@ -251,14 +266,41 @@ function SpecBasis({ intake }: { intake: unknown }) {
         {m.spec?.constraint ? ` It is written for one relief: ${m.spec.relief || m.spec.constraint}${m.spec.sized_for_racks ? `, sized for ${m.spec.sized_for_racks} racks` : ""}.` : ""}{" "}
         These are the site conditions it was derived from and where each came from.
       </p>
-      <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">
-        {rows.map(([k, v]) => (
-          <React.Fragment key={k}>
-            <dt className="text-faint">{k}</dt>
-            <dd>{v}</dd>
-          </React.Fragment>
-        ))}
-      </dl>
+      {carried ? (
+        <>
+          <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">
+            {carried.conditions.map((c, i) => (
+              <React.Fragment key={c.id ?? i}>
+                <dt className="text-faint">{c.label ?? c.id}</dt>
+                <dd>
+                  {c.value !== null && c.value !== undefined ? `${c.value}${c.unit ? ` ${c.unit}` : ""}` : (c.text ?? "—")}
+                  {c.evidence ? ` (evidence ${c.evidence})` : ""}
+                  {c.status ? `: ${c.status.replace(/_/g, " ")}` : ""}
+                </dd>
+              </React.Fragment>
+            ))}
+          </dl>
+          {carried.assumed.length ? (
+            <>
+              <p className="mt-3 max-w-3xl text-sm text-mute">Inputs that were assumed rather than supplied:</p>
+              <ul className="mt-1 max-w-3xl list-disc pl-5 text-sm text-mute">
+                {carried.assumed.map((a, i) => (
+                  <li key={a.path ?? i}>{a.label ?? a.path}: not supplied, assumed {a.assumed}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">
+          {rows.map(([k, v]) => (
+            <React.Fragment key={k}>
+              <dt className="text-faint">{k}</dt>
+              <dd>{v}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
     </section>
   );
 }

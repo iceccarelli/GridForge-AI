@@ -232,6 +232,8 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     // the numbers trace to the capacity model and the site conditions are stated in the document
     expect(row.document_html).toContain("From constraint");
     expect(row.document_html).toContain("Technical requirements");
+    // the engine's document states its site conditions and assumptions itself (section 2A)
+    expect(row.document_html).toContain("Site conditions and assumptions");
     expect(row.document_html).toMatch(/site conditions/i);
 
     // released: the page states the site conditions it was derived from and where each came from
@@ -288,4 +290,35 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     expect(fixed.status).toBe("draft");
     expect((await releaseWith(fixed.token, packHash(fixed), "A. Rivera")).status).toBe(200);
   }, 120_000);
+});
+
+describe("the spec's site conditions, as the ENGINE reports them with the result", () => {
+  it("the page lists them (and the assumed inputs) when specification.json carries them, and does not reconstruct them when it does not", async () => {
+    await buy("procurement_spec", 1_800_000);
+    const d = rowOf("procurement_spec");
+    Object.assign(d, {
+      status: "released", document_html: "<p>spec</p>", released_at: new Date().toISOString(),
+      intake: { site: { design_drybulb_C: 38 }, _gridforge: { endpoint: "spec" } },
+      working_files: {
+        "specification.json": JSON.stringify({
+          constraint_id: "cdu_capacity",
+          site_conditions: [
+            { id: "SC-1", label: "Summer design dry bulb", value: 38, unit: "degC", evidence: "E5", status: "supplied" },
+            { id: "SC-2", label: "Altitude", value: null, text: "not modelled", status: "not_modelled" },
+          ],
+          assumed_inputs: [{ path: "grid.firm_capacity_MVA", label: "Firm connection capacity", unit: "MVA", assumed: "15.0 MVA (E0)" }],
+        }),
+      },
+    });
+    let page = await deliverablePage(d.token);
+    expect(page).toContain("Summer design dry bulb");
+    expect(page).toContain("38 degC (evidence E5): supplied");
+    expect(page).toContain("Altitude");
+    expect(page).toContain("Firm connection capacity: not supplied, assumed 15.0 MVA (E0)");
+    // without them, only what the buyer supplied is shown, labelled as theirs
+    d.working_files = { "specification.json": JSON.stringify({ constraint_id: "cdu_capacity" }) };
+    page = await deliverablePage(d.token);
+    expect(page).toContain("38 °C (supplied by you)");
+    expect(page).not.toContain("assumed 15.0 MVA");
+  });
 });

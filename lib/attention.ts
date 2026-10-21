@@ -147,3 +147,63 @@ export async function attentionList(now: number = Date.now()): Promise<Attention
   const items = classify({ deliverables: d.data ?? [], deposits: p.data ?? [], watches: w.data ?? [], notices: n.ok ? (n.data ?? []) : [] }, now);
   return { ok: true, items, checked_at: new Date(now).toISOString() };
 }
+
+// ------------------------------------------------------------------------------------------------ deposits table
+
+export interface DepositView {
+  id: string;
+  what: string;
+  buyer: string | null;
+  company: string | null;
+  status: string;
+  /** Whole days since the payment cleared. */
+  age_days: number | null;
+  paid_at: string | null;
+  owner: string | null;
+  contacted_at: string | null;
+  fee_cents: number | null;
+  credit_cents: number | null;
+  balance_due_cents: number | null;
+  due: string | null;
+  delivered_at: string | null;
+  /** The attention kind this deposit is currently flagged with, if any. */
+  flag: AttentionKind | null;
+}
+
+/** Pure: the operator's deposits table from rows already read (oldest payment first). Exported for tests. */
+export function shapeDeposits(rows: Row[], now: number = Date.now()): DepositView[] {
+  const flags = new Map<string, AttentionKind>();
+  for (const i of classify({ deliverables: [], deposits: rows, watches: [], notices: [] }, now)) flags.set(i.ref, i.kind);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  return [...rows]
+    .sort((a, b) => String(a.paid_at ?? "").localeCompare(String(b.paid_at ?? "")))
+    .map((p) => {
+      const fee = num(p.agreed_fee_cents);
+      const credit = fee === null ? null : (num(p.credit_applied_cents) ?? 0);
+      return {
+        id: String(p.id),
+        what: nameOf(String(p.kind)),
+        buyer: str(p.email),
+        company: str(p.company),
+        status: String(p.status ?? ""),
+        age_days: ageDays(str(p.paid_at), now),
+        paid_at: str(p.paid_at),
+        owner: str(p.owner),
+        contacted_at: str(p.contacted_at),
+        fee_cents: fee,
+        credit_cents: credit,
+        balance_due_cents: fee === null ? null : Math.max(0, fee - (num(p.amount_cents) ?? 0) - (credit ?? 0)),
+        due: str(p.delivery_due_on),
+        delivered_at: str(p.delivered_at),
+        flag: flags.get(String(p.id)) ?? null,
+      };
+    });
+}
+
+/** Every deposit (delivered ones too, so the record of what was committed and when stays readable), shaped for the table. */
+export async function depositTable(now: number = Date.now()): Promise<{ ok: true; items: DepositView[] } | { ok: false; error: string }> {
+  if (!creds()) return { ok: false, error: STORE_UNCONFIGURED.error };
+  const r = await rest<Row[]>("GET", "engagement_deposits?select=*&order=paid_at.asc&limit=500");
+  if (!r.ok) return { ok: false, error: "The deposit list could not be read." };
+  return { ok: true, items: shapeDeposits(r.data ?? [], now) };
+}
