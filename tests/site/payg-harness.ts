@@ -14,7 +14,7 @@ import { PgError, PostgrestFake, type Row } from "./postgrest-fake";
 import type { InvoiceLite, PaygStripe } from "@/lib/payg-stripe";
 
 export const PAYG_TABLES = [
-  "api_accounts", "usage_events", "usage_settlements", "payg_cursor", "usage_alerts", "funnel_events",
+  "api_accounts", "usage_events", "usage_settlements", "usage_quarantine", "payg_cursor", "usage_alerts", "funnel_events",
   "customer_notifications", "subscriptions", "scenarios", "watches", "watch_notes", "deliverables", "leads",
 ];
 
@@ -22,6 +22,7 @@ export function newPaygDb(): PostgrestFake {
   const db = new PostgrestFake(PAYG_TABLES);
   db.uniqueKeys.set("api_accounts", [["token"], ["account"], ["free_email_norm"]]);
   db.uniqueKeys.set("usage_events", [["event_id"], ["seq"]]);
+  db.uniqueKeys.set("usage_quarantine", [["seq"]]);
   db.uniqueKeys.set("usage_settlements", [["account", "month"]]);
   db.uniqueKeys.set("usage_alerts", [["account", "month", "percent"]]);
   db.uniqueKeys.set("funnel_events", [["dedupe_key"]]);
@@ -33,7 +34,7 @@ export function newPaygDb(): PostgrestFake {
   db.rowDefaults.set("api_accounts", () => ({
     revoked_key_ids: [], revoked_confirmed_ids: [], key_id: null, key_issued_at: null, key_expires_at: null, key_scope: null,
     cap_units: null, stripe_payment_method_id: null, payg_enabled_at: null, free_email_norm: null, status: "active",
-    stripe_customer_id: null, stripe_subscription_id: null, last_billing_event_ts: null, monthly_units: 0,
+    stripe_customer_id: null, stripe_subscription_id: null, last_billing_event_ts: null, monthly_units: 0, overlap_key_ids: {}, free_verified_at: null,
   }));
   db.rowDefaults.set("usage_settlements", () => ({
     carried_units: 0, carried_months: [], rolled_into: null, stripe_invoice_id: null, stripe_invoice_item_id: null, hosted_invoice_url: null,
@@ -76,8 +77,8 @@ function effective(db: PostgrestFake) {
 const signed = (e: { kind: string; units: number }) => (e.kind === "charge" ? e.units : -e.units);
 
 export function installPaygRpcs(db: PostgrestFake): void {
-  db.rpcs.set("gf_usage_ingest", ({ p_events, p_cursor }: { p_events: Row[]; p_cursor: number }) => {
-    if (!Array.isArray(p_events)) throw new PgError("22023", "p_events must be a JSON array", 400);
+  db.rpcs.set("gf_usage_ingest", ({ p_events, p_cursor, p_quarantine }: { p_events: Row[]; p_cursor: number; p_quarantine?: Row[] }) => {
+    if (!Array.isArray(p_events) || (p_quarantine !== undefined && !Array.isArray(p_quarantine))) throw new PgError("22023", "p_events and p_quarantine must be JSON arrays", 400);
     const store = db.rows("usage_events");
     let inserted = 0;
     for (const e of p_events) {
@@ -87,10 +88,16 @@ export function installPaygRpcs(db: PostgrestFake): void {
       store.push({ ...e, key_id: e.key_id ?? "", scope: e.scope ?? "", endpoint: e.endpoint ?? "", project: e.project ?? "", idem: e.idem ?? "", ref: e.ref ?? "", ingested_at: new Date().toISOString() });
       inserted++;
     }
+    let quarantined = 0;
+    for (const q of p_quarantine ?? []) {
+      if (db.rows("usage_quarantine").some((r) => r.seq === q.seq)) continue;
+      db.rows("usage_quarantine").push({ seq: q.seq, reason: q.reason, raw: q.raw ?? "", month: q.month || null, account: q.account || null, created_at: new Date().toISOString(), acked_at: null, acked_note: null });
+      quarantined++;
+    }
     const cur = db.rows("payg_cursor")[0];
     cur.last_seq = Math.max(cur.last_seq as number, p_cursor);
     cur.updated_at = new Date().toISOString();
-    return { inserted, cursor: cur.last_seq };
+    return { inserted, quarantined, cursor: cur.last_seq };
   });
 
   db.rpcs.set("gf_usage_net", ({ p_account, p_from, p_to }: { p_account: string; p_from: string; p_to: string }) => {
@@ -135,17 +142,27 @@ export function installPaygRpcs(db: PostgrestFake): void {
   });
 
   db.rpcs.set("gf_free_account_create", (a: Record<string, any>) => {
-    if (!a.p_email_norm || a.p_max < 0 || a.p_units < 1) throw new PgError("22023", "free account arguments out of range", 400);
+    if (!a.p_email_norm || a.p_units < 1) throw new PgError("22023", "free account arguments out of range", 400);
     const accts = db.rows("api_accounts");
     const found = accts.find((r) => r.free_email_norm === a.p_email_norm);
     if (found) return { created: false, id: found.id };
-    const start = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-    const count = accts.filter((r) => r.free_email_norm && (r.created_at as string) >= start).length;
-    if (count >= a.p_max) return { created: false, reason: "capacity" };
+    // A colliding account id or token is a unique_violation raised to the caller (which retries with fresh random values).
     const row = db.insertRow("api_accounts", {
       token: a.p_token, account: a.p_account, email: a.p_email, company: a.p_company, plan: "api_free", monthly_units: a.p_units, status: "active", free_email_norm: a.p_email_norm,
     });
     return { created: true, id: row.id };
+  });
+
+  db.rpcs.set("gf_free_account_verify", ({ p_token, p_max }: { p_token: string; p_max: number }) => {
+    if (!p_token || p_max < 0) throw new PgError("22023", "free account verification arguments out of range", 400);
+    const accts = db.rows("api_accounts");
+    const row = accts.find((r) => r.token === p_token && r.plan === "api_free");
+    if (!row) return { ok: false, reason: "unknown" };
+    if (row.free_verified_at) return { ok: true, already: true };
+    const start = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+    if (accts.filter((r) => r.free_verified_at && (r.free_verified_at as string) >= start).length >= p_max) return { ok: false, reason: "capacity" };
+    row.free_verified_at = new Date().toISOString();
+    return { ok: true, already: false };
   });
 }
 
@@ -158,6 +175,10 @@ export class MockStripe implements PaygStripe {
   invoicesById = new Map<string, StoredInvoice>();
   items: { id: string; invoice: string; amount: number; metadata: Record<string, string> }[] = [];
   customerUpdates: { id: string; params: any }[] = [];
+  invoiceUpdates: { id: string; params: any }[] = [];
+  payAttempts: { id: string; params: any }[] = [];
+  /** Payment methods whose payment attempts are declined. */
+  declineCards = new Set<string>();
   sessions: any[] = [];
   setupIntentStore = new Map<string, { id: string; status: string; payment_method: string; customer: string; metadata: Record<string, string> }>();
   /** Fail the next call to each named method with a Stripe-shaped error, once. */
@@ -233,6 +254,24 @@ export class MockStripe implements PaygStripe {
     list: async (params: any) => {
       this.maybeFail("invoices.list");
       return { data: [...this.invoicesById.values()].filter((i) => i.customer === params.customer) };
+    },
+    update: async (id: string, params: any) => {
+      this.maybeFail("invoices.update");
+      const inv = this.invoicesById.get(id);
+      if (!inv) throw Object.assign(new Error("No such invoice"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
+      inv.params = { ...inv.params, ...params };
+      this.invoiceUpdates.push({ id, params });
+      return inv;
+    },
+    pay: async (id: string, params?: any) => {
+      this.maybeFail("invoices.pay");
+      const inv = this.invoicesById.get(id);
+      if (!inv) throw Object.assign(new Error("No such invoice"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
+      if (inv.status === "paid") throw Object.assign(new Error("Invoice is already paid"), { type: "StripeInvalidRequestError", code: "invoice_already_paid", statusCode: 400 });
+      this.payAttempts.push({ id, params });
+      if (this.declineCards.has(params?.payment_method)) throw Object.assign(new Error("Your card was declined"), { type: "StripeCardError", code: "card_declined", statusCode: 402 });
+      inv.status = "paid";
+      return inv;
     },
   };
   invoiceItems: PaygStripe["invoiceItems"] = {
@@ -332,14 +371,18 @@ export function paygAccount(db: PostgrestFake, over: Record<string, unknown> = {
   });
 }
 
-/** A fetcher over a fixed event list that honours after_seq / limit like the engine's /v1/admin/ledger. */
-export function ledgerFetcherOver(events: Record<string, unknown>[], opts: { durable?: boolean } = {}) {
+/**
+ * A fetcher over a fixed event list that honours after_seq / limit with the engine's REAL page semantics (gridforge/api/server.py
+ * admin_ledger_page): `last_seq` is the seq of the last event IN THE PAGE (after_seq when there is none), and `head_seq` is how far the
+ * ledger has got. A fetcher that reported the head as the page's last seq is exactly what hid the "settled after page one" defect.
+ */
+export function ledgerFetcherOver(events: Record<string, unknown>[], opts: { durable?: boolean; headSeq?: number } = {}) {
   const calls: number[] = [];
   const fn = async (after: number, limit: number) => {
     calls.push(after);
     const page = events.filter((e) => (e.seq as number) > after).slice(0, limit);
-    const last = events.length ? Math.max(...events.map((e) => e.seq as number)) : 0;
-    return { ok: true as const, events: page, last_seq: last, durable: opts.durable ?? true };
+    const head = opts.headSeq ?? (events.length ? Math.max(...events.map((e) => e.seq as number)) : 0);
+    return { ok: true as const, events: page, last_seq: page.length ? (page[page.length - 1].seq as number) : after, head_seq: head, durable: opts.durable ?? true };
   };
   return Object.assign(fn, { calls });
 }

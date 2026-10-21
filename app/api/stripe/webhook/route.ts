@@ -6,7 +6,7 @@ import Stripe from "stripe";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { createWatch, lookupWatchBySubscription, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
-import { handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
+import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
 import { pg } from "@/lib/payg-store";
 import { paygStripe } from "@/lib/payg-stripe";
 import {
@@ -97,6 +97,10 @@ export async function POST(req: Request) {
       // read or write answers 500 so Stripe redelivers (lib/payg-billing.ts).
       const applied = await handlePaygEnable(session, paygStripe());
       if (!applied.ok) return fulfilmentFailed("pay-as-you-go enable", session.id);
+    } else if (kind === "api_payg_card_update") {
+      // The card on file was replaced (setup mode on the existing customer; nothing was charged).
+      const applied = await handlePaygCardUpdate(session, paygStripe());
+      if (!applied.ok) return fulfilmentFailed("pay-as-you-go card update", session.id);
     } else if (isApiProduct(kind)) {
       // Metered API access. No intake, no engineering work, no human: the
       // subscription becomes a signed key the engine can verify offline, and the

@@ -115,7 +115,8 @@ def test_applying_the_migration_again_changes_nothing(db):
     psql(db, file=MIGRATIONS / "0028_payg_ledger.sql")
     # 0032 re-states the outbox checks 0028 set; re-running the pair in order is what "apply again" means
     psql(db, file=MIGRATIONS / "0032_payg_payment_failed_notice.sql")
-    psql(db, file=MIGRATIONS / "0032_payg_payment_failed_notice.sql")
+    psql(db, file=MIGRATIONS / "0033_payg_hardening.sql")
+    psql(db, file=MIGRATIONS / "0033_payg_hardening.sql")
     assert q(db, "select count(*) from usage_events") == before
     assert q(db, "select last_seq from payg_cursor where id = 1") is not None
 
@@ -133,9 +134,9 @@ def test_every_new_table_has_row_level_security_and_the_api_roles_have_no_privil
 
 
 def test_the_gf_functions_of_this_migration_are_service_role_only(db):
-    fns = ["gf_founding_reserve(integer,integer,integer)", "gf_usage_ingest(jsonb,bigint)", "gf_usage_net(text,timestamptz,timestamptz)",
+    fns = ["gf_founding_reserve(integer,integer,integer)", "gf_usage_ingest(jsonb,bigint,jsonb)", "gf_free_account_verify(text,integer)", "gf_usage_net(text,timestamptz,timestamptz)",
            "gf_usage_month_totals(timestamptz,timestamptz)", "gf_payg_unsettled(text)",
-           "gf_free_account_create(text,text,text,text,text,integer,integer)"]
+           "gf_free_account_create(text,text,text,text,text,integer)"]
     for f in fns:
         for role in ("anon", "authenticated"):
             assert q(db, f"select has_function_privilege('{role}', 'public.{f}', 'execute')") == "f", (f, role)
@@ -186,7 +187,7 @@ def test_a_failing_page_rolls_back_its_rows_and_its_cursor_together(db):
     refused(db, f"select public.gf_usage_ingest('{page(a, new, 'f')}'::jsonb, {seq_taken})", "duplicate key")
     assert int(q(db, "select last_seq from payg_cursor where id = 1")) == cur  # the cursor did NOT move
     assert q(db, f"select count(*) from usage_events where event_id = 'f{new[0]}'") == "0"  # and the page's first row did not stay
-    refused(db, "select public.gf_usage_ingest('{}'::jsonb, 1)", "must be a JSON array")
+    refused(db, "select public.gf_usage_ingest('{}'::jsonb, 1)", "must be JSON arrays")
 
 
 # ---------------------------------------------------------------------------------------------------- net usage
@@ -260,46 +261,111 @@ def test_one_alert_per_account_month_and_percent(db):
 
 # --------------------------------------------------------------------------------------------------- free accounts
 
-def free(db, email_norm, maxn, tok=None):
+def free(db, email_norm, tok=None, acct=None):
     t = tok or f"t{uid()}{uid()}"
-    return json.loads(q(db, f"select public.gf_free_account_create('{email_norm}', '{email_norm}', null, '{t}', 'free-{uid()}', 25, {maxn})"))
+    a = acct or f"free-{uid()}"
+    return json.loads(q(db, f"select public.gf_free_account_create('{email_norm}', '{email_norm}', null, '{t}', '{a}', 25)"))
 
 
 def test_one_free_account_per_normalised_email_and_it_survives_an_upgrade(db):
     e = f"dev{uid()}@example.com"
-    first = free(db, e, 10_000)
+    first = free(db, e)
     assert first["created"] is True
-    again = free(db, e, 10_000)
+    again = free(db, e)
     assert again == {"created": False, "id": first["id"]}
     assert q(db, f"select count(*) from api_accounts where free_email_norm = '{e}'") == "1"
     # upgrading to pay-as-you-go keeps the claim: the address cannot take a second allowance
     psql(db, f"update api_accounts set plan = 'api_payg' where id = '{first['id']}'")
-    assert free(db, e, 10_000) == {"created": False, "id": first["id"]}
+    assert free(db, e) == {"created": False, "id": first["id"]}
     # and the unique index itself refuses a direct duplicate
     refused(db, f"insert into api_accounts (token, account, plan, free_email_norm) values ('{uid()}{uid()}x', 'dup-{uid()}', 'api_free', '{e}')", "duplicate key")
     # many accounts without a free claim are not constrained by it
     psql(db, f"insert into api_accounts (token, account, plan) values ('{uid()}{uid()}y', 'n1-{uid()}', 'api_scale'), ('{uid()}{uid()}z', 'n2-{uid()}', 'api_scale')")
 
 
-def test_the_monthly_ceiling_holds_under_concurrent_requests(db):
-    already = int(q(db, "select count(*) from api_accounts where free_email_norm is not null and created_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC'"))
-    ceiling = already + 3
-    stmts = [f"select public.gf_free_account_create('race{i}{uid()}@example.com', 'x', null, 'tk{i}{uid()}{uid()}', 'race-{i}-{uid()}', 25, {ceiling})" for i in range(12)]
-    results = parallel(db, stmts)
-    assert all(rc == 0 for rc, _, _ in results), [se for _, _, se in results if se]
-    outcomes = [json.loads(so) for _, so, _ in results]
-    assert sum(1 for o in outcomes if o["created"]) == 3
-    assert sum(1 for o in outcomes if o.get("reason") == "capacity") == 9
-    assert int(q(db, "select count(*) from api_accounts where free_email_norm is not null and created_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC'")) == ceiling
-    # an address that already has an account is answered even at the ceiling
-    existing = q(db, "select free_email_norm from api_accounts where free_email_norm like 'race%' limit 1")
-    assert free(db, existing, ceiling)["created"] is False and "reason" not in free(db, existing, ceiling)
+def test_sign_up_has_no_ceiling_and_a_colliding_account_id_or_token_is_a_unique_violation_for_the_caller_to_retry(db):
+    # unverified sign-ups are not counted against anything (the ceiling is at verification), so any number are created
+    for i in range(5):
+        assert free(db, f"many{i}{uid()}@example.com")["created"] is True
+    taken = account(db)  # an account id somebody else already holds
+    refused(db, f"select public.gf_free_account_create('victim{uid()}@example.com', 'v', null, 'tk{uid()}{uid()}', '{taken}', 25)", "duplicate key")
+    # nothing was half-created by the refused attempt
+    assert q(db, f"select count(*) from api_accounts where account = '{taken}'") == "1"
+    # and the old seven-argument form, which took a ceiling, is gone
+    refused(db, "select public.gf_free_account_create('a@b.c', 'x', null, 'tttttttttttttttt', 'a', 25, 5)", "does not exist")
 
 
 def test_free_account_arguments_are_range_checked(db):
-    refused(db, "select public.gf_free_account_create('', 'x', null, 'tttttttttttttttt', 'a', 25, 5)", "out of range")
-    refused(db, "select public.gf_free_account_create('a@b.c', 'x', null, 'tttttttttttttttt', 'a', 0, 5)", "out of range")
-    refused(db, "select public.gf_free_account_create('a@b.c', 'x', null, 'tttttttttttttttt', 'a', 25, -1)", "out of range")
+    refused(db, "select public.gf_free_account_create('', 'x', null, 'tttttttttttttttt', 'a', 25)", "out of range")
+    refused(db, "select public.gf_free_account_create('a@b.c', 'x', null, 'tttttttttttttttt', 'a', 0)", "out of range")
+    refused(db, "select public.gf_free_account_verify(null, 5)", "out of range")
+    refused(db, "select public.gf_free_account_verify('x', -1)", "out of range")
+
+
+def verified_this_month(db):
+    return int(q(db, "select count(*) from api_accounts where free_verified_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC'"))
+
+
+def test_the_monthly_ceiling_counts_VERIFIED_accounts_and_holds_under_concurrent_first_mints(db):
+    toks = []
+    for i in range(12):
+        e = f"race{i}{uid()}@example.com"
+        t = f"tk{i}{uid()}{uid()}"
+        free(db, e, tok=t)
+        toks.append(t)
+    already = verified_this_month(db)
+    ceiling = already + 3
+    results = parallel(db, [f"select public.gf_free_account_verify('{t}', {ceiling})" for t in toks])
+    assert all(rc == 0 for rc, _, _ in results), [se for _, _, se in results if se]
+    outcomes = [json.loads(so) for _, so, _ in results]
+    assert sum(1 for o in outcomes if o["ok"]) == 3
+    assert sum(1 for o in outcomes if o.get("reason") == "capacity") == 9
+    assert verified_this_month(db) == ceiling
+    # an account that is already verified is never turned away, and is not counted twice
+    winner = next(t for t, o in zip(toks, outcomes) if o["ok"])
+    assert json.loads(q(db, f"select public.gf_free_account_verify('{winner}', {ceiling})")) == {"ok": True, "already": True}
+    assert verified_this_month(db) == ceiling
+    # unknown tokens and non-free accounts are not verifiable
+    assert json.loads(q(db, f"select public.gf_free_account_verify('nope{uid()}', 999)"))["reason"] == "unknown"
+    pay = account(db)
+    tok = q(db, f"select token from api_accounts where account = '{pay}'")
+    assert json.loads(q(db, f"select public.gf_free_account_verify('{tok}', 999)"))["reason"] == "unknown"
+    # the unverified ones created many sign-ups beyond the ceiling without being refused
+    assert int(q(db, "select count(*) from api_accounts where free_email_norm like 'race%'")) >= 12
+
+
+def test_ingest_quarantines_what_it_is_given_and_moves_the_cursor_past_it_in_the_same_transaction(db):
+    a = account(db)
+    base = int(q(db, "select coalesce(max(seq), 0) from usage_events")) + 20_000
+    cur = int(q(db, "select last_seq from payg_cursor where id = 1"))
+    base = max(base, cur + 20_000)
+    good = json.loads(page(a, [base + 1, base + 3], 'q'))
+    quarantine = json.dumps([{"seq": base + 2, "reason": "units out of range", "raw": '{"seq": %d, "units": 0}' % (base + 2), "month": "2026-09", "account": a}])
+    r = json.loads(q(db, f"select public.gf_usage_ingest('{json.dumps(good)}'::jsonb, {base + 3}, '{quarantine}'::jsonb)"))
+    assert r == {"inserted": 2, "quarantined": 1, "cursor": base + 3}
+    assert q(db, f"select reason || '|' || month || '|' || coalesce(acked_at::text, 'open') from usage_quarantine where seq = {base + 2}") == "units out of range|2026-09|open"
+    # a replay inserts nothing and quarantines nothing twice
+    r2 = json.loads(q(db, f"select public.gf_usage_ingest('{json.dumps(good)}'::jsonb, {base + 3}, '{quarantine}'::jsonb)"))
+    assert r2["inserted"] == 0 and r2["quarantined"] == 0
+    # a failing page rolls the quarantine back with it
+    clash = json.dumps([{"seq": base + 9, "reason": "x", "raw": "", "month": None, "account": None}])
+    taken = json.loads(page(a, [base + 1], 'dup'))  # seq base+1 already belongs to another event id
+    refused(db, f"select public.gf_usage_ingest('{json.dumps(taken)}'::jsonb, {base + 9}, '{clash}'::jsonb)", "duplicate key")
+    assert q(db, f"select count(*) from usage_quarantine where seq = {base + 9}") == "0"
+    assert int(q(db, "select last_seq from payg_cursor where id = 1")) == base + 3
+    refused(db, "select public.gf_usage_ingest('[]'::jsonb, 1, '{}'::jsonb)", "must be JSON arrays")
+    # an open quarantined event is what holds a month; acknowledging it is an ordinary update
+    assert q(db, "select count(*) from usage_quarantine where acked_at is null and month = '2026-09'") != "0"
+    refused(db, f"insert into usage_quarantine (seq, reason, month) values ({base + 50}, 'x', '2026-13')", "violates check")
+    refused(db, f"insert into usage_quarantine (seq, reason) values ({base + 51}, '  ')", "violates check")
+
+
+def test_overlap_keys_are_recorded_as_an_object_and_a_verified_account_survives_an_upgrade_of_its_plan(db):
+    a = account(db)
+    psql(db, f"update api_accounts set overlap_key_ids = '{{\"k1\": \"2026-11-05\"}}'::jsonb where account = '{a}'")
+    assert q(db, f"select overlap_key_ids->>'k1' from api_accounts where account = '{a}'") == "2026-11-05"
+    refused(db, f"update api_accounts set overlap_key_ids = '[1]'::jsonb where account = '{a}'", "violates check")
+    assert q(db, f"select overlap_key_ids::text from api_accounts where account = (select '{account(db)}')") == "{}"
 
 
 # ----------------------------------------------------------------------------------------- the Founding Partner slot

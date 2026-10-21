@@ -97,7 +97,7 @@ describe.skipIf(!enabled)("pay-as-you-go — real PostgreSQL via PostgREST", () 
   };
   const fetcherOver = (events: Record<string, unknown>[]) => async (after: number, limit: number) => {
     const page = events.filter((e) => (e.seq as number) > after).slice(0, limit);
-    return { ok: true as const, events: page, last_seq: Math.max(...events.map((e) => e.seq as number)), durable: true };
+    return { ok: true as const, events: page, last_seq: page.length ? (page[page.length - 1].seq as number) : after, head_seq: Math.max(...events.map((e) => e.seq as number)), durable: true };
   };
 
   it("ingest: idempotent through the real insert, cursor moves with the rows, net usage nets refunds across a month boundary", async () => {
@@ -189,13 +189,60 @@ describe.skipIf(!enabled)("pay-as-you-go — real PostgreSQL via PostgREST", () 
     const rows = ((await rest<any[]>("GET", `api_accounts?email=eq.${email}`)) as { data: any[] }).data;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ plan: "api_free", free_email_norm: email });
-    // ceiling: set it to what already exists this month, so the next NEW address is refused, an existing one still answered
+    expect(rows[0].account).toMatch(/^rd-[a-z0-9]+-[0-9a-f]{10}$/); // an unguessable suffix, not a hash of the address
+    // The ceiling counts VERIFIED accounts, at the first key mint from the emailed link: sign-up never reveals it.
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-    const existing = ((await rest<any[]>("GET", `api_accounts?free_email_norm=not.is.null&created_at=gte.${monthStart}&select=id`)) as { data: any[] }).data.length;
-    process.env.GRIDFORGE_FREE_ACCOUNTS_MAX = String(existing);
-    const over = await post(`rd-${uid()}@example.test`, "10.9.0.3");
+    const verified = ((await rest<any[]>("GET", `api_accounts?free_verified_at=gte.${monthStart}&select=id`)) as { data: any[] }).data.length;
+    process.env.GRIDFORGE_FREE_ACCOUNTS_MAX = String(verified + 1);
+    const second = `rd-${uid()}@example.test`;
+    expect((await post(second, "10.9.0.3")).status).toBe(200);
+    const mint = async (e: string) => {
+      const row = ((await rest<any[]>("GET", `api_accounts?email=eq.${e}`)) as { data: any[] }).data[0];
+      const { POST: keys } = await import("@/app/api/keys/route");
+      return keys(new Request(siteUrl("/api/keys"), { method: "POST", headers: { "content-type": "application/json", "x-real-ip": "10.9.1.1" }, body: JSON.stringify({ token: row.token }) }));
+    };
+    expect((await mint(email)).status).toBe(200); // takes the last verified place this month
+    const over = await mint(second);
     expect(over.status).toBe(429);
-    expect((await post(email, "10.9.0.4")).status).toBe(200);
+    expect(await over.json()).toMatchObject({ reason: "capacity" });
+    expect((await mint(email)).status).toBe(200); // already verified: never turned away, not counted twice
+    expect((await post(`rd-${uid()}@example.test`, "10.9.0.4")).status).toBe(200); // and sign-up still answers the same
+  });
+
+  it("quarantine and the multi-page head, against the real transaction: a bad event is set aside, the cursor passes it, and 1200 events are all ingested", async () => {
+    const a = await newAccount();
+    const { ingestLedger, ackQuarantinedEvent } = await import("@/lib/payg-usage");
+    const events = Array.from({ length: 1200 }, () => ev(a.account, { units: 1 }));
+    events[600] = { ...events[600], units: 0 }; // unreadable: quarantined
+    events[700] = { ...events[700], idem: "i".repeat(700) }; // long idem: accepted
+    await rest("PATCH", `payg_cursor?id=eq.1`, { last_seq: (events[0].seq as number) - 1 });
+    const fetcher = async (after: number, limit: number) => {
+      const page = events.filter((e) => (e.seq as number) > after).slice(0, limit);
+      return { ok: true as const, events: page, last_seq: page.length ? (page[page.length - 1].seq as number) : after, head_seq: events[events.length - 1].seq as number, durable: true };
+    };
+    const r = await ingestLedger(fetcher);
+    expect(r).toMatchObject({ ok: true, complete: true, inserted: 1199, quarantined: 1, cursor: events[1199].seq });
+    const q = ((await rest<any[]>("GET", `usage_quarantine?seq=eq.${events[600].seq}`)) as { data: any[] }).data;
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ reason: "units out of range", acked_at: null });
+    expect(await ackQuarantinedEvent(events[600].seq as number, "reviewed in test")).toBe(true);
+    expect(((await rest<any[]>("GET", `usage_quarantine?seq=eq.${events[600].seq}`)) as { data: any[] }).data[0].acked_note).toBe("reviewed in test");
+  });
+
+  it("overlap keys and verified-at survive the real PATCH path: the sweep leaves a live overlap key alone until its day has passed", async () => {
+    const { retryRevocations } = await import("@/lib/api-access");
+    const expiry = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    const a = await newAccount({ plan: "api_scale", cap_units: null, monthly_units: 100, key_id: "ovl-old-key", key_scope: "machine", key_issued_at: "2026-10-01", key_expires_at: expiry });
+    const out = await mintChecked({ ...a }, {}); // not rotating: an overlap
+    expect(out.ok).toBe(true);
+    const row = await fresh(a.token);
+    expect(row.overlap_key_ids).toEqual({ "ovl-old-key": expiry });
+    expect(row.revoked_key_ids).toContain("ovl-old-key");
+    await retryRevocations(200, new Date());
+    expect(engine.revokeCalls).not.toContain("ovl-old-key");
+    await retryRevocations(200, new Date(Date.now() + 5 * 86_400_000));
+    expect(engine.revokeCalls).toContain("ovl-old-key");
+    expect((await fresh(a.token)).revoked_confirmed_ids).toContain("ovl-old-key");
   });
 
   it("the Founding slot reservation returns the shapes the route reads (uuid string, then null) and serialises", async () => {

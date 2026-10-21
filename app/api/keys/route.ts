@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getApiAccount, keyEntitlement, keyLife, mintChecked, signingConfigured } from "@/lib/api-access";
 import { recordFunnelEvent } from "@/lib/funnel";
-import { accountRef } from "@/lib/payg";
+import { accountRef, freeAccountsMax } from "@/lib/payg";
+import { verifyFreeAccount } from "@/lib/payg-accounts";
+import { guardRequest } from "@/lib/rate-limit";
+import { inspectKey } from "@/lib/api-access";
 
 export const runtime = "nodejs";
 
@@ -71,6 +74,10 @@ export async function POST(req: Request) {
   const token = typeof body.token === "string" ? body.token : "";
   const rotate = body.rotate === true;
 
+  // Admitted once the body has been read, before anything is minted or rotated.
+  const g = await guardRequest(req, "key_mint");
+  if (g.denied) return g.denied;
+
   const row = token ? await getApiAccount(token) : null;
   if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
   if (row.status === "cancelled") {
@@ -123,6 +130,18 @@ export async function POST(req: Request) {
   // still working: killing it the moment we mint its successor would turn a
   // warning into the outage the warning exists to prevent. The two overlap until
   // the old one expires on its own.
+  // A free allowance counts against the month's ceiling of VERIFIED accounts the first time the owner opens the emailed link and mints a
+  // key (idempotent afterwards). Checked atomically in the database; nothing is minted if the month's allowance is used up.
+  if (row.plan === "api_free" && !row.free_verified_at) {
+    const v = await verifyFreeAccount(row.token, freeAccountsMax());
+    if (v === "capacity") {
+      return NextResponse.json(
+        { ok: false, reason: "capacity", error: "The free allowance has reached its limit of new accounts for this month. It reopens at the start of next month (UTC); nothing was created for you and nothing is charged." },
+        { status: 429, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    if (v !== "ok") return NextResponse.json({ ok: false, error: "Could not issue a key just now. Nothing was changed." }, { status: 503 });
+  }
   const supersede = rotate || life.expired || wrongScope;
   const out = await mintChecked(row, { rotate: supersede });
   if (!out.ok) {
@@ -137,7 +156,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Could not issue a key" }, { status: 500 });
   }
   const minted = out.result;
-  await recordFunnelEvent("key_minted", { scope: want.scope, plan: row.plan, account_ref: accountRef(row.account) });
+  // Once per key id: a retried request or a replay cannot write the same mint twice.
+  const keyId = inspectKey(minted.token)?.k ?? "";
+  await recordFunnelEvent("key_minted", { scope: want.scope, plan: row.plan, account_ref: accountRef(row.account) }, { dedupeKey: `key_minted:${keyId}` });
   return NextResponse.json({
     ok: true,
     issued: true,

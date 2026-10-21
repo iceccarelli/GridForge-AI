@@ -83,7 +83,7 @@ describe("ledger ingest", () => {
     expect(db.rows("usage_events")).toHaveLength(3); // the two good ones and the foreign row; event 3 was rolled back
   });
 
-  it("refuses a page with a gap in seq, and a page holding something that is not a ledger event, whole", async () => {
+  it("refuses a page with a gap in seq, or with an event that has no readable seq, whole (an unreadable BODY is quarantined instead: see payg-hardening.test.ts)", async () => {
     const { ingestLedger } = await ingestLib();
     const gap = await ingestLedger(ledgerFetcherOver([ledgerEvent({ seq: 1 }), ledgerEvent({ seq: 3 })]));
     expect(gap).toMatchObject({ ok: false });
@@ -91,11 +91,13 @@ describe("ledger ingest", () => {
     expect(cursor()).toBe(0);
     expect(db.rows("usage_events")).toHaveLength(0);
 
-    const bad = await ingestLedger(ledgerFetcherOver([ledgerEvent({ seq: 1 }), ledgerEvent({ seq: 2, units: 0 })]));
+    const bad = await ingestLedger(ledgerFetcherOver([ledgerEvent({ seq: 1 }), { ...ledgerEvent({ seq: 2 }), seq: "2" } as never]));
     expect(bad.ok).toBe(false);
-    const bad2 = await ingestLedger(ledgerFetcherOver([ledgerEvent({ seq: 1, kind: "give-away" })]));
+    expect(bad.error).toMatch(/no readable seq/);
+    const bad2 = await ingestLedger(ledgerFetcherOver([{ nothing: "useful" } as never]));
     expect(bad2.ok).toBe(false);
     expect(cursor()).toBe(0);
+    expect(db.rows("usage_events")).toHaveLength(0);
   });
 
   it("an engine that cannot be reached is an error, not an empty ledger, and nothing is settled on it", async () => {
@@ -370,11 +372,11 @@ describe("the engine ledger fetcher (production path) and the cron route", () =>
 
   it("asks the operator-only endpoint with the operator key, after the cursor, and reads the documented shape", async () => {
     const { engineLedgerFetcher } = await ingestLib();
-    const e = engineAnswering(() => new Response(JSON.stringify({ events: [ledgerEvent()], last_seq: 1, durable: true }), { status: 200 }));
+    const e = engineAnswering(() => new Response(JSON.stringify({ events: [ledgerEvent()], last_seq: 1, head_seq: 1, durable: true, status: {} }), { status: 200 }));
     const f = engineLedgerFetcher()!;
     const page = await f(41, 500);
     e.restore();
-    expect(page).toMatchObject({ ok: true, last_seq: 1, durable: true });
+    expect(page).toMatchObject({ ok: true, last_seq: 1, head_seq: 1, durable: true });
     expect(e.seen).toEqual([{ url: "https://engine.test/v1/admin/ledger?after_seq=41&limit=500", key: "admin-test-key" }]);
   });
 
@@ -397,7 +399,8 @@ describe("the engine ledger fetcher (production path) and the cron route", () =>
     const events = [ledgerEvent({ units: 10 }), ledgerEvent({ units: 5 })];
     const e = engineAnswering((url) => {
       const after = Number(new URL(url).searchParams.get("after_seq"));
-      return new Response(JSON.stringify({ events: events.filter((x) => (x.seq as number) > after), last_seq: 2, durable: true }), { status: 200 });
+      const page = events.filter((x) => (x.seq as number) > after);
+      return new Response(JSON.stringify({ events: page, last_seq: page.length ? page[page.length - 1].seq : after, head_seq: 2, durable: true }), { status: 200 });
     });
     const { GET } = await import("@/app/api/cron/payg/route");
     const call = () => GET(new Request("https://gridforge.test/api/cron/payg", { headers: { authorization: "Bearer cron-secret" } }));

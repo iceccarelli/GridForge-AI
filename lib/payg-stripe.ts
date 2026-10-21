@@ -34,6 +34,10 @@ export interface PaygStripe {
     finalizeInvoice(id: string, params?: Stripe.InvoiceFinalizeInvoiceParams, options?: { idempotencyKey?: string }): Promise<InvoiceLite>;
     retrieve(id: string): Promise<InvoiceLite>;
     list(params: Stripe.InvoiceListParams): Promise<{ data: InvoiceLite[] }>;
+    /** Point an unpaid invoice at a replacement card (invoices keep the payment method they were created with). */
+    update(id: string, params: Stripe.InvoiceUpdateParams): Promise<InvoiceLite>;
+    /** Attempt payment of a finalised invoice now, with the given payment method. */
+    pay(id: string, params?: Stripe.InvoicePayParams): Promise<InvoiceLite>;
   };
   invoiceItems: {
     create(params: Stripe.InvoiceItemCreateParams, options?: { idempotencyKey?: string }): Promise<{ id: string }>;

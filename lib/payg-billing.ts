@@ -97,11 +97,71 @@ export async function handlePaygEnable(session: Stripe.Checkout.Session, stripe:
   return { ok: true };
 }
 
+/**
+ * checkout.session.completed, kind api_payg_card_update (Checkout mode "setup" on the account's EXISTING customer): the customer
+ * replaced the card on file. Saved as the customer's default and the account's card; any UNPAID failed invoice is pointed at it (an
+ * invoice keeps the card it was created with, so the new default alone would not help) and tried now. The result of that attempt comes
+ * back as the usual invoice.paid / invoice.payment_failed event, which is what reinstates the account. Replay-safe: the card write is
+ * absolute, and paying an invoice that is already paid is refused by Stripe and ignored.
+ */
+export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, stripe: PaygStripe | null): Promise<Applied> {
+  const accountName = String(session.metadata?.account_id ?? "");
+  if (!accountName || session.mode !== "setup") {
+    console.error("[GridForge] payg card update with unusable metadata; acknowledged without effect:", session.id);
+    return { ok: true };
+  }
+  if (!stripe) return { ok: false, why: "stripe not configured" };
+  const acct = await accountByName(accountName);
+  if (acct === "error") return { ok: false, why: "account lookup failed" };
+  if (!acct || acct.plan !== "api_payg" || acct.status === "cancelled") {
+    console.error("[GridForge] payg card update for an account that cannot take one; acknowledged without effect:", session.id);
+    return { ok: true };
+  }
+  const customer = idOf(session.customer as string | { id: string } | null);
+  const siId = idOf(session.setup_intent as string | { id: string } | null);
+  // The card goes on the customer WE hold for this account, never on whichever customer the session names.
+  if (!customer || !siId || customer !== acct.stripe_customer_id) {
+    console.error("[GridForge] payg card update names a different customer than the account's; refused:", session.id);
+    return { ok: true };
+  }
+  let pm = "";
+  try {
+    const si = await stripe.setupIntents.retrieve(siId);
+    if (si.status && si.status !== "succeeded") return { ok: true };
+    if (si.metadata?.account_id !== accountName || si.metadata?.kind !== "api_payg_card_update") {
+      console.error("[GridForge] payg card update: setup intent is not ours for this account; refused:", session.id);
+      return { ok: true };
+    }
+    pm = idOf(si.payment_method);
+    if (!pm) return { ok: true };
+    await stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm } });
+  } catch (err) {
+    console.error(`[GridForge] payg card update: Stripe call failed (${stripeFault(err)}); asking for a redelivery`);
+    return { ok: false, why: "stripe" };
+  }
+  if (!(await updateApiAccount(acct.token, { stripe_payment_method_id: pm }))) return { ok: false, why: "account write failed" };
+
+  const failed = await pg<{ stripe_invoice_id: string | null }[]>("GET", `usage_settlements?account=eq.${enc(accountName)}&status=eq.failed&select=stripe_invoice_id&limit=20`);
+  if (!failed.ok) return { ok: false, why: "settlement lookup failed" };
+  for (const f of failed.data ?? []) {
+    if (!f.stripe_invoice_id) continue;
+    try {
+      await stripe.invoices.update(f.stripe_invoice_id, { default_payment_method: pm });
+      await stripe.invoices.pay(f.stripe_invoice_id, { payment_method: pm });
+    } catch (err) {
+      // Declined again, or already paid: either way the invoice events say what happened. Never fails the card replacement itself.
+      console.error(`[GridForge] payg card update: retrying an unpaid invoice did not succeed (${stripeFault(err)})`);
+    }
+  }
+  return { ok: true };
+}
+
 /** Revoke the account's live key and block minting: past_due. One write records both; the engine is told after. */
 async function suspend(acct: ApiAccount): Promise<boolean> {
   const live = acct.key_id;
   const revoked = new Set(acct.revoked_key_ids ?? []);
   if (live) revoked.add(live);
+  for (const id of Object.keys(acct.overlap_key_ids ?? {})) revoked.add(id);
   const done = await updateApiAccount(acct.token, {
     status: "past_due",
     key_id: null,
@@ -113,7 +173,11 @@ async function suspend(acct: ApiAccount): Promise<boolean> {
   if (!done) return false;
   // Best effort, like every revocation: an unreachable engine must not turn a recorded failure into an endless redelivery. The id
   // stays unconfirmed in revoked_key_ids and the daily sweep (retryRevocations) keeps pushing it.
-  if (live && (await revokeOnEngine(live))) await confirmRevoked(acct.token, [live]);
+  const toRevoke = [...(live ? [live] : []), ...Object.keys(acct.overlap_key_ids ?? {})];
+  // A key deliberately left live next to a newer one is live too: suspension kills it with the rest.
+  const confirmed: string[] = [];
+  for (const id of toRevoke) if (await revokeOnEngine(id)) confirmed.push(id);
+  if (confirmed.length) await confirmRevoked(acct.token, confirmed);
   return true;
 }
 
