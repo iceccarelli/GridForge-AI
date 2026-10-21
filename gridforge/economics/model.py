@@ -11,9 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from ..common import ASSUMED, ESTIMATED, MODELLED, V
-from ..costs import BAND_BY_EVIDENCE, cdu_cost, cost, library
+from ..costs import AACE_BY_EVIDENCE, BAND_BY_EVIDENCE, cdu_cost, cost, library
 from ..envelope.solver import EnvelopeResult, HeadroomLadder, rack_evidence
-from ..validation import Quantity
+from ..validation import EvidenceClass, Quantity
+
+#: Below this class a priced line, or the capex total built from them, is not a basis for a capital decision.
+DECISION_GRADE_FLOOR = EvidenceClass.E3_ENGINEERING_ESTIMATE
 
 CONVERSION_COST_KEY = "conversion.per_rack"
 
@@ -82,6 +85,16 @@ class EconomicsResult:
     lifecycle_basis: str = ""
     #: False when a relief on the path has no lead time: ``critical_path_weeks`` is then a lower bound.
     critical_path_complete: bool = True
+    #: Library keys on this run's path whose quotation has expired (they carry the class of a modelled figure).
+    stale_lines: list = field(default_factory=list)
+    #: The weakest class among the priced lines, after expiry and basis caps; None when nothing was priced.
+    weakest_line_evidence: EvidenceClass | None = None
+    #: The class the capex total INHERITS from its inputs: the weakest of the priced lines and of the evidence behind
+    #: the rack count the conversion is priced on. (``capex_total_eur.evidence`` is further capped at E1 because the
+    #: total is a modelled figure; the decision-grade test and the band use what the inputs support.)
+    capex_input_evidence: EvidenceClass | None = None
+    #: True when the run deploys nothing: the capex is not zero, it is not applicable.
+    nothing_deployable: bool = False
 
     def unpriced_summary(self) -> list[dict]:
         """The unpriced components grouped by what they are: one row per missing price, with the total quantity it
@@ -117,6 +130,20 @@ class EconomicsResult:
         if self.limited:
             out.append(f"{len(self.limited)} priced line(s) rest on a supplier quotation of limited comparability "
                        f"(scaled to a quantity the supplier did not quote, or with no stated scope)")
+        if self.nothing_deployable:
+            out.append("nothing is deployable, so there is no capex to state: capex is n/a (nothing deployable), "
+                       "not zero")
+        if self.stale_lines:
+            out.append(f"{len(self.stale_lines)} priced line(s) rest on an expired quotation (held at a modelled "
+                       f"figure until refreshed): " + ", ".join(self.stale_lines))
+        floor = DECISION_GRADE_FLOOR
+        if self.weakest_line_evidence is not None and self.weakest_line_evidence < floor:
+            out.append(f"the weakest priced line is class {self.weakest_line_evidence.name.split('_')[0]}, below "
+                       f"{floor.name.split('_')[0]}: a decision needs every priced line at an engineering estimate "
+                       f"or better")
+        if self.capex_input_evidence is not None and self.capex_input_evidence < floor:
+            out.append(f"the capex total inherits class {self.capex_input_evidence.name.split('_')[0]} from its "
+                       f"inputs, below {floor.name.split('_')[0]}")
         n = self.rests_on_placeholders
         if n:
             total = sum((self.cost_basis_mix or {}).values())
@@ -133,6 +160,12 @@ class EconomicsResult:
     @property
     def decision_grade(self) -> bool:
         return not [x for x in self.limitations if not x.startswith("no lifecycle horizon")]
+
+
+def _floor_band(q: Quantity, evidence: EvidenceClass) -> Quantity:
+    """``q`` with its band widened, never narrowed, to what the cost library allows for ``evidence``."""
+    lo_f, hi_f = BAND_BY_EVIDENCE[evidence]
+    return replace(q, lo=min(q.band[0], q.value * lo_f), hi=max(q.band[1], q.value * hi_f))
 
 
 def _unpriced_rows(lad: HeadroomLadder) -> list[dict]:
@@ -273,7 +306,21 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     total = conv + relief
     if kit is not None:
         total = total + kit
+    # What the total INHERITS: the weakest priced line (after expiry and basis caps) and the evidence behind the rack
+    # count the conversion is priced on. The band is never narrower than the cost library's band for that class, so the
+    # printed accuracy cannot be firmer than the evidence under the number (a Class 1 band on an E0 total is a claim the
+    # inputs do not support).
+    weakest_line = library().weakest(keys)
+    inherited = min(weakest_line, racks.evidence) if res.max_racks > 0 else weakest_line
+    nothing = res.max_racks <= 0
+    total = _floor_band(total, inherited)
     total = total.relabel("total capex", "economics.total_capex", step_evidence=MODELLED)
+    if nothing:
+        # Nothing deployable is not a free hall: there is no capex to state, and a 0 EUR total must not read as complete.
+        capex_complete = False
+        aace = "n/a: nothing deployable (no capex to classify)"
+    else:
+        aace = AACE_BY_EVIDENCE[inherited]
     per_kW = (total / res.it_load_kW).relabel(
         "capex per kW of IT load deployed", "economics.capex_per_kW", step_evidence=MODELLED) \
         if res.it_load_kW.value > 0 else V(0, "EUR/kW", "capex per kW (no deployable load)", MODELLED)
@@ -321,4 +368,5 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
         synthetic_evidence=sorted(k for k in keys if k in library().entries and library().entries[k].synthetic), tariff_eur_per_MWh=tariff, tariff_declared=declared,
         annual_grid_energy_cost_eur=grid_cost, btm=btm, opex_complete=opex_complete,
         lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis,
-        critical_path_complete=lad.critical_path_complete)
+        critical_path_complete=lad.critical_path_complete, stale_lines=library().stale_keys(keys),
+        weakest_line_evidence=weakest_line, capex_input_evidence=inherited, nothing_deployable=nothing)

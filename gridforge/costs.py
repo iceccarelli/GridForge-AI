@@ -18,8 +18,9 @@ Cost evidence maps onto the same ladder as everything else:
     published_benchmark  E1  a public figure, correctly attributed (source, date, region, unit)
     engineering_estimate E3  our own reasoned estimate with its basis written down (private library)
     budgetary_quote      E3  a supplier's indicative number, reviewed
-    firm_quote           E5  a written quotation with a validity date
-    contracted           E7  what was actually paid on a delivered project
+    firm_quote           E5  a written quotation WITH a validity date (without one it is held at E3)
+    contracted           E5  what was paid on a delivered project; capped at E5 here, because E7 is "observed in
+                             operation" and is earned by measurement, not by a cost line
 
 A price that is not in the library is not zero and not free: where a component has no price at all,
 the relief says so (``unpriced``) and every total that includes it is a lower bound.
@@ -153,7 +154,46 @@ class CostEntry:
 
     @property
     def evidence(self) -> EvidenceClass:
-        return COST_EVIDENCE.get(self.basis, EvidenceClass.E0_ASSUMPTION)
+        """The class this line's BASIS earns, before expiry. A basis is a claim made by whoever entered the line, not a
+        proof, so two claims are bounded here:
+
+        * a ``firm_quote`` with no ``valid_until`` is not a firm quotation: a quotation that never expires is not one
+          anybody can rely on, so it stays at the class of an estimate (E3);
+        * ``contracted`` is capped at E5. E7 is "observed in operation" and belongs to measurement of a delivered
+          project; a cost line can say what was paid, but nothing in a quotation overlay proves it was."""
+        ev = COST_EVIDENCE.get(self.basis, EvidenceClass.E0_ASSUMPTION)
+        if self.basis == "firm_quote" and not self.valid_until:
+            ev = min(ev, EvidenceClass.E3_ENGINEERING_ESTIMATE)
+        if self.basis == "contracted":
+            ev = min(ev, EvidenceClass.E5_CUSTOMER_DATA)
+        return ev
+
+    @property
+    def evidence_adjustment(self) -> str | None:
+        """Why this line is held below the class its basis names, in words a provenance record can carry."""
+        if self.basis == "firm_quote" and not self.valid_until:
+            return ("Entered as a firm quotation but with no valid_until date, so it is not accepted at E5: it is held "
+                    "at the class of an estimate (E3) until a validity date is recorded.")
+        if self.basis == "contracted":
+            return ("Basis 'contracted' is capped at E5 here: E7 means observed in operation and is earned by "
+                    "measurement of the delivered project, not by a cost line.")
+        return None
+
+    @property
+    def effective_evidence(self) -> EvidenceClass:
+        """The class this line carries into a run: its basis class, bounded as above, and no higher than a modelled
+        figure once its validity has expired."""
+        ev = self.evidence
+        return EvidenceClass.E1_MODEL if (self.stale and ev > EvidenceClass.E1_MODEL) else ev
+
+    @property
+    def effective_basis(self) -> str:
+        """The basis a report should count this line under: an expired or undated quotation is not counted as a firm one."""
+        if self.stale and self.evidence > EvidenceClass.E1_MODEL:
+            return "expired_quote"
+        if self.basis == "firm_quote" and not self.valid_until:
+            return "firm_quote_undated"
+        return self.basis
 
     @property
     def stale(self) -> bool:
@@ -208,12 +248,13 @@ class CostEntry:
                 f"A zero quotation would be recorded as a free, high-evidence line.")
 
     def quantity(self) -> Quantity:
-        ev = EvidenceClass.E1_MODEL if (self.stale and self.evidence > EvidenceClass.E1_MODEL) \
-            else self.evidence
+        ev = self.effective_evidence
         lo, hi = BAND_BY_EVIDENCE[ev]
         assumptions = []
         if self.note:
             assumptions.append(self.note)
+        if self.evidence_adjustment:
+            assumptions.append(self.evidence_adjustment)
         if self.basis == "library_default":
             assumptions.append(
                 "Library default, not a price. Replace with a quotation before this figure "
@@ -306,9 +347,13 @@ class CostLibrary:
     def basis_mix(self, keys: list[str]) -> dict[str, int]:
         mix: dict[str, int] = {}
         for k in keys:
-            basis = self.entries[k].basis if k in self.entries else "library_default"
+            # Counted under what the line is worth NOW (expired and undated quotations are not firm quotations).
+            basis = self.entries[k].effective_basis if k in self.entries else "library_default"
             mix[basis] = mix.get(basis, 0) + 1
         return mix
+
+    def stale_keys(self, keys: list[str]) -> list[str]:
+        return [k for k in keys if k in self.entries and self.entries[k].stale]
 
     def weakest(self, keys: list[str]) -> EvidenceClass:
         worst = EvidenceClass.E7_DEPLOYED
@@ -353,9 +398,14 @@ class OverlayReport:
     """What a run was allowed to use, and what it was not. Printed in the deliverable and the model pack."""
     used: list = field(default_factory=list)        # CostEntry
     ignored: list = field(default_factory=list)     # {"key", "evidence_id", "reason"}
+    #: Lines that WERE applied but are held below the class their basis names: {"key", "evidence_id", "reason"}.
+    downgraded: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"used": [entry_record(e) for e in self.used], "ignored": list(self.ignored)}
+        out = {"used": [entry_record(e) for e in self.used], "ignored": list(self.ignored)}
+        if self.downgraded:
+            out["downgraded"] = list(self.downgraded)
+        return out
 
 
 def entry_record(e: "CostEntry") -> dict:
@@ -414,6 +464,8 @@ def cost_overlay(entries):
     for e in chosen.values():
         merged.entries[e.key] = e
         report.used.append(e)
+        if e.evidence_adjustment:
+            report.downgraded.append({"key": e.key, "evidence_id": e.evidence_id, "reason": e.evidence_adjustment})
     token = _OVERLAY.set(merged)
     block = report.to_dict()
     atok = _ACTIVE.set(block) if (report.used or report.ignored) else None

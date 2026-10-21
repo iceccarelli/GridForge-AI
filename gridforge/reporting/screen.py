@@ -11,6 +11,7 @@ from ..commercial import ENGAGEMENTS
 from ..common import ASSUMED, ESTIMATED, V
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
+from ..power.plausibility import intake_warnings
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
@@ -56,9 +57,12 @@ def build(intake: Intake, results: list[ScenarioResult],
         db = date_basis(rec.ladder, t)
         s.blocks.append(Statement("Time to full capacity", full_q, date_basis_text(
             db, f"set by {t.critical_item.lower()}; the range is that item's own lead-time range")))
-    s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
-                              rec.economics.aace_class + ("" if rec.economics.capex_complete else
-                                                          " · LOWER BOUND: a cost it needs has no price")))
+    if rec.economics.nothing_deployable:
+        s.blocks.append(Para("Indicative capex: n/a: nothing deployable (there is no capex to state, not a zero one)."))
+    else:
+        s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
+                                  rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                                              " · LOWER BOUND: a cost it needs has no price")))
     lims = economics_limitations(rec.economics)
     if lims:
         s.blocks.append(Callout("warning", "These economics are not decision-grade. "
@@ -113,7 +117,7 @@ def build(intake: Intake, results: list[ScenarioResult],
                "lines are library defaults rather than quotations, which is why the accuracy class "
                "below reads as it does." if placeholders else
                " Every priced line rests on a quotation.")))
-    for w in intake.report.warnings:
+    for w in intake_warnings(intake):
         s.blocks.append(Callout("warning", w))
     below = claims_below_floor(collect_claims(results))
     detail = "; ".join(

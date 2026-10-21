@@ -143,11 +143,15 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
             "Time to full capacity", full_q,
             date_basis_text(db, f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel; the "
                                 "range is that item's own lead-time range")))
-    s.blocks.append(Statement(
-        "Indicative capex to reach it",
-        rec.economics.capex_total_eur,
-        rec.economics.aace_class + ("" if rec.economics.capex_complete else
-                                    " · LOWER BOUND, not an estimate: a cost it needs has no price")))
+    if rec.economics.nothing_deployable:
+        s.blocks.append(Para("Indicative capex to reach it: n/a: nothing deployable (there is no capex to state, not "
+                             "a zero one)."))
+    else:
+        s.blocks.append(Statement(
+            "Indicative capex to reach it",
+            rec.economics.capex_total_eur,
+            rec.economics.aace_class + ("" if rec.economics.capex_complete else
+                                        " · LOWER BOUND, not an estimate: a cost it needs has no price")))
     lims = economics_limitations(rec.economics)
     if lims:
         s.blocks.append(Callout("warning",

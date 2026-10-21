@@ -138,7 +138,9 @@ def _scenario(res: ScenarioResult) -> dict:
                          "binding_name": final.binding.name if final else None,
                          "it_load_kW": _q(final.it_load_kW if final else res.envelope.it_load_kW)},
         "time_to_power": {**date, "lead_times": lead_times},
-        "economics": {"capex_total_eur": econ["capex_total_eur"], "capex_complete": econ["capex_complete"],
+        "economics": {"capex_total_eur": None if res.economics.nothing_deployable else econ["capex_total_eur"],
+                      "capex_na_reason": "n/a: nothing deployable" if res.economics.nothing_deployable else None,
+                      "capex_complete": econ["capex_complete"],
                       "unpriced_components": econ["unpriced_components"],
                       "cost_basis_mix": econ["cost_basis_mix"], "decision_grade": econ["decision_grade"],
                       "basis": econ["basis"], "limitations": econ["limitations"]},
@@ -178,6 +180,15 @@ def _vs(base: dict, s: dict) -> dict:
             "why": why or ["no difference in the limit, the date or the racks"]}
 
 
+def _fastest_tie_note(racks: dict, order: list[str]) -> str:
+    top = order[:2]
+    note = "The top two are level on weeks to full capacity; no leader is named."
+    if racks[top[0]] != racks[top[1]]:
+        note += (" They deploy different numbers of racks (" + ", ".join(f"{i}: {racks[i]}" for i in top) +
+                 "), but rack count is a different objective and does not decide who is fastest.")
+    return note
+
+
 def _rank(rows: list[dict], objective: Objective) -> dict:
     order, excluded, sortkey = [], [], None
     if objective is Objective.FASTEST_TO_POWER:
@@ -186,10 +197,11 @@ def _rank(rows: list[dict], objective: Objective) -> dict:
                 excluded.append({"id": r["id"], "reason": r["time_to_power"]["reason"]})
         keyed = [(r["time_to_power"]["weeks"], -r["after_ladder"]["racks"], r) for r in rows
                  if r["time_to_power"]["weeks"] is not None]
+        # Racks order a tie for display only (more capacity listed first); they never decide who is fastest.
         keyed.sort(key=lambda k: (k[0], k[1]))
         order = [k[2]["id"] for k in keyed]
         metric = {k[2]["id"]: k[0] for k in keyed}
-        sortkey = {k[2]["id"]: (k[0], k[1]) for k in keyed}      # level only if racks are level too
+        sortkey = {k[2]["id"]: k[0] for k in keyed}              # level when the weeks are level: the date decides
         unit = "weeks to full capacity"
     elif objective is Objective.MIN_COST_PER_RACK:
         keyed = []
@@ -223,7 +235,8 @@ def _rank(rows: list[dict], objective: Objective) -> dict:
             "leader": None if not order or tie else order[0],
             "tie": tie,
             "note": ("Nothing can be ranked on this objective with the inputs supplied." if not order else
-                     "The top two are level; no leader is named." if tie else
+                     (_fastest_tie_note(racks, order) if objective is Objective.FASTEST_TO_POWER else
+                      "The top two are level; no leader is named.") if tie else
                      "The ranked scenarios deploy different numbers of racks (" +
                      ", ".join(f"{i}: {racks[i]}" for i in order) +
                      "): a better rank on this objective is not more capacity." if differ else None)}

@@ -254,6 +254,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         kicker="Cost",
         title="What it takes, and how well we know it",
         figures=[
+            ("Indicative capex", "n/a", "nothing deployable: no capex to state") if econ.nothing_deployable else
             ("Indicative capex" if econ.capex_complete else "Indicative capex (lower bound)",
              ("" if econ.capex_complete else "≥ ") + econ.capex_total_eur.render(with_band=False, with_class=False),
              "" if econ.capex_complete else "a cost it needs has no price"),

@@ -46,6 +46,22 @@ class BidAssessment:
     notes: list[str] = field(default_factory=list)
 
     deviations: list[str] = field(default_factory=list)
+    #: True when the supplier quoted a lead time but no installation time. ``weeks_to_energised`` is then the lead time
+    #: ALONE (delivery to site, not energisation): a lower bound, never a complete programme.
+    install_weeks_missing: bool = False
+
+    @property
+    def programme_basis(self) -> str:
+        """What ``weeks_to_energised`` measures: 'complete' (lead + install), 'lead_only' (install time not quoted)
+        or 'none' (no lead time)."""
+        if self.weeks_to_energised is None:
+            return "none"
+        return "lead_only" if self.install_weeks_missing else "complete"
+
+    @property
+    def needs_engineering_review(self) -> bool:
+        """A bid that cannot be compared on programme as quoted: the engineer must obtain the missing time first."""
+        return self.install_weeks_missing
 
     @property
     def compliant(self) -> bool:
@@ -58,8 +74,9 @@ class BidAssessment:
             return (f"{self.supplier}: not evaluated — "
                     f"{'; '.join(self.notes[:2]) or 'incomplete response'}")
         price = f"EUR {self.capex_eur:,.0f}" if self.capex_eur is not None else "no price"
-        weeks = (f"{self.weeks_to_energised:.0f} weeks to energised"
-                 if self.weeks_to_energised is not None else "no programme")
+        weeks = ("no programme" if self.weeks_to_energised is None else
+                 f"{self.weeks_to_energised:.0f} weeks to delivered (install time not quoted)"
+                 if self.install_weeks_missing else f"{self.weeks_to_energised:.0f} weeks to energised")
         flag = ("" if self.compliant else
                 f" — {len(self.mandatory_failed) + len(self.unanswered)} mandatory not met")
         return f"{self.supplier}: {price}, {weeks}, score {self.total_score:.0f}/100{flag}"
@@ -164,7 +181,9 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
         capex = r.get("capex_eur")
         lead = r.get("lead_time_weeks")
         install = r.get("install_weeks")
-        weeks = None if lead is None else lead + (install or 0.0)
+        # A missing installation time is missing, not zero: the figure below is then the lead time alone and says so.
+        weeks = None if lead is None else lead + (install if install is not None else 0.0)
+        install_missing = lead is not None and install is None
 
         a = BidAssessment(
             supplier=r.supplier, received_on=r.received_on,
@@ -178,13 +197,18 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
                           else capex / pkg.sized_for_racks),
             mandatory_total=len(mandatory),
             mandatory_met=len(mandatory) - len(failed) - len(unanswered),
-            mandatory_failed=failed, unanswered=unanswered)
+            mandatory_failed=failed, unanswered=unanswered, install_weeks_missing=install_missing)
 
         a.deviations = [q.id for q in mandatory
                         if r.compliance.get(q.id, "").upper() == COMPLIES_WITH_DEVIATION]
         if problems:
             a.disqualified = True
             a.notes.append("response not evaluated: " + "; ".join(problems))
+        if install_missing:
+            a.notes.append(
+                "install time not quoted: the programme shown is the lead time alone (delivery to site), a lower "
+                "bound on the energised date. The bid is not scored on programme and ranks after bids that quoted "
+                "an installation time; the engineer must obtain weeks from delivery to energised before comparing it.")
         if a.deviations:
             a.notes.append(
                 f"complies with deviation on {', '.join(a.deviations)}: the engineer must "
@@ -208,7 +232,9 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
 
     live = [a for a in out if not a.disqualified]
     prices = [a.capex_eur for a in live if a.capex_eur is not None]
-    programmes = [a.weeks_to_energised for a in live if a.weeks_to_energised is not None]
+    # Only complete programmes set the scale: a lead-only figure is a lower bound and must not become the 'best' week.
+    programmes = [a.weeks_to_energised for a in live
+                  if a.weeks_to_energised is not None and not a.install_weeks_missing]
 
     for a in live:
         by_id = {c.id: c for c in pkg.criteria}
@@ -218,7 +244,8 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
         a.scores["C1"] = compliance_fraction * by_id["C1"].weight if "C1" in by_id else 0.0
         a.scores["C2"] = (
             _score_lower_is_better(programmes, a.weeks_to_energised) * by_id["C2"].weight
-            if "C2" in by_id and a.weeks_to_energised is not None and programmes else 0.0)
+            if "C2" in by_id and a.weeks_to_energised is not None and not a.install_weeks_missing and programmes
+            else 0.0)
         a.scores["C3"] = (
             _score_lower_is_better(prices, a.capex_eur) * by_id["C3"].weight
             if "C3" in by_id and a.capex_eur is not None and prices else 0.0)
@@ -242,7 +269,7 @@ def rank_bids(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAs
     assessed = assess(pkg, responses)
     return sorted(
         assessed,
-        key=lambda a: (a.disqualified, not a.compliant, -a.total_score,
+        key=lambda a: (a.disqualified, not a.compliant, a.install_weeks_missing, -a.total_score,
                        a.capex_eur if a.capex_eur is not None else float("inf")))
 
 
@@ -250,6 +277,10 @@ def schedule_impact(pkg: SpecPackage, a: BidAssessment) -> str:
     """What this bid does to the date, against the modelled lead time."""
     if a.weeks_to_energised is None or pkg.lead_time_weeks is None:
         return "No programme stated; the effect on the energisation date is unknown."
+    if a.install_weeks_missing:
+        return (f"Install time not quoted: {a.weeks_to_energised:.0f} weeks is delivery to site only, a lower bound on "
+                f"the energised date, so the effect on the date against the modelled "
+                f"{pkg.lead_time_weeks.value:.0f} weeks is unknown until the installation time is stated.")
     modelled = pkg.lead_time_weeks.value
     delta = a.weeks_to_energised - modelled
     if abs(delta) < 1:

@@ -46,8 +46,14 @@ def test_the_comparison_reports_the_numbers_the_screen_reports():
         s = by[r["id"]]
         assert r["as_found"]["racks"] == s["as_found"]["racks"]
         assert r["after_ladder"]["racks"] == s["after_ladder"]["racks"]
-        assert r["economics"]["capex_total_eur"] == s["economics"]["capex_total_eur"]
-        assert r["economics"]["capex_complete"] == s["economics"]["capex_complete"]
+        if r["after_ladder"]["racks"] <= 0:
+            # Nothing deployable is not a free hall: the comparison states n/a, never a complete 0 EUR.
+            assert r["economics"]["capex_total_eur"] is None
+            assert r["economics"]["capex_na_reason"] == "n/a: nothing deployable"
+            assert r["economics"]["capex_complete"] is False
+        else:
+            assert r["economics"]["capex_total_eur"] == s["economics"]["capex_total_eur"]
+            assert r["economics"]["capex_complete"] == s["economics"]["capex_complete"]
 
 
 def test_a_dated_scenario_carries_its_band_and_evidence_class():
@@ -281,7 +287,11 @@ def test_a_fastest_ranking_says_when_the_capacities_differ():
     out = compare(DUBLIN, objective="fastest")
     rk = out["ranking"]
     assert len({rk["racks"][i] for i in rk["order"]}) > 1
-    assert "different numbers of racks" in rk["note"] and "not more capacity" in rk["note"]
+    # The top two share a date, so no leader is named and the rack difference is stated as NOT deciding 'fastest'
+    # (the old note claimed a leader that rack count had picked, then said the rank was not more capacity).
+    assert rk["tie"] is True and rk["leader"] is None
+    assert "different numbers of racks" in rk["note"] and "does not decide who is fastest" in rk["note"]
+    assert "not more capacity" not in rk["note"]
     assert "different numbers of racks" not in (compare(DUBLIN, objective="max_compute")["ranking"]["note"] or "")
 
 
