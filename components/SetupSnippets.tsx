@@ -38,7 +38,7 @@ export default function SetupSnippets({ engine, rates }: { engine: string; rates
     steps.push({
       title: `3. Make your first paid call (${est.units} unit${est.units === 1 ? "" : "s"}${est.units > 0 ? `, ${eurExact(est.cents)} on pay-as-you-go` : ""})`,
       note:
-        "The Idempotency-Key makes a retry free: a repeat of the same key is never charged twice. " +
+        "The Idempotency-Key (up to 150 characters) makes a retry free: a repeat of the same key is never charged twice. " +
         "The project header is optional and lets you attribute usage. A rejected or failed call is refunded. " +
         "my-intake.json is your intake document: the engine refuses an empty one, and a refused call is not charged. " +
         "GET /v1/intake/template returns the blank form with every field.",

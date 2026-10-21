@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, Loader2, MailCheck } from "lucide-react";
 import Link from "next/link";
 import { PAYG } from "@/lib/products";
+import { FREE_RESEND_HOURS } from "@/lib/payg-pricing";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { requestFreeAccount, validateEmail, type ClientFailure } from "@/lib/payg-client";
 
@@ -87,7 +88,8 @@ export default function FreeAllowanceForm({
           <button type="button" onClick={again} className="underline hover:text-mute">
             try again or use another address
           </button>
-          . We say the same thing for every address, so this page cannot tell you whether one already has an
+          . If you already have an account we re-send the link at most every {FREE_RESEND_HOURS === 6 ? "six" : FREE_RESEND_HOURS}{" "}
+          hours. We say the same thing for every address, so this page cannot tell you whether one already has an
           account.
         </p>
       </div>

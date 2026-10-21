@@ -317,6 +317,10 @@ export default function Dashboard() {
               </div>
             </section>
           ) : null}
+          <p className="mt-10 text-xs text-faint">
+            Using the API? Your key, usage meter and invoices are on the private link we emailed when you created the API
+            account. That link is the only way in, and this page does not hold it.
+          </p>
         </>
       ) : null}
     </main>

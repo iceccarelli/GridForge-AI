@@ -31,6 +31,8 @@ export interface ClientFailure {
   /** Safe to show to a person. */
   message: string;
   retryAfterSeconds?: number;
+  /** The server's machine-readable next step, when it names one (for example "enable_payg"). */
+  fix?: string;
 }
 
 export type ClientResult<T> = { ok: true; data: T } | ClientFailure;
@@ -123,7 +125,8 @@ export function failureFor(raw: Raw): ClientFailure {
     return { ok: false, kind: "unauthorized", status, message: serverMsg ?? "This link is not valid for that." };
   }
   if (status === 400 || status === 409 || status === 422) {
-    return { ok: false, kind: "invalid", status, message: serverMsg ?? "The request was refused." };
+    const fix = str(raw.json?.fix) ?? undefined;
+    return { ok: false, kind: "invalid", status, message: serverMsg ?? "The request was refused.", ...(fix ? { fix } : {}) };
   }
   return {
     ok: false,
@@ -220,6 +223,8 @@ export interface Settlement {
   units: number | null;
   amountCents: number | null;
   status: SettlementStatus;
+  /** Units carried in from earlier months that were under the minimum invoice. */
+  carriedUnits: number | null;
   /** Only ever an https Stripe-hosted invoice URL; anything else is dropped. */
   invoiceUrl: string | null;
 }
@@ -230,6 +235,8 @@ export interface UsageAccount {
   scope: string | null;
   capUnits: number | null;
   capEur: number | null;
+  /** A card is on file for pay-as-you-go. Null on routes that predate the field. */
+  paymentMethodSaved: boolean | null;
 }
 
 export interface UsageSnapshot {
@@ -240,6 +247,12 @@ export interface UsageSnapshot {
   eurAccruedCents: number | null;
   remainingUnits: number | null;
   unitPriceCents: number | null;
+  /** Units that will be invoiced (pay-as-you-go only); the free allowance is never part of it. */
+  billableUnits: number | null;
+  /** When the ledger was last copied from the engine, or null. The engine's own counter is real time. */
+  asOf: string | null;
+  /** Alert thresholds (percent of cap) and whether each has already been sent this month. */
+  alerts: Record<string, boolean>;
   events: UsageEvent[];
   settlements: Settlement[];
 }
@@ -288,6 +301,7 @@ function parseSettlement(v: unknown): Settlement | null {
     units: num(r.units),
     amountCents: num(r.amount_cents),
     status,
+    carriedUnits: num(r.carried_units),
     invoiceUrl: safeInvoiceUrl(r.hosted_invoice_url ?? r.invoice_url),
   };
 }
@@ -307,6 +321,7 @@ export function parseUsage(json: Record<string, unknown>): UsageSnapshot | null 
       scope: str(acc.scope),
       capUnits: num(acc.cap_units),
       capEur: num(acc.cap_eur),
+      paymentMethodSaved: typeof acc.payment_method_saved === "boolean" ? acc.payment_method_saved : null,
     },
     month: str(json.month),
     unitsUsed: used,
@@ -314,6 +329,11 @@ export function parseUsage(json: Record<string, unknown>): UsageSnapshot | null 
     eurAccruedCents: num(json.eur_accrued_cents),
     remainingUnits: num(json.remaining_units),
     unitPriceCents: num(json.unit_price_cents),
+    billableUnits: num(json.billable_units),
+    asOf: str(json.as_of),
+    alerts: Object.fromEntries(
+      Object.entries(asRecord(json.alerts) ?? {}).filter(([, v]) => typeof v === "boolean") as [string, boolean][]
+    ),
     events: (Array.isArray(json.events) ? json.events : []).map(parseEvent).filter((e): e is UsageEvent => e !== null),
     settlements: (Array.isArray(json.settlements) ? json.settlements : [])
       .map(parseSettlement)
@@ -360,6 +380,31 @@ export function enablePayg(
     }
   );
 }
+
+/**
+ * POST /api/payg/card. Stripe Checkout in setup mode for the account's existing customer. Nothing is charged by this
+ * call; the card is saved by the signed webhook, which also retries a failed unpaid invoice on it. A 409 carries
+ * `fix: "enable_payg"` (no card to replace yet); a cancelled account answers 402.
+ */
+export function replaceCard(token: string, f: FetchLike = defaultFetch()): Promise<ClientResult<{ url: string }>> {
+  return run(f, "/api/payg/card", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token }) }, (j) => {
+    const url = safeCheckoutUrl(j.url);
+    return url ? { url } : null;
+  });
+}
+
+/**
+ * A free account's first key mint is refused with 429 {reason:"capacity"} when the month's free allowances are all
+ * taken. That is not "slow down": the page says the free allowance is full and points at pay-as-you-go, which needs
+ * no free allowance.
+ */
+export function isFreeCapacityRefusal(status: number, body: unknown): boolean {
+  return status === 429 && asRecord(body)?.reason === "capacity";
+}
+
+export const FREE_CAPACITY_MESSAGE =
+  "Free allowances are full this month, so no free key can be issued yet. They reopen at the start of next month (UTC). " +
+  "Pay as you go needs no free allowance: you can enable it below with a cap you choose.";
 
 export interface MintedKey {
   key: string;
