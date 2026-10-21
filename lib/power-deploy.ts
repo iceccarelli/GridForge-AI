@@ -29,9 +29,10 @@ export interface PowerDeploymentCaseRow {
   result: Record<string, unknown>;
   changed_fields: string[];
   /**
-   * The engine's /v1/version provenance (digest, report_date, ...) read around the assessment that produced `result`;
-   * null for revisions written before migration 0038 or when the engine did not report one. Never inferred. A
-   * calibration observation takes its engine digest from here.
+   * The engine's /v1/version provenance (digest, report_date, ...) read right after the assessment that produced
+   * `result`, with `read` saying whether an earlier read bracketed it ("bracketed") or not ("after_only"); null for
+   * revisions written before migration 0038 or when the engine did not report one. Never inferred. A calibration
+   * observation takes its engine digest from here.
    */
   engine_provenance?: Record<string, unknown> | null;
   /** Set only when the revision was written together with project history events. */
@@ -55,16 +56,26 @@ export async function runDeploymentAssessment(
   | { ok: true; result: Record<string, unknown>; provenance: Record<string, unknown> | null }
   | { ok: false; error: string }
 > {
-  // The engine build is read before AND after the assessment and kept only when both reads agree, so a redeploy in
-  // between cannot attach the wrong build's identity to this answer. If the engine will not say what it is, the
-  // revision is stored without one (and its observations are not ledger-eligible); nothing is invented.
-  const before = await engineProvenance();
+  // The engine build is read once, immediately AFTER a successful assessment: the metered call is the only thing
+  // that touches the engine when the caller's budget is spent, so nothing here may precede it. To bracket the
+  // assessment the previous read this process made (if recent) is compared with the new one: if the build changed
+  // in between, the answer cannot be attributed to either and no provenance is kept; with no recent read the new one
+  // is kept and labelled `read: "after_only"`, so the record says how it was captured. If the engine will not say
+  // what it is, the revision is stored without one (and its observations are not ledger-eligible); nothing is invented.
+  const earlier = lastRead && Date.now() - lastRead.at < BRACKET_WINDOW_MS ? lastRead.p : null;
   const out = await callEngine("/v1/power/deploy/assess", request);
   if (!out.ok) return { ok: false, error: out.error };
-  const after = before ? await engineProvenance() : null;
-  const provenance = before && after && before.digest === after.digest ? before : null;
+  const after = await engineProvenance();
+  if (after) lastRead = { p: after, at: Date.now() };
+  let provenance: Record<string, unknown> | null = null;
+  if (after && (!earlier || earlier.digest === after.digest)) {
+    provenance = { ...after, read: earlier ? "bracketed" : "after_only" };
+  }
   return { ok: true, result: out.body, provenance };
 }
+
+const BRACKET_WINDOW_MS = 120_000;
+let lastRead: { p: Record<string, unknown>; at: number } | null = null;
 
 /** The engine's own provenance record (GET /v1/version), or null when it cannot be read or is malformed. */
 async function engineProvenance(): Promise<Record<string, unknown> | null> {

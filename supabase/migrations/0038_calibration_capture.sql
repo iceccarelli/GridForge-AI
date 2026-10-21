@@ -54,9 +54,10 @@ create trigger supplier_actual_reviews_no_truncate
 -- ---------------------------------------------------------------------------
 alter table public.power_deployment_cases add column if not exists engine_provenance jsonb;
 comment on column public.power_deployment_cases.engine_provenance is
-  'The engine''s /v1/version provenance (digest, report_date, ...) read around the assessment that produced `result`, '
-  'and stored only when the digest was the same before and after. NULL for revisions written before 0038 or when the '
-  'engine did not report one; never inferred.';
+  'The engine''s /v1/version provenance (digest, report_date, ...) read immediately after the assessment that produced '
+  '`result`; `read` is ''bracketed'' when this process had an earlier read of the same build, ''after_only'' otherwise. '
+  'NULL for revisions written before 0038, when the engine did not report one, or when the build changed between reads; '
+  'never inferred.';
 
 -- Same as 0015's gf_append_case_revision, plus engine_provenance.
 create or replace function public.gf_append_case_revision(p jsonb, p_event jsonb) returns jsonb
