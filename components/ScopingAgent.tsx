@@ -13,7 +13,7 @@ type Msg = { role: "user" | "assistant"; content: string };
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "I'm the Time to Power scoping engineer. Tell me about your existing or proposed AI site — approximate MW, hall size, and where you are with the grid connection — and I'll give you a directional read on how much of that power can actually become useful AI compute, and what's likely to bind first.",
+    "I'm the Time to Power scoping engineer. Tell me about your existing AI hall — approximate MW, hall size, and where you are with the grid connection — and I'll give you a directional read on how much of that power can actually become useful AI compute, and what's likely to bind first.",
 };
 
 export function ScopingAgent() {

@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     template: "%s · Time to Power",
   },
   description:
-    `Give Time to Power the technical information for an existing or proposed AI site, and it will tell you how much useful AI compute the site can actually support, what blocks it, what fixes it, what the fix costs, and when the compute can go live. Start with a Density Screen: one hall, ${SCREEN_DAYS} working days, ${SCREEN_PRICE}. Powered by GridForge Engine.`,
+    `Give Time to Power the technical information for an existing AI hall, and it will tell you how much useful AI compute the hall can actually support, what blocks it, what fixes it, what the fix costs, and the time to full capacity, with the evidence class behind each figure. Start with a Density Screen: one hall, ${SCREEN_DAYS} working days, ${SCREEN_PRICE}. Powered by GridForge Engine.`,
   keywords: [
     "AI data center power capacity",
     "data hall rack density",

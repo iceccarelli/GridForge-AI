@@ -36,7 +36,7 @@ export function Canvas({
           What are you trying to power?
         </h1>
         <p className="text-sm text-mute mt-3 max-w-md leading-relaxed">
-          Describe an existing or proposed AI hall. Every number that shows up here comes from a
+          Describe an existing AI hall. Every number that shows up here comes from a
           real GridForge engine call — never invented — and carries its evidence class.
         </p>
 
