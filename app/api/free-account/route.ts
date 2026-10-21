@@ -3,6 +3,7 @@ import { readBoundedJson } from "@/lib/http-body";
 import { normaliseFreeEmail } from "@/lib/payg";
 import { createFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,9 @@ export async function POST(req: Request) {
   // Admitted after validation, before anything is written or any email is queued.
   const g = await guardRequest(req, "free_account");
   if (g.denied) return g.denied;
+  // A free allowance is a promise the engine must be able to keep (a recorded, capped key): not made against an engine that cannot.
+  const closed = await meteredUnavailable();
+  if (closed) return closed;
 
   const r = await createFreeAccount(body.email, body.company);
   if (!r.ok) {

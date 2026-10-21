@@ -364,6 +364,23 @@ export function safeCheckoutUrl(v: unknown): string | null {
   }
 }
 
+/**
+ * GET /api/metered-status: are free developer keys and pay-as-you-go open on this deployment? "unknown" (the route is missing, the
+ * network failed, the answer was malformed) never blocks a form: the server refuses honestly if it must. Only an explicit
+ * `open: false` closes one.
+ */
+export async function getMeteredStatus(f: FetchLike = defaultFetch()): Promise<"open" | "closed" | "unknown"> {
+  try {
+    const res = await f("/api/metered-status", { cache: "no-store" });
+    if (!res.ok) return "unknown";
+    const j = asRecord(await res.json());
+    if (!j) return "unknown";
+    return j.open === true ? "open" : j.open === false ? "closed" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** POST /api/payg/enable. Returns the Stripe Checkout (setup mode) URL; no charge is made by this call. */
 export function enablePayg(
   token: string,

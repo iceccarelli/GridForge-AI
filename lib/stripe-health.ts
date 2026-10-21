@@ -22,6 +22,12 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   "invoice.payment_failed",
 ] as const;
 
+/**
+ * Events the handlers use for measurement only (refund and dispute counts in the admin funnel). Money, entitlements and
+ * delivery never depend on them, so a missing one does not make the endpoint unhealthy; it is reported so it can be added.
+ */
+export const RECOMMENDED_WEBHOOK_EVENTS = ["charge.refunded", "charge.dispute.created"] as const;
+
 export interface StripeWebhookHealth {
   configured: boolean;
   reachable: boolean;
@@ -34,6 +40,8 @@ export interface StripeWebhookHealth {
     enabledEvents: string[];
   } | null;
   missingEvents: string[];
+  /** Events that only feed measurement (see RECOMMENDED_WEBHOOK_EVENTS); never part of `healthy`. */
+  missingRecommended: string[];
   urlMismatch: boolean;
   healthy: boolean;
   checkedAt: string;
@@ -50,6 +58,7 @@ function unhealthy(
     expectedUrl,
     endpoint: null,
     missingEvents: [...REQUIRED_WEBHOOK_EVENTS],
+    missingRecommended: [...RECOMMENDED_WEBHOOK_EVENTS],
     urlMismatch: false,
     healthy: false,
     checkedAt: new Date().toISOString(),
@@ -117,6 +126,8 @@ export async function checkStripeWebhookHealth(
     ? [...REQUIRED_WEBHOOK_EVENTS]
     : endpoint.enabled_events;
   const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter((e) => !enabledEvents.includes(e));
+  const wildcard = endpoint.enabled_events.includes("*");
+  const missingRecommended = wildcard ? [] : RECOMMENDED_WEBHOOK_EVENTS.filter((e) => !endpoint.enabled_events.includes(e));
 
   const healthy = endpoint.status === "enabled" && missingEvents.length === 0;
 
@@ -136,8 +147,59 @@ export async function checkStripeWebhookHealth(
       enabledEvents,
     },
     missingEvents,
+    missingRecommended,
     urlMismatch: false,
     healthy,
     checkedAt: new Date().toISOString(),
+  };
+}
+
+
+/**
+ * Whether the Stripe Billing Portal can do what the site tells customers it can: cancel a subscription, replace a payment
+ * method and show invoices. /api/billing/portal creates a portal session; Stripe refuses it (and the customer sees "not
+ * available") until a portal configuration exists in the dashboard with those features on. Asked of Stripe directly; an account
+ * that cannot be reached is reported as unreachable, never as fine.
+ */
+export interface BillingPortalHealth {
+  configured: boolean;
+  reachable: boolean;
+  ok: boolean;
+  /** Features the customer is promised that no active configuration enables. */
+  missing: string[];
+  error: string | null;
+  checkedAt: string;
+}
+
+export async function checkBillingPortal(
+  stripeClient: {
+    billingPortal: { configurations: { list(params: { active: boolean; limit: number }): Promise<{ data: unknown[] }> } };
+  } | null
+): Promise<BillingPortalHealth> {
+  const base = { checkedAt: new Date().toISOString() };
+  const WANTED = ["subscription_cancel", "payment_method_update", "invoice_history"] as const;
+  if (!stripeClient) {
+    return { ...base, configured: false, reachable: false, ok: false, missing: [...WANTED], error: "STRIPE_SECRET_KEY is not set: cannot verify the Billing Portal." };
+  }
+  let configs: unknown[];
+  try {
+    configs = (await stripeClient.billingPortal.configurations.list({ active: true, limit: 10 })).data;
+  } catch (err) {
+    return { ...base, configured: true, reachable: false, ok: false, missing: [...WANTED], error: `Could not reach Stripe to list Billing Portal configurations: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  // The portal session the site creates uses the account's DEFAULT configuration (no configuration id is passed), so that is the one that counts.
+  const usable = configs.filter((c): c is { is_default?: boolean; features?: Record<string, { enabled?: boolean } | undefined> } => typeof c === "object" && c !== null);
+  const chosen = usable.find((c) => c.is_default) ?? usable[0];
+  if (!chosen) {
+    return { ...base, configured: true, reachable: true, ok: false, missing: [...WANTED], error: "No active Billing Portal configuration exists. Customers who press 'Manage or cancel' will be told it is not available." };
+  }
+  const missing = WANTED.filter((f) => chosen.features?.[f]?.enabled !== true);
+  return {
+    ...base,
+    configured: true,
+    reachable: true,
+    ok: missing.length === 0,
+    missing: [...missing],
+    error: missing.length === 0 ? null : `The default Billing Portal configuration does not enable: ${missing.join(", ")}.`,
   };
 }

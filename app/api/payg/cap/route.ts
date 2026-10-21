@@ -5,6 +5,7 @@ import { readBoundedJson } from "@/lib/http-body";
 import { PAYG, accountRef, parseCapEur, paygCapUnits } from "@/lib/payg";
 import { accountByToken } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
   }
   const g = await guardRequest(req, "payg_manage");
   if (g.denied) return g.denied;
+  // A cap change mints and rotates a payg key: only against an engine that is proven to honour it.
+  const closed = await meteredUnavailable();
+  if (closed) return closed;
 
   const acct = token ? await accountByToken(token) : null;
   if (acct === "error") return NextResponse.json({ ok: false, error: "This is unavailable just now. Nothing was changed." }, { status: 503 });

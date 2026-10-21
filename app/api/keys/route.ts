@@ -4,6 +4,7 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { accountRef, freeAccountsMax } from "@/lib/payg";
 import { verifyFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 import { inspectKey } from "@/lib/api-access";
 
 export const runtime = "nodejs";
@@ -112,6 +113,11 @@ export async function POST(req: Request) {
   const want = keyEntitlement(row);
   if (!want.ok) return NextResponse.json({ ok: false, error: want.error }, { status: 409 });
   const wrongScope = Boolean(row.key_id) && Boolean(row.key_scope) && row.key_scope !== want.scope;
+  // A free-allowance or pay-as-you-go key is only issued against an engine that records and caps it (lib/api-readiness.ts).
+  if (want.scope !== "machine" && (rotate || life.needs_rotation || wrongScope)) {
+    const closed = await meteredUnavailable();
+    if (closed) return closed;
+  }
   if (!rotate && !life.needs_rotation && !wrongScope) {
     return NextResponse.json({
       ok: true,

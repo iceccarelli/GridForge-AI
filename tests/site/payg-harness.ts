@@ -11,6 +11,8 @@
  *   mockEngine        the engine's /v1/revoke as a fetch interceptor (records ids, can refuse).
  */
 import { PgError, PostgrestFake, type Row } from "./postgrest-fake";
+import { inspectKey } from "@/lib/api-access";
+import { PAYG } from "@/lib/products";
 import type { InvoiceLite, PaygStripe } from "@/lib/payg-stripe";
 
 export const PAYG_TABLES = [
@@ -370,6 +372,14 @@ export class MockStripe implements PaygStripe {
 export interface MockEngine {
   revokeCalls: string[];
   refuseRevoke: boolean;
+  /**
+   * true (default): an engine built for metering: it accepts the payg scope, publishes the scheme and serves the operator ledger.
+   * false: an engine from before the ledger existed (what production runs today): payg keys read as an unknown scope, no `payg`
+   * block, no operator ledger route.
+   */
+  metered: boolean;
+  /** true: the engine's version answer is a failure (down). */
+  down: boolean;
   restore: () => void;
 }
 
@@ -378,9 +388,28 @@ export function mockEngine(mail: { to: string; subject: string; text: string }[]
   process.env.GRIDFORGE_API_URL = "https://engine.test";
   process.env.GRIDFORGE_ADMIN_KEY = "admin-test-key";
   const inner = globalThis.fetch;
-  const eng: MockEngine = { revokeCalls: [], refuseRevoke: false, restore: () => { globalThis.fetch = inner; } };
+  const eng: MockEngine = { revokeCalls: [], refuseRevoke: false, metered: true, down: false, restore: () => { globalThis.fetch = inner; } };
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url === "https://engine.test/v1/version") {
+      if (eng.down) return new Response("{}", { status: 503 });
+      const key = String((init?.headers as Record<string, string> | undefined)?.["X-API-Key"] ?? "");
+      const signed = inspectKey(key);
+      const operator = key === process.env.GRIDFORGE_ADMIN_KEY;
+      const knownScope = signed?.valid && (signed.s === "machine" || signed.s === "trial" || signed.s === "client" || (eng.metered && signed.s === "payg"));
+      return new Response(JSON.stringify({
+        version: "0.9.0",
+        tier: operator ? "internal" : knownScope ? "client" : "public",
+        ...(operator ? { revocation_persistable: true } : {}),
+        ...(eng.metered
+          ? { payg: { unit_price_cents: PAYG.unitPriceCents, currency: PAYG.currency, min_invoice_cents: PAYG.minInvoiceCents, free_allowance_units: PAYG.freeAllowanceUnits, billing_rule: "x" },
+              metering: { durable: true, ledger_durable: true } }
+          : { metering: { durable: true } }),
+      }), { status: 200 });
+    }
+    if (url === "https://engine.test/v1/admin/ledger?limit=1") {
+      return eng.metered ? new Response(JSON.stringify({ events: [], last_seq: 0, head_seq: 0, durable: true, status: "ok" }), { status: 200 }) : new Response("{}", { status: 404 });
+    }
     if (url === "https://engine.test/v1/revoke") {
       const id = JSON.parse(String(init?.body)).key_id as string;
       if (eng.refuseRevoke) return new Response("{}", { status: 503 });

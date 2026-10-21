@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import Stripe from "stripe";
 import { verifyAdminCookie, ADMIN_COOKIE } from "@/lib/admin";
 import { siteUrl } from "@/lib/site";
-import { checkStripeWebhookHealth } from "@/lib/stripe-health";
+import { checkBillingPortal, checkStripeWebhookHealth } from "@/lib/stripe-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,5 +22,6 @@ export async function GET() {
   const key = process.env.STRIPE_SECRET_KEY;
   const stripe = key ? new Stripe(key) : null;
   const health = await checkStripeWebhookHealth(stripe, siteUrl("/api/stripe/webhook"));
-  return NextResponse.json({ ok: true, health });
+  const portal = await checkBillingPortal(stripe);
+  return NextResponse.json({ ok: true, health, portal });
 }
