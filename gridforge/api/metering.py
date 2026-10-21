@@ -464,6 +464,35 @@ class Meter:
                     self._pending_refunds.append(kw)
         self._flush()
 
+    @property
+    def pending_refunds(self) -> int:
+        return len(self._pending_refunds)
+
+    def close(self) -> None:
+        """Last chance to write refunds that could not be written when they happened. Idempotent and safe to
+        call from a signal path or atexit; never raises.
+
+        What this cannot do: if the process is killed outright (SIGKILL, OOM, power loss) while a refund is
+        still queued, the queue dies with it and the ledger keeps a charge for a call that produced no answer.
+        That needs two faults at once (a failed refund write, then a hard kill before the next successful
+        write), the queue is retried before every later ledger write, and the cost to the customer is the
+        units of one failed call, which support can reverse by hand. It is not silent: the unrefunded charge
+        is in the ledger with its id, and `Meter.pending_refunds` reports the queue."""
+        try:
+            with self._lock:
+                if self._pending_refunds and self.ledger.available():
+                    try:
+                        self._drain_pending_refunds()
+                    except LedgerError:
+                        pass
+                left = len(self._pending_refunds)
+            if left:
+                import sys
+                print(f"gridforge: {left} refund(s) could not be written to the ledger at shutdown",
+                      file=sys.stderr)
+        except Exception:
+            pass
+
     def refund(self, account: str, path: str, units: int) -> None:
         """Give back units for a call that produced no answer (the work failed on our side or the
         request was invalid). A caller is billed for results, not for errors."""

@@ -763,6 +763,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
 #: Handler before any handler runs, on the thread serving the request; handlers never see a key itself.
 _CTX = threading.local()
 
+_IDEM_REUSED = "this Idempotency-Key was already used with a different request body"
 MAX_ESTIMATE_HALLS = 100_000
 MAX_MCP_BATCH = 10
 _PORTFOLIO = "/v1/portfolio"
@@ -928,12 +929,27 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     args = params.get("arguments")
     if not isinstance(args, dict):
         raise RpcError(-32602, "arguments must be an object")
+    # Idempotency-Key, exactly as REST honours it: a retry after a timeout is neither charged twice nor handed a
+    # different answer, and a key reused for another request is refused. `idem` is None when there is no key,
+    # no valid API key to scope it to, or the tool is the estimator.
+    idem = getattr(charge, "idem", lambda e, a: None)(endpoint, args)
+    if idem is not None:
+        cache_key, body_hash = idem
+        hit = IDEMPOTENCY.get(cache_key)
+        if hit is not None:
+            if hit[1] != body_hash:
+                raise RpcError(-32602, _IDEM_REUSED, {"status": 422})
+            getattr(charge, "replayed", lambda: None)()
+            return _mcp_content(name, hit[3])
     denied = charge(endpoint, args)
     if denied:
-        raise RpcError(-32003 if denied.get("status") == 503 else -32002, denied["error"], denied)
+        status = denied.get("status")
+        raise RpcError(-32003 if status == 503 else -32602 if status == 422 else -32002, denied["error"], denied)
     refund = getattr(charge, "refund", lambda: None)
     try:
         result = _invoke(endpoint, handler, args, tier)
+        if idem is not None:
+            IDEMPOTENCY.put(idem[0], idem[1], 200, result)
     except ApiError as exc:
         refund()
         raise RpcError(-32602, exc.message, exc.extra)
@@ -943,6 +959,10 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
         refund()
         raise RpcError(-32602, f"invalid arguments: {exc.__class__.__name__}: {str(exc)[:160]}")
+    return _mcp_content(name, result)
+
+
+def _mcp_content(name: str, result: dict) -> dict:
     # MCP wants content blocks. The structured payload is the real answer; the text
     # block is a one-line summary so a model that only reads text is not left with
     # a wall of JSON and no idea which number mattered.
@@ -1260,7 +1280,7 @@ class Handler(BaseHTTPRequestHandler):
             return {"status": 422, "error": res.reason}
         if res.status == "replay":
             self._replayed = True
-            self._last_units = 0
+            self._last_units = getattr(self, "_req_units", 0)
             self._last_usage = res.usage
             return None
         if res.status == "over":
@@ -1442,8 +1462,35 @@ class Handler(BaseHTTPRequestHandler):
 
     def _serve_mcp(self, body, tier: Tier) -> None:
         """JSON-RPC 2.0, single request or batch. Notifications get 202 and no body."""
-        charge = lambda endpoint, args: self._charge(endpoint, args)  # noqa: E731
+        header = (self.headers.get("Idempotency-Key") or "").strip()
+        position: list = [None]          # index in the batch of the message being handled; None for a single call
+
+        def idem_for(endpoint: str, args: dict):
+            """(response-cache key, full body hash) for this call, or None when no idempotency applies."""
+            plan = self._plan()
+            if not header or plan is None or endpoint == "/v1/estimate":
+                return None
+            if len(header) > 200:
+                raise RpcError(-32602, "Idempotency-Key is longer than 200 characters", {"status": 400})
+            idem = header if position[0] is None else f"{header}#{position[0]}"
+            canon = json.dumps({"endpoint": endpoint, "arguments": args}, sort_keys=True, separators=(",", ":"))
+            return (plan.account, endpoint, idem), hashlib.sha256(canon.encode()).hexdigest()
+
+        def charge(endpoint, args):
+            info = idem_for(endpoint, args)
+            if info is None:
+                return self._charge(endpoint, args)
+            return self._charge(endpoint, args, idem=info[0][2], body_sha=info[1][:16])
+
         charge.refund = self._refund
+        charge.idem = idem_for
+
+        def replayed() -> None:
+            self._replayed = True
+            plan = self._plan()
+            if getattr(self, "_last_units", None) is None and plan is not None:
+                self._last_units, self._last_usage = 0, METER.current(plan.account)
+        charge.replayed = replayed
         calls = [0]
 
         def rate() -> bool:
@@ -1459,8 +1506,12 @@ class Handler(BaseHTTPRequestHandler):
                                         "error": {"code": -32600,
                                                   "message": f"batch too large: at most {MAX_MCP_BATCH} requests",
                                                   "data": {"max_batch": MAX_MCP_BATCH, "received": len(body)}}})
-            out = [r for r in (handle_mcp(m if isinstance(m, dict) else {}, tier, charge)
-                               for m in body) if r is not None]
+            out = []
+            for i, m in enumerate(body):
+                position[0] = i
+                r = handle_mcp(m if isinstance(m, dict) else {}, tier, charge)
+                if r is not None:
+                    out.append(r)
             if not out:
                 self.send_response(202)
                 self._cors()
@@ -1484,6 +1535,31 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, result)
 
 
+def graceful_stop(httpd=None, meter=None) -> None:
+    """Everything the engine controls on the way down: stop accepting, then write any refund that could not be
+    written at the time. A refund owed to a customer must not be lost because the process was told to stop."""
+    if httpd is not None:
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
+    (meter or METER).close()
+
+
+def install_signal_handlers() -> None:
+    """Fly stops a machine with SIGTERM, which by default kills the process with no chance to flush. Turn it
+    into the same path as Ctrl-C so serve() reaches graceful_stop(). A hard kill (SIGKILL, OOM, power loss)
+    cannot be handled by anything in-process; see Meter.close()."""
+    import signal
+
+    def _term(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, _term)
+    except (ValueError, OSError):      # not the main thread
+        pass
+
+
 def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover - entry point
     httpd = ThreadingHTTPServer((host, port), Handler)
     keys = _api_keys()
@@ -1491,10 +1567,13 @@ def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover 
     print(f"  public : POST /v1/qualify")
     print(f"  client : POST /v1/screen, /v1/study, /v1/portfolio "
           f"({'keys configured' if keys else 'DISABLED — set GRIDFORGE_API_KEYS'})")
+    install_signal_handlers()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        httpd.shutdown()
+        pass
+    finally:
+        graceful_stop(httpd)
 
 
 def make_server(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
