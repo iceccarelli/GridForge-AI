@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { attachCase } from "@/lib/projects";
 import { fail, readJson, withProject } from "@/lib/project-http";
+import { recordFunnelEvent } from "@/lib/funnel";
 
 export const runtime = "nodejs";
 
@@ -15,5 +16,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!case_token) return fail({ status: 422, error: "case_token is required." });
   const r = await attachCase(p.project, case_token, typeof body?.email === "string" ? body.email : null);
   if (!r.ok) return fail(r);
+  if (r.created) await recordFunnelEvent("project_saved_result", { kind: "case" });
   return NextResponse.json({ ok: true, attached: r.created, revision: r.revision });
 }

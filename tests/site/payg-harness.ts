@@ -153,6 +153,61 @@ export function installPaygRpcs(db: PostgrestFake): void {
     return { created: true, id: row.id };
   });
 
+  // ---- 0034: the funnel and economics read functions (SUPPLEMENTAL mirrors; the SQL is proven in tests/test_payg_migration.py)
+  db.rpcs.set("gf_funnel_summary", ({ p_since }: { p_since: string }) => {
+    const evs = db.rows("funnel_events") as Row[];
+    const inWin = evs.filter((e) => (e.created_at as string) >= p_since);
+    const counts: Record<string, number> = {};
+    for (const e of inWin) counts[e.name as string] = (counts[e.name as string] ?? 0) + 1;
+    const props = (e: Row) => (e.props ?? {}) as Record<string, unknown>;
+    const cohort = inWin.filter((e) => e.name === "free_account_created" && props(e).account_ref).map((e) => ({ ref: props(e).account_ref, at: e.created_at }));
+    const refs: Record<string, string[]> = {};
+    for (const name of ["key_minted", "payg_enabled", "first_charge", "first_engine_use", "allowance_exhausted"]) {
+      const set = [...new Set(evs.filter((e) => e.name === name && props(e).account_ref).map((e) => props(e).account_ref as string))];
+      if (set.length) refs[name] = set;
+    }
+    const by_kind: Record<string, Record<string, number>> = {};
+    for (const e of inWin) {
+      if (!["subscription_started", "subscription_cancelled", "engagement_commissioned", "payment_failed", "refund_issued", "dispute_opened", "project_saved_result"].includes(e.name as string)) continue;
+      const k = (props(e).kind as string) ?? "unspecified";
+      const m = (by_kind[e.name as string] ??= {});
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    const cancel_reasons: Record<string, number> = {};
+    for (const e of inWin.filter((x) => x.name === "subscription_cancelled" && props(x).reason)) cancel_reasons[props(e).reason as string] = (cancel_reasons[props(e).reason as string] ?? 0) + 1;
+    const evidence_classes: Record<string, number> = {};
+    for (const e of inWin.filter((x) => x.name === "qualify_completed" && props(x).evidence_class)) evidence_classes[props(e).evidence_class as string] = (evidence_classes[props(e).evidence_class as string] ?? 0) + 1;
+    return { counts, cohort, refs, by_kind, cancel_reasons, evidence_classes };
+  });
+
+  db.rpcs.set("gf_usage_activity", () => {
+    const eff = effective(db);
+    const weeks = new Map<string, Map<string, number>>();
+    for (const e of eff) {
+      const d = new Date(e.effective_at);
+      const day = (d.getUTCDay() + 6) % 7;
+      const w = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day)).toISOString().slice(0, 10);
+      const m = weeks.get(e.account) ?? new Map<string, number>();
+      m.set(w, (m.get(w) ?? 0) + signed(e));
+      weeks.set(e.account, m);
+    }
+    const out: Record<string, { first: string; weeks: string[] }> = {};
+    for (const [account, m] of weeks) {
+      const charges = (db.rows("usage_events") as Row[]).filter((r) => r.account === account && r.kind === "charge").map((r) => r.occurred_at as string).sort();
+      const ws = [...m.entries()].filter(([, n]) => n > 0).map(([w]) => w).sort();
+      if (ws.length && charges.length) out[account] = { first: charges[0], weeks: ws };
+    }
+    return out;
+  });
+
+  db.rpcs.set("gf_usage_month_summary", ({ p_from, p_to }: { p_from: string; p_to: string }) => {
+    const rows = effective(db).filter((e) => e.effective_at >= p_from && e.effective_at < p_to);
+    const by: Record<string, number> = {};
+    for (const e of rows) by[e.scope] = (by[e.scope] ?? 0) + signed(e);
+    for (const k of Object.keys(by)) by[k] = Math.max(0, by[k]);
+    return { by_scope: by, accounts: new Set(rows.map((e) => e.account)).size };
+  });
+
   db.rpcs.set("gf_free_account_verify", ({ p_token, p_max }: { p_token: string; p_max: number }) => {
     if (!p_token || p_max < 0) throw new PgError("22023", "free account verification arguments out of range", 400);
     const accts = db.rows("api_accounts");

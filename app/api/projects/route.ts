@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createProject } from "@/lib/projects";
 import { fail, readJson } from "@/lib/project-http";
 import { guardRequest } from "@/lib/rate-limit";
+import { recordFunnelEvent } from "@/lib/funnel";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ export async function POST(req: Request) {
   if (g.denied) return g.denied;
   const made = await createProject(body);
   if (!made.ok) return fail(made);
+  // Counted, never described: no project name, token or content goes into the product event.
+  await recordFunnelEvent("project_created");
   return NextResponse.json(
     { ok: true, project_token: made.project.project_token, project_name: made.project.project_name },
     { status: 201 }

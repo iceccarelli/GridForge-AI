@@ -109,4 +109,13 @@ export function accountRef(account: string): string {
   return crypto.createHmac("sha256", refKey()).update(`account:${account}`).digest("hex").slice(0, 12);
 }
 
+/**
+ * The stored form of a once-only key. Callers build keys from things like a Stripe subscription id or a checkout session id, and those
+ * must not sit in the funnel table in the clear (they are identifiers an outsider could look up): the table holds only this opaque
+ * keyed digest, which still makes "once" exact.
+ */
+export function funnelKey(key: string): string {
+  return crypto.createHmac("sha256", refKey()).update(`dedupe:${key}`).digest("hex").slice(0, 32);
+}
+
 export const eurText = (cents: number) => `EUR ${(cents / 100).toFixed(2)}`;

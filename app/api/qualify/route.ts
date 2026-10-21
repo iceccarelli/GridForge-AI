@@ -3,6 +3,7 @@ import { engineUnavailableMessage } from "./unavailable-message";
 import { callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
 import { guardRequest, spendRefused } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
+import { recordFunnelEvent } from "@/lib/funnel";
 
 /** The seven numbers and a few short strings: the schema bounds every field, so anything near this size is not a hall. */
 const MAX_BODY_BYTES = 32 * 1024;
@@ -49,6 +50,9 @@ export async function POST(req: Request) {
   const g = await guardRequest(req, "qualify");
   if (g.denied) return g.denied;
   return g.run(async () => {
+    // Adoption funnel, anonymous by construction: a started qualification carries NOTHING (no input, no address, no account), and a
+    // completed one carries only the evidence class of the answer. The two cannot be joined to a person or to each other.
+    await recordFunnelEvent("qualify_started");
     // Minted before the engine runs, so a result that fails to persist still has an
     // identity and an unreachable engine still produces a row we can come back to.
     const token = newQualificationToken();
@@ -77,6 +81,8 @@ export async function POST(req: Request) {
       );
     }
 
+    const evidence = /^E[0-7]/.exec(String(outcome.result?.as_found?.it_load_kW?.evidence ?? ""))?.[0];
+    await recordFunnelEvent("qualify_completed", evidence ? { evidence_class: evidence } : {});
     const qualificationId = await persist(input, outcome.result, token).catch(() => undefined);
     const stored = qualificationId !== undefined;
 
