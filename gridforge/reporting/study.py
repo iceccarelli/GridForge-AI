@@ -17,8 +17,8 @@ from ..scenario.run import ScenarioResult
 # Kept as a module-level alias so existing call sites keep working.
 _pick_recommended = pick_recommended
 from ..costs import BASIS_LABEL, active_evidence
-from ..validation import Quantity
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from ..validation import EvidenceClass, Quantity
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, critical_path_q, date_basis, date_basis_text, date_title, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
                      racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
@@ -33,12 +33,22 @@ def collect_claims(results) -> dict[str, list]:
         "cooling_performance": [c.max_racks for r in results for c in r.envelope.constraints
                                 if c.domain == "thermal" and c.max_racks.value != inf],
         "capex": [r.economics.capex_total_eur for r in results],
-        "schedule": [Quantity.given(r.economics.critical_path_weeks, "weeks",
-                                    f"{r.spec.id}: critical path"
-                                    + ("" if r.economics.critical_path_complete else
-                                       " (lower bound: a relief on the path has no lead time)"),
-                                    ESTIMATED) for r in results],
+        "schedule": [_schedule_claim(r) for r in results],
     }
+
+
+def _schedule_claim(r) -> Quantity:
+    """The critical path as a claim, classed by the WEAKEST lead time behind it (``full_capacity_band``), not by a
+    flat E3: with every lead time an E0 assumption the claim is E0 and falls below its evidence floor. A scenario
+    that deploys nothing, or whose schedule is incomplete, has no date to stand behind: E0."""
+    from ..envelope.time_to_power import full_capacity_band, schedule
+    got = full_capacity_band(r.ladder, schedule(r.ladder))
+    cls = got[3] if got is not None else EvidenceClass.E0_ASSUMPTION
+    return Quantity.given(r.economics.critical_path_weeks, "weeks",
+                          f"{r.spec.id}: critical path"
+                          + ("" if r.economics.critical_path_complete else
+                             " (lower bound: a relief on the path has no lead time)"),
+                          cls)
 
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "
              "All values are modelled or assumed; none is a measurement of a real site.")
@@ -577,7 +587,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     below = claims_below_floor(collect_claims(results))
     if below:
         detail = "; ".join(
-            f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable "
+            f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable "
             f"requires {f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
         s.blocks.append(Callout("warning",
             f"{DISCLOSURE_MARKER} this is a screening study built on library defaults and assumed "

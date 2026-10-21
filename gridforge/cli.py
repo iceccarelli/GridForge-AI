@@ -350,7 +350,7 @@ def cmd_diff(args) -> int:
         "after": d.after.__dict__,
         "racks_delta": d.racks_delta,
         "weeks_delta": d.weeks_delta,
-        **d.after.date_basis(),
+        **d.date_basis(),
         "capex_delta_eur": d.capex_delta,
         "binding_moved": d.binding_moved,
         "changed_inputs": d.changed_paths,

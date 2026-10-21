@@ -15,7 +15,7 @@ from ..common import V
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from ..validation import EvidenceClass, Quantity
 from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, date_basis, full_capacity_q, rack_class,
@@ -314,7 +314,7 @@ def build(entries: list[SiteEntry], *, client: str = "Portfolio",
                            "Recommended engagement"], rows))
     below = claims_below_floor(collect_claims([x for e in ordered for x in e.results]))
     detail = "; ".join(
-        f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
+        f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
         f"{f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
     if detail:
         s.blocks.append(Callout("warning",

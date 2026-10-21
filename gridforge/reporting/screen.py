@@ -7,11 +7,12 @@ to be the one a competent engineer would write.
 """
 from __future__ import annotations
 
+from ..commercial import ENGAGEMENTS
 from ..common import ASSUMED, ESTIMATED, V
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
-from .gates import DISCLOSURE_MARKER, claims_below_floor
+from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 from .labels import (date_basis, date_basis_text, economics_limitations, full_capacity_q,
@@ -116,7 +117,7 @@ def build(intake: Intake, results: list[ScenarioResult],
         s.blocks.append(Callout("warning", w))
     below = claims_below_floor(collect_claims(results))
     detail = "; ".join(
-        f"{k.replace('_', ' ')} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
+        f"{claim_label(k)} is {w.name.split('_', 1)[0]} where an issued deliverable requires "
         f"{f.name.split('_', 1)[0]}" for k, (w, f) in below.items())
     s.blocks.append(Callout("warning",
         f"{DISCLOSURE_MARKER} this is a screening opinion built partly on library defaults. "
@@ -128,8 +129,9 @@ def build(intake: Intake, results: list[ScenarioResult],
     s = Section("5. Recommended next step")
     s.blocks.append(Para(intake.report.engagement_recommendation))
     s.blocks.append(Bullets([
-        "Capacity & Density Envelope Study — full ladder, all architectures, scenario and "
-        "sensitivity analysis, economics, risk register, machine-readable model pack. 3-5 weeks.",
+        f"{ENGAGEMENTS['envelope_study'].name} — full ladder, all architectures, scenario and "
+        "sensitivity analysis, economics, risk register, machine-readable model pack. "
+        f"{ENGAGEMENTS['envelope_study'].turnaround_days} working days from a complete intake.",
         "This screen's fee credits in full against it.",
         "Before anything else: get the DSO position in writing on firm capacity and any "
         "flexibility product. It costs nothing but time and it can end the question.",
