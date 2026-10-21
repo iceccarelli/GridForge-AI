@@ -6,7 +6,9 @@ import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
 import { extractLead } from "@/lib/extract";
 import { runTurn } from "@/lib/ai/agent";
 import { normalizeTranscript, transcriptTooLarge } from "@/lib/ai/context";
-import { guardRequest } from "@/lib/rate-limit";
+import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
+import { identify } from "@/lib/portal";
+import { normaliseEmail } from "@/lib/subscribers";
 import { readBoundedJson } from "@/lib/http-body";
 import type { AgentBlock, ToolCallRecord } from "@/lib/ai/schemas";
 
@@ -156,7 +158,14 @@ export async function POST(req: Request) {
         const rkey = process.env.RESEND_API_KEY;
         const from = mailSender("Time to Power <power@timetopower.ai>");
         const leadEmail = extracted.email;
-        if (rkey && leadEmail && leadEmail.includes("@") && !leadEmail.endsWith("@scoping-agent.local")) {
+        // An address that merely appears in the transcript is NOT evidence that its owner asked for anything: the caller
+        // chose what the transcript says (and `captured`), so mailing it makes the company's mail key a relay to any
+        // inbox. The confirmation goes only to the signed-in, email-verified account the caller proved is theirs, and then
+        // only while that recipient is under its daily cap. Everyone else is still recorded as a lead above.
+        const who = rkey && leadEmail && leadEmail.includes("@") ? await identify(req) : null;
+        const mayConfirm =
+          who !== null && who.ok && who.verified && normaliseEmail(leadEmail) === who.email && (await mailRecipientAllowed(who.email));
+        if (rkey && leadEmail && mayConfirm && !leadEmail.endsWith("@scoping-agent.local")) {
           const hot = tier === "hot";
           // Template literals, not the double-quoted strings this used to be: those
           // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.

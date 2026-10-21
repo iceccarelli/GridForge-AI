@@ -77,6 +77,15 @@ export const RATE_POLICIES = {
   team_invite_account: { bucket: "team_invite_account", limit: 20, windowSeconds: HOUR },
   /** POST /api/team/invitation (preview, accept, decline): per caller address. A secret is 256 bits; this bounds noise, not guessing. */
   team_redeem: { bucket: "team_redeem", limit: 60, windowSeconds: HOUR },
+  /** POST /api/audit: records an enquiry, mails the desk, pings Slack and may mail the address typed in the form. */
+  audit: { bucket: "audit", limit: 10, windowSeconds: HOUR },
+  /** POST /api/qualify/[token]/follow-up: each first request mails the desk and an address the caller typed. */
+  qualify_followup: { bucket: "qualify_followup", limit: 10, windowSeconds: HOUR },
+  /**
+   * Not a request policy: how many messages ONE recipient address may be sent per day, from every route that mails an
+   * address a visitor supplied (see `mailRecipientAllowed`). Whoever the caller is, a third party's inbox is not a free target.
+   */
+  mail_recipient: { bucket: "mail_recipient", limit: 3, windowSeconds: 86400 },
 } as const satisfies Record<string, RatePolicy>;
 
 export type RatePolicyName = keyof typeof RATE_POLICIES;
@@ -199,14 +208,45 @@ export function trustedIpHeader(env: NodeJS.ProcessEnv = process.env): string | 
   return null;
 }
 
+/** The eight 16-bit groups of an IPv6 address (zone id and an embedded IPv4 tail handled), or null if it is not one. */
+function v6Groups(raw: string): number[] | null {
+  let s = raw.toLowerCase();
+  const zone = s.indexOf("%");
+  if (zone >= 0) s = s.slice(0, zone); // fe80::1%eth0 is the same host as fe80::1
+  const lastColon = s.lastIndexOf(":");
+  const tail = s.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const o = tail.split(".").map(Number);
+    if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    s = `${s.slice(0, lastColon + 1)}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const rest = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = 8 - head.length - rest.length;
+  if (halves.length === 1 ? fill !== 0 : fill < 0) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? fill : 0).fill("0"), ...rest].map((g) => parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => g >= 0 && g <= 0xffff) ? groups : null;
+}
+
 /**
- * The address in a header value. The LAST entry is the one the nearest trusted proxy appended; anything to its left is
- * whatever the client sent, so it is never read. Not an IP -> null.
+ * The address in a header value, as the identity a limit is keyed on. The LAST entry is the one the nearest trusted proxy
+ * appended; anything to its left is whatever the client sent, so it is never read. Not an IP -> null.
+ *
+ * IPv6 is bucketed by its /64: that is the smallest block an ISP hands one subscriber, so a single host (or attacker) holding
+ * a /64 can mint 2^64 distinct /128 addresses and would otherwise get a fresh allowance for each. An IPv4-mapped IPv6
+ * address (::ffff:a.b.c.d) is the IPv4 address it wraps, so the two spellings of one host are one caller. IPv4 is unchanged.
  */
 function addressIn(raw: string | null): string | null {
   if (!raw) return null;
   const last = raw.split(",").pop()?.trim() ?? "";
-  return last.length <= 45 && net.isIP(last) !== 0 ? last : null;
+  if (last.length > 64 || net.isIP(last) === 0) return null;
+  if (net.isIP(last) === 4) return last;
+  const g = v6Groups(last);
+  if (!g) return null;
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
+  return `${g.slice(0, 4).map((x) => x.toString(16)).join(":")}::/64`;
 }
 
 /** The HMAC key, or null when there is none to use (production without a configured secret). */
@@ -318,6 +358,21 @@ async function charge(policy: RatePolicy, subject: string): Promise<SpendDenial 
   const h = await hit(policy, subject);
   if (!h) return { status: 503, retryAfter: null };
   return h.allowed ? null : { status: 429, retryAfter: h.retryAfter };
+}
+
+/**
+ * May this recipient be mailed now? Counts one message against a per-recipient DAILY cap that is shared by every route that
+ * mails an address a visitor supplied, so the company's mail key cannot be used to flood a third party's inbox however many
+ * addresses or callers the abuser rotates through. Durable and atomic when the store is configured (the same counter as
+ * every other limit; the address is pseudonymised like a caller's and never stored); in development and tests without a
+ * store it is the in-memory counter. FAILS CLOSED: a counter that cannot be read means no mail (the request itself carries on).
+ */
+export async function mailRecipientAllowed(recipient: string): Promise<boolean> {
+  const subject = hmac(`mail-recipient:${recipient.trim().toLowerCase()}`);
+  if (!subject) return false;
+  const denial = await charge(RATE_POLICIES.mail_recipient, subject);
+  if (denial) console.error(`[GridForge] mail: not sent to a recipient (${denial.status === 429 ? "daily cap reached" : "cap counter unavailable"})`);
+  return !denial;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
