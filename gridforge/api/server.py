@@ -45,7 +45,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
+import secrets
+import sys
 import threading
 import time
 from collections import defaultdict, deque
@@ -700,6 +703,18 @@ ECONOMICS_BASIS = (
 )
 
 
+def _strict(obj):
+    """Replace any non-finite float with None, recursively, so a report can never serialise to NaN/Infinity
+    (which is not JSON and breaks every parser downstream)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _strict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_strict(v) for v in obj]
+    return obj
+
+
 def economics_report(month: str) -> dict:
     """Operator-only unit economics for one UTC month: ledger-derived revenue and volume next to measured
     handler time. No figure here is estimated or assumed."""
@@ -1052,6 +1067,7 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
         _record_cost(mine, endpoint, started)
         if idem is not None:
             IDEMPOTENCY.put(idem[0], idem[1], 200, result)
+        return _mcp_content(name, result)
     except ApiError as exc:
         refund()
         raise RpcError(-32602, exc.message, exc.extra)
@@ -1061,7 +1077,19 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
         refund()
         raise RpcError(-32602, f"invalid arguments: {exc.__class__.__name__}: {str(exc)[:160]}")
-    return _mcp_content(name, result)
+    except Exception:
+        # Our fault, not the caller's: refund exactly this call's own reservation, log the detail on the
+        # server under a request id, and tell the caller only that and the id. Never the exception text.
+        refund()
+        rid = getattr(charge, "request_id", "") or secrets.token_hex(6)
+        _log_engine_error(rid)
+        raise RpcError(-32603, "engine error", {"request_id": rid})
+
+
+def _log_engine_error(request_id: str) -> None:
+    import traceback
+    print(f"gridforge: engine error request_id={request_id}", file=sys.stderr)
+    traceback.print_exc()
 
 
 def _mcp_content(name: str, result: dict) -> dict:
@@ -1278,7 +1306,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError
             except ValueError:
                 return self._send(400, {"error": "month must be YYYY-MM"})
-            return self._send(200, economics_report(month))
+            return self._send(200, _strict(economics_report(month)))
         if path == "/v1/estimate":
             q = parse_qs(parsed.query)
             req: dict = {"endpoint": (q.get("endpoint") or [""])[0]}
@@ -1625,6 +1653,24 @@ class Handler(BaseHTTPRequestHandler):
             calls[0] += 1
             return calls[0] == 1 or self.limiter.allow(self._client_key())   # the first rode in on the HTTP hit
         charge.rate = rate
+        rid = "".join(c for c in (self.headers.get("X-Request-Id") or "")[:64] if c.isascii() and (c.isalnum() or c in "._:-"))
+        charge.request_id = rid or secrets.token_hex(6)
+
+        def guarded(message: dict):
+            """handle_mcp for ONE message that cannot raise: whatever goes wrong, this message gets a generic
+            -32603 (no exception text), the reservation it holds is refunded, and the rest of a batch is still
+            answered. State is reset per message so a refund can only ever touch this message's own charge."""
+            self._open_res = None
+            try:
+                return handle_mcp(message, tier, charge)
+            except Exception:
+                self._refund()
+                _log_engine_error(charge.request_id)
+                if message.get("id") is None:
+                    return None
+                return {"jsonrpc": "2.0", "id": message.get("id"),
+                        "error": {"code": -32603, "message": "engine error",
+                                  "data": {"request_id": charge.request_id}}}
         if isinstance(body, list):
             if not body:
                 return self._send(400, {"jsonrpc": "2.0", "id": None,
@@ -1637,7 +1683,7 @@ class Handler(BaseHTTPRequestHandler):
             out = []
             for i, m in enumerate(body):
                 position[0] = i
-                r = handle_mcp(m if isinstance(m, dict) else {}, tier, charge)
+                r = guarded(m if isinstance(m, dict) else {})
                 if r is not None:
                     out.append(r)
             if not out:
@@ -1649,12 +1695,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32600, "message": "expected an object"}})
-        try:
-            result = handle_mcp(body, tier, charge)
-        except Exception as exc:  # pragma: no cover - last resort
-            return self._send(200, {"jsonrpc": "2.0", "id": body.get("id"),
-                                    "error": {"code": -32603, "message": "engine error",
-                                              "data": str(exc)[:300]}})
+        result = guarded(body)
         if result is None:
             self.send_response(202)
             self._cors()

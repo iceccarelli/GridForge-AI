@@ -56,6 +56,54 @@ class _Row:
                 "cpu_ms_total": round(self.cpu_ms_total, 3), "buckets": list(self.buckets)}
 
 
+def _reject_constant(name: str):
+    raise ValueError(f"{name} is not a valid JSON number")
+
+
+def _finite_nonneg(x) -> float:
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise ValueError("not a number")
+    f = float(x)
+    if not math.isfinite(f) or f < 0:
+        raise ValueError("not a finite, non-negative number")
+    return f
+
+
+def _validated_row(r) -> "_Row | None":
+    """A stored row only if it is internally consistent: every figure finite and >= 0, the bucket list the right
+    length of non-negative whole numbers summing to `count`, a month that is YYYY-MM, and a slowest call at
+    least as slow as the mean (to the rounding the file is written with). Anything else is not telemetry."""
+    try:
+        if not isinstance(r, dict):
+            return None
+        month, endpoint = r["month"], r["endpoint"]
+        if (not isinstance(month, str) or len(month) != 7
+                or not isinstance(endpoint, str) or not endpoint):
+            return None
+        datetime.strptime(month, "%Y-%m")
+        count = r["count"]
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return None
+        buckets = r["buckets"]
+        if (not isinstance(buckets, list) or len(buckets) != len(BUCKET_BOUNDS_MS) + 1
+                or any(isinstance(b, bool) or not isinstance(b, int) or b < 0 for b in buckets)
+                or sum(buckets) != count):
+            return None
+        row = _Row()
+        row.count = count
+        row.wall_ms_total = _finite_nonneg(r["wall_ms_total"])
+        row.wall_ms_max = _finite_nonneg(r["wall_ms_max"])
+        row.cpu_ms_total = _finite_nonneg(r.get("cpu_ms_total", 0.0))
+        row.buckets = list(buckets)
+        if count and row.wall_ms_max + 0.01 < row.wall_ms_total / count:
+            return None
+        if not count and (row.wall_ms_total or row.wall_ms_max):
+            return None
+        return row
+    except Exception:
+        return None
+
+
 def quantile_ms(buckets: list[int], q: float, observed_max_ms: float) -> float | None:
     """The `q` quantile of wall time as the UPPER BOUND of the bucket it falls in, never above the slowest call
     actually seen. A bucket upper bound is a ceiling, not an exact percentile, and is documented as such."""
@@ -111,8 +159,10 @@ class CostMeter:
     def _load(self) -> None:
         if self._path is None or not self._path.exists():
             return
+        raw = ""
         try:
-            doc = json.loads(self._path.read_text())
+            raw = self._path.read_text()
+            doc = json.loads(raw, parse_constant=_reject_constant)
             if not isinstance(doc, dict) or doc.get("schema") != SCHEMA or not isinstance(doc.get("rows"), list):
                 raise ValueError("not a cost file")
         except Exception:
@@ -123,20 +173,21 @@ class CostMeter:
                 pass
             self._problem = "the cost file was unreadable and was set aside; timings restarted from zero"
             return
+        bad = 0
         for r in doc["rows"]:
-            try:
-                row = _Row()
-                row.count = int(r["count"])
-                row.wall_ms_total = float(r["wall_ms_total"])
-                row.wall_ms_max = float(r["wall_ms_max"])
-                row.cpu_ms_total = float(r.get("cpu_ms_total", 0.0))
-                buckets = [int(x) for x in r["buckets"]]
-                if len(buckets) != len(row.buckets) or row.count < 0 or min(buckets) < 0:
-                    continue
-                row.buckets = buckets
-                self._rows[(str(r["month"]), str(r["endpoint"]))] = row
-            except Exception:
+            row = _validated_row(r)
+            if row is None:
+                bad += 1
                 continue
+            self._rows[(str(r["month"]), str(r["endpoint"]))] = row
+        if bad:
+            # Some rows were impossible (NaN, negative, a count that disagrees with its histogram). They are
+            # skipped, never served, and the original is kept beside the clean file for inspection.
+            try:
+                self._path.with_name(self._path.name + f".corrupt-{int(time.time())}").write_text(raw)
+            except Exception:
+                pass
+            self._problem = f"{bad} invalid row(s) in the cost file were skipped; the rest were kept"
 
     def _flush(self) -> None:
         if self._path is None:
@@ -154,6 +205,8 @@ class CostMeter:
     def record(self, endpoint: str, wall_s: float, cpu_s: float) -> None:
         """One successful charged call. Never raises."""
         try:
+            if not (math.isfinite(wall_s) and math.isfinite(cpu_s)):
+                return                      # a non-finite clock reading is not a measurement; never store it
             wall_ms = max(0.0, wall_s * 1000.0)
             cpu_ms = max(0.0, cpu_s * 1000.0)
             i = len(BUCKET_BOUNDS_MS)
