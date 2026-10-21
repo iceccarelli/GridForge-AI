@@ -607,7 +607,8 @@ describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
     expect((await go({ owner: "A. Rivera" })).status).toBe(200);
     expect((await go({ owner: "again" })).status).toBe(422);                 // now needs the scope note
     // scoping records the fee agreed (inside the band), the delivery date committed to and any credit (migration 0030)
-    const scoped = await go({ scope_note: "Hall A+B, 35 MW", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    // (earlier Screens bought with this address are NOT credited unless the operator confirms them: none is confirmed here)
+    const scoped = await go({ scope_note: "Hall A+B, 35 MW", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31", confirm_credit_ids: [] });
     expect(scoped.status, JSON.stringify(await scoped.clone().json())).toBe(200);
     expect((await go({ delivery_ref: "https://example.test/d/1" })).status).toBe(200);
     expect((await go({ delivery_ref: "x" })).status).toBe(409);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import { claimForGeneration, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
+import { claimForGeneration, claimStamp, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -137,7 +137,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
     // Claim the engagement atomically: only one submission can move it out of an
     // intake-accepting status, so two concurrent POSTs cannot both generate.
-    const claim = await claimForGeneration(row.token, doc, ["awaiting_intake", "engine_unavailable"]);
+    const claimedAt = new Date();
+    const claim = await claimForGeneration(row.token, doc, ["awaiting_intake", "engine_unavailable"], claimedAt);
     if (claim === "error") {
       return NextResponse.json(
         { ok: false, error: "We could not save your numbers just now. Please try again shortly." },
@@ -173,7 +174,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
     // One fulfilment path, shared with the operator's "regenerate": it renders the pack, stores it in a single row
     // update, and only reports `draft` when every artefact the product promises exists.
-    const stored = await generateAndStore(row, doc, endpoint);
+    const stored = await generateAndStore({ ...row, claim: claimStamp(claimedAt) }, doc, endpoint);
 
     if (!stored.ok) {
       const persist = stored.stage === "persist";

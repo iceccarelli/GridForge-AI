@@ -35,7 +35,7 @@ import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
 import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
 
-export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt"] as const;
+export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt", "deliverable_release"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations" | "usage_settlements" | "engagement_deposits";
 export type NotificationStatus = "pending" | "accepted" | "ambiguous" | "abandoned" | "cancelled";
@@ -50,6 +50,7 @@ const SUBJECT: Record<NotificationKind, SubjectTable> = {
   usage_alert: "api_accounts",
   payg_payment_failed: "usage_settlements",
   deposit_receipt: "engagement_deposits",
+  deliverable_release: "deliverables",
 };
 
 const LEASE_MS = 2 * 60_000;
@@ -289,6 +290,27 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         (typeof row.stripe_session_id === "string" && /^cs_[A-Za-z0-9_]+$/.test(row.stripe_session_id) ? `\nThe current status of your deposit: ${SITE_URL}/commissioned?session_id=${row.stripe_session_id}` : ""),
     };
   }
+  if (n.kind === "deliverable_release") {
+    // The release email of a reviewed deliverable. The business record decides whether it still applies: a document pulled
+    // back to draft is not announced. The private link is rebuilt here from the row; it is never stored in the queue.
+    if (row.status !== "released") throw new NotApplicable(`engagement ${String(row.status)}`);
+    const token = credential(row.token);
+    if (!token) throw new Blocked("credential_missing");
+    const files = (row.working_files ?? {}) as Record<string, unknown>;
+    const hasBoard = Boolean(files["board_summary.html"]);
+    return {
+      to,
+      subject: "Your GridForge document is ready",
+      text:
+        (hasBoard
+          ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
+          : "Your document has been reviewed by a senior engineer and released.\n\n") +
+        `${SITE_URL}/deliverable/${token}\n\n` +
+        "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
+        "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +
+        "own evidence classes and assumptions, and it is not an issued engineering opinion.",
+    };
+  }
   if (n.kind === "payg_payment_failed") {
     // The subject is the SETTLEMENT (one obligation per failed month, however often Stripe reports the failure). The recipient and the
     // portal link come from the account it belongs to, read now; nothing but the settlement's id is stored in the queue.
@@ -455,6 +477,19 @@ async function recordAccepted(c: Db, id: string, providerId: string | null): Pro
     await new Promise((res) => setTimeout(res, 150 * (i + 1)));
   }
   return false;
+}
+
+/** Where a notification stands, for a caller that must report it truthfully (null: no obligation exists, or the outbox is unavailable). */
+export async function notificationState(
+  kind: NotificationKind,
+  subjectId: string,
+  discriminator = ""
+): Promise<{ status: NotificationStatus; attempts: number; last_error: string | null; accepted_at: string | null } | null> {
+  const c = creds();
+  if (!c) return null;
+  const got = await db<NotificationRow[]>(c, "GET", `customer_notifications?dedupe_key=eq.${enc(dedupeKey(kind, subjectId, discriminator))}&select=*&limit=1`);
+  const row = got.ok ? got.data?.[0] : undefined;
+  return row ? { status: row.status, attempts: row.attempts, last_error: row.last_error, accepted_at: row.accepted_at } : null;
 }
 
 /** One bounded, leased attempt. */
@@ -674,9 +709,9 @@ export async function listNotifications(state: "open" | "all" = "open"): Promise
 export interface ReconcileCandidate { kind: NotificationKind; subject_id: string; created_at: string | null; eligible: boolean; reason: string }
 
 /** Obligations that are not a purchase: nothing to reconcile after the fact (a rotation warning, a seat invitation). */
-const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt"]);
+const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt", "deliverable_release"]);
 
-const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert" | "payg_payment_failed" | "deposit_receipt">, { table: SubjectTable; filter: string }> = {
+const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert" | "payg_payment_failed" | "deposit_receipt" | "deliverable_release">, { table: SubjectTable; filter: string }> = {
   intake_link: { table: "deliverables", filter: "status=eq.awaiting_intake&email=not.is.null" },
   api_access_link: { table: "api_accounts", filter: "status=eq.active&key_id=is.null&email=not.is.null" },
   watch_link: { table: "watches", filter: "status=eq.active&email=not.is.null" },
@@ -694,7 +729,7 @@ export async function inventoryUnnotified(): Promise<{ available: boolean; candi
   if (!probe.ok) return { available: false, candidates: [] };
   const out: ReconcileCandidate[] = [];
   for (const kind of NOTIFICATION_KINDS) {
-    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert" || kind === "payg_payment_failed" || kind === "deposit_receipt") continue;
+    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert" || kind === "payg_payment_failed" || kind === "deposit_receipt" || kind === "deliverable_release") continue;
     const { table, filter } = SELECT[kind];
     const cols = `id,created_at${kind === "intake_link" ? ",token,intake_token" : ""}`;
     const rows = await db<{ id: string; created_at?: string; token?: unknown; intake_token?: unknown }[]>(

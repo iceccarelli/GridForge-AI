@@ -51,6 +51,12 @@ export function generatingSince(row: GeneratingRow): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** The raw claim stamp stored on the row, as the compare-and-set must match it; null when the row has none. */
+export function generatingStampOf(row: GeneratingRow): string | null {
+  const meta = (row.intake as { _gridforge?: { generating_since?: unknown } } | null | undefined)?._gridforge;
+  return typeof meta?.generating_since === "string" ? meta.generating_since : null;
+}
+
 /**
  * A `generating` row whose request cannot still be running. A row with NO stamp is treated as stale: it was claimed by a
  * version that did not stamp, so its age is unknown, and the alternative (never stale) is the permanent stuck state this

@@ -4,6 +4,7 @@ import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
 import {
   BOARD_HTML,
   claimForGeneration,
+  claimStamp,
   generateAndStore,
   getByToken,
   packHash,
@@ -94,7 +95,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: "There is no intake to regenerate from." }, { status: 409 });
     }
     // Claim it, so a release, a customer resubmission or a second regenerate cannot interleave.
-    const claim = await claimForGeneration(token, stored, ["engine_unavailable"]);
+    const claimedAt = new Date();
+    const claim = await claimForGeneration(token, stored, ["engine_unavailable"], claimedAt);
     if (claim !== "claimed") {
       return NextResponse.json(
         { ok: false, error: claim === "error" ? "Could not update this engagement." : "This engagement is no longer held; reload and check it." },
@@ -103,7 +105,7 @@ export async function PATCH(req: Request) {
     }
     const { _gridforge: _ours, ...doc } = stored;
     // The operator's session authenticates this regeneration; it is not metered per caller.
-    const out = await runTrusted("admin-session", () => generateAndStore(row, doc, endpoint));
+    const out = await runTrusted("admin-session", () => generateAndStore({ ...row, claim: claimStamp(claimedAt) }, doc, endpoint));
     if (!out.ok) return NextResponse.json({ ok: false, error: out.error, stage: out.stage }, { status: 502 });
     // The reviewer must echo the hash of the pack as it now stands, so hand it back rather than leave the UI stale.
     const fresh = await getByToken(token);

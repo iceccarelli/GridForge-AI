@@ -274,7 +274,14 @@ describe.skipIf(!enabled)("deposit receipt, scoping and the credit ledger, on re
     expect((await go({ owner: "A. Rivera" })).status).toBe(200);
     expect((await go({ scope_note: "x" })).status).toBe(422);                              // a fee and a date are required
     expect((await go({ scope_note: "x", agreed_fee_cents: 100, delivery_due_on: "2099-01-01" })).status).toBe(422);   // outside the band
-    const done = await go({ scope_note: "One hall, two architectures", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    // the buyer has an earlier paid Screen: scoping is REFUSED until the operator confirms it is the same buyer's
+    const unconfirmed = await go({ scope_note: "One hall, two architectures", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    const listed: any = await unconfirmed.json();
+    expect(unconfirmed.status).toBe(409);
+    expect(listed.details.credits_available).toEqual([expect.objectContaining({ source_deliverable_id: screen.id, email })]);
+    expect((await rows("engagement_deposits", `&id=eq.${dep.id}`))[0].status).toBe("contacted");
+    expect(await rows("engagement_credits", `&source_deliverable_id=eq.${screen.id}`)).toHaveLength(0);
+    const done = await go({ scope_note: "One hall, two architectures", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31", confirm_credit_ids: [screen.id] });
     const body: any = await done.json();
     expect(done.status, JSON.stringify(body)).toBe(200);
     expect(body.deposit).toMatchObject({ status: "scoped", agreed_fee_cents: 2_500_000, credit_applied_cents: 450_000 });
