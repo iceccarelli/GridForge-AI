@@ -130,7 +130,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     if full_q is not None:
         db = date_basis(rec.ladder, ttp)
         s.blocks.append(Statement(
-            date_title("Time to full capacity", db), full_q,
+            "Time to full capacity", full_q,
             date_basis_text(db, f"set by {ttp.critical_item.lower()}; reliefs assumed to run in parallel; the "
                                 "range is that item's own lead-time range")))
     s.blocks.append(Statement(

@@ -16,7 +16,7 @@ from ..change import EnvelopeDiff, EnvelopeState
 from ..validation import EvidenceClass
 from ..envelope.time_to_power import date_basis_of
 from .gates import DISCLOSURE_MARKER
-from .labels import date_basis_text, date_title
+from .labels import date_basis_text
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 
 _LABELS = {
@@ -137,7 +137,7 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             wl, wh = d.after.weeks_lo, d.after.weeks_hi
             db = date_basis_of(_known(d.after.weeks_class), d.after.sets_the_date)
             s.blocks.append(Statement(
-                date_title("Time to full capacity", db),
+                "Time to full capacity",
                 V(d.after.weeks_to_full, "weeks", "weeks to full capacity, current inputs",
                   _known(d.after.weeks_class),
                   band=(wl, wh) if wl is not None and wh is not None and wh > wl else None),

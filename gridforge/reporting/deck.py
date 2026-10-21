@@ -28,7 +28,7 @@ from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .study import Objective, _pick_recommended
 from ..validation import EvidenceClass
-from .labels import ASSUMED_DATE_LABEL, date_basis, date_title, full_capacity_q, is_zero_gain
+from .labels import ASSUMED_DATE_LABEL, date_basis, full_capacity_q, is_zero_gain
 
 MARK = "#1193A8"       # capacity — dimmed step of the brand's `power`
 MARK_ALT = "#BD8318"   # delay    — dimmed step of the brand's `queue`
@@ -200,7 +200,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         figures=[
             ("Deployable today", str(rec.envelope.max_racks), "racks, as the hall stands"),
             ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
-            (date_title("Time to full capacity", _db),
+            ("Time to full capacity",
              "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
              (f"weeks{_range} · set by {t.critical_item.lower()}" + (f" · {_db.caption}" if _db.assumed else "")
               if t.complete else "no date: a lead time on the path is missing")),

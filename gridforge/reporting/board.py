@@ -16,7 +16,7 @@ from ..scenario.objective import Objective, pick_recommended
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from ..validation import EvidenceClass
-from .labels import (date_basis, date_title, dominant_sensitivity, economics_limitations,
+from .labels import (date_basis, date_basis_text, dominant_sensitivity, economics_limitations,
                      full_capacity_q, is_zero_gain, racks_q)
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import DECISION_GATES, collect_claims, watermark_for
@@ -51,8 +51,8 @@ def build(intake: Intake, results: list[ScenarioResult],
     fq = full_capacity_q(rec.ladder, ttp, "elapsed weeks to full capacity")
     if fq is not None:
         db = date_basis(rec.ladder, ttp)
-        s.blocks.append(Statement(date_title("Time to full capacity", db), fq,
-            f"set by {ttp.critical_item.lower()}; works run in parallel"))
+        s.blocks.append(Statement("Time to full capacity", fq, date_basis_text(
+            db, f"set by {ttp.critical_item.lower()}; works run in parallel")))
     s.blocks.append(Statement("Indicative capital cost", rec.economics.capex_total_eur,
                               rec.economics.aace_class + ("" if rec.economics.capex_complete else
                                                           " · LOWER BOUND: a cost it needs has no price")))
@@ -81,7 +81,7 @@ def build(intake: Intake, results: list[ScenarioResult],
         if st.lead_time_weeks is not None and st.lead_time_weeks.value == max(
                 x.lead_time_weeks.value for x in steps if x.lead_time_weeks is not None):
             tags.append("sets the date" if st.lead_time_weeks.evidence > EvidenceClass.E0_ASSUMPTION
-                        else "sets the assumed lead time")
+                        else "sets the date (assumed, E0)")
         rows.append([Lit(", ".join(tags) or "—"), st.binding_name, (st.relief_description or "")[:80], st.capex_eur,
                      st.lead_time_weeks if st.lead_time_weeks is not None else "—"])
     if rows:

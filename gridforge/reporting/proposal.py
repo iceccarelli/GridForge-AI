@@ -21,7 +21,7 @@ from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
-from .labels import date_basis, date_basis_text, date_title, full_capacity_q, racks_q
+from .labels import date_basis, date_basis_text, full_capacity_q, racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 
@@ -70,7 +70,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     if full_q is not None:
         db = date_basis(rec.ladder, t)
         s.blocks.append(Statement(
-            date_title("Time to full capacity", db), full_q,
+            "Time to full capacity", full_q,
             date_basis_text(db, f"set by {t.critical_item.lower()}")))
     s.blocks.append(Callout("answer",
         f"Binding constraint: {rec.envelope.binding.name} ({rec.envelope.binding.domain}). "

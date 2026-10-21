@@ -486,6 +486,10 @@ def handle_spec(body: dict, tier: Tier) -> dict:
         "constraint_id": pkg.constraint_id, "constraint": pkg.constraint_name,
         "relief": pkg.relief_title, "sized_for_racks": pkg.sized_for_racks,
         "requirements": len(pkg.requirements), "mandatory": len(pkg.mandatory()),
+        # The basis the duties are quoted at, and every input that was assumed rather than supplied
+        # (section 2A of the document), so a machine reader gets what the human reader gets.
+        "site_conditions": [c.to_dict() for c in pkg.site_conditions],
+        "assumed_inputs": [x.to_dict() for x in pkg.assumed_inputs],
     }
     out["response_template"] = {
         "specification": {"project": pkg.project, "hall": pkg.hall,

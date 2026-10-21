@@ -14,7 +14,7 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
-from .labels import (date_basis, date_basis_text, date_title, economics_limitations, full_capacity_q,
+from .labels import (date_basis, date_basis_text, economics_limitations, full_capacity_q,
                      racks_q, relief_text)
 
 WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
@@ -53,7 +53,7 @@ def build(intake: Intake, results: list[ScenarioResult],
     full_q = full_capacity_q(rec.ladder, t, "elapsed weeks to full energisation")
     if full_q is not None:
         db = date_basis(rec.ladder, t)
-        s.blocks.append(Statement(date_title("Time to full capacity", db), full_q, date_basis_text(
+        s.blocks.append(Statement("Time to full capacity", full_q, date_basis_text(
             db, f"set by {t.critical_item.lower()}; the range is that item's own lead-time range")))
     s.blocks.append(Statement("Indicative capex", rec.economics.capex_total_eur,
                               rec.economics.aace_class + ("" if rec.economics.capex_complete else
