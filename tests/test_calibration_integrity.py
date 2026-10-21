@@ -311,7 +311,7 @@ def test_cli_show_on_a_broken_chain_fails_closed(tmp_path):
 
 def row(n, **kw):
     r = {
-        "id": f"{n:08x}-0000-0000-0000-000000000000", "calibration_key": "btm.firm_MW", "observed_value": 28.5,
+        "id": f"{n:08x}-0000-0000-0000-000000000000", "key": "btm.firm_MW", "observed_value": 28.5,
         "predicted_value": 30.0, "unit": "MW", "site_ref": site_only_ref(f"Site {n}"), "measurement_kind": "metered",
         "evidence_sha256": SHA, "engine_provenance_digest": DIGEST, "report_date": "2026-03-01",
         "observed_on": "2026-06-30", "method": "revenue-grade metering, 30 days", "evidence_class": "E5",
@@ -351,7 +351,7 @@ def test_import_refuses_duplicates_by_source_ref_and_changes_nothing(tmp_path):
 @pytest.mark.parametrize("bad", [
     {"evidence_class": "E6"}, {"evidence_class": "E7"}, {"evidence_class": "E4"},
     {"measurement_kind": "quoted"}, {"measurement_kind": "declared"}, {"measurement_kind": "simulated"},
-    {"calibration_key": "foo.bar"}, {"unit": "kW"}, {"observed_value": float("nan")}, {"observed_value": -1},
+    {"key": "foo.bar"}, {"unit": "kW"}, {"observed_value": float("nan")}, {"observed_value": -1},
     {"engine_provenance_digest": "short"}, {"evidence_sha256": "nothex"}, {"reviewed_by": ""},
     {"site_ref": "Acme Datacentres Ltd"}, {"predicted_value": 0},
 ])

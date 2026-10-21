@@ -310,7 +310,7 @@ def _row_to_observation(row, i: int) -> Observation:
             raise ObservationError(f"{tag}: report_date is not an ISO date")
     try:
         return Observation(
-            key=str(row.get("calibration_key") or ""), site_ref=str(row.get("site_ref") or ""),
+            key=str(row.get("key") or ""), site_ref=str(row.get("site_ref") or ""),
             predicted=_num(row.get("predicted_value"), "predicted_value", i),
             observed=_num(row.get("observed_value"), "observed_value", i),
             unit=str(row.get("unit") or ""), observed_on=str(row.get("observed_on") or ""),
