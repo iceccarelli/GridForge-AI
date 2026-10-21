@@ -4,13 +4,15 @@ Every way into the engine is either billable and PROVEN to reserve units (HTTP a
 or free and named on an allowlist in this file. A route that is free by omission is a hole in the invoice, so
 adding one means editing this test and saying why.
 """
+import json
+
 import pytest
 
 from gridforge.api import server as S
 from gridforge.api.metering import FREE_ENDPOINTS, UNIT_COST, units_for
 from gridforge.api.tiers import Tier
 from gridforge.api.tools import TOOLS, TOOLS_BY_NAME
-from payg_rig import INTAKE, Rig, rig  # noqa: F401
+from payg_rig import ADMIN, INTAKE, Rig, rig  # noqa: F401
 
 #: POST routes that are free on purpose, and why. Nothing else may be.
 FREE_POST_ROUTES = {
@@ -19,6 +21,8 @@ FREE_POST_ROUTES = {
 }
 #: Operator routes: no customer can call them, and they are never billed.
 OPERATOR_POST_ROUTES = {"/v1/revoke"}
+#: Operator-only GET routes: 404 to every customer, absent from every listing, never metered.
+OPERATOR_GET_ROUTES = ("/v1/admin/ledger", "/v1/admin/economics")
 #: MCP tools that are free on purpose.
 FREE_TOOLS = {"gridforge_qualify": "/v1/qualify", "gridforge_estimate": "/v1/estimate"}
 #: GET routes (all free, none may touch a ledger).
@@ -124,6 +128,19 @@ def test_the_get_routes_never_charge(rig):
         s, _, _ = rig.get(path, key=key)
         assert s == 200, path
     assert rig.get("/v1/estimate?endpoint=/v1/study", key=key)[0] == 200
+    assert rig.events() == []
+
+
+@pytest.mark.parametrize("path", OPERATOR_GET_ROUTES)
+def test_operator_get_routes_are_hidden_from_customers_and_never_charge(rig, path):
+    key = rig.key("payg", quota=50)
+    for k in (None, key, "nonsense"):
+        assert rig.get(path, key=k)[0] == 404
+    assert rig.get(path, key=ADMIN)[0] == 200
+    listings = json.dumps([rig.get("/v1/version")[1], rig.get("/v1/tools")[1], rig.get("/nope")[1],
+                           rig.post("/v1/nope", {})[1]])
+    assert path not in listings
+    assert path not in S.ROUTES and path not in S.GET_ROUTES and path not in UNIT_COST
     assert rig.events() == []
 
 

@@ -36,6 +36,7 @@ from pathlib import Path
 
 from ..commercial import PAYG
 from .keys import CAPPED_SCOPES, ApiKey, KeyError_, looks_signed, verify
+from .costs import CostMeter
 from .ledger import Ledger, LedgerError, parse_ts
 
 #: Billable units per call. One unit is one engine solve of one hall.
@@ -250,12 +251,14 @@ class Meter:
     charge cannot be made durable: that is refused (reserve_ex -> `unavailable`) because doing the work for
     nothing is a free product nobody agreed to ship."""
 
-    def __init__(self, path: str | None = None, ledger: Ledger | None = None) -> None:
+    def __init__(self, path: str | None = None, ledger: Ledger | None = None,
+                 costs: CostMeter | None = None) -> None:
         self._lock = threading.Lock()
         self._usage: dict[tuple[str, str], Usage] = {}
         self._path = Path(path) if path else None
         self._problem = ""
         self.ledger: Ledger = ledger if ledger is not None else Ledger(None)
+        self.costs: CostMeter = costs if costs is not None else CostMeter(None)
         self._pending_refunds: list[dict] = []
         self._probe()
         self._load()
@@ -540,4 +543,14 @@ class Meter:
         }
 
 
-METER = Meter(os.environ.get("GRIDFORGE_USAGE_FILE"), Ledger(os.environ.get("GRIDFORGE_LEDGER_FILE")))
+def _default_cost_file() -> str | None:
+    """GRIDFORGE_COST_FILE, else costs.json beside the usage file (same volume, same durability), else none."""
+    explicit = os.environ.get("GRIDFORGE_COST_FILE")
+    if explicit:
+        return explicit
+    usage = os.environ.get("GRIDFORGE_USAGE_FILE")
+    return str(Path(usage).with_name("costs.json")) if usage else None
+
+
+METER = Meter(os.environ.get("GRIDFORGE_USAGE_FILE"), Ledger(os.environ.get("GRIDFORGE_LEDGER_FILE")),
+              CostMeter(_default_cost_file()))

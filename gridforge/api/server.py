@@ -74,6 +74,7 @@ from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
+from .costs import BUCKET_BOUNDS_MS, timer
 from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier, redact
@@ -663,6 +664,80 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
     return {"revoked": key_id, "count": count}
 
 
+def _record_cost(res, endpoint: str, started: tuple[float, float]) -> None:
+    """Time one SUCCESSFUL charged call. `res` is the reservation the call took: None means nothing was billed
+    (free tool, replay, operator key) and nothing is recorded. Never raises into the request."""
+    if res is None:
+        return
+    try:
+        wall, cpu = timer()
+        METER.costs.record(endpoint, wall - started[0], cpu - started[1])
+    except Exception:
+        pass
+
+
+ECONOMICS_BASIS = (
+    "Calls, units and revenue come from the usage ledger for the UTC month, net of refunds (charges minus "
+    "refunds), not from the timing file. revenue_cents_at_payg_price is units on payg-scope keys x the pay-as-you-go "
+    "unit price; free_units are trial-scope (free allowance) units and earn nothing; subscription_units are "
+    "units on subscription and operator keys and are NOT turned into revenue here because a subscription's price "
+    "is per month, not per unit. "
+    "Timings cover only the first, successful execution of a charged call, measured around the handler: not "
+    "refused (401/402/503) or failed (refunded) calls, not idempotent replays (recomputed free), not free-tier "
+    "calls, not request parsing, JSON encoding or the network. Wall time is per call; process CPU time is the "
+    "whole process's (all threads), so under concurrent calls it over-attributes and is meaningful only as a "
+    "total. Percentiles are the upper bound of the histogram bucket they fall in, capped at the slowest call "
+    "seen: a ceiling, not an exact percentile. timed_calls can be lower than calls if the timing file was "
+    "not durable or was set aside. "
+    "NOT included in any figure: fixed infrastructure cost (the Fly machine and volume), Stripe processing "
+    "fees, any model or LLM provider cost (the engine makes no model calls, so there is none to include), "
+    "support and engineering time, taxes, minimum-invoice carry-forward, and invoices not yet paid."
+)
+
+
+def economics_report(month: str) -> dict:
+    """Operator-only unit economics for one UTC month: ledger-derived revenue and volume next to measured
+    handler time. No figure here is estimated or assumed."""
+    led = METER.ledger
+    ledger_rows = led.economics(month)
+    timings = METER.costs.month(month)
+    price = PAYG.unit_price_cents
+    endpoints: dict[str, dict] = {}
+    totals = {"calls": 0, "units": 0, "payg_units": 0, "free_units": 0, "subscription_units": 0,
+              "revenue_cents_at_payg_price": 0, "wall_ms_total": 0.0}
+    for endpoint in sorted(set(ledger_rows) | set(timings)):
+        by_scope = ledger_rows.get(endpoint, {})
+        calls = sum(c for c, _ in by_scope.values())
+        units = sum(u for _, u in by_scope.values())
+        payg = by_scope.get("payg", (0, 0))[1]
+        free = by_scope.get("trial", (0, 0))[1]
+        sub = units - payg - free
+        row = {"calls": calls, "units": units,
+               "units_per_call": round(units / calls, 3) if calls else None,
+               "payg_units": payg, "free_units": free, "subscription_units": sub,
+               "revenue_cents_at_payg_price": payg * price}
+        t = timings.get(endpoint)
+        row.update(t if t else {"timed_calls": 0, "wall_ms_total": 0.0, "wall_ms_mean": None,
+                                "wall_ms_p50": None, "wall_ms_p95": None, "wall_ms_max": None,
+                                "process_cpu_ms_total": 0.0, "wall_ms_histogram": {}})
+        # Only when every billed call was also timed: otherwise the numerator and denominator are different sets.
+        row["wall_ms_per_unit"] = (round(row["wall_ms_total"] / units, 3)
+                                   if units and t and t["timed_calls"] == calls else None)
+        endpoints[endpoint] = row
+        for k in ("calls", "units", "payg_units", "free_units", "subscription_units",
+                  "revenue_cents_at_payg_price"):
+            totals[k] += row[k]
+        totals["wall_ms_total"] += row["wall_ms_total"]
+    totals["wall_ms_total"] = round(totals["wall_ms_total"], 3)
+    return {"month": month, "currency": PAYG.currency, "unit_price_cents": price,
+            "endpoints": endpoints, "totals": totals,
+            "durable": bool(led.available() and METER.costs.durable),
+            "ledger_durable": led.available(), "timings_durable": METER.costs.durable,
+            "timings_note": METER.costs.note,
+            "bucket_bounds_ms": list(BUCKET_BOUNDS_MS),
+            "basis": ECONOMICS_BASIS}
+
+
 def admin_ledger_page(after_seq: int, limit: int) -> dict:
     """Operator-only read of the ledger, one page. `last_seq` is the seq of the last event IN THIS PAGE (or
     `after_seq` when there is none), so a consumer that stores it can never skip an event; `head_seq` is how
@@ -967,7 +1042,9 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
         if mine is not None:
             refund_one(mine)
     try:
+        started = timer()
         result = _invoke(endpoint, handler, args, tier)
+        _record_cost(mine, endpoint, started)
         if idem is not None:
             IDEMPOTENCY.put(idem[0], idem[1], 200, result)
     except ApiError as exc:
@@ -1185,6 +1262,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._send(400, {"error": "after_seq must be >= 0 and limit between 1 and 1000"})
             return self._send(200, admin_ledger_page(after, limit))
+        if path == "/v1/admin/economics":
+            # Operator tier only; 404 to everyone else and absent from every listing, like the ledger read.
+            if self._tier() is not Tier.INTERNAL:
+                return self._send(404, {"error": "not found"})
+            month = (parse_qs(parsed.query).get("month") or [datetime.now(timezone.utc).strftime("%Y-%m")])[0]
+            try:
+                datetime.strptime(month, "%Y-%m")
+                if len(month) != 7:
+                    raise ValueError
+            except ValueError:
+                return self._send(400, {"error": "month must be YYYY-MM"})
+            return self._send(200, economics_report(month))
         if path == "/v1/estimate":
             q = parse_qs(parsed.query)
             req: dict = {"endpoint": (q.get("endpoint") or [""])[0]}
@@ -1468,7 +1557,9 @@ class Handler(BaseHTTPRequestHandler):
 
         handler = ROUTES[path][0]
         try:
+            started = timer()
             result = _invoke(path, handler, body, tier)
+            _record_cost(self._open_res, path, started)
             if idem_key is not None:
                 IDEMPOTENCY.put(idem_key, body_hash, 200, result)
             return self._send(200, result)
