@@ -22,17 +22,24 @@ def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None) 
     cals = [calibration_for(k, led.observations) for k in ks]
     with_data = [c for c in cals if c.n > 0]
     cov = coverage(led.observations, ks)
-    overall = (CalibrationState.CALIBRATED if with_data and all(
-                   c.state is CalibrationState.CALIBRATED for c in with_data)
+    # The overall state is a statement about the MODEL, not about its best output: it reads 'calibrated' only when
+    # every output asserted here has met the per-output requirement (n and independent sites). One calibrated
+    # output out of twenty is partial coverage, and says so.
+    overall = (CalibrationState.CALIBRATED if cals and all(
+                   c.state is CalibrationState.CALIBRATED for c in cals)
                else CalibrationState.INDICATIVE if with_data
                else CalibrationState.UNCALIBRATED)
     return {
         "state": overall.value,
         "statement": disclosure_sentence(cov, overall),
         "observations": cov["observations"],
+        "observations_total": cov["observations_total"],
+        "observations_without_source_ref": cov["observations_without_source_ref"],
         "sites": cov["sites"],
+        "halls": cov["halls"],
         "keys_asserted": cov["keys_asserted"],
         "keys_with_site_observations": cov["keys_with_site_observations"],
+        "keys_calibrated": cov["keys_calibrated"],
         "coverage": cov["coverage"],
         "keys": [dict(c.to_dict(), label=label(c.key)) for c in with_data],
         "uncalibrated_keys": [c.key for c in cals if c.n == 0],
@@ -49,13 +56,24 @@ def disclosure_sentence(cov: dict, overall: CalibrationState) -> str:
             "propagated through the model, not from the difference between this "
             "engine's predictions and site data — no such difference has been "
             "recorded yet.")
-    return (
+    head = (
         f"Model accuracy against instrumented sites: {cov['observations']} reconciled "
         f"observation(s) across {cov['sites']} site(s), covering "
         f"{cov['keys_with_site_observations']} of {cov['keys_asserted']} model outputs "
-        f"({cov['coverage'] * 100:.0f}%). "
-        + overall.sentence
-        + " Outputs with no observations remain modelled and are listed as such.")
+        f"({cov['coverage'] * 100:.0f}%). ")
+    if overall is CalibrationState.CALIBRATED:
+        body = overall.sentence
+    else:
+        body = (
+            "Coverage is partial and the model as a whole is not calibrated: "
+            f"{cov['keys_calibrated']} of {cov['keys_asserted']} outputs meet the requirement for a quoted "
+            "spread (enough observations from enough independent sites). Read every other output as "
+            "indicative at most.")
+    tail = " Outputs with no observations remain modelled and are listed as such."
+    if cov.get("observations_without_source_ref"):
+        tail += (f" {cov['observations_without_source_ref']} observation(s) carry no source reference: they were "
+                 "entered by hand and cannot be traced to a reviewed artifact.")
+    return head + body + tail
 
 
 def for_constraint(constraint_id: str, ledger: Ledger | None = None) -> Calibration:

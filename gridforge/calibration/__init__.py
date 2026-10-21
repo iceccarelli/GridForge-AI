@@ -12,11 +12,13 @@ because the alternative is silence and silence reads as accuracy.
 """
 from .schema import Observation, ObservationError
 from .stats import Calibration, CalibrationState, summarise, calibration_for
-from .ledger import Ledger, load_ledger, append_observation
+from .ledger import (Ledger, LedgerIntegrityError, load_ledger, append_observation, import_export,
+                     read_chain)
 from .keys import all_keys, constraint_key, label
 from .disclosure import accuracy_block, for_constraint, may_claim_field_validated
 
 __all__ = ["Observation", "ObservationError", "Calibration", "CalibrationState",
-           "summarise", "calibration_for", "Ledger", "load_ledger", "append_observation",
+           "summarise", "calibration_for", "Ledger", "LedgerIntegrityError", "load_ledger",
+           "append_observation", "import_export", "read_chain",
            "all_keys", "constraint_key", "label", "accuracy_block", "for_constraint",
            "may_claim_field_validated"]

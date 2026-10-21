@@ -67,13 +67,14 @@ def _quantile(xs: list[float], q: float) -> float:
 class Calibration:
     key: str
     n: int
-    sites: int
+    sites: int                      # distinct SITES: every hall of one site is one site
     state: CalibrationState
     median_ratio: float | None      # observed / predicted
     low_ratio: float | None
     high_ratio: float | None
     last_observed_on: str | None
     observations: tuple[Observation, ...] = ()
+    halls: int = 0                  # distinct halls: reported next to sites, never used for independence
 
     @property
     def bias_pct(self) -> float | None:
@@ -104,7 +105,7 @@ class Calibration:
 
     def to_dict(self) -> dict:
         return {
-            "key": self.key, "n": self.n, "sites": self.sites, "state": self.state.value,
+            "key": self.key, "n": self.n, "sites": self.sites, "halls": self.halls, "state": self.state.value,
             "median_ratio": None if self.median_ratio is None else round(self.median_ratio, 4),
             "bias_pct": None if self.bias_pct is None else round(self.bias_pct, 1),
             "observed_range": (None if self.low_ratio is None
@@ -127,12 +128,15 @@ def calibration_for(key: str, observations: list[Observation]) -> Calibration:
         return uncalibrated(key)
     ratios = [o.ratio for o in obs]
     n = len(obs)
-    n_sites = len({o.site_ref for o in obs})
+    # Independence is counted across SITES. site_ref hashes site+hall, so counting it would let five readings from
+    # three halls of one site pass for three sites.
+    n_sites = len({o.site for o in obs})
+    n_halls = len({o.site_ref for o in obs})
     state = (CalibrationState.CALIBRATED if n >= CALIBRATED_MIN and n_sites >= CALIBRATED_MIN_SITES
              else CalibrationState.INDICATIVE if n >= INDICATIVE_MIN
              else CalibrationState.UNCALIBRATED)
     return Calibration(
-        key=key, n=n, sites=n_sites, state=state,
+        key=key, n=n, sites=n_sites, halls=n_halls, state=state,
         median_ratio=_median(ratios),
         low_ratio=_quantile(ratios, 0.1) if state is CalibrationState.CALIBRATED else None,
         high_ratio=_quantile(ratios, 0.9) if state is CalibrationState.CALIBRATED else None,
@@ -152,12 +156,21 @@ def coverage(observations: list[Observation], keys: list[str]) -> dict:
     once it is flattering is a marketing number, and the whole point of this ledger
     is that it is not one.
     """
-    summary = summarise(observations)
+    asserted = set(keys)
+    # Only observations of the outputs being asserted count towards them. An observation of any other key is
+    # not coverage of these, and counting it would suppress the n=0 sentence for outputs never checked.
+    scoped = [o for o in observations if o.key in asserted]
+    summary = summarise(scoped)
     checked = [k for k in keys if summary.get(k) and summary[k].n > 0]
+    calibrated = [k for k in keys if summary.get(k) and summary[k].state is CalibrationState.CALIBRATED]
     return {
         "keys_asserted": len(keys),
         "keys_with_site_observations": len(checked),
+        "keys_calibrated": len(calibrated),
         "coverage": round(len(checked) / len(keys), 3) if keys else 0.0,
-        "sites": len({o.site_ref for o in observations}),
-        "observations": len(observations),
+        "sites": len({o.site for o in scoped}),
+        "halls": len({o.site_ref for o in scoped}),
+        "observations": len(scoped),
+        "observations_total": len(observations),
+        "observations_without_source_ref": sum(1 for o in scoped if not o.source_ref),
     }
