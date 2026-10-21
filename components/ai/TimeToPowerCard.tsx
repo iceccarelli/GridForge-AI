@@ -12,9 +12,17 @@ import {
 } from "recharts";
 import { EvidenceBadge, ProvenanceLine } from "./EvidenceBadge";
 import type { TimeToPowerMetricBlock } from "./types";
+import { readDateBasis } from "@/lib/date-basis";
 
 export function TimeToPowerCard({ block }: { block: TimeToPowerMetricBlock }) {
   const hasSeries = !!block.series && block.series.length > 0;
+  // Rule D: the on-site figure is a lead time, never a bare date. No basis on the block means "lead time unverified" and no number.
+  const date = readDateBasis({
+    date_basis: block.dateBasis,
+    date_evidence_class: block.dateEvidenceClass,
+    date_binding_item: block.dateBindingItem,
+    date_label: block.dateLabel,
+  });
 
   return (
     <div className="panel p-5">
@@ -85,9 +93,10 @@ export function TimeToPowerCard({ block }: { block: TimeToPowerMetricBlock }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line">
         <Metric label="Grid queue" q={block.queueMonths} tone="text-queue" />
-        <Metric label="On-site (ladder)" q={block.onSiteMonths} tone="text-power" />
-        <Metric label="Recovered" q={block.monthsRecovered} tone="text-verified" />
+        <Metric label="On-site (ladder)" q={block.onSiteMonths} tone="text-power" hide={!date.showsNumber} />
+        <Metric label="Recovered" q={block.monthsRecovered} tone="text-verified" hide={!date.showsNumber} />
       </div>
+      <p className="mt-3 text-[11px] text-queue">{date.label}</p>
     </div>
   );
 }
@@ -96,10 +105,13 @@ function Metric({
   label,
   q,
   tone,
+  hide = false,
 }: {
   label: string;
   q: TimeToPowerMetricBlock["queueMonths"];
   tone: string;
+  /** Rule D: no number at all when there is no date or its basis is unknown. */
+  hide?: boolean;
 }) {
   return (
     <div className="bg-panel p-4">
@@ -107,8 +119,14 @@ function Metric({
         <span className="text-[11px] text-faint uppercase tracking-wide">{label}</span>
       </div>
       <div className={`data text-2xl font-semibold ${tone}`}>
-        {q.value}
-        <span className="text-xs text-faint ml-1">{q.unit}</span>
+        {hide ? (
+          <span className="text-base text-faint">no figure shown</span>
+        ) : (
+          <>
+            {q.value}
+            <span className="text-xs text-faint ml-1">{q.unit}</span>
+          </>
+        )}
       </div>
       <div className="mt-1">
         <EvidenceBadge evidenceClass={q.evidenceClass} provenance={q.provenance} />

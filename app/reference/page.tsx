@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { formatWeeks } from "@/lib/date-basis";
 
 export const metadata: Metadata = {
   title: "The deliverable, in full — worked example",
@@ -38,7 +39,14 @@ interface Pack {
     name: string;
     as_found: { racks: number; binding_name: string; basis: string };
     after_ladder: { racks: number };
-    time_to_power: { weeks_to_full: number | null; sets_the_date: string };
+    time_to_power: {
+      weeks_to_full: number | null;
+      sets_the_date: string;
+      date_basis?: "none" | "assumed" | "supported";
+      date_evidence_class?: string | null;
+      date_binding_item?: string | null;
+      date_label?: string;
+    };
     economics: { capex_total_eur: { value: number } | null };
   }[];
   intake: { completeness: number; gaps: unknown[] };
@@ -117,7 +125,7 @@ export default async function ReferencePage() {
             v={String(best.after_ladder.racks)}
             n={
               best.time_to_power.weeks_to_full
-                ? `racks · ${best.time_to_power.weeks_to_full.toFixed(0)} weeks, set by ${best.time_to_power.sets_the_date.toLowerCase()}`
+                ? `racks · ${formatWeeks(Math.round(best.time_to_power.weeks_to_full), best.time_to_power)}, set by ${best.time_to_power.sets_the_date.toLowerCase()}`
                 : "racks"
             }
           />

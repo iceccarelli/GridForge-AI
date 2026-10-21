@@ -292,6 +292,10 @@
         "weeks_to_full": null,
         "schedule_complete": true,
         "sets_the_date": "\u2014",
+        "date_basis": "none",
+        "date_evidence_class": null,
+        "date_binding_item": null,
+        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
         "curve": []
       },
       "economics": {
@@ -395,6 +399,10 @@
         "lifecycle": null,
         "critical_path_weeks": 0.0,
         "critical_path_complete": true,
+        "date_basis": "none",
+        "date_evidence_class": null,
+        "date_binding_item": null,
+        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -824,6 +832,10 @@
         "weeks_to_full": null,
         "schedule_complete": true,
         "sets_the_date": "\u2014",
+        "date_basis": "none",
+        "date_evidence_class": null,
+        "date_binding_item": null,
+        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
         "curve": []
       },
       "economics": {
@@ -927,6 +939,10 @@
         "lifecycle": null,
         "critical_path_weeks": 0.0,
         "critical_path_complete": true,
+        "date_basis": "none",
+        "date_evidence_class": null,
+        "date_binding_item": null,
+        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -1696,6 +1712,10 @@
         "weeks_to_full": 160.0,
         "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "curve": [
           {
             "weeks": 24,
@@ -1892,6 +1912,10 @@
         },
         "critical_path_weeks": 160.0,
         "critical_path_complete": true,
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -2684,6 +2708,10 @@
         "weeks_to_full": 160.0,
         "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "curve": [
           {
             "weeks": 32,
@@ -2870,6 +2898,10 @@
         },
         "critical_path_weeks": 160.0,
         "critical_path_complete": true,
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
@@ -4157,6 +4189,10 @@
         "weeks_to_full": 160.0,
         "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "curve": [
           {
             "weeks": 32,
@@ -4478,6 +4514,10 @@
         },
         "critical_path_weeks": 160.0,
         "critical_path_complete": true,
+        "date_basis": "assumed",
+        "date_evidence_class": "E0",
+        "date_binding_item": "Transformer capacity",
+        "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [

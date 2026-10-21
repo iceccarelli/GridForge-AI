@@ -6,6 +6,7 @@ import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
+import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 
 /**
@@ -265,7 +266,7 @@ function QualifyReadout({
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
         <Readout label="After the ladder" value={String(after.racks)} suffix="racks" tone="power" />
-        <Readout label="Sets the date" value={after.sets_the_date} tone="queue" small />
+        <SetsTheDate after={after} />
       </div>
 
       <div className="mt-5 rounded border border-line bg-panel-2 p-4">
@@ -489,6 +490,24 @@ function CommissionPanel({
         </a>
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-flag">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * "Sets the date" never reads as a date on its own: the item that sets it is shown with what the figure rests on, an
+ * assumed lead time is named as one, and a hall with no date says so. The weeks themselves are withheld from the
+ * free read by the engine; this is only the label that must travel with the item.
+ */
+function SetsTheDate({ after }: { after: QualifyResult["after_relief"] }) {
+  const f = formatSetsTheDate(after.sets_the_date, after);
+  return (
+    <div className="rounded border border-line bg-panel-2 px-4 py-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        {f.info.basis === "none" ? "Date" : "Sets the lead time"}
+      </p>
+      <p className="font-mono text-base font-semibold text-queue mt-1">{f.value}</p>
+      <p className="mt-1 text-[11px] leading-snug text-queue">{f.label}</p>
     </div>
   );
 }

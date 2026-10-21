@@ -4,6 +4,7 @@ import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PowerDeployCaseUpdate } from "@/components/PowerDeployCaseUpdate";
 import { PowerDeployProcurement } from "@/components/PowerDeployProcurement";
 import { API_PRODUCTS, eurFromCents } from "@/lib/products";
+import { describeDate, type DateBasisKeys } from "@/lib/date-basis";
 
 export const metadata: Metadata = {
   title: "Power Deployment Case",
@@ -44,6 +45,10 @@ interface DeploymentResult {
     capex_uncosted_units?: string[];
     capex_eur: number | null;
     lead_time_weeks: number | null;
+    date_basis?: DateBasisKeys["date_basis"];
+    date_evidence_class?: DateBasisKeys["date_evidence_class"];
+    date_binding_item?: DateBasisKeys["date_binding_item"];
+    date_label?: DateBasisKeys["date_label"];
     buildable: boolean;
     rfq_ready: boolean;
     execution_ready: boolean;
@@ -182,7 +187,7 @@ export default async function PowerDeployCasePage({
                   {a.capex_eur !== null ? `EUR ${a.capex_eur.toLocaleString()}` : "UNKNOWN — not costed"}
                 </span>
                 <span>
-                  Lead time: {a.lead_time_weeks !== null ? `${a.lead_time_weeks} weeks` : "UNKNOWN"}
+                  Lead time: <LeadTime a={a} />
                 </span>
                 <span>Margin: {a.margin_MW} MW</span>
               </div>
@@ -314,5 +319,21 @@ export default async function PowerDeployCasePage({
         </Link>
       </section>
     </main>
+  );
+}
+
+function LeadTime({
+  a,
+}: {
+  a: { lead_time_weeks: number | null } & DateBasisKeys;
+}) {
+  if (a.lead_time_weeks === null) return <>UNKNOWN</>;
+  const f = describeDate(a.lead_time_weeks, a);
+  return f.number === null ? (
+    <>{f.label}</>
+  ) : (
+    <>
+      {f.number} <span className="text-queue">({f.label})</span>
+    </>
   );
 }

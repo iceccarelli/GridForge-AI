@@ -348,7 +348,7 @@ export function BidComparison({
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Supplier</th>
                   <th className="py-2 pr-3">Capex</th>
-                  <th className="py-2 pr-3">Weeks to energised</th>
+                  <th className="py-2 pr-3">Weeks to energised (as quoted)</th>
                   <th className="py-2 pr-3">Per rack</th>
                   <th className="py-2 pr-3">Score</th>
                 </tr>

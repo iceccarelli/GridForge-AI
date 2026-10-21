@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLeadTime } from "@/lib/date-basis";
 import { Layers } from "lucide-react";
 import {
   Bar,
@@ -91,7 +92,7 @@ export function HeadroomLadderCard({ block }: { block: HeadroomLadderMetricBlock
             )}
             <div className="flex items-center gap-3 mt-1 text-[11px] text-faint">
               {s.capexEur && <span>{s.capexEur.value.toLocaleString()} {s.capexEur.unit}</span>}
-              {s.leadTimeWeeks && <span>{s.leadTimeWeeks.value} wk lead</span>}
+              {s.leadTimeWeeks && <span>{formatLeadTime(s.leadTimeWeeks.value, s.leadTimeWeeks.evidenceClass)}</span>}
             </div>
             <ProvenanceLine provenance={s.racks.provenance} />
           </li>

@@ -18,6 +18,8 @@ import {
   type CompareScenario,
 } from "@/lib/ttp-compare";
 import { TtpSaveToProject } from "@/components/TtpSaveToProject";
+import { DateFigure } from "@/components/DateFigure";
+import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 
 type Fields = Record<string, string>;
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
@@ -64,23 +66,7 @@ const evidenceTone = (e: string | null) => (e && Number(e.slice(1)) >= 3 ? "text
 
 function Date_({ s }: { s: CompareScenario }) {
   const t = s.time_to_power;
-  if (t.status !== "dated" || t.weeks === null) {
-    return (
-      <span className="text-mute">
-        <span className="font-semibold text-ghost">No date.</span> {t.reason}
-      </span>
-    );
-  }
-  return (
-    <span>
-      <span className="data text-ghost">{t.weeks.toLocaleString()} wk</span>{" "}
-      <span className="data text-mute">
-        ({t.low?.toLocaleString()}–{t.high?.toLocaleString()})
-      </span>{" "}
-      <span className={`data text-[11px] ${evidenceTone(t.evidence)}`}>{t.evidence}</span>
-      {t.sets_the_date ? <span className="block text-[11px] text-faint">set by {t.sets_the_date}</span> : null}
-    </span>
-  );
+  return <DateFigure t={t} evidenceText={t.evidence} evidenceClassName={evidenceTone(t.evidence)} />;
 }
 
 function download(name: string, data: unknown) {
@@ -332,7 +318,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
         </div>
         <p className="mt-3 text-ghost">
           {r.ranking.leader ? (
-            <>Leader on this objective: <strong>{byId[r.ranking.leader]?.name}</strong> ({r.ranking.metric}: <span className="data">{r.ranking.values[r.ranking.leader]?.toLocaleString()}</span>).</>
+            <>Leader on this objective: <strong>{byId[r.ranking.leader]?.name}</strong> ({r.ranking.metric}: <span className="data">{formatRankingValue(r.ranking.metric, r.ranking.values[r.ranking.leader], byId[r.ranking.leader]?.time_to_power)}</span>).</>
           ) : (
             <>No leader. {r.ranking.note}</>
           )}
@@ -393,7 +379,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
                   <ul className="mt-1 list-disc pl-5">
                     {s.vs_baseline.why.map((w) => (<li key={w}>{w}</li>))}
                     <li>
-                      Date: {s.vs_baseline.weeks_delta === null ? s.vs_baseline.weeks_delta_unknown_reason : `${s.vs_baseline.weeks_delta > 0 ? "+" : ""}${s.vs_baseline.weeks_delta} weeks`}
+                      Date: {s.vs_baseline.weeks_delta === null ? s.vs_baseline.weeks_delta_unknown_reason : formatWeeksDelta(s.vs_baseline.weeks_delta, s.time_to_power, byId[r.baseline]?.time_to_power)}
                     </li>
                     <li>
                       Capex: {s.vs_baseline.capex_delta_eur === null ? s.vs_baseline.capex_delta_unknown_reason : `${s.vs_baseline.capex_delta_eur > 0 ? "+" : ""}€${s.vs_baseline.capex_delta_eur.toLocaleString()}`}
@@ -411,7 +397,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
                   <ul className="mt-1 list-disc pl-5">
                     {s.time_to_power.lead_times.map((l) => (
                       <li key={l.constraint}>
-                        {l.name}: {l.lead_time_weeks ? (<><span className="data">{l.lead_time_weeks.value} wk</span> <span className="data text-[11px]">{l.lead_time_weeks.evidence}</span></>) : "unknown"}
+                        {l.name}: {l.lead_time_weeks ? (<span className="data">{formatLeadTime(l.lead_time_weeks.value, l.lead_time_weeks.evidence)}</span>) : "unknown"}
                       </li>
                     ))}
                   </ul>
