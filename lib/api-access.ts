@@ -22,7 +22,7 @@ import { storeFault } from "@/lib/safe-log";
 
 const PREFIX = "gfk1";
 
-export type ApiScope = "machine" | "client" | "trial";
+export type ApiScope = "machine" | "client" | "trial" | "payg";
 
 export interface ApiKeyPayload {
   a: string; // account

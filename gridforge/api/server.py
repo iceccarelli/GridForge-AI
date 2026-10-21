@@ -50,7 +50,8 @@ import threading
 import time
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
 
 from ..calibration import accuracy_block, all_keys as calibration_keys, load_ledger
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
@@ -58,7 +59,7 @@ from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, portfolio_rows
-from ..commercial import ENGAGEMENTS, engagement
+from ..commercial import ENGAGEMENTS, PAYG, engagement
 from ..change import EnvelopeState, diff as envelope_diff, diff_from_state
 from ..reporting.change_note import build as build_change_note_report
 from ..reporting.deck import build as build_deck_report
@@ -73,7 +74,7 @@ from ..scenario.knobs import SENSITIVITY_KNOBS
 from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
-from .metering import METER, UNIT_COST, key_plans, plan_for, refusal, units_for
+from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
 from .payloads import qualify_payload, screen_payload
 from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
@@ -142,30 +143,53 @@ API_SCHEMA = "gridforge/api/1"
 
 class _IdempotencyCache:
     """Remembers the answer to a keyed request, so a client that retries after a timeout is neither
-    billed twice nor handed a different answer. Bounded and in-memory: it protects the retry window
-    (minutes), it is not a ledger, and it forgets on restart."""
+    billed twice nor handed a different answer. Bounded in memory by TOTAL BYTES as well as entry count
+    (a study bundle is ~0.24 MB, so a count bound alone let 2000 of them eat a 512 MB machine). It keeps
+    the serialised JSON, not the object graph, which is several times smaller. It is a cache, not the
+    record: the ledger remembers that a key was charged (24h, across restarts), so a response evicted or
+    too large to cache is recomputed deterministically and replayed without a second charge."""
     TTL = 24 * 3600
     MAX = 2000
+    MAX_BYTES = int(os.environ.get("GRIDFORGE_IDEMPOTENCY_MAX_BYTES", "") or 0) or 32 * 1024 * 1024
 
     def __init__(self):
-        self._items: dict[tuple, tuple[float, str, int, dict]] = {}
+        self._items: dict[tuple, tuple[float, str, int, str]] = {}
+        self._bytes = 0
         self._lock = threading.Lock()
+
+    @property
+    def total_bytes(self) -> int:
+        return self._bytes
+
+    def _drop(self, key: tuple) -> None:
+        old = self._items.pop(key, None)
+        if old is not None:
+            self._bytes -= len(old[3])
 
     def get(self, key: tuple):
         now = time.time()
         with self._lock:
             hit = self._items.get(key)
             if hit and now - hit[0] <= self.TTL:
-                return hit
-            self._items.pop(key, None)
+                return (hit[0], hit[1], hit[2], json.loads(hit[3]))
+            self._drop(key)
             return None
 
     def put(self, key: tuple, body_hash: str, status: int, payload: dict) -> None:
+        try:
+            text = json.dumps(payload)
+        except (TypeError, ValueError):
+            return
+        size = len(text)
+        if size > self.MAX_BYTES // 4:        # one answer must not be able to evict everyone else's
+            return
         with self._lock:
-            if len(self._items) >= self.MAX:
+            self._drop(key)
+            while self._items and (len(self._items) >= self.MAX or self._bytes + size > self.MAX_BYTES):
                 oldest = min(self._items, key=lambda k: self._items[k][0])
-                del self._items[oldest]
-            self._items[key] = (time.time(), body_hash, status, payload)
+                self._drop(oldest)
+            self._items[key] = (time.time(), body_hash, status, text)
+            self._bytes += size
 
 
 IDEMPOTENCY = _IdempotencyCache()
@@ -639,6 +663,16 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
     return {"revoked": key_id, "count": count}
 
 
+def admin_ledger_page(after_seq: int, limit: int) -> dict:
+    """Operator-only read of the ledger, one page. `last_seq` is the seq of the last event IN THIS PAGE (or
+    `after_seq` when there is none), so a consumer that stores it can never skip an event; `head_seq` is how
+    far the ledger has got."""
+    led = METER.ledger
+    events = led.read_after(after_seq, limit)
+    return {"events": events, "last_seq": events[-1]["seq"] if events else after_seq,
+            "head_seq": led.last_seq, "durable": led.available(), "status": led.status()}
+
+
 _BID_NOTE = ("Installation method and evidence quality carry 15 of the 100 points and "
              "are scored by an engineer, not by this endpoint. A ranking that claimed "
              "to have judged them would be inventing the part that needs judgement.")
@@ -725,8 +759,84 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     }
 
 
+#: Per-request context for handlers that need to know WHO is asking (only /v1/estimate does). Set by the
+#: Handler before any handler runs, on the thread serving the request; handlers never see a key itself.
+_CTX = threading.local()
+
+MAX_ESTIMATE_HALLS = 100_000
+MAX_MCP_BATCH = 10
+_PORTFOLIO = "/v1/portfolio"
+
+
+def _units_basis(endpoint: str, units: int, halls: int | None) -> str:
+    if endpoint == _PORTFOLIO:
+        base = UNIT_COST[_PORTFOLIO]
+        if halls is None:
+            return (f"{base} unit per hall in the request; give hall_count (or body.intakes) for a total. "
+                    f"Units are reserved when the call starts and refunded if it produces no answer.")
+        return (f"{base} unit per hall x {halls} halls = {units} units. "
+                f"Units are reserved when the call starts and refunded if it produces no answer.")
+    if units == 0:
+        return "free: never billed, and never counted against an allowance or a cap"
+    return (f"fixed {units} unit{'s' if units != 1 else ''} per call, whatever the size of the intake. "
+            f"Units are reserved when the call starts and refunded if it produces no answer.")
+
+
+def handle_estimate(body: dict, tier: Tier) -> dict:
+    """What a call would cost, before anyone spends anything. Public, free, never metered.
+
+    The units come from the SAME `units_for()` the meter uses, so an estimate cannot drift from a bill.
+    With a valid key the answer also says where that key stands, so an agent can decide to stop BEFORE the
+    402 rather than after it."""
+    endpoint = body.get("endpoint")
+    if not isinstance(endpoint, str) or endpoint.rstrip("/") not in UNIT_COST:
+        raise ApiError(422, "endpoint must be one of the engine routes that have a unit rate",
+                       available=sorted(UNIT_COST))
+    endpoint = endpoint.rstrip("/")
+    req_body = body.get("body")
+    if req_body is not None and not isinstance(req_body, dict):
+        raise ApiError(422, "body, when given, must be the JSON object you intend to send")
+    halls = None
+    hall_count = body.get("hall_count")
+    if hall_count is not None:
+        if isinstance(hall_count, bool) or not isinstance(hall_count, int) or not (1 <= hall_count <= MAX_ESTIMATE_HALLS):
+            raise ApiError(422, f"hall_count must be a whole number from 1 to {MAX_ESTIMATE_HALLS}")
+    if endpoint == _PORTFOLIO:
+        intakes = (req_body or {}).get("intakes")
+        if isinstance(intakes, list):
+            halls = max(1, len(intakes))
+        elif hall_count is not None:
+            halls = hall_count
+        units = UNIT_COST[_PORTFOLIO] * (halls if halls is not None else 1)
+    else:
+        units = units_for(endpoint, req_body)
+    price = PAYG.unit_price_cents
+    out = {"endpoint": endpoint, "units": units, "unit_price_cents": price, "currency": PAYG.currency,
+           "estimated_cents": units * price, "billable": units > 0, "free": units == 0,
+           "basis": _units_basis(endpoint, units, halls),
+           "note": ("estimated_cents is what pay-as-you-go would charge. A subscription's units come out "
+                    "of its monthly allowance; the free allowance is never invoiced.")}
+    plan = getattr(_CTX, "plan", None)
+    supplied = getattr(_CTX, "supplied_key", "")
+    if plan is not None:
+        used = METER.current(plan.account).units
+        cap = plan.monthly_quota or None
+        remaining = (max(0, cap - used) if cap else None)
+        beyond = max(0, units - remaining) if remaining is not None else 0
+        out.update({
+            "scope": plan.scope, "cap_units": cap, "used_units": used, "remaining_units": remaining,
+            "fits": True if cap is None else used + units <= cap,
+            # Cents this call would add that the key's own allowance does not cover. Zero for a call that
+            # fits; for a free-allowance key the part beyond it (which would need pay-as-you-go).
+            "would_cost_after_allowance": (units * price if plan.scope == "payg" else beyond * price)})
+    elif supplied:
+        out["key_error"] = refusal(supplied).get("error", "key not recognised")
+    return out
+
+
 ROUTES = {
     "/v1/qualify": (handle_qualify, Tier.PUBLIC),
+    "/v1/estimate": (handle_estimate, Tier.PUBLIC),
     "/v1/screen": (handle_screen, Tier.CLIENT),
     "/v1/compare": (handle_compare, Tier.CLIENT),
     "/v1/study": (handle_study, Tier.CLIENT),
@@ -800,6 +910,11 @@ class RpcError(Exception):
 
 
 def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
+    # Every tools/call after the first in one HTTP request is charged to the rate limiter on its own: the
+    # limiter counts HTTP requests, and a batch of N free qualifies is N solves for one hit.
+    limit = getattr(charge, "rate", None)
+    if limit is not None and not limit():
+        raise RpcError(-32005, "rate limit exceeded", {"status": 429, "limit_per_minute": RATE_LIMIT_PER_MINUTE})
     name = params.get("name")
     tool = TOOLS_BY_NAME.get(name)
     if tool is None:
@@ -815,7 +930,7 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
         raise RpcError(-32602, "arguments must be an object")
     denied = charge(endpoint, args)
     if denied:
-        raise RpcError(-32002, denied["error"], denied)
+        raise RpcError(-32003 if denied.get("status") == 503 else -32002, denied["error"], denied)
     refund = getattr(charge, "refund", lambda: None)
     try:
         result = _invoke(endpoint, handler, args, tier)
@@ -940,7 +1055,11 @@ class Handler(BaseHTTPRequestHandler):
         if allow:
             self.send_header("Access-Control-Allow-Origin", allow)
             self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, X-API-Key, Authorization, Idempotency-Key, X-GridForge-Project")
+        self.send_header("Access-Control-Expose-Headers",
+                         "X-GridForge-Units, X-GridForge-Units-Month, X-GridForge-Units-Remaining, "
+                         "X-GridForge-Charge-Cents, X-GridForge-Idempotent-Replay, Idempotent-Replay")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     def _send(self, status: int, payload: dict) -> None:
@@ -955,6 +1074,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-GridForge-Schema", API_SCHEMA)
         if getattr(self, "_replayed", False):
             self.send_header("Idempotent-Replay", "true")
+            self.send_header("X-GridForge-Idempotent-Replay", "true")
+        if getattr(self, "_retry_after", None):
+            self.send_header("Retry-After", str(self._retry_after))
         self._usage_headers()
         self._cors()
         self.end_headers()
@@ -1006,13 +1128,42 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlparse(self.path).path.rstrip("/") or "/"
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        _CTX.plan, _CTX.supplied_key = self._plan(), self._supplied_key()
+        if path == "/v1/admin/ledger":
+            # Operator tier only, and 404 (not 401) to anyone else, like /v1/revoke: an operator surface does
+            # not confirm it exists to a caller who cannot use it. Deliberately absent from every listing.
+            if self._tier() is not Tier.INTERNAL:
+                return self._send(404, {"error": "not found"})
+            q = parse_qs(parsed.query)
+            try:
+                after = int((q.get("after_seq") or ["0"])[0])
+                limit = int((q.get("limit") or ["1000"])[0])
+                if after < 0 or not (1 <= limit <= 1000):
+                    raise ValueError
+            except ValueError:
+                return self._send(400, {"error": "after_seq must be >= 0 and limit between 1 and 1000"})
+            return self._send(200, admin_ledger_page(after, limit))
+        if path == "/v1/estimate":
+            q = parse_qs(parsed.query)
+            req: dict = {"endpoint": (q.get("endpoint") or [""])[0]}
+            if q.get("hall_count"):
+                try:
+                    req["hall_count"] = int(q["hall_count"][0])
+                except ValueError:
+                    return self._send(422, {"error": f"hall_count must be a whole number from 1 to {MAX_ESTIMATE_HALLS}"})
+            try:
+                return self._send(200, handle_estimate(req, Tier.PUBLIC))
+            except ApiError as exc:
+                return self._send(exc.status, {"error": exc.message, **exc.extra})
         if path in ("/health", "/"):
             return self._send(200, {"ok": True, "service": "gridforge", "version": VERSION})
         if path == "/v1/version":
             # Operator tier only: lets the website verify, with the admin key and no side effect, that
             # revocation can actually be persisted before it sells a key it could not later kill.
-            extra = {"revocation_persistable": revocation_persistable()} if self._tier() is Tier.INTERNAL else {}
+            extra = ({"revocation_persistable": revocation_persistable(), "ledger_status": METER.ledger.status()}
+                     if self._tier() is Tier.INTERNAL else {})
             return self._send(200, {
                 **extra,
                 "version": VERSION,
@@ -1025,8 +1176,10 @@ class Handler(BaseHTTPRequestHandler):
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
                 "unit_rates": dict(sorted(UNIT_COST.items())),
+                "payg": payg_public(),
                 "metering": {
                     "durable": METER.durable,
+                    "ledger_durable": METER.ledger.available(),
                     "over_quota_status": 402,
                     "note": ("Units are published so a caller can predict a bill before "
                              "making the call. A meter whose rate is secret is a meter "
@@ -1071,13 +1224,22 @@ class Handler(BaseHTTPRequestHandler):
                                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES)})
 
     # -- metering ----------------------------------------------------------
-    def _charge(self, endpoint: str, body: dict | None):
+    def _project(self) -> str:
+        """X-GridForge-Project: a label the CALLER chooses so their own invoice can be split by project. Short and
+        boring on purpose: anything else is ignored, never rejected, so a bad label cannot cost an answer."""
+        v = (self.headers.get("X-GridForge-Project") or "").strip()
+        if 0 < len(v) <= 64 and all((c.isascii() and c.isalnum()) or c in "._:-" for c in v):
+            return v
+        return ""
+
+    def _charge(self, endpoint: str, body: dict | None, idem: str = "", body_sha: str = ""):
         """Bill the call, or explain why it cannot be billed.
 
         Returns None when the call may proceed (and the units are already on the
-        account), or a dict describing the refusal. Billing happens BEFORE the
-        work: an agent in a loop can otherwise run a month's quota of solves
-        while the first response is still being rendered.
+        account), or a dict describing the refusal, with its HTTP `status` (402 over the
+        cap, 503 when a payg/trial charge cannot be made durable, 422 for an Idempotency-Key
+        reused with another body). Billing happens BEFORE the work: an agent in a loop can
+        otherwise run a month's quota of solves while the first response is still being rendered.
         """
         plan = self._plan()
         if plan is None:
@@ -1085,27 +1247,73 @@ class Handler(BaseHTTPRequestHandler):
         units = units_for(endpoint, body)
         if units <= 0:
             return None
-        usage = METER.reserve(plan.account, endpoint, units, plan.monthly_quota)
-        if usage is None:
-            u = METER.statement(plan)
-            return {"error": "monthly unit quota exhausted",
-                    "units_required": units, "units_used": u["units"],
-                    "monthly_quota": u["monthly_quota"], "month": u["month"],
-                    "fix": "upgrade the plan on your account page, or wait for the "
-                           "allowance to reset at the start of next month"}
-        self._last_usage = usage
-        self._last_units = units
-        self._charged = (plan.account, endpoint, units)
+        res = METER.reserve_ex(plan.account, endpoint, units, plan.monthly_quota, scope=plan.scope,
+                               key_id=plan.key_id, project=self._project(), idem=idem, body_sha=body_sha)
+        if res.status == "unavailable":
+            self._retry_after = 30
+            return {"status": 503,
+                    "error": "usage cannot be recorded right now; nothing was charged and no work was done",
+                    "retryable": True, "units_required": units,
+                    "fix": "retry in a few seconds. Metered keys are refused rather than served unrecorded; "
+                           "if this persists the fault is on our side, not your key"}
+        if res.status == "conflict":
+            return {"status": 422, "error": res.reason}
+        if res.status == "replay":
+            self._replayed = True
+            self._last_units = 0
+            self._last_usage = res.usage
+            return None
+        if res.status == "over":
+            return dict(self._over_body(plan, units), status=402)
+        self._open_res = res
+        self._req_units = getattr(self, "_req_units", 0) + units
+        self._last_units = self._req_units
+        self._last_usage = res.usage
         return None
 
+    @staticmethod
+    def _over_body(plan, units: int) -> dict:
+        u = METER.statement(plan)
+        cap = u["monthly_quota"]
+        now = datetime.now(timezone.utc)
+        nxt = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+               .replace(year=now.year + (now.month == 12), month=now.month % 12 + 1))
+        body = {"error": "monthly unit quota exhausted", "units_required": units, "units_used": u["units"],
+                "monthly_quota": cap, "cap_units": cap, "month": u["month"],
+                "unit_price_cents": PAYG.unit_price_cents, "resets_at": nxt.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if plan.scope == "trial":
+            body.update(plan="api_free", reason="free_allowance_exhausted",
+                        fix=(f"the free allowance of {cap} units is used for {u['month']}; it renews at the start "
+                             f"of next month (UTC). To keep going now, enable pay-as-you-go with a spending cap "
+                             f"of your choosing on your API access page (no charge until you do; "
+                             f"EUR {PAYG.unit_price_cents / 100:.2f} per unit), or pick a plan at /pricing"))
+        elif plan.scope == "payg":
+            body.update(plan="api_payg", reason="spending_cap_reached",
+                        cap_eur=round(cap * PAYG.unit_price_cents / 100, 2) if cap else None,
+                        fix=(f"your monthly spending cap of {cap} units "
+                             f"(EUR {cap * PAYG.unit_price_cents / 100:,.2f}) is reached. Nothing beyond it is "
+                             f"billed. Raise the cap on your API access page (a new cap issues a new key) or "
+                             f"wait for the reset at the start of next month (UTC); a subscription at "
+                             f"/pricing is cheaper per unit at sustained volume"))
+        elif plan.scope in ("machine", "client") and plan.key_id:
+            body.update(plan="subscription", reason="plan_quota_exhausted",
+                        fix=("upgrade the plan on your account page, or wait for the "
+                             "allowance to reset at the start of next month"))
+        else:
+            body.update(plan="operator_key", reason="plan_quota_exhausted",
+                        fix=("upgrade the plan on your account page, or wait for the "
+                             "allowance to reset at the start of next month"))
+        return body
+
     def _refund(self) -> None:
-        """Undo this request's charge: the call produced no answer."""
-        charged = getattr(self, "_charged", None)
-        if charged:
-            METER.refund(*charged)
-            self._charged = None
-            self._last_units = 0
-            self._last_usage = METER.current(charged[0])
+        """Undo this request's latest charge: the call produced no answer."""
+        res = getattr(self, "_open_res", None)
+        if res is not None:
+            METER.refund_reservation(res)
+            self._open_res = None
+            self._req_units = max(0, getattr(self, "_req_units", 0) - res.units)
+            self._last_units = self._req_units
+            self._last_usage = METER.current(res.account)
 
     def _usage_headers(self) -> None:
         units = getattr(self, "_last_units", None)
@@ -1118,10 +1326,21 @@ class Handler(BaseHTTPRequestHandler):
         if plan and plan.monthly_quota:
             self.send_header("X-GridForge-Units-Remaining",
                              str(max(0, plan.monthly_quota - usage.units)))
+        if plan and plan.scope == "payg":
+            # What THIS request adds to the invoice: net units (after any refund) x the unit price.
+            self.send_header("X-GridForge-Charge-Cents", str(PAYG.charge_cents(units)))
         if plan and plan.expires:
             self.send_header("X-GridForge-Key-Expires", plan.expires)
 
     def do_POST(self) -> None:  # noqa: N802
+        self._open_res, self._req_units, self._last_units, self._last_usage = None, 0, None, None
+        _CTX.plan, _CTX.supplied_key = self._plan(), self._supplied_key()
+        try:
+            self._do_post()
+        finally:
+            _CTX.plan, _CTX.supplied_key = None, ""
+
+    def _do_post(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path not in ROUTES and path != "/mcp":
             return self._send(404, {"error": "not found",
@@ -1179,7 +1398,7 @@ class Handler(BaseHTTPRequestHandler):
         idem_key = None
         body_hash = hashlib.sha256(raw).hexdigest()
         plan = self._plan()
-        if idem and plan is not None:
+        if idem and plan is not None and path != "/v1/estimate":
             if len(idem) > 200:
                 return self._send(400, {"error": "Idempotency-Key is longer than 200 characters"})
             idem_key = (plan.account, path, idem)
@@ -1189,11 +1408,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(422, {"error": "this Idempotency-Key was already used with a "
                                                      "different request body"})
                 self._replayed = True
+                self._last_units, self._last_usage = 0, METER.current(plan.account)
                 return self._send(hit[2], hit[3])
 
-        denied = self._charge(path, body)
+        denied = self._charge(path, body, idem=idem_key[2] if idem_key else "", body_sha=body_hash[:16])
         if denied:
-            return self._send(402, denied)
+            return self._send(denied.pop("status", 402), denied)
 
         handler = ROUTES[path][0]
         try:
@@ -1224,10 +1444,21 @@ class Handler(BaseHTTPRequestHandler):
         """JSON-RPC 2.0, single request or batch. Notifications get 202 and no body."""
         charge = lambda endpoint, args: self._charge(endpoint, args)  # noqa: E731
         charge.refund = self._refund
+        calls = [0]
+
+        def rate() -> bool:
+            calls[0] += 1
+            return calls[0] == 1 or self.limiter.allow(self._client_key())   # the first rode in on the HTTP hit
+        charge.rate = rate
         if isinstance(body, list):
             if not body:
                 return self._send(400, {"jsonrpc": "2.0", "id": None,
                                         "error": {"code": -32600, "message": "empty batch"}})
+            if len(body) > MAX_MCP_BATCH:
+                return self._send(400, {"jsonrpc": "2.0", "id": None,
+                                        "error": {"code": -32600,
+                                                  "message": f"batch too large: at most {MAX_MCP_BATCH} requests",
+                                                  "data": {"max_batch": MAX_MCP_BATCH, "received": len(body)}}})
             out = [r for r in (handle_mcp(m if isinstance(m, dict) else {}, tier, charge)
                                for m in body) if r is not None]
             if not out:

@@ -1072,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--account", default="", help="who this bills to; usage aggregates here")
     s.add_argument("--plan", default="", help="api_triage | api_scale | api_platform")
     s.add_argument("--quota", default="0", help="monthly units; 0 is unlimited")
-    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial"])
+    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial", "payg"])
     s.add_argument("--days", default="35",
                    help="validity. 35 by default so a monthly renewal never leaves a "
                         "customer's agents dark while the webhook lands.")
