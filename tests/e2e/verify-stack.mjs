@@ -667,6 +667,9 @@ async function main() {
   ok("not a subscriber before paying", (await status()).active === false);
   await sub({ id: "cs_int_1" });
   ok("entitled after paying", (await status()).active === true);
+  const unconfirmed = await (await fetch(`${SITE}/api/subscription-status`, { method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer unconfirmed:director@northhall.example" }, body: "{}" })).json();
+  ok("a session whose email was never confirmed is not shown the subscription", unconfirmed.active === false && unconfirmed.verified === false);
   await sub({ id: "cs_int_1" });
   ok("a redelivered event does not double-issue",
      (await (await sb(`subscriptions?email=eq.director%40northhall.example&status=eq.active&select=id`)).json()).length === 1);
