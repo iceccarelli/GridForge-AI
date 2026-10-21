@@ -5,6 +5,7 @@ import { PAYG, parseCapEur } from "@/lib/payg";
 import { accountByToken } from "@/lib/payg-accounts";
 import { paygStripe, stripeFault } from "@/lib/payg-stripe";
 import { guardRequest } from "@/lib/rate-limit";
+import { RETURN_PATH, returnCookie } from "@/lib/payg-return";
 
 export const runtime = "nodejs";
 
@@ -69,11 +70,14 @@ export async function POST(req: Request) {
       ...(acct.stripe_customer_id ? { customer: acct.stripe_customer_id } : { customer_creation: "always" as const, ...(acct.email ? { customer_email: acct.email } : {}) }),
       metadata: meta,
       setup_intent_data: { metadata: meta },
-      success_url: `${origin}/api-access/${token}?payg=success`,
-      cancel_url: `${origin}/api-access/${token}?payg=cancelled`,
+      // No portal token in a URL Stripe stores: the way back is a token-free URL, resolved by a short-lived HttpOnly cookie (lib/payg-return.ts).
+      success_url: `${origin}${RETURN_PATH}?payg=success`,
+      cancel_url: `${origin}${RETURN_PATH}?payg=cancelled`,
     });
     if (!session.url) return NextResponse.json({ ok: false, error: "Could not start checkout" }, { status: 502 });
-    return NextResponse.json({ ok: true, url: session.url });
+    const res = NextResponse.json({ ok: true, url: session.url });
+    res.headers.append("Set-Cookie", returnCookie(token));
+    return res;
   } catch (err) {
     console.error(`[GridForge] payg enable checkout failed (${stripeFault(err)})`);
     return NextResponse.json({ ok: false, error: "Could not start checkout. Nothing was changed." }, { status: 502 });

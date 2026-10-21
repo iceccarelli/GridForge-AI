@@ -67,12 +67,20 @@ FREE_ENDPOINTS = frozenset(p for p, u in UNIT_COST.items() if u == 0)
 
 #: The one billing rule, worded once. Published at /v1/version and /v1/tools (`payg.billing_rule`) and mirrored
 #: in the website copy; change it here and everywhere together.
+def _eur(cents: int) -> str:
+    """Whole euros as '€2', otherwise '€2.50': the same text lib/payg-pricing.ts eurExact() produces for en-IE."""
+    return f"€{cents // 100}" if cents % 100 == 0 else f"€{cents / 100:.2f}"
+
+
+#: tests/site/payg-billing-rule.test.ts pins lib/payg-pricing.ts billingRuleText() to this string, byte for byte.
 BILLING_RULE = (
-    "A month's charge is the net ledger units for the UTC month (charges minus refunds) times the unit price, "
-    "invoiced in arrears; a month below the minimum invoice is carried forward to the next. Requests that "
-    "produce no answer (rejected, unauthorised, invalid or failed) are refunded and never charged, and a retry "
-    "carrying the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The "
-    "customer's own monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues."
+    f"A month's charge is the net ledger units for the UTC month (charges minus refunds) at "
+    f"{_eur(PAYG.unit_price_cents)} a unit, invoiced monthly in arrears. A month whose charge is under the "
+    f"{_eur(PAYG.min_invoice_cents)} minimum invoice is not invoiced on its own: it is carried forward and added to the "
+    f"next month, and so on from month to month. A balance that never reaches {_eur(PAYG.min_invoice_cents)} is never "
+    f"invoiced. A request that is rejected, unauthorised, invalid or fails is refunded and never charged, and a retry "
+    f"with the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The customer's own "
+    f"monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues."
 )
 
 

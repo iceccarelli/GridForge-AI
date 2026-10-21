@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { signingConfigured, mintChecked } from "@/lib/api-access";
+import { signingConfigured, mintChecked, inspectKey } from "@/lib/api-access";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { readBoundedJson } from "@/lib/http-body";
 import { PAYG, accountRef, parseCapEur, paygCapUnits } from "@/lib/payg";
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: out.message ?? "Could not change the cap. Nothing was changed." }, { status: out.reason === "refused" ? 409 : 500 });
   }
   const m = out.result;
-  await recordFunnelEvent("key_minted", { scope: "payg", plan: "api_payg", account_ref: accountRef(acct.account), reason: "cap_change" });
+  await recordFunnelEvent("key_minted", { scope: "payg", plan: "api_payg", account_ref: accountRef(acct.account), reason: "cap_change" }, { dedupeKey: `key_minted:${inspectKey(m.token)?.k ?? ""}` });
   return NextResponse.json({
     ok: true,
     issued: true,

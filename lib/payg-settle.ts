@@ -18,6 +18,7 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { accountRef } from "@/lib/payg";
 import { enc, pg, rpc } from "@/lib/payg-store";
 import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
+import { openQuarantine } from "@/lib/payg-usage";
 import type { ApiAccount } from "@/lib/api-access";
 
 export interface Settlement {
@@ -47,6 +48,8 @@ export interface SettleReport {
   errors: string[];
   /** Pending rows that cannot proceed until the customer has a payment method on file. */
   noPaymentMethod: number;
+  /** Months left alone because an un-acknowledged quarantined ledger event could belong to them. */
+  heldByQuarantine: number;
 }
 
 async function accountByName(account: string): Promise<ApiAccount | null | "error"> {
@@ -56,13 +59,29 @@ async function accountByName(account: string): Promise<ApiAccount | null | "erro
 }
 
 /** Phase A: give every unsettled closed month its row (invoice-bound `pending`, `carried` or `void`). */
-async function createRows(now: Date, report: SettleReport): Promise<boolean> {
+interface Hold {
+  /** An open quarantined event with an unreadable timestamp: no month can be trusted. */
+  all: boolean;
+  months: Set<string>;
+}
+const held = (h: Hold, month: string) => h.all || h.months.has(month);
+
+async function createRows(now: Date, report: SettleReport, hold: Hold): Promise<boolean> {
   const un = await rpc<{ account: string; month: string; net_units: number | string }[]>("gf_payg_unsettled", { p_before: utcMonth(now) });
   if (!un.ok) {
     report.errors.push("could not list unsettled months");
     return false;
   }
+  // Months are created strictly in order per account (the list is ordered), and a month's pending row ABSORBS the carried months it
+  // includes in the same step, before the next month is looked at: otherwise a carried month would be counted again in every later
+  // month of one run. If the absorb fails, that account's later months wait for the next run.
+  const stopped = new Set<string>();
   for (const u of un.data ?? []) {
+    if (stopped.has(u.account)) continue;
+    if (held(hold, u.month)) {
+      report.heldByQuarantine++;
+      continue;
+    }
     report.considered++;
     const net = Number(u.net_units);
     // Units carried in from earlier months of THIS account that no invoice has absorbed yet.
@@ -100,6 +119,10 @@ async function createRows(now: Date, report: SettleReport): Promise<boolean> {
       continue;
     }
     if (!ins.data || ins.data.length === 0) continue;
+    if (status === "pending" && !(await absorbCarried({ account: u.account, month: u.month, carried_months: row.carried_months } as Settlement))) {
+      report.errors.push("could not mark carried months");
+      stopped.add(u.account);
+    }
     if (status === "pending") report.created.pending++;
     else if (status === "carried") report.created.carried++;
     else report.created.void++;
@@ -222,14 +245,36 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
  * the engine's head first (see lib/payg-cron.ts): this function trusts usage_events to be complete for closed months.
  */
 export async function settleClosedMonths(stripe: PaygStripe, now: Date = new Date()): Promise<SettleReport> {
-  const report: SettleReport = { considered: 0, created: { invoiced: 0, carried: 0, void: 0, pending: 0 }, invoiced: 0, stillPending: 0, errors: [], noPaymentMethod: 0 };
-  await createRows(now, report);
+  const report: SettleReport = { considered: 0, created: { invoiced: 0, carried: 0, void: 0, pending: 0 }, invoiced: 0, stillPending: 0, errors: [], noPaymentMethod: 0, heldByQuarantine: 0 };
+  // A quarantined ledger event nobody has looked at could belong to a month about to be closed for good. Unreadable open quarantine
+  // state means we cannot tell, so nothing is settled.
+  const open = await openQuarantine();
+  if (!open) {
+    report.errors.push("could not read the ledger quarantine; nothing settled");
+    return report;
+  }
+  const hold: Hold = { all: open.some((q) => !q.month), months: new Set(open.filter((q) => q.month).map((q) => q.month as string)) };
+
   const pending = await pg<Settlement[]>("GET", "usage_settlements?status=eq.pending&order=month.asc&limit=200");
   if (!pending.ok) {
     report.errors.push("could not list pending settlements");
     return report;
   }
-  for (const s of pending.data ?? []) await invoiceOne(stripe, s, report);
+  // Rows left pending by an earlier run that crashed before absorbing: do it now, before any new month reads the carried rows.
+  for (const s of pending.data ?? []) await absorbCarried(s);
+  await createRows(now, report, hold);
+  const toInvoice = await pg<Settlement[]>("GET", "usage_settlements?status=eq.pending&order=month.asc&limit=200");
+  if (!toInvoice.ok) {
+    report.errors.push("could not list pending settlements");
+    return report;
+  }
+  for (const s of toInvoice.data ?? []) {
+    if (held(hold, s.month)) {
+      report.heldByQuarantine++;
+      continue;
+    }
+    await invoiceOne(stripe, s, report);
+  }
   return report;
 }
 

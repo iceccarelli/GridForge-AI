@@ -292,11 +292,13 @@ export function compareMonthly(units: number, plans: readonly Product[] = API_PR
 /** The billing rule as shown to a customer. One function so every page says it identically. */
 export function billingRuleText(): string {
   return (
-    `A month's charge is the net units used in that UTC month (charges minus refunds) at ` +
-    `${eurExact(PAYG.unitPriceCents)} a unit, invoiced monthly in arrears. A month under ` +
-    `${eurExact(PAYG.minInvoiceCents)} is carried forward to the next, not invoiced on its own. ` +
+    `A month's charge is the net ledger units for the UTC month (charges minus refunds) at ` +
+    `${eurExact(PAYG.unitPriceCents)} a unit, invoiced monthly in arrears. A month whose charge is under the ` +
+    `${eurExact(PAYG.minInvoiceCents)} minimum invoice is not invoiced on its own: it is carried forward and added to the next month, ` +
+    `and so on from month to month. A balance that never reaches ${eurExact(PAYG.minInvoiceCents)} is never invoiced. ` +
     `A request that is rejected, unauthorised, invalid or fails is refunded and never charged, and a retry ` +
-    `with the same Idempotency-Key is never charged twice.`
+    `with the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The customer's own ` +
+    `monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues.`
   );
 }
 

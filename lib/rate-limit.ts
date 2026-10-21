@@ -94,6 +94,8 @@ export const RATE_POLICIES = {
   free_account: { bucket: "free_account", limit: 5, windowSeconds: HOUR },
   /** POST /api/payg/enable and /api/payg/cap: token-addressed account changes (a Stripe session, or a key rotation). */
   payg_manage: { bucket: "payg_manage", limit: 30, windowSeconds: HOUR },
+  /** POST /api/keys: each one mints (and may rotate) a signed key and, for a free account, takes a place in the monthly ceiling. */
+  key_mint: { bucket: "key_mint", limit: 30, windowSeconds: HOUR },
   /** GET /api/usage: token-addressed reads of the account's own usage; polled by the portal. */
   usage_read: { bucket: "usage_read", limit: 240, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;

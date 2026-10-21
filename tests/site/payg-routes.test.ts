@@ -80,28 +80,51 @@ describe("POST /api/free-account", () => {
     expect(db.rows("funnel_events").filter((e: any) => e.name === "free_account_created")).toHaveLength(1);
   });
 
-  it("a visitor who lost the link gets it again, at most once per UTC day (bounding what anyone can make us mail to an address)", async () => {
+  it("a visitor who lost the link gets it again, but never within the cooldown of the last one (bounding what anyone can make us mail to an address)", async () => {
     const { POST } = await route();
     await POST(post("/api/free-account", { email: "bob@example.com" }));
     expect(mail).toHaveLength(1);
-    await POST(post("/api/free-account", { email: "bob@example.com" }));
-    expect(mail).toHaveLength(2); // today's resend
-    await POST(post("/api/free-account", { email: "bob@example.com" }));
-    await POST(post("/api/free-account", { email: "bob@example.com" }));
-    expect(mail).toHaveLength(2); // same day: nothing more
+    for (let i = 0; i < 4; i++) await POST(post("/api/free-account", { email: "bob@example.com" }));
+    expect(mail).toHaveLength(1); // inside the cooldown: nothing more, however often it is asked
+    // after the cooldown (the function takes the clock, as the cron jobs do) the link goes again, once
+    const { createFreeAccount, FREE_RESEND_COOLDOWN_MS } = await import("@/lib/payg-accounts");
+    const later = new Date(Date.now() + FREE_RESEND_COOLDOWN_MS + 60_000);
+    await createFreeAccount("bob@example.com", null, later);
+    await createFreeAccount("bob@example.com", null, later);
+    expect(mail).toHaveLength(2);
     expect(accounts()).toHaveLength(1);
   });
 
-  it("enforces the site-wide monthly cap (env override honoured); an existing address is unaffected", async () => {
+  it("sign-up never reveals the ceiling (it counts VERIFIED accounts, at the first key mint): every new address gets the same answer", async () => {
+    process.env.GRIDFORGE_FREE_ACCOUNTS_MAX = "1";
+    const { POST } = await route();
+    const bodies: string[] = [];
+    for (const e of ["a1@example.com", "a2@example.com", "a3@example.com", "a1@example.com"]) {
+      const res = await POST(post("/api/free-account", { email: e }));
+      expect(res.status).toBe(200);
+      bodies.push(JSON.stringify(await res.json()));
+    }
+    expect(new Set(bodies).size).toBe(1);
+    expect(accounts()).toHaveLength(3);
+  });
+
+  it("the monthly ceiling of VERIFIED accounts is enforced when the owner first mints a key from the emailed link", async () => {
     process.env.GRIDFORGE_FREE_ACCOUNTS_MAX = "2";
     const { POST } = await route();
-    expect((await POST(post("/api/free-account", { email: "a1@example.com" }))).status).toBe(200);
-    expect((await POST(post("/api/free-account", { email: "a2@example.com" }))).status).toBe(200);
-    const over = await POST(post("/api/free-account", { email: "a3@example.com" }));
+    for (const e of ["v1@example.com", "v2@example.com", "v3@example.com"]) await POST(post("/api/free-account", { email: e }));
+    const keys = await import("@/app/api/keys/route");
+    const mint = (a: any) => keys.POST(post("/api/keys", { token: a.token }));
+    const [a1, a2, a3] = accounts();
+    expect((await mint(a1)).status).toBe(200);
+    expect((await mint(a2)).status).toBe(200);
+    const over = await mint(a3);
     expect(over.status).toBe(429);
     expect(await over.json()).toMatchObject({ ok: false, reason: "capacity" });
-    expect(accounts()).toHaveLength(2);
-    expect((await POST(post("/api/free-account", { email: "a1@example.com" }))).status).toBe(200);
+    expect(a3.key_id).toBeNull();
+    expect(a3.free_verified_at).toBeNull();
+    // an account already verified is never turned away, and rotating its key does not count it twice
+    expect((await keys.POST(post("/api/keys", { token: a1.token, rotate: true }))).status).toBe(200);
+    expect(accounts().filter((a: any) => a.free_verified_at)).toHaveLength(2);
   });
 
   it("the default ceiling is the catalogue's, not a number typed here", async () => {

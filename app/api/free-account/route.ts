@@ -12,8 +12,9 @@ const MAX_BODY_BYTES = 2 * 1024;
  * POST { email, company? } -> the free developer allowance, no card.
  *
  * The answer is the SAME whether the address is new or already has an account, so this route cannot be used to learn who has one.
- * The only difference a caller can observe is the site-wide monthly ceiling (429 `capacity`), and only for an address that has no
- * account yet. No key is returned: the key is minted from the emailed portal link, which is the email verification.
+ * The site-wide monthly ceiling is NOT applied here (it counts VERIFIED accounts, at the first key mint from the emailed link), so
+ * this answer can neither be used up by addresses nobody owns nor reveal which addresses already have an account. No key is
+ * returned: the key is minted from the emailed portal link, which is the email verification.
  */
 export async function POST(req: Request) {
   const read = await readBoundedJson(req, MAX_BODY_BYTES);
@@ -28,12 +29,6 @@ export async function POST(req: Request) {
 
   const r = await createFreeAccount(body.email, body.company);
   if (!r.ok) {
-    if (r.reason === "capacity") {
-      return NextResponse.json(
-        { ok: false, error: "The free allowance has reached its limit for this month. It reopens at the start of next month (UTC).", reason: "capacity" },
-        { status: 429, headers: { "Cache-Control": "no-store" } }
-      );
-    }
     console.error(`[GridForge] free account request failed: ${r.reason}`);
     return NextResponse.json({ ok: false, error: "We could not set this up just now. Nothing was created; try again shortly." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }

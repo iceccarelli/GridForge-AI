@@ -192,6 +192,10 @@ export interface ApiAccount {
   revocation_pending?: boolean;
   /** Stripe event.created of the newest invoice event applied to this (subscription) account. */
   last_billing_event_ts?: number | null;
+  /** {key id: last valid day} for keys DELIBERATELY left live next to a newer one: the revocation sweep leaves them alone until that day has passed. */
+  overlap_key_ids?: Record<string, string> | null;
+  /** Set when the emailed link is first used to mint a key; the monthly free-allowance ceiling counts these. */
+  free_verified_at?: string | null;
 }
 
 function rest(pathAndQuery: string): { url: string; headers: Record<string, string> } | null {
@@ -497,6 +501,10 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
   const revoked = [...(row.revoked_key_ids ?? [])];
   const previous = row.key_id || null;
   if (previous && !revoked.includes(previous)) revoked.push(previous);
+  // A mint that does NOT rotate leaves the previous key live on purpose (the renewal window: the old key works until it expires, so a
+  // deployment can switch over first). It is still recorded so cancellation can revoke it, but the daily revocation sweep must not kill
+  // it early: its last valid day is kept here, and the sweep revokes it only after that day.
+  const overlap = previous && !opts.rotate ? { ...(row.overlap_key_ids ?? {}), [previous]: row.key_expires_at ?? new Date().toISOString().slice(0, 10) } : undefined;
   // The key is only handed over once the account records which id is live. A key the account does
   // not know about can be neither rotated nor revoked on cancellation, so a failed write must not
   // produce a working credential the customer then holds.
@@ -506,6 +514,7 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
     key_expires_at: payload.e,
     key_scope: want.scope,
     revoked_key_ids: revoked,
+    ...(overlap ? { overlap_key_ids: overlap } : {}),
     ...(opts.extra ?? {}),
   });
   if (saved === "conflict") return { ok: false, reason: "conflict" };
@@ -523,10 +532,11 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
  * and the cancellation paths each try once and record the id as unconfirmed, and this sweep (run by /api/cron/payg) keeps trying
  * until the engine says yes. Bounded per run; an id the engine refuses stays pending and is counted, never silently dropped.
  */
-export async function retryRevocations(limit = 50): Promise<{ accounts: number; confirmed: number; stillPending: number }> {
-  const r = rest(`api_accounts?revocation_pending=eq.true&select=token,revoked_key_ids,revoked_confirmed_ids&limit=${Math.max(1, Math.min(limit, 200))}`);
+export async function retryRevocations(limit = 50, now: Date = new Date()): Promise<{ accounts: number; confirmed: number; stillPending: number }> {
+  const today = now.toISOString().slice(0, 10);
+  const r = rest(`api_accounts?revocation_pending=eq.true&select=token,revoked_key_ids,revoked_confirmed_ids,overlap_key_ids&limit=${Math.max(1, Math.min(limit, 200))}`);
   if (!r) return { accounts: 0, confirmed: 0, stillPending: 0 };
-  let rows: Pick<ApiAccount, "token" | "revoked_key_ids" | "revoked_confirmed_ids">[] = [];
+  let rows: Pick<ApiAccount, "token" | "revoked_key_ids" | "revoked_confirmed_ids" | "overlap_key_ids">[] = [];
   try {
     const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
     if (!res.ok) {
@@ -541,7 +551,8 @@ export async function retryRevocations(limit = 50): Promise<{ accounts: number; 
   let stillPending = 0;
   for (const row of rows) {
     const done = new Set(row.revoked_confirmed_ids ?? []);
-    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id));
+    // An overlap key is live on purpose until its last valid day; before the day has passed it is neither pushed nor counted pending.
+    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !((row.overlap_key_ids ?? {})[id] >= today));
     const ok: string[] = [];
     for (const id of todo) {
       if (await revokeOnEngine(id)) ok.push(id);
