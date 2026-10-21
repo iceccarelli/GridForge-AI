@@ -101,6 +101,7 @@ class Ledger:
         self._size = 0
         self._idem: dict[tuple[str, str, str], tuple[float, str, str, int]] = {}
         self._totals: dict[tuple[str, str], Totals] = {}
+        self._econ: dict[tuple[str, str, str], list[int]] = {}      # (month, endpoint, scope) -> [calls, units], net
         self._problem = ""
         self._corrupt = False
         if self._path is None:
@@ -234,6 +235,9 @@ class Ledger:
         t.first = t.first or ts
         t.last = ts
         t.scopes.add(str(ev.get("scope") or ""))
+        e = self._econ.setdefault((month_of(ts), endpoint, str(ev.get("scope") or "")), [0, 0])
+        e[0] += sign
+        e[1] += sign * units
         idem = str(ev.get("idem") or "")
         if len(self._idem) > 20_000:           # bounded: only the live window is ever consulted
             for k in [k for k, v in self._idem.items() if now - v[0] > IDEMPOTENCY_WINDOW_SECONDS]:
@@ -307,6 +311,16 @@ class Ledger:
     def totals(self) -> dict[tuple[str, str], Totals]:
         with self._lock:
             return dict(self._totals)
+
+    def economics(self, month: str) -> dict[str, dict[str, tuple[int, int]]]:
+        """Net (charges minus refunds) calls and units for one UTC month: {endpoint: {scope: (calls, units)}}.
+        The same events the invoice is derived from, so a revenue figure built on it matches the bill."""
+        out: dict[str, dict[str, tuple[int, int]]] = {}
+        with self._lock:
+            for (m, endpoint, scope), (calls, units) in self._econ.items():
+                if m == month and (calls or units):
+                    out.setdefault(endpoint, {})[scope] = (max(0, calls), max(0, units))
+        return out
 
     def idem_lookup(self, account: str, endpoint: str, idem: str):
         """A charge for this (account, endpoint, idempotency key) that is live and not refunded:
