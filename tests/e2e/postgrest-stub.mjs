@@ -36,14 +36,23 @@ const send = (res, code, body) => {
   res.end(body === undefined ? "" : JSON.stringify(body));
 };
 
+// PostgREST addresses inside a json column as `col->key->>leaf`; the claim-stamp compare-and-set uses it.
+const cell = (row, col) => {
+  if (!col.includes("->")) return row[col];
+  const [head, ...path] = col.split(/->>?/);
+  let v = row[head];
+  for (const k of path) v = v === null || v === undefined || typeof v !== "object" ? undefined : v[k];
+  return v;
+};
 const match = (row, col, raw) => {
   const i = raw.indexOf(".");
   const op = raw.slice(0, i), val = raw.slice(i + 1);
-  const a = row[col] === null || row[col] === undefined ? "" : String(row[col]);
+  const cv = cell(row, col);
+  const a = cv === null || cv === undefined ? "" : String(cv);
   if (op === "eq") return a === val;
   if (op === "neq") return a !== val;
   if (op === "in") return val.replace(/^\(|\)$/g, "").split(",").map(s => s.trim()).includes(a);
-  if (op === "is") return val === "null" ? (row[col] ?? null) === null : false;
+  if (op === "is") return val === "null" ? (cv ?? null) === null : false;
   if (op === "not") return !match(row, col, val);
   return true;
 };

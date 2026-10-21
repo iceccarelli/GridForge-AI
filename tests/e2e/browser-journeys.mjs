@@ -25,7 +25,9 @@ const PAGES = ["/", "/pricing", "/qualify", "/developers", "/platforms", "/power
 const failures = [];
 const fail = (where, what) => failures.push(`${where}: ${what}`);
 
-const server = spawn("npx", ["next", "start", "-p", String(PORT)], { stdio: "ignore", env: { ...process.env, NODE_ENV: "production" } });
+// detached = its own process group, so the whole group can be signalled: killing only the `npx` wrapper leaves next-server
+// holding the port and breaks the next run.
+const server = spawn("npx", ["next", "start", "-p", String(PORT)], { stdio: "ignore", detached: true, env: { ...process.env, NODE_ENV: "production" } });
 async function up() {
   for (let i = 0; i < 60; i++) {
     try { if ((await fetch(BASE + "/")).ok) return; } catch {}
@@ -191,7 +193,7 @@ try {
 
   await browser.close();
 } finally {
-  server.kill("SIGTERM");
+  try { process.kill(-server.pid, "SIGTERM"); } catch { server.kill("SIGTERM"); }
 }
 
 if (failures.length) {
