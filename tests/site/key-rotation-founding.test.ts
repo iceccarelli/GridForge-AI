@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { inspectKey } from "@/lib/api-access";
 
 const coupons: unknown[] = [];
 const sessions: Record<string, any>[] = [];
@@ -71,6 +72,11 @@ beforeEach(() => {
   const dbFetch = globalThis.fetch;
   globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+    // An engine that verifies the keys this site signs (rotation revokes the old key only after it has been shown to accept the new one).
+    if (url === "https://engine.test/v1/version") {
+      const presented = inspectKey(String((init?.headers as Record<string, string> | undefined)?.["X-API-Key"] ?? ""));
+      return new Response(JSON.stringify({ version: "0.9.0", tier: presented?.valid ? "client" : "public" }), { status: 200 });
+    }
     if (url.startsWith("https://engine.test/v1/revoke")) {
       revokeCalls.push(JSON.parse(String(init?.body)).key_id);
       return new Response("{}", { status: engineStatus });

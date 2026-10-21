@@ -360,7 +360,9 @@ describe("F9: free and pay-as-you-go keys are reminded before they expire, once 
   const daysFromNow = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
   const reminders = () => mail.filter((m) => /API key (expires|has expired)|expires shortly/i.test(m.subject) || /Your GridForge API key/.test(m.subject));
 
-  it("the cron queues one reminder for a payg or free key within 7 days of expiry, and none for a healthy or long-dead one", async () => {
+  // A subscription key is reminded by the same sweep (it used to be reminded only at a renewal webhook, and only when <= 7 days were left
+  // at that moment: tests/site/billing-lifecycle-review.test.ts); healthy and long-dead keys still get nothing.
+  it("the cron queues one reminder for a free, payg or subscription key within 7 days of expiry, and none for a healthy or long-dead one", async () => {
     paygAccount(db, { account: "soon", token: "tok-soon-0123456789abcdefghijk", email: "soon@x.example", key_id: "k1", key_scope: "payg", key_expires_at: daysFromNow(3) });
     paygAccount(db, { account: "free1", token: "tok-free-0123456789abcdefghijk", email: "free@x.example", plan: "api_free", cap_units: null, key_id: "k2", key_scope: "trial", key_expires_at: daysFromNow(6) });
     paygAccount(db, { account: "fine", token: "tok-fine-0123456789abcdefghijk", email: "fine@x.example", key_id: "k3", key_scope: "payg", key_expires_at: daysFromNow(30) });
@@ -368,17 +370,18 @@ describe("F9: free and pay-as-you-go keys are reminded before they expire, once 
     paygAccount(db, { account: "sub", token: "tok-subs-0123456789abcdefghijk", email: "sub@x.example", plan: "api_scale", key_id: "k5", key_scope: "machine", key_expires_at: daysFromNow(2) });
     const { runPaygCron } = await cron();
     const r1 = await runPaygCron({ fetcher: ledgerFetcherOver([]), stripe, now: new Date() });
-    expect(r1.reminders).toMatchObject({ considered: 2, queued: 2 });
-    expect(reminders().map((m) => m.to).sort()).toEqual(["free@x.example", "soon@x.example"]);
+    expect(r1.reminders).toMatchObject({ considered: 3, queued: 3 });
+    expect(reminders().map((m) => m.to).sort()).toEqual(["free@x.example", "soon@x.example", "sub@x.example"]);
     for (const m of reminders()) {
       expect(m.text).toMatch(/does not extend a key|extends a key/);
       expect(m.text).toContain("/api-access/");
-      expect(m.text).not.toMatch(/subscription/i);
+      // free and pay-as-you-go have no subscription to mention; the subscription's own mail does
+      if (m.to !== "sub@x.example") expect(m.text).not.toMatch(/subscription/i);
     }
     // a second run (and a third) sends nothing more for the same keys
     await runPaygCron({ fetcher: ledgerFetcherOver([]), stripe, now: new Date() });
     await runPaygCron({ fetcher: ledgerFetcherOver([]), stripe, now: new Date() });
-    expect(reminders()).toHaveLength(2);
+    expect(reminders()).toHaveLength(3);
   });
 
   it("after the customer rotates, a reminder queued for the old key is cancelled unsent, and the new key gets its own when its time comes", async () => {

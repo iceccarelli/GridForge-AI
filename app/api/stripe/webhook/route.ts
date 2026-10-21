@@ -5,12 +5,15 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { createWatch, lookupWatchBySubscription, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
-import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
+import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
+import { accountRef } from "@/lib/payg";
+import { notifyOperatorOnce } from "@/lib/payg-operator";
 import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { pg } from "@/lib/payg-store";
 import { paygStripe } from "@/lib/payg-stripe";
 import {
+  cancelApiAccount,
   confirmRevoked,
   createApiAccount,
   findBySubscription,
@@ -264,55 +267,24 @@ export async function POST(req: Request) {
     const d = event.data.object as Stripe.Dispute;
     await recordFunnelEvent("dispute_opened", { amount_cents: d.amount ?? 0, ...(typeof d.reason === "string" && /^[a-z_]{1,40}$/.test(d.reason) ? { reason: d.reason } : {}) }, { dedupeKey: `dispute_opened:${d.id}` });
   }
+  // A dispute has an evidence deadline that is real money (the amount is debited at once and lost if nobody answers in time), so the operator
+  // is MAILED when one opens and when it closes, not left to find a funnel counter.
+  if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed") {
+    await disputeNotice(event.type === "charge.dispute.closed", event.data.object as Stripe.Dispute);
+  }
 
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object as Stripe.Subscription;
     const found = await resolveSubscription(sub.id);
     if (!found.ok) return lifecycleRetry("cancellation (lookup failed)", sub.id);
-    if (!found.api && !found.watch && !found.intelligence) {
-      // One of ours with no record yet may simply have arrived before its checkout event: retry.
-      // Anything else is somebody else's subscription on the same Stripe account: acknowledge.
-      if (isOurSubscriptionKind(sub.metadata?.kind)) return lifecycleRetry("cancellation (no record yet)", sub.id);
-      console.warn("[GridForge] cancellation for a subscription that is not ours; ignored:", sub.id);
-      return NextResponse.json({ ok: true, received: true });
-    }
-    let applied = true;
-    if (found.api) {
-      const row = found.api;
-      // Revoke the live key id and mark the account cancelled. The ENGINE refuses revoked ids, so the
-      // account row is only half of it: tell the engine as well (below).
-      const revoked = new Set(row.revoked_key_ids ?? []);
-      if (row.key_id) revoked.add(row.key_id);
-      const done = await updateApiAccount(row.token, { status: "cancelled", revoked_key_ids: [...revoked] });
-      if (!done) applied = false;
-      else {
-        // Best-effort on purpose (see revokeOnEngine): an engine that is briefly unreachable must not
-        // turn a cancellation that HAS been recorded into an endlessly redelivered event. The id is
-        // logged so it can be pushed by hand, and the key still dies at its expiry.
-        // Every id we ever superseded is pushed too (a rotation or overlap mint may not have been confirmed
-        // by the engine), plus the live one. Each is attempted independently; the ids stay recorded.
-        const confirmedIds: string[] = [];
-        for (const id of revoked) if (await revokeOnEngine(id)) confirmedIds.push(id);
-        // What the engine confirmed is recorded; the rest stays unconfirmed and the daily sweep keeps pushing it.
-        await confirmRevoked(row.token, confirmedIds);
-        console.log(`[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`);
-      }
-    }
-    if (found.watch) {
-      if (!(await updateWatch(found.watch.token, { status: "cancelled" }))) applied = false;
-      else console.log(`[GridForge] hall watch ${found.watch.id} cancelled; scheduled runs stop`);
-    }
-    if (found.intelligence) {
-      if (!(await updateSubscription(found.intelligence.id, { status: "cancelled" }))) applied = false;
-      else console.log(`[GridForge] intelligence subscription ${found.intelligence.id} cancelled; /account drops to the free view`);
-    }
-    if (!applied) return lifecycleRetry("cancellation (write failed)", sub.id);
-    // Adoption funnel: which kind of subscription ended, and Stripe's own stated reason when it gives one (a fixed vocabulary, never a
-    // free-text field: cancellation_details.comment is deliberately NOT read).
-    const stated = sub.cancellation_details?.reason;
-    const reason = stated === "cancellation_requested" || stated === "payment_failed" || stated === "payment_disputed" ? stated : undefined;
-    const endedKind = found.api ? found.api.plan : found.watch ? "hall_watch" : "intelligence_subscription";
-    await recordFunnelEvent("subscription_cancelled", { kind: endedKind, ...(reason ? { reason } : {}) }, { dedupeKey: `subscription_cancelled:${sub.id}` });
+    const out = await applyCancellation(sub, found);
+    if (out) return out;
+  }
+
+  // A plan switch, a pause or a cancellation made in the Stripe Billing Portal (or the Dashboard) arrives here and nowhere else.
+  if (event.type === "customer.subscription.updated") {
+    const out = await applySubscriptionUpdate(event.data.object as Stripe.Subscription);
+    if (out) return out;
   }
 
   // Pay-as-you-go month-end invoices carry metadata.kind === "payg_settlement" and no subscription: they are settled against their
@@ -334,16 +306,24 @@ export async function POST(req: Request) {
       // Only an ACTIVE entitlement moves. A late failure notice must never reopen a cancelled account
       // (past_due can still mint keys) or demote something already ended. Nor may it override a LATER event already applied:
       // events are not delivered in order, so a failure older than the payment that cleared it is ignored.
-      if (found.api && found.api.status === "active" && billingEventIsCurrent(found.api, event.created, "failed")) {
-        if (!(await updateApiAccount(found.api.token, { status: "past_due", ...(event.created ? { last_billing_event_ts: event.created } : {}) }))) applied = false;
+      // The SAME ordering rule holds for all three entitlements (migration 0039 gave watches and subscriptions the clock api_accounts had).
+      // A failure that is current but finds the row already failed (paused / past_due) still advances the clock, so a payment older than
+      // THAT failure, delivered late, cannot reinstate it.
+      if (found.api && !endedRow(found.api) && billingEventIsCurrent(found.api, event.created, "failed")) {
+        const ok = found.api.status === "active"
+          ? await updateApiAccount(found.api.token, { status: "past_due", ...(event.created ? { last_billing_event_ts: event.created } : {}) })
+          : event.created ? await updateApiAccount(found.api.token, { last_billing_event_ts: event.created }) : true;
+        if (!ok) applied = false;
       }
       // "paused", not "cancelled": Stripe retries, and a card that fails on Tuesday and clears on
       // Thursday should not have cost the client a quarter.
-      if (found.watch && found.watch.status === "active") {
-        if (!(await updateWatch(found.watch.token, { status: "paused" }))) applied = false;
+      if (found.watch && !endedRow(found.watch) && billingEventIsCurrent(found.watch, event.created, "failed")) {
+        const patch: Partial<WatchRecord> = found.watch.status === "active" ? { status: "paused" } : {};
+        if (!(await clockedWrite((p) => updateWatch(found.watch!.token, p), patch, event.created))) applied = false;
       }
-      if (found.intelligence && found.intelligence.status === "active") {
-        if (!(await updateSubscription(found.intelligence.id, { status: "past_due" }))) applied = false;
+      if (found.intelligence && (found.intelligence.status === "active" || found.intelligence.status === "past_due") && billingEventIsCurrent(found.intelligence, event.created, "failed")) {
+        const patch: Partial<SubscriptionRecord> = found.intelligence.status === "active" ? { status: "past_due" } : {};
+        if (!(await clockedWrite((p) => updateSubscription(found.intelligence!.id, p), patch, event.created))) applied = false;
       }
       if (!applied) return lifecycleRetry("payment failure (write failed)", subId);
       // Once per invoice however many times Stripe retries and reports it.
@@ -364,13 +344,15 @@ export async function POST(req: Request) {
       }
       // A watch paused by a failed payment comes back when the payment clears. A cancelled one does
       // not come back by itself — that is a new sale.
-      if (found.watch && found.watch.status === "paused") {
-        if (!(await updateWatch(found.watch.token, { status: "active" }))) applied = false;
+      // The payment is RECORDED even when nothing changes state (an active watch), so a failure that was older than it and is delivered
+      // after it finds the clock ahead and changes nothing.
+      if (found.watch && found.watch.status !== "cancelled" && billingEventIsCurrent(found.watch, event.created, "paid") && (found.watch.status === "paused" || typeof event.created === "number")) {
+        if (!(await clockedWrite((p) => updateWatch(found.watch!.token, p), { status: "active" as const }, event.created))) applied = false;
       }
       // Same rule for Intelligence: a payment that clears reinstates access that a failed payment had
       // put past_due. A cancelled one stays cancelled.
-      if (found.intelligence && found.intelligence.status === "past_due") {
-        if (!(await updateSubscription(found.intelligence.id, { status: "active" }))) applied = false;
+      if (found.intelligence && (found.intelligence.status === "active" || found.intelligence.status === "past_due") && billingEventIsCurrent(found.intelligence, event.created, "paid") && (found.intelligence.status === "past_due" || typeof event.created === "number")) {
+        if (!(await clockedWrite((p) => updateSubscription(found.intelligence!.id, p), { status: "active" as const }, event.created))) applied = false;
       }
       // A payment cleared for a subscription that a NEWER purchase superseded: the buyer re-bought (an upgrade,
       // or simply a second click) and the old Stripe subscription is still billing them. Nothing here may
@@ -397,6 +379,182 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, received: true });
 }
 
+type Resolved = { ok: true; api: ApiAccount | null; watch: WatchRecord | null; intelligence: SubscriptionRecord | null };
+
+/**
+ * A subscription that has ended on Stripe's side: every entitlement it carried is cancelled, in absolute state, idempotently.
+ * Used for customer.subscription.deleted and for customer.subscription.updated when the status has become canceled, unpaid or
+ * incomplete_expired (a portal cancellation or an exhausted dunning cycle, which can arrive before or without a .deleted).
+ * Returns a Response when the event must be retried or is acknowledged early, null to carry on.
+ */
+async function applyCancellation(sub: Stripe.Subscription, found: Resolved): Promise<NextResponse | null> {
+  if (!found.api && !found.watch && !found.intelligence) {
+    // One of ours with no record yet may simply have arrived before its checkout event: retry.
+    // Anything else is somebody else's subscription on the same Stripe account: acknowledge.
+    if (isOurSubscriptionKind(sub.metadata?.kind)) return lifecycleRetry("cancellation (no record yet)", sub.id);
+    console.warn("[GridForge] cancellation for a subscription that is not ours; ignored:", sub.id);
+    return NextResponse.json({ ok: true, received: true });
+  }
+  let applied = true;
+  if (found.api) {
+    // The revoked set is built from a FRESH read, compare-and-set on the key id (cancelApiAccount): a key minted between this event's
+    // lookup and its write is the live key, and it is in the set.
+    const done = await cancelApiAccount(found.api.token);
+    if (!done.ok) applied = false;
+    else {
+      // Best-effort on purpose (see revokeOnEngine): an engine that is briefly unreachable must not
+      // turn a cancellation that HAS been recorded into an endlessly redelivered event. The id is
+      // logged so it can be pushed by hand, and the key still dies at its expiry.
+      // Every id we ever superseded is pushed too (a rotation or overlap mint may not have been confirmed
+      // by the engine), plus the live one. Each is attempted independently; the ids stay recorded.
+      const confirmedIds: string[] = [];
+      for (const id of done.revoked) if (await revokeOnEngine(id)) confirmedIds.push(id);
+      // What the engine confirmed is recorded; the rest stays unconfirmed and the daily sweep keeps pushing it.
+      await confirmRevoked(done.row.token, confirmedIds);
+      console.log(`[GridForge] api account ${done.row.account} cancelled; revoked key id ${done.row.key_id ?? "-"}`);
+    }
+  }
+  if (found.watch) {
+    if (!(await updateWatch(found.watch.token, { status: "cancelled" }))) applied = false;
+    else console.log(`[GridForge] hall watch ${found.watch.id} cancelled; scheduled runs stop`);
+  }
+  if (found.intelligence) {
+    if (!(await updateSubscription(found.intelligence.id, { status: "cancelled" }))) applied = false;
+    else console.log(`[GridForge] intelligence subscription ${found.intelligence.id} cancelled; /account drops to the free view`);
+  }
+  if (!applied) return lifecycleRetry("cancellation (write failed)", sub.id);
+  // Adoption funnel: which kind of subscription ended, and Stripe's own stated reason when it gives one (a fixed vocabulary, never a
+  // free-text field: cancellation_details.comment is deliberately NOT read). Once per Stripe subscription however it ended.
+  const stated = sub.cancellation_details?.reason;
+  const reason = stated === "cancellation_requested" || stated === "payment_failed" || stated === "payment_disputed" ? stated : undefined;
+  const endedKind = found.api ? found.api.plan : found.watch ? "hall_watch" : "intelligence_subscription";
+  await recordFunnelEvent("subscription_cancelled", { kind: endedKind, ...(reason ? { reason } : {}) }, { dedupeKey: `subscription_cancelled:${sub.id}` });
+  return null;
+}
+
+/**
+ * customer.subscription.updated.
+ *  - The subscription ENDED (canceled, unpaid, incomplete_expired): same as a deletion.
+ *  - Its price, interval or quantity no longer matches what the catalogue sells for the record it entitles (a plan switch in the Billing
+ *    Portal, a Dashboard edit): entitlement is NOT changed (the site cannot know whether a person meant it), and the operator is told
+ *    once, with the ids, so it is put right deliberately.
+ * Anything else (a renewal moving the period, a metadata edit) changes nothing.
+ */
+async function applySubscriptionUpdate(sub: Stripe.Subscription): Promise<NextResponse | null> {
+  const ended = sub.status === "canceled" || sub.status === "unpaid" || sub.status === "incomplete_expired";
+  const found = await resolveSubscription(sub.id);
+  if (!found.ok) return lifecycleRetry("subscription update (lookup failed)", sub.id);
+  if (!found.api && !found.watch && !found.intelligence) {
+    // An update with nothing of ours to compare it to is routine (Stripe sends one right after checkout, possibly before our own
+    // record exists): acknowledge it. An ENDED one for our own kind is retried like a deletion that beat its checkout.
+    if (ended && isOurSubscriptionKind(sub.metadata?.kind)) return lifecycleRetry("cancellation (no record yet)", sub.id);
+    return null;
+  }
+  if (ended) return applyCancellation(sub, found);
+  await checkPlanAgainstCatalogue(sub, found);
+  return null;
+}
+
+/** What the catalogue sells for the record(s) this subscription entitles. Ended records are not compared. */
+function expectedTerms(found: Resolved): { label: string; amount: number; interval: string; count: number }[] {
+  const out: { label: string; amount: number; interval: string; count: number }[] = [];
+  if (found.api && found.api.status !== "cancelled") {
+    const p = PRODUCTS[found.api.plan as keyof typeof PRODUCTS];
+    if (p?.recurring) out.push({ label: `API plan ${p.id}`, amount: p.amountCents, interval: p.recurring.interval, count: p.recurring.intervalCount });
+  }
+  if (found.watch && found.watch.status !== "cancelled") {
+    const p = PRODUCTS.hall_watch;
+    if (p.recurring) out.push({ label: "Hall Watch", amount: p.amountCents, interval: p.recurring.interval, count: p.recurring.intervalCount });
+  }
+  if (found.intelligence && (found.intelligence.status === "active" || found.intelligence.status === "past_due")) {
+    const p = INTELLIGENCE_PLANS[found.intelligence.plan as keyof typeof INTELLIGENCE_PLANS];
+    if (p) out.push({ label: `Intelligence plan ${p.id}`, amount: p.priceCents, interval: p.interval, count: 1 });
+  }
+  return out;
+}
+
+async function checkPlanAgainstCatalogue(sub: Stripe.Subscription, found: Resolved): Promise<void> {
+  const items = sub.items?.data ?? [];
+  const want = expectedTerms(found);
+  if (items.length === 0 || want.length === 0) return; // a payload without items, or nothing live to compare: nothing to say
+  const w = want[0];
+  const price = items[0]?.price;
+  const qty = items[0]?.quantity ?? 1;
+  const interval = price?.recurring?.interval;
+  const count = price?.recurring?.interval_count ?? 1;
+  const matches =
+    items.length === 1 &&
+    qty === 1 &&
+    price?.unit_amount === w.amount &&
+    (price?.currency ?? "eur") === "eur" &&
+    interval === w.interval &&
+    count === w.count;
+  if (matches) return;
+  const ids = items.map((i) => `price ${i.price?.id ?? "-"} (product ${typeof i.price?.product === "string" ? i.price.product : "-"}, ${i.price?.unit_amount ?? "-"} ${String(i.price?.currency ?? "").toUpperCase()}/${i.price?.recurring?.interval_count ?? 1} ${i.price?.recurring?.interval ?? "-"}, quantity ${i.quantity ?? 1})`).join("; ");
+  const records = [found.api && `API account record ${found.api.id}`, found.watch && `Hall Watch record ${found.watch.id}`, found.intelligence && `Intelligence record ${found.intelligence.id}`].filter(Boolean).join(", ");
+  // Once per subscription and price: Stripe sends an update at every renewal, and the condition persists until a person resolves it.
+  await notifyOperatorOnce(
+    `plan_mismatch:${sub.id}:${items.map((i) => `${i.price?.id ?? ""}x${i.quantity ?? 1}`).join("+")}`,
+    `Stripe subscription no longer matches the catalogue — ${w.label}`,
+    `Stripe subscription ${sub.id} (customer ${typeof sub.customer === "string" ? sub.customer : "-"}) now bills ${ids}.\n\n` +
+      `The catalogue sells ${w.label} at ${w.amount} cents every ${w.count} ${w.interval}(s), quantity 1. The record it entitles: ${records}.\n\n` +
+      "NOTHING was changed on the site: entitlement (units, key, access) is exactly what it was. This is usually a plan switch made in the Stripe " +
+      "Billing Portal (turn off subscription_update in the portal configuration: the site does not handle plan switches) or an edit in the Dashboard. " +
+      "Decide deliberately: put the subscription back, or change the customer's plan and allowance by hand. This notice is sent once per subscription and price."
+  );
+}
+
+/**
+ * A dispute opened or closed, as a mail to the operator: the amount, the Stripe charge id, the Stripe customer id and the site's own
+ * reference for the account when one matches. Never the customer's email, the card, or the evidence Stripe attaches to the dispute, and
+ * nothing of those is logged (lib/mail.ts logs the subject and the first characters of this text). Best effort: the funnel counter and
+ * the response to Stripe do not depend on it, and it is sent once per dispute and phase however often Stripe redelivers.
+ */
+async function disputeNotice(closed: boolean, d: Stripe.Dispute): Promise<void> {
+  const chargeId = typeof d.charge === "string" ? d.charge : (d.charge as { id?: string } | null)?.id ?? "";
+  const currency = typeof d.currency === "string" && /^[a-z]{3}$/.test(d.currency) ? d.currency.toUpperCase() : "EUR";
+  const amount = `${((d.amount ?? 0) / 100).toFixed(2)} ${currency}`;
+  const reason = typeof d.reason === "string" && /^[a-z_]{1,40}$/.test(d.reason) ? d.reason : "unspecified";
+  const status = typeof d.status === "string" && /^[a-z_]{1,40}$/.test(d.status) ? d.status : "unknown";
+  const dueBy = d.evidence_details?.due_by;
+  const due = typeof dueBy === "number" && dueBy > 0 ? new Date(dueBy * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
+
+  let customer = "";
+  try {
+    const stripe = paygStripe();
+    if (stripe && chargeId) {
+      const c = await stripe.charges.retrieve(chargeId);
+      customer = typeof c.customer === "string" ? c.customer : c.customer?.id ?? "";
+    }
+  } catch {
+    /* the notice goes out without the customer: the charge id is enough to find it in Stripe */
+  }
+  let account = "no matching account on the site (a one-off engagement deposit has no Stripe customer; find the payment by its charge id)";
+  if (customer) {
+    const api = await pg<{ account: string }[]>("GET", `api_accounts?stripe_customer_id=eq.${encodeURIComponent(customer)}&select=account&limit=1`);
+    const watch = api.ok && api.data?.[0] ? null : await pg<{ id: string }[]>("GET", `watches?stripe_customer_id=eq.${encodeURIComponent(customer)}&select=id&limit=1`);
+    const sub = api.ok && api.data?.[0] || (watch?.ok && watch.data?.[0]) ? null : await pg<{ id: string }[]>("GET", `subscriptions?stripe_customer_id=eq.${encodeURIComponent(customer)}&select=id&limit=1`);
+    if (api.ok && api.data?.[0]) account = `API account reference ${accountRef(api.data[0].account)}`;
+    else if (watch?.ok && watch.data?.[0]) account = `Hall Watch record ${watch.data[0].id}`;
+    else if (sub?.ok && sub.data?.[0]) account = `Intelligence subscription record ${sub.data[0].id}`;
+  }
+  const head = `Charge ${chargeId || "-"}, dispute ${d.id}, ${amount}, reason ${reason}.\nStripe customer: ${customer || "-"}. Account: ${account}.`;
+  if (closed) {
+    await notifyOperatorOnce(
+      `dispute:${d.id}:closed`,
+      `Stripe dispute CLOSED (${status}) — ${amount} (charge ${chargeId || "-"})`,
+      `${head}\n\nOutcome: ${status}. ${status === "won" ? "The disputed amount is returned to the balance." : status === "lost" ? "The disputed amount stays debited, and the dispute fee is not returned." : "See the dispute in the Stripe Dashboard."}`
+    );
+    return;
+  }
+  await notifyOperatorOnce(
+    `dispute:${d.id}:created`,
+    `Stripe dispute OPENED — ${amount} (charge ${chargeId || "-"})${due ? `, evidence due ${due}` : ""}`,
+    `${head}\n\n${due ? `Evidence is due by ${due}. ` : ""}Unanswered, the dispute is lost and the amount stays debited. Respond in the Stripe Dashboard (Payments, Disputes) before the deadline. ` +
+      "Nothing about the customer's access has been changed by this notice."
+  );
+}
+
 /** Every table a Stripe subscription can entitle, read in one go; `ok: false` means a read failed. */
 async function resolveSubscription(subId: string): Promise<
   | { ok: false }
@@ -416,17 +574,34 @@ function isOurSubscriptionKind(kind: unknown): boolean {
   return typeof kind === "string" && (isApiProduct(kind) || kind === "hall_watch" || kind === "intelligence_subscription");
 }
 
+/** A cancelled entitlement is over: no invoice event reopens it or moves its clock (re-subscribing is a new sale). */
+function endedRow(row: { status: string }): boolean {
+  return row.status === "cancelled";
+}
+
 /**
- * Stripe does not deliver events in order. Each invoice event for a subscription API account records its `created` time when
- * applied; an event OLDER than the newest one already applied is stale and changes nothing. At the same second a payment
- * that cleared wins over a failure (the failure is the one that was retried into success). An event with no time cannot be ordered
- * and is applied, as before.
+ * Stripe does not deliver events in order. Each invoice event for a subscription (an API account, a Hall Watch, an Intelligence
+ * subscription: all three carry the clock since migration 0039) records its `created` time when applied; an event OLDER than the newest
+ * one already applied is stale and changes nothing. At the same second a payment that cleared wins over a failure (the failure is the
+ * one that was retried into success). An event with no time cannot be ordered and is applied, as before.
  */
-function billingEventIsCurrent(row: ApiAccount, created: number | undefined, kind: "failed" | "paid"): boolean {
+function billingEventIsCurrent(row: { last_billing_event_ts?: number | null }, created: number | undefined, kind: "failed" | "paid"): boolean {
   if (typeof created !== "number") return true;
   const last = row.last_billing_event_ts;
   if (typeof last !== "number") return true;
   return kind === "paid" ? created >= last : created > last;
+}
+
+/**
+ * Absolute-state write that also records the event's time. If the store refuses the clock column (migration 0039 not applied yet) the
+ * state is written without it, as before the clock existed: a payment event is never refused for want of bookkeeping.
+ */
+async function clockedWrite<P extends object>(write: (patch: P & { last_billing_event_ts?: number }) => Promise<boolean>, patch: P, created: number | undefined): Promise<boolean> {
+  const stateless = Object.keys(patch).length === 0;
+  if (typeof created !== "number") return stateless ? true : write(patch);
+  if (await write({ ...patch, last_billing_event_ts: created })) return true;
+  // A write that only advances the clock has nothing to fall back to: the state is already what it should be.
+  return stateless ? true : write(patch);
 }
 
 function lifecycleRetry(what: string, subId: string) {

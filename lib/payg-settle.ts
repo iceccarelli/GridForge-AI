@@ -19,6 +19,7 @@ import { accountRef } from "@/lib/payg";
 import { enc, pg, rpc } from "@/lib/payg-store";
 import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
 import { openQuarantine } from "@/lib/payg-usage";
+import { notifyOperatorOnce } from "@/lib/payg-operator";
 import type { ApiAccount } from "@/lib/api-access";
 
 export interface Settlement {
@@ -146,8 +147,45 @@ async function note(s: Settlement, error: string | null, extra: Record<string, u
   await pg("PATCH", `usage_settlements?id=eq.${enc(s.id)}`, { last_error: error, attempts: s.attempts + (error ? 1 : 0), updated_at: new Date().toISOString(), ...extra }, "return=minimal");
 }
 
+/** What the operator should do about each category a settlement can fail with (never Stripe's own message: it can echo request data). */
+function failureAdvice(category: string): string {
+  if (category === "no_payment_method") return "The customer has no payment method on file (none saved, or none left on the Stripe customer). Nothing can be charged until they add a card; ask them to use Replace card in the portal.";
+  if (category === "record_write_failed") return "Stripe accepted the call but the site could not record it. The next run resumes the same invoice; check the database if this repeats.";
+  if (/StripeCardError|card_declined/.test(category)) return "The card was declined. The customer needs to replace it (Replace card in the portal, or the Stripe Billing Portal; docs/10_PAYG_LAUNCH_CHECKLIST.md says what each reaches).";
+  if (/StripeInvalidRequestError/.test(category)) return "Stripe refused the request. A card that was detached from the customer, or a deleted customer, is the usual cause: check the customer's payment methods in the Stripe Dashboard.";
+  return "Stripe could not be reached or refused the call. The next run retries the same invoice.";
+}
+
+/**
+ * A settlement that cannot be invoiced used to be visible only in the cron's JSON answer. A month that is not invoiced is revenue not
+ * collected, and nobody reads that answer, so the operator is mailed: once per settlement per UTC day (the cron is daily; re-running it
+ * the same day, or a retried run, mails nothing more). The mail names the settlement, the month, the amount and the category: never
+ * the customer's email, a card detail or Stripe's message.
+ */
+async function alertOperator(s: Settlement, category: string, now: Date): Promise<void> {
+  const day = now.toISOString().slice(0, 10);
+  await notifyOperatorOnce(
+    `settlement_failed:${s.id}:${day}`,
+    `Pay-as-you-go settlement NOT invoiced: ${category} (${s.month})`,
+    `Settlement ${s.id} for ${s.month} (${s.units.toLocaleString("en-IE")} units, ${eurText(s.amount_cents)}, account reference ${accountRef(s.account)}) could not be invoiced today.\n\n` +
+      `Category: ${category}. Attempts so far: ${s.attempts + 1}.\n\n${failureAdvice(category)}\n\n` +
+      "The row stays pending and every daily run retries it; this notice is sent once per settlement per day until it is invoiced."
+  );
+}
+
+/**
+ * The card to bill: the customer's CURRENT default payment method at Stripe, because that is where a card replaced in the Stripe Billing
+ * Portal lands (the portal changes the customer, not our row). Only when Stripe names none is the one we stored used.
+ */
+async function currentCard(stripe: PaygStripe, customer: string): Promise<string> {
+  const c = await stripe.customers.retrieve(customer);
+  if (c.deleted) return "";
+  const d = c.invoice_settings?.default_payment_method;
+  return typeof d === "string" ? d : d?.id ?? "";
+}
+
 /** Phase B: carry one pending row through Stripe: invoice (draft) -> item -> finalise. Every step resumes where it stopped. */
-async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleReport): Promise<void> {
+async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleReport, now: Date): Promise<void> {
   const acct = await accountByName(s.account);
   if (acct === "error" || !acct) {
     report.errors.push("account unreadable for a pending settlement");
@@ -160,18 +198,42 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
     return;
   }
   const customer = acct.stripe_customer_id;
-  const pm = acct.stripe_payment_method_id;
+  const stored = acct.stripe_payment_method_id ?? "";
+  // The card is resolved NOW, from the customer's current default at Stripe, and only falls back to the stored id when there is none.
+  let current = "";
+  if (customer) {
+    try {
+      current = await currentCard(stripe, customer);
+    } catch (err) {
+      const cat = stripeFault(err);
+      await note(s, cat);
+      report.stillPending++;
+      report.errors.push(`settlement ${s.month} failed: ${cat}`);
+      await alertOperator(s, cat, now);
+      return;
+    }
+  }
+  const pm = current || stored;
   if (!customer || !pm) {
-    // Not a failure to retry blindly: nothing can be charged without a saved payment method. Stays pending, visible in the report.
+    // Not a failure to retry blindly: nothing can be charged without a saved payment method. Stays pending, visible in the report
+    // and (once a day) in the operator's mail.
     await note(s, "no_payment_method");
     report.noPaymentMethod++;
     report.stillPending++;
+    await alertOperator(s, "no_payment_method", now);
     return;
+  }
+  const cardChanged = Boolean(current) && current !== stored;
+  if (cardChanged) {
+    // A card replaced in the Billing Portal: keep our record of the card in step. Best effort; the invoice below uses the resolved id.
+    const upd = await pg("PATCH", `api_accounts?account=eq.${enc(s.account)}`, { stripe_payment_method_id: current }, "return=minimal");
+    if (!upd.ok) console.error("[GridForge] settlement: could not record the customer's replaced card; billing it anyway");
   }
   const key = settlementKey(s.account, s.month);
   try {
     // 1. the draft invoice
     let invoiceId = s.stripe_invoice_id;
+    let createdNow = false;
     if (!invoiceId) {
       // A crashed earlier attempt may have created it without our recording the id (and Stripe's idempotency key may be older than
       // 24 h): find it by the key we put in its metadata before creating another.
@@ -194,6 +256,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
           { idempotencyKey: key }
         ));
       invoiceId = inv.id;
+      createdNow = !existing;
       const saved = await pg<Settlement[]>("PATCH", `usage_settlements?id=eq.${enc(s.id)}&stripe_invoice_id=is.null`, { stripe_invoice_id: invoiceId, updated_at: new Date().toISOString() });
       if (!saved.ok) throw new Error("record");
     }
@@ -220,8 +283,13 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
       await pg("PATCH", `usage_settlements?id=eq.${enc(s.id)}`, { stripe_invoice_item_id: itemId, updated_at: new Date().toISOString() }, "return=minimal");
     }
     // 3. finalise (and let Stripe collect on the customer's saved payment method)
-    const current = await stripe.invoices.retrieve(invoiceId);
-    const finalised = current.status === "draft" ? await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true }, { idempotencyKey: `${key}:finalize` }) : current;
+    const live = await stripe.invoices.retrieve(invoiceId);
+    // An invoice that already existed (an earlier attempt created it) keeps the card it was created with, whatever the customer has done
+    // since: point a draft at the card resolved above, and an open one when the customer's card has changed since we last saw it.
+    if (!createdNow && (live.status === "draft" || (live.status === "open" && cardChanged))) {
+      await stripe.invoices.update(invoiceId, { default_payment_method: pm });
+    }
+    const finalised = live.status === "draft" ? await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true }, { idempotencyKey: `${key}:finalize` }) : live;
     // `status=eq.pending`: a webhook that has already marked this row paid/failed is never moved backwards.
     await pg(
       "PATCH",
@@ -237,6 +305,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
     await note(s, cat);
     report.stillPending++;
     report.errors.push(`settlement ${s.month} failed: ${cat}`);
+    await alertOperator(s, cat, now);
   }
 }
 
@@ -273,7 +342,7 @@ export async function settleClosedMonths(stripe: PaygStripe, now: Date = new Dat
       report.heldByQuarantine++;
       continue;
     }
-    await invoiceOne(stripe, s, report);
+    await invoiceOne(stripe, s, report, now);
   }
   return report;
 }

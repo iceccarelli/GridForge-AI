@@ -398,10 +398,14 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     plan === "api_free" ? "Nothing on your account extends a key."
     : plan === "api_payg" ? "Paying an invoice does not extend a key."
     : "A renewed payment does not extend a key.";
+  // A past-due subscription cannot mint until its payment clears, so it is told that, not that a payment was received.
+  const pastDue = row.status === "past_due";
   const opening =
     plan === "api_free" || plan === "api_payg"
       ? `Your API key ${when}.\n\n`
-      : `Your subscription payment has been received. Your API key ${when}.\n\n`;
+      : pastDue
+        ? `Your API key ${when}. Your latest subscription payment has not cleared, so a replacement key cannot be minted until it does: update your payment method, and the replacement can be minted as soon as the payment succeeds.\n\n`
+        : `Your subscription payment has been received. Your API key ${when}.\n\n`;
   return {
     to,
     subject: life.expired ? "Your GridForge API key has expired — mint a new one" : "Your GridForge API key expires shortly",

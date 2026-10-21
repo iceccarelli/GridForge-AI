@@ -194,6 +194,8 @@ export interface ApiAccount {
   last_billing_event_ts?: number | null;
   /** {key id: last valid day} for keys DELIBERATELY left live next to a newer one: the revocation sweep leaves them alone until that day has passed. */
   overlap_key_ids?: Record<string, string> | null;
+  /** When the daily revocation sweep last examined this account (migration 0039): the sweep takes the least recently examined first. */
+  last_revocation_attempt_at?: string | null;
   /** Set when the emailed link is first used to mint a key; the monthly free-allowance ceiling counts these. */
   free_verified_at?: string | null;
 }
@@ -397,17 +399,23 @@ export async function revokeOnEngine(keyId: string | null | undefined): Promise<
 
 /**
  * Does the engine verify the keys this site signs? Asked before a rotation revokes the key it replaces: a new key the engine cannot
- * verify (a signing secret that differs, an engine that is down) must never be the only key left. A throwaway one-day probe key is
- * signed and presented to the engine's unmetered GET /v1/version; the engine answers tier "client" only if it verified our signature.
- * "unknown" means the engine could not be asked; only "yes" permits revoking the old key.
+ * verify (a signing secret that differs, an engine that is down, an engine too old to know the key's scope) must never be the only
+ * key left. The key is presented to the engine's unmetered GET /v1/version; the engine answers tier "client" only if it verified our
+ * signature and knows the scope. "unknown" means the engine could not be asked; only "yes" permits revoking the old key.
+ *
+ * WHICH key is presented matters. With `newKey` of scope machine or payg, the customer's REAL new token is what is shown to the
+ * engine: a throwaway trial probe proves only that the engine knows the signature and the TRIAL scope, and an engine built before the
+ * payg scope existed passes that probe and then refuses the pay-as-you-go key the customer is about to be left with. Without `newKey`
+ * (the daily sweep holds no token; a trial key is bounded and unmetered here) a throwaway one-day probe key is signed instead.
  */
-export async function engineVerifiesOurKeys(): Promise<"yes" | "no" | "unknown"> {
+export async function engineVerifiesOurKeys(newKey?: { token: string; scope: string }): Promise<"yes" | "no" | "unknown"> {
   if (!signingConfigured()) return "no";
   const base = process.env.GRIDFORGE_API_URL;
   if (!base) return "unknown";
-  const probe = issueKey({ account: "ttp-rotation-probe", quota: 1, scope: "trial", days: 1 }).token;
+  const real = newKey && (newKey.scope === "machine" || newKey.scope === "payg") ? newKey.token : null;
+  const presented = real ?? issueKey({ account: "ttp-rotation-probe", quota: 1, scope: "trial", days: 1 }).token;
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/version`, { headers: { "X-API-Key": probe }, signal: AbortSignal.timeout(5_000), cache: "no-store" });
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/version`, { headers: { "X-API-Key": presented }, signal: AbortSignal.timeout(5_000), cache: "no-store" });
     if (!res.ok) return "unknown";
     const j = (await res.json()) as { tier?: unknown } | null;
     if (!j || typeof j !== "object") return "unknown";
@@ -528,7 +536,17 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
   // A mint that does NOT rotate leaves the previous key live on purpose (the renewal window: the old key works until it expires, so a
   // deployment can switch over first). It is still recorded so cancellation can revoke it, but the daily revocation sweep must not kill
   // it early: its last valid day is kept here, and the sweep revokes it only after that day.
-  const overlap = previous && !opts.rotate ? { ...(row.overlap_key_ids ?? {}), [previous]: row.key_expires_at ?? new Date().toISOString().slice(0, 10) } : undefined;
+  //
+  // An EXPLICIT rotation ends every overlap, not only the key it replaces: a customer who rotates because a key leaked must not be left
+  // with an older in-window key that keeps working for up to a week. Those ids are revoked below (once the engine is shown to verify the
+  // new key), and the overlap record is cleared in the same write: from then on the sweep treats them as ordinary pending revocations.
+  const overlapIds = opts.rotate ? Object.keys(row.overlap_key_ids ?? {}).filter((id) => id !== previous) : [];
+  for (const id of overlapIds) if (!revoked.includes(id)) revoked.push(id);
+  const overlap: Record<string, string> | undefined = opts.rotate
+    ? (Object.keys(row.overlap_key_ids ?? {}).length > 0 ? {} : undefined)
+    : previous
+      ? { ...(row.overlap_key_ids ?? {}), [previous]: row.key_expires_at ?? new Date().toISOString().slice(0, 10) }
+      : undefined;
   // The key is only handed over once the account records which id is live. A key the account does
   // not know about can be neither rotated nor revoked on cancellation, so a failed write must not
   // produce a working credential the customer then holds.
@@ -545,38 +563,66 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
   if (saved === "error") return { ok: false, reason: "store" };
   let engine_revoked: boolean | null = null;
   let rotation_deferred = false;
-  if (opts.rotate && previous) {
-    // The old key is revoked only once the engine is shown to verify the keys this site signs. A new key the engine cannot verify (a
-    // signing secret that differs, an engine that is down) must not be the only key left: the customer would be locked out by their own
-    // rotation. Until then the old key stays valid, is recorded as unconfirmed, and the daily sweep revokes it after the check passes.
-    if ((await engineVerifiesOurKeys()) === "yes") {
-      engine_revoked = await revokeOnEngine(previous);
-      if (engine_revoked) await confirmRevoked(row.token, [previous]);
+  if (opts.rotate && (previous || overlapIds.length > 0)) {
+    // The old keys are revoked only once the engine is shown to verify the NEW key this site just signed (the real token, for a machine or
+    // pay-as-you-go key). A new key the engine cannot verify (a signing secret that differs, an engine that is down, an engine too old to
+    // know the scope) must not be the only key left: the customer would be locked out by their own rotation. Until then the old keys
+    // stay valid, are recorded as unconfirmed, and the daily sweep revokes them after the check passes.
+    if ((await engineVerifiesOurKeys({ token, scope: want.scope })) === "yes") {
+      const ids = [...(previous ? [previous] : []), ...overlapIds];
+      const done: string[] = [];
+      for (const id of ids) if (await revokeOnEngine(id)) done.push(id);
+      // true only when the engine confirmed EVERY id this rotation retired.
+      engine_revoked = done.length === ids.length;
+      if (done.length > 0) await confirmRevoked(row.token, done);
     } else {
       rotation_deferred = true;
-      console.error("[GridForge] rotation: the engine could not be shown to verify our keys; the previous key id stays valid for now:", previous);
+      console.error("[GridForge] rotation: the engine could not be shown to verify the new key; the previous key id(s) stay valid for now:", [previous, ...overlapIds].filter(Boolean));
     }
   }
   return { ok: true, result: { token, expires: payload.e, revoked, previous, engine_revoked, ...(rotation_deferred ? { rotation_deferred: true } : {}) } };
 }
 
+
+/** An overlap key is live ON PURPOSE only while its account is ACTIVE and its last valid day has not passed. */
+function overlapHeld(row: Pick<ApiAccount, "status" | "overlap_key_ids">, id: string, today: string): boolean {
+  return row.status === "active" && (row.overlap_key_ids ?? {})[id] >= today;
+}
+
+type SweepRow = Pick<ApiAccount, "token" | "status" | "revoked_key_ids" | "revoked_confirmed_ids" | "overlap_key_ids">;
+
 /**
  * Push every revoked key id the engine has not yet confirmed. This is what makes "revocation will be retried" true: the mint
  * and the cancellation paths each try once and record the id as unconfirmed, and this sweep (run by /api/cron/payg) keeps trying
  * until the engine says yes. Bounded per run; an id the engine refuses stays pending and is counted, never silently dropped.
+ *
+ * Fair: the batch is the accounts whose revocation was attempted LEAST recently (never-attempted first), and every account examined is
+ * stamped, so rows that are held back (the engine cannot yet be shown to verify the key that replaced theirs, an overlap not yet due) or
+ * that the engine keeps refusing cannot occupy the whole bounded batch run after run while others wait.
+ *
+ * An overlap key (live on purpose next to a newer one) is left alone until its last valid day only for an ACTIVE account. A cancelled or
+ * past-due account is being cut off: its overlap ids are pushed now, like every other unconfirmed id.
  */
 export async function retryRevocations(limit = 50, now: Date = new Date()): Promise<{ accounts: number; confirmed: number; stillPending: number }> {
   const today = now.toISOString().slice(0, 10);
-  const r = rest(`api_accounts?revocation_pending=eq.true&select=token,status,revoked_key_ids,revoked_confirmed_ids,overlap_key_ids&limit=${Math.max(1, Math.min(limit, 200))}`);
-  if (!r) return { accounts: 0, confirmed: 0, stillPending: 0 };
-  let rows: Pick<ApiAccount, "token" | "status" | "revoked_key_ids" | "revoked_confirmed_ids" | "overlap_key_ids">[] = [];
+  const n = Math.max(1, Math.min(limit, 200));
+  const select = "token,status,revoked_key_ids,revoked_confirmed_ids,overlap_key_ids";
+  const ordered = rest(`api_accounts?revocation_pending=eq.true&select=${select}&order=last_revocation_attempt_at.asc.nullsfirst,created_at.asc&limit=${n}`);
+  const legacy = rest(`api_accounts?revocation_pending=eq.true&select=${select}&limit=${n}`);
+  if (!ordered || !legacy) return { accounts: 0, confirmed: 0, stillPending: 0 };
+  let rows: SweepRow[] = [];
   try {
-    const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+    let res = await fetch(ordered.url, { headers: ordered.headers, cache: "no-store" });
+    if (!res.ok) {
+      // Migration 0039 not applied yet (no last_revocation_attempt_at): read unordered, as before, rather than stop revoking.
+      console.error("[GridForge] revocation sweep: ordered read refused; reading unordered:", await storeFault(res));
+      res = await fetch(legacy.url, { headers: legacy.headers, cache: "no-store" });
+    }
     if (!res.ok) {
       console.error("[GridForge] revocation sweep could not read accounts:", await storeFault(res));
       return { accounts: 0, confirmed: 0, stillPending: 0 };
     }
-    rows = (await res.json()) as typeof rows;
+    rows = (await res.json()) as SweepRow[];
   } catch {
     return { accounts: 0, confirmed: 0, stillPending: 0 };
   }
@@ -587,16 +633,17 @@ export async function retryRevocations(limit = 50, now: Date = new Date()): Prom
   // Cancelled and past-due accounts are being cut off, so their ids are pushed regardless.
   let verifies: "yes" | "no" | "unknown" | null = null;
   for (const row of rows) {
+    await stampRevocationAttempt(row.token, now);
+    const done = new Set(row.revoked_confirmed_ids ?? []);
+    // An overlap key of an active account is live on purpose until its last valid day: neither pushed nor counted pending before then.
+    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !overlapHeld(row, id, today));
     if (row.status === "active") {
       verifies ??= await engineVerifiesOurKeys();
       if (verifies !== "yes") {
-        stillPending += (row.revoked_key_ids ?? []).filter((id) => !new Set(row.revoked_confirmed_ids ?? []).has(id) && !((row.overlap_key_ids ?? {})[id] >= today)).length;
+        stillPending += todo.length;
         continue;
       }
     }
-    const done = new Set(row.revoked_confirmed_ids ?? []);
-    // An overlap key is live on purpose until its last valid day; before the day has passed it is neither pushed nor counted pending.
-    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !((row.overlap_key_ids ?? {})[id] >= today));
     const ok: string[] = [];
     for (const id of todo) {
       if (await revokeOnEngine(id)) ok.push(id);
@@ -605,4 +652,59 @@ export async function retryRevocations(limit = 50, now: Date = new Date()): Prom
     if (ok.length && (await confirmRevoked(row.token, ok))) confirmed += ok.length;
   }
   return { accounts: rows.length, confirmed, stillPending };
+}
+
+/** Best effort: a failed stamp only costs fairness for one run (and a missing column before 0039 is not an error worth stopping for). */
+async function stampRevocationAttempt(token: string, now: Date): Promise<void> {
+  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}`);
+  if (!r) return;
+  try {
+    await fetch(r.url, { method: "PATCH", headers: { ...r.headers, Prefer: "return=minimal" }, body: JSON.stringify({ last_revocation_attempt_at: now.toISOString() }) });
+  } catch {
+    /* fairness only */
+  }
+}
+
+/**
+ * Mark an account cancelled and revoke every key id it ever held, from a FRESH read, compare-and-set on the key id.
+ *
+ * The cancellation webhook used to write `revoked_key_ids` computed from the row it looked up at the START of the event. A key minted
+ * between that read and the write became the live key and was recorded nowhere: cancelled, but with a working credential no revocation
+ * list contained. Now the row is re-read and the write only matches while `key_id` is still the id the revoked set was built from; if a
+ * mint landed meanwhile the write matches nothing and the loop starts again from the new row, so the live id is always in the set.
+ * (The database also unions revoked ids, which covers the other direction, but cannot know about an id nobody wrote.)
+ */
+export async function cancelApiAccount(
+  token: string,
+  attempts = 5
+): Promise<{ ok: true; row: ApiAccount; revoked: string[] } | { ok: false }> {
+  for (let i = 0; i < attempts; i++) {
+    const row = await getApiAccount(token);
+    if (!row) return { ok: false };
+    const revoked = new Set(row.revoked_key_ids ?? []);
+    if (row.key_id) revoked.add(row.key_id);
+    for (const id of Object.keys(row.overlap_key_ids ?? {})) revoked.add(id);
+    const r = rest(
+      `api_accounts?token=eq.${encodeURIComponent(token)}` + (row.key_id ? `&key_id=eq.${encodeURIComponent(row.key_id)}` : "&key_id=is.null")
+    );
+    if (!r) return { ok: false };
+    try {
+      const res = await fetch(r.url, {
+        method: "PATCH",
+        headers: { ...r.headers, Prefer: "return=representation" },
+        body: JSON.stringify({ status: "cancelled", revoked_key_ids: [...revoked] }),
+      });
+      if (!res.ok) {
+        console.error("[GridForge] api account cancellation write failed:", await storeFault(res));
+        return { ok: false };
+      }
+      const rows = (await res.json()) as ApiAccount[];
+      if (rows.length === 1) return { ok: true, row, revoked: [...revoked] };
+      // No row matched: the key changed under us. Read again and rebuild the set from what is live NOW.
+    } catch {
+      console.error("[GridForge] api account cancellation write unreachable");
+      return { ok: false };
+    }
+  }
+  return { ok: false };
 }

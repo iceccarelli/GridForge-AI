@@ -32,6 +32,8 @@ export interface SubscriptionRecord {
   stripe_session_id: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  /** Stripe event.created of the newest invoice event applied to this subscription (migration 0039). */
+  last_billing_event_ts?: number | null;
 }
 
 export interface ScenarioRecord {

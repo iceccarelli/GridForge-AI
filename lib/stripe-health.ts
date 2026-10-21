@@ -2,8 +2,8 @@
 // the actual Stripe account is configured to deliver.
 //
 // app/api/stripe/webhook/route.ts already handles checkout.session.completed,
-// invoice.paid, customer.subscription.deleted and invoice.payment_failed
-// correctly -- but correct handler code is worthless if the Stripe Dashboard's
+// invoice.paid, invoice.payment_failed, customer.subscription.deleted and
+// customer.subscription.updated correctly -- but correct handler code is worthless if the Stripe Dashboard's
 // webhook endpoint was never told to send those events, sends them to the
 // wrong URL, or is disabled. That mismatch is invisible from the code alone:
 // `next build` is green, the route 200s on any signed request it does
@@ -20,13 +20,17 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   "invoice.paid",
   "customer.subscription.deleted",
   "invoice.payment_failed",
+  // A plan switch, a pause or a cancellation made in the Stripe Billing Portal reaches the site only as this event; without it the
+  // entitlement silently stays what it was while Stripe bills something else.
+  "customer.subscription.updated",
 ] as const;
 
 /**
- * Events the handlers use for measurement only (refund and dispute counts in the admin funnel). Money, entitlements and
- * delivery never depend on them, so a missing one does not make the endpoint unhealthy; it is reported so it can be added.
+ * Events the handlers use for measurement and for notices to the operator (refund and dispute counts in the admin funnel; the mail
+ * that a dispute opened, with its evidence deadline, and how it closed). Money, entitlements and delivery never depend on them, so a
+ * missing one does not make the endpoint unhealthy; it is reported so it can be added.
  */
-export const RECOMMENDED_WEBHOOK_EVENTS = ["charge.refunded", "charge.dispute.created"] as const;
+export const RECOMMENDED_WEBHOOK_EVENTS = ["charge.refunded", "charge.dispute.created", "charge.dispute.closed"] as const;
 
 export interface StripeWebhookHealth {
   configured: boolean;
@@ -167,9 +171,21 @@ export interface BillingPortalHealth {
   ok: boolean;
   /** Features the customer is promised that no active configuration enables. */
   missing: string[];
+  /**
+   * Portal features that are ENABLED and that the site does not handle (a plan switch, a pause): reported, never a failure of `ok`.
+   * A customer who uses one changes what Stripe bills while the site's entitlement stays as it was (a plan switch is reported to the
+   * operator by the webhook; a pause is not seen at all).
+   */
+  warnings: string[];
   error: string | null;
   checkedAt: string;
 }
+
+/** Portal features a customer can switch on for themselves that this site does not implement. */
+const UNHANDLED_PORTAL_FEATURES: Record<string, string> = {
+  subscription_update: "subscription_update is enabled: customers can switch plans in the portal, which changes what Stripe bills but not what the site entitles (the operator is mailed once per subscription, nothing is changed automatically). Turn it off in the portal configuration.",
+  subscription_pause: "subscription_pause is enabled: customers can pause billing in the portal, which the site does not see (the key and access continue). Turn it off in the portal configuration.",
+};
 
 export async function checkBillingPortal(
   stripeClient: {
@@ -179,27 +195,29 @@ export async function checkBillingPortal(
   const base = { checkedAt: new Date().toISOString() };
   const WANTED = ["subscription_cancel", "payment_method_update", "invoice_history"] as const;
   if (!stripeClient) {
-    return { ...base, configured: false, reachable: false, ok: false, missing: [...WANTED], error: "STRIPE_SECRET_KEY is not set: cannot verify the Billing Portal." };
+    return { ...base, configured: false, reachable: false, ok: false, missing: [...WANTED], warnings: [], error: "STRIPE_SECRET_KEY is not set: cannot verify the Billing Portal." };
   }
   let configs: unknown[];
   try {
     configs = (await stripeClient.billingPortal.configurations.list({ active: true, limit: 10 })).data;
   } catch (err) {
-    return { ...base, configured: true, reachable: false, ok: false, missing: [...WANTED], error: `Could not reach Stripe to list Billing Portal configurations: ${err instanceof Error ? err.message : String(err)}` };
+    return { ...base, configured: true, reachable: false, ok: false, missing: [...WANTED], warnings: [], error: `Could not reach Stripe to list Billing Portal configurations: ${err instanceof Error ? err.message : String(err)}` };
   }
   // The portal session the site creates uses the account's DEFAULT configuration (no configuration id is passed), so that is the one that counts.
   const usable = configs.filter((c): c is { is_default?: boolean; features?: Record<string, { enabled?: boolean } | undefined> } => typeof c === "object" && c !== null);
   const chosen = usable.find((c) => c.is_default) ?? usable[0];
   if (!chosen) {
-    return { ...base, configured: true, reachable: true, ok: false, missing: [...WANTED], error: "No active Billing Portal configuration exists. Customers who press 'Manage or cancel' will be told it is not available." };
+    return { ...base, configured: true, reachable: true, ok: false, missing: [...WANTED], warnings: [], error: "No active Billing Portal configuration exists. Customers who press 'Manage or cancel' will be told it is not available." };
   }
   const missing = WANTED.filter((f) => chosen.features?.[f]?.enabled !== true);
+  const warnings = Object.entries(UNHANDLED_PORTAL_FEATURES).filter(([f]) => chosen.features?.[f]?.enabled === true).map(([, text]) => text);
   return {
     ...base,
     configured: true,
     reachable: true,
     ok: missing.length === 0,
     missing: [...missing],
+    warnings,
     error: missing.length === 0 ? null : `The default Billing Portal configuration does not enable: ${missing.join(", ")}.`,
   };
 }
