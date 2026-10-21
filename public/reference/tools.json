@@ -2406,7 +2406,7 @@
     "currency": "eur",
     "min_invoice_cents": 500,
     "free_allowance_units": 25,
-    "billing_rule": "A month's charge is the net ledger units for the UTC month (charges minus refunds) times the unit price, invoiced in arrears; a month below the minimum invoice is carried forward to the next. Requests that produce no answer (rejected, unauthorised, invalid or failed) are refunded and never charged, and a retry carrying the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The customer's own monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues."
+    "billing_rule": "A month's charge is the net ledger units for the UTC month (charges minus refunds) at \u20ac2 a unit, invoiced monthly in arrears. A month whose charge is under the \u20ac5 minimum invoice is not invoiced on its own: it is carried forward and added to the next month, and so on from month to month. A balance that never reaches \u20ac5 is never invoiced. A request that is rejected, unauthorised, invalid or fails is refunded and never charged, and a retry with the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The customer's own monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues."
   },
   "rate_card": [
     {

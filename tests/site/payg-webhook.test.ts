@@ -264,3 +264,137 @@ describe("F13: invoice events for SUBSCRIPTION API accounts are order-safe too",
     expect(row.status).toBe("active");
   });
 });
+
+describe("the customer is told, once per failed settlement, in their own inbox", () => {
+  const OWNER = "ops@acme.example";
+  const inv = (over: Record<string, unknown> = {}, month = "2026-09") => ({
+    id: `in_${month}`, object: "invoice", hosted_invoice_url: `https://invoice.stripe.test/i/in_${month}`,
+    metadata: { kind: "payg_settlement", account: "acme-123456", month }, ...over,
+  });
+  function setup() {
+    const a = paygAccount(db, { key_id: "livekey1", key_scope: "payg", key_issued_at: "2026-10-01", key_expires_at: "2026-11-05" });
+    db.insertRow("usage_settlements", { account: "acme-123456", month: "2026-09", units: 12, amount_cents: 2400, status: "invoiced", stripe_invoice_id: "in_2026-09" });
+    db.insertRow("usage_settlements", { account: "acme-123456", month: "2026-10", units: 9, amount_cents: 1800, status: "invoiced", stripe_invoice_id: "in_2026-10" });
+    return a;
+  }
+  const notice = () => mail.filter((m) => /payment for your .* usage failed/.test(m.subject));
+
+  it("says what was charged, what is blocked and how to recover, with the invoice and portal links, and never a key", async () => {
+    const a = setup();
+    await send("invoice.payment_failed", inv());
+    expect(notice()).toHaveLength(1);
+    const m = notice()[0];
+    expect(m.to).toBe(OWNER);
+    expect(m.subject).toContain("2026-09");
+    expect(m.text).toContain("EUR 24.00");
+    expect(m.text).toContain("12 units");
+    expect(m.text).toContain("https://invoice.stripe.test/i/in_2026-09");
+    expect(m.text).toContain(`/api-access/${a.token}`);
+    expect(m.text).toMatch(/key has been revoked/);
+    expect(m.text).toMatch(/No new key can be created and no new usage can accrue/);
+    expect(m.text).toMatch(/Pay the invoice/);
+    expect(m.text).toMatch(/create a new key/);
+    expect(m.text).toMatch(/does not come back/);
+    expect(m.text).not.toMatch(/gfk1|livekey1/);
+  });
+
+  it("failed twice (and redelivered) is ONE email", async () => {
+    setup();
+    for (let i = 0; i < 4; i++) expect((await send("invoice.payment_failed", inv())).status).toBe(200);
+    expect(notice()).toHaveLength(1);
+    expect((db.rows("customer_notifications") as any[]).filter((n) => n.kind === "payg_payment_failed")).toHaveLength(1);
+  });
+
+  it("a second failed month is its own notice; each month still only once", async () => {
+    setup();
+    await send("invoice.payment_failed", inv());
+    await send("invoice.payment_failed", inv({}, "2026-10"));
+    await send("invoice.payment_failed", inv({}, "2026-10"));
+    expect(notice().map((m) => m.subject.match(/2026-\d\d/)![0])).toEqual(["2026-09", "2026-10"]);
+  });
+
+  it("paid later: no further emails, and a late failed after paid sends nothing at all", async () => {
+    setup();
+    await send("invoice.payment_failed", inv());
+    await send("invoice.paid", inv());
+    await send("invoice.payment_failed", inv()); // reordered, late
+    await send("invoice.paid", inv());
+    expect(notice()).toHaveLength(1);
+  });
+
+  it("paid before the failed event arrives: nothing is ever sent", async () => {
+    setup();
+    await send("invoice.paid", inv());
+    await send("invoice.payment_failed", inv());
+    expect(notice()).toHaveLength(0);
+    expect((db.rows("customer_notifications") as any[]).filter((n) => n.kind === "payg_payment_failed")).toHaveLength(0);
+  });
+
+  it("a notice still queued (the provider was down) is CANCELLED unsent once the invoice is paid", async () => {
+    setup();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => (String(i).startsWith("https://api.resend.com") ? new Response("{}", { status: 503 }) : realFetch(i as RequestInfo, init))) as typeof fetch;
+    await send("invoice.payment_failed", inv());
+    globalThis.fetch = realFetch;
+    expect(notice()).toHaveLength(0);
+    const row = (db.rows("customer_notifications") as any[]).find((n) => n.kind === "payg_payment_failed");
+    expect(row.status).toBe("pending");
+    await send("invoice.paid", inv());
+    const { sweepNotifications } = await import("@/lib/notifications");
+    for (const n of db.rows("customer_notifications") as any[]) { n.next_attempt_at = new Date(0).toISOString(); n.claimed_until = null; }
+    await sweepNotifications();
+    expect((db.rows("customer_notifications") as any[]).find((n) => n.kind === "payg_payment_failed").status).toBe("cancelled");
+    expect(notice()).toHaveLength(0);
+  });
+
+  it("answers 500 (so Stripe redelivers) when the obligation cannot be recorded, and the redelivery then sends it", async () => {
+    setup();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => (String(i).includes("/customer_notifications") ? new Response("{}", { status: 500 }) : realFetch(i as RequestInfo, init))) as typeof fetch;
+    expect((await send("invoice.payment_failed", inv())).status).toBe(500);
+    globalThis.fetch = realFetch;
+    expect((await send("invoice.payment_failed", inv())).status).toBe(200);
+    expect(notice()).toHaveLength(1);
+  });
+
+  it("is the key revoked BEFORE the customer is told: the account is already past_due with no key when the email goes out", async () => {
+    const a = setup();
+    let seenAtSend: Record<string, unknown> | null = null;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      if (String(i).startsWith("https://api.resend.com") && /failed/.test(String(init?.body))) seenAtSend = { status: a.status, key_id: a.key_id };
+      return realFetch(i as RequestInfo, init);
+    }) as typeof fetch;
+    await send("invoice.payment_failed", inv());
+    globalThis.fetch = realFetch;
+    expect(seenAtSend).toEqual({ status: "past_due", key_id: null });
+  });
+});
+
+describe("the key-rotation email says plainly that a payment does not extend a signed key", () => {
+  async function rotationMail(plan: string) {
+    const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    const a = paygAccount(db, { plan, key_id: "livekey1", key_scope: plan === "api_free" ? "trial" : plan === "api_payg" ? "payg" : "machine", key_issued_at: "2026-10-01", key_expires_at: soon, monthly_units: 100 });
+    const { ensureNotification } = await import("@/lib/notifications");
+    const o = await ensureNotification("key_rotation", a.id as string, soon);
+    expect(o.state).toBe("accepted");
+    return mail.at(-1)!;
+  }
+
+  it.each(["api_free", "api_payg"])("%s: no 'renewed', no claim that anything renews", async (plan) => {
+    const m = await rotationMail(plan);
+    expect(m.text).not.toMatch(/renewed|has renewed/i);
+    expect(m.text).toMatch(/^Your API key expires on/);
+    expect(m.text).toMatch(plan === "api_payg" ? /Paying an invoice does not extend a key/ : /Nothing on your account extends a key/);
+    expect(m.text).toMatch(/only you can create it/);
+    expect(m.text).toMatch(plan === "api_payg" ? /monthly cap and account are unchanged/ : /free allowance and account are unchanged/);
+  });
+
+  it("a subscription: the payment is acknowledged, and the email still says it does not extend the key", async () => {
+    const m = await rotationMail("api_scale");
+    expect(m.text).toMatch(/^Your subscription payment has been received\. Your API key expires on/);
+    expect(m.text).not.toMatch(/has renewed/);
+    expect(m.text).toMatch(/A renewed payment does not extend a key/);
+    expect(m.text).toMatch(/a key cannot be extended in place/);
+  });
+});

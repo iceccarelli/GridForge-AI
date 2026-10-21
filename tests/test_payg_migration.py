@@ -113,6 +113,9 @@ def test_applying_the_migration_again_changes_nothing(db):
     event(db, a)
     before = q(db, "select count(*) from usage_events")
     psql(db, file=MIGRATIONS / "0028_payg_ledger.sql")
+    # 0032 re-states the outbox checks 0028 set; re-running the pair in order is what "apply again" means
+    psql(db, file=MIGRATIONS / "0032_payg_payment_failed_notice.sql")
+    psql(db, file=MIGRATIONS / "0032_payg_payment_failed_notice.sql")
     assert q(db, "select count(*) from usage_events") == before
     assert q(db, "select last_seq from payg_cursor where id = 1") is not None
 
@@ -379,3 +382,17 @@ def test_funnel_events_have_a_closed_name_list_and_once_only_keys(db):
     refused(db, "insert into funnel_events (name, props, dedupe_key) values ('payg_enabled', '{}', 'payg_enabled:abc')", "duplicate key")
     refused(db, "insert into funnel_events (name, props) values ('page_view', '{}')", "violates check")
     refused(db, "insert into funnel_events (name, props) values ('key_minted', '[1]')", "violates check")
+
+
+def test_a_failed_payment_notice_is_one_obligation_per_settlement_and_the_earlier_kinds_still_work(db):
+    a = account(db)
+    sid = q(db, f"insert into usage_settlements (account, month, units, amount_cents, status) values ('{a}', '2026-09', 5, 1000, 'failed') returning id")
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('payg_payment_failed:{sid}', 'payg_payment_failed', 'usage_settlements', '{sid}')")
+    # however many times Stripe reports the failure, the unique key makes it the same single obligation
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('payg_payment_failed:{sid}', 'payg_payment_failed', 'usage_settlements', '{sid}') on conflict (dedupe_key) do nothing")
+    assert q(db, f"select count(*) from customer_notifications where subject_id = '{sid}'") == "1"
+    refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('x:{sid}', 'payg_payment_failed', 'invoices', '{sid}')", "violates check")
+    refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('y:{sid}', 'dunning', 'usage_settlements', '{sid}')", "violates check")
+    aid = q(db, f"select id from api_accounts where account = '{a}'")
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('team_invitation:{aid}', 'team_invitation', 'subscription_invitations', '{aid}')")
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('usage_alert:{aid}:2026-10:100', 'usage_alert', 'api_accounts', '{aid}')")

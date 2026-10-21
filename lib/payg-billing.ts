@@ -16,6 +16,7 @@ import { confirmRevoked, revokeOnEngine, updateApiAccount, type ApiAccount } fro
 import { notifyOperator } from "@/lib/mail";
 import { accountRef, MONTH, paygCapUnits, parseCapEur } from "@/lib/payg";
 import { recordFunnelEvent } from "@/lib/funnel";
+import { notifyCustomer } from "@/lib/notifications";
 import { enc, pg } from "@/lib/payg-store";
 import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
 import type { Settlement } from "@/lib/payg-settle";
@@ -164,6 +165,7 @@ export async function handlePaygInvoice(event: Stripe.Event): Promise<Applied | 
   }
 
   const stamp = new Date().toISOString();
+  let failedApplied = false;
   if (event.type === "invoice.paid") {
     // pending/invoiced/failed -> paid. `paid` is terminal against `failed`: nothing here can move it back.
     const r = await pg(
@@ -180,10 +182,18 @@ export async function handlePaygInvoice(event: Stripe.Event): Promise<Applied | 
       { status: "failed", stripe_invoice_id: inv.id, hosted_invoice_url: inv.hosted_invoice_url ?? s.hosted_invoice_url, updated_at: stamp }
     );
     if (!r.ok) return { ok: false, why: "settlement write failed" };
-    if ((r.data?.length ?? 0) > 0 && s.status !== "failed") {
+    failedApplied = (r.data?.length ?? 0) > 0;
+    if (failedApplied && s.status !== "failed") {
       await recordFunnelEvent("payment_failed", { month, account_ref: accountRef(accountName) }, { dedupeKey: `payment_failed:${inv.id}` });
     }
   }
-  return reconcileAccount(accountName);
+  // The account first (so the key really is revoked by the time the customer reads that it is), then the customer's notice: ONE
+  // durable obligation per failed settlement. Stripe reports every retried failure and may redeliver; the outbox's unique key makes
+  // all of those the same single email, and a settlement that has since been paid cancels it unsent. A late `failed` that did not
+  // apply (the row was already paid) enqueues nothing. If the obligation cannot be recorded the event is retried.
+  const reconciled = await reconcileAccount(accountName);
+  if (!reconciled.ok) return reconciled;
+  if (failedApplied && (await notifyCustomer("payg_payment_failed", s.id)) === "retry_webhook") return { ok: false, why: "notification not recorded" };
+  return { ok: true };
 }
 

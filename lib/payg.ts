@@ -8,15 +8,8 @@ import { PAYG, paygCapUnits, paygChargeCents } from "@/lib/products";
 
 export { PAYG, paygCapUnits, paygChargeCents };
 
-/** The one sentence that states the billing rule, identical wherever it is shown (see the contract). */
-export function billingRuleText(): string {
-  const eur = (c: number) => `EUR ${(c / 100).toFixed(2)}`;
-  return (
-    `Each month's charge is the month's net units (charges minus refunds, UTC calendar month) x ${eur(PAYG.unitPriceCents)}, ` +
-    `invoiced in arrears. A month below ${eur(PAYG.minInvoiceCents)} is carried into the next. ` +
-    `Rejected, unauthorised and failed requests are refunded and never charged. The free allowance is never invoiced.`
-  );
-}
+/** The one billing rule, worded once (lib/payg-pricing.ts), identical to the engine's BILLING_RULE; tests/site/payg-billing-rule.test.ts pins them. */
+export { billingRuleText } from "@/lib/payg-pricing";
 
 export const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
