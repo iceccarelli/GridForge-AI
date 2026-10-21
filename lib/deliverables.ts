@@ -841,6 +841,11 @@ export async function renderDeliverable(
         const body = (await res.json()) as {
           response_template?: unknown;
           specification?: Record<string, unknown>;
+          // The engine's own account of the conditions the duties are quoted at. The CLI writes them to response_template.json
+          // and the DOCUMENT prints them (section 2A); /v1/spec's JSON may not carry them yet, in which case they are absent
+          // here and the page says it cannot list them from the result (it never reconstructs them).
+          site_conditions?: unknown;
+          assumed_inputs?: unknown;
         };
         if (!body.response_template) return null;
         const out: Record<string, string> = {
@@ -849,7 +854,12 @@ export async function renderDeliverable(
         // The relief this specification was written for, kept with it. The bid
         // comparison is judged against this and not against whatever binds later.
         if (body.specification) {
-          out["specification.json"] = JSON.stringify(body.specification, null, 2);
+          const carried = {
+            ...body.specification,
+            ...(Array.isArray(body.site_conditions) && !("site_conditions" in body.specification) ? { site_conditions: body.site_conditions } : {}),
+            ...(Array.isArray(body.assumed_inputs) && !("assumed_inputs" in body.specification) ? { assumed_inputs: body.assumed_inputs } : {}),
+          };
+          out["specification.json"] = JSON.stringify(carried, null, 2);
         }
         return out;
       }

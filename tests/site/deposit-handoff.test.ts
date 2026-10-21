@@ -17,6 +17,7 @@ import { siteUrl } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { balanceDueCents, depositTerms } from "@/lib/engagement-state";
 import { classify } from "@/lib/attention";
+import * as shape from "@/lib/attention";
 import { PostgrestFake } from "./postgrest-fake";
 import { installDepositRpcs } from "./deposit-rpc-fake";
 
@@ -305,5 +306,73 @@ describe("a paid deposit cannot be stuck with nobody and nothing to be late agai
     expect(listed.items.find((d: any) => d.stripe_session_id === "cs_sc").balance_due_cents).toBe(FEE - 900_000);
     const att: any = await (await (await import("@/app/api/admin/deliverables/route")).GET()).json();
     expect(att.items.map((i: any) => i.kind)).toContain("deposit_uncontacted");
+  });
+});
+
+describe("the operator's deposits table", () => {
+  const NOW = Date.parse("2027-02-01T12:00:00Z");
+  const at = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
+  const base = { kind: "envelope_study_deposit", amount_cents: 900_000, email: BUYER, company: "Hall Co" };
+
+  it("shapes status, age, owner/contact, fee, credit, balance and date per deposit, oldest payment first", () => {
+    const rows = [
+      { id: "b", ...base, status: "scoped", paid_at: at(20), owner: "Ada", contacted_at: at(18), scoped_at: at(10),
+        agreed_fee_cents: 2_500_000, credit_applied_cents: 450_000, delivery_due_on: "2027-03-01" },
+      { id: "a", ...base, kind: "portfolio_screen_deposit", amount_cents: 1_500_000, status: "paid", paid_at: at(30) },
+    ];
+    const { shapeDeposits } = shape;
+    const t = shapeDeposits(rows, NOW);
+    expect(t.map((d) => d.id)).toEqual(["a", "b"]);
+    expect(t[0]).toMatchObject({ what: "Portfolio Screen — deposit", status: "paid", age_days: 30, owner: null, fee_cents: null, credit_cents: null, balance_due_cents: null, due: null, flag: "deposit_uncontacted" });
+    expect(t[1]).toMatchObject({ status: "scoped", age_days: 20, owner: "Ada", fee_cents: 2_500_000, credit_cents: 450_000, balance_due_cents: 1_150_000, due: "2027-03-01", flag: null });
+  });
+
+  it("flags an overdue and a no-date scoped deposit, and never shows a negative balance", () => {
+    const { shapeDeposits } = shape;
+    const t = shapeDeposits([
+      { id: "o", ...base, status: "scoped", paid_at: at(60), owner: "Ada", scoped_at: at(40), agreed_fee_cents: 800_000, credit_applied_cents: 0, delivery_due_on: "2027-01-10" },
+      { id: "n", ...base, status: "scoped", paid_at: at(60), owner: "Ada", scoped_at: at(40) },
+    ], NOW);
+    expect(t.find((d) => d.id === "o")).toMatchObject({ flag: "deposit_overdue", balance_due_cents: 0 });
+    expect(t.find((d) => d.id === "n")).toMatchObject({ flag: "deposit_no_date", fee_cents: null });
+  });
+
+  it("keeps delivered deposits visible, with when they were delivered", () => {
+    const { shapeDeposits } = shape;
+    const [d] = shapeDeposits([{ id: "d", ...base, status: "delivered", paid_at: at(90), owner: "Ada", agreed_fee_cents: 2_500_000, credit_applied_cents: 0, delivery_due_on: "2027-01-01", delivered_at: at(5) }], NOW);
+    expect(d).toMatchObject({ status: "delivered", flag: null });
+    expect(d.delivered_at).toBeTruthy();
+  });
+
+  it("the pipeline panel renders them, says 'nobody yet' and 'no date on file', and an unreadable list is an error not an empty table", async () => {
+    const { EngagementPipeline } = await import("@/components/EngagementPipeline");
+    const { summariseQualifications } = await import("@/lib/admin");
+    const { shapeDeposits } = await import("@/lib/attention");
+    const props = { deliverables: [], qualifications: [], watches: [], insights: summariseQualifications([]), supabaseReady: true };
+    const html = renderToStaticMarkup(React.createElement(EngagementPipeline, {
+      ...props,
+      deposits: shapeDeposits([
+        { id: "a", ...base, status: "paid", paid_at: at(5) },
+        { id: "b", ...base, status: "scoped", paid_at: at(50), owner: "Ada", scoped_at: at(40) },
+      ], NOW),
+    }));
+    expect(html).toContain("Deposits");
+    expect(html).toContain("nobody yet");
+    expect(html).toContain("no date on file");
+    expect(html).toContain("deposit uncontacted");
+    const failed = renderToStaticMarkup(React.createElement(EngagementPipeline, { ...props, deposits: null, depositsError: "The deposit list could not be read." }));
+    expect(failed).toContain("This is not a statement that there are none");
+    const none = renderToStaticMarkup(React.createElement(EngagementPipeline, { ...props, deposits: [] }));
+    expect(none).toContain("No deposit has been paid yet");
+  });
+
+  it("the table's source lists delivered deposits too and reports a failed read", async () => {
+    const { depositTable } = await import("@/lib/attention");
+    deposit({ stripe_session_id: "cs_t1", status: "delivered", delivered_at: new Date().toISOString(), delivery_ref: "r" });
+    deposit({ stripe_session_id: "cs_t2", status: "paid", owner: null, contacted_at: null });
+    const ok = await depositTable();
+    expect(ok.ok && ok.items.map((d) => d.status).sort()).toEqual(["delivered", "paid"]);
+    db.dropTable("engagement_deposits");
+    expect((await depositTable()).ok).toBe(false);
   });
 });

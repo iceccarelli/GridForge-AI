@@ -56,7 +56,7 @@ def db():
     psql("postgres", f"create database {name}")
     psql(name, "create extension if not exists pgcrypto")
     psql(name, "create table public.qualifications (id uuid primary key default gen_random_uuid())")
-    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0030_delivery_handoff.sql"):
+    for f in ("0003_deliverables.sql", "0005_watches.sql", "0019_engagement_deposits.sql", "0021_customer_notifications.sql", "0030_delivery_handoff.sql", "0034_deposit_receipt_notice.sql"):
         psql(name, file=MIGRATIONS / f)
     yield name
     psql("postgres", f"drop database {name}")
@@ -193,3 +193,16 @@ def test_one_change_notice_per_stored_note(db):
     refused(db, f"insert into watch_note_notices (watch_note_id, watch_id) values ('{n}', '{w}')", "watch_note_id_key")
     refused(db, f"update watch_note_notices set status='sent' where watch_note_id='{n}'", "watch_note_notices_check")
     psql(db, f"update watch_note_notices set status='sent', sent_at=now() where watch_note_id='{n}'")
+
+
+def test_the_outbox_accepts_one_deposit_receipt_per_deposit_and_still_refuses_unknown_kinds_and_tables(db):
+    dep = new_deposit(db)
+    row = f"('deposit_receipt:{dep}', 'deposit_receipt', 'engagement_deposits', '{dep}')"
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values {row}")
+    # one obligation per deposit: the unique dedupe key makes a redelivery a no-op, not a second email
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values {row} on conflict (dedupe_key) do nothing")
+    assert psql(db, f"select count(*) from customer_notifications where subject_id='{dep}'").stdout.strip() == "1"
+    refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('x:{dep}', 'deposit_receipt_typo', 'engagement_deposits', '{dep}')", "violates check")
+    refused(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('y:{dep}', 'deposit_receipt', 'invoices', '{dep}')", "violates check")
+    # the kinds 0021 started with still exist
+    psql(db, f"insert into customer_notifications (dedupe_key, kind, subject_table, subject_id) values ('z:{dep}', 'intake_link', 'deliverables', '{dep}')")

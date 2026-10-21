@@ -31,10 +31,13 @@ import { creds } from "@/lib/projects";
 import { inviteToken } from "@/lib/team-token";
 import { PAYG, eurText, utcMonth } from "@/lib/payg";
 import { usageNet } from "@/lib/payg-usage";
+import { depositTerms } from "@/lib/engagement-state";
+import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
+import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
 
-export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed"] as const;
+export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
-type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations" | "usage_settlements";
+type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations" | "usage_settlements" | "engagement_deposits";
 export type NotificationStatus = "pending" | "accepted" | "ambiguous" | "abandoned" | "cancelled";
 
 const SUBJECT: Record<NotificationKind, SubjectTable> = {
@@ -46,6 +49,7 @@ const SUBJECT: Record<NotificationKind, SubjectTable> = {
   team_invitation: "subscription_invitations",
   usage_alert: "api_accounts",
   payg_payment_failed: "usage_settlements",
+  deposit_receipt: "engagement_deposits",
 };
 
 const LEASE_MS = 2 * 60_000;
@@ -256,6 +260,33 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `${SITE_URL}/account/invite/${secret}` +
         "\n\nThe link works only for this address, once, and expires " +
         `${new Date(String(row.expires_at)).toISOString().slice(0, 10)}. If you were not expecting it, ignore this message and nothing changes.`,
+    };
+  }
+  if (n.kind === "deposit_receipt") {
+    // One per deposit (the outbox's unique key). It states what the buyer was told on /commissioned, from the same source
+    // (depositTerms), and it carries no credential: a deposit has no token, and the reference is the record's own id.
+    const terms = depositTerms(String(row.kind ?? ""));
+    const product = PRODUCT_BY_KIND[String(row.kind ?? "")];
+    if (!terms || !product) throw new NotApplicable("not a deposit this site sells");
+    const owner = typeof row.owner === "string" && row.owner ? row.owner : null;
+    const prepare = SCOPING_PREPARATION.map((p) => `- ${p.label} (from ${p.from})`).join("\n");
+    return {
+      to,
+      subject: `Your ${product.name} is recorded - reference ${String(row.id).slice(0, 8)}`,
+      text:
+        `We have received your payment of ${eurFromCents(Number(row.amount_cents ?? product.amountCents))} for: ${product.name}.\n\n` +
+        `Reference: ${String(row.id)}\nQuote it in anything you send us about this deposit.\n\n` +
+        `What it reserves: ${terms.reserves}\n\n` +
+        `What it opens: ${terms.opens}\n\n` +
+        `How it is credited: ${terms.credit}\n\n` +
+        `When: ${terms.timing} No date is promised until the scope is agreed.\n\n` +
+        (owner
+          ? `Who will contact you: ${owner} is recorded as your contact for this deposit.\n\n`
+          : "Who will contact you: nobody is assigned at the moment of payment. A named person is recorded against your reference when they contact you; if you have not heard from us, reply to this email quoting the reference.\n\n") +
+        "What to prepare for the scoping call (anything you do not have becomes a named assumption, not a blocker):\n" +
+        `${prepare}\n` +
+        (String(row.kind) === "portfolio_screen_deposit" ? "- The list of halls (five to fifteen) and, for each, the numbers above.\n" : "") +
+        (typeof row.stripe_session_id === "string" && /^cs_[A-Za-z0-9_]+$/.test(row.stripe_session_id) ? `\nThe current status of your deposit: ${SITE_URL}/commissioned?session_id=${row.stripe_session_id}` : ""),
     };
   }
   if (n.kind === "payg_payment_failed") {
@@ -643,9 +674,9 @@ export async function listNotifications(state: "open" | "all" = "open"): Promise
 export interface ReconcileCandidate { kind: NotificationKind; subject_id: string; created_at: string | null; eligible: boolean; reason: string }
 
 /** Obligations that are not a purchase: nothing to reconcile after the fact (a rotation warning, a seat invitation). */
-const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert", "payg_payment_failed"]);
+const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt"]);
 
-const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert" | "payg_payment_failed">, { table: SubjectTable; filter: string }> = {
+const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert" | "payg_payment_failed" | "deposit_receipt">, { table: SubjectTable; filter: string }> = {
   intake_link: { table: "deliverables", filter: "status=eq.awaiting_intake&email=not.is.null" },
   api_access_link: { table: "api_accounts", filter: "status=eq.active&key_id=is.null&email=not.is.null" },
   watch_link: { table: "watches", filter: "status=eq.active&email=not.is.null" },
@@ -663,7 +694,7 @@ export async function inventoryUnnotified(): Promise<{ available: boolean; candi
   if (!probe.ok) return { available: false, candidates: [] };
   const out: ReconcileCandidate[] = [];
   for (const kind of NOTIFICATION_KINDS) {
-    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert" || kind === "payg_payment_failed") continue;
+    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert" || kind === "payg_payment_failed" || kind === "deposit_receipt") continue;
     const { table, filter } = SELECT[kind];
     const cols = `id,created_at${kind === "intake_link" ? ",token,intake_token" : ""}`;
     const rows = await db<{ id: string; created_at?: string; token?: unknown; intake_token?: unknown }[]>(
