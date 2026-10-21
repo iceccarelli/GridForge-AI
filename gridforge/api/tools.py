@@ -22,7 +22,7 @@ Zero dependencies: MCP here is a JSON-RPC dialect, not a package.
 """
 from __future__ import annotations
 
-from .metering import UNIT_COST
+from .metering import UNIT_COST, payg_public
 from .tiers import Tier
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -84,6 +84,26 @@ TOOLS: list[dict] = [
         returns=("binding constraint, racks as found and after relief, the item that sets the "
                  "date, and the inputs nobody has measured. No capital cost, no lead times: "
                  "those are the paid engagement."),
+    ),
+    _tool(
+        "gridforge_estimate",
+        ("Free, no API key, never metered. What would a call cost? Name an endpoint (and, for the "
+         "portfolio, how many halls) and get the units, the unit price and the cost in euro cents "
+         "BEFORE spending anything. With an API key it also says whether the call fits what is left of "
+         "the key's allowance or cap. Use it before any paid tool, especially in a loop."),
+        "/v1/estimate",
+        {"type": "object", "required": ["endpoint"],
+         "properties": {"endpoint": {"type": "string",
+                                     "description": "The engine route to price, e.g. /v1/study."},
+                        "hall_count": {"type": "integer", "minimum": 1,
+                                       "description": "Halls in a /v1/portfolio request (one unit each)."},
+                        "body": {"type": "object", "additionalProperties": True,
+                                 "description": "Optional: the request body you intend to send; the "
+                                                "units are read from it exactly as the meter would."}},
+         "additionalProperties": False},
+        tier=Tier.PUBLIC,
+        returns=("endpoint, units, unit_price_cents, estimated_cents, billable, free, the rule that "
+                 "produced the units, and (with a key) the remaining allowance and whether the call fits."),
     ),
     _tool(
         "gridforge_screen",
@@ -413,6 +433,14 @@ def mcp_tools() -> list[dict]:
             for t in TOOLS]
 
 
+#: Every route with a unit weight, tool or no tool. `/v1/deck` has a weight and a route but is deliberately
+#: not an agent tool (a human walkthrough); an integrator pricing a deployment still needs its weight.
+def rate_card() -> list[dict]:
+    by_endpoint = {t["endpoint"]: t["name"] for t in TOOLS}
+    return [{"endpoint": e, "units": u, "tool": by_endpoint.get(e)}
+            for e, u in sorted(UNIT_COST.items())]
+
+
 def catalogue() -> dict:
     return {
         "tools": [{k: v for k, v in t.items() if k != "inputSchema"} | {"inputSchema": t["inputSchema"]}
@@ -421,7 +449,10 @@ def catalogue() -> dict:
         "mcp": {"endpoint": "/mcp", "protocol": "jsonrpc-2.0",
                 "protocolVersion": PROTOCOL_VERSION, "tools": mcp_tools()},
         "auth": {"header": "X-API-Key",
-                 "note": "gridforge_qualify is free and needs no key. Everything else meters."},
+                 "note": ("gridforge_qualify and gridforge_estimate are free and need no key. "
+                          "Everything else meters.")},
+        "payg": payg_public(),
+        "rate_card": rate_card(),
         "evidence_note": (
             "Every numeric field in a response carries an evidence class (E0 assumed … E7 "
             "observed in operation) and a provenance digest. An agent consuming these must "

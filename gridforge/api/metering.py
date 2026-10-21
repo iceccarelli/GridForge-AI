@@ -34,7 +34,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .keys import ApiKey, KeyError_, looks_signed, verify
+from ..commercial import PAYG
+from .keys import CAPPED_SCOPES, ApiKey, KeyError_, looks_signed, verify
+from .ledger import Ledger, LedgerError, parse_ts
 
 #: Billable units per call. One unit is one engine solve of one hall.
 UNIT_COST: dict[str, int] = {
@@ -56,7 +58,30 @@ UNIT_COST: dict[str, int] = {
     "/v1/tools": 0,
     "/v1/usage": 0,
     "/mcp": 0,               # the transport is free; the tool it calls is not
+    "/v1/estimate": 0,       # asking what a call would cost is never itself a cost
 }
+
+#: The routes that are free ON PURPOSE (weight 0). tests/test_payg_unmetered.py pins this set, so a new route
+#: cannot become free by omission: it must either carry a positive weight or be added here with a reason.
+FREE_ENDPOINTS = frozenset(p for p, u in UNIT_COST.items() if u == 0)
+
+#: The one billing rule, worded once. Published at /v1/version and /v1/tools (`payg.billing_rule`) and mirrored
+#: in the website copy; change it here and everywhere together.
+BILLING_RULE = (
+    "A month's charge is the net ledger units for the UTC month (charges minus refunds) times the unit price, "
+    "invoiced in arrears; a month below the minimum invoice is carried forward to the next. Requests that "
+    "produce no answer (rejected, unauthorised, invalid or failed) are refunded and never charged, and a retry "
+    "carrying the same Idempotency-Key is never charged twice. Free-allowance usage is never invoiced. The "
+    "customer's own monthly cap is a hard stop: beyond it the engine answers 402 and nothing more accrues."
+)
+
+
+def payg_public() -> dict:
+    """What an integrator may know about pay-as-you-go before signing up. From the one commercial source."""
+    return {"unit_price_cents": PAYG.unit_price_cents, "currency": PAYG.currency,
+            "min_invoice_cents": PAYG.min_invoice_cents,
+            "free_allowance_units": PAYG.free_allowance_units,
+            "billing_rule": BILLING_RULE}
 
 DEFAULT_MONTHLY_QUOTA = int(os.environ.get("GRIDFORGE_DEFAULT_QUOTA", "0") or 0)
 
@@ -188,16 +213,45 @@ class Usage:
     last_seen: str = ""
 
 
-class Meter:
-    """In-memory usage with optional durable flush. Never raises into a request."""
+@dataclass
+class Reservation:
+    """The outcome of Meter.reserve_ex.
 
-    def __init__(self, path: str | None = None) -> None:
+    status: ok          units taken (and, when the ledger is recording, a charge event written)
+            over        the call does not fit the cap / allowance; nothing taken
+            unavailable payg/trial key and the ledger cannot be written: nothing taken, no work to be done
+            replay      this Idempotency-Key was already charged (this process or a previous one): not charged again
+            conflict    this Idempotency-Key was charged for a different request body
+    """
+    status: str
+    usage: "Usage | None" = None
+    account: str = ""
+    endpoint: str = ""
+    units: int = 0
+    month: str = ""
+    event: dict | None = None
+    reason: str = ""
+
+
+class Meter:
+    """In-memory usage with optional durable flush. Never raises into a request.
+
+    With a Ledger attached, every charge and refund is also appended to it INSIDE the same critical section
+    as the counter change, so the two cannot disagree about a call. Counters are rebuilt from the ledger at
+    startup. The one deliberate exception to "never raise into a request path" is a payg/trial key whose
+    charge cannot be made durable: that is refused (reserve_ex -> `unavailable`) because doing the work for
+    nothing is a free product nobody agreed to ship."""
+
+    def __init__(self, path: str | None = None, ledger: Ledger | None = None) -> None:
         self._lock = threading.Lock()
         self._usage: dict[tuple[str, str], Usage] = {}
         self._path = Path(path) if path else None
         self._problem = ""
+        self.ledger: Ledger = ledger if ledger is not None else Ledger(None)
+        self._pending_refunds: list[dict] = []
         self._probe()
         self._load()
+        self._seed_from_ledger()
 
     # -- persistence -------------------------------------------------------
     def _probe(self) -> None:
@@ -254,6 +308,23 @@ class Meter:
             except Exception:
                 continue
 
+    def _seed_from_ledger(self) -> None:
+        """Counters and ledger must agree after a restart. For payg/trial accounts the ledger is the truth
+        (it is what the invoice is derived from), so it replaces the counter even when that lowers it, e.g. a
+        refund that was in the ledger but not yet in the flushed usage file. For other accounts the larger of
+        the two wins: the ledger may have been switched on mid-month, and an undercount is the costlier error."""
+        try:
+            for (account, month), t in self.ledger.totals().items():
+                cur = self._usage.get((account, month))
+                exact = bool(t.scopes & CAPPED_SCOPES)
+                if cur is None or exact or cur.units < t.units:
+                    self._usage[(account, month)] = Usage(
+                        month=month, units=max(0, t.units), calls=max(0, t.calls),
+                        by_endpoint={k: v for k, v in t.by_endpoint.items() if v > 0},
+                        first_seen=t.first, last_seen=t.last)
+        except Exception:      # a ledger problem must not stop the engine serving
+            pass
+
     def _flush(self) -> None:
         if not self._path:
             return
@@ -299,21 +370,99 @@ class Meter:
         """Check the allowance and take the units in one critical section. Two concurrent calls can
         no longer both pass would_exceed() and then both record, overshooting the quota.
         Returns the new usage, or None when the call does not fit."""
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        r = self.reserve_ex(account, path, units, quota)
+        return r.usage if r.status in ("ok", "replay") else None
+
+    def reserve_ex(self, account: str, path: str, units: int, quota: int = 0, *, scope: str = "client",
+                   key_id: str = "", project: str = "", idem: str = "", body_sha: str = "") -> Reservation:
+        """reserve() with the whole story: the ledger event, idempotency and fail-closed durability."""
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat(timespec="seconds")
         m = _month()
+        capped = scope in CAPPED_SCOPES
         with self._lock:
+            led = self.ledger
+            if idem:
+                hit = led.idem_lookup(account, path, idem)
+                if hit is not None:
+                    if hit[2] and body_sha and hit[2] != body_sha:
+                        return Reservation("conflict", account=account, endpoint=path, units=units, month=m,
+                                           reason="this Idempotency-Key was already used with a different request body")
+                    u = self._usage.get((account, m)) or Usage(month=m)
+                    return Reservation("replay", usage=self._snap(u), account=account, endpoint=path,
+                                       units=0, month=m)
+            if capped and not quota:
+                # Defence in depth: verify() already refuses these, and a cap of 0 must never mean unlimited.
+                return Reservation("unavailable", account=account, endpoint=path, units=units, month=m,
+                                   reason="this key carries no unit cap")
+            if capped and not led.available():
+                return Reservation("unavailable", account=account, endpoint=path, units=units, month=m,
+                                   reason=led.status())
             u = self._usage.setdefault((account, m), Usage(month=m, first_seen=now))
             if quota and u.units + units > quota:
-                return None
+                return Reservation("over", usage=self._snap(u), account=account, endpoint=path,
+                                   units=units, month=m)
+            event = None
+            if led.available():
+                try:
+                    self._drain_pending_refunds()
+                    event = led.append(kind="charge", account=account, key_id=key_id, scope=scope,
+                                       endpoint=path, units=units, project=project, idem=idem,
+                                       body_sha=body_sha, ts_epoch=now_epoch)
+                except LedgerError as exc:
+                    if capped:
+                        return Reservation("unavailable", account=account, endpoint=path, units=units,
+                                           month=m, reason=str(exc))
+                    event = None       # static/machine keys keep today's behaviour: the call still runs
             u.units += units
             u.calls += 1
             u.by_endpoint[path] = u.by_endpoint.get(path, 0) + units
             u.last_seen = now
-            snapshot = Usage(month=u.month, units=u.units, calls=u.calls,
-                             by_endpoint=dict(u.by_endpoint),
-                             first_seen=u.first_seen, last_seen=u.last_seen)
+            snapshot = self._snap(u)
         self._flush()
-        return snapshot
+        return Reservation("ok", usage=snapshot, account=account, endpoint=path, units=units, month=m,
+                           event=event)
+
+    @staticmethod
+    def _snap(u: Usage) -> Usage:
+        return Usage(month=u.month, units=u.units, calls=u.calls, by_endpoint=dict(u.by_endpoint),
+                     first_seen=u.first_seen, last_seen=u.last_seen)
+
+    def _drain_pending_refunds(self) -> None:
+        """Refunds that could not be written when they happened are retried before any new event, so a
+        transient disk fault delays a compensating event instead of losing it. Caller holds the lock."""
+        while self._pending_refunds:
+            kw = self._pending_refunds[0]
+            self.ledger.append(**kw)          # raises LedgerError if still unwritable: left queued
+            self._pending_refunds.pop(0)
+
+    def refund_reservation(self, r: Reservation) -> None:
+        """Give back what reserve_ex took, and write the compensating `refund` event. Calling it twice for
+        one reservation is the caller's bug; the handler clears its reference after one refund."""
+        if r.status != "ok":
+            return
+        with self._lock:
+            u = self._usage.get((r.account, r.month))
+            if u is not None:
+                u.units = max(0, u.units - r.units)
+                u.calls = max(0, u.calls - 1)
+                if r.endpoint in u.by_endpoint:
+                    u.by_endpoint[r.endpoint] = max(0, u.by_endpoint[r.endpoint] - r.units)
+            ev = r.event
+            if ev is not None:
+                # A refund that lands after midnight UTC is stamped with the charge's own timestamp so each
+                # month nets to what was actually billable in it (never a negative month).
+                same_month = _month() == ev["ts"][:7]
+                kw = dict(kind="refund", account=ev["account"], key_id=ev["key_id"], scope=ev["scope"],
+                          endpoint=ev["endpoint"], units=ev["units"], project=ev["project"],
+                          idem=ev["idem"], ref=ev["id"],
+                          ts_epoch=None if same_month else parse_ts(ev["ts"]))
+                try:
+                    self._drain_pending_refunds()
+                    self.ledger.append(**kw)
+                except LedgerError:
+                    self._pending_refunds.append(kw)
+        self._flush()
 
     def refund(self, account: str, path: str, units: int) -> None:
         """Give back units for a call that produced no answer (the work failed on our side or the
@@ -348,7 +497,10 @@ class Meter:
             "unit_rates": dict(sorted(UNIT_COST.items())),
             "durable": self.durable,
             "note": self.durability_note,
+            "ledger_durable": self.ledger.available(),
+            **({"unit_price_cents": PAYG.unit_price_cents, "accrued_cents": PAYG.charge_cents(u.units)}
+               if plan and plan.scope == "payg" else {}),
         }
 
 
-METER = Meter(os.environ.get("GRIDFORGE_USAGE_FILE"))
+METER = Meter(os.environ.get("GRIDFORGE_USAGE_FILE"), Ledger(os.environ.get("GRIDFORGE_LEDGER_FILE")))

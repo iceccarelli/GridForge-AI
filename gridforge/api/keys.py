@@ -43,7 +43,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 PREFIX = "gfk1"
-SCOPES = ("machine", "client", "trial")
+SCOPES = ("machine", "client", "trial", "payg")
+#: Scopes whose quota IS a hard spending/allowance cap. `trial` is the free allowance, `payg` is the
+#: customer-set pay-as-you-go cap. A quota of 0 means "unlimited" for a subscription key, and for these
+#: two it would mean unlimited free use or an unbounded postpaid bill, so it is refused (issue and verify).
+CAPPED_SCOPES = frozenset({"trial", "payg"})
 
 
 class KeyError_(ValueError):
@@ -110,6 +114,9 @@ def issue(account: str, *, quota: int = 0, scope: str = "machine",
         raise KeyError_("GRIDFORGE_KEY_SECRET is not set; refusing to mint an unsigned key")
     if scope not in SCOPES:
         raise KeyError_(f"unknown scope {scope!r}; one of {', '.join(SCOPES)}")
+    if scope in CAPPED_SCOPES and int(quota) <= 0:
+        raise KeyError_(f"a {scope} key must carry a positive unit cap; refusing to mint an "
+                        f"unlimited {scope} key")
     if not account.strip():
         raise KeyError_("a key must name the account it bills to")
     start = issued_on or today()
@@ -133,7 +140,10 @@ def issue(account: str, *, quota: int = 0, scope: str = "machine",
 # stays offline: no database, no network call, no lookup per request. What is added
 # is a local file the engine owns, read through an mtime check so a request pays a
 # stat and nothing more, and one authenticated write at the moment of revocation.
-_REVOKED_LOCK = threading.Lock()
+# Reentrant on purpose: revoke() holds the lock and calls _stored_revoked(), which takes it again to refresh a stale
+# cache. With a plain Lock the first POST /v1/revoke after a restart (store already on disk) deadlocked, and every
+# verify() behind it hung while /health kept passing.
+_REVOKED_LOCK = threading.RLock()
 _revoked_cache: tuple[float, frozenset[str]] = (-1.0, frozenset())
 #: Set once the store has been read successfully in this process. After that, a store that
 #: disappears or turns unreadable is a fault, not an empty list: treating it as empty would
@@ -306,6 +316,10 @@ def verify(token: str) -> ApiKey:
                         f"or reissue from your account page")
     if k.scope not in SCOPES:
         raise KeyError_(f"unknown scope {k.scope!r}")
+    if k.scope in CAPPED_SCOPES and k.quota <= 0:
+        # Fail closed: a payg/trial key whose cap is 0 would read as "unlimited" to the meter.
+        raise KeyError_(f"this {k.scope} key carries no unit cap and is not accepted; "
+                        f"reissue it from your account page")
     return k
 
 
