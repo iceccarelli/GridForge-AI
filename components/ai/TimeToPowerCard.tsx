@@ -1,5 +1,6 @@
 "use client";
 
+import { displayUnit } from "@/lib/quantity-text";
 import { Clock } from "lucide-react";
 import {
   Area,
@@ -124,7 +125,7 @@ function Metric({
         ) : (
           <>
             {q.value}
-            <span className="text-xs text-faint ml-1">{q.unit}</span>
+            <span className="text-xs text-faint ml-1">{displayUnit(q.unit)}</span>
           </>
         )}
       </div>

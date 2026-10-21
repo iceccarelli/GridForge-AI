@@ -1,4 +1,5 @@
 import { ArrowRight, Server } from "lucide-react";
+import { quantityText } from "@/lib/quantity-text";
 import { EvidenceBadge, ProvenanceLine } from "./EvidenceBadge";
 import type { CapacityMetricBlock } from "./types";
 
@@ -61,7 +62,7 @@ export function CapacityCard({ block }: { block: CapacityMetricBlock }) {
         <div className="mt-3 pt-3 border-t border-line flex items-center justify-between text-[12px]">
           <span className="text-faint">IT load</span>
           <span className="data text-ghost">
-            {block.itLoadKW.value.toLocaleString()} {block.itLoadKW.unit}
+            {quantityText(block.itLoadKW.value.toLocaleString(), block.itLoadKW.unit)}
           </span>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { AnswerCard } from "./AnswerCard";
+import { displayUnit } from "@/lib/quantity-text";
 import { BindingConstraintCard } from "./BindingConstraintCard";
 import { CapacityCard } from "./CapacityCard";
 import { CommercialActionCard } from "./CommercialActionCard";
@@ -49,7 +50,7 @@ export function BlockRenderer({
               <div className="eyebrow mb-1">{block.label.toUpperCase()}</div>
               <div className="data text-2xl font-semibold text-ghost">
                 {block.quantity.value.toLocaleString()}
-                <span className="text-sm text-faint ml-1">{block.quantity.unit}</span>
+                <span className="text-sm text-faint ml-1">{displayUnit(block.quantity.unit)}</span>
               </div>
             </div>
           );
