@@ -150,10 +150,10 @@ export default async function QualificationPage({
         <p className="mt-3 text-sm text-mute">
           A directional screening read, modelled from the figures supplied and from library
           defaults for everything not supplied. It is not a bankable number, not a design, and
-          not a measurement of this asset. Capital cost, programme duration, the full constraint
-          ladder and the comparison between cooling architectures are part of the paid
-          engagement — and the model has not yet been reconciled against any instrumented site,
-          which we report on every response rather than leave you to ask.
+          not a measurement of this asset. Indicative capital cost and time to full capacity, with
+          their evidence classes, are in the free Time-to-Power comparison; a human-reviewed
+          engagement is the paid step — and the model has not yet been reconciled against any
+          instrumented site, which we report on every response rather than leave you to ask.
         </p>
       </section>
 

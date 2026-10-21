@@ -406,6 +406,18 @@ export const FREE_CAPACITY_MESSAGE =
   "Free allowances are full this month, so no free key can be issued yet. They reopen at the start of next month (UTC). " +
   "Pay as you go needs no free allowance: you can enable it below with a cap you choose.";
 
+/**
+ * POST /api/billing/portal. Stripe's customer portal for the account's customer: update the card, see invoices, cancel.
+ * 409 means there is nothing to manage here (no Stripe customer), so the control hides itself; 404/503 are
+ * "not available on this deployment".
+ */
+export function openBillingPortal(token: string, f: FetchLike = defaultFetch()): Promise<ClientResult<{ url: string }>> {
+  return run(f, "/api/billing/portal", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token }) }, (j) => {
+    const url = safeCheckoutUrl(j.url);
+    return url ? { url } : null;
+  });
+}
+
 export interface MintedKey {
   key: string;
   expires: string | null;

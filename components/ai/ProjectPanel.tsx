@@ -1,5 +1,6 @@
 "use client";
 
+import { quantityText } from "@/lib/quantity-text";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { FolderOpen, Loader2 } from "lucide-react";
 import type { ProjectState } from "@/lib/project-state";
@@ -191,9 +192,9 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
       {state.observations.length === 0 && <p>{NOT_YET} — nothing has been measured against a prediction.</p>}
       {state.observations.map((o) => (
         <div key={o.id} className="space-y-0.5 border-b border-line pb-2">
-          <Row k="Predicted" v={`${o.predicted_value} ${o.unit}`} />
-          <Row k="Observed" v={`${o.observed_value} ${o.unit} (${o.observed_on})`} />
-          <Row k="Delta" v={`${o.delta_value > 0 ? "+" : ""}${o.delta_value.toFixed(2)} ${o.unit} (${o.delta_pct > 0 ? "+" : ""}${o.delta_pct.toFixed(1)}%)`} />
+          <Row k="Predicted" v={quantityText(o.predicted_value, o.unit)} />
+          <Row k="Observed" v={`${quantityText(o.observed_value, o.unit)} (${o.observed_on})`} />
+          <Row k="Delta" v={`${quantityText(`${o.delta_value > 0 ? "+" : ""}${o.delta_value.toFixed(2)}`, o.unit)} (${o.delta_pct > 0 ? "+" : ""}${o.delta_pct.toFixed(1)}%)`} />
           <Row k="Review" v={STATE_LABEL[o.state]} />
           <Row k="Evidence class" v={o.evidence_class ?? "Not assigned"} />
           <Row k="Installed (attested by)" v={`${o.submitted_by} — ${o.installed_basis}`} />

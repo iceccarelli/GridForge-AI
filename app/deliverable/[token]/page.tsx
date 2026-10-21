@@ -1,4 +1,5 @@
 import React from "react";
+import { quantityText } from "@/lib/quantity-text";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BOARD_HTML, getByToken, isPackFile, packHash } from "@/lib/deliverables";
@@ -273,7 +274,7 @@ function SpecBasis({ intake, files }: { intake: unknown; files?: Record<string, 
               <React.Fragment key={c.id ?? i}>
                 <dt className="text-faint">{c.label ?? c.id}</dt>
                 <dd>
-                  {c.value !== null && c.value !== undefined ? `${c.value}${c.unit ? ` ${c.unit}` : ""}` : (c.text ?? "—")}
+                  {c.value !== null && c.value !== undefined ? quantityText(c.value, c.unit) : (c.text ?? "—")}
                   {c.evidence ? ` (evidence ${c.evidence})` : ""}
                   {c.status ? `: ${c.status.replace(/_/g, " ")}` : ""}
                 </dd>

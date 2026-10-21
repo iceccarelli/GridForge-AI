@@ -79,7 +79,7 @@ export default async function ApiAccessPage({
       />
 
       <div className="mt-8">
-        <PaygPortal token={token} plan={row.plan} status={row.status} monthlyUnits={row.monthly_units} returned={returned} />
+        <PaygPortal token={token} plan={row.plan} status={row.status} monthlyUnits={row.monthly_units} returned={returned} hasStripeCustomer={Boolean(row.stripe_customer_id)} />
       </div>
 
       <SetupSnippets engine={engine} rates={rates} />

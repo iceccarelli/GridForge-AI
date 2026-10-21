@@ -186,8 +186,8 @@ async function notify(record: LeadRecord): Promise<void> {
     // Template literals, not the double-quoted strings this used to be: those
     // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
     const nextSteps = hot
-      ? `Your site qualifies as a priority engagement. We will respond within 1 business day.\n\nThe entry point is the Density Screen \u2014 one hall, five working days, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
-      : `We will review your site and respond within 1 business day.\n\nThe entry point is the Density Screen (five working days): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
+      ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply.\n\nThe entry point is the Density Screen \u2014 one hall, five working days, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
+      : `We will review your site. We make no promise about when we will reply.\n\nThe entry point is the Density Screen (five working days): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
     try {
       await sendMail({
           from,

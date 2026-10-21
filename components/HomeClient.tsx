@@ -66,10 +66,11 @@ export function HomeClient() {
             </h1>
 
             <p className="text-lg sm:text-xl text-ghost/80 max-w-xl mb-3 leading-relaxed">
-              Give us the technical information for an existing or proposed AI
-              site, and we tell you how much useful AI compute it can actually
-              support, what blocks it, what fixes it costs, and when the
-              compute can go live. No equipment to sell.
+              Give us the technical information for an existing AI hall, and we
+              estimate how much useful AI compute it can support, what blocks it,
+              what the fixes cost, and the time to full capacity, with the evidence
+              class behind each figure. A time built on an assumed lead time is
+              labelled as one, not as a date. No equipment to sell.
             </p>
             <p className="text-mute max-w-xl mb-9">
               Start with a Density Screen: one hall, five working days, a document
@@ -281,7 +282,7 @@ export function HomeClient() {
                 {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
               </Link>
               <span className="text-[11px] text-faint font-mono">
-                solved server-side · capital cost and programme duration are the paid engagement
+                solved server-side · the free Time-to-Power comparison adds indicative cost and time, with evidence classes
               </span>
             </div>
           </div>

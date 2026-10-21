@@ -42,9 +42,10 @@ export function Footer() {
               </span>
             </div>
             <p className="text-mute max-w-sm text-[15px] leading-relaxed">
-              We tell the owner of an AI site how much useful compute it can
-              actually support, what blocks it, what fixes it, what the fix
-              costs, and when the compute can go live. No equipment to sell.
+              We tell the owner of an existing AI hall how much useful compute it
+              can support, what blocks it, what fixes it, what the fix costs, and
+              the time to full capacity, with its evidence class. No equipment to
+              sell.
             </p>
             <p className="data text-xs text-faint mt-4">
               Pilot-stage · founder-led · powered by GridForge Engine · {SITE.baseLocation}

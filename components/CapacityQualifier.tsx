@@ -16,9 +16,10 @@ import FreeAllowanceForm from "@/components/FreeAllowanceForm";
  * that produces the paid study. It returns the binding constraint — the thing that
  * actually stops the hall — and the list of inputs nobody has measured.
  *
- * What it deliberately withholds: capital cost, programme duration, the full
- * constraint ladder. The API enforces that server-side; this component could not
- * show them if it tried.
+ * It shows the constraint and the rack count. The free Time-to-Power comparison
+ * (/power/compare) also shows scenarios with indicative capital cost and a time to
+ * full capacity, each with its evidence class. What is paid is human-reviewed
+ * engagement work and metered engine usage beyond the free allowance.
  *
  * Every figure it displays comes back from the engine with an evidence class
  * attached. Nothing here is computed in the browser.
@@ -130,7 +131,8 @@ export function CapacityQualifier() {
         <p className="text-mute mt-2 max-w-2xl text-sm">
           Seven numbers you already know. The same engine that produces our paid study returns the
           binding constraint, the deployable rack count, and the inputs nobody has measured yet.
-          Capital cost and programme duration are part of the engagement, not of this read.
+          For scenarios with indicative capital cost and time to full capacity, the free Time-to-Power comparison goes
+          further; a human-reviewed engagement is the paid step.
         </p>
       </div>
 
