@@ -241,7 +241,9 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     expect((await releaseWith(row.token, packHash(row), "A. Rivera")).status).toBe(200);
     const page = await deliverablePage(row.token);
     expect(page).toContain("Basis of this specification");
-    expect(page).toContain("38 °C (supplied by you)");
+    // the engine's own basis is carried onto the page now that /v1/spec returns it (section 2A of the document)
+    expect(page).toContain("Design ambient dry bulb (summer)");
+    expect(page).toMatch(/38 degC \(evidence E3\): supplied/);
     expect(page).toContain("Every numeric requirement in it names the constraint of the capacity model it came from");
   }, 120_000);
 
@@ -256,9 +258,10 @@ describe.runIf(hasPython)("Procurement Specification: it generates the SPEC, wit
     signIn();
     await releaseWith(row.token, packHash(row), "A. Rivera");
     const page = await deliverablePage(row.token);
-    expect(page).toContain("Summer design dry bulb");
-    expect(page).toMatch(/not supplied — the engine used its library default for it/);
-    expect(page).toContain("Quotations at a different site condition are not comparable");
+    expect(page).toContain("Design ambient dry bulb (summer)");
+    expect(page).toMatch(/32 degC \(evidence E0\): assumed/);
+    expect(page).toContain("Inputs that were assumed rather than supplied");
+    expect(page).toMatch(/dry bulb[^<]*: not supplied, assumed 32/i);
   }, 120_000);
 
   it("a specification the engine could not complete is HELD, announced, and cannot be released — then regenerates and releases", async () => {
