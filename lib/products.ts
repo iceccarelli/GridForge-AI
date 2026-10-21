@@ -343,3 +343,37 @@ export const INTELLIGENCE_PLAN_IDS: IntelligencePlanId[] = [
 export function isIntelligencePlanId(v: unknown): v is IntelligencePlanId {
   return typeof v === "string" && v in INTELLIGENCE_PLANS;
 }
+
+// --- Pay-as-you-go and the free developer allowance --------------------------------------------
+//
+// ONE general scheme for every billable engine endpoint, not one product per tool. Mirrors `Payg` in
+// gridforge/commercial.py (tests/test_catalogue_parity.py fails if they differ). Per-endpoint unit
+// weights live on the engine (UNIT_COST) and are published at /v1/version and public/reference/tools.json.
+//
+// Billing rule: a month's charge is the net ledger units for the month (charges minus refunds of calls that
+// produced no answer) times unitPriceCents, invoiced in arrears; a month below minInvoiceCents is carried
+// forward. The customer's own monthly cap becomes the signed key's unit quota, so the engine hard-stops
+// at the cap with a 402. The free allowance is never billable.
+
+export const PAYG = {
+  unitPriceCents: 200,
+  currency: "eur",
+  minInvoiceCents: 500,
+  defaultCapEur: 100,
+  minCapEur: 20,
+  maxCapEur: 2_000,
+  freeAllowanceUnits: 25,
+  freeAccountsMaxPerMonth: 200,
+  alertPercents: [80, 100],
+} as const;
+
+export function paygCapUnits(capEur: number): number {
+  if (!Number.isInteger(capEur) || capEur < PAYG.minCapEur || capEur > PAYG.maxCapEur) {
+    throw new Error(`cap must be a whole number of euros between ${PAYG.minCapEur} and ${PAYG.maxCapEur}`);
+  }
+  return Math.floor((capEur * 100) / PAYG.unitPriceCents);
+}
+
+export function paygChargeCents(units: number): number {
+  return Math.max(0, Math.trunc(units)) * PAYG.unitPriceCents;
+}
