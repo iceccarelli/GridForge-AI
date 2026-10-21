@@ -45,7 +45,7 @@
 - The answer depends most on one assumed input: contracted power 20% lower takes it from 62 to 48 racks.
 - This model has not yet been checked against any instrumented site (0 reconciled observations); every figure here is modelled, not measured.
 
-> ⚠️ EVIDENCE DISCLOSURE: screening study on library defaults and assumed inputs: electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. Sufficient to decide whether to spend money finding out; not sufficient for procurement, construction or an investment committee decision.
+> ⚠️ EVIDENCE DISCLOSURE: screening study on library defaults: electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. Enough to decide whether to spend money finding out; not for procurement, construction or an investment decision.
 
 ## What to decide next
 

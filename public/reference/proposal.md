@@ -90,7 +90,7 @@ Commission the engagement and you will receive an intake link for the hall's num
 
 > ℹ️ Before you spend anything with us: get the DSO position in writing on firm capacity and any flexibility product. It costs nothing but time, and on some sites it ends the question entirely. We would rather tell you that now than bill you to discover it.
 
-> ⚠️ EVIDENCE DISCLOSURE: the findings in section 1 are a screening read built partly on library defaults. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. They are sufficient to decide whether this engagement is worth commissioning, and not sufficient to support procurement, construction or an investment committee decision. Closing the gaps in section 3 is what changes that.
+> ⚠️ EVIDENCE DISCLOSURE: the findings in section 1 are a screening read built partly on library defaults. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. They are sufficient to decide whether this engagement is worth commissioning, and not sufficient to support procurement, construction or an investment committee decision. Closing the gaps in section 3 is what changes that.
 
 ## Appendix A — Assumptions, provenance and validation status
 

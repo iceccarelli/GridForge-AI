@@ -315,7 +315,7 @@ This study is an engineering opinion supported by a documented model. It is not 
 
 Every quantity in this report carries an evidence class; Appendix A lists the assumptions and sources relied upon and the provenance digest of each headline quantity. No number here is a measurement of a physical asset unless it is labelled E5 or above — and E5 means supplied by the client (a declared rating, contract term or design value, or the client's own data as given), not measured or surveyed by us.
 
-> ⚠️ EVIDENCE DISCLOSURE: this is a screening study built on library defaults and assumed inputs. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1. These conclusions are not sufficient to support procurement, construction or an investment committee decision on their own; they are sufficient to decide whether to spend money finding out. The inputs listed in Appendix A.1 are what must be measured to lift them.
+> ⚠️ EVIDENCE DISCLOSURE: this is a screening study built on library defaults and assumed inputs. electrical capacity is E0 where an issued deliverable requires E3; cooling performance is E0 where an issued deliverable requires E2; capex is E0 where an issued deliverable requires E1; schedule (lead times) is E0 where an issued deliverable requires E1. These conclusions are not sufficient to support procurement, construction or an investment committee decision on their own; they are sufficient to decide whether to spend money finding out. The inputs listed in Appendix A.1 are what must be measured to lift them.
 
 ## 14. Model accuracy against instrumented sites
 
