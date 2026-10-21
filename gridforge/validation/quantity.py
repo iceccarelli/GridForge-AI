@@ -161,7 +161,35 @@ class Quantity:
         return self._op(other, lambda a, b: a * b, "*", "*")
 
     def __truediv__(self, other):
-        return self._op(other, lambda a, b: a / b if b else float("inf"), "/", "/")
+        o = self._as_q(other)
+        blo, bhi = o.band
+        if o.value != 0 and not (blo <= 0.0 <= bhi):
+            return self._op(other, lambda a, b: a / b, "/", "/")
+        return self._divide_by_zero_reachable(o)
+
+    def _divide_by_zero_reachable(self, o: "Quantity") -> "Quantity":
+        """The divisor is zero, or its band reaches zero. The old rule returned +inf for EVERY such quotient, so a
+        negative headroom divided by zero came out as unlimited capacity. Here the sign of the numerator is kept
+        (x/0 is +inf for x > 0, -inf for x < 0), 0/0 is NaN (undetermined: callers floor it to zero racks), and a
+        divisor band that straddles zero makes the quotient band unbounded rather than a finite interval that
+        pretends the pole is not there."""
+        inf = float("inf")
+        if o.value == 0:
+            val = float("nan") if self.value == 0 else math.copysign(inf, self.value)
+        else:
+            val = self.value / o.value
+        alo, ahi = self.band
+        blo, bhi = o.band
+        if blo == bhi == 0.0 and (alo > 0 or ahi < 0):
+            lo = hi = math.copysign(inf, alo)
+        elif blo == bhi == 0.0 and alo == ahi == 0.0:
+            lo = hi = float("nan")
+        else:
+            lo, hi = -inf, inf
+        p = Provenance.derive(
+            f"({self.prov.label} / {o.prov.label})", "arith:/", [self.prov, o.prov],
+            step_evidence=EvidenceClass.E7_DEPLOYED)
+        return Quantity(val, _combine_units(self.unit, o.unit, "/"), p, lo, hi)
 
     __radd__ = __add__
     __rmul__ = __mul__

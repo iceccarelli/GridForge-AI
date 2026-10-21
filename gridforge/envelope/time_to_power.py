@@ -51,6 +51,10 @@ class TimeToPower:
 
     critical_item: str = "—"
     critical_weeks: float = 0.0
+    #: False when a relief that was taken has no lead time. ``points`` then understate elapsed time (a missing
+    #: lead time is read as zero weeks here), so a caller that quotes a date must check this flag, or use
+    #: ``schedule_complete`` / ``full_capacity_band``, which return no date for an incomplete schedule.
+    complete: bool = True
 
 
 def schedule(lad: HeadroomLadder) -> TimeToPower:
@@ -64,6 +68,8 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
     for st in lad.steps:
         if not st.taken:
             continue
+        if st.lead_time_weeks is None:
+            out.complete = False
         lead = st.lead_time_weeks.value if st.lead_time_weeks is not None else 0.0
         if lead > elapsed:
             elapsed = lead

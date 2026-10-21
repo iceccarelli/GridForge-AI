@@ -10,8 +10,9 @@ import math
 
 from ..common import ASSUMED, ESTIMATED, V
 from ..costs import cost, scaled_cost
-from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
-from ..validation import Quantity
+from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
+                           gate_racks)
+from ..validation import Provenance, Quantity
 from .btm import installed_firm_kW, next_option, option_capex
 
 SQRT3 = math.sqrt(3.0)
@@ -33,6 +34,16 @@ def _effective_units(units: int, redundancy: str) -> int:
     raise ValueError(f"unknown redundancy {redundancy!r}; expected N, N+1, N+2 or 2N")
 
 
+def _lesser_of(a: Quantity, b: Quantity, label: str) -> Quantity:
+    """min(a, b) with the interval and the evidence of BOTH. Picking the nominal winner and returning its own
+    provenance dropped the loser's lower band (the true minimum can fall below the winner's band) and let a weak
+    loser hide behind a strong winner: "the ceiling is the contracted figure" is only as sure as the firm figure
+    that was found to be higher."""
+    prov = Provenance.derive(label, "power.lesser_of", [a.prov, b.prov], step_evidence=ESTIMATED)
+    return Quantity(min(a.value, b.value), a.unit, prov,
+                    min(a.band[0], b.band[0]), min(a.band[1], b.band[1]))
+
+
 def _it_headroom_to_racks(headroom_kW: Quantity, ctx: EnvelopeContext, label: str) -> Quantity:
     """Facility-power headroom -> new IT power -> racks. This division by PUE is
     where power and thermal actually couple: a worse cooling architecture eats
@@ -51,7 +62,7 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     g = ctx.power.grid
     firm_kW = (g.firm_capacity_MVA * g.power_factor).convert(1000.0, "kW", "firm grid capacity")
     contracted_kW = g.contracted_MW.convert(1000.0, "kW", "contracted capacity")
-    ceiling = firm_kW if firm_kW.value <= contracted_kW.value else contracted_kW
+    ceiling = _lesser_of(firm_kW, contracted_kW, "firm supply ceiling (lesser of firm connection and contracted)")
     btm = installed_firm_kW(ctx.power)
     if btm.value > 0:
         ceiling = (ceiling + btm).relabel(
@@ -266,7 +277,7 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
         return _unbounded("rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
                           "platform rack feed current not declared")
     ok = need.value <= lv.tapoff_max_A.value
-    racks = V(float("inf") if ok else 0.0, "racks", "racks permitted by tap-off rating", ESTIMATED)
+    racks = gate_racks(ok, "racks permitted by tap-off rating", need, lv.tapoff_max_A)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()

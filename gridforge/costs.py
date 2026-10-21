@@ -163,7 +163,9 @@ class CostEntry:
         try:
             return date.fromisoformat(self.valid_until) < report_date()
         except ValueError:
-            return False
+            # A validity date nobody can read is not a validity date. Treating it as "never expires" would keep a
+            # quotation at E5 indefinitely on the strength of a typo; treat it as expired until it is corrected.
+            return True
 
     def __post_init__(self) -> None:
         import math

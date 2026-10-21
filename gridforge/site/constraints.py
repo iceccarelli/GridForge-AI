@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, V
 from ..costs import scaled_cost
-from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
+from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
+                           gate_racks)
 from .schema import FloorType
 
 KPA_TO_KG_PER_M2 = 101.97
@@ -23,7 +24,7 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
                      "before any deployment; this is a screening check only."])
     capacity = hall.floor_loading_kPa.convert(KPA_TO_KG_PER_M2, "kg/m2", "hall floor loading capacity")
     ok = imposed.value <= capacity.value
-    racks = V(float("inf") if ok else 0.0, "racks", "racks permitted by floor loading", ESTIMATED)
+    racks = gate_racks(ok, "racks permitted by floor loading", imposed, capacity)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()

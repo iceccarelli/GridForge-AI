@@ -40,14 +40,18 @@ def pick_recommended(results: list[ScenarioResult],
                       objective: Objective = Objective.MAX_COMPUTE) -> ScenarioResult:
     viable = [r for r in results if r.unlocked_racks > 0] or list(results)
     if objective is Objective.MIN_COST_PER_RACK:
-        return min(viable, key=lambda r: r.economics.capex_total_eur.value /
-                   max(r.unlocked_racks, 1))
+        # An incomplete capex is a LOWER BOUND (a component has no price). It cannot beat a complete figure by being
+        # smaller: the missing price is what makes it small. Complete scenarios rank first; among incomplete ones the
+        # lower bounds are the only thing left to order by.
+        return min(viable, key=lambda r: (not r.economics.capex_complete,
+                                          r.economics.capex_total_eur.value / max(r.unlocked_racks, 1)))
     if objective is Objective.FASTEST_TO_POWER:
         def weeks(r: ScenarioResult) -> float:
             from ..envelope.time_to_power import schedule
             t = schedule(r.ladder)
             return t.weeks_to_full if t.weeks_to_full is not None else float("inf")
         return min(viable, key=lambda r: (weeks(r), -r.unlocked_racks))
-    return max(viable, key=lambda r: (r.unlocked_racks, -r.economics.capex_total_eur.value))
+    return max(viable, key=lambda r: (r.unlocked_racks, r.economics.capex_complete,
+                                      -r.economics.capex_total_eur.value))
 
 

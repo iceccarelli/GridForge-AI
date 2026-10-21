@@ -94,11 +94,18 @@ def bess_firm_factor_for_duration(option: GenerationOption,
     )
     firm_MW = bess.firm_MW_for_duration(ride_through_hours)
     factor = firm_MW.value / option.capacity_MW.value if option.capacity_MW.value else 0.0
+    # Carry the interval through: firm MW and nameplate MW each have a band, and the ratio's band is not a point.
+    # (A factor above 1 is impossible, and below 0 is, so the band is clipped to [0, 1].)
+    cap_lo, cap_hi = option.capacity_MW.band
+    f_lo, f_hi = firm_MW.band
+    lo = max(0.0, min(1.0, f_lo / cap_hi)) if cap_hi > 0 else 0.0
+    hi = max(0.0, min(1.0, f_hi / cap_lo)) if cap_lo > 0 else 1.0
     return V(factor, "1",
              f"{option.id} firm-capacity factor for {ride_through_hours.render()} "
              f"ride-through (power-vs-energy calculation, binding on "
              f"{bess.binding_limit(ride_through_hours)})",
-             min(firm_MW.evidence, option.capacity_MW.evidence, option.energy_MWh.evidence))
+             min(firm_MW.evidence, option.capacity_MW.evidence, option.energy_MWh.evidence),
+             band=(min(lo, factor), max(hi, factor)))
 
 
 def firm_contribution_kW(option: GenerationOption) -> Quantity:

@@ -57,7 +57,12 @@ def solve(ctx: EnvelopeContext) -> EnvelopeResult:
     n = int(min(c.racks for c in results))
     if math.isinf(n) or n < 0:
         n = 0
-    nq = V(float(n), "1", "deployable rack count", ESTIMATED)
+    # The rack count is the minimum over the constraints, so it is no better evidenced than the weakest of them
+    # (see rack_evidence). Asserting a flat E3 here let the IT and facility load claim more than the inputs behind
+    # the count supported whenever the platform figure was stronger than the hall data.
+    classes = [c.max_racks.evidence for c in results if c.max_racks.value != math.inf]
+    count_evidence = min([ESTIMATED, *classes]) if classes else EvidenceClass.E0_ASSUMPTION
+    nq = V(float(n), "1", "deployable rack count", count_evidence)
     it_kW = (nq * ctx.cluster.platform.rack_kW).relabel(
         "deployable IT load", "envelope.it_load", step_evidence=ESTIMATED)
     fac_kW = (it_kW * ctx.pue).relabel("total facility load", "envelope.facility_load",

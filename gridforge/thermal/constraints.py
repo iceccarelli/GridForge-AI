@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, SIMULATED, V
 from ..costs import cdu_cost, cost, scaled_cost
-from ..constraints import ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks
+from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
+                           gate_racks)
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW
 from ..thermal.schema import Architecture
 from ..validation import Quantity
@@ -23,6 +24,12 @@ def _effective_units(units: int, redundancy: str) -> int:
     if r not in table:
         raise ValueError(f"unknown redundancy {redundancy!r}; expected one of {sorted(table)}")
     return table[r]
+
+
+def _units_per_relief_step(redundancy: str) -> int:
+    """Units that must be bought to raise the USABLE count of a bank by one. Under 2N (or N+N) the usable count is
+    units // 2, so a single added unit buys nothing: capacity arrives in matched pairs."""
+    return 2 if redundancy.upper().replace(" ", "") in ("2N", "N+N") else 1
 
 
 PLANT_UPRATE = 1.5     # screening assumption: the plant relief adds 50% to chilled-water capacity
@@ -52,8 +59,7 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
         declared = True
     need = ctx.cluster.platform.rack_kW
     ok = need.value <= capability.value
-    racks = V(float("inf") if ok else 0.0, "racks",
-              "racks permitted by the chosen cooling architecture", ESTIMATED)
+    racks = gate_racks(ok, "racks permitted by the chosen cooling architecture", need, capability)
     return ConstraintResult(
         "architecture_capability", "thermal",
         "Cooling architecture per-rack capability",
@@ -75,7 +81,10 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     if ctx.architecture in (Architecture.RETAINED_AIR, Architecture.RDHX) or not t.cdus:
         return ConstraintResult("cdu_capacity", "thermal", "CDU capacity",
                                 V(float("inf"), "racks", "CDU capacity: not limiting", ESTIMATED),
-                                basis="architecture does not use CDUs" if not t.cdus else "no CDUs installed")
+                                basis=("architecture does not use CDUs"
+                                       if ctx.architecture in (Architecture.RETAINED_AIR, Architecture.RDHX)
+                                       else "no CDU schedule declared: CDU capacity was not assessed, so this "
+                                            "does not limit the hall here and has not been shown adequate"))
     fws_supply = t.plant.design_supply_C
     available_approach = (t.tcs_target_supply_C - fws_supply).relabel(
         "available CDU approach (TCS target minus facility water supply)",
@@ -84,7 +93,10 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     for c in t.cdus:
         n = _effective_units(c.units, c.redundancy)
         # Vendor ratings are stated AT a specific approach. Derate linearly, capped at rated.
-        ratio = min(1.0, max(0.0, available_approach.value / c.rated_approach_K.value))
+        # A non-positive rated approach is not a rating: refuse to derate against it (fail closed, no capacity)
+        # instead of dividing by zero.
+        ratio = (0.0 if c.rated_approach_K.value <= 0
+                 else min(1.0, max(0.0, available_approach.value / c.rated_approach_K.value)))
         derate = V(ratio, "1", f"{c.id} derate to site facility-water temperature", ESTIMATED,
                    band=(max(ratio * 0.85, 0.0), min(ratio * 1.1, 1.0)),
                    assumptions=[f"Rating quoted at {c.rated_approach_K.value:g} K approach; site offers "
@@ -98,12 +110,13 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
         for cdu in c.thermal.cdus:
-            cdu.units += 1
+            cdu.units += _units_per_relief_step(cdu.redundancy)
         return c
 
-    # One further unit per bank: the price follows the units actually added.
+    # One further usable unit per bank (a matched pair under 2N): the price follows the units actually added.
+    added_units = sum(_units_per_relief_step(c.redundancy) for c in t.cdus)
     cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
-        len(t.cdus), "additional CDU")
+        added_units, "additional CDU")
     return ConstraintResult(
         "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
         floor_racks(racks),
@@ -112,7 +125,7 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         relief=ReliefOption(
             description="Add CDU capacity (one further unit per bank)",
             capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
-            extra_cost_keys=cdu_extra, quantity=float(len(t.cdus)), quantity_unit="unit", limited=cdu_limited,
+            extra_cost_keys=cdu_extra, quantity=float(added_units), quantity_unit="unit", limited=cdu_limited,
             basis_note=cdu_note,
             cost_key="cdu.addition",
             lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
@@ -220,8 +233,7 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
         Architecture.HYBRID_DLC, Architecture.FULL_DLC) else plat.rack_kW
     have = ctx.thermal.residual_air_capacity_kW_per_rack
     ok = need.value <= have.value
-    racks = V(float("inf") if ok else 0.0, "racks",
-              "racks permitted by per-position air removal capacity", ESTIMATED)
+    racks = gate_racks(ok, "racks permitted by per-position air removal capacity", need, have)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
@@ -269,7 +281,7 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
             step_evidence=ESTIMATED)
         mech = "existing chilled-water plant"
     ok = achievable.value <= required_fws.value
-    racks = V(float("inf") if ok else 0.0, "racks", "racks permitted by achievable water temperature", ESTIMATED)
+    racks = gate_racks(ok, "racks permitted by achievable water temperature", achievable, required_fws)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
