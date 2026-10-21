@@ -612,6 +612,10 @@ jobs:
         run: npx vitest run tests/site/ttp-quotation-backed.realdb.test.ts
       - name: Provider-spend gate - concurrency, separate instances, shared ceilings and chat fan-out on real PostgreSQL (fails, never skips)
         run: npx vitest run tests/site/provider-spend.realdb.test.ts
+      - name: Intelligence seats - constraints, grants, catalogue parity and racing connections on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_team_seats_migration.py -q
+      - name: Intelligence seats - invitation, acceptance and removal through the routes, real PostgREST + PostgreSQL (fails, never skips)
+        run: npx vitest run tests/site/team-seats.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true

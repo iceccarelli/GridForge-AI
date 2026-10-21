@@ -71,6 +71,12 @@ export const RATE_POLICIES = {
   siting_account: { bucket: "siting_account", limit: 10, windowSeconds: HOUR },
   /** Token-addressed customer work that calls the engine (intake generation, bid comparison, quotation runs, watch re-solve). */
   customer_generate: { bucket: "customer_generate", limit: 20, windowSeconds: HOUR },
+  /** POST /api/team/invitations: each one queues an email to an address the owner typed. Per caller address... */
+  team_invite: { bucket: "team_invite", limit: 30, windowSeconds: HOUR },
+  /** ...and per VERIFIED owner account, so one owner cannot mail-bomb from many addresses. Team is 5 seats, so this is generous. */
+  team_invite_account: { bucket: "team_invite_account", limit: 20, windowSeconds: HOUR },
+  /** POST /api/team/invitation (preview, accept, decline): per caller address. A secret is 256 bits; this bounds noise, not guessing. */
+  team_redeem: { bucket: "team_redeem", limit: 60, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;
 
 export type RatePolicyName = keyof typeof RATE_POLICIES;

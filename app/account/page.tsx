@@ -10,6 +10,8 @@ import { snapshotFor, asOfLabel } from "@/lib/queue-data";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS } from "@/lib/products";
+import TeamPanel from "@/components/TeamPanel";
+import { PENDING_INVITE_KEY } from "@/lib/team-client";
 
 type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
 
@@ -41,6 +43,9 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<boolean | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
+  // "owner" runs the subscription and manages its seats; "member" holds a seat on someone else's.
+  const [role, setRole] = useState<"owner" | "member" | null>(null);
+  const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
   // "We could not check" is not "you have not subscribed". Showing a paying
   // subscriber the upgrade prompt because our own store was unreachable is the
   // client half of the defect fixed in app/api/subscription-status.
@@ -51,6 +56,15 @@ export default function AccountPage() {
       const userEmail = data.session?.user?.email ?? null;
       if (!userEmail) { router.replace("/account/login"); return; }
       setEmail(userEmail);
+      // An invitation link was opened before this person was signed in: pick it up where they left it.
+      try {
+        const pending = JSON.parse(localStorage.getItem(PENDING_INVITE_KEY) || "null") as { token?: string; at?: number } | null;
+        localStorage.removeItem(PENDING_INVITE_KEY);   // used once: the invitation page has the link, and this must not trap the dashboard
+        if (pending?.token && typeof pending.at === "number" && Date.now() - pending.at < 7 * 86_400_000) {
+          router.replace("/account/invite/" + encodeURIComponent(pending.token));
+          return;
+        }
+      } catch { /* storage unavailable: the emailed link still works */ }
       try {
         const res = await fetch("/api/subscription-status", {
           method: "POST",
@@ -64,6 +78,8 @@ export default function AccountPage() {
         } else {
           setActive(!!j.active);
           setPlan(j.plan ?? null);
+          setRole(j.role === "member" ? "member" : j.role === "owner" ? "owner" : null);
+          setOwnerEmail(typeof j.ownerEmail === "string" ? j.ownerEmail : null);
         }
       } catch { setUnreachable(true); setActive(false); }
       setLoading(false);
@@ -95,7 +111,13 @@ export default function AccountPage() {
               <button onClick={signOut} className="data text-xs uppercase tracking-[0.1em] text-mute hover:text-white inline-flex items-center gap-1.5"><LogOut size={14} /> Sign out</button>
             </div>
           </div>
+          {active && role === "member" && (
+            <p className="mb-6 rounded-lg border border-line bg-panel px-4 py-3 text-[13px] text-mute">
+              You have a seat on <span className="text-white">{ownerEmail}</span>&apos;s subscription. Only the billing owner can change seats.
+            </p>
+          )}
           {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : <Gate />}
+          {active && role === "owner" && <div className="mt-8"><TeamPanel headers={authHeaders} /></div>}
         </div>
     </main>
   );

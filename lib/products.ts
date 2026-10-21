@@ -300,7 +300,10 @@ export interface IntelligencePlan {
   interval: "month";
   /** Stripe metadata.kind. One family; the tier travels as metadata.plan. */
   kind: "intelligence_subscription";
-  /** null means unlimited. NOT ENFORCED anywhere yet: informational only, and not shown to buyers as a feature. */
+  /**
+   * Seats including the billing owner; null means unlimited. Enforced: lib/team.ts and migration 0027 (gf_plan_seats) hold
+   * the same numbers, tests/test_team_seats_migration.py fails if they differ, and the plan copy reads this field.
+   */
   seats: number | null;
 }
 
