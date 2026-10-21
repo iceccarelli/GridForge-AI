@@ -200,7 +200,8 @@ def build(intake: Intake, results: list[ScenarioResult], *,
             ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
             ("Time to full capacity",
              "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
-             f"weeks{_range} · set by {t.critical_item.lower()}"),
+             (f"weeks{_range} · set by {t.critical_item.lower()}" if t.complete else
+              "no date: a lead time on the path is missing")),
         ]))
 
     def _relief(s):

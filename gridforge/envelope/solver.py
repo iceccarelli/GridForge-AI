@@ -145,8 +145,16 @@ class HeadroomLadder:
         return sum(s.capex_eur.value for s in self.taken_steps if s.capex_eur is not None)
 
     @property
+    def critical_path_complete(self) -> bool:
+        """False when a relief that is taken has no lead time: the critical path is then a LOWER BOUND (the
+        longest KNOWN lead time), not the path."""
+        return all(s.lead_time_weeks is not None for s in self.taken_steps)
+
+    @property
     def critical_path_weeks(self) -> float:
-        """Reliefs are assumed to run in parallel; the longest lead time governs."""
+        """Reliefs are assumed to run in parallel; the longest lead time governs. When a taken relief has no
+        lead time this is only the longest known one: check ``critical_path_complete`` before quoting it as the
+        path (consumers publish None, not this number, for an incomplete path)."""
         return max((s.lead_time_weeks.value for s in self.taken_steps
                     if s.lead_time_weeks is not None), default=0.0)
 

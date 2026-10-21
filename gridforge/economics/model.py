@@ -80,6 +80,8 @@ class EconomicsResult:
     horizon_years: int | None = None
     discount_rate: float | None = None
     lifecycle_basis: str = ""
+    #: False when a relief on the path has no lead time: ``critical_path_weeks`` is then a lower bound.
+    critical_path_complete: bool = True
 
     def unpriced_summary(self) -> list[dict]:
         """The unpriced components grouped by what they are: one row per missing price, with the total quantity it
@@ -318,4 +320,5 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
         cdu_kit_scope=kit_scope, limited=limited_rows,
         synthetic_evidence=sorted(k for k in keys if k in library().entries and library().entries[k].synthetic), tariff_eur_per_MWh=tariff, tariff_declared=declared,
         annual_grid_energy_cost_eur=grid_cost, btm=btm, opex_complete=opex_complete,
-        lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis)
+        lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis,
+        critical_path_complete=lad.critical_path_complete)

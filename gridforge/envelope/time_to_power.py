@@ -37,6 +37,8 @@ class TimeToPower:
     def weeks_to_first_rack(self) -> float | None:
         if self.racks_now > 0:
             return 0.0
+        if not self.complete:
+            return None
         for p in self.points:
             if p.racks > 0:
                 return p.weeks
@@ -44,6 +46,8 @@ class TimeToPower:
 
     @property
     def weeks_to_full(self) -> float | None:
+        if not self.complete:
+            return None        # a relief with no lead time is unknown, not zero weeks: there is no date to give
         for p in self.points:
             if p.racks >= self.max_racks and self.max_racks > 0:
                 return p.weeks
@@ -51,9 +55,9 @@ class TimeToPower:
 
     critical_item: str = "—"
     critical_weeks: float = 0.0
-    #: False when a relief that was taken has no lead time. ``points`` then understate elapsed time (a missing
-    #: lead time is read as zero weeks here), so a caller that quotes a date must check this flag, or use
-    #: ``schedule_complete`` / ``full_capacity_band``, which return no date for an incomplete schedule.
+    #: False when a relief that was taken has no lead time. ``points`` then understate elapsed time (the missing
+    #: step contributes nothing), so ``weeks_to_first_rack`` / ``weeks_to_full`` return None rather than a date,
+    #: and ``critical_weeks`` is a lower bound only.
     complete: bool = True
 
 

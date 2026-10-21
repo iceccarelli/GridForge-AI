@@ -86,6 +86,11 @@ class Provenance:
     # ---- inspection ---------------------------------------------------
     @property
     def digest(self) -> str:
+        """A LINEAGE identifier, not a content hash. It covers the label, model id and version, evidence class and
+        the digests of the inputs, but NOT the numeric value or unit (a Provenance does not hold them). Two
+        quantities with the same label, class and lineage but different numbers therefore share a digest. What
+        identifies the numbers is the request digest of the intake (api/compare_payload.request_digest) and
+        ``gridforge.provenance.provenance()['digest']`` for the engine build; use those to detect a changed input."""
         h = hashlib.sha256()
         h.update(f"{self.label}|{self.model_id}|{self.model_version}|{int(self.evidence)}".encode())
         for p in self.inputs:

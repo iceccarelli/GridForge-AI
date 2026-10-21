@@ -82,6 +82,8 @@ def dominant_sensitivity(sensitivities, base: int):
 def critical_path_q(ladder: HeadroomLadder, label: str) -> Quantity:
     """Longest lead time over every taken rung, with the range of the rungs that reach it."""
     leads = [s.lead_time_weeks for s in ladder.taken_steps if s.lead_time_weeks is not None]
+    if len(leads) < len(ladder.taken_steps):
+        label += " (lower bound: a relief on the path has no lead time)"
     if not leads:
         return V(0.0, "weeks", label, EvidenceClass.E0_ASSUMPTION)
     top = max(leads, key=lambda q: q.value)

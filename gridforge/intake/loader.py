@@ -359,8 +359,11 @@ def _load_document(doc: dict) -> Intake:
                               CUSTOMER),
             units=_int(t.get("units", 2)),
             redundancy=_redundancy(t.get("redundancy", "N+1"), "transformer"),
+            # a supplied derating is the client's engineering figure (E3, as before); an absent one is a library
+            # default and is an assumption (E0)
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
-                              f"{t.get('id','TX')} derating", ESTIMATED, band=(0.85, 0.95)),
+                              f"{t.get('id','TX')} derating",
+                              ESTIMATED if t.get("derating_factor") is not None else ASSUMED, band=(0.85, 0.95)),
             replacement_lead_time_weeks=V(_pos(t.get("replacement_lead_time_weeks", 160), 'replacement_lead_time_weeks'),
                                           "weeks", "power transformer lead time", ASSUMED,
                                           band=(80, 210)),
@@ -383,10 +386,14 @@ def _load_document(doc: dict) -> Intake:
             id=str(o.get("id", o.get("kind", "BTM"))),
             kind=str(o.get("kind", "bess")).strip().lower(),
             capacity_MW=V(_pos(o["capacity_MW"], 'capacity_MW'), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
-            capex_eur_per_kW=V(_pos(o.get("capex_eur_per_kW", 900), 'capex_eur_per_kW'), "EUR/kW",
-                               f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3),
-            lead_time_weeks=V(_pos(o.get("lead_time_weeks", 36), 'lead_time_weeks'), "weeks",
-                              f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35),
+            # Absent means absent: no invented 900 EUR/kW and no invented 36 weeks. The option is then unpriced /
+            # undated (a visible gap below), never ranked as complete and never the source of a date.
+            capex_eur_per_kW=(V(_pos(o["capex_eur_per_kW"], 'capex_eur_per_kW'), "EUR/kW",
+                                f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3)
+                              if o.get("capex_eur_per_kW") is not None else None),
+            lead_time_weeks=(V(_pos(o["lead_time_weeks"], 'lead_time_weeks'), "weeks",
+                               f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35)
+                             if o.get("lead_time_weeks") is not None else None),
             firm=bool(o.get("firm", True)),
             firm_capacity_factor=(V(_frac(o["firm_capacity_factor"], "BTM firm_capacity_factor"), "1",
                                     f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
@@ -428,6 +435,18 @@ def _load_document(doc: dict) -> Intake:
             hours = V(_pos(o["ride_through_hours"], 'ride_through_hours'), "h",
                      f"{opt.id} required ride-through", ASSUMED)
             opt.firm_capacity_factor = bess_firm_factor_for_duration(opt, hours)
+        for key, what, unit, why in (
+                ("capex_eur_per_kW", "installed capex", "EUR/kW",
+                 "without a price the relief that installs this option is reported as unpriced and the capex "
+                 "total is a lower bound"),
+                ("lead_time_weeks", "lead time", "weeks",
+                 "without a lead time the schedule is incomplete: no date is given for any capacity that "
+                 "depends on this option")):
+            if getattr(opt, key) is None:
+                r.report.gaps.append(DataGap(
+                    path=f"btm_options[{opt.id}].{key}", label=f"{opt.id} {what}", unit=unit, required=False,
+                    fallback_description="none: the option is left unpriced / undated, not defaulted",
+                    why_it_binds=why, how_to_get_it="a supplier quotation or programme for this option"))
         options.append(opt)
 
     power = PowerInput(
@@ -437,7 +456,7 @@ def _load_document(doc: dict) -> Intake:
                                   V(10.0, "MVA", "assumed firm connection capacity", ASSUMED,
                                     band=0.3)),
             power_factor=r.q("grid.power_factor", "1", "site power factor",
-                             V(0.97, "1", "assumed site power factor", ESTIMATED, band=(0.95, 0.99))),
+                             V(0.97, "1", "assumed site power factor", ASSUMED, band=(0.95, 0.99))),
             contracted_MW=r.q("grid.contracted_MW", "MW", "contracted capacity",
                               V(9.0, "MW", "assumed contracted capacity", ASSUMED, band=0.3)),
             current_site_peak_MW=r.q("grid.current_site_peak_MW", "MW", "current site peak demand",
@@ -458,7 +477,7 @@ def _load_document(doc: dict) -> Intake:
             busway_runs=_int(r.raw("lv.busway_runs", 6)),
             busway_utilisation_limit=r.q("lv.busway_utilisation_limit", "1",
                                          "continuous-load derating on busway",
-                                         V(0.8, "1", "assumed continuous-load derating", ESTIMATED)),
+                                         V(0.8, "1", "assumed continuous-load derating", ASSUMED)),
             tapoff_max_A=r.q("lv.tapoff_max_A", "A", "installed tap-off rating",
                              V(63, "A", "assumed legacy tap-off rating", ASSUMED, band=(32, 125))),
         ),

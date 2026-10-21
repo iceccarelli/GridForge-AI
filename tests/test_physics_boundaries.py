@@ -2,8 +2,6 @@
 
 Fixtures are the SYNTHETIC reference hall (``examples.reference_site`` / ``examples/intake/reference_hall.json``).
 Nothing here is real-world calibration and nothing here changes the fact that the calibration ledger is empty.
-Where a test is marked ``xfail(strict=True)`` it documents a defect that was found and NOT fixed (the code is in a
-file outside the physics modules, or fixing it would contradict an existing test); the reason says which.
 """
 from __future__ import annotations
 
@@ -300,27 +298,6 @@ class TestMissingInputsPropagate:
                 for q in _quantities(r):
                     assert q.evidence < EvidenceClass.E6_FIELD_VALIDATED, (f.name, r.spec.id, q.prov.label)
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "KNOWN DEFECT, NOT FIXED (gridforge/intake/loader.py, outside the physics modules): a BTM option that omits "
-        "capex_eur_per_kW and lead_time_weeks silently gets 900 EUR/kW and 36 weeks, and neither is listed as a "
-        "data gap. A missing cost or lead time should be reported as missing, not filled with a credible-looking "
-        "number that then sets an energisation date."))
-    def test_a_btm_option_with_no_cost_or_lead_time_is_reported_as_a_gap(self):
-        doc = _doc()
-        doc["btm_options"] = [{"id": "G", "kind": "gas_engine", "capacity_MW": 5}]
-        intake = load_document(doc)
-        assert any("btm" in g.path.lower() or "lead_time" in g.path for g in intake.report.gaps)
-
-    @pytest.mark.xfail(strict=True, reason=(
-        "KNOWN DEFECT, NOT FIXED (gridforge/intake/loader.py): defaults the loader invents when a field is absent "
-        "(power factor 0.97, transformer derating 0.90, busway utilisation 0.80) are labelled E3 'engineering "
-        "estimate', above the E0 they deserve as unreviewed library defaults."))
-    def test_an_absent_power_factor_is_not_labelled_as_an_engineering_estimate(self):
-        doc = _doc()
-        del doc["grid"]["power_factor"]
-        pf = load_document(doc).context.power.grid.power_factor
-        assert pf.evidence == E0
-
 
 def _quantities(res):
     out = []
@@ -464,13 +441,11 @@ class TestDeterminism:
         b = handle_compare({"intake": d}, Tier.CLIENT)["request_digest"]
         assert a != b
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "KNOWN LIMITATION, NOT FIXED: Provenance.digest hashes label, model, version, evidence class and the input "
-        "digests but not the VALUE, so two inputs with the same label and class but different numbers share a "
-        "digest. The digest identifies lineage, not content; the request digest (which covers the intake) is what "
-        "changes with the numbers. Fixing it needs the value carried on Provenance and re-issues every digest."))
-    def test_the_provenance_digest_of_a_leaf_covers_its_value(self):
-        assert V(100, "kW", "same label", ASSUMED).prov.digest != V(200, "kW", "same label", ASSUMED).prov.digest
+    def test_the_provenance_digest_is_a_lineage_id_not_a_content_hash(self):
+        # Documented in Provenance.digest: label, model, class and input digests, NOT the value. What changes with
+        # the numbers is the request digest (tested above) and the engine-build digest.
+        assert "LINEAGE" in type(V(1, "kW", "x", ASSUMED).prov).digest.__doc__
+        assert V(100, "kW", "same label", ASSUMED).prov.digest == V(200, "kW", "same label", ASSUMED).prov.digest
 
 
 def test_floating_point_noise_does_not_flip_a_rack_count():

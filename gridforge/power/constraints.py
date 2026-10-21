@@ -86,6 +86,10 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                         f"{opt.capacity_MW.render(with_class=False)})",
             capex_eur=option_capex(opt),
             lead_time_weeks=opt.lead_time_weeks,
+            basis_note=" ".join(x for x in (
+                f"{opt.id} has no declared price: the step is unpriced, not free." if opt.capex_eur_per_kW is None else "",
+                f"{opt.id} has no declared lead time: the step is undated, not instant." if opt.lead_time_weeks is None else "",
+            ) if x),
             apply=_apply,
             # Priced from the client's own declared option: their quotation for
             # their site beats anything in our library.

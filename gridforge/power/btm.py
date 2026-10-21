@@ -126,7 +126,10 @@ def installed_firm_kW(power: PowerInput) -> Quantity:
                          step_evidence=ESTIMATED)
 
 
-def option_capex(option: GenerationOption) -> Quantity:
+def option_capex(option: GenerationOption) -> Quantity | None:
+    """Installed capex of the option, or None when the client declared no price (never zero)."""
+    if option.capex_eur_per_kW is None:
+        return None
     return (option.capacity_MW.convert(1000.0, "kW", f"{option.id} capacity in kW")
             * option.capex_eur_per_kW).relabel(
         f"{option.id} installed capex", "power.btm_capex", step_evidence=ESTIMATED)
@@ -143,4 +146,11 @@ def next_option(power: PowerInput) -> GenerationOption | None:
                   if not o.installed and o.firm and firm_contribution_kW(o).value > 0]
     if not candidates:
         return None
-    return sorted(candidates, key=lambda o: (o.lead_time_weeks.value, option_capex(o).value))[0]
+    # An option with no declared lead time or price sorts after every one that has them, never as "0 weeks / free".
+    inf = float("inf")
+
+    def key(o: GenerationOption):
+        capex = option_capex(o)
+        return (o.lead_time_weeks is None, inf if o.lead_time_weeks is None else o.lead_time_weeks.value,
+                capex is None, inf if capex is None else capex.value, o.id)
+    return sorted(candidates, key=key)[0]

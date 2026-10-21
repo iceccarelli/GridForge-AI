@@ -218,14 +218,28 @@ def test_a_missing_lead_time_gives_no_date_instead_of_zero_weeks(halls):
     assert e.weeks == math.inf
     row = portfolio_rows([e])[0]
     assert row["weeks_to_full"] is None and row["schedule_complete"] is False
-    md = render_gated(build([e], objective=Objective.FASTEST_TO_POWER), [e])
+    # The hall is rendered on max_compute, under which `e.best` is still the scenario whose lead times were removed.
+    # (On "fastest" the engine now correctly prefers a dated scenario over an undated one, so that scenario would no
+    # longer be the hall's best and the missing-lead-time cell would not appear.)
+    md = render_gated(build([e], objective=Objective.MAX_COMPUTE), [e])
     assert "lead time is missing" in md
+
+
+def test_an_undated_scenario_never_wins_fastest(halls):
+    e = copy.deepcopy(halls["nordic_hall"])
+    undated = e.best
+    for s in undated.ladder.taken_steps:
+        s.lead_time_weeks = None
+    from gridforge.scenario.objective import pick_recommended
+    pick = pick_recommended(e.results, Objective.FASTEST_TO_POWER)
+    assert pick is not undated and schedule(pick.ladder).complete
 
 
 def test_an_incomplete_schedule_ranks_below_a_dated_hall_on_fastest(halls):
     undated = copy.deepcopy(halls["nordic_hall"])         # most racks, but its date is unknown
-    for s in undated.best.ladder.taken_steps:
-        s.lead_time_weeks = None
+    for res in undated.results:                            # every scenario of the hall: on "fastest" the engine
+        for s in res.ladder.taken_steps:                   # now prefers a dated scenario to an undated one
+            s.lead_time_weeks = None
     ordered = rank([undated, halls["london_hall"]], Objective.FASTEST_TO_POWER)
     assert ordered[0].ident == halls["london_hall"].ident and "no lead time" in portfolio_rows(
         [undated, halls["london_hall"]], Objective.FASTEST_TO_POWER)[1]["rank_note"]

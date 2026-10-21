@@ -55,8 +55,8 @@ class EnvelopeContext:
 class ReliefOption:
     """What it costs to move a constraint. `apply` returns a NEW context."""
     description: str
-    capex_eur: Quantity
-    lead_time_weeks: Quantity
+    capex_eur: Quantity | None        # None: the price is unknown (reported as unpriced, never zero)
+    lead_time_weeks: Quantity | None  # None: the lead time is unknown (the schedule is then incomplete)
     apply: Callable[[EnvelopeContext], EnvelopeContext] = field(repr=False)
     risk: str = ""
     # Where this price came from. A cost-library key, or one of the sentinels:

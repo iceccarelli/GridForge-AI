@@ -19,12 +19,13 @@ from gridforge import constraints as constraints_mod
 from gridforge.common import ASSUMED, CUSTOMER, V
 from gridforge.constraints import ConstraintResult, floor_racks
 from gridforge.costs import CostEntry
+from gridforge.economics.model import evaluate
 from gridforge.envelope import ladder, solve
 from gridforge.envelope.time_to_power import full_capacity_band, schedule, schedule_complete
 from gridforge.power.btm import bess_firm_factor_for_duration
 from gridforge.power.constraints import grid_firm_capacity, rack_feed_tapoff
 from gridforge.power.schema import GenerationOption
-from gridforge.scenario import run
+from gridforge.scenario import run, run_all
 from gridforge.scenario.objective import Objective, pick_recommended
 from gridforge.site.constraints import floor_loading
 from gridforge.thermal.constraints import (architecture_capability, cdu_capacity, plant_capacity,
@@ -224,24 +225,56 @@ def _reference_runs():
 
 
 class TestMissingLeadTime:
-    def test_a_schedule_with_a_missing_lead_time_says_it_is_incomplete(self):
+    def test_a_schedule_with_a_missing_lead_time_gives_no_date_instead_of_zero_weeks(self):
         res = _reference_runs()["s4_full"]
         assert schedule(res.ladder).complete is True
         for st in res.ladder.taken_steps:
             if st.binding_id == "transformer_capacity":
                 st.lead_time_weeks = None               # the 160-week step loses its lead time
         t = schedule(res.ladder)
-        assert t.complete is False                       # the flag did not exist: nothing marked the date as unsafe
+        assert t.complete is False
+        assert t.weeks_to_full is None                   # was ~36 weeks: the missing step counted as zero
+        assert t.weeks_to_first_rack is None
         assert schedule_complete(res.ladder) is False
-        assert full_capacity_band(res.ladder, t) is None          # the defensible-date path still refuses to answer
+        assert full_capacity_band(res.ladder, t) is None
 
     def test_a_complete_schedule_is_unchanged(self):
         t = schedule(_reference_runs()["s4_full"].ladder)
         assert t.complete is True and t.weeks_to_full == 160.0
 
+    def test_a_hall_that_already_hosts_racks_still_has_week_zero(self):
+        lad = _reference_runs()["s4_full"].ladder
+        lad.initial.max_racks = 3
+        for st in lad.taken_steps:
+            st.lead_time_weeks = None
+        assert schedule(lad).weeks_to_first_rack == 0.0
+
+    def test_critical_path_marks_itself_incomplete_instead_of_shorter(self):
+        res = _reference_runs()["s4_full"]
+        lad = res.ladder
+        assert lad.critical_path_complete is True and lad.critical_path_weeks == 160.0
+        for st in lad.taken_steps:
+            if st.binding_id == "transformer_capacity":
+                st.lead_time_weeks = None
+        assert lad.critical_path_complete is False
+        ec = evaluate(lad.final, lad, res.context.cluster.utilisation)
+        assert ec.critical_path_complete is False
+        from gridforge.serialize import economics_dict
+        res.economics = ec
+        d = economics_dict(res)
+        assert d["critical_path_complete"] is False and d["critical_path_weeks"] is None
+
+    def test_the_machine_payloads_carry_no_date_for_an_incomplete_schedule(self):
+        from gridforge.serialize import scenario_dict
+        res = _reference_runs()["s4_full"]
+        for st in res.ladder.taken_steps:
+            st.lead_time_weeks = None
+        ttp = scenario_dict(res)["time_to_power"]
+        assert ttp["weeks_to_full"] is None and ttp["schedule_complete"] is False
+
 
 # ---------------------------------------------------------------------------------------------------------------
-# D8. The "recommended" scenario ranked a lower bound (unpriced capex) as if it were a complete figure.
+# D8. The "recommended" scenario ranked a lower bound (unpriced capex) and an undated scenario as if complete.
 # ---------------------------------------------------------------------------------------------------------------
 class TestRecommendationDoesNotRankMissingFigures:
     @staticmethod
@@ -267,22 +300,16 @@ class TestRecommendationDoesNotRankMissingFigures:
         assert pick_recommended([self._fake("more", 21, 9e9, False), complete],
                                 Objective.MAX_COMPUTE).spec.id == "more"      # capacity still ranks first
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "KNOWN DEFECT, NOT FIXED: schedule() reads a missing lead time as zero weeks and pick_recommended(FASTEST) "
-        "ranks on it, so a scenario with an unknown lead time can win 'fastest'. compare_payload already refuses "
-        "to rank such a scenario. Fixing it makes tests/test_portfolio_change_provenance.py::"
-        "test_a_missing_lead_time_gives_no_date_instead_of_zero_weeks fail, because that existing test only "
-        "reaches its assertion when the undated scenario is still the 'fastest' pick. Needs a decision from the "
-        "owner of that test."))
     def test_fastest_does_not_reward_a_missing_lead_time(self):
         runs = _reference_runs()
         for st in runs["s4_full"].ladder.taken_steps:
             if st.binding_id == "transformer_capacity":
                 st.lead_time_weeks = None
         pool = [runs["s3_hybrid"], runs["s4_full"], runs["s5_full_btm"]]
-        # s3, s4 and s5 all wait 160 weeks on the transformer. With its lead time missing, s4 looks ~36 weeks
-        # faster than the other two and wins.
-        assert pick_recommended(pool, Objective.FASTEST_TO_POWER).spec.id != "s4_full"
+        # s3, s4 and s5 all wait 160 weeks on the transformer. With its lead time missing, s4 used to look ~36
+        # weeks faster than the other two and won. An undated scenario now ranks after every dated one; of the
+        # two dated ones (160 weeks each) the one with more racks wins.
+        assert pick_recommended(pool, Objective.FASTEST_TO_POWER).spec.id == "s5_full_btm"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -366,3 +393,105 @@ def test_bess_firm_factor_keeps_its_band():
     assert f.band[0] == pytest.approx(1.8 / 2.2)
     assert f.band[1] == 1.0
     assert f.evidence == E0
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# D13. A BTM option with no declared capex / lead time was given 900 EUR/kW and 36 weeks by the loader.
+# ---------------------------------------------------------------------------------------------------------------
+class TestUndeclaredBtmCostAndLeadTime:
+    @staticmethod
+    def _doc():
+        import json
+        from pathlib import Path
+        d = json.loads((Path(__file__).resolve().parents[1] / "examples" / "intake" / "reference_hall.json").read_text())
+        d["btm_options"] = [{"id": "GEN-X", "kind": "gas_engine", "capacity_MW": 5, "firm": True}]
+        return d
+
+    def test_the_loader_does_not_invent_a_price_or_a_lead_time(self):
+        from gridforge.intake.loader import load_document
+        intake = load_document(self._doc())
+        opt = intake.context.power.options[0]
+        assert opt.capex_eur_per_kW is None and opt.lead_time_weeks is None
+        paths = [g.path for g in intake.report.gaps]
+        assert "btm_options[GEN-X].capex_eur_per_kW" in paths and "btm_options[GEN-X].lead_time_weeks" in paths
+
+    def test_a_declared_option_is_unchanged(self):
+        from gridforge.intake.loader import load_document
+        d = self._doc()
+        d["btm_options"][0].update(capex_eur_per_kW=800, lead_time_weeks=44)
+        opt = load_document(d).context.power.options[0]
+        assert opt.capex_eur_per_kW.value == 800 and opt.lead_time_weeks.value == 44
+
+    def test_the_ladder_step_is_unpriced_and_undated_never_free_or_instant(self):
+        from gridforge.intake.loader import load_document
+        intake = load_document(self._doc())
+        res = [r for r in run_all(intake.context, intake.scenarios) if r.spec.id == "full_dlc_btm"][0]
+        steps = [s for s in res.ladder.taken_steps if s.cost_key == "client-supplied"]
+        assert steps, "the BTM option must be taken where the grid binds"
+        assert all(s.capex_eur is None and s.lead_time_weeks is None for s in steps)
+        assert "no declared price" in steps[0].basis_note and "no declared lead time" in steps[0].basis_note
+        assert res.economics.capex_complete is False
+        assert any(u["component"] == "the relief itself" for u in res.economics.unpriced)
+        t = schedule(res.ladder)
+        assert t.complete is False and t.weeks_to_full is None
+        assert full_capacity_band(res.ladder, t) is None
+
+    def test_an_undeclared_option_sorts_after_declared_ones(self):
+        from gridforge.power.btm import next_option
+        ctx = build_context()
+        declared, undeclared = ctx.power.options
+        undeclared.capex_eur_per_kW = None
+        undeclared.lead_time_weeks = None
+        assert next_option(ctx.power) is declared
+        ctx.power.options = [undeclared]
+        assert next_option(ctx.power) is undeclared       # still available as a relief, but undated and unpriced
+
+
+def test_assumed_library_defaults_for_power_factor_and_busway_derating_are_e0():
+    import json
+    from pathlib import Path
+    from gridforge.intake.loader import load_document
+    d = json.loads((Path(__file__).resolve().parents[1] / "examples" / "intake" / "reference_hall.json").read_text())
+    for k in ("power_factor",):
+        del d["grid"][k]
+    del d["lv"]["busway_utilisation_limit"]
+    del d["transformers"][0]["derating_factor"]
+    p = load_document(d).context.power
+    assert p.grid.power_factor.evidence == E0
+    assert p.lv.busway_utilisation_limit.evidence == E0
+    assert p.transformers[0].derating_factor.evidence == E0
+    # a supplied derating keeps its previous class
+    d["transformers"][0]["derating_factor"] = 0.9
+    assert load_document(d).context.power.transformers[0].derating_factor.evidence == E3
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# D14. An undeclared ride-through window (2 h library default) was not flagged.
+# ---------------------------------------------------------------------------------------------------------------
+class TestUndeclaredRideThrough:
+    def _case(self, **kw):
+        from gridforge.power.generation import default_generation_unit
+        from gridforge.power.reliability import ContingencyCase
+        from gridforge.power.storage import default_bess
+        return ContingencyCase(critical_load_MW=V(1.0, "MW", "critical load", ASSUMED),
+                               grid_firm_MW=V(0.0, "MW", "no grid", ASSUMED),
+                               generation=[default_generation_unit("G", "gas_engine", 5.0)],
+                               bess=[default_bess("B", 2.0, 8.0)], **kw)
+
+    def test_default_ride_through_blocks_a_pass(self):
+        from gridforge.power.reliability import ContingencyStatus, evaluate as contingency
+        r = contingency(self._case())                    # margin is large and positive
+        assert r.margin_MW.value > 0
+        assert r.status is ContingencyStatus.REQUIRES_ENGINEERING_STUDY
+        assert any("no ride-through window was declared" in b for b in r.blocking)
+
+    def test_a_declared_ride_through_passes(self):
+        from gridforge.power.reliability import ContingencyStatus, evaluate as contingency
+        r = contingency(self._case(ride_through_hours=V(2.0, "h", "client policy", CUSTOMER)))
+        assert r.status is ContingencyStatus.PASS and not r.blocking
+
+    def test_a_shortfall_is_still_a_fail_not_softened(self):
+        from gridforge.power.reliability import ContingencyStatus, evaluate as contingency
+        case = self._case()
+        case.critical_load_MW = V(50.0, "MW", "huge load", ASSUMED)
+        assert contingency(case).status is ContingencyStatus.FAIL
