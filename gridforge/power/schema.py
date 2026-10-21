@@ -58,8 +58,10 @@ class GenerationOption:
     id: str
     kind: str                 # "bess", "gas_engine", "chp", "pv", "fuel_cell", "grid_reinforcement"
     capacity_MW: Quantity
-    capex_eur_per_kW: Quantity
-    lead_time_weeks: Quantity
+    #: None means the client declared no price / no lead time. It is reported as unpriced / undated; it is never
+    #: replaced by a default, and the ladder step that takes this option carries no capex and no date.
+    capex_eur_per_kW: Quantity | None
+    lead_time_weeks: Quantity | None
     firm: bool = False        # may it count toward firm capacity at all?
     firm_capacity_factor: Quantity | None = None   # what fraction of nameplate is firm
     opex_eur_per_MWh: Quantity | None = None

@@ -64,7 +64,8 @@ def build(intake: Intake, results: list[ScenarioResult],
     steps = [st for st in rec.ladder.taken_steps if not is_zero_gain(st) and st.capex_eur is not None]
     picks: list = []
     for st in (steps[:1] + [max(steps, key=lambda x: x.capex_eur.value)] if steps else []) + \
-              ([max(steps, key=lambda x: x.lead_time_weeks.value)] if steps else []):
+              ([max(steps, key=lambda x: -1.0 if x.lead_time_weeks is None else x.lead_time_weeks.value)]
+               if steps else []):
         if st.relief_description not in {p.relief_description for p in picks}:
             picks.append(st)
     rows = []

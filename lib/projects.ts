@@ -297,6 +297,9 @@ export function predictionRef(case_token: string, revision: number, architecture
 // ---------------------------------------------------------------- evidence
 
 export const EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
+/** Per project: how many files and how many bytes in all. A project's inventory is a record, not a file share. */
+export const EVIDENCE_MAX_FILES = 100;
+export const EVIDENCE_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 export const EVIDENCE_MEDIA_TYPES = ["application/pdf", "text/csv", "application/json"] as const;
 export const EVIDENCE_CATEGORIES = [
   "utility_correspondence",
@@ -379,6 +382,17 @@ export async function attachEvidence(
   const note = (file.note ?? "").trim().slice(0, 500) || null;
 
   const sha256 = crypto.createHash("sha256").update(file.bytes).digest("hex");
+
+  // The inventory's own ceiling, checked before anything is stored: without it one project token could fill the bucket.
+  const held = await rest<{ byte_size: number }[]>("GET", `project_evidence?project_id=eq.${q(project.id)}&select=byte_size&limit=${EVIDENCE_MAX_FILES + 1}`);
+  if (!held.ok) return { ok: false, status: 502, error: "The evidence inventory could not be read." };
+  const heldRows = held.data ?? [];
+  if (heldRows.length >= EVIDENCE_MAX_FILES) {
+    return { ok: false, status: 409, error: `This project already holds ${EVIDENCE_MAX_FILES} files, which is the most one project keeps.` };
+  }
+  if (heldRows.reduce((a, r) => a + (Number(r.byte_size) || 0), 0) + file.bytes.byteLength > EVIDENCE_MAX_TOTAL_BYTES) {
+    return { ok: false, status: 413, error: `This file would take the project past ${EVIDENCE_MAX_TOTAL_BYTES / (1024 * 1024)} MB of evidence, which is the most one project keeps.` };
+  }
 
   const dup = await rest<EvidenceRow[]>(
     "GET",

@@ -38,6 +38,9 @@ class ContingencyStatus(str, Enum):
     REQUIRES_ENGINEERING_STUDY = "requires_engineering_study"
 
 
+UNDECLARED_RIDE_THROUGH_LABEL = "ride-through window (undeclared default of ContingencyCase)"
+
+
 @dataclass
 class ContingencyCase:
     """What is being tested. `ride_through_hours` is the duration a battery must
@@ -49,7 +52,7 @@ class ContingencyCase:
     generation: list[GenerationUnit] = field(default_factory=list)
     bess: list[BatteryEnergyStorageSystem] = field(default_factory=list)
     ride_through_hours: Quantity = field(
-        default_factory=lambda: V(2.0, "h", "ride-through window (undeclared default)", ASSUMED))
+        default_factory=lambda: V(2.0, "h", UNDECLARED_RIDE_THROUGH_LABEL, ASSUMED))
     redundancy: Redundancy = Redundancy.N
 
 
@@ -148,6 +151,11 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
             "one or more generation units has no declared availability or forced-outage "
             "rate — the firm figure above assumes 100% availability for that unit, which "
             "overstates the result.")
+
+    if case.bess and case.ride_through_hours.prov.label == UNDECLARED_RIDE_THROUGH_LABEL:
+        blocking.append(
+            "no ride-through window was declared: the battery figure above uses a 2 h library default. Declare "
+            "the outage window the site's own reliability policy requires before relying on this result.")
 
     if blocking and margin.value >= 0:
         status = ContingencyStatus.REQUIRES_ENGINEERING_STUDY

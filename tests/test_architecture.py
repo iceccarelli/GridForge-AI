@@ -93,7 +93,7 @@ def test_no_third_party_dependencies():
     """
     stdlib_ok = {"__future__", "argparse", "ast", "base64", "collections", "copy", "csv",
                  "contextlib", "contextvars", "dataclasses", "functools", "datetime", "enum", "hashlib", "hmac", "html", "http", "io",
-                 "json", "math", "os", "pathlib", "re", "secrets", "sys", "threading",
+                 "json", "math", "os", "pathlib", "re", "secrets", "signal", "sys", "threading",
                  "time", "traceback", "typing", "urllib", "zipfile"}
     bad = []
     for path in ROOT.rglob("*.py"):

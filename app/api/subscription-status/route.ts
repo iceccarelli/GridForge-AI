@@ -24,6 +24,13 @@ export async function POST(req: Request) {
   }
   const email = who.email;
 
+  // A session that merely claims an address (Supabase has not confirmed it: no emailed link was followed) must not learn
+  // whether that address subscribes, on what plan, or whose seat it holds. It sees the not-subscribed view, flagged as
+  // unverified so the page can say why instead of silently showing an upgrade prompt.
+  if (!who.verified) {
+    return NextResponse.json({ ok: true, active: false, verified: false });
+  }
+
   if (!subscriptionsConfigured()) {
     return NextResponse.json(
       { ok: false, active: false, error: "Subscription store unavailable" },

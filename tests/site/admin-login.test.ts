@@ -144,15 +144,15 @@ describe("a guess must cost something", () => {
     expect((await POST(login(PASSWORD, "198.51.100.77"))).status).toBe(200);
   });
 
-  it("reads only the first hop of x-forwarded-for, which a client cannot append to", async () => {
+  it("reads only the LAST hop of x-forwarded-for: the first is whatever the client typed (red-team F11)", async () => {
+    // This used to assert the opposite (first hop), which let a guesser rotate the throttle key by prepending addresses.
     const { throttleLogin, resetLoginThrottle, requestKey } = await admin();
     resetLoginThrottle();
-    const spoofed = new Request(siteUrl("/api/admin/login"), {
-      method: "POST",
-      headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1, 10.0.0.2" },
-    });
-    expect(requestKey(spoofed)).toBe("203.0.113.10");
-    expect(throttleLogin("203.0.113.10")).toBe(0);
+    const asSeenBy = (xff: string) =>
+      requestKey(new Request(siteUrl("/api/admin/login"), { method: "POST", headers: { "x-forwarded-for": xff } }));
+    expect(asSeenBy("203.0.113.10, 10.0.0.1, 10.0.0.2")).toBe(asSeenBy("198.51.100.1, 10.0.0.2"));
+    expect(asSeenBy("203.0.113.10, 10.0.0.1, 10.0.0.2")).not.toBe(asSeenBy("10.0.0.1"));
+    expect(throttleLogin(asSeenBy("203.0.113.10, 10.0.0.2"))).toBe(0);
   });
 
   it("lets the window pass", async () => {

@@ -144,7 +144,6 @@ export function IntelligenceClient() {
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 data text-xs text-faint">
             <span>Cancel anytime</span>
-            <span>EU-hosted · GDPR-aligned</span>
             <span>Secure payment via Stripe</span>
           </div>
         </div>

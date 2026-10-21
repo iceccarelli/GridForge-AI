@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { attachEvidence, checkEvidenceType, EVIDENCE_MAX_BYTES } from "@/lib/projects";
 import { fail, withProject } from "@/lib/project-http";
+import { guardRequest } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Type is checked before the body is read: an unsupported type never costs a read.
   const badType = checkEvidenceType(mediaType);
   if (badType) return fail(badType);
+
+  // The project token and the declared type are checked; admit the upload against the per-caller allowance BEFORE reading
+  // up to EVIDENCE_MAX_BYTES of body or touching the object store.
+  const g = await guardRequest(req, "project_evidence");
+  if (g.denied) return g.denied;
 
   const bytes = await readCapped(req, EVIDENCE_MAX_BYTES);
   if (!bytes) {

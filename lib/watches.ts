@@ -49,6 +49,9 @@ export interface WatchNote {
   trigger: string;
 }
 
+/** What the note for a watch's first answer says: it is the point later change notes are measured from, not a change. */
+export const BASELINE_HEADLINE = "Baseline recorded. Later change notes compare against this answer.";
+
 export function newToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
@@ -137,6 +140,13 @@ export async function dueWatches(limit = 25): Promise<WatchRecord[]> {
   return (await res.json()) as WatchRecord[];
 }
 
+/**
+ * One engine call of a watch run. The two formats run concurrently, so a run is about this long at worst, and the cron
+ * starts no new watch after WATCH_CRON_START_BY_MS of its 300 s budget, which keeps the whole invocation inside it.
+ */
+export const WATCH_ENGINE_TIMEOUT_MS = 100_000;
+export const WATCH_CRON_START_BY_MS = 190_000;
+
 /** How long a claimed watch is held by one cron invocation before another may take it. */
 export const WATCH_LEASE_MS = 15 * 60 * 1000;
 /** After an engine/store failure a watch is pushed this far back, behind everything else due. */
@@ -222,19 +232,24 @@ export async function watchBySubscription(subscriptionId: string): Promise<Watch
   return found.ok ? found.row : null;
 }
 
-export async function recordNote(row: Partial<WatchNote> & { watch_id: string }): Promise<boolean> {
+/** Store a change note. Returns the stored note's id, or null when it was NOT stored (the caller must not advance state or email). */
+export async function recordNote(row: Partial<WatchNote> & { watch_id: string }): Promise<string | null> {
   const c = creds();
   if (!c) {
     console.error("[GridForge] watch note NOT persisted: Supabase is not configured (watch_id=%s)", row.watch_id);
-    return false;
+    return null;
   }
   const res = await fetch(`${c.url}/rest/v1/watch_notes`, {
     method: "POST",
-    headers: { ...c.headers, Prefer: "return=minimal" },
+    headers: { ...c.headers, Prefer: "return=representation" },
     body: JSON.stringify(row),
   });
-  if (!res.ok) console.error("[GridForge] watch note insert failed:", await storeFault(res));
-  return res.ok;
+  if (!res.ok) {
+    console.error("[GridForge] watch note insert failed:", await storeFault(res));
+    return null;
+  }
+  const rows = (await res.json().catch(() => [])) as { id?: string }[];
+  return rows[0]?.id ?? null;
 }
 
 export async function notesFor(watchId: string, limit = 12): Promise<WatchNote[]> {
@@ -282,7 +297,7 @@ export async function runWatch(
         ...(before ? { before } : previousState ? { previous_state: previousState } : {}),
         format,
       }),
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(WATCH_ENGINE_TIMEOUT_MS),
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));

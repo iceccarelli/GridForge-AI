@@ -29,10 +29,12 @@ import { SITE_URL } from "@/lib/site";
 import { keyLife } from "@/lib/api-access";
 import { creds } from "@/lib/projects";
 import { inviteToken } from "@/lib/team-token";
+import { PAYG, eurText, utcMonth } from "@/lib/payg";
+import { usageNet } from "@/lib/payg-usage";
 
-export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation"] as const;
+export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
-type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations";
+type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations" | "usage_settlements";
 export type NotificationStatus = "pending" | "accepted" | "ambiguous" | "abandoned" | "cancelled";
 
 const SUBJECT: Record<NotificationKind, SubjectTable> = {
@@ -42,6 +44,8 @@ const SUBJECT: Record<NotificationKind, SubjectTable> = {
   key_rotation: "api_accounts",
   subscription_welcome: "subscriptions",
   team_invitation: "subscription_invitations",
+  usage_alert: "api_accounts",
+  payg_payment_failed: "usage_settlements",
 };
 
 const LEASE_MS = 2 * 60_000;
@@ -184,6 +188,23 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     if (!token) throw new Blocked("credential_missing");
     if (row.status === "cancelled") throw new NotApplicable("subscription cancelled");
     const units = Number(row.monthly_units ?? 0);
+    if (row.plan === "api_free") {
+      return {
+        to,
+        subject: "Your free GridForge API allowance",
+        text:
+          "Your free allowance is ready. Open the link below to create your key:\n\n" +
+          `${SITE_URL}/api-access/${token}` +
+          "\n\nThis link is the email verification: the key is only ever issued from it, and it is shown once. We do not store it.\n\n" +
+          `The allowance is ${PAYG.freeAllowanceUnits} units a month and is never invoiced. A constraint screen is 1 unit, a full solve ` +
+          "is 5 and a portfolio run is 1 per hall; the free qualifier does not use the allowance. When the allowance is used up, requests " +
+          "are refused with HTTP 402 (never silently charged). To go beyond it you choose to enable pay-as-you-go from the same page: " +
+          `you set a hard monthly cap, a card is saved but nothing is charged when you save it, and usage is invoiced in arrears at ${eurText(PAYG.unitPriceCents)} per unit.\n\n` +
+          "Screening-mode output is not an issued engineering opinion: it has no named signatory and no indemnity behind it. Every number " +
+          "carries an evidence class and a provenance digest.\n\n" +
+          "If you did not ask for this, ignore this message: nothing is created until you open the link.",
+      };
+    }
     return {
       to,
       subject: "Your GridForge API access is live",
@@ -237,6 +258,73 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `${new Date(String(row.expires_at)).toISOString().slice(0, 10)}. If you were not expecting it, ignore this message and nothing changes.`,
     };
   }
+  if (n.kind === "payg_payment_failed") {
+    // The subject is the SETTLEMENT (one obligation per failed month, however often Stripe reports the failure). The recipient and the
+    // portal link come from the account it belongs to, read now; nothing but the settlement's id is stored in the queue.
+    const month = String(row.month ?? "");
+    const acc = await db<Record<string, unknown>[]>(c, "GET", `api_accounts?account=eq.${enc(String(row.account ?? ""))}&select=*&limit=1`);
+    if (!acc.ok) throw new Error(`account lookup ${acc.status}`);
+    const owner = acc.data?.[0];
+    if (!owner) throw new NotApplicable("account gone");
+    // Paid since (or voided): a stale warning is cancelled, never sent. Cancelled accounts are not written to either.
+    if (row.status !== "failed") throw new NotApplicable(`settlement ${String(row.status)}`);
+    if (owner.status === "cancelled") throw new NotApplicable("account cancelled");
+    const token = credential(owner.token);
+    if (!token) throw new Blocked("credential_missing");
+    const invoiceUrl = typeof row.hosted_invoice_url === "string" && /^https:\/\//.test(row.hosted_invoice_url) ? row.hosted_invoice_url : null;
+    const amount = eurText(Number(row.amount_cents ?? 0));
+    return {
+      to: typeof owner.email === "string" ? owner.email : "",
+      subject: `GridForge: payment for your ${month} usage failed - your API key is disabled`,
+      text:
+        `We could not collect ${amount} for your GridForge pay-as-you-go usage in ${month} (${Number(row.units ?? 0)} units at ${eurText(PAYG.unitPriceCents)}).\n\n` +
+        "What this blocks, now:\n" +
+        "- Your API key has been revoked, so requests made with it are refused.\n" +
+        "- No new key can be created and no new usage can accrue until the invoice is paid.\n" +
+        "Usage you have already made is unchanged.\n\n" +
+        "How to recover:\n" +
+        `1. Pay the invoice${invoiceUrl ? `: ${invoiceUrl}` : " (it is listed on your portal page)"}. Stripe may also retry the card on file; either way the account is reinstated once the payment succeeds.\n` +
+        `2. Open your portal and create a new key. The revoked key does not come back, and a paid invoice does not restore it.\n\n` +
+        `${SITE_URL}/api-access/${token}\n\n` +
+        "You get this message once per failed invoice, however many times the payment is retried.",
+    };
+  }
+  if (n.kind === "usage_alert") {
+    // dedupe key: usage_alert:{account id}:{YYYY-MM}:{percent}. The numbers are read NOW, at send time, from the ledger copy.
+    const m = /:(\d{4}-\d{2}):(\d{1,3})$/.exec(n.dedupe_key);
+    if (!m) throw new NotApplicable("malformed alert");
+    const [, month, pctText] = m;
+    const percent = Number(pctText);
+    const plan = String(row.plan ?? "");
+    if (row.status !== "active") throw new NotApplicable("account not active");
+    if (plan !== "api_free" && plan !== "api_payg") throw new NotApplicable("plan has no usage alert");
+    const cap = plan === "api_free" ? PAYG.freeAllowanceUnits : Number(row.cap_units ?? 0);
+    const token = credential(row.token);
+    if (!token) throw new Blocked("credential_missing");
+    if (!(cap > 0)) throw new NotApplicable("no cap on record");
+    if (month !== utcMonth(new Date())) throw new NotApplicable("alert is for a month that has ended");
+    const net = await usageNet(String(row.account), month);
+    if (!net) throw new Error("usage unreadable");
+    const used = net.net;
+    const portal = `${SITE_URL}/api-access/${token}`;
+    const stopLine =
+      plan === "api_payg"
+        ? `Your cap is a hard stop: at ${cap} units a request is refused with HTTP 402 and nothing beyond the cap is ever charged. ` +
+          "The count restarts at the start of the next UTC month, or you can raise the cap from the portal (raising it issues a new key and revokes the current one)."
+        : "When the free allowance is used up, requests are refused with HTTP 402 and nothing is charged. " +
+          "The count restarts at the start of the next UTC month, or you can enable pay-as-you-go from the portal.";
+    const money =
+      plan === "api_payg"
+        ? `\nAccrued this month so far: ${eurText(used * PAYG.unitPriceCents)} (${used} units at ${eurText(PAYG.unitPriceCents)}, net of refunds), invoiced in arrears. A balance below ${eurText(PAYG.minInvoiceCents)} is carried forward from month to month, and one that never reaches it is not invoiced.`
+        : "\nFree-allowance usage is never invoiced.";
+    return {
+      to,
+      subject: percent >= 100 ? `GridForge: you have reached ${percent}% of your monthly ${plan === "api_free" ? "free allowance" : "cap"}` : `GridForge: ${percent}% of your monthly ${plan === "api_free" ? "free allowance" : "cap"} used`,
+      text:
+        `You have used ${used} of ${cap} units in ${month} (${Math.floor((used / cap) * 100)}%).${money}\n\n${stopLine}\n\n${portal}\n\n` +
+        "Counts are net of refunds: a rejected or failed request is refunded and does not count.",
+    };
+  }
   // key_rotation -- rebuilt from the account's CURRENT key. The dedupe key carries the expiry the obligation
   // was created for; if the account has moved on (rotated, renewed, key removed) the warning is stale and is
   // cancelled rather than sent.
@@ -250,15 +338,25 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
   const life = keyLife({ key_id: keyId, key_expires_at: expiresAt });
   if (!life.has_key || life.days_left === null || !life.needs_rotation) throw new NotApplicable("key no longer near expiry");
   const when = life.expired ? `expired on ${expiresAt}` : `expires on ${expiresAt} — ${life.days_left} day(s) from now`;
+  // The opening depends on who is reading. Only a subscription renews; a free allowance and pay-as-you-go have nothing that renews,
+  // and for none of them does a payment extend the key.
+  const plan = String(row.plan ?? "");
+  const extendNote =
+    plan === "api_free" ? "Nothing on your account extends a key."
+    : plan === "api_payg" ? "Paying an invoice does not extend a key."
+    : "A renewed payment does not extend a key.";
+  const opening =
+    plan === "api_free" || plan === "api_payg"
+      ? `Your API key ${when}.\n\n`
+      : `Your subscription payment has been received. Your API key ${when}.\n\n`;
   return {
     to,
     subject: life.expired ? "Your GridForge API key has expired — mint a new one" : "Your GridForge API key expires shortly",
     text:
-      `Your subscription has renewed. Your API key ${when}.\n\n` +
-      "Keys carry their own expiry so the engine can verify them offline, with no " +
-      "database and no call home. The price of that is that a key cannot be extended " +
-      "in place — a new expiry means a new key, and only you can put it into your " +
-      "deployment.\n\n" +
+      opening +
+      `${extendNote} Keys are signed tokens that carry their own expiry so the engine can verify ` +
+      "them offline, with no database and no call home; the price of that is that a key cannot be extended in place. A new " +
+      "expiry means a new key, and only you can create it and put it into your deployment.\n\n" +
       "Mint the replacement here:\n\n" +
       `${SITE_URL}/api-access/${token}` +
       "\n\n" +
@@ -266,7 +364,11 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         ? "The old key is dead, so the new one replaces it immediately."
         : "Your current key keeps working until it expires, so you can deploy the new " +
           "one first and let the old one lapse. Nothing stops in between.") +
-      "\n\nYour allowance and account are unchanged.",
+      (plan === "api_payg"
+        ? "\n\nYour monthly cap and account are unchanged."
+        : plan === "api_free"
+          ? "\n\nYour free allowance and account are unchanged."
+          : "\n\nYour allowance and account are unchanged."),
   };
 }
 
@@ -541,9 +643,9 @@ export async function listNotifications(state: "open" | "all" = "open"): Promise
 export interface ReconcileCandidate { kind: NotificationKind; subject_id: string; created_at: string | null; eligible: boolean; reason: string }
 
 /** Obligations that are not a purchase: nothing to reconcile after the fact (a rotation warning, a seat invitation). */
-const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation"]);
+const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert", "payg_payment_failed"]);
 
-const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation">, { table: SubjectTable; filter: string }> = {
+const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert" | "payg_payment_failed">, { table: SubjectTable; filter: string }> = {
   intake_link: { table: "deliverables", filter: "status=eq.awaiting_intake&email=not.is.null" },
   api_access_link: { table: "api_accounts", filter: "status=eq.active&key_id=is.null&email=not.is.null" },
   watch_link: { table: "watches", filter: "status=eq.active&email=not.is.null" },
@@ -561,7 +663,7 @@ export async function inventoryUnnotified(): Promise<{ available: boolean; candi
   if (!probe.ok) return { available: false, candidates: [] };
   const out: ReconcileCandidate[] = [];
   for (const kind of NOTIFICATION_KINDS) {
-    if (kind === "key_rotation" || kind === "team_invitation") continue;
+    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert" || kind === "payg_payment_failed") continue;
     const { table, filter } = SELECT[kind];
     const cols = `id,created_at${kind === "intake_link" ? ",token,intake_token" : ""}`;
     const rows = await db<{ id: string; created_at?: string; token?: unknown; intake_token?: unknown }[]>(

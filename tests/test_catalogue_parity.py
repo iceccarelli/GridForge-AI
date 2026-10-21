@@ -220,3 +220,61 @@ def test_the_cheapest_intelligence_tier_is_a_credible_first_purchase():
     assert cheapest <= 1000, (
         f"the entry tier is EUR {cheapest:.0f}/mo, which needs a procurement cycle")
 
+
+
+# --- the one PAYG scheme ---------------------------------------------------------------------
+
+
+def ts_payg() -> dict:
+    src = PRODUCTS_TS.read_text()
+    assert "export const PAYG" in src, "the PAYG scheme is missing from lib/products.ts"
+    body = src.split("export const PAYG", 1)[1].split("} as const;", 1)[0]
+    out: dict = {}
+    for m in re.finditer(r"^\s+(\w+):\s*(\[[^\]]*\]|[^,\n]+),", body, re.M):
+        raw = m.group(2).strip()
+        if raw.startswith("["):
+            out[m.group(1)] = tuple(int(x) for x in re.findall(r"\d+", raw))
+        elif raw.startswith('"'):
+            out[m.group(1)] = raw.strip('"')
+        else:
+            out[m.group(1)] = int(raw.replace("_", ""))
+    return out
+
+
+def test_payg_scheme_is_identical_in_both_runtimes():
+    from gridforge.commercial import PAYG
+    ts = ts_payg()
+    assert ts["unitPriceCents"] == PAYG.unit_price_cents
+    assert ts["currency"] == PAYG.currency
+    assert ts["minInvoiceCents"] == PAYG.min_invoice_cents
+    assert ts["defaultCapEur"] == PAYG.default_cap_eur
+    assert ts["minCapEur"] == PAYG.min_cap_eur
+    assert ts["maxCapEur"] == PAYG.max_cap_eur
+    assert ts["freeAllowanceUnits"] == PAYG.free_allowance_units
+    assert ts["freeAccountsMaxPerMonth"] == PAYG.free_accounts_max_per_month
+    assert tuple(ts["alertPercents"]) == tuple(PAYG.alert_percents)
+
+
+def test_payg_is_dearer_per_unit_than_every_plan_so_commitment_is_rewarded():
+    from gridforge.commercial import PAYG
+    for plan in API_PLANS.values():
+        assert PAYG.unit_price_eur > plan.eur_per_unit, (
+            f"{plan.id} costs EUR {plan.eur_per_unit}/unit; pay-as-you-go must not undercut it")
+        assert PAYG.breakeven_units(plan) < plan.monthly_units, (
+            f"{plan.id}: the plan only wins above {PAYG.breakeven_units(plan)} units but sells "
+            f"{plan.monthly_units}")
+
+
+def test_payg_cap_bounds_and_free_allowance_are_sane():
+    from gridforge.commercial import PAYG
+    assert PAYG.cap_units(PAYG.min_cap_eur) >= 1
+    assert PAYG.cap_units(PAYG.default_cap_eur) == 50
+    with pytest.raises(ValueError):
+        PAYG.cap_units(PAYG.min_cap_eur - 1)
+    with pytest.raises(ValueError):
+        PAYG.cap_units(PAYG.max_cap_eur + 1)
+    # The cap ceiling must stay below the point where the cheapest plan is the better buy.
+    cheapest = min(API_PLANS.values(), key=lambda p: p.price_eur_month)
+    assert PAYG.max_cap_eur >= cheapest.price_eur_month, "cap ceiling is below the cheapest plan"
+    assert 0 < PAYG.free_allowance_units < cheapest.monthly_units
+    assert PAYG.charge_cents(3) == 600

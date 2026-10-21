@@ -76,7 +76,8 @@ def economics_dict(res: ScenarioResult) -> dict:
         "lifecycle": None if e.horizon_years is None else {
             "horizon_years": e.horizon_years, "discount_rate": e.discount_rate,
             "cost_eur": _q(e.lifecycle_cost_eur), "complete": e.lifecycle_complete, "basis": e.lifecycle_basis},
-        "critical_path_weeks": e.critical_path_weeks,
+        "critical_path_weeks": e.critical_path_weeks if e.critical_path_complete else None,
+        "critical_path_complete": e.critical_path_complete,
         "basis": e.aace_class,
         "decision_grade": e.decision_grade,
         "limitations": e.limitations,
@@ -112,6 +113,7 @@ def scenario_dict(res: ScenarioResult) -> dict:
                    for s in res.ladder.steps],
         "time_to_power": {"weeks_to_first_rack": t.weeks_to_first_rack,
                           "weeks_to_full": t.weeks_to_full,
+                          "schedule_complete": t.complete,
                           "sets_the_date": t.critical_item,
                           "curve": [{"weeks": p.weeks, "racks": p.racks,
                                      "unlocked_by": p.unlocked_by} for p in t.points]},

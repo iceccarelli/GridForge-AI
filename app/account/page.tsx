@@ -12,6 +12,7 @@ import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS } from "@/lib/products";
 import TeamPanel from "@/components/TeamPanel";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
+import { CONFIRM_EMAIL_TEXT, isUnverified } from "@/lib/portal-links";
 
 type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
 
@@ -50,6 +51,8 @@ export default function AccountPage() {
   // subscriber the upgrade prompt because our own store was unreachable is the
   // client half of the defect fixed in app/api/subscription-status.
   const [unreachable, setUnreachable] = useState(false);
+  // An unconfirmed email is not "not subscribed": say so rather than showing the upgrade prompt.
+  const [unverified, setUnverified] = useState(false);
 
   useEffect(() => {
     getSupabase().auth.getSession().then(async ({ data }) => {
@@ -77,6 +80,7 @@ export default function AccountPage() {
           setActive(false);
         } else {
           setActive(!!j.active);
+          setUnverified(isUnverified(j));
           setPlan(j.plan ?? null);
           setRole(j.role === "member" ? "member" : j.role === "owner" ? "owner" : null);
           setOwnerEmail(typeof j.ownerEmail === "string" ? j.ownerEmail : null);
@@ -116,7 +120,7 @@ export default function AccountPage() {
               You have a seat on <span className="text-white">{ownerEmail}</span>&apos;s subscription. Only the billing owner can change seats.
             </p>
           )}
-          {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : <Gate />}
+          {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : unverified ? <ConfirmEmail /> : <Gate />}
           {active && role === "owner" && <div className="mt-8"><TeamPanel headers={authHeaders} /></div>}
         </div>
     </main>
@@ -139,6 +143,16 @@ function Unavailable() {
       >
         Try again
       </button>
+    </div>
+  );
+}
+
+function ConfirmEmail() {
+  return (
+    <div role="status" className="rounded-[var(--radius)] border border-line bg-panel p-8">
+      <div className="eyebrow text-mute mb-2">Email not confirmed</div>
+      <h2 className="text-xl font-semibold tracking-tight">Confirm your email to open this</h2>
+      <p className="text-mute text-[14px] leading-relaxed mt-2 max-w-xl">{CONFIRM_EMAIL_TEXT}</p>
     </div>
   );
 }

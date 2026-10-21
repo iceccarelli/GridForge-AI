@@ -1,0 +1,263 @@
+// Server-only: what the Stripe webhook does for pay-as-you-go.
+//
+// Two events, both written as ABSOLUTE state so a duplicate or reordered delivery is harmless, and both answering "retry" (HTTP
+// 500 from the route) only when a read or write that is needed failed, as the rest of the webhook does:
+//
+//   checkout.session.completed, metadata.kind === "api_payg_enable", mode "setup"
+//        the card was saved (and charged nothing): attach the payment method to the customer as the invoice default, then turn
+//        the account into `api_payg` with the cap the customer chose. A replay never re-enables, never resets a cap the customer
+//        has since changed, and never lifts a past_due.
+//   invoice.paid / invoice.payment_failed, invoice.metadata.kind === "payg_settlement"
+//        the settlement row moves paid / failed (a late `failed` can never override `paid`), and the ACCOUNT is derived from
+//        its settlements: past_due (live key revoked, no mint) while any is failed, active again when none is.
+
+import type Stripe from "stripe";
+import { confirmRevoked, revokeOnEngine, updateApiAccount, type ApiAccount } from "@/lib/api-access";
+import { notifyOperator } from "@/lib/mail";
+import { accountRef, MONTH, paygCapUnits, parseCapEur } from "@/lib/payg";
+import { recordFunnelEvent } from "@/lib/funnel";
+import { notifyCustomer } from "@/lib/notifications";
+import { enc, pg } from "@/lib/payg-store";
+import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
+import type { Settlement } from "@/lib/payg-settle";
+
+export type Applied = { ok: true } | { ok: false; why: string };
+
+async function accountByName(account: string): Promise<ApiAccount | null | "error"> {
+  const r = await pg<ApiAccount[]>("GET", `api_accounts?account=eq.${enc(account)}&limit=1`);
+  if (!r.ok) return "error";
+  return r.data?.[0] ?? null;
+}
+
+const idOf = (v: string | { id: string } | null | undefined): string => (typeof v === "string" ? v : v?.id ?? "");
+
+export async function handlePaygEnable(session: Stripe.Checkout.Session, stripe: PaygStripe | null): Promise<Applied> {
+  const accountName = String(session.metadata?.account_id ?? "");
+  const cap = parseCapEur(session.metadata?.cap_eur);
+  if (!accountName || cap === null || session.mode !== "setup") {
+    // Our own route wrote this metadata; a redelivery cannot repair a malformed one. Say so once and stop retrying.
+    console.error("[GridForge] payg enable event with unusable metadata; acknowledged without effect:", session.id);
+    await notifyOperator("A pay-as-you-go enable event could not be applied", `Checkout session ${session.id} carried unusable metadata. No account was changed.`);
+    return { ok: true };
+  }
+  if (!stripe) return { ok: false, why: "stripe not configured" };
+  const acct = await accountByName(accountName);
+  if (acct === "error") return { ok: false, why: "account lookup failed" };
+  if (!acct) {
+    console.error("[GridForge] payg enable for an account that does not exist:", session.id);
+    return { ok: true };
+  }
+  if (acct.status === "cancelled") {
+    console.error("[GridForge] payg enable for a cancelled account ignored:", session.id);
+    return { ok: true };
+  }
+  const customer = idOf(session.customer as string | { id: string } | null);
+  const siId = idOf(session.setup_intent as string | { id: string } | null);
+  if (!customer || !siId) {
+    console.error("[GridForge] payg enable without a customer or setup intent; acknowledged without effect:", session.id);
+    return { ok: true };
+  }
+
+  let pm = "";
+  try {
+    const si = await stripe.setupIntents.retrieve(siId);
+    // The saved method must belong to the session's customer and the setup must be the one WE started for this account.
+    if (si.status && si.status !== "succeeded") return { ok: true };
+    if (si.metadata && si.metadata.account_id && si.metadata.account_id !== accountName) {
+      console.error("[GridForge] payg enable: setup intent names a different account; refused:", session.id);
+      return { ok: true };
+    }
+    pm = idOf(si.payment_method);
+    if (!pm) return { ok: true };
+    await stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm } });
+  } catch (err) {
+    console.error(`[GridForge] payg enable: Stripe call failed (${stripeFault(err)}); asking for a redelivery`);
+    return { ok: false, why: "stripe" };
+  }
+
+  const first = acct.plan !== "api_payg";
+  const units = paygCapUnits(cap);
+  const saved = await updateApiAccount(
+    acct.token,
+    first
+      ? {
+          plan: "api_payg",
+          cap_units: units,
+          monthly_units: units,
+          stripe_customer_id: customer,
+          stripe_payment_method_id: pm,
+          payg_enabled_at: acct.payg_enabled_at ?? new Date().toISOString(),
+          status: "active",
+        }
+      : // Already pay-as-you-go: only the card can change. The cap, the status and the enable time are NOT touched by a replay.
+        { stripe_customer_id: customer, stripe_payment_method_id: pm }
+  );
+  if (!saved) return { ok: false, why: "account write failed" };
+  if (first) await recordFunnelEvent("payg_enabled", { cap_eur: cap, plan: "api_payg", account_ref: accountRef(accountName) }, { dedupeKey: `payg_enabled:${accountRef(accountName)}` });
+  return { ok: true };
+}
+
+/**
+ * checkout.session.completed, kind api_payg_card_update (Checkout mode "setup" on the account's EXISTING customer): the customer
+ * replaced the card on file. Saved as the customer's default and the account's card; any UNPAID failed invoice is pointed at it (an
+ * invoice keeps the card it was created with, so the new default alone would not help) and tried now. The result of that attempt comes
+ * back as the usual invoice.paid / invoice.payment_failed event, which is what reinstates the account. Replay-safe: the card write is
+ * absolute, and paying an invoice that is already paid is refused by Stripe and ignored.
+ */
+export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, stripe: PaygStripe | null): Promise<Applied> {
+  const accountName = String(session.metadata?.account_id ?? "");
+  if (!accountName || session.mode !== "setup") {
+    console.error("[GridForge] payg card update with unusable metadata; acknowledged without effect:", session.id);
+    return { ok: true };
+  }
+  if (!stripe) return { ok: false, why: "stripe not configured" };
+  const acct = await accountByName(accountName);
+  if (acct === "error") return { ok: false, why: "account lookup failed" };
+  if (!acct || acct.plan !== "api_payg" || acct.status === "cancelled") {
+    console.error("[GridForge] payg card update for an account that cannot take one; acknowledged without effect:", session.id);
+    return { ok: true };
+  }
+  const customer = idOf(session.customer as string | { id: string } | null);
+  const siId = idOf(session.setup_intent as string | { id: string } | null);
+  // The card goes on the customer WE hold for this account, never on whichever customer the session names.
+  if (!customer || !siId || customer !== acct.stripe_customer_id) {
+    console.error("[GridForge] payg card update names a different customer than the account's; refused:", session.id);
+    return { ok: true };
+  }
+  let pm = "";
+  try {
+    const si = await stripe.setupIntents.retrieve(siId);
+    if (si.status && si.status !== "succeeded") return { ok: true };
+    if (si.metadata?.account_id !== accountName || si.metadata?.kind !== "api_payg_card_update") {
+      console.error("[GridForge] payg card update: setup intent is not ours for this account; refused:", session.id);
+      return { ok: true };
+    }
+    pm = idOf(si.payment_method);
+    if (!pm) return { ok: true };
+    await stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm } });
+  } catch (err) {
+    console.error(`[GridForge] payg card update: Stripe call failed (${stripeFault(err)}); asking for a redelivery`);
+    return { ok: false, why: "stripe" };
+  }
+  if (!(await updateApiAccount(acct.token, { stripe_payment_method_id: pm }))) return { ok: false, why: "account write failed" };
+
+  const failed = await pg<{ stripe_invoice_id: string | null }[]>("GET", `usage_settlements?account=eq.${enc(accountName)}&status=eq.failed&select=stripe_invoice_id&limit=20`);
+  if (!failed.ok) return { ok: false, why: "settlement lookup failed" };
+  for (const f of failed.data ?? []) {
+    if (!f.stripe_invoice_id) continue;
+    try {
+      await stripe.invoices.update(f.stripe_invoice_id, { default_payment_method: pm });
+      await stripe.invoices.pay(f.stripe_invoice_id, { payment_method: pm });
+    } catch (err) {
+      // Declined again, or already paid: either way the invoice events say what happened. Never fails the card replacement itself.
+      console.error(`[GridForge] payg card update: retrying an unpaid invoice did not succeed (${stripeFault(err)})`);
+    }
+  }
+  return { ok: true };
+}
+
+/** Revoke the account's live key and block minting: past_due. One write records both; the engine is told after. */
+async function suspend(acct: ApiAccount): Promise<boolean> {
+  const live = acct.key_id;
+  const revoked = new Set(acct.revoked_key_ids ?? []);
+  if (live) revoked.add(live);
+  for (const id of Object.keys(acct.overlap_key_ids ?? {})) revoked.add(id);
+  const done = await updateApiAccount(acct.token, {
+    status: "past_due",
+    key_id: null,
+    key_issued_at: null,
+    key_expires_at: null,
+    key_scope: null,
+    revoked_key_ids: [...revoked],
+  });
+  if (!done) return false;
+  // Best effort, like every revocation: an unreachable engine must not turn a recorded failure into an endless redelivery. The id
+  // stays unconfirmed in revoked_key_ids and the daily sweep (retryRevocations) keeps pushing it.
+  const toRevoke = [...(live ? [live] : []), ...Object.keys(acct.overlap_key_ids ?? {})];
+  // A key deliberately left live next to a newer one is live too: suspension kills it with the rest.
+  const confirmed: string[] = [];
+  for (const id of toRevoke) if (await revokeOnEngine(id)) confirmed.push(id);
+  if (confirmed.length) await confirmRevoked(acct.token, confirmed);
+  return true;
+}
+
+/** The account follows its settlements: past_due while any is failed, active again when none is. Never touches a cancelled account. */
+export async function reconcileAccount(accountName: string): Promise<Applied> {
+  const acct = await accountByName(accountName);
+  if (acct === "error") return { ok: false, why: "account lookup failed" };
+  if (!acct || acct.plan !== "api_payg" || acct.status === "cancelled") return { ok: true };
+  const failed = await pg<{ id: string }[]>("GET", `usage_settlements?account=eq.${enc(accountName)}&status=eq.failed&select=id&limit=1`);
+  if (!failed.ok) return { ok: false, why: "settlement lookup failed" };
+  const hasFailed = (failed.data?.length ?? 0) > 0;
+  if (hasFailed && acct.status === "active") {
+    if (!(await suspend(acct))) return { ok: false, why: "account write failed" };
+  } else if (!hasFailed && acct.status === "past_due") {
+    // The customer re-mints: the key that was revoked stays revoked.
+    if (!(await updateApiAccount(acct.token, { status: "active" }))) return { ok: false, why: "account write failed" };
+  }
+  return { ok: true };
+}
+
+/** null = not a pay-as-you-go invoice (the caller carries on with subscription handling). */
+export async function handlePaygInvoice(event: Stripe.Event): Promise<Applied | null> {
+  if (event.type !== "invoice.paid" && event.type !== "invoice.payment_failed") return null;
+  const inv = event.data.object as Stripe.Invoice;
+  if (inv.metadata?.kind !== "payg_settlement") return null;
+  const accountName = String(inv.metadata.account ?? "");
+  const month = String(inv.metadata.month ?? "");
+  if (!accountName || !MONTH.test(month) || !inv.id) {
+    console.error("[GridForge] payg invoice event with unusable metadata; acknowledged:", inv.id);
+    return { ok: true };
+  }
+  const got = await pg<Settlement[]>("GET", `usage_settlements?account=eq.${enc(accountName)}&month=eq.${enc(month)}&limit=1`);
+  if (!got.ok) return { ok: false, why: "settlement lookup failed" };
+  const s = got.data?.[0];
+  if (!s) {
+    // A settlement row is written BEFORE its invoice exists, so this is not an early event; it is not ours to guess at.
+    console.error("[GridForge] payg invoice event for a settlement we have no row for:", inv.id);
+    await notifyOperator("A pay-as-you-go invoice has no settlement record", `Stripe invoice ${inv.id} carries payg_settlement metadata but no usage_settlements row matches it. Nothing was changed.`);
+    return { ok: true };
+  }
+  if (s.stripe_invoice_id && s.stripe_invoice_id !== inv.id) {
+    // Two Stripe invoices for one settled month would be a double charge. Never apply it silently.
+    console.error("[GridForge] payg invoice event names a different invoice than the settlement records:", inv.id);
+    await notifyOperator(
+      "Possible duplicate pay-as-you-go invoice",
+      `Settlement ${s.id} (${month}) records invoice ${s.stripe_invoice_id}, but Stripe sent an event for ${inv.id} carrying the same settlement metadata. Check Stripe for a second invoice and void or refund it.`
+    );
+    return { ok: true };
+  }
+
+  const stamp = new Date().toISOString();
+  let failedApplied = false;
+  if (event.type === "invoice.paid") {
+    // pending/invoiced/failed -> paid. `paid` is terminal against `failed`: nothing here can move it back.
+    const r = await pg(
+      "PATCH",
+      `usage_settlements?id=eq.${enc(s.id)}&status=in.(pending,invoiced,failed)`,
+      { status: "paid", stripe_invoice_id: inv.id, hosted_invoice_url: inv.hosted_invoice_url ?? s.hosted_invoice_url, last_error: null, updated_at: stamp },
+      "return=minimal"
+    );
+    if (!r.ok) return { ok: false, why: "settlement write failed" };
+  } else {
+    const r = await pg<Settlement[]>(
+      "PATCH",
+      `usage_settlements?id=eq.${enc(s.id)}&status=in.(pending,invoiced,failed)`,
+      { status: "failed", stripe_invoice_id: inv.id, hosted_invoice_url: inv.hosted_invoice_url ?? s.hosted_invoice_url, updated_at: stamp }
+    );
+    if (!r.ok) return { ok: false, why: "settlement write failed" };
+    failedApplied = (r.data?.length ?? 0) > 0;
+    if (failedApplied && s.status !== "failed") {
+      await recordFunnelEvent("payment_failed", { month, account_ref: accountRef(accountName) }, { dedupeKey: `payment_failed:${inv.id}` });
+    }
+  }
+  // The account first (so the key really is revoked by the time the customer reads that it is), then the customer's notice: ONE
+  // durable obligation per failed settlement. Stripe reports every retried failure and may redeliver; the outbox's unique key makes
+  // all of those the same single email, and a settlement that has since been paid cancels it unsent. A late `failed` that did not
+  // apply (the row was already paid) enqueues nothing. If the obligation cannot be recorded the event is retried.
+  const reconciled = await reconcileAccount(accountName);
+  if (!reconciled.ok) return reconciled;
+  if (failedApplied && (await notifyCustomer("payg_payment_failed", s.id)) === "retry_webhook") return { ok: false, why: "notification not recorded" };
+  return { ok: true };
+}
+

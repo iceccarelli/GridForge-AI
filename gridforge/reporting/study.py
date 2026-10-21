@@ -34,7 +34,10 @@ def collect_claims(results) -> dict[str, list]:
                                 if c.domain == "thermal" and c.max_racks.value != inf],
         "capex": [r.economics.capex_total_eur for r in results],
         "schedule": [Quantity.given(r.economics.critical_path_weeks, "weeks",
-                                    f"{r.spec.id}: critical path", ESTIMATED) for r in results],
+                                    f"{r.spec.id}: critical path"
+                                    + ("" if r.economics.critical_path_complete else
+                                       " (lower bound: a relief on the path has no lead time)"),
+                                    ESTIMATED) for r in results],
     }
 
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "

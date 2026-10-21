@@ -730,7 +730,9 @@ def cmd_spec(args) -> int:
         "specification": {"project": pkg.project, "hall": pkg.hall,
                           "constraint": pkg.constraint_id,
                           "sized_for_racks": pkg.sized_for_racks,
-                          "reference": args.reference},
+                          "reference": args.reference,
+                          "site_conditions": [c.to_dict() for c in pkg.site_conditions],
+                          "assumed_inputs": [a.to_dict() for a in pkg.assumed_inputs]},
         "supplier": "",
         "received_on": "",
         "reference": "",
@@ -1072,7 +1074,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--account", default="", help="who this bills to; usage aggregates here")
     s.add_argument("--plan", default="", help="api_triage | api_scale | api_platform")
     s.add_argument("--quota", default="0", help="monthly units; 0 is unlimited")
-    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial"])
+    s.add_argument("--scope", default="machine", choices=["machine", "client", "trial", "payg"])
     s.add_argument("--days", default="35",
                    help="validity. 35 by default so a monthly renewal never leaves a "
                         "customer's agents dark while the webhook lands.")

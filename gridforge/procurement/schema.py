@@ -91,6 +91,47 @@ class ResponseField:
     note: str = ""
 
 
+#: How a site condition reached the specification.
+SC_SUPPLIED = "supplied"            # the client declared it
+SC_ASSUMED = "assumed"              # not supplied: the model used a default, shown with its class (E0)
+SC_LIBRARY = "library"              # a platform / library figure, never a client declaration
+SC_NOT_MODELLED = "not_modelled"    # not supplied and the engine has no input for it: nothing derated for it
+
+
+@dataclass(frozen=True)
+class SiteCondition:
+    """One condition the duties are quoted at. Either a quantity (value, unit and evidence class travel with it)
+    or, for a scheme such as a redundancy level, a text. A condition that was not supplied says so; it is
+    never presented as though it had been."""
+    id: str
+    label: str
+    status: str
+    statement: str
+    value: Quantity | None = None
+    text: str = ""
+    unit: str = ""
+    path: str = ""                # the intake path this condition comes from, where it has one
+
+    def to_dict(self) -> dict:
+        q = self.value
+        return {"id": self.id, "label": self.label, "path": self.path or None, "status": self.status,
+                "value": None if q is None else q.rounded(),
+                "text": self.text or None, "unit": (q.unit if q is not None else self.unit) or None,
+                "evidence": None if q is None else q.evidence.short, "statement": self.statement}
+
+
+@dataclass(frozen=True)
+class AssumedInput:
+    """An intake input that was not supplied and was filled from the library or a stated assumption."""
+    path: str
+    label: str
+    unit: str
+    fallback: str                 # what was used, as rendered with its evidence class
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "label": self.label, "unit": self.unit, "assumed": self.fallback}
+
+
 @dataclass
 class SpecPackage:
     project: str
@@ -117,6 +158,9 @@ class SpecPackage:
     scope_quantity: float | None = None
     scope_quantity_unit: str = ""
     notes: list[str] = field(default_factory=list)
+    #: The conditions every duty is quoted at, and every intake input that was assumed rather than supplied.
+    site_conditions: list[SiteCondition] = field(default_factory=list)
+    assumed_inputs: list[AssumedInput] = field(default_factory=list)
 
     @property
     def racks_unlocked(self) -> int:

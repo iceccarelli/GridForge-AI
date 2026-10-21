@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
 import { engineFetch } from "@/lib/rate-limit";
+import { ENGINE_CALL_TIMEOUT_MS, claimMeta, isStaleGenerating } from "@/lib/engagement-state";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -172,6 +173,11 @@ export async function deliverableBySession(
   }
 }
 
+/** Escape the LIKE metacharacters (backslash is Postgres' default escape character). */
+export function likeEscape(v: string): string {
+  return v.replace(/[\\%_]/g, (ch) => "\\" + ch);
+}
+
 /**
  * What this customer has already paid that credits against an engagement.
  *
@@ -188,8 +194,8 @@ export async function deliverableBySession(
 export async function creditsToward(
   email: string,
   engagement: string
-): Promise<{ cents: number; from: { kind: string; token: string; amount_cents: number }[] }> {
-  const empty = { cents: 0, from: [] };
+): Promise<{ ok: boolean; cents: number; from: { id: string; kind: string; token: string; amount_cents: number }[] }> {
+  const empty = { ok: true, cents: 0, from: [] };
   const e = (email ?? "").trim().toLowerCase();
   if (!e || !engagement) return empty;
 
@@ -202,24 +208,28 @@ export async function creditsToward(
   if (!c) return empty;
   const kinds = crediting.map((p) => p.kind);
   const res = await fetch(
-    `${c.url}/rest/v1/deliverables?email=eq.${encodeURIComponent(e)}` +
-      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=kind,token,amount_cents`,
+    // Case-insensitive on purpose: a buyer who typed the same address with different capitals at two checkouts is one buyer,
+    // and the stored address is whatever Stripe handed us. `ilike` treats % and _ as wildcards, and "_" is common in an
+    // address, so they are escaped: an unescaped one would match a DIFFERENT buyer and give them somebody else's credit.
+    `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(likeEscape(e))}` +
+      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=id,kind,token,amount_cents`,
     { headers: c.headers, cache: "no-store" }
   );
   if (!res.ok) {
     // Never guess a credit. Reporting none is recoverable by a human reading the
     // pipeline; inventing one is money given away on our own arithmetic.
     console.error("[GridForge] credit lookup failed:", await storeFault(res));
-    return empty;
+    return { ...empty, ok: false };
   }
-  const rows = (await res.json()) as { kind: string; token: string; amount_cents: number | null }[];
+  const rows = (await res.json()) as { id: string; kind: string; token: string; amount_cents: number | null }[];
   const from = rows.map((r) => ({
+    id: r.id,
     kind: r.kind,
     token: r.token,
     // Fall back to the catalogue price when the row did not record one.
     amount_cents: r.amount_cents ?? PRODUCT_BY_KIND[r.kind]?.amountCents ?? 0,
   }));
-  return { cents: from.reduce((a, r) => a + r.amount_cents, 0), from };
+  return { ok: true, cents: from.reduce((a, r) => a + r.amount_cents, 0), from };
 }
 
 export async function getByToken(token: string): Promise<DeliverableRecord | null> {
@@ -319,6 +329,40 @@ export async function updateByTokenIf(
     console.error("[GridForge] deliverable conditional update unreachable:", err);
     return "error";
   }
+}
+
+/**
+ * Claim an engagement for generation: `generating`, with the time of the claim stamped into the intake's `_gridforge`
+ * block. The stamp is what lets a row whose request died be recognised as stale (lib/engagement-state.ts) instead of
+ * staying `generating` for ever. `intake` is stored with it, so a claim from `engine_unavailable` (an operator's
+ * regenerate) keeps the numbers already on record.
+ */
+export async function claimForGeneration(
+  token: string,
+  intake: Record<string, unknown>,
+  from: DeliverableStatus[],
+  now: Date = new Date()
+): Promise<"claimed" | "lost" | "error"> {
+  return updateByTokenIf(
+    token,
+    { status: "generating", intake: { ...intake, _gridforge: claimMeta(intake._gridforge, now) } },
+    from
+  );
+}
+
+/**
+ * Move a stale `generating` row to `engine_unavailable`, where every recovery path (customer resubmission, operator
+ * regenerate or reopen) already applies. "recovered": it was stale and has been moved. "fresh": its request may still
+ * be running, nothing was changed. "lost": it was no longer `generating`. "error": the store failed.
+ */
+export async function recoverStaleGenerating(
+  row: Pick<DeliverableRecord, "token" | "status" | "intake" | "created_at">,
+  now: number = Date.now()
+): Promise<"recovered" | "fresh" | "lost" | "error"> {
+  if (row.status !== "generating") return "lost";
+  if (!isStaleGenerating(row, now)) return "fresh";
+  const r = await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
+  return r === "claimed" ? "recovered" : r;
 }
 
 /**
@@ -429,8 +473,18 @@ export function isPackFile(name: string): boolean {
   return PACK_FILES.has(name);
 }
 
+/** The response schedule of a Procurement Specification: the template a supplier fills in, and the relief it was written for. */
+export const SPEC_FILES = ["response_template.json", "specification.json"] as const;
+
 export function packArtifacts(kind: string): string[] {
-  return PRODUCT_BY_KIND[kind]?.endpoint === "study" ? ["study", "board_summary"] : ["study"];
+  const endpoint = PRODUCT_BY_KIND[kind]?.endpoint;
+  if (endpoint === "study") return ["study", "board_summary"];
+  // A Procurement Specification is bought for three things (its catalogue entry): the specification, a machine-readable
+  // response schedule, and a bid comparison against the relief it was written for. Without the schedule and the relief
+  // there is nothing for suppliers to fill in and nothing to compare against, so a specification generated without them
+  // is not the product that was paid for and must not be releasable as one.
+  if (endpoint === "spec") return ["study", "response_schedule"];
+  return ["study"];
 }
 
 export interface PackState {
@@ -462,6 +516,7 @@ export function packState(row: Pick<DeliverableRecord, "kind" | "document_html" 
   const has: Record<string, boolean> = {
     study: Boolean(row.document_html),
     board_summary: Boolean(files[BOARD_HTML]) && Boolean(files[BOARD_MD]),
+    response_schedule: SPEC_FILES.every((f) => Boolean(files[f])),
   };
   const missing = expected.filter((a) => !has[a]);
   return { complete: missing.length === 0, missing, legacy: false };
@@ -507,6 +562,10 @@ export async function generateAndStore(
   const binding = rendered.binding ?? bindingFrom(rendered.working);
   if (binding) meta.binding = binding;
   if (rendered.spec) meta.spec = rendered.spec;
+  // What produced this document, so a released one can be traced to an engine build. Recorded as null when unreadable.
+  meta.provenance = rendered.provenance;
+  meta.generated_at = new Date().toISOString();
+  meta.endpoint = endpoint;
 
   // Carry forward files this run does not own (a bid comparison), but never a board from an earlier run: a new
   // study beside an old board would be two documents from two different solves.
@@ -529,7 +588,10 @@ export async function generateAndStore(
     await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"]);
     return { ok: false, stage: "render", error: "The engine returned the study without its markdown form." };
   }
-  const state = endpoint === "study" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
+  if (endpoint === "spec") {
+    files[BUNDLE_MANIFEST] = JSON.stringify({ expected: packArtifacts(row.kind), generated: new Date().toISOString() });
+  }
+  const state = endpoint === "study" || endpoint === "spec" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
   // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
   meta.document_sha256 = packHash(candidate);
 
@@ -598,6 +660,48 @@ function specFrom(
   }
 }
 
+/** What identifies the engine build behind a document. Read at generation; never invented when it cannot be read. */
+export interface EngineIdentity {
+  engine_version: string;
+  code_sha256: string | null;
+  cost_library_sha256: string | null;
+  calibration_sha256: string | null;
+  digest: string | null;
+  read_at: string;
+}
+
+/**
+ * The engine's own account of itself (GET /v1/version), read once per generation. It is read concurrently with the
+ * renders it is recorded against, so a deploy of the engine in that window could attribute a document to the newer
+ * build; the field says "read_at" and not "produced_by" for that reason. A failed read returns null and the document
+ * is still generated: the page then says the identity was not recorded instead of showing one.
+ */
+async function engineIdentity(base: string, key: string): Promise<EngineIdentity | null> {
+  try {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/version`, {
+      headers: { "X-API-Key": key },
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { version?: unknown; provenance?: Record<string, unknown> };
+    const p = body.provenance ?? {};
+    const version = typeof p.engine_version === "string" ? p.engine_version : typeof body.version === "string" ? body.version : "";
+    if (!version) return null;
+    const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+    return {
+      engine_version: version,
+      code_sha256: str(p.code_sha256),
+      cost_library_sha256: str(p.cost_library_sha256),
+      calibration_sha256: str(p.calibration_sha256),
+      digest: str(p.digest),
+      read_at: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function renderDeliverable(
   intake: Record<string, unknown>,
   endpoint: "screen" | "study" | "spec"
@@ -627,6 +731,8 @@ export async function renderDeliverable(
        * requirement than the one they answered.
        */
       spec: { constraint_id: string; constraint: string; relief: string; sized_for_racks: number } | null;
+      /** Which engine build answered (read from the engine just after the renders), or null when it could not be read. */
+      provenance: EngineIdentity | null;
     }
   | { ok: false; error: string }
 > {
@@ -640,7 +746,7 @@ export async function renderDeliverable(
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}) }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
@@ -665,7 +771,7 @@ export async function renderDeliverable(
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
         cache: "no-store",
       });
       if (!res.ok) return null;
@@ -698,7 +804,7 @@ export async function renderDeliverable(
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
         cache: "no-store",
       });
       if (!res.ok) {
@@ -728,7 +834,7 @@ export async function renderDeliverable(
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": key },
           body: JSON.stringify({ intake, format: "md" }),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
           cache: "no-store",
         });
         if (!res.ok) return null;
@@ -751,7 +857,7 @@ export async function renderDeliverable(
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": key },
         body: JSON.stringify({ intake, format: "csv" }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
         cache: "no-store",
       });
       if (!res.ok) return null;
@@ -766,7 +872,8 @@ export async function renderDeliverable(
     // The Envelope Study is ONE engine request: study and board summary, both formats, one solve. The other
     // endpoints still render each format on its own.
     const pack = endpoint === "study";
-    const [html, mdOnly, deckHtml, files, binding] = await Promise.all([
+    const [identity, html, mdOnly, deckHtml, files, binding] = await Promise.all([
+      engineIdentity(base, key),
       call("html", pack),
       pack ? Promise.resolve(null) : call("md"),
       deck(),
@@ -783,6 +890,7 @@ export async function renderDeliverable(
       board: pack ? boardFrom(html) : null,
       binding,
       spec: specFrom(files),
+      provenance: identity,
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };

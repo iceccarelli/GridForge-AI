@@ -133,6 +133,18 @@ done
 "${DBQ[@]}" -At -c "select count(*) from information_schema.tables where table_name in ('subscription_invitations','subscription_members')" \
   | grep -qx 2 || { echo "[realdb] FAILED: migration 0027 tables are missing"; exit 1; }
 
+# 0028 (pay-as-you-go ledger, settlements, free allowance, founding reservations) must be present, with its RPCs and tables.
+"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_usage_ingest','gf_usage_net','gf_usage_month_totals','gf_payg_unsettled','gf_free_account_create','gf_founding_reserve')" \
+  | grep -qx 6 || { echo "[realdb] FAILED: migration 0028 (pay-as-you-go) is missing"; exit 1; }
+"${DBQ[@]}" -At -c "select count(*) from information_schema.tables where table_name in ('usage_events','usage_settlements','payg_cursor','usage_alerts','funnel_events','founding_reservations')" \
+  | grep -qx 6 || { echo "[realdb] FAILED: migration 0028 tables are missing"; exit 1; }
+
+# 0033 (ledger quarantine, overlap keys, the verified free-allowance ceiling) must be present.
+"${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_free_account_verify') and pronargs = 2" \
+  | grep -qx 1 || { echo "[realdb] FAILED: migration 0033 (pay-as-you-go hardening) is missing"; exit 1; }
+"${DBQ[@]}" -At -c "select count(*) from information_schema.tables where table_name = 'usage_quarantine'" \
+  | grep -qx 1 || { echo "[realdb] FAILED: migration 0033 tables are missing"; exit 1; }
+
 if [ "$REAL_STORAGE" = 1 ]; then
   # The migrations must have created the bucket in the REAL table, and it must be private.
   [ "$("${DBQ[@]}" -At -c "select public from storage.buckets where id = 'cost-evidence-artifacts'")" = f ] \

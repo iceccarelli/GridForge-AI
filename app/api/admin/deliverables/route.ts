@@ -3,18 +3,32 @@ import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
 import {
   BOARD_HTML,
+  claimForGeneration,
   generateAndStore,
   getByToken,
   packHash,
   packState,
+  recoverStaleGenerating,
   updateByTokenIf,
 } from "@/lib/deliverables";
+import { attentionList } from "@/lib/attention";
 import { deliverableEndpoint } from "@/lib/products";
 import { sendMail } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
 import { runTrusted } from "@/lib/spend-scope";
 
 export const runtime = "nodejs";
+
+// The operator's list of paid work that needs a person: stuck, overdue, held or ambiguous. Read-only.
+export async function GET() {
+  const store = await cookies();
+  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+  const r = await attentionList();
+  if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: r.status });
+  return NextResponse.json({ ok: true, items: r.items, checked_at: r.checked_at }, { headers: { "Cache-Control": "no-store" } });
+}
 
 // Release a generated deliverable to the client. Auth-gated, and deliberately a
 // separate human act from generating it: an engineering opinion gets a name
@@ -25,7 +39,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { token?: string; action?: string; reviewed_hash?: string };
+  let body: { token?: string; action?: string; reviewed_hash?: string; reviewed_by?: string };
   try {
     body = await req.json();
   } catch {
@@ -42,8 +56,23 @@ export async function PATCH(req: Request) {
           : "release";
   if (!token) return NextResponse.json({ ok: false, error: "token required" }, { status: 422 });
 
-  const row = await getByToken(token);
+  let row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  // Recovery actions apply to a `generating` row whose request has died. A fresh one may still be running, so it is
+  // refused (with its age) rather than raced.
+  if ((action === "regenerate" || action === "reopen") && row.status === "generating") {
+    const rec = await recoverStaleGenerating(row);
+    if (rec === "recovered") row = { ...row, status: "engine_unavailable" };
+    else if (rec === "fresh") {
+      return NextResponse.json(
+        { ok: false, error: "This engagement is still generating and its request may be running. It becomes recoverable here once it has been generating for longer than a request can live." },
+        { status: 409 }
+      );
+    } else if (rec === "error") {
+      return NextResponse.json({ ok: false, error: "Could not update this engagement." }, { status: 503 });
+    }
+  }
 
   if (action === "regenerate") {
     // Recovery for a pack that is incomplete or whose engine run failed. Re-solves from the stored intake through
@@ -65,7 +94,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: "There is no intake to regenerate from." }, { status: 409 });
     }
     // Claim it, so a release, a customer resubmission or a second regenerate cannot interleave.
-    const claim = await updateByTokenIf(token, { status: "generating" }, ["engine_unavailable"]);
+    const claim = await claimForGeneration(token, stored, ["engine_unavailable"]);
     if (claim !== "claimed") {
       return NextResponse.json(
         { ok: false, error: claim === "error" ? "Could not update this engagement." : "This engagement is no longer held; reload and check it." },
@@ -135,9 +164,22 @@ export async function PATCH(req: Request) {
     }
     // Compare-and-set on status=draft, and trust only the store's answer: the buyer
     // is emailed only after the release is durably recorded.
+    // Who put their name to it, recorded WITH the release (one compare-and-set): the buyer is emailed that "a senior
+    // engineer" reviewed it, and without a name on the record that sentence cannot be checked. The API accepts a release
+    // without a name (older callers) and says so in its answer; the pipeline asks for one.
+    const reviewer = typeof body.reviewed_by === "string" ? body.reviewed_by.trim().slice(0, 120) : "";
+    const releasedAt = new Date().toISOString();
+    const priorMeta = (row.intake as { _gridforge?: Record<string, unknown> } | null)?._gridforge ?? {};
     const written = await updateByTokenIf(
       token,
-      { status: "released", released_at: new Date().toISOString() },
+      {
+        status: "released",
+        released_at: releasedAt,
+        intake: {
+          ...((row.intake as Record<string, unknown> | null) ?? {}),
+          _gridforge: { ...priorMeta, review: { by: reviewer || null, at: releasedAt, pack_sha256: current } },
+        },
+      },
       ["draft"]
     );
     if (written === "error") {
@@ -177,6 +219,9 @@ export async function PATCH(req: Request) {
       status: "released",
       customer_notified: sent.sent,
       ...(sent.sent ? {} : { notify_error: sent.reason }),
+      reviewer_recorded: Boolean(reviewer),
+      // Which engine build the document was read against at generation; false = it could not be read and the page says so.
+      provenance_recorded: Boolean((priorMeta as { provenance?: unknown }).provenance),
       link,
     });
   }

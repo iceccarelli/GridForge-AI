@@ -58,6 +58,8 @@ export class PostgrestFake {
   appendOnly: Set<string> = new Set();
   /** Unique keys by table, as column lists; a clash answers 409 / 23505. */
   uniqueKeys: Map<string, string[][]> = new Map();
+  /** A row trigger, as a migration's BEFORE INSERT/UPDATE would run it: called with the new row and (on update) a copy of the old one. */
+  rowHooks: Map<string, (row: Row, old?: Row) => void> = new Map();
   /** Column defaults applied to a new row of a table (what the migration's `default`s would supply). */
   rowDefaults: Map<string, () => Row> = new Map();
   /** Objects written through the Storage API, keyed `bucket/path`. */
@@ -77,6 +79,7 @@ export class PostgrestFake {
   constructor(tableNames: string[] = []) {
     for (const t of tableNames) this.tables.set(t, []);
     this.installRateLimit();
+    this.installFounding();
   }
 
   /**
@@ -99,6 +102,22 @@ export class PostgrestFake {
       row.hits = Math.min((row.hits as number) + 1, 2147483000);
       const hits = row.hits as number;
       return { allowed: hits <= p_limit, hits, limit: p_limit, retry_after_seconds: Math.max(1, Math.ceil(ws + p_window_seconds - nowS)) };
+    });
+  }
+
+  /**
+   * Migration 0028's gf_founding_reserve, as applied: paid + live reservations < total, one reservation per call.
+   * SUPPLEMENTAL: that the real function is serialised is proven against PostgreSQL (tests/test_payg_migration.py).
+   */
+  installFounding(): void {
+    this.createTable("founding_reservations");
+    this.rpcs.set("gf_founding_reserve", ({ p_paid, p_total, p_ttl_minutes }) => {
+      if (!(p_ttl_minutes >= 1 && p_ttl_minutes <= 2880) || p_paid < 0 || p_total < 0) throw new PgError("22023", "founding reservation arguments out of range", 400);
+      const rows = this.rows("founding_reservations");
+      const now = Date.now();
+      for (let i = rows.length - 1; i >= 0; i--) if (new Date(rows[i].expires_at as string).getTime() <= now) rows.splice(i, 1);
+      if (p_paid + rows.length >= p_total) return null;
+      return this.insertRow("founding_reservations", { expires_at: new Date(now + p_ttl_minutes * 60_000).toISOString() }).id;
     });
   }
 
@@ -147,10 +166,11 @@ export class PostgrestFake {
     const store = this.tables.get(table)!;
     const row: Row = { id: this.nextId(), created_at: new Date().toISOString(), ...(this.rowDefaults.get(table)?.() ?? {}), ...raw };
     for (const cols of this.uniqueKeys.get(table) ?? []) {
-      if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+      if (cols.every((c) => row[c] !== null && row[c] !== undefined) && store.some((r) => cols.every((c) => r[c] === row[c]))) {
         throw new PgError("23505", `duplicate key value violates unique constraint on ${table}(${cols.join(",")})`, 409);
       }
     }
+    this.rowHooks.get(table)?.(row);
     store.push(row);
     return row;
   }
@@ -236,8 +256,19 @@ export class PostgrestFake {
 
     const params = parsed.searchParams;
     const filters: Filter[] = [];
+    // `or=(a.is.null,a.lte.X)`: a row matches if ANY term does (flat terms only, which is all the application writes).
+    const orGroups: Filter[][] = [];
     for (const [key, raw] of params.entries()) {
       if (["select", "order", "limit", "offset"].includes(key)) continue;
+      if (key === "or") {
+        orGroups.push(
+          raw.replace(/^\(|\)$/g, "").split(",").map((term) => {
+            const [column, op, ...rest] = term.split(".");
+            return { column, op, value: rest.join(".") };
+          })
+        );
+        continue;
+      }
       const dot = raw.indexOf(".");
       if (dot < 0) continue;
       filters.push({ column: key, op: raw.slice(0, dot), value: raw.slice(dot + 1) });
@@ -251,7 +282,7 @@ export class PostgrestFake {
     }
 
     const store = this.tables.get(table)!;
-    const matching = store.filter((row) => filters.every((f) => match(row, f)));
+    const matching = store.filter((row) => filters.every((f) => match(row, f)) && orGroups.every((g) => g.some((f) => match(row, f))));
     const wantsRepresentation = String(
       (init?.headers as Record<string, string> | undefined)?.Prefer ?? ""
     ).includes("return=representation");
@@ -320,7 +351,7 @@ export class PostgrestFake {
           }
         }
         for (const cols of this.uniqueKeys.get(table) ?? []) {
-          if (store.some((r) => cols.every((c) => r[c] === row[c]))) {
+          if (cols.every((c) => row[c] !== null && row[c] !== undefined) && store.some((r) => cols.every((c) => r[c] === row[c]))) {
             // `Prefer: resolution=ignore-duplicates`: a conflicting row is skipped, not an error.
             if (ignoreDuplicates) { dup = true; break; }
             return json(
@@ -333,6 +364,7 @@ export class PostgrestFake {
           }
         }
         if (dup) continue;
+        this.rowHooks.get(table)?.(row);
         store.push(row);
         created.push(row);
       }
@@ -340,7 +372,11 @@ export class PostgrestFake {
     }
 
     if (method === "PATCH") {
-      for (const row of matching) Object.assign(row, body as Row);
+      for (const row of matching) {
+        const old = { ...row };
+        Object.assign(row, body as Row);
+        this.rowHooks.get(table)?.(row, old);
+      }
       return json(wantsRepresentation ? JSON.stringify(matching) : "", 200);
     }
 
@@ -363,12 +399,28 @@ function match(row: Row, f: Filter): boolean {
       return String(actual ?? "") === f.value;
     case "neq":
       return String(actual ?? "") !== f.value;
+    case "ilike": {
+      // Postgres ILIKE with the default backslash escape: % and _ are wildcards unless escaped.
+      const lit = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let re = "";
+      for (let i = 0; i < f.value.length; i++) {
+        const ch = f.value[i];
+        if (ch === "\\" && i + 1 < f.value.length) re += lit(f.value[++i]);
+        else if (ch === "%") re += ".*";
+        else if (ch === "_") re += ".";
+        else re += lit(ch);
+      }
+      return new RegExp(`^${re}$`, "i").test(String(actual ?? ""));
+    }
     case "in": {
       const set = f.value.replace(/^\(|\)$/g, "").split(",").map((s) => s.trim());
       return set.includes(String(actual ?? ""));
     }
     case "lt": case "lte": case "gt": case "gte": {
-      const a = String(actual ?? ""), b = f.value;
+      // PostgREST compares by column type: numbers numerically, text and timestamps in order.
+      const numeric = actual !== null && actual !== undefined && actual !== "" && f.value !== "" && Number.isFinite(Number(actual)) && Number.isFinite(Number(f.value));
+      const a: string | number = numeric ? Number(actual) : String(actual ?? "");
+      const b: string | number = numeric ? Number(f.value) : f.value;
       return f.op === "lt" ? a < b : f.op === "lte" ? a <= b : f.op === "gt" ? a > b : a >= b;
     }
     case "is":
@@ -381,6 +433,7 @@ function match(row: Row, f: Filter): boolean {
 }
 
 function cmp(a: unknown, b: unknown): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
   const x = String(a ?? "");
   const y = String(b ?? "");
   return x < y ? -1 : x > y ? 1 : 0;

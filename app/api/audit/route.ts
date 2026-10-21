@@ -2,6 +2,7 @@ import { SITE_URL, siteUrl } from "@/lib/site";
 import { storeFault } from "@/lib/safe-log";
 import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
+import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 
 export const runtime = "nodejs";
@@ -37,6 +38,12 @@ export async function POST(req: Request) {
     );
   }
   const data = parsed.data;
+
+  // Every request here writes a lead, mails the desk, may ping Slack and may mail the address typed in the form, all on
+  // the company's credentials, for a caller who needs no account. Admitted (and counted) per caller after validation.
+  const g = await guardRequest(req, "audit");
+  if (g.denied) return g.denied;
+
   const meta = (raw ?? {}) as Record<string, unknown>;
 
   const { score, tier, reasons } = scoreLead(data);
@@ -173,7 +180,8 @@ async function notify(record: LeadRecord): Promise<void> {
     record.email &&
     record.email.includes("@") &&
     !record.email.endsWith("@scoping-agent.local");
-  if (apiKey && realEmail) {
+  // The address is whatever the caller typed, so the mail goes only while that recipient is under its daily cap.
+  if (apiKey && realEmail && (await mailRecipientAllowed(record.email))) {
     const hot = record.tier === "hot";
     // Template literals, not the double-quoted strings this used to be: those
     // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.

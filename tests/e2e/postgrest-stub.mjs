@@ -55,8 +55,11 @@ http.createServer((req, res) => {
     const u = new URL(req.url, "http://localhost");
     if (u.pathname === "/auth/v1/user") {
       // Stand-in for GoTrue: a bearer of the form `tok:<email>` verifies as that email, anything else is a 401.
+      // `unconfirmed:<email>` is a session whose address was never confirmed: GoTrue omits email_confirmed_at for it.
       const t = /^Bearer tok:(.+)$/.exec(req.headers.authorization || "");
-      return t ? send(res, 200, { email: t[1] }) : send(res, 401, {});
+      const u2 = /^Bearer unconfirmed:(.+)$/.exec(req.headers.authorization || "");
+      if (u2) return send(res, 200, { email: u2[1] });
+      return t ? send(res, 200, { email: t[1], email_confirmed_at: "2026-01-01T00:00:00Z" }) : send(res, 401, {});
     }
     // The few server-side functions the verified journeys call. These restate what the SQL does (supabase/migrations/0024 and
     // 0025) just far enough to drive the site; that the SQL itself is atomic and race-free is proven against PostgreSQL by

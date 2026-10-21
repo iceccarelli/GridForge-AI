@@ -41,6 +41,11 @@ primary_region = "ams"
   # sell API plans, but a second machine behind the load balancer would still serve keys revoked only on
   # the first -- hence the single-machine rule (a Fly volume belongs to one machine; revocation state is only coherent with one).
   GRIDFORGE_REVOKED_FILE = "/data/revoked.json"
+  # The usage ledger: an append-only record of every unit charged or refunded (GET /v1/admin/ledger, operator
+  # tier, feeds the invoice). Pay-as-you-go and free-allowance keys are REFUSED with a 503 when this file cannot
+  # be written, because serving them unrecorded would be serving them for free; it must be on the volume above
+  # and, like revocation, is only coherent while the app runs exactly ONE machine.
+  GRIDFORGE_LEDGER_FILE = "/data/ledger.jsonl"
 
 [http_service]
   internal_port = 8080

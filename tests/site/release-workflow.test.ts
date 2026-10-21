@@ -56,7 +56,8 @@ afterEach(() => restore());
 
 describe("customer resubmission", () => {
   it.each(["draft", "generating"])("is refused once the engagement is '%s' and the document is untouched", async (status) => {
-    seed({ status });
+    // A real in-flight row carries the claim stamp (lib/engagement-state.ts); an unstamped one is a stale claim.
+    seed({ status, ...(status === "generating" ? { intake: { _gridforge: { generating_since: new Date().toISOString() } } } : {}) });
     const { POST } = await intake();
     const res = await POST(
       new Request(siteUrl("/x"), { method: "POST", body: JSON.stringify({ siteName: "Other Hall" }) }),

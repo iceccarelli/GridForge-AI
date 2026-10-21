@@ -41,6 +41,35 @@ Explicitly excluded. Listed rather than omitted, because an unstated exclusion i
 - Protection and arc-flash studies — Provided by the client's electrical engineer.
 - Migration and tenancy — Moving or decanting existing tenants is outside this package.
 
+## 2A. Site conditions and assumptions
+
+Every duty in section 3 is quoted at these site conditions. Each numeric requirement in section 3 is derived from the constraint named in its 'From constraint' column, and these conditions are the model inputs those constraints used. A condition the client did not supply is printed as 'not supplied: assumed ...' with its evidence class; it is not a measurement and is not silently defaulted. A responder who has better data for any line shall say so in the response.
+
+| Ref | Condition | Value | Status | Basis |
+| --- | --- | --- | --- | --- |
+| SC-01 | Design ambient dry bulb (summer) | 34 degC (E3) | supplied | supplied by the client (not measured or surveyed by us) |
+| SC-02 | Design ambient wet bulb (summer) | 21 degC (E5) | supplied | supplied by the client (not measured or surveyed by us) |
+| SC-03 | Facility-water supply temperature (existing plant) | 6 degC (E5) | supplied | supplied by the client (not measured or surveyed by us) |
+| SC-04 | Technology-loop (TCS) supply target | 30 [27–32] degC (E0) | assumed | not supplied: assumed 30 degC (E0) |
+| SC-05 | Site altitude | not modelled | not modelled | not supplied: the capacity model has no altitude input, so no altitude derating of air-cooled plant, motors or electrical equipment has been applied to any duty. Responders shall quote at the site altitude the client confirms and state it. |
+| SC-06 | LV distribution voltage | 400 V (E5) | supplied | supplied by the client (not measured or surveyed by us) · 3-phase |
+| SC-07 | Supply frequency | not modelled | not modelled | not supplied: the capacity model has no frequency input. Responders shall state the frequency they have assumed for the equipment quoted. |
+| SC-08 | Site power factor | 0.97 (E3) | supplied | supplied by the client (not measured or surveyed by us) |
+| SC-09 | Rack power basis: NVIDIA GB300 NVL72 | 135 [132–142] kW (E0) | library | per-rack total TDP from the platform library, used for every electrical and thermal duty (utilisation is not applied to a duty) |
+| SC-10 | Liquid heat-capture fraction: NVIDIA GB300 NVL72 | 0.9 [0.85–0.92] (E0) | library | platform library figure; the remainder is residual air load per rack |
+| SC-11 | Redundancy, transformer bank TX-A/B | N+1 on 3 units | supplied | supplied by the client |
+| SC-12 | Redundancy, UPS bank UPS-1 | N+1 on 6 units | supplied | supplied by the client |
+
+*Values carry their unit and evidence class (E0 assumed ... E7 observed). 'library' is a platform figure; 'not modelled' means the engine has no input for the condition and has applied no derating for it.*
+
+Inputs to the capacity model that were assumed rather than supplied (each is an assumption at evidence class E0 unless it states otherwise):
+
+- Installed CDU schedule (thermal.cdus): not supplied: assumed nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)
+- TCS target supply temperature (thermal.tcs_target_supply_C; degC): not supplied: assumed 30 [27–32] degC (E0)
+- Rear-door heat exchanger capacity per rack (thermal.rdhx.capacity_kW_per_rack; kW): not supplied: assumed 60 [20–80] kW (E0)
+- All-in grid electricity price (economics.electricity_eur_per_MWh; EUR/MWh): not supplied: assumed library placeholder of 140 EUR/MWh (E0)
+- Discount rate (economics.discount_rate): not supplied: assumed no value (none: the lifecycle value is undiscounted) (E0)
+
 ## 3. Technical requirements
 
 Obligation words carry their usual tender meaning: shall — non-compliance disqualifies the response; should — scored, not disqualifying; may — stated for context.
@@ -114,7 +143,7 @@ Price is one criterion of five. The item being bought exists to unlock compute o
 
 - Return the response schedule in section 6, completed. An incomplete schedule is not evaluated.
 - State compliance against every requirement in section 3 as C (compliant), CD (complies with deviation, deviation described) or N (non-compliant).
-- Quote duties at the site conditions stated, not at a reference condition. A duty at a reference condition is not a response to this document.
+- Quote duties at the site conditions stated in section 2A, not at a reference condition. A duty at a reference condition is not a response to this document.
 - List exclusions explicitly and price them separately where you can.
 - State which long-lead component governs your delivery date.
 
@@ -155,9 +184,15 @@ Every number in this report carries an evidence class. The class of a computed n
 - Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. Not a market price.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Tap-off units are a reported shortage item
+- Legacy low-temperature plant
+- Operators specify 27-30 degC for 500-700 W parts; the W45 equipment rating is not an operating point
+- Cold plates on CPU/GPU/HBM/NVSwitch; residual air load must still be removed
 
 ### A.2 Sources
 
+- DCD, hot water cold water, 2024
+- Lenovo Press LP2357, GB300 NVL72, 2026 [V]
+- NVIDIA NVL72 AI Factory Reference Architecture, 2026 [V]
 
 ### A.3 Provenance of headline quantities
 
@@ -165,6 +200,14 @@ Every number in this report carries an evidence class. The class of a computed n
 | --- | --- | --- | --- |
 | busway and tap-off works, per run | E0 | costs.scaled_relief@0.1 | `8bca5c542732` |
 | busway and tap-off lead time | E0 | input@0.1 | `74ff17170551` |
+| summer design dry-bulb | E3 | input@0.1 | `7312d718f36d` |
+| summer design wet-bulb | E5 | input@0.1 | `95eb471b48b2` |
+| plant chilled-water supply temperature | E5 | input@0.1 | `782cb160ee30` |
+| TCS supply temperature design point | E0 | input@0.1 | `1dc1aaf81e33` |
+| LV distribution voltage | E5 | input@0.1 | `064883d0ef56` |
+| site power factor | E3 | input@0.1 | `9083b4d7b27e` |
+| GB300 NVL72 rack TDP | E0 | input@0.1 | `e6476e7cd728` |
+| GB300 NVL72 liquid heat capture fraction | E0 | input@0.1 | `e205b1f86e3c` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
 | required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
 

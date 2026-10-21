@@ -49,3 +49,6 @@ calibration.local.json
 .claude/worktrees/
 *.egg-info/
 build/
+
+# agent worktrees
+.claude/worktrees/

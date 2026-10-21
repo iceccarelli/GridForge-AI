@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getApiAccount, keyLife, mintForAccount, signingConfigured } from "@/lib/api-access";
+import { getApiAccount, keyEntitlement, keyLife, mintChecked, signingConfigured } from "@/lib/api-access";
+import { recordFunnelEvent } from "@/lib/funnel";
+import { accountRef, freeAccountsMax } from "@/lib/payg";
+import { verifyFreeAccount } from "@/lib/payg-accounts";
+import { guardRequest } from "@/lib/rate-limit";
+import { inspectKey } from "@/lib/api-access";
 
 export const runtime = "nodejs";
 
@@ -35,6 +40,7 @@ export async function GET(req: Request) {
       status: row.status,
       key_id: row.key_id,
       key_expires_at: row.key_expires_at,
+      key_scope: row.key_scope ?? null,
       has_key: life.has_key,
       expired: life.expired,
       days_left: life.days_left,
@@ -68,6 +74,10 @@ export async function POST(req: Request) {
   const token = typeof body.token === "string" ? body.token : "";
   const rotate = body.rotate === true;
 
+  // Admitted once the body has been read, before anything is minted or rotated.
+  const g = await guardRequest(req, "key_mint");
+  if (g.denied) return g.denied;
+
   const row = token ? await getApiAccount(token) : null;
   if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
   if (row.status === "cancelled") {
@@ -97,7 +107,12 @@ export async function POST(req: Request) {
   // key is already live for this account". A closed loop with a live
   // subscription on the far side of it.
   const life = keyLife(row);
-  if (!rotate && !life.needs_rotation) {
+  // What this plan's key must carry. A bounded plan (free allowance, pay-as-you-go) with no bound on record is refused, never
+  // minted as an unbounded key; and a live key of the WRONG scope (the free key after pay-as-you-go was enabled) is replaced.
+  const want = keyEntitlement(row);
+  if (!want.ok) return NextResponse.json({ ok: false, error: want.error }, { status: 409 });
+  const wrongScope = Boolean(row.key_id) && Boolean(row.key_scope) && row.key_scope !== want.scope;
+  if (!rotate && !life.needs_rotation && !wrongScope) {
     return NextResponse.json({
       ok: true,
       issued: false,
@@ -115,11 +130,35 @@ export async function POST(req: Request) {
   // still working: killing it the moment we mint its successor would turn a
   // warning into the outage the warning exists to prevent. The two overlap until
   // the old one expires on its own.
-  const supersede = rotate || life.expired;
-  const minted = await mintForAccount(row, { rotate: supersede });
-  if (!minted) {
+  // A free allowance counts against the month's ceiling of VERIFIED accounts the first time the owner opens the emailed link and mints a
+  // key (idempotent afterwards). Checked atomically in the database; nothing is minted if the month's allowance is used up.
+  if (row.plan === "api_free" && !row.free_verified_at) {
+    const v = await verifyFreeAccount(row.token, freeAccountsMax());
+    if (v === "capacity") {
+      return NextResponse.json(
+        { ok: false, reason: "capacity", error: "The free allowance has reached its limit of new accounts for this month. It reopens at the start of next month (UTC); nothing was created for you and nothing is charged." },
+        { status: 429, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    if (v !== "ok") return NextResponse.json({ ok: false, error: "Could not issue a key just now. Nothing was changed." }, { status: 503 });
+  }
+  const supersede = rotate || life.expired || wrongScope;
+  const out = await mintChecked(row, { rotate: supersede });
+  if (!out.ok) {
+    // A concurrent mint won the compare-and-set: this key was never recorded, so it is not handed out.
+    if (out.reason === "conflict") {
+      return NextResponse.json(
+        { ok: false, error: "A key was issued for this account at the same moment. Reload to see its state; nothing was changed by this request." },
+        { status: 409 }
+      );
+    }
+    if (out.reason === "refused") return NextResponse.json({ ok: false, error: out.message ?? "A key cannot be issued for this account." }, { status: 409 });
     return NextResponse.json({ ok: false, error: "Could not issue a key" }, { status: 500 });
   }
+  const minted = out.result;
+  // Once per key id: a retried request or a replay cannot write the same mint twice.
+  const keyId = inspectKey(minted.token)?.k ?? "";
+  await recordFunnelEvent("key_minted", { scope: want.scope, plan: row.plan, account_ref: accountRef(row.account) }, { dedupeKey: `key_minted:${keyId}` });
   return NextResponse.json({
     ok: true,
     issued: true,
@@ -132,8 +171,9 @@ export async function POST(req: Request) {
       ? {
           revocation_pending: true,
           revocation_note:
-            "The new key is live, but we could not confirm the engine has revoked the previous one. " +
-            "It is recorded for revocation and will be retried; treat the old key as still working until then.",
+            "The new key is live, but the engine has not yet confirmed that the previous one is revoked. " +
+            "It is recorded as unconfirmed and a daily job keeps retrying it until the engine confirms; " +
+            "until then, treat the old key as still working.",
         }
       : {}),
     ...(!supersede && minted.previous

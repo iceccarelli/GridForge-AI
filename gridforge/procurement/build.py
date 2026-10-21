@@ -20,9 +20,9 @@ from ..constraints import EnvelopeContext
 from ..envelope.solver import LadderStep
 from ..scenario.run import ScenarioResult
 from ..validation import EvidenceClass, Quantity
-from .schema import (INFORMATIVE, MANDATORY, PREFERRED, EvaluationCriterion,
-                     ProcurementError, Requirement, ResponseField, ScopeItem,
-                     SpecPackage)
+from .schema import (INFORMATIVE, MANDATORY, PREFERRED, SC_ASSUMED, SC_LIBRARY, SC_NOT_MODELLED,
+                     SC_SUPPLIED, AssumedInput, EvaluationCriterion, ProcurementError,
+                     Requirement, ResponseField, ScopeItem, SiteCondition, SpecPackage)
 
 
 def default_step(steps: list[LadderStep]) -> LadderStep:
@@ -437,6 +437,110 @@ def _scope_quantity(result: ScenarioResult, step: LadderStep) -> float | None:
     return total
 
 
+def _declared(doc: dict, path: str) -> bool:
+    """Did the intake document itself carry this field? (Not the context: a default is in the context too.)"""
+    cur = doc
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    if isinstance(cur, dict) and "value" in cur:
+        cur = cur["value"]
+    return cur is not None
+
+
+def _bank_scheme(doc: dict, key: str, ident: str, field_name: str) -> bool:
+    for item in doc.get(key) or []:
+        if isinstance(item, dict) and str(item.get("id", "")) == ident:
+            return item.get(field_name) is not None
+    return False
+
+
+def site_conditions(intake, ctx: EnvelopeContext) -> list[SiteCondition]:
+    """The conditions the duties are quoted at, from the model that sized them. A condition the client did not
+    supply is printed as "not supplied: assumed X (E0)"; one the engine has no input for says so and says that no
+    derating for it has been applied. Nothing is defaulted silently."""
+    doc = getattr(intake, "document", None) or {}
+    site, plant, power, plat = ctx.site, ctx.thermal.plant, ctx.power, ctx.cluster.platform
+    rows: list[SiteCondition] = []
+
+    def q_row(i: int, label: str, path: str, q: Quantity, *, library: bool = False, extra: str = "") -> None:
+        if library:
+            status, stmt = SC_LIBRARY, "platform library figure, not a client declaration or a measurement"
+        elif _declared(doc, path):
+            status, stmt = SC_SUPPLIED, "supplied by the client (not measured or surveyed by us)"
+        else:
+            status = SC_ASSUMED
+            stmt = f"not supplied: assumed {q.render(with_band=False)}"
+        rows.append(SiteCondition(f"SC-{i:02d}", label, status, (stmt + (" · " + extra if extra else "")),
+                                  value=q, path=path))
+
+    q_row(1, "Design ambient dry bulb (summer)", "site.design_drybulb_C", site.design_drybulb_C)
+    q_row(2, "Design ambient wet bulb (summer)", "site.design_wetbulb_C", site.design_wetbulb_C)
+    q_row(3, "Facility-water supply temperature (existing plant)", "thermal.plant.design_supply_C",
+          plant.design_supply_C)
+    q_row(4, "Technology-loop (TCS) supply target", "thermal.tcs_target_supply_C", ctx.thermal.tcs_target_supply_C)
+    rows.append(SiteCondition(
+        "SC-05", "Site altitude", SC_NOT_MODELLED,
+        "not supplied: the capacity model has no altitude input, so no altitude derating of air-cooled plant, "
+        "motors or electrical equipment has been applied to any duty. Responders shall quote at the site "
+        "altitude the client confirms and state it.", text="not modelled"))
+    q_row(6, "LV distribution voltage", "lv.voltage_V", power.lv.voltage_V,
+          extra=f"{power.lv.phases}-phase")
+    rows.append(SiteCondition(
+        "SC-07", "Supply frequency", SC_NOT_MODELLED,
+        "not supplied: the capacity model has no frequency input. Responders shall state the frequency they "
+        "have assumed for the equipment quoted.", text="not modelled"))
+    q_row(8, "Site power factor", "grid.power_factor", power.grid.power_factor)
+    rows.append(SiteCondition(
+        "SC-09", f"Rack power basis: {plat.name}", SC_LIBRARY,
+        "per-rack total TDP from the platform library, used for every electrical and thermal duty "
+        "(utilisation is not applied to a duty)", value=plat.rack_kW))
+    rows.append(SiteCondition(
+        "SC-10", f"Liquid heat-capture fraction: {plat.name}", SC_LIBRARY,
+        "platform library figure; the remainder is residual air load per rack", value=plat.liquid_fraction))
+    n = 10
+    for key, kind, banks in (("transformers", "transformer", power.transformers), ("ups", "UPS", power.ups)):
+        for b in banks:
+            n += 1
+            declared = _bank_scheme(doc, key, b.id, "redundancy")
+            rows.append(SiteCondition(
+                f"SC-{n}", f"Redundancy, {kind} bank {b.id}",
+                SC_SUPPLIED if declared else SC_ASSUMED,
+                ("supplied by the client" if declared else
+                 f"not supplied: assumed {b.redundancy} (E0)"),
+                text=f"{b.redundancy} on {b.units} units"))
+    for c in ctx.thermal.cdus:
+        n += 1
+        rows.append(SiteCondition(
+            f"SC-{n}", f"Redundancy, CDU bank {c.id}", SC_SUPPLIED if c.installed else SC_ASSUMED,
+            "as declared in the CDU schedule" if c.installed else
+            f"not supplied: no CDU schedule; the model assumed {c.units} units at {c.redundancy} (E0)",
+            text=f"{c.redundancy} on {c.units} units"))
+    return rows
+
+
+def assumed_inputs(intake, conditions: list[SiteCondition] | None = None) -> list[AssumedInput]:
+    """Every intake input that was not supplied and was filled from the library, with what was used. The intake
+    report lists the fields it tracks; site conditions that were assumed but are not tracked there (the wet bulb)
+    are added from the conditions table so the two lists cannot disagree."""
+    out = []
+    for g in getattr(getattr(intake, "report", None), "gaps", []) or []:
+        fb = (g.fallback_description or "—").strip()
+        if fb in ("[]", "—"):
+            fb = "nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)"
+        elif fb.lower().startswith("none"):
+            fb = f"no value ({fb}) (E0)"
+        elif "(E" not in fb:
+            fb = f"{fb} (E0)"
+        out.append(AssumedInput(g.path, g.label, "" if g.unit in ("-", "—") else g.unit, fb))
+    have = {a.path for a in out}
+    for c in conditions or []:
+        if c.status == SC_ASSUMED and c.value is not None and c.path and c.path not in have:
+            out.append(AssumedInput(c.path, c.label, c.value.unit, c.value.render(with_band=True)))
+    return out
+
+
 def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None,
                constraint_id: str = "") -> SpecPackage:
     """One specification, for one relief on one hall.
@@ -473,6 +577,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
     gen = GENERATORS.get(step.binding_id)
     reqs = gen(ctx, racks) if gen else _generic(ctx, racks, step)
 
+    conds = site_conditions(intake, ctx)
     pkg = SpecPackage(
         project=intake.client,
         hall=ctx.hall.id,
@@ -519,6 +624,8 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
         scope_quantity_unit=step.quantity_unit if step.quantity is not None else "",
         sized_for_racks=racks,
         sized_for_kW=ctx.cluster.platform.rack_kW.value * racks,
+        site_conditions=conds,
+        assumed_inputs=assumed_inputs(intake, conds),
         notes=[
             (f"Duties in section 3 are sized for the end state of {racks} racks of "
              f"{ctx.cluster.platform.name} — the hall this relief is part of delivering — "

@@ -16,6 +16,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { installDepositRpcs } from "./deposit-rpc-fake";
 
 // The page is compiled with the classic JSX transform under vitest.
 (globalThis as { React?: unknown }).React = React;
@@ -41,6 +42,7 @@ beforeEach(() => {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   db = new PostgrestFake(["engagement_deposits", "leads", "projects", "project_links", "project_events"]);
   db.uniqueKeys.set("engagement_deposits", [["stripe_session_id"]]);
+  installDepositRpcs(db);
   const undo = db.install();
   const dbFetch = globalThis.fetch;
   globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
@@ -132,7 +134,8 @@ describe("the operator's work list and the proven steps", () => {
     expect((await step(id, { owner: "  " })).res.status).toBe(422);
     expect((await step(id, { owner: "A. Rivera" })).body.deposit).toMatchObject({ status: "contacted", owner: "A. Rivera" });
     expect((await step(id, {})).res.status).toBe(422);                              // scoping needs the scope note
-    expect((await step(id, { scope_note: "Hall A and B; 35 MW target; deliver by the agreed date" })).body.deposit.status).toBe("scoped");
+    // scoping now records the fee agreed and the delivery date committed to (migration 0030); see deposit-handoff.test.ts
+    expect((await step(id, { scope_note: "Hall A and B; 35 MW target; deliver by the agreed date", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" })).body.deposit.status).toBe("scoped");
     expect((await step(id, { owner: "x" })).res.status).toBe(422);                  // delivery needs its reference
     expect((await step(id, { delivery_ref: "https://example.test/delivery/hall-a" })).body.deposit.status).toBe("delivered");
     expect((await step(id, { delivery_ref: "again" })).res.status).toBe(409);       // nothing past delivered

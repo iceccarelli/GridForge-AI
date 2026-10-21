@@ -8,6 +8,14 @@
     {
       "path": "/api/cron/notifications",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/payg",
+      "schedule": "23 3 * * *"
+    },
+    {
+      "path": "/api/cron/engagements",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

@@ -77,6 +77,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     email: who.email,
+    verified: who.verified,
     engagements: engagements.map((r) => {
       const product = PRODUCT_BY_KIND[r.kind];
       const released = r.status === "released";
@@ -93,15 +94,17 @@ export async function GET(req: Request) {
         // document behind it. Before that the only useful link is the intake, and
         // handing out the document token early would turn this page into a way of
         // collecting one for later.
-        documentToken: released ? r.token : null,
+        // Tokens open the engineering opinion and the intake, so they go only to an identity Supabase has confirmed
+        // (they followed the emailed link). A session that merely CLAIMS this address gets the same list without them.
+        documentToken: released && who.verified ? r.token : null,
         // `awaiting_intake` is precisely the state in which the hall's numbers are
         // still wanted; once it has moved on, the link is spent.
         intakeToken:
-          r.status === "awaiting_intake" ? (r.intake_token ?? r.token) : null,
+          r.status === "awaiting_intake" && who.verified ? (r.intake_token ?? r.token) : null,
       };
     }),
     watches: watches.map((w) => ({
-      token: w.token,
+      token: who.verified ? w.token : null,
       status: w.status,
       cadence: w.cadence,
       siteName: w.site_name,

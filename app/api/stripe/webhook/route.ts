@@ -6,7 +6,11 @@ import Stripe from "stripe";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { createWatch, lookupWatchBySubscription, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
+import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
+import { pg } from "@/lib/payg-store";
+import { paygStripe } from "@/lib/payg-stripe";
 import {
+  confirmRevoked,
   createApiAccount,
   findBySubscription,
   keyLife,
@@ -88,7 +92,16 @@ export async function POST(req: Request) {
       });
     }
     const product = PRODUCT_BY_KIND[kind];
-    if (isApiProduct(kind)) {
+    if (kind === "api_payg_enable") {
+      // A card saved for pay-as-you-go (Checkout mode "setup": nothing was charged). Absolute, replay-safe writes; a failed
+      // read or write answers 500 so Stripe redelivers (lib/payg-billing.ts).
+      const applied = await handlePaygEnable(session, paygStripe());
+      if (!applied.ok) return fulfilmentFailed("pay-as-you-go enable", session.id);
+    } else if (kind === "api_payg_card_update") {
+      // The card on file was replaced (setup mode on the existing customer; nothing was charged).
+      const applied = await handlePaygCardUpdate(session, paygStripe());
+      if (!applied.ok) return fulfilmentFailed("pay-as-you-go card update", session.id);
+    } else if (isApiProduct(kind)) {
       // Metered API access. No intake, no engineering work, no human: the
       // subscription becomes a signed key the engine can verify offline, and the
       // customer is on their own machine-callable endpoint within seconds. That
@@ -150,7 +163,19 @@ export async function POST(req: Request) {
         customerId: typeof session.customer === "string" ? session.customer : null,
         subscriptionId: typeof session.subscription === "string" ? session.subscription : null,
       });
-      if (row) {
+      if (row && row.status === "superseded") {
+        // Paid for by a DIFFERENT Stripe customer than the subscription already entitling this address: it entitles nothing and
+        // supersedes nothing (the typed email proves nothing about who owns it). A person decides: refund, or merge deliberately.
+        if (!existedBefore) {
+          await notifyOperator(
+            `Intelligence purchase NOT entitled — ${row.email} already has an active subscription`,
+            `Stripe subscription ${row.stripe_subscription_id ?? "-"} (plan ${plan}, customer ${row.stripe_customer_id ?? "-"}) was paid for with ${row.email}, ` +
+              `which already has an active Intelligence subscription under a different Stripe customer. The existing subscription and its seats were NOT changed ` +
+              `and the new purchase entitles nothing. If this is the same person upgrading, cancel the old subscription in Stripe and ask them to sign in; ` +
+              `if not, cancel and refund the new one.`
+          );
+        }
+      } else if (row) {
         // The operator hears of a NEW subscriber once, not on every Stripe redelivery; the customer's welcome
         // is a durable obligation of its own (a failed email never touches the paid subscription).
         if (!existedBefore) await notifyOperator("New Intelligence subscriber", `Plan: ${plan}. Subscription record ${row.id}.`);
@@ -194,6 +219,10 @@ export async function POST(req: Request) {
       }
       // Mark the most recent matching lead deposit_paid (match by email, newest first). Best effort.
       await markDepositPaid({ email, company, amount, sessionId: session.id });
+      // The paid deposit now counts the Founding slot by itself; the reservation that held it is released (best effort: an
+      // unreleased one expires on its own and only ever errs towards fewer credits).
+      const reserved = (session.metadata?.founding_reservation as string) || "";
+      if (/^[0-9a-f-]{36}$/i.test(reserved)) await pg("DELETE", `founding_reservations?id=eq.${reserved}`, undefined, "return=minimal");
       // One email per payment, not one per redelivery.
       if (recorded.created) await notifyFounder({ email, company, amount });
     }
@@ -233,7 +262,10 @@ export async function POST(req: Request) {
         // logged so it can be pushed by hand, and the key still dies at its expiry.
         // Every id we ever superseded is pushed too (a rotation or overlap mint may not have been confirmed
         // by the engine), plus the live one. Each is attempted independently; the ids stay recorded.
-        for (const id of revoked) await revokeOnEngine(id);
+        const confirmedIds: string[] = [];
+        for (const id of revoked) if (await revokeOnEngine(id)) confirmedIds.push(id);
+        // What the engine confirmed is recorded; the rest stays unconfirmed and the daily sweep keeps pushing it.
+        await confirmRevoked(row.token, confirmedIds);
         console.log(`[GridForge] api account ${row.account} cancelled; revoked key id ${row.key_id ?? "-"}`);
       }
     }
@@ -248,6 +280,16 @@ export async function POST(req: Request) {
     if (!applied) return lifecycleRetry("cancellation (write failed)", sub.id);
   }
 
+  // Pay-as-you-go month-end invoices carry metadata.kind === "payg_settlement" and no subscription: they are settled against their
+  // usage_settlements row (paid is terminal against a late failed), never against a subscription (lib/payg-billing.ts).
+  if (event.type === "invoice.payment_failed" || event.type === "invoice.paid") {
+    const payg = await handlePaygInvoice(event);
+    if (payg) {
+      if (!payg.ok) return lifecycleRetry(`pay-as-you-go invoice event (${payg.why})`, (event.data.object as Stripe.Invoice).id ?? "unknown");
+      return NextResponse.json({ ok: true, received: true });
+    }
+  }
+
   if (event.type === "invoice.payment_failed") {
     const subId = subscriptionIdOf(event.data.object as Stripe.Invoice);
     if (subId) {
@@ -255,9 +297,10 @@ export async function POST(req: Request) {
       if (!found.ok) return lifecycleRetry("payment failure (lookup failed)", subId);
       let applied = true;
       // Only an ACTIVE entitlement moves. A late failure notice must never reopen a cancelled account
-      // (past_due can still mint keys) or demote something already ended.
-      if (found.api && found.api.status === "active") {
-        if (!(await updateApiAccount(found.api.token, { status: "past_due" }))) applied = false;
+      // (past_due can still mint keys) or demote something already ended. Nor may it override a LATER event already applied:
+      // events are not delivered in order, so a failure older than the payment that cleared it is ignored.
+      if (found.api && found.api.status === "active" && billingEventIsCurrent(found.api, event.created, "failed")) {
+        if (!(await updateApiAccount(found.api.token, { status: "past_due", ...(event.created ? { last_billing_event_ts: event.created } : {}) }))) applied = false;
       }
       // "paused", not "cancelled": Stripe retries, and a card that fails on Tuesday and clears on
       // Thursday should not have cost the client a quarter.
@@ -278,8 +321,8 @@ export async function POST(req: Request) {
       if (!found.ok) return lifecycleRetry("renewal (lookup failed)", subId);
       let applied = true;
       let remind: ApiAccount | null = null;
-      if (found.api && found.api.status !== "cancelled") {
-        if (!(await updateApiAccount(found.api.token, { status: "active" }))) applied = false;
+      if (found.api && found.api.status !== "cancelled" && billingEventIsCurrent(found.api, event.created, "paid")) {
+        if (!(await updateApiAccount(found.api.token, { status: "active", ...(event.created ? { last_billing_event_ts: event.created } : {}) }))) applied = false;
         else remind = found.api;
       }
       // A watch paused by a failed payment comes back when the payment clears. A cancelled one does
@@ -334,6 +377,19 @@ async function resolveSubscription(subId: string): Promise<
 /** A subscription this site sells: its checkout stamped the subscription with one of these kinds. */
 function isOurSubscriptionKind(kind: unknown): boolean {
   return typeof kind === "string" && (isApiProduct(kind) || kind === "hall_watch" || kind === "intelligence_subscription");
+}
+
+/**
+ * Stripe does not deliver events in order. Each invoice event for a subscription API account records its `created` time when
+ * applied; an event OLDER than the newest one already applied is stale and changes nothing. At the same second a payment
+ * that cleared wins over a failure (the failure is the one that was retried into success). An event with no time cannot be ordered
+ * and is applied, as before.
+ */
+function billingEventIsCurrent(row: ApiAccount, created: number | undefined, kind: "failed" | "paid"): boolean {
+  if (typeof created !== "number") return true;
+  const last = row.last_billing_event_ts;
+  if (typeof last !== "number") return true;
+  return kind === "paid" ? created >= last : created > last;
 }
 
 function lifecycleRetry(what: string, subId: string) {
@@ -567,6 +623,6 @@ async function notifyFounder(p: { email: string; company: string; amount: number
   // Best effort and never throws; sendMail validates the provider's answer and logs a category only.
   await notifyOperator(
     `💳 Deposit paid — ${p.company || "a buyer"} (${eur(p.amount)})`,
-    `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nIt is recorded in engagement_deposits (GET /api/admin/deposits). Contact the buyer to scope the engagement and record who did.`
+    `Engagement deposit received.\n\nCompany: ${p.company}\nEmail: ${p.email}\nAmount: ${eur(p.amount)}\n\nIt is recorded in engagement_deposits (GET /api/admin/deposits). Contact the buyer to scope the engagement and record who did. Scoping records the fee agreed (inside the published band), the delivery date you commit to, and applies any earlier Density Screen as a one-time credit.`
   );
 }

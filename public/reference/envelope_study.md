@@ -387,7 +387,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | --- | --- | --- | --- |
 | deployable racks as found | E0 | input@0.1 | `2251cf0df6fb` |
 | deployable racks after relief measures | E0 | input@0.1 | `90db47981317` |
-| deployable IT load | E0 | envelope.it_load@0.1 | `a4e3fd845acb` |
+| deployable IT load | E0 | envelope.it_load@0.1 | `7878bb4e6931` |
 | elapsed weeks to energise the full envelope | E0 | input@0.1 | `d0aab02069a1` |
 | total capex | E0 | economics.total_capex@0.1 | `9eed5fbc0658` |
 | racks before step 1 | E0 | input@0.1 | `57e2e78db498` |
@@ -550,7 +550,7 @@ Every number in this report carries an evidence class. The class of a computed n
 | (transformer headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `edb30cfae0fa` |
 | (UPS headroom for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `c8e62be34b0a` |
 | (total usable busway capacity in hall / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `bf7b469cd3d1` |
-| (firm supply headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `0fecb91fef87` |
+| (firm supply headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `3480be100fcb` |
 | Residual air load removal per rack: gate fails | E0 | input@0.1 | `26165e87d919` |
 | Achievable facility water temperature: gate fails | E0 | input@0.1 | `220f8c8a7543` |
 | (CDU-ROW-assumed usable capacity at site conditions / gb300_nvl72 liquid load per rack) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `25573ad8fd4c` |
@@ -576,22 +576,22 @@ Every number in this report carries an evidence class. The class of a computed n
 | rdhx: racks unlocked | E0 | input@0.1 | `e9952b43b4be` |
 | hybrid_dlc: racks unlocked | E0 | input@0.1 | `8eba1a207998` |
 | hybrid_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `c231de706945` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `f35d99e09dad` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `3e1397117363` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `83ceb2eba697` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `55da6a68d11a` |
 | hybrid_dlc: critical path | E0 | input@0.1 | `fd4bb27c96c2` |
-| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `c0c7b3b2c957` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `0590aba4b7e0` |
 | full_dlc: racks unlocked | E0 | input@0.1 | `8887e6b75586` |
 | full_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `b1117dd9e458` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `9f0764431542` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `4243b5b63dd0` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `640cd8206ed8` |
 | full_dlc: critical path | E0 | input@0.1 | `e150e1d1a44b` |
-| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `a7fe3ba3d2a3` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `a8d29bc15951` |
 | full_dlc_btm: racks unlocked | E0 | input@0.1 | `7d7b81a69f10` |
 | full_dlc_btm: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `9b9420d1d44f` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
-| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `9f0764431542` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `4243b5b63dd0` |
+| energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `640cd8206ed8` |
 | full_dlc_btm: critical path | E0 | input@0.1 | `1bfd8e2425a5` |
-| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `099a6a050f4a` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `dab46789983e` |
 | full_dlc_btm: racks under max_compute | E0 | input@0.1 | `03622d66b673` |
 | full_dlc: racks under min_cost | E0 | input@0.1 | `4a678bdcfdb2` |
 | full_dlc_btm: racks under fastest | E0 | input@0.1 | `11903e200727` |
@@ -600,9 +600,9 @@ Every number in this report carries an evidence class. The class of a computed n
 | initial CDU kit (assumed, not installed): supplied and mechanically installed | E0 | costs.scaled_relief@0.1 | `457085eb7b50` |
 | total capex | E0 | economics.total_capex@0.1 | `9eed5fbc0658` |
 | all-in electricity price | E0 | input@0.1 | `ee5beeda32eb` |
-| annual site energy for the deployed load | E0 | convert@0.1 | `215ce7188587` |
-| annual energy cost | E0 | economics.energy_cost@0.1 | `c6e2b66f7cd7` |
-| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `099a6a050f4a` |
+| annual site energy for the deployed load | E0 | convert@0.1 | `beb6d1c08f7a` |
+| annual energy cost | E0 | economics.energy_cost@0.1 | `4243b5b63dd0` |
+| lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `dab46789983e` |
 | racks under: Contracted power 20% lower | E0 | input@0.1 | `869b37a4a341` |
 | delta under: Contracted power 20% lower | E0 | input@0.1 | `65f882b76c13` |
 | racks under: PUE 10% worse than assumed | E0 | input@0.1 | `43065380960f` |

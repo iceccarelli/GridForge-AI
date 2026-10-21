@@ -606,7 +606,9 @@ describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
     expect((await go({})).status).toBe(422);
     expect((await go({ owner: "A. Rivera" })).status).toBe(200);
     expect((await go({ owner: "again" })).status).toBe(422);                 // now needs the scope note
-    expect((await go({ scope_note: "Hall A+B, 35 MW" })).status).toBe(200);
+    // scoping records the fee agreed (inside the band), the delivery date committed to and any credit (migration 0030)
+    const scoped = await go({ scope_note: "Hall A+B, 35 MW", agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    expect(scoped.status, JSON.stringify(await scoped.clone().json())).toBe(200);
     expect((await go({ delivery_ref: "https://example.test/d/1" })).status).toBe(200);
     expect((await go({ delivery_ref: "x" })).status).toBe(409);
     const [done] = await rows("engagement_deposits", `&stripe_session_id=eq.${sid}`);
@@ -617,6 +619,12 @@ describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
     expect((await patch({ amount_cents: 1 })).status).toBeGreaterThanOrEqual(400);
     expect((await patch({ status: "paid" })).status).toBeGreaterThanOrEqual(400);
     expect((await patch({ owner: "someone else" })).status).toBeGreaterThanOrEqual(400);
+    // (this buyer's address is shared with other tests in this database, so earlier paid Screens may have been credited here)
+    expect(done).toMatchObject({ agreed_fee_cents: 2_500_000, delivery_due_on: "2099-01-31" });
+    const applied = await rows("engagement_credits", `&deposit_id=eq.${done.id}`);
+    expect(applied.reduce((a: number, r: any) => a + r.amount_cents, 0)).toBe(done.credit_applied_cents);
+    expect(done.amount_cents + done.credit_applied_cents).toBeLessThanOrEqual(done.agreed_fee_cents);
+    expect((await patch({ delivery_due_on: "2099-06-30" })).status).toBeGreaterThanOrEqual(400);
     expect((await sql(`/engagement_deposits?id=eq.${done.id}`, { method: "DELETE" })).status).toBeGreaterThanOrEqual(400);
     expect((await rows("engagement_deposits", `&id=eq.${done.id}`))).toHaveLength(1);
   }, 60_000);

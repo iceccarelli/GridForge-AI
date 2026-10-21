@@ -93,6 +93,36 @@ def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
         s.blocks.append(Bullets([f"{i.title} — {i.detail}" for i in by_others]))
     r.sections.append(s)
 
+    # 2A — the conditions every duty is quoted at (numbered 2A so the clause and schedule references below, which
+    # tender documents quote by number, do not move)
+    if pkg.site_conditions:
+        s = Section("2A. Site conditions and assumptions")
+        s.blocks.append(Para(
+            "Every duty in section 3 is quoted at these site conditions. Each numeric requirement in section 3 "
+            "is derived from the constraint named in its 'From constraint' column, and these conditions are the "
+            "model inputs those constraints used. A condition the client did not supply is printed as 'not "
+            "supplied: assumed ...' with its evidence class; it is not a measurement and is not silently "
+            "defaulted. A responder who has better data for any line shall say so in the response."))
+        s.blocks.append(Table(
+            headers=["Ref", "Condition", "Value", "Status", "Basis"],
+            rows=[[Lit(c.id), c.label,
+                   c.value if c.value is not None else Lit(c.text or "—"),
+                   Lit(c.status.replace("_", " ")), c.statement]
+                  for c in pkg.site_conditions],
+            caption=("Values carry their unit and evidence class (E0 assumed ... E7 observed). 'library' is a "
+                     "platform figure; 'not modelled' means the engine has no input for the condition and has "
+                     "applied no derating for it.")))
+        if pkg.assumed_inputs:
+            s.blocks.append(Para(
+                "Inputs to the capacity model that were assumed rather than supplied (each is an assumption at "
+                "evidence class E0 unless it states otherwise):"))
+            s.blocks.append(Bullets([
+                f"{a.label} ({a.path}" + (f"; {a.unit}" if a.unit else "") + f"): not supplied: assumed {a.fallback}"
+                for a in pkg.assumed_inputs]))
+        else:
+            s.blocks.append(Para("No input to the capacity model was assumed in place of a supplied value."))
+        r.sections.append(s)
+
     # 3 — the requirements
     s = Section("3. Technical requirements")
     s.blocks.append(Para(
@@ -143,8 +173,8 @@ def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
         "evaluated.",
         "State compliance against every requirement in section 3 as C (compliant), CD "
         "(complies with deviation, deviation described) or N (non-compliant).",
-        "Quote duties at the site conditions stated, not at a reference condition. A duty at "
-        "a reference condition is not a response to this document.",
+        "Quote duties at the site conditions stated in section 2A, not at a reference condition. A "
+        "duty at a reference condition is not a response to this document.",
         "List exclusions explicitly and price them separately where you can.",
         "State which long-lead component governs your delivery date.",
     ]))

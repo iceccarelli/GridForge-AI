@@ -9,6 +9,7 @@
 
 import { storeFault } from "@/lib/safe-log";
 import { packHash } from "@/lib/deliverables";
+import { callerIdentity } from "@/lib/rate-limit";
 import crypto from "node:crypto";
 
 export const ADMIN_COOKIE = "gf_admin";
@@ -21,12 +22,29 @@ export function adminConfigured(): boolean {
 export const ADMIN_SESSION_SECONDS = 60 * 60 * 12;
 
 /**
- * Secret the session tokens are signed with. ADMIN_SESSION_SECRET if set (rotate
- * it to invalidate every outstanding session at once), else ADMIN_PASSWORD
- * (changing the password then also invalidates them).
+ * Secret the session tokens are signed with. ADMIN_SESSION_SECRET if set (a value of its own, never the password; rotate
+ * it to invalidate every outstanding session at once).
+ *
+ * Unset, the key is DERIVED from ADMIN_PASSWORD by a domain-separated HMAC, so the raw password is never the signing key
+ * itself. Changing the password still invalidates every session. This is a compatibility path: it logs one warning per
+ * process, and a deployment should set ADMIN_SESSION_SECRET (32+ random characters) instead.
  */
+let warnedDerivedSecret = false;
 function sessionSecret(): string | null {
-  return process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || null;
+  const dedicated = process.env.ADMIN_SESSION_SECRET;
+  if (dedicated) return dedicated;
+  const pw = process.env.ADMIN_PASSWORD;
+  if (!pw) return null;
+  if (!warnedDerivedSecret) {
+    warnedDerivedSecret = true;
+    console.warn("[GridForge] admin: ADMIN_SESSION_SECRET is not set; the session key is derived from ADMIN_PASSWORD. Set ADMIN_SESSION_SECRET to a separate random value (32+ characters).");
+  }
+  return crypto.createHmac("sha256", pw).update("gf-admin-session-key-v1").digest("hex");
+}
+
+/** Test seam: forget that the one-time warning was logged. Never called in a request path. */
+export function resetAdminSecretWarning(): void {
+  warnedDerivedSecret = false;
 }
 
 function sign(payload: string, secret: string): string {
@@ -79,11 +97,16 @@ const ATTEMPTS_PER_WINDOW = 8;
 const WINDOW_MS = 10 * 60 * 1000;
 const attempts = new Map<string, number[]>();
 
-/** Who is asking, as well as we can tell behind a proxy. */
+/**
+ * Who is asking, as the rate limiter's pseudonymous identity (lib/rate-limit.ts `callerIdentity`): the address comes only
+ * from a header the deployment declares its own proxy writes (the LAST entry of x-forwarded-for, never the first, which a
+ * client can set to anything), IPv6 is bucketed by /64, and no address is kept. When no trusted source can be established
+ * every such caller shares ONE key: a guessing attacker can never pick a fresh identity by lying, at the price that they
+ * can lock the single operator out for the window, which is the safe side of that trade for this gate.
+ */
 export function requestKey(req: Request): string {
-  const fwd = req.headers.get("x-forwarded-for") || "";
-  const first = fwd.split(",")[0]?.trim();
-  return first || req.headers.get("x-real-ip") || "unknown";
+  const who = callerIdentity(req);
+  return who.ok ? who.subject : "admin-login:unattributed";
 }
 
 /**

@@ -94,11 +94,18 @@ def bess_firm_factor_for_duration(option: GenerationOption,
     )
     firm_MW = bess.firm_MW_for_duration(ride_through_hours)
     factor = firm_MW.value / option.capacity_MW.value if option.capacity_MW.value else 0.0
+    # Carry the interval through: firm MW and nameplate MW each have a band, and the ratio's band is not a point.
+    # (A factor above 1 is impossible, and below 0 is, so the band is clipped to [0, 1].)
+    cap_lo, cap_hi = option.capacity_MW.band
+    f_lo, f_hi = firm_MW.band
+    lo = max(0.0, min(1.0, f_lo / cap_hi)) if cap_hi > 0 else 0.0
+    hi = max(0.0, min(1.0, f_hi / cap_lo)) if cap_lo > 0 else 1.0
     return V(factor, "1",
              f"{option.id} firm-capacity factor for {ride_through_hours.render()} "
              f"ride-through (power-vs-energy calculation, binding on "
              f"{bess.binding_limit(ride_through_hours)})",
-             min(firm_MW.evidence, option.capacity_MW.evidence, option.energy_MWh.evidence))
+             min(firm_MW.evidence, option.capacity_MW.evidence, option.energy_MWh.evidence),
+             band=(min(lo, factor), max(hi, factor)))
 
 
 def firm_contribution_kW(option: GenerationOption) -> Quantity:
@@ -119,7 +126,10 @@ def installed_firm_kW(power: PowerInput) -> Quantity:
                          step_evidence=ESTIMATED)
 
 
-def option_capex(option: GenerationOption) -> Quantity:
+def option_capex(option: GenerationOption) -> Quantity | None:
+    """Installed capex of the option, or None when the client declared no price (never zero)."""
+    if option.capex_eur_per_kW is None:
+        return None
     return (option.capacity_MW.convert(1000.0, "kW", f"{option.id} capacity in kW")
             * option.capex_eur_per_kW).relabel(
         f"{option.id} installed capex", "power.btm_capex", step_evidence=ESTIMATED)
@@ -136,4 +146,11 @@ def next_option(power: PowerInput) -> GenerationOption | None:
                   if not o.installed and o.firm and firm_contribution_kW(o).value > 0]
     if not candidates:
         return None
-    return sorted(candidates, key=lambda o: (o.lead_time_weeks.value, option_capex(o).value))[0]
+    # An option with no declared lead time or price sorts after every one that has them, never as "0 weeks / free".
+    inf = float("inf")
+
+    def key(o: GenerationOption):
+        capex = option_capex(o)
+        return (o.lead_time_weeks is None, inf if o.lead_time_weeks is None else o.lead_time_weeks.value,
+                capex is None, inf if capex is None else capex.value, o.id)
+    return sorted(candidates, key=key)[0]

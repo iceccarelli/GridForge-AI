@@ -12,6 +12,7 @@ import type {
   QualificationInsights,
 } from "@/lib/admin";
 import { eur } from "@/lib/commerce";
+import type { AttentionItem } from "@/lib/attention";
 import { PRODUCT_BY_KIND, PRODUCTS, type ProductId } from "@/lib/products";
 
 /**
@@ -37,6 +38,8 @@ export function EngagementPipeline({
   revoked = [],
   insights,
   supabaseReady,
+  attention = null,
+  attentionError = null,
 }: {
   deliverables: AdminDeliverable[];
   qualifications: AdminQualification[];
@@ -45,6 +48,9 @@ export function EngagementPipeline({
   revoked?: string[];
   insights: QualificationInsights;
   supabaseReady: boolean;
+  /** Paid work that needs a person (lib/attention.ts), or null when it could not be read (attentionError says why). */
+  attention?: AttentionItem[] | null;
+  attentionError?: string | null;
 }) {
   const [rows, setRows] = useState(deliverables);
   const [busy, setBusy] = useState<string | null>(null);
@@ -52,6 +58,8 @@ export function EngagementPipeline({
   const [proposals, setProposals] = useState<Record<string, string>>({});
   /** Credits already paid that apply to a quote just generated, by qualification. */
   const [credits, setCredits] = useState<Record<string, number>>({});
+  /** Who is putting their name to a release; recorded with it and shown to the buyer. */
+  const [reviewer, setReviewer] = useState("");
 
   const waiting = useMemo(() => rows.filter((r) => r.status === "draft"), [rows]);
   const revenue = useMemo(
@@ -94,7 +102,7 @@ export function EngagementPipeline({
       const res = await fetch("/api/admin/deliverables", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action, ...(reviewedHash ? { reviewed_hash: reviewedHash } : {}) }),
+        body: JSON.stringify({ token, action, ...(reviewedHash ? { reviewed_hash: reviewedHash } : {}), ...(action === "release" && reviewer.trim() ? { reviewed_by: reviewer.trim() } : {}) }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
@@ -151,6 +159,10 @@ export function EngagementPipeline({
       setProposals((p) => ({ ...p, [q.id]: body.url as string }));
       // A credit the catalogue promises is worth nothing if the person raising the
       // invoice never hears about it. Said at the moment the quote is produced.
+      if (body?.credit && body.credit.ok === false) {
+        // Never read "could not check" as "no credit": a credit owed and forgotten breaks a written promise.
+        setError(`Credit could not be checked (${body.credit.error ?? "unknown"}). Do not invoice until it is.`);
+      }
       const cents = Number(body?.credit?.cents ?? 0);
       if (cents > 0) {
         setCredits((c) => ({ ...c, [q.id]: cents }));
@@ -213,8 +225,48 @@ export function EngagementPipeline({
         </div>
       ) : null}
 
+      <section className="mb-12" aria-label="Needs a person">
+        <h2 className="mb-3 text-sm font-semibold text-ghost">Needs a person</h2>
+        {attention === null ? (
+          <Empty>{attentionError ?? "The list could not be read."} This is not a statement that nothing needs attention.</Empty>
+        ) : attention.length === 0 ? (
+          <Empty>Nothing paid is stuck, held or overdue.</Empty>
+        ) : (
+          <div className="overflow-x-auto rounded border border-queue/40">
+            <table className="w-full text-sm">
+              <Head cols={["What", "Buyer", "Waiting", "Owner", "Due", "Do this"]} />
+              <tbody>
+                {attention.map((a) => (
+                  <tr key={`${a.table}-${a.ref}-${a.kind}`} className="border-t border-line align-top">
+                    <Td>
+                      <span className="text-ghost">{a.what}</span>
+                      <span className="block font-mono text-[10px] uppercase tracking-[0.1em] text-queue">{a.kind.replace(/_/g, " ")}</span>
+                    </Td>
+                    <Td className="text-mute">{a.buyer ?? "—"}</Td>
+                    <Td className="font-mono text-faint">{a.age_days === null ? "—" : `${a.age_days} d`}</Td>
+                    <Td className="text-mute">{a.owner ?? "nobody"}</Td>
+                    <Td className="font-mono text-faint">{a.due ?? "—"}</Td>
+                    <Td className="text-xs text-mute">{a.action}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="mb-12">
         <h2 className="mb-3 text-sm font-semibold text-ghost">Purchased engagements</h2>
+        <label className="mb-3 flex max-w-md flex-col gap-1 text-xs text-faint">
+          Reviewed by (recorded with the release and shown to the buyer)
+          <input
+            value={reviewer}
+            onChange={(e) => setReviewer(e.target.value)}
+            maxLength={120}
+            placeholder="Name of the engineer who read it"
+            className="rounded border border-line bg-panel px-3 py-1.5 text-sm text-ghost"
+          />
+        </label>
         {rows.length === 0 ? (
           <Empty>Nothing commissioned yet.</Empty>
         ) : (
@@ -259,7 +311,8 @@ export function EngagementPipeline({
                             <button
                               type="button"
                               onClick={() => act(d.token, "release", d.document_hash ?? undefined)}
-                              disabled={busy === d.token}
+                              disabled={busy === d.token || !reviewer.trim()}
+                              title={reviewer.trim() ? "Release to the buyer under your name" : "Enter who reviewed it, above the table"}
                               className="inline-flex items-center gap-2 rounded bg-verified px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
                             >
                               {busy === d.token ? (
@@ -268,13 +321,13 @@ export function EngagementPipeline({
                               Release
                             </button>
                           ) : null}
-                          {d.status === "engine_unavailable" ? (
+                          {d.status === "engine_unavailable" || d.status === "generating" ? (
                             <button
                               type="button"
                               onClick={() => act(d.token, "regenerate")}
                               disabled={busy === d.token}
                               className="rounded border border-flag/50 px-3 py-1.5 text-xs text-flag disabled:opacity-60"
-                              title="Re-solve from the stored intake and replace every generated artefact together"
+                              title="Re-solve from the stored intake and replace every generated artefact together. A row still generating is refused until its request can no longer be alive."
                             >
                               Regenerate
                             </button>

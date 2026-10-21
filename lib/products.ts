@@ -115,8 +115,8 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "is re-solved and you get a change note: what moved, which input moved it, and whether " +
       "it changes the decision.",
     deliverable:
-      "A quarterly change note naming the inputs that moved the answer, plus an unlimited " +
-      "re-run whenever you update the hall's numbers. Nothing material to report is itself a " +
+      "A quarterly change note naming the inputs that moved the answer, plus a re-run whenever " +
+      "you update the hall's numbers (up to 20 an hour). Nothing material to report is itself a " +
       "reportable answer, and we say so in three lines rather than padding it.",
     turnaroundDays: 2,
     producesDeliverable: false,
@@ -185,10 +185,11 @@ export const PRODUCTS: Record<ProductId, Product> = {
     amountCents: 290_000, // €2,900 / month
     description:
       "For a platform or fund pricing halls continuously rather than in batches. 2,500 units " +
-      "a month, the portfolio endpoint billed per hall, and change notes naming the input that " +
-      "moved the answer.",
+      "a month and the portfolio endpoint billed per hall. Change notes (/v1/diff) are " +
+      "available on every plan.",
     deliverable:
-      "A signed API key and 2,500 units a month, with priority on new platform library entries.",
+      "A signed API key and 2,500 units a month. Screening-mode output only: no issued opinion, " +
+      "no named signatory, no professional indemnity.",
     turnaroundDays: 0,
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 1 },
@@ -201,12 +202,12 @@ export const PRODUCTS: Record<ProductId, Product> = {
     name: "API — Platform",
     amountCents: 750_000, // €7,500 / month
     description:
-      "For embedding the engine in a product your own customers use. 10,000 units a month, a " +
-      "named engineer on call for model questions, and redistribution terms for output you " +
-      "show to your own customers.",
+      "For embedding the engine in a product your own customers use. 10,000 units a month at " +
+      "the lowest per-unit rate we sell. Showing output to your own customers is not licensed " +
+      "by default: ask us before you do, and any terms are agreed by email, not by the plan.",
     deliverable:
-      "A signed API key, 10,000 units a month, a named engineer, and input on the constraint " +
-      "roadmap.",
+      "A signed API key and 10,000 units a month. Screening-mode output only: no issued " +
+      "opinion, no named signatory, no professional indemnity.",
     turnaroundDays: 0,
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 1 },
@@ -342,4 +343,38 @@ export const INTELLIGENCE_PLAN_IDS: IntelligencePlanId[] = [
 
 export function isIntelligencePlanId(v: unknown): v is IntelligencePlanId {
   return typeof v === "string" && v in INTELLIGENCE_PLANS;
+}
+
+// --- Pay-as-you-go and the free developer allowance --------------------------------------------
+//
+// ONE general scheme for every billable engine endpoint, not one product per tool. Mirrors `Payg` in
+// gridforge/commercial.py (tests/test_catalogue_parity.py fails if they differ). Per-endpoint unit
+// weights live on the engine (UNIT_COST) and are published at /v1/version and public/reference/tools.json.
+//
+// Billing rule: a month's charge is the net ledger units for the month (charges minus refunds of calls that
+// produced no answer) times unitPriceCents, invoiced in arrears; a month below minInvoiceCents is carried
+// forward. The customer's own monthly cap becomes the signed key's unit quota, so the engine hard-stops
+// at the cap with a 402. The free allowance is never billable.
+
+export const PAYG = {
+  unitPriceCents: 200,
+  currency: "eur",
+  minInvoiceCents: 500,
+  defaultCapEur: 100,
+  minCapEur: 20,
+  maxCapEur: 2_000,
+  freeAllowanceUnits: 25,
+  freeAccountsMaxPerMonth: 200,
+  alertPercents: [80, 100],
+} as const;
+
+export function paygCapUnits(capEur: number): number {
+  if (!Number.isInteger(capEur) || capEur < PAYG.minCapEur || capEur > PAYG.maxCapEur) {
+    throw new Error(`cap must be a whole number of euros between ${PAYG.minCapEur} and ${PAYG.maxCapEur}`);
+  }
+  return Math.floor((capEur * 100) / PAYG.unitPriceCents);
+}
+
+export function paygChargeCents(units: number): number {
+  return Math.max(0, Math.trunc(units)) * PAYG.unitPriceCents;
 }

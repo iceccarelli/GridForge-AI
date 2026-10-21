@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getQualification, requestFollowUp, type StoredQualification } from "@/lib/qualify";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { siteUrl } from "@/lib/site";
+import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { status: 422 }
     );
   }
+
+  // Each first request on a qualification mails the desk and an address the caller typed, and qualifications are free to
+  // create, so the request is admitted (and counted) per caller before it is recorded.
+  const g = await guardRequest(req, "qualify_followup");
+  if (g.denied) return g.denied;
 
   const { email, note } = parsed.data;
   const outcome = await requestFollowUp(token, email, note ?? null);
@@ -122,6 +128,8 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
   const key = process.env.RESEND_API_KEY;
   const from = mailSender("Time to Power <onboarding@resend.dev>");
   if (!key) return;
+  // The address is whatever the caller typed: it is mailed only while that recipient is under its daily cap.
+  if (!(await mailRecipientAllowed(email))) return;
   const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "your hall";
   const screen = PRODUCTS.density_screen;
   const text =

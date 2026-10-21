@@ -79,6 +79,10 @@ ENGAGEMENTS: dict[str, Engagement] = {
             "A model pack you keep, so you can re-run our conclusion when your inputs change.",
         ),
         scope_out=SCOPE_OUT_COMMON,
+        payment_terms=("A deposit on commissioning, credited in full against the agreed fee. The fee is "
+                       "agreed in writing at scoping and falls inside the quoted band; the balance is the "
+                       "agreed fee less the deposit and any credit. The engagement opens when the deposit "
+                       "clears and the scoping call has agreed the scope."),
     ),
     "procurement_spec": Engagement(
         id="procurement_spec",
@@ -130,6 +134,10 @@ ENGAGEMENTS: dict[str, Engagement] = {
             "constraint is a programme, not a site problem.",
         ),
         scope_out=SCOPE_OUT_COMMON,
+        payment_terms=("A deposit on commissioning, credited in full against the agreed fee. The fee is "
+                       "agreed in writing at scoping and falls inside the quoted band; the balance is the "
+                       "agreed fee less the deposit and any credit. The engagement opens when the deposit "
+                       "clears and the scoping call has agreed the scope."),
     ),
 }
 
@@ -169,7 +177,7 @@ API_SCOPE_OUT = (
     "No issued engineering opinion, no named signatory and no professional indemnity. "
     "Every API response is screening-mode output and says so.",
     "No design, no procurement and no equipment selection.",
-    "No SLA on availability beyond best effort at the Triage tier.",
+    "No availability SLA on any plan: access is best effort.",
 )
 
 API_PLANS: dict[str, ApiPlan] = {
@@ -195,8 +203,7 @@ API_PLANS: dict[str, ApiPlan] = {
         includes=(
             "2,500 units a month.",
             "Portfolio endpoint billed per hall, so a 200-hall sweep is 200 units.",
-            "Change notes via /v1/diff: what moved and which input moved it.",
-            "Priority on new platform library entries.",
+            "Change notes via /v1/diff: what moved and which input moved it (available on every plan).",
         ),
     ),
     "api_platform": ApiPlan(
@@ -207,12 +214,73 @@ API_PLANS: dict[str, ApiPlan] = {
         audience="Embedding the engine in a product your own customers use.",
         includes=(
             "10,000 units a month.",
-            "A named engineer on call for model questions.",
-            "Input on the constraint roadmap and the platform library.",
-            "Redistribution terms for output shown to your own customers.",
+            "The lowest per-unit rate on offer.",
+            "Showing output to your own customers is not licensed by default; ask first, and any terms are agreed by email.",
         ),
     ),
 }
+
+
+@dataclass(frozen=True)
+class Payg:
+    """The one general pay-as-you-go scheme for the engine, and the free developer allowance.
+
+    One unit price for every billable endpoint (the per-endpoint weights are
+    `gridforge.api.metering.UNIT_COST`), not one Stripe product per tool. Mirrored in
+    `PAYG` in lib/products.ts; tests/test_catalogue_parity.py fails if they differ.
+
+    Why this rate. It sits above the cheapest subscription's effective rate
+    (api_triage: EUR 900 / 600 units = EUR 1.50) so that committing monthly is the
+    cheaper choice from `breakeven_units(plan)` units a month upward, and PAYG stays
+    the economical choice for intermittent use below it. It is a commercial decision,
+    not a cost derivation: the engine has no per-call provider cost (it is
+    deterministic and has no model call), and the marginal compute of one solve is
+    well under a euro cent. Review it against real invoices and Stripe fees before
+    raising or lowering it.
+
+    Billing rule, deterministic: a month's charge is the net units in the ledger for
+    that month (charges minus refunds of calls that produced no answer) times
+    `unit_price_cents`, invoiced in arrears. A month whose charge is below
+    `min_invoice_cents` is carried to the next month rather than invoiced. Rejected,
+    unauthorised, invalid and failed requests are refunded and never charged. A retry
+    carrying the same Idempotency-Key is never charged twice.
+    """
+    unit_price_cents: int = 200
+    currency: str = "eur"
+    #: Postpaid months below this are carried forward, not invoiced (card fees would eat them).
+    min_invoice_cents: int = 500
+    #: The customer's own monthly spending cap, in EUR. The cap becomes the signed key's unit
+    #: quota, so the engine stops at the cap with a 402 before any further spend accrues.
+    default_cap_eur: int = 100
+    min_cap_eur: int = 20
+    #: Above this, a monthly plan is cheaper than PAYG, so the cap is not offered.
+    max_cap_eur: int = 2_000
+    #: No-card developer allowance: units per month on a `trial` key. 25 = 25 constraint
+    #: screens or five full studies. Never billable; exhausting it returns 402.
+    free_allowance_units: int = 25
+    #: Bound on the free liability: new free accounts per calendar month, across the site.
+    free_accounts_max_per_month: int = 200
+    #: Usage alerts fire once per month per account when usage reaches these percentages of the cap.
+    alert_percents: tuple[int, ...] = (80, 100)
+
+    @property
+    def unit_price_eur(self) -> float:
+        return self.unit_price_cents / 100
+
+    def cap_units(self, cap_eur: int) -> int:
+        if not (self.min_cap_eur <= cap_eur <= self.max_cap_eur):
+            raise ValueError(f"cap must be between EUR {self.min_cap_eur} and EUR {self.max_cap_eur}")
+        return (cap_eur * 100) // self.unit_price_cents
+
+    def charge_cents(self, units: int) -> int:
+        return max(0, int(units)) * self.unit_price_cents
+
+    def breakeven_units(self, plan: "ApiPlan") -> int:
+        """Units a month above which the plan's price is lower than paying per unit."""
+        return -(-plan.price_eur_month * 100 // self.unit_price_cents)
+
+
+PAYG = Payg()
 
 
 def api_plan(plan_id: str) -> ApiPlan:
