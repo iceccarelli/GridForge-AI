@@ -308,6 +308,12 @@ export function enableStatement(capEur: number | null): string {
   return `No charge is made now. Usage is invoiced monthly in arrears. There is a hard stop at ${cap}: the engine refuses further paid calls with a 402 rather than going over it.`;
 }
 
+/**
+ * Hours before the free-allowance link is re-sent to the same address. Mirrors FREE_RESEND_COOLDOWN_MS in
+ * lib/payg-accounts.ts (server-only, so not imported here); tests/site/payg-pricing.test.ts compares the two.
+ */
+export const FREE_RESEND_HOURS = 6;
+
 export const FREE_ALLOWANCE_TEXT =
   `${PAYG.freeAllowanceUnits} units a month, no card. Free-allowance usage is never invoiced; ` +
   `when it runs out the engine answers 402 and nothing is charged.`;

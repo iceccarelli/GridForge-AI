@@ -8,7 +8,10 @@ import {
   UNAVAILABLE_MESSAGE,
   changeCap,
   enablePayg,
+  FREE_CAPACITY_MESSAGE,
   failureFor,
+  isFreeCapacityRefusal,
+  replaceCard,
   getEngineEstimate,
   getUsage,
   meterState,
@@ -231,5 +234,69 @@ describe("presentation helpers", () => {
     expect(planLabel("api_payg")).toBe("Pay as you go");
     expect(planLabel("api_triage")).toBe("API — Triage");
     expect(planLabel("mystery")).toBe("mystery");
+  });
+});
+
+describe("replaceCard (POST /api/payg/card)", () => {
+  it("posts only the token and returns the Stripe setup url", async () => {
+    const fetchFn = fetching(json({ ok: true, url: "https://checkout.stripe.com/c/setup" }));
+    const r = await replaceCard("tok", fetchFn);
+    expect(r).toEqual({ ok: true, data: { url: "https://checkout.stripe.com/c/setup" } });
+    expect(fetchFn.calls[0][0]).toBe("/api/payg/card");
+    expect(JSON.parse(String(fetchFn.calls[0][1]?.body))).toEqual({ token: "tok" });
+  });
+  it("carries the server's next step on 409, refuses a cancelled account on 402, degrades on 404/502/503", async () => {
+    expect(await replaceCard("t", fetching(json({ ok: false, error: "no card", fix: "enable_payg" }, 409)))).toMatchObject({
+      ok: false,
+      kind: "invalid",
+      status: 409,
+      fix: "enable_payg",
+      message: "no card",
+    });
+    expect(await replaceCard("t", fetching(json({ ok: false, error: "cancelled" }, 402)))).toMatchObject({ kind: "payment_required" });
+    expect(await replaceCard("t", fetching(html404()))).toMatchObject({ kind: "unavailable" });
+    expect(await replaceCard("t", fetching(json({ ok: false, error: "x" }, 503)))).toMatchObject({ kind: "unavailable" });
+    expect(await replaceCard("t", fetching(json({ ok: false, error: "Could not start checkout" }, 502)))).toMatchObject({ kind: "server" });
+    expect(await replaceCard("t", fetching(json({ ok: false }, 429)))).toMatchObject({ kind: "rate_limited" });
+    expect(await replaceCard("t", fetching(json({ ok: true, url: "http://x" })))).toMatchObject({ ok: false });
+    expect(await replaceCard("t", offline)).toMatchObject({ kind: "network" });
+  });
+});
+
+describe("a free account's first key mint at capacity", () => {
+  it("is recognised only as 429 with reason capacity", () => {
+    expect(isFreeCapacityRefusal(429, { ok: false, reason: "capacity" })).toBe(true);
+    expect(isFreeCapacityRefusal(429, { ok: false })).toBe(false);
+    expect(isFreeCapacityRefusal(503, { reason: "capacity" })).toBe(false);
+    expect(isFreeCapacityRefusal(429, null)).toBe(false);
+  });
+  it("the message says the allowance is full and that pay-as-you-go needs none", () => {
+    expect(FREE_CAPACITY_MESSAGE).toMatch(/Free allowances are full this month/);
+    expect(FREE_CAPACITY_MESSAGE).toMatch(/Pay as you go needs no free allowance/);
+  });
+});
+
+describe("parseUsage reads the newer fields without inventing them", () => {
+  it("keeps carried units, card flag, billable units, as_of and alert flags", () => {
+    const r = parseUsage({
+      ...usageBody,
+      account: { ...usageBody.account, payment_method_saved: true },
+      billable_units: 7,
+      as_of: "2026-03-02T03:00:00Z",
+      alerts: { "80": true, "100": false, junk: "x" },
+      settlements: [{ month: "2026-02", units: 9, amount_cents: 1800, status: "invoiced", carried_units: 3 }],
+    })!;
+    expect(r.account.paymentMethodSaved).toBe(true);
+    expect(r.billableUnits).toBe(7);
+    expect(r.asOf).toBe("2026-03-02T03:00:00Z");
+    expect(r.alerts).toEqual({ "80": true, "100": false });
+    expect(r.settlements[0].carriedUnits).toBe(3);
+  });
+  it("leaves them null or empty when the route does not send them", () => {
+    const r = parseUsage(usageBody)!;
+    expect(r.account.paymentMethodSaved).toBeNull();
+    expect(r.billableUnits).toBeNull();
+    expect(r.asOf).toBeNull();
+    expect(r.alerts).toEqual({});
   });
 });

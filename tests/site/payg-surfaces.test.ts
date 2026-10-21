@@ -19,7 +19,8 @@ import SetupSnippets from "@/components/SetupSnippets";
 import ThreePaths from "@/components/ThreePaths";
 import UsageMeter from "@/components/UsageMeter";
 import { API_PRODUCTS, PAYG } from "@/lib/products";
-import { eurExact, parseToolRates } from "@/lib/payg-pricing";
+import { FREE_RESEND_COOLDOWN_MS } from "@/lib/payg-accounts";
+import { FREE_RESEND_HOURS, billingRuleText, eurExact, parseToolRates } from "@/lib/payg-pricing";
 
 const ROOT = path.resolve(__dirname, "../..");
 const rates = parseToolRates(JSON.parse(fs.readFileSync(path.join(ROOT, "public/reference/tools.json"), "utf8")));
@@ -162,8 +163,8 @@ describe("the three paths read from the registry and link to real routes", () =>
 });
 
 describe("the portal before any usage has loaded", () => {
-  const portal = (plan: string, status = "active", units = 600) =>
-    text(render(React.createElement(PaygPortal, { token: "t", plan, status, monthlyUnits: units })));
+  const portal = (plan: string, status = "active", units = 600, returned: "success" | "cancelled" | null = null) =>
+    text(render(React.createElement(PaygPortal, { token: "t", plan, status, monthlyUnits: units, returned })));
   it("a free account is offered pay-as-you-go with the three explicit promises and the bounds", () => {
     const t = portal("api_free");
     expect(t).toMatch(/No charge is made now/);
@@ -189,11 +190,38 @@ describe("the portal before any usage has loaded", () => {
     const t = portal("api_payg", "past_due");
     expect(t).toMatch(/Payment failed/);
     expect(t).toMatch(/live key is revoked/);
-    expect(t).toMatch(/pay\s+it/);
+    expect(t).toMatch(/Replace your card below/);
     expect(t).toMatch(/returns to active on its own/);
     expect(t).toMatch(/rotate here to issue a new key/);
     expect(t).not.toMatch(/Save a card and enable/);
     expect(t).not.toMatch(/Change cap and issue a new key/);
+  });
+  it("a past-due pay-as-you-go account is led to replace the card, with honest copy and no charge now", () => {
+    const t = portal("api_payg", "past_due");
+    expect(t).toMatch(/Replace your payment card/);
+    expect(t).toMatch(/Saving it does not charge it now/);
+    expect(t).toMatch(/retried on it/);
+    expect(t).toMatch(/revoked does not come back/);
+    expect(t).toMatch(/Replace payment card/);
+  });
+  it("an active pay-as-you-go account has a quieter card section; nobody else does", () => {
+    expect(portal("api_payg")).toMatch(/Payment card/);
+    expect(portal("api_payg")).not.toMatch(/Replace your payment card/);
+    expect(portal("api_payg", "cancelled")).not.toMatch(/Replace payment card/);
+    expect(portal("api_free")).not.toMatch(/Replace payment card/);
+    expect(portal("api_triage")).not.toMatch(/Replace payment card/);
+  });
+  it("renders the one billing rule verbatim, never a retyped copy", () => {
+    expect(portal("api_payg")).toContain(billingRuleText());
+  });
+  it("says usage is copied from the ledger and the engine's counter is real time", () => {
+    // not shown until usage has loaded: static render has no usage, so the sentence must be absent, not invented
+    expect(portal("api_payg")).not.toMatch(/last copied/);
+  });
+  it("handles ?payg= from Stripe's return without assuming a token in the Stripe URL", () => {
+    expect(portal("api_payg", "active", 0, "success")).toMatch(/Back from Stripe\. Your card was received/);
+    expect(portal("api_payg", "active", 0, "cancelled")).toMatch(/without saving a card/);
+    expect(portal("api_payg")).not.toMatch(/Back from Stripe/);
   });
   it("a cancelled account says it has ended", () => {
     expect(portal("api_payg", "cancelled")).toMatch(/This account has ended/);
@@ -203,6 +231,38 @@ describe("the portal before any usage has loaded", () => {
     expect(html).not.toMatch(/role="meter"/);
     expect(html).not.toMatch(/View invoice/);
     expect(text(html)).toMatch(/No events are shown rather than invented ones/);
+  });
+});
+
+describe("copy that must match the backend", () => {
+  it("the free form tells people the link is re-sent at most every six hours", () => {
+    const html = text(render(React.createElement(FreeAllowanceForm, {})));
+    // the sent state is client state; the cooldown constant it prints is the server's
+    expect(FREE_RESEND_HOURS * 3_600_000).toBe(FREE_RESEND_COOLDOWN_MS);
+    expect(html).toBeTruthy();
+    const src = fs.readFileSync(path.join(ROOT, "components/FreeAllowanceForm.tsx"), "utf8");
+    expect(src).toMatch(/re-send the link at most every/);
+  });
+  it("the key panel turns a capacity 429 into the free-allowance-full message with the pay-as-you-go path", () => {
+    const src = fs.readFileSync(path.join(ROOT, "components/ApiKeyPanel.tsx"), "utf8");
+    expect(src).toContain("isFreeCapacityRefusal(res.status, data)");
+    expect(src).toContain("FREE_CAPACITY_MESSAGE");
+    expect(src).toContain('href="#enable-heading"');
+  });
+  it("no snippet or copy gives an Idempotency-Key limit other than the engine's 150", () => {
+    const engine = fs.readFileSync(path.join(ROOT, "gridforge/api/server.py"), "utf8");
+    expect(engine).toMatch(/MAX_IDEM_KEY_CHARS = 150/);
+    const snippets = text(render(React.createElement(SetupSnippets, { engine: "https://e", rates })));
+    expect(snippets).toContain("Idempotency-Key");
+    expect(snippets).toContain("up to 150 characters");
+    expect(snippets).not.toMatch(/200 characters/);
+  });
+  it("the Stripe return handler is token-free and the portal never builds a Stripe URL itself", () => {
+    const ret = fs.readFileSync(path.join(ROOT, "app/api/payg/return/route.ts"), "utf8");
+    expect(ret).toContain("readReturnCookie");
+    const portal = fs.readFileSync(path.join(ROOT, "components/PaygPortal.tsx"), "utf8");
+    expect(portal).not.toMatch(/success_url|cancel_url/);
+    expect(portal).not.toMatch(/localStorage|sessionStorage/);
   });
 });
 

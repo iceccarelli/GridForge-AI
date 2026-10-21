@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AlertTriangle, KeyRound, RefreshCw } from "lucide-react";
 import OneTimeKey from "@/components/OneTimeKey";
+import { FREE_CAPACITY_MESSAGE, isFreeCapacityRefusal } from "@/lib/payg-client";
 
 /**
  * Issue and rotate. The key is rendered exactly once, in this component, from the
@@ -45,6 +46,7 @@ export default function ApiKeyPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [capacityFull, setCapacityFull] = useState(false);
 
   const blocked = cancelled || status !== "active";
 
@@ -52,6 +54,7 @@ export default function ApiKeyPanel({
     setBusy(true);
     setError(null);
     setNotice(null);
+    setCapacityFull(false);
     try {
       const res = await fetch("/api/keys", {
         method: "POST",
@@ -59,6 +62,11 @@ export default function ApiKeyPanel({
         body: JSON.stringify({ token, rotate }),
       });
       const data = await res.json().catch(() => ({}));
+      if (isFreeCapacityRefusal(res.status, data)) {
+        // Not "slow down": this month's free allowances are all taken. Pay-as-you-go needs none.
+        setCapacityFull(true);
+        return;
+      }
       if (!data.ok) {
         setError(data.error || "Could not issue a key.");
         return;
@@ -168,6 +176,16 @@ export default function ApiKeyPanel({
 
       <div aria-live="polite">
         {notice ? <p className="mt-4 text-sm text-queue">{notice}</p> : null}
+        {capacityFull ? (
+          <div role="alert" className="mt-4 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost">
+            <p>{FREE_CAPACITY_MESSAGE}</p>
+            <p className="mt-2">
+              <a href="#enable-heading" className="text-power underline">
+                Go to pay as you go
+              </a>
+            </p>
+          </div>
+        ) : null}
         {error ? (
           <p role="alert" className="mt-4 text-sm text-queue">
             {error}

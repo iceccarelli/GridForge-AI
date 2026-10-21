@@ -12,6 +12,7 @@ import {
   changeCap,
   enablePayg,
   getUsage,
+  replaceCard,
   planLabel,
   type ClientFailure,
   type MintedKey,
@@ -48,11 +49,14 @@ export default function PaygPortal({
   plan: planProp,
   status: statusProp,
   monthlyUnits,
+  returned = null,
 }: {
   token: string;
   plan: string;
   status: string;
   monthlyUnits: number;
+  /** ?payg= on the page URL after Stripe sent the customer back (the Stripe URL itself carries no token). */
+  returned?: "success" | "cancelled" | null;
 }) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [refreshing, setRefreshing] = useState(false);
@@ -68,6 +72,14 @@ export default function PaygPortal({
     void refresh();
   }, [refresh]);
 
+  // The webhook that saves a card or enables pay-as-you-go can land a few seconds after the customer does, so after
+  // a successful return the account is read again once, shortly after the first read.
+  useEffect(() => {
+    if (returned !== "success") return;
+    const t = setTimeout(() => void refresh(), 4000);
+    return () => clearTimeout(t);
+  }, [returned, refresh]);
+
   const usage = load.phase === "ready" ? load.usage : null;
   const plan = usage?.account.plan ?? planProp;
   const status = usage?.account.status ?? statusProp;
@@ -75,6 +87,8 @@ export default function PaygPortal({
   const isPayg = plan === "api_payg";
   const active = status === "active";
   const cap = usage ? (usage.unitsCap ?? usage.account.capUnits) : null;
+  const failedSettlement = Boolean(usage?.settlements.some((x) => x.status === "failed"));
+  const cardUrgent = status === "past_due" || failedSettlement;
   const meterLabel = isFree ? "Free allowance this month" : isPayg ? "Your cap this month" : "Monthly quota";
 
   return (
@@ -128,12 +142,27 @@ export default function PaygPortal({
             </p>
           )}
           {usage?.month ? <p className="mt-2 text-[11px] text-faint">Month: {usage.month} (UTC). Counters reset at the start of each UTC month.</p> : null}
+          {usage ? (
+            <p className="mt-1 text-[11px] text-faint">
+              This page shows usage copied from the engine&apos;s ledger{usage.asOf ? `, last copied ${formatUtc(usage.asOf)}` : ""}. The engine&apos;s
+              own counter is what enforces the cap, in real time, so it can be ahead of what is shown here.
+            </p>
+          ) : null}
         </div>
       </section>
 
+      <ReturnBanner returned={returned} />
+
       <Recovery status={status} isPayg={isPayg} />
 
+      {isPayg && status !== "cancelled" && cardUrgent ? (
+        <ReplaceCard token={token} urgent saved={usage?.account.paymentMethodSaved ?? null} />
+      ) : null}
+
       {isFree && active ? <EnablePayg token={token} /> : null}
+      {isPayg && active && !cardUrgent ? (
+        <ReplaceCard token={token} urgent={false} saved={usage?.account.paymentMethodSaved ?? null} />
+      ) : null}
       {isPayg && active ? <ChangeCap token={token} currentEur={usage?.account.capEur ?? null} onChanged={refresh} /> : null}
 
       <WhenRefused isFree={isFree} isPayg={isPayg} />
@@ -214,8 +243,9 @@ function Recovery({ status, isPayg }: { status: string; isPayg: boolean }) {
           </p>
           <ol className="mt-3 list-decimal space-y-1 pl-5 text-mute">
             <li>
-              Open the unpaid invoice from <strong className="font-semibold text-ghost">Settlements</strong> below and pay
-              it, or fix the card on that invoice page.
+              Replace your card below, or open the unpaid invoice from{" "}
+              <strong className="font-semibold text-ghost">Settlements</strong> and pay it there. A new card is tried on the
+              unpaid invoice that failed.
             </li>
             <li>When the payment succeeds, this account returns to active on its own. Refresh this page to see it.</li>
             <li>
@@ -497,7 +527,10 @@ function SettlementRow({ s }: { s: Settlement }) {
   return (
     <tr className="border-b border-line/60">
       <td className="py-2 pr-3 font-mono text-xs text-ghost">{s.month}</td>
-      <td className="py-2 pr-3 text-right font-mono text-xs text-mute">{s.units ?? "n/a"}</td>
+      <td className="py-2 pr-3 text-right font-mono text-xs text-mute">
+        {s.units ?? "n/a"}
+        {s.carriedUnits ? <span className="block text-[10px] text-faint">incl. {s.carriedUnits} carried in</span> : null}
+      </td>
       <td className="py-2 pr-3 text-right font-mono text-xs text-ghost">{s.amountCents === null ? "n/a" : eurExact(s.amountCents)}</td>
       <td className={`py-2 pr-3 text-xs ${s.status === "failed" ? "text-flag" : s.status === "paid" ? "text-verified" : "text-mute"}`}>
         {SETTLEMENT_WORDS[s.status]}
@@ -518,5 +551,66 @@ function SettlementRow({ s }: { s: Settlement }) {
         )}
       </td>
     </tr>
+  );
+}
+
+function ReturnBanner({ returned }: { returned: "success" | "cancelled" | null }) {
+  if (!returned) return null;
+  return (
+    <div role="status" className={`rounded border p-4 text-sm ${returned === "success" ? "border-verified/40 bg-verified/10" : "border-line bg-panel-2"} text-ghost`}>
+      {returned === "success"
+        ? "Back from Stripe. Your card was received. It can take a few seconds to show on your account, and this page re-reads it once; use Refresh if it has not changed."
+        : "You came back from Stripe without saving a card. Nothing was changed and nothing was charged."}
+    </div>
+  );
+}
+
+function ReplaceCard({ token, urgent, saved }: { token: string; urgent: boolean; saved: boolean | null }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go() {
+    setBusy(true);
+    setError(null);
+    const res = await replaceCard(token);
+    if (res.ok) {
+      window.location.href = res.data.url;
+      return; // leaving the page: stay busy so it is not pressed twice
+    }
+    setError(res.message);
+    setBusy(false);
+  }
+
+  return (
+    <section
+      aria-labelledby="card-heading"
+      className={`rounded border p-5 sm:p-6 ${urgent ? "border-flag/40 bg-flag/10" : "border-line bg-panel-2"}`}
+    >
+      <h2 id="card-heading" className="text-lg font-semibold text-ghost">
+        {urgent ? "Replace your payment card" : "Payment card"}
+      </h2>
+      <p className="mt-2 text-sm text-mute">
+        {saved === true ? "A card is saved on this account. " : saved === false ? "No card is recorded on this account yet. " : ""}
+        You go to Stripe to save a new one. Saving it does not charge it now. The new card is kept for the next
+        attempt, and an invoice that failed and is still unpaid is retried on it.
+      </p>
+      <p className="mt-2 text-sm text-mute">
+        If that payment succeeds the account returns to active, but a key that was revoked does not come back: you
+        create a new key here once the account is active.
+      </p>
+      <button
+        type="button"
+        onClick={() => void go()}
+        disabled={busy}
+        className={`mt-4 inline-flex min-h-11 items-center gap-2 rounded px-5 py-2.5 font-semibold disabled:opacity-60 ${urgent ? "bg-power text-ink" : "border border-line text-ghost hover:border-power/50"}`}
+      >
+        {busy ? "Opening Stripe" : "Replace payment card"}
+      </button>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-flag">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }

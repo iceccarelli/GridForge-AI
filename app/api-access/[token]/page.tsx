@@ -30,10 +30,15 @@ export const metadata: Metadata = {
  */
 export default async function ApiAccessPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ payg?: string | string[] }>;
 }) {
   const { token } = await params;
+  // Stripe returns to /api/payg/return, which redirects here with ?payg=. The Stripe URL itself has no token in it.
+  const q = (await searchParams)?.payg;
+  const returned = q === "success" || q === "cancelled" ? q : null;
   const row = await getApiAccount(token);
   if (!row) notFound();
 
@@ -74,7 +79,7 @@ export default async function ApiAccessPage({
       />
 
       <div className="mt-8">
-        <PaygPortal token={token} plan={row.plan} status={row.status} monthlyUnits={row.monthly_units} />
+        <PaygPortal token={token} plan={row.plan} status={row.status} monthlyUnits={row.monthly_units} returned={returned} />
       </div>
 
       <SetupSnippets engine={engine} rates={rates} />
