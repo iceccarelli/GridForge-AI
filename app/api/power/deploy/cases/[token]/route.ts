@@ -81,7 +81,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       );
     }
 
-    const row = await appendDeploymentRevision(token, request, assessed.result);
+    const row = await appendDeploymentRevision(token, request, assessed.result, assessed.provenance);
     if (!row) {
       return NextResponse.json(
         { ok: false, error: "The case was re-solved but the new revision could not be saved." },

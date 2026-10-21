@@ -7,6 +7,7 @@ import { PAYG } from "@/lib/products";
 import { FREE_RESEND_HOURS } from "@/lib/payg-pricing";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { requestFreeAccount, validateEmail, type ClientFailure } from "@/lib/payg-client";
+import { useMeteredStatus } from "@/components/useMeteredStatus";
 
 type Phase =
   | { name: "idle" }
@@ -40,6 +41,8 @@ export default function FreeAllowanceForm({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sending = phase.name === "sending";
+  const metered = useMeteredStatus();
+  const closed = metered === "closed";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -144,7 +147,7 @@ export default function FreeAllowanceForm({
         </div>
         <button
           type="submit"
-          disabled={sending}
+          disabled={sending || closed}
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
@@ -152,6 +155,15 @@ export default function FreeAllowanceForm({
           {sending ? null : <ArrowRight className="h-4 w-4" aria-hidden />}
         </button>
       </div>
+      {closed ? (
+        <p role="status" className="mt-3 rounded border border-line bg-panel p-3 text-sm text-mute">
+          Free developer keys are not open on this deployment yet, so nothing is sent from here. The{" "}
+          <Link href={QUALIFY_LINK.href} className="text-power underline">
+            {QUALIFY_LINK.label.toLowerCase()}
+          </Link>{" "}
+          and the cost estimate need no key and work now.
+        </p>
+      ) : null}
       <p id={hintId} className="mt-2 text-[11px] text-faint">
         Email only. The link goes to this address, and opening it creates your key.
       </p>

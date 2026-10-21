@@ -364,6 +364,23 @@ export function safeCheckoutUrl(v: unknown): string | null {
   }
 }
 
+/**
+ * GET /api/metered-status: are free developer keys and pay-as-you-go open on this deployment? "unknown" (the route is missing, the
+ * network failed, the answer was malformed) never blocks a form: the server refuses honestly if it must. Only an explicit
+ * `open: false` closes one.
+ */
+export async function getMeteredStatus(f: FetchLike = defaultFetch()): Promise<"open" | "closed" | "unknown"> {
+  try {
+    const res = await f("/api/metered-status", { cache: "no-store" });
+    if (!res.ok) return "unknown";
+    const j = asRecord(await res.json());
+    if (!j) return "unknown";
+    return j.open === true ? "open" : j.open === false ? "closed" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** POST /api/payg/enable. Returns the Stripe Checkout (setup mode) URL; no charge is made by this call. */
 export function enablePayg(
   token: string,
@@ -423,6 +440,9 @@ export interface MintedKey {
   expires: string | null;
   revocationPending: boolean;
   revocationNote: string | null;
+  /** The engine could not be shown to verify this new key, so the previous key was NOT revoked yet (it stays valid until it can be). */
+  newKeyUnverified: boolean;
+  rotationNote: string | null;
 }
 
 /** POST /api/payg/cap. The cap lives in the signed key, so a change mints a new key, shown once. */
@@ -443,6 +463,8 @@ export function changeCap(
         expires: str(j.expires),
         revocationPending: j.revocation_pending === true,
         revocationNote: str(j.revocation_note),
+        newKeyUnverified: j.new_key_unverified === true,
+        rotationNote: str(j.rotation_note),
       };
     }
   );

@@ -112,21 +112,20 @@ try {
     await ctx.close();
   }
 
-  // Journey: the free-allowance form (no card, email only) must not claim a link was sent when the backend is unconfigured,
-  // must re-enable its button, and must show an error a person can read, at phone width.
+  // Journey: the free-allowance form (no card, email only) on a deployment whose engine is not configured says so BEFORE anyone types:
+  // the button is disabled and the notice points at what works now. It never claims a link was sent, at phone width.
   {
     const ctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
     const page = await ctx.newPage();
     await page.goto(BASE + "/developers", { waitUntil: "networkidle" });
+    await page.waitForTimeout(800);
     const field = page.getByLabel(/email/i).first();
     await field.fill("someone@example.com");
     const submit = field.locator("xpath=ancestor::form//button[@type='submit']");
-    await submit.click();
-    await page.waitForTimeout(2000);
+    if (!(await submit.isDisabled())) fail("free allowance journey", "the button is enabled although free keys are not open on this deployment");
     const body = (await page.locator("body").innerText()).toLowerCase();
-    if (/check your email|we have sent|link is on its way/.test(body)) fail("free allowance journey", "claims an email was sent although the backend is not configured");
-    if (await submit.isDisabled()) fail("free allowance journey", "button still disabled after the failure");
-    if (!(await page.locator("[role=alert]").count())) fail("free allowance journey", "failure shown with no alert role");
+    if (!/free developer keys are not open on this deployment yet/.test(body)) fail("free allowance journey", "no honest 'not open yet' notice");
+    if (/check your email|we have sent|link is on its way/.test(body)) fail("free allowance journey", "claims an email was sent although nothing was");
     await ctx.close();
   }
 

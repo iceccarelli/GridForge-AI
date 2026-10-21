@@ -75,7 +75,8 @@ export default function ApiKeyPanel({
         setKey(data.key);
         setLiveId(null);
         setLiveExpires(data.expires);
-        if (data.revocation_pending && data.revocation_note) setNotice(String(data.revocation_note));
+        if (data.new_key_unverified && data.rotation_note) setNotice(String(data.rotation_note));
+        else if (data.revocation_pending && data.revocation_note) setNotice(String(data.revocation_note));
       } else {
         setError(data.note || "A key is already live for this account.");
       }

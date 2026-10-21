@@ -89,13 +89,32 @@ UNPUBLISHED_PLATFORMS = {
 }
 
 
+class PlatformError(ValueError):
+    """A platform in the library that cannot describe a rack (no rack power). A ValueError, so the API answers 422 and
+    refunds the call exactly as for an intake error (the intake loader is where it surfaces)."""
+
+
 def get_platform(platform_id: str) -> GPUPlatform:
     if platform_id in UNPUBLISHED_PLATFORMS:
         raise ValueError(
             f"{platform_id}: {UNPUBLISHED_PLATFORMS[platform_id]} "
             "Refusing to supply a number for paid engineering work."
         )
-    return PLATFORMS[platform_id]
+    platform = PLATFORMS[platform_id]
+    _require_rack_power(platform)
+    return platform
+
+
+def _require_rack_power(platform: GPUPlatform) -> None:
+    """A platform that draws no power is not a platform: it would fit as many racks as there are positions and deliver
+    0 kW (and 0 GPUs of load), a confident capacity from nothing. Refused at load."""
+    import math
+    for name in ("rack_kW", "peak_rack_kW"):
+        v = getattr(platform, name).value
+        if not (isinstance(v, (int, float)) and math.isfinite(v) and v > 0):
+            raise PlatformError(
+                f"platform {platform.id!r}: {name} is {v!r}; a rack power must be a finite number above zero. "
+                f"A platform with no rack power would fit every position and deliver no load.")
 
 
 def newest_source_year(platform: GPUPlatform) -> int | None:

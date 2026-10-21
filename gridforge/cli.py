@@ -512,6 +512,18 @@ def cmd_cost(args) -> int:
 
 
 def cmd_calibrate(args) -> int:
+    """The accuracy record, failing closed: a ledger whose hash chain does not verify is never read."""
+    from .calibration.ledger import LedgerIntegrityError
+    try:
+        return _cmd_calibrate(args)
+    except LedgerIntegrityError as exc:
+        print(f"ledger integrity failure: {exc}", file=sys.stderr)
+        print("Nothing was read or written. Restore the file from a backup or investigate who changed it; "
+              "do not edit records by hand.", file=sys.stderr)
+        return 3
+
+
+def _cmd_calibrate(args) -> int:
     """The accuracy record: what the model said, what the site turned out to be.
 
     This is the one command whose output gets worse before it gets better. With an
@@ -522,7 +534,8 @@ def cmd_calibrate(args) -> int:
     from .calibration import (Observation, ObservationError, accuracy_block, all_keys,
                               calibration_for, label, load_ledger)
     from .calibration.keys import known
-    from .calibration.ledger import BUNDLED_PATH, append_observation, private_path
+    from .calibration.ledger import (BUNDLED_PATH, LedgerIntegrityError, append_observation, import_export,
+                                     private_path)
     from .calibration.schema import site_ref
     from .validation.evidence import EvidenceClass as _EvidenceClass
 
@@ -533,7 +546,37 @@ def cmd_calibrate(args) -> int:
         led = load_ledger()
         print(f"  observations in effect                       : {len(led.observations)}")
         print(f"  sites                                        : "
-              f"{len({o.site_ref for o in led.observations})}")
+              f"{len({o.site for o in led.observations})}"
+              f"  (halls: {len({o.site_ref for o in led.observations})})")
+        for src, head in led.heads.items():
+            if head:
+                print(f"  chain head {Path(src).name:24s}    : {head}")
+        return 0
+
+    if args.cal_cmd == "import":
+        if not args.export:
+            print("usage: gridforge calibrate import <export.json> [--ledger PATH]", file=sys.stderr)
+            return 2
+        try:
+            doc = json.loads(Path(args.export).read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"refused: cannot read {args.export}: {exc}", file=sys.stderr)
+            return 2
+        try:
+            out = import_export(doc, Path(args.ledger) if args.ledger else None)
+        except LedgerIntegrityError:
+            raise
+        except ObservationError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            print("Nothing was imported.", file=sys.stderr)
+            return 2
+        if out["imported"] == 0:
+            print("0 verified rows in the export; nothing imported."
+                  + (" The ledger is still empty." if out["ledger_observations"] == 0
+                     else f" The ledger is unchanged ({out['ledger_observations']} observation(s))."))
+        else:
+            print(f"imported {out['imported']} verified observation(s) -> {out['path']} "
+                  f"(ledger now holds {out['ledger_observations']})")
         return 0
 
     if args.cal_cmd == "keys":
@@ -576,7 +619,12 @@ def cmd_calibrate(args) -> int:
             predicted=float(args.predicted), observed=float(args.observed),
             unit=args.unit, observed_on=args.on,
             evidence=_EvidenceClass[args.evidence], method=args.method,
-            platform=args.platform or "", note=args.note or "")
+            platform=args.platform or "", note=args.note or "",
+            kind=args.kind, source_ref=args.source_ref or "", model_digest=args.model_digest or "",
+            reviewed_by=args.reviewed_by or "", reviewed_at=args.reviewed_at or "",
+            # A hand-typed entry is a fixture, not a reviewed measurement: it is marked so, and it is not publishable
+            # unless it names the reviewed artifact it came from.
+            source="cli", published=bool(args.source_ref))
     except KeyError:
         print(f"unknown evidence class {args.evidence!r}", file=sys.stderr)
         return 2
@@ -597,6 +645,10 @@ def cmd_calibrate(args) -> int:
     print(f"  {obs.key}: predicted {obs.predicted:g}, observed {obs.observed:g} "
           f"({obs.error_pct:+.1f}%)")
     print(f"  {c.sentence()}")
+    if not obs.source_ref:
+        print("  NOTE: self-entered (source 'cli', published=False): no source reference, so this row cannot be "
+              "traced to a reviewed artifact and is not publishable. Reviewed measurements arrive through "
+              "`gridforge calibrate import`.")
     return 0
 
 
@@ -1061,7 +1113,17 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("calibrate",
                        help="the accuracy record: model vs what the site turned out to be")
-    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where"])
+    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import"])
+    s.add_argument("export", nargs="?", default="",
+                   help="import: the admin calibration export (GET /api/admin/calibration-export), saved as JSON")
+    s.add_argument("--kind", default="measured",
+                   help="measured only: 'quoted' and 'declared' are refused (a quote or an assumption is not a "
+                        "measurement)")
+    s.add_argument("--source-ref", default="",
+                   help="'<observation id>:<evidence sha256>'; without it the entry is self-entered and unpublished")
+    s.add_argument("--model-digest", default="", help="engine provenance digest of the prediction checked")
+    s.add_argument("--reviewed-by", default="", help="self-asserted reviewer name")
+    s.add_argument("--reviewed-at", default="", help="ISO date or timestamp of the review")
     s.add_argument("--key", default="", help="`gridforge calibrate keys` lists them")
     s.add_argument("--site", default="", help="client site name — hashed, never stored")
     s.add_argument("--hall", default="", help="hall id — hashed with the site name")

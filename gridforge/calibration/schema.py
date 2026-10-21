@@ -5,7 +5,7 @@ import hashlib
 import math
 import re
 from dataclasses import dataclass, asdict
-from datetime import date
+from datetime import date, datetime
 
 from ..clock import report_date
 from ..validation.evidence import EvidenceClass
@@ -15,22 +15,46 @@ from ..validation.evidence import EvidenceClass
 # the single most attractive lie available to this business.
 MINIMUM_EVIDENCE = EvidenceClass.E5_CUSTOMER_DATA
 
-KEY_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_.]+$")
+KEY_RE = re.compile(r"^[a-z0-9_]+\.[A-Za-z0-9_.]+$")
+#: "site_" + 12 hex of the site alone, optionally "-" + 8 hex of site+hall. The part before "-" is the SITE.
+SITE_REF_RE = re.compile(r"^site_[0-9a-f]{12}(-[0-9a-f]{8})?$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+#: observation id + ":" + the sha256 of the evidence artifact it was reviewed against.
+SOURCE_REF_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}:[0-9a-f]{64}$")
+
+#: What a ledger row may be. A vendor quote and a declared/assumed value are different things from a measurement and
+#: are never calibration data, whatever else is true of them.
+KINDS = ("measured", "quoted", "declared")
 
 
 class ObservationError(ValueError):
     pass
 
 
-def site_ref(site_name: str, hall_id: str) -> str:
-    """A stable, non-reversible reference for a client site.
+def site_only_ref(site_name: str) -> str:
+    """A stable, non-reversible reference for a client SITE (every hall of it).
 
-    Client names never enter the ledger. The ledger is the asset we intend to
-    publish aggregate statistics from, and an asset that cannot be published
-    without a confidentiality review is worth much less than one that can.
+    The independence requirement for calibration is about sites. Five readings from three halls of one site are
+    one site, so the site part of every reference must be derivable on its own. The website stores this exact
+    value (site label only) and the database computes it with the same algorithm.
+    """
+    h = hashlib.sha256(site_name.strip().lower().encode())
+    return "site_" + h.hexdigest()[:12]
+
+
+def site_ref(site_name: str, hall_id: str) -> str:
+    """A stable, non-reversible reference for one hall of a client site: the site reference, then a hall suffix.
+
+    Client names never enter the ledger. The ledger is the asset we intend to publish aggregate statistics from,
+    and an asset that cannot be published without a confidentiality review is worth much less than one that can.
     """
     h = hashlib.sha256(f"{site_name.strip().lower()}|{hall_id.strip().lower()}".encode())
-    return "site_" + h.hexdigest()[:12]
+    return f"{site_only_ref(site_name)}-{h.hexdigest()[:8]}"
+
+
+def site_of(ref: str) -> str:
+    """The site part of a site or hall reference."""
+    return ref.split("-", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -45,15 +69,57 @@ class Observation:
     method: str              # how it was obtained — metering, BMS trend, commissioning record
     platform: str = ""
     note: str = ""
+    #: Only 'measured' is accepted. 'quoted' (a vendor's promise) and 'declared' (an assumed or customer-stated
+    #: value) are other things and are refused rather than quietly recorded as observations.
+    kind: str = "measured"
+    #: Traceability: "<observation id>:<evidence sha256>". Empty only for hand-entered fixtures (source 'cli').
+    source_ref: str = ""
+    #: The engine provenance digest of the build that made the prediction being checked.
+    model_digest: str = ""
+    reviewed_by: str = ""        # self-asserted until per-person identity exists
+    reviewed_at: str = ""
+    #: How it reached the ledger: 'cli' (typed by hand), 'import' (a verified admin export), or '' (library use).
+    source: str = ""
+    #: May this entry appear in the published ledger. False for anything without a source_ref.
+    published: bool = False
 
     def __post_init__(self) -> None:
         if not KEY_RE.match(self.key or ""):
             raise ObservationError(
-                f"key {self.key!r} must be dotted lowercase, e.g. "
-                f"'constraint.rack_feed_tapoff.racks' or 'thermal.pue'")
-        if not self.site_ref.startswith("site_"):
+                f"key {self.key!r} must be dotted (e.g. "
+                f"'constraint.rack_feed_tapoff.racks' or 'thermal.pue'), a name from the vocabulary")
+        from .keys import known
+        if not known(self.key):
             raise ObservationError(
-                "site_ref must come from site_ref(); raw client names are not stored")
+                f"key {self.key!r} is not in the calibration vocabulary (`gridforge calibrate keys`). An "
+                f"observation under an unknown key would be counted nowhere and could hide that a model "
+                f"output has never been checked.")
+        if self.kind in ("quoted", "declared"):
+            what = "a vendor quote" if self.kind == "quoted" else "a declared or assumed value"
+            raise ObservationError(
+                f"kind {self.kind!r} is refused: {what} is not a measurement of what was built. Only "
+                f"'measured' observations enter the ledger.")
+        if self.kind != "measured":
+            raise ObservationError(f"kind {self.kind!r} is not recognised; expected one of {KINDS}")
+        if not SITE_REF_RE.match(self.site_ref or ""):
+            raise ObservationError(
+                "site_ref must come from site_ref() or site_only_ref(); raw client names are not stored")
+        if self.source_ref:
+            if not SOURCE_REF_RE.match(self.source_ref):
+                raise ObservationError(
+                    "source_ref must be '<observation id>:<evidence sha256>' (64 hex characters)")
+            if not SHA256_RE.match(self.model_digest or ""):
+                raise ObservationError(
+                    "a sourced observation must carry the engine provenance digest (64 hex) of the "
+                    "prediction it checks")
+            if not (self.reviewed_by or "").strip():
+                raise ObservationError("a sourced observation must name its reviewer")
+            try:
+                datetime.fromisoformat((self.reviewed_at or "").replace("Z", "+00:00"))
+            except ValueError:
+                raise ObservationError(f"reviewed_at {self.reviewed_at!r} is not an ISO date or timestamp")
+        elif self.model_digest and not SHA256_RE.match(self.model_digest):
+            raise ObservationError("model_digest must be a 64-character sha256 hex digest")
         if not (math.isfinite(self.predicted) and math.isfinite(self.observed)):
             raise ObservationError("predicted and observed must be finite numbers")
         if self.predicted <= 0:
@@ -79,6 +145,11 @@ class Observation:
         if not self.method.strip():
             raise ObservationError(
                 "method is required — an observation nobody can trace is not evidence")
+
+    @property
+    def site(self) -> str:
+        """The site this observation belongs to (every hall of one site is one site)."""
+        return site_of(self.site_ref)
 
     @property
     def ratio(self) -> float:
@@ -109,4 +180,8 @@ class Observation:
             predicted=float(d["predicted"]), observed=float(d["observed"]),
             unit=str(d.get("unit") or ""), observed_on=str(d["observed_on"]),
             evidence=ev, method=str(d.get("method") or ""),
-            platform=str(d.get("platform") or ""), note=str(d.get("note") or ""))
+            platform=str(d.get("platform") or ""), note=str(d.get("note") or ""),
+            kind=str(d.get("kind") if d.get("kind") is not None else "measured"),
+            source_ref=str(d.get("source_ref") or ""), model_digest=str(d.get("model_digest") or ""),
+            reviewed_by=str(d.get("reviewed_by") or ""), reviewed_at=str(d.get("reviewed_at") or ""),
+            source=str(d.get("source") or ""), published=bool(d.get("published", False)))

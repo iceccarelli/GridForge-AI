@@ -5,6 +5,7 @@ import { readBoundedJson } from "@/lib/http-body";
 import { PAYG, accountRef, parseCapEur, paygCapUnits } from "@/lib/payg";
 import { accountByToken } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
   }
   const g = await guardRequest(req, "payg_manage");
   if (g.denied) return g.denied;
+  // A cap change mints and rotates a payg key: only against an engine that is proven to honour it.
+  const closed = await meteredUnavailable();
+  if (closed) return closed;
 
   const acct = token ? await accountByToken(token) : null;
   if (acct === "error") return NextResponse.json({ ok: false, error: "This is unavailable just now. Nothing was changed." }, { status: 503 });
@@ -77,6 +81,18 @@ export async function POST(req: Request) {
           revocation_pending: true,
           revocation_note:
             "The new key is live, but the engine has not yet confirmed that the previous one is revoked. It is recorded as unconfirmed and a daily job keeps retrying it; until the engine confirms, treat the old key as still working.",
+        }
+      : {}),
+    ...(m.rotation_deferred
+      ? {
+          // The engine could not be shown to accept THIS key, so the one it replaces was NOT revoked: handing over a new key and killing the old
+          // one in the same breath could leave the customer with nothing that works.
+          rotation_deferred: true,
+          new_key_unverified: true,
+          rotation_note:
+            "The new key could not be checked against the engine just now (it was unreachable, or did not accept the key), so your PREVIOUS key was not revoked and stays valid " +
+            "until the engine has verified the new one. Keep using the previous key until you have confirmed the new one works, for example by calling GET /v1/version with it; " +
+            "a daily job revokes the previous key as soon as the engine verifies keys again.",
         }
       : {}),
     warning: "Copy this now. It is shown once and is not stored anywhere we can read it back.",

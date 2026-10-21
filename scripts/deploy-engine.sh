@@ -89,8 +89,12 @@ try:
     rows = json.load(sys.stdin)
 except Exception:
     raise SystemExit(1)
+# Only a LIST is a secret list. An error object ({"error": ...}) or any other shape means "could not read", never "none exist":
+# reading it as empty would let --bootstrap overwrite credentials that are in fact set.
 if isinstance(rows, dict):
-    rows = rows.get("secrets") or rows.get("Secrets") or []
+    rows = rows.get("secrets") if "secrets" in rows else rows.get("Secrets") if "Secrets" in rows else None
+if not isinstance(rows, list):
+    raise SystemExit(1)
 names = [r.get("Name") or r.get("name") for r in rows if isinstance(r, dict)]
 print("\n".join(n for n in names if n))
 ' 2>/dev/null)"; then
@@ -98,7 +102,8 @@ print("\n".join(n for n in names if n))
   fi
 fi
 if [ "$DETECTED" -eq 0 ]; then
-  if RAW_TXT="$("$FLY" secrets list --app "$APP" 2>/dev/null)" && [ -n "$RAW_TXT" ]; then
+  # A table has a NAME header row; anything else (an error message, a banner) is not a list and must not be read as one.
+  if RAW_TXT="$("$FLY" secrets list --app "$APP" 2>/dev/null)" && printf '%s' "$RAW_TXT" | head -n1 | grep -qiE '^[[:space:]]*NAME\b'; then
     SECRET_NAMES="$(printf '%s' "$RAW_TXT" | awk 'NR>1 {print $1}')"
     DETECTED=1
   fi
@@ -150,16 +155,40 @@ fi
 # usage record, and looks identical to a working configuration until the first
 # invoice. The engine probes the path at startup and reports the truth at
 # /v1/usage; this makes the path real so it has something true to report.
-if "$FLY" volumes list --app "$APP" 2>/dev/null | grep -q "$VOLUME"; then
-  say "Usage volume $VOLUME exists"
-else
-  warn "No usage volume — metered usage would not survive a restart."
-  echo "  Creating a 1GB volume in $REGION (a few cents a month)."
-  "$FLY" volumes create "$VOLUME" --app "$APP" --region "$REGION" --size 1 --yes || {
-    warn "Volume creation failed. The engine will still serve; usage will be in-memory"
-    warn "only, and /v1/usage will say so rather than pretending otherwise."
-  }
+# Fly volume names are NOT unique, and a second volume is a second, empty ledger. So: the exact name, from the machine-readable list,
+# and a listing that fails or cannot be read is "unknown", which never resolves to creating one (the old `volumes list | grep -q`
+# treated a failed or truncated listing, and a substring such as ${VOLUME}_old, as "absent" or "present").
+VOLUME_STATE="unknown"
+if VOLS_JSON="$("$FLY" volumes list --app "$APP" --json 2>/dev/null)" && [ -n "$VOLS_JSON" ]; then
+  VOLUME_STATE="$(printf '%s' "$VOLS_JSON" | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    print("unknown"); raise SystemExit(0)
+if isinstance(rows, dict):
+    rows = rows.get("volumes") if isinstance(rows.get("volumes"), list) else None
+if not isinstance(rows, list):
+    print("unknown"); raise SystemExit(0)
+names = [r.get("Name") or r.get("name") for r in rows if isinstance(r, dict)]
+print("present" if sys.argv[1] in names else "absent")
+' "$VOLUME" 2>/dev/null || echo unknown)"
 fi
+case "$VOLUME_STATE" in
+  present)
+    say "Usage volume $VOLUME exists" ;;
+  absent)
+    warn "No usage volume — metered usage would not survive a restart."
+    echo "  Creating a 1GB volume in $REGION (a few cents a month)."
+    "$FLY" volumes create "$VOLUME" --app "$APP" --region "$REGION" --size 1 --yes || {
+      warn "Volume creation failed. The engine will still serve; usage will be in-memory"
+      warn "only, and /v1/usage will say so rather than pretending otherwise."
+    } ;;
+  *)
+    warn "Could not read the volume list for $APP."
+    echo "  Not creating $VOLUME. Uncertainty must never resolve to a second volume (and a second, empty ledger)."
+    echo "  Check:  $FLY volumes list --app $APP" ;;
+esac
 grep -q "\[mounts\]" fly.toml || warn "fly.toml has no [mounts] section — the volume will not attach."
 
 summary() {
@@ -189,8 +218,8 @@ To rotate deliberately (this script never will):
   $FLY secrets set GRIDFORGE_API_KEYS="\$(openssl rand -hex 24):gridforge-site" --app $APP
   …then paste the same value into Vercel as GRIDFORGE_API_KEY.
 
-Migrations still to run in Supabase:
-  supabase/migrations/0002_qualifications.sql … 0007_api_accounts.sql
+Database migrations are applied one at a time, in filename order, behind safety gates:
+  python3 scripts/apply-migration.py <number>      (see docs/10_PAYG_LAUNCH_CHECKLIST.md)
 ────────────────────────────────────────────────────────────────────────
 EOF
 }
@@ -204,7 +233,8 @@ fi
 say "Deploying"
 "$FLY" deploy --app "$APP" --regions "$REGION" --ha=false
 
-URL="https://$APP.fly.dev"
+# GRIDFORGE_ENGINE_URL exists so the post-deploy verification can be exercised against a local engine; a real run leaves it unset.
+URL="${GRIDFORGE_ENGINE_URL:-https://$APP.fly.dev}"
 say "Checking health"
 for _ in $(seq 1 30); do
   curl -sf "$URL/health" >/dev/null && break
@@ -212,24 +242,85 @@ for _ in $(seq 1 30); do
 done
 VERSION_JSON="$(curl -s "$URL/v1/version" || true)"
 
-python3 - "$VERSION_JSON" <<'PY' || true
+VERIFY_FAILED=0
+python3 - "$VERSION_JSON" <<'PY' || VERIFY_FAILED=1
 import json, sys
 try:
     d = json.loads(sys.argv[1] or "{}")
 except Exception:
-    print("  ! could not read /v1/version"); raise SystemExit(0)
+    print("  ! could not read /v1/version"); raise SystemExit(1)
+meter = d.get("metering") or {}
 rows = [
     ("paid endpoints", d.get("auth_configured"),
      "set GRIDFORGE_API_KEYS or GRIDFORGE_KEY_SECRET"),
     ("self-serve keys", d.get("signed_keys"),
      "set GRIDFORGE_KEY_SECRET to the same value as the website"),
-    ("durable metering", (d.get("metering") or {}).get("durable"),
+    ("durable usage counter", meter.get("durable"),
      "check the volume is mounted at /data, then GET /v1/usage for the exact problem"),
+    # Free-allowance and pay-as-you-go keys are refused (503) without a writable ledger, so this one is a hard requirement.
+    ("durable usage ledger", meter.get("ledger_durable"),
+     "GRIDFORGE_LEDGER_FILE must be on the mounted volume; payg and free keys are refused without it"),
+    ("pay-as-you-go published", bool(d.get("payg")),
+     "this engine build predates the ledger: redeploy from the current repository"),
 ]
 print(f"\n  engine {d.get('version', '?')}")
+bad = 0
 for label, ok, fix in rows:
-    print(f"  {'OK ' if ok else '!! '} {label:18s}" + ("" if ok else f"  -> {fix}"))
+    bad += 0 if ok else 1
+    print(f"  {'OK ' if ok else '!! '} {label:24s}" + ("" if ok else f"  -> {fix}"))
+raise SystemExit(1 if bad else 0)
 PY
+
+# Operator-tier facts need the operator key; when it is exported, revocation persistence is checked too.
+if [ -n "${GRIDFORGE_ADMIN_KEY:-}" ]; then
+  OP_JSON="$(curl -s -H "X-API-Key: $GRIDFORGE_ADMIN_KEY" "$URL/v1/version" || true)"
+  if ! printf '%s' "$OP_JSON" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+ok = d.get("tier") == "internal" and d.get("revocation_persistable") is True
+print("  " + ("OK " if ok else "!! ") + "revocation persistable (operator key accepted)" + ("" if ok else "  -> a cancelled key could not be ended: check GRIDFORGE_ADMIN_KEY and the /data volume"))
+raise SystemExit(0 if ok else 1)
+'; then VERIFY_FAILED=1; fi
+else
+  echo "  -- revocation persistence not checked: export GRIDFORGE_ADMIN_KEY to check it (never printed)"
+fi
+
+# Exactly one machine, and it mounts the volume: the usage counter, ledger, revocations and cost file are local state, so a second
+# machine would split every one of them. `--ha=false` limits what a deploy creates; this is what proves what exists.
+MACH_JSON="$("$FLY" machines list --app "$APP" --json 2>/dev/null || true)"
+MACH_RC=0
+printf '%s' "$MACH_JSON" | python3 -c '
+import json, sys
+vol = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    print("  ?? machine count could not be read: run  fly machines list  and confirm exactly one machine mounts " + vol); raise SystemExit(2)
+if isinstance(rows, dict):
+    rows = rows.get("machines") if isinstance(rows.get("machines"), list) else None
+if not isinstance(rows, list):
+    print("  ?? machine count could not be read: run  fly machines list  and confirm exactly one machine mounts " + vol); raise SystemExit(2)
+def mounts(m):
+    cfg = (m.get("config") or {}) if isinstance(m, dict) else {}
+    return [x.get("name") or x.get("volume") for x in (cfg.get("mounts") or []) if isinstance(x, dict)]
+n = len(rows)
+mounted = sum(1 for m in rows if vol in (mounts(m) or []) or any(vol in str(x) for x in (mounts(m) or [])))
+ok = n == 1 and mounted == 1
+print("  " + ("OK " if ok else "!! ") + f"machines: {n}, mounting {vol}: {mounted}" + ("" if ok else "  -> must be exactly one machine with the volume: usage, ledger and revocations are local state. Do not scale out."))
+raise SystemExit(0 if ok else 1)
+' "$VOLUME" || MACH_RC=$?
+# 2 means "could not read" (unverified, reported above, not a failure); 1 means a wrong count (a failure).
+if [ "$MACH_RC" -ne 0 ] && [ "$MACH_RC" -ne 2 ]; then VERIFY_FAILED=1; fi
+
+# The repository's own statement of what the engine must serve, checked against what it now serves (routes, unit rates, version).
+if ! python3 "$(dirname "$0")/check-engine-drift.py" "$URL"; then VERIFY_FAILED=1; fi
 
 say "The engine is live at $URL"
 summary
+if [ "$VERIFY_FAILED" -ne 0 ]; then
+  warn "Post-deploy verification FAILED (see the !! lines above). The deploy happened; do not announce or sell against it until they are fixed."
+  exit 1
+fi

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gridforge.api.metering import UNIT_COST  # noqa: E402
+from gridforge.provenance import code_sha256  # noqa: E402
 from gridforge.api.server import ROUTES, VERSION  # noqa: E402
 
 
@@ -34,6 +35,17 @@ def drift(deployed: dict) -> list[str]:
             problems.append(f"unit rate for {path}: repo {units}, deployed {remote_rates.get(path)!r}")
     if deployed.get("version") != VERSION:
         problems.append(f"version: repo {VERSION}, deployed {deployed.get('version')!r}")
+    # The version string does not move on every change; the code digest does. An engine built from a different tree than this one
+    # (or from before the digest was published) is not the engine this repository describes, whatever its routes say.
+    prov = deployed.get("provenance")
+    if not isinstance(prov, dict) or not prov.get("code_sha256"):
+        problems.append("the deployed engine publishes no code digest (provenance.code_sha256): it was built before the digest existed")
+    elif prov["code_sha256"] != code_sha256():
+        problems.append("code digest: the deployed engine was built from a different tree than this repository "
+                        f"(repo {code_sha256()[:12]}, deployed {str(prov['code_sha256'])[:12]})")
+    metering = deployed.get("metering") if isinstance(deployed.get("metering"), dict) else {}
+    if "ledger_durable" not in metering:
+        problems.append("the deployed engine does not report ledger_durable: it predates the usage ledger")
     return problems
 
 

@@ -7,6 +7,7 @@
  * tests/test_projects_migration.py and, end to end through PostgREST, in
  * tests/site/verified-power-record.realdb.test.ts.
  */
+import { createHash } from "node:crypto";
 import { PgError, type PostgrestFake, type Row } from "./postgrest-fake";
 
 const EVENT_TYPES = new Set([
@@ -55,12 +56,29 @@ export function installProjectRpcs(db: PostgrestFake): void {
       throw new PgError("23503", "that evidence does not belong to this project", 409);
     }
     if (!(p.predicted_value > 0)) throw new PgError("23514", "predicted_value > 0", 400);
+    // 0038: a MW output is a physical, finite, positive number of MW; a measurement has one of three kinds.
+    if (!(p.observed_value > 0 && p.observed_value <= 10000)) throw new PgError("23514", "project_observations_value_sane", 400);
+    if (p.unit !== "MW") throw new PgError("23514", "project_observations_unit_mw", 400);
+    if (p.measurement_kind != null && !["metered", "bms_trend", "commissioning_record"].includes(p.measurement_kind)) {
+      throw new PgError("23514", "measurement_kind must be metered, bms_trend or commissioning_record", 400);
+    }
     if (db.rows("project_observations").some((o) => o.project_id === p.project_id && o.prediction_ref === p.prediction_ref
         && o.calibration_key === p.calibration_key && o.observed_on === p.observed_on)) {
       throw new PgError("23505", "project_observations unique", 409);
     }
+    // The database, not the caller, derives the site reference (site label only) and reads the prediction's engine
+    // digest from the case revision.
+    const label = String(db.rows("projects").find((x) => x.id === p.project_id)?.site_label ?? "").trim().toLowerCase();
+    const site_ref = label ? `site_${createHash("sha256").update(label).digest("hex").slice(0, 12)}` : null;
+    const cs: any = db.rows("power_deployment_cases").find((x) => x.case_token === p.case_token && x.revision === p.case_revision);
+    const prov = cs?.engine_provenance ?? null;
+    const { site_ref: _s, engine_provenance_digest: _d, report_date: _r, ...given } = p;
+    void _s; void _d; void _r;
     const r = db.insertRow("project_observations", {
-      ...p, submitted_at: p.submitted_at ?? new Date().toISOString(),
+      ...given, measurement_kind: p.measurement_kind ?? null, site_ref,
+      engine_provenance_digest: typeof prov?.digest === "string" ? prov.digest : null,
+      report_date: typeof prov?.report_date === "string" ? prov.report_date : null,
+      submitted_at: p.submitted_at ?? new Date().toISOString(),
       delta_value: p.observed_value - p.predicted_value,
       delta_pct: (p.observed_value / p.predicted_value - 1) * 100,
     });
@@ -71,8 +89,20 @@ export function installProjectRpcs(db: PostgrestFake): void {
   db.rpcs.set("gf_review_observation", ({ p, p_event }) => {
     const o = db.rows("project_observations").find((x) => x.id === p.observation_id);
     if (!o) throw new PgError("23503", "no such observation", 409);
+    // 0038: not the submitter; verified only against verified evidence; E5 and nothing else.
+    const who = String(p.reviewer ?? "").trim().toLowerCase();
+    if (who && (who === String(o.submitted_by ?? "").trim().toLowerCase() || who === String(o.submitted_by_ref ?? "").toLowerCase())) {
+      throw new PgError("GF001", "a submission cannot be reviewed by the person who submitted it", 400);
+    }
+    const evid: any = db.rows("project_evidence").find((e) => e.id === o.evidence_id);
+    if (p.decision === "verified") {
+      if (evid?.review_status !== "verified") throw new PgError("GF002", "the supporting evidence artifact is not verified", 400);
+      if (p.evidence_class !== "E5") throw new PgError("GF003", "a reviewer may assign only E5", 400);
+    }
     if ((p.decision === "verified") !== (p.evidence_class != null)) throw new PgError("23514", "class iff verified", 400);
-    const r = db.insertRow("project_observation_reviews", { observation_id: o.id, project_id: o.project_id, ...p });
+    const r = db.insertRow("project_observation_reviews", {
+      observation_id: o.id, project_id: o.project_id, ...p, evidence_sha256: p.decision === "verified" ? evid.sha256 : null,
+    });
     emit(o.project_id, p_event, { observation_id: o.id, decision: r.decision, evidence_class: r.evidence_class });
     return r;
   });
@@ -129,11 +159,21 @@ export function installProjectRpcs(db: PostgrestFake): void {
     const supplied = ["po_date", "dispatch_date", "on_site_date", "install_complete_date", "energised_date", "actual_cost"]
       .filter((f) => a[f] !== null && a[f] !== undefined);
     const vf: string[] = p.verified_fields ?? [];
+    const who = String(p.reviewer ?? "").trim().toLowerCase();
+    if (who && (who === String(a.submitted_by ?? "").trim().toLowerCase() || who === String(a.submitted_by_ref ?? "").toLowerCase())) {
+      throw new PgError("GF001", "a submission cannot be reviewed by the person who submitted it", 400);
+    }
+    const evid: any = db.rows("project_evidence").find((e) => e.id === a.evidence_id);
+    if (p.decision === "verified" && evid?.review_status !== "verified") {
+      throw new PgError("GF002", "the supporting evidence artifact is not verified", 400);
+    }
     if (!vf.every((f) => supplied.includes(f))) throw new PgError("23514", "verify only supplied facts", 400);
     if ((p.decision === "verified") !== (vf.length > 0)) throw new PgError("23514", "verified iff fields", 400);
     if (p.decision === "rejected" && !String(p.reason ?? "").trim()) throw new PgError("23514", "rejection needs reason", 400);
     if (db.rows("supplier_actual_reviews").some((x) => x.actual_id === a.id)) throw new PgError("23505", "unique actual_id", 409);
-    const r = db.insertRow("supplier_actual_reviews", { ...p, project_id: a.project_id, verified_fields: vf });
+    const r = db.insertRow("supplier_actual_reviews", {
+      ...p, project_id: a.project_id, verified_fields: vf, evidence_sha256: p.decision === "verified" ? evid.sha256 : null,
+    });
     emit(a.project_id, p_event, { actual_id: a.id, decision: r.decision, verified_fields: vf });
     return r;
   });

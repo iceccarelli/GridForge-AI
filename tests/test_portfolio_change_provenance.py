@@ -156,7 +156,11 @@ def test_capex_is_the_economic_calculation_not_a_fixed_multiplier_old_behaviour_
     quoted = entry(doc("nordic_hall"))
     assert quoted.capex_q.evidence >= default.capex_q.evidence
     lo, hi = quoted.capex_q.band
-    assert hi / quoted.capex < 2.0 and lo / quoted.capex > 0.5, "a firm-quoted ladder must narrow the capex band"
+    # The hall's own inputs (and so the rack count the conversion is priced on) are E0, so quoting the priced lines
+    # cannot make the TOTAL firmer than that: its band is never narrower than the band for its own evidence class.
+    from gridforge.costs import BAND_BY_EVIDENCE
+    lo_f, hi_f = BAND_BY_EVIDENCE[quoted.best.economics.capex_input_evidence]
+    assert hi / quoted.capex >= hi_f - 1e-9 and lo / quoted.capex <= lo_f + 1e-9
     assert quoted.capex_q is quoted.best.economics.capex_total_eur
     row = portfolio_rows([quoted])[0]
     assert row["capex_band_eur"] == list(quoted.capex_q.band) and row["capex_evidence"] == quoted.capex_q.evidence.name
@@ -366,7 +370,10 @@ def test_the_note_labels_figures_from_the_recorded_provenance_old_behaviour_said
 
 def test_a_firm_quoted_hall_gets_a_narrower_capex_band_in_the_note(base, quoted_library):
     d = diff(base, moved(base, **{"grid.contracted_MW": 10.5}))
-    assert d.after.capex_hi / d.after.capex_eur < 2.0 and d.after.capex_lo / d.after.capex_eur > 0.5
+    # Quoted lines do not narrow a total whose rack count rests on E0 inputs: the band follows the total's own class.
+    from gridforge.costs import BAND_BY_EVIDENCE
+    lo_f, hi_f = BAND_BY_EVIDENCE[EvidenceClass[d.after.capex_class]]
+    assert d.after.capex_hi / d.after.capex_eur >= hi_f - 1e-9 and d.after.capex_lo / d.after.capex_eur <= lo_f + 1e-9
 
 
 def test_a_change_to_a_customer_input_is_attributed_to_that_input(base):

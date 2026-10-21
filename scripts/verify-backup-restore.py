@@ -66,6 +66,13 @@ def main():
             child, parent = (x.replace("public.", "").strip('"') for x in line.split("|"))
             if child in deps and parent in deps and child != parent:
                 deps[child].add(parent)
+        # Migrations seed a few rows (payg_cursor's single row, for one). The export carries the live version of those rows, so the
+        # scratch copy must start the tables it is about to load EMPTY, or the first INSERT collides with the seed. Done in the
+        # scratch database only, before anything is loaded, so the cascade can remove nothing that was restored.
+        if tables:
+            listed = ", ".join(f'public."{t}"' for t in tables)
+            # Append-only tables guard TRUNCATE with a trigger; the replica role switches triggers off for this one scratch-only statement.
+            psql(name, f"set session_replication_role = replica; truncate table {listed} restart identity cascade")
         order = []
         while deps:
             ready = sorted(t for t, d in deps.items() if not (d - set(order)))

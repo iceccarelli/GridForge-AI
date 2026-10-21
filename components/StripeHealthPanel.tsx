@@ -3,6 +3,16 @@
 import { useState } from "react";
 import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 
+interface BillingPortalHealth {
+  warnings?: string[];
+  configured: boolean;
+  reachable: boolean;
+  ok: boolean;
+  missing: string[];
+  error: string | null;
+  checkedAt: string;
+}
+
 interface StripeWebhookHealth {
   configured: boolean;
   reachable: boolean;
@@ -10,6 +20,7 @@ interface StripeWebhookHealth {
   expectedUrl: string;
   endpoint: { id: string; url: string; status: string; enabledEvents: string[] } | null;
   missingEvents: string[];
+  missingRecommended?: string[];
   urlMismatch: boolean;
   healthy: boolean;
   checkedAt: string;
@@ -26,6 +37,7 @@ interface StripeWebhookHealth {
 export function StripeHealthPanel() {
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [health, setHealth] = useState<StripeWebhookHealth | null>(null);
+  const [portal, setPortal] = useState<BillingPortalHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function check() {
@@ -40,6 +52,7 @@ export function StripeHealthPanel() {
         return;
       }
       setHealth(body.health as StripeWebhookHealth);
+      setPortal((body.portal as BillingPortalHealth | undefined) ?? null);
       setState("done");
     } catch {
       setError("Could not reach the server.");
@@ -92,6 +105,22 @@ export function StripeHealthPanel() {
           )}
           {health.missingEvents.length > 0 && (
             <p className="text-flag">Missing: {health.missingEvents.join(", ")}</p>
+          )}
+          {(health.missingRecommended?.length ?? 0) > 0 && (
+            <p className="text-faint">Not subscribed (refund and dispute counts only; nothing depends on them): {health.missingRecommended!.join(", ")}</p>
+          )}
+          {portal && (portal.warnings?.length ?? 0) > 0 && (
+            <p className="text-queue">Billing Portal warnings: {portal.warnings!.join(" ")}</p>
+          )}
+          {portal && (
+            <div className="flex items-start gap-2 pt-1">
+              {portal.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-power" /> : <AlertTriangle className="mt-0.5 h-4 w-4 text-flag" />}
+              <span className={portal.ok ? "text-ghost" : "text-flag"}>
+                {portal.ok
+                  ? "Billing Portal: cancel, payment-method update and invoice history are enabled."
+                  : `Billing Portal: ${portal.error ?? "not verified"}`}
+              </span>
+            </div>
           )}
           <p className="text-faint">Checked {new Date(health.checkedAt).toLocaleString()}</p>
         </div>

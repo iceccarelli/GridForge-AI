@@ -25,6 +25,7 @@ intended.
 """
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -46,7 +47,23 @@ case "$1 $2" in
   "auth whoami")   echo "tester@example.com" ;;
   "status --app")  exit "${FAKE_STATUS_RC:-0}" ;;
   "secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"; exit "${FAKE_SECRETS_RC:-0}" ;;
-  "volumes list")  echo "${FAKE_VOLUMES:-}" ;;
+  "volumes list")
+    if [ "${FAKE_VOLUMES_RC:-0}" != "0" ]; then echo "Error: could not list volumes" >&2; exit "$FAKE_VOLUMES_RC"; fi
+    if [ -n "${FAKE_VOLUMES_RAW:-}" ]; then printf '%s' "$FAKE_VOLUMES_RAW"; exit 0; fi
+    case "$*" in
+      *--json*) python3 - <<'PYV'
+import json, os
+names = [n for n in os.environ.get("FAKE_VOLUMES", "").split(",") if n]
+rows = [{"id": f"vol_{i}", "Name": n, "name": n, "size_gb": 1} for i, n in enumerate(names)]
+# a large listing: the old `volumes list | grep -q NAME` died on SIGPIPE here and decided the volume did not exist
+rows += [{"id": f"vol_pad{i}", "Name": f"pad_{i}", "padding": "x" * 200} for i in range(int(os.environ.get("FAKE_VOLUMES_PAD", "0")))]
+print(json.dumps(rows))
+PYV
+      ;;
+      *) echo "${FAKE_VOLUMES:-}" ;;
+    esac ;;
+  "machines list")
+    cat "${FAKE_MACHINES_OUT:-/dev/null}" ;;
   *) : ;;
 esac
 exit 0
@@ -95,6 +112,7 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
         "FAKE_SECRETS_TXT": str(out_file),
         "FAKE_SECRETS_RC": str(secrets_rc),
         "FAKE_VOLUMES": "gridforge_data",
+        "GRIDFORGE_ENGINE_URL": "http://127.0.0.1:9",   # nothing listens here: tests that deploy for real override it
         "GRIDFORGE_SKIP_DEPLOY": "1",
         "FLY_APP": "test-engine",
         **(env_extra or {}),
@@ -237,3 +255,196 @@ class TestApp:
     def test_the_script_tells_you_how_to_rotate_deliberately(self, tmp_path):
         proc, _ = run(tmp_path, secrets_out=JSON_LIST)
         assert "To rotate deliberately (this script never will)" in proc.stdout
+
+
+def volume_creates(calls):
+    return [c for c in calls if c[:2] == ["volumes", "create"]]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestVolumeNeverDuplicated:
+    """Fly volume names are not unique: a second `gridforge_data` is a second, empty usage ledger."""
+
+    def test_an_existing_volume_is_not_recreated(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST)
+        assert volume_creates(calls) == [], proc.stdout
+        assert "exists" in proc.stdout
+
+    def test_an_existing_volume_in_a_huge_listing_is_still_seen(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, env_extra={"FAKE_VOLUMES_PAD": "4000"})
+        assert volume_creates(calls) == [], "a large listing made the script decide the volume was absent"
+
+    def test_a_failed_listing_never_creates_a_volume(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, env_extra={"FAKE_VOLUMES_RC": "1"})
+        assert proc.returncode == 0, proc.stderr
+        assert volume_creates(calls) == [], "an unreadable volume list resolved to creating a second volume"
+        assert "Could not read the volume list" in proc.stdout
+
+    def test_only_the_exact_name_counts_so_a_look_alike_does_not_hide_a_missing_volume(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, env_extra={"FAKE_VOLUMES": "gridforge_data_old"})
+        assert len(volume_creates(calls)) == 1, proc.stdout
+
+    def test_a_listing_that_is_not_a_list_is_unknown_not_empty(self, tmp_path):
+        # an error object on stdout with exit 0 must not be read as 'no volumes'
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, env_extra={"FAKE_VOLUMES_RAW": json.dumps({"error": "unauthorized"})})
+        assert volume_creates(calls) == [], proc.stdout
+        assert "Could not read the volume list" in proc.stdout
+
+    def test_garbage_is_unknown_not_empty(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, env_extra={"FAKE_VOLUMES_RAW": "<html>502</html>"})
+        assert volume_creates(calls) == [], proc.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestSecretDetectionRefusesToGuess:
+    def test_an_error_object_is_not_an_empty_secret_list(self, tmp_path):
+        """flyctl answering {"error": ...} with exit 0 once read as 'no secrets', and --bootstrap then overwrote the signing secret."""
+        proc, calls = run(tmp_path, secrets_out=json.dumps({"error": "rate limited"}), args=("--bootstrap",))
+        assert secret_sets(calls) == [], proc.stdout
+        assert "Uncertainty must never resolve to overwriting a credential" in proc.stdout
+
+    def test_a_text_banner_is_not_a_secret_table(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="Error: failed to fetch secrets\n", json_ok=False, args=("--bootstrap",))
+        assert secret_sets(calls) == [], proc.stdout
+        assert "Uncertainty must never resolve to overwriting a credential" in proc.stdout
+
+    def test_a_dict_holding_a_list_is_still_accepted(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=json.dumps({"secrets": json.loads(JSON_LIST)}), args=("--bootstrap",))
+        assert secret_sets(calls) == []
+        assert "already set, untouched" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The post-deploy proof, against a REAL local engine (the fake `fly` deploys nothing; the script then asks the engine it is
+# pointed at what it serves, and fails unless it is what the repository says).
+# ---------------------------------------------------------------------------------------------------------------------
+import socket
+import sys
+import time
+import urllib.request
+
+
+def _free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class LocalEngine:
+    def __init__(self, tmp_path, *, ledger=True, admin_key=None):
+        self.port = _free_port()
+        env = {**os.environ, "GRIDFORGE_KEY_SECRET": "deploy-test-secret", "GRIDFORGE_USAGE_FILE": str(tmp_path / "usage.json"),
+               "GRIDFORGE_REVOKED_FILE": str(tmp_path / "revoked.json"), "GRIDFORGE_COST_FILE": str(tmp_path / "costs.json")}
+        if ledger:
+            env["GRIDFORGE_LEDGER_FILE"] = str(tmp_path / "ledger.jsonl")
+        else:
+            env.pop("GRIDFORGE_LEDGER_FILE", None)
+        if admin_key:
+            env["GRIDFORGE_ADMIN_KEY"] = admin_key
+        env.pop("FLY_MACHINE_ID", None)
+        self.proc = subprocess.Popen([sys.executable, "-m", "gridforge", "serve", "--port", str(self.port)], cwd=ROOT, env=env,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=1)
+                return
+            except Exception:
+                time.sleep(0.25)
+        self.stop()
+        raise RuntimeError("the local engine did not start")
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.port}"
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=10)
+        except Exception:
+            self.proc.kill()
+
+
+def machines_file(tmp_path, machines):
+    f = tmp_path / "machines.json"
+    f.write_text(json.dumps(machines))
+    return str(f)
+
+
+ONE_MACHINE = [{"id": "m1", "config": {"mounts": [{"name": "gridforge_data", "path": "/data"}]}}]
+TWO_MACHINES = ONE_MACHINE + [{"id": "m2", "config": {"mounts": [{"name": "gridforge_data", "path": "/data"}]}}]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestPostDeployProof:
+    def deploy(self, tmp_path, engine, machines, extra=None):
+        return run(tmp_path, secrets_out=JSON_LIST, env_extra={
+            "GRIDFORGE_SKIP_DEPLOY": "0", "GRIDFORGE_ENGINE_URL": engine.url,
+            "FAKE_MACHINES_OUT": machines, **(extra or {})})
+
+    def test_a_current_engine_with_one_volume_machine_passes(self, tmp_path):
+        eng = LocalEngine(tmp_path, admin_key="op-key-for-test")
+        try:
+            proc, calls = self.deploy(tmp_path, eng, machines_file(tmp_path, ONE_MACHINE), {"GRIDFORGE_ADMIN_KEY": "op-key-for-test"})
+        finally:
+            eng.stop()
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "durable usage ledger" in proc.stdout and "machines: 1, mounting gridforge_data: 1" in proc.stdout
+        assert "revocation persistable" in proc.stdout and "serves every route and unit rate" in proc.stdout
+        assert "op-key-for-test" not in proc.stdout + proc.stderr, "the operator key must never be printed"
+
+    def test_two_machines_fail_the_deploy(self, tmp_path):
+        eng = LocalEngine(tmp_path)
+        try:
+            proc, _ = self.deploy(tmp_path, eng, machines_file(tmp_path, TWO_MACHINES))
+        finally:
+            eng.stop()
+        assert proc.returncode == 1, proc.stdout
+        assert "machines: 2" in proc.stdout and "Do not scale out" in proc.stdout
+
+    def test_an_engine_without_a_writable_ledger_fails_the_deploy(self, tmp_path):
+        eng = LocalEngine(tmp_path, ledger=False)
+        try:
+            proc, _ = self.deploy(tmp_path, eng, machines_file(tmp_path, ONE_MACHINE))
+        finally:
+            eng.stop()
+        assert proc.returncode == 1, proc.stdout
+        assert re.search(r"!!\s+durable usage ledger", proc.stdout)
+
+    def test_an_unreadable_machine_list_is_reported_unverified_not_failed_not_passed(self, tmp_path):
+        eng = LocalEngine(tmp_path)
+        try:
+            proc, _ = self.deploy(tmp_path, eng, "/dev/null")
+        finally:
+            eng.stop()
+        assert "machine count could not be read" in proc.stdout
+        assert "machines: 1" not in proc.stdout
+
+    def test_an_engine_that_predates_the_ledger_fails_on_drift(self, tmp_path):
+        """What production is today: the routes and rates the repository declares are not served."""
+        import http.server
+        import threading
+
+        class Old(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = json.dumps({"version": "0.9.0", "auth_configured": True, "signed_keys": True, "metering": {"durable": True},
+                                   "endpoints": ["/v1/screen", "/v1/study", "/v1/qualify"], "unit_rates": {"/v1/screen": 1, "/v1/study": 5}}).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Old)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            class E:  # same shape as LocalEngine for deploy()
+                url = f"http://127.0.0.1:{srv.server_address[1]}"
+            proc, _ = self.deploy(tmp_path, E, machines_file(tmp_path, ONE_MACHINE))
+        finally:
+            srv.shutdown()
+        assert proc.returncode == 1, proc.stdout
+        assert "DRIFT from this repository" in proc.stdout
+        assert re.search(r"!!\s+pay-as-you-go published", proc.stdout) and re.search(r"!!\s+durable usage ledger", proc.stdout)

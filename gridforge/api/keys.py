@@ -231,6 +231,19 @@ def revoke(key_id: str) -> bool:
             return False
 
 
+def on_volume(directory: Path) -> bool:
+    """False only where state written to `directory` would be lost on a restart: on Fly (FLY_MACHINE_ID set), a directory on the
+    same device as the root filesystem is the machine's ephemeral disk, not a mounted volume. Elsewhere there is nothing to prove.
+    One definition for the usage counter, the ledger, the cost file and the revocation store, so none of them can call itself
+    durable while another knows better."""
+    try:
+        if os.environ.get("FLY_MACHINE_ID"):
+            return os.stat(directory).st_dev != os.stat("/").st_dev
+        return True
+    except OSError:
+        return False
+
+
 def revocation_persistable() -> bool:
     """True only if a revocation written NOW would be durable -- proved by doing the same kind of write.
 
@@ -252,7 +265,7 @@ def revocation_persistable() -> bool:
     try:
         d = path.parent
         d.mkdir(parents=True, exist_ok=True)
-        if os.environ.get("FLY_MACHINE_ID") and os.stat(d).st_dev == os.stat("/").st_dev:
+        if not on_volume(d):
             return False
         probe = d / f".revoke-probe-{os.getpid()}-{secrets.token_hex(4)}"
         tmp = probe.with_suffix(".tmp")

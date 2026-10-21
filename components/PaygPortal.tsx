@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import CapChooser from "@/components/CapChooser";
 import OneTimeKey from "@/components/OneTimeKey";
+import { useMeteredStatus } from "@/components/useMeteredStatus";
 import UsageMeter from "@/components/UsageMeter";
 import { PAYG } from "@/lib/products";
 import { SITE } from "@/lib/site";
@@ -285,6 +286,7 @@ function Recovery({ status, isPayg }: { status: string; isPayg: boolean }) {
 function EnablePayg({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const metered = useMeteredStatus();
 
   async function go(capEur: number) {
     setBusy(true);
@@ -307,6 +309,12 @@ function EnablePayg({ token }: { token: string }) {
         Optional. Choose the most you are willing to spend in a month. The engine enforces it: when a call would take
         you over, it is refused and costs nothing. You save a card with Stripe; saving it does not charge it.
       </p>
+      {metered === "closed" ? (
+        <p role="status" className="mt-4 rounded border border-line bg-panel p-3 text-sm text-mute">
+          Pay as you go is not open on this deployment yet. Nothing was changed on your account and no card is asked for. Your free
+          allowance keeps working.
+        </p>
+      ) : (
       <div className="mt-4">
         <CapChooser
           submitLabel="Save a card and enable pay as you go"
@@ -318,6 +326,7 @@ function EnablePayg({ token }: { token: string }) {
           <p className="mt-3 text-xs text-faint">{billingRuleText()}</p>
         </CapChooser>
       </div>
+      )}
     </section>
   );
 }
@@ -361,7 +370,13 @@ function ChangeCap({
         <div className="mt-4" aria-live="polite">
           <p className="mb-3 text-sm text-verified">Cap changed. This is your new key.</p>
           <OneTimeKey secret={minted.key} expires={minted.expires}>
-            {minted.revocationPending ? (
+            {minted.newKeyUnverified ? (
+              <p className="mt-3 text-sm text-queue">
+                {minted.rotationNote ??
+                  "We could not confirm with the engine that this new key works yet, so your previous key has not been revoked and stays valid for now. Try the new key; the previous one is revoked automatically once the engine confirms."}
+              </p>
+            ) : null}
+            {minted.revocationPending && !minted.newKeyUnverified ? (
               <p className="mt-3 text-sm text-queue">
                 {minted.revocationNote ??
                   "We could not confirm the engine has revoked the previous key yet. Treat it as still working until it is."}

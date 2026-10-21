@@ -4,6 +4,7 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { accountRef, freeAccountsMax } from "@/lib/payg";
 import { verifyFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 import { inspectKey } from "@/lib/api-access";
 
 export const runtime = "nodejs";
@@ -112,6 +113,11 @@ export async function POST(req: Request) {
   const want = keyEntitlement(row);
   if (!want.ok) return NextResponse.json({ ok: false, error: want.error }, { status: 409 });
   const wrongScope = Boolean(row.key_id) && Boolean(row.key_scope) && row.key_scope !== want.scope;
+  // A free-allowance or pay-as-you-go key is only issued against an engine that records and caps it (lib/api-readiness.ts).
+  if (want.scope !== "machine" && (rotate || life.needs_rotation || wrongScope)) {
+    const closed = await meteredUnavailable();
+    if (closed) return closed;
+  }
   if (!rotate && !life.needs_rotation && !wrongScope) {
     return NextResponse.json({
       ok: true,
@@ -174,6 +180,18 @@ export async function POST(req: Request) {
             "The new key is live, but the engine has not yet confirmed that the previous one is revoked. " +
             "It is recorded as unconfirmed and a daily job keeps retrying it until the engine confirms; " +
             "until then, treat the old key as still working.",
+        }
+      : {}),
+    ...(minted.rotation_deferred
+      ? {
+          // The engine could not be shown to accept THIS key, so the one it replaces was NOT revoked: handing over a new key and killing the old
+          // one in the same breath could leave the customer with nothing that works.
+          rotation_deferred: true,
+          new_key_unverified: true,
+          rotation_note:
+            "The new key could not be checked against the engine just now (it was unreachable, or did not accept the key), so your PREVIOUS key was not revoked and stays valid " +
+            "until the engine has verified the new one. Keep using the previous key until you have confirmed the new one works, for example by calling GET /v1/version with it; " +
+            "a daily job revokes the previous key as soon as the engine verifies keys again.",
         }
       : {}),
     ...(!supersede && minted.previous

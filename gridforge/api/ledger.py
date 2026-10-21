@@ -39,6 +39,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .keys import on_volume
+
 #: How long a charged Idempotency-Key is remembered, across restarts. Same window as the response cache.
 IDEMPOTENCY_WINDOW_SECONDS = 24 * 3600
 #: Every Nth event's byte offset is remembered so the operator's paged read does not rescan the file.
@@ -130,7 +132,7 @@ class Ledger:
             return False
         try:
             d = self._path.parent
-            if os.environ.get("FLY_MACHINE_ID") and os.stat(d).st_dev == os.stat("/").st_dev:
+            if not on_volume(d):
                 return False
             if not os.access(d, os.W_OK):
                 return False
@@ -155,7 +157,7 @@ class Ledger:
         try:
             d = self._path.parent
             d.mkdir(parents=True, exist_ok=True)
-            if os.environ.get("FLY_MACHINE_ID") and os.stat(d).st_dev == os.stat("/").st_dev:
+            if not on_volume(d):
                 raise OSError("no volume mounted")
             probe = d / f".{self._path.name}.probe-{os.getpid()}-{secrets.token_hex(3)}"
             fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

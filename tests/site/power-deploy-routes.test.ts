@@ -25,7 +25,8 @@ function installEngine() {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith(ENGINE)) return pgFetch(input as RequestInfo, init);
-    engineCalls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+    // The unmetered read of the engine's build identity (recorded on the case revision) is not an assessment.
+    if (!url.endsWith("/v1/version")) engineCalls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
     return new Response(JSON.stringify(enginePayload), {
       status: engineStatus,
       headers: { "content-type": "application/json" },

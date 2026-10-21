@@ -28,7 +28,13 @@ export interface PaygStripe {
       metadata?: Record<string, string> | null;
     }>;
   };
-  customers: { update(id: string, params: Stripe.CustomerUpdateParams): Promise<unknown> };
+  customers: {
+    update(id: string, params: Stripe.CustomerUpdateParams): Promise<unknown>;
+    /** The customer as Stripe holds it NOW: `invoice_settings.default_payment_method` follows a card replaced in the Billing Portal. */
+    retrieve(id: string): Promise<{ id?: string; deleted?: boolean; invoice_settings?: { default_payment_method?: string | { id: string } | null } | null }>;
+  };
+  /** The charge a dispute is about: only its customer is read (to name the account in the operator's notice). */
+  charges: { retrieve(id: string): Promise<{ id?: string; customer?: string | { id: string } | null }> };
   /** Stripe's hosted Billing Portal (cancel, payment method, invoice history). Needs the portal configured in the Stripe dashboard. */
   billingPortal: { sessions: { create(params: { customer: string; return_url: string }): Promise<{ id: string; url: string | null }> } };
   invoices: {

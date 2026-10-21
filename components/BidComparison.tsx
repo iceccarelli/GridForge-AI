@@ -24,6 +24,10 @@ interface Ranked {
   headline?: string;
   capex_eur?: number;
   weeks_to_energised?: number;
+  /** No install time was quoted: weeks_to_energised is then the LEAD time only, not an energisation time. */
+  install_weeks_missing?: boolean;
+  programme_basis?: "complete" | "lead_only" | "none";
+  needs_engineering_review?: boolean;
   eur_per_rack?: number;
   score?: number;
   compliant?: boolean;
@@ -378,6 +382,9 @@ export function BidComparison({
                     <td className="py-2 pr-3 font-mono text-xs">{eur(r.capex_eur)}</td>
                     <td className="py-2 pr-3 font-mono text-xs">
                       {typeof r.weeks_to_energised === "number" ? r.weeks_to_energised : "—"}
+                      {r.install_weeks_missing || r.programme_basis === "lead_only" ? (
+                        <span className="mt-0.5 block font-sans text-[10px] normal-case text-queue">lead time only: install time not quoted</span>
+                      ) : null}
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs">{eur(r.eur_per_rack)}</td>
                     <td className="py-2 pr-3 font-mono text-xs">

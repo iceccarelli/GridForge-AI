@@ -50,7 +50,15 @@ def pick_recommended(results: list[ScenarioResult],
             from ..envelope.time_to_power import schedule
             t = schedule(r.ladder)
             return t.weeks_to_full if t.weeks_to_full is not None else float("inf")
-        return min(viable, key=lambda r: (weeks(r), -r.unlocked_racks))
+        dated = [r for r in viable if weeks(r) != float("inf")]
+        if not dated:
+            # Nothing is dated, so nothing is fastest, and capacity is a different objective: it must not decide here.
+            # The first candidate in the caller's own order is returned only because a study needs a scenario to open
+            # with, not because it won (the ranking in the comparison payload names no leader in this case).
+            return viable[0]
+        # Among dated candidates the date decides; more racks only breaks an exact tie in the date, as a
+        # recommendation to open with. It is not a claim that one is faster (the comparison names no leader on a tie).
+        return min(dated, key=lambda r: (weeks(r), -r.unlocked_racks))
     return max(viable, key=lambda r: (r.unlocked_racks, r.economics.capex_complete,
                                       -r.economics.capex_total_eur.value))
 

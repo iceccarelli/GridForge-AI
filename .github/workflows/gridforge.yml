@@ -624,6 +624,8 @@ jobs:
         run: python -m pytest tests/test_delivery_handoff_migration.py tests/test_leads_rls_migration.py -q
       - name: Paid journeys - Procurement Specification, stuck generation, Hall Watch, deposit - real engine + PostgREST + PostgreSQL, mail and Stripe events local (fails, never skips)
         run: npx vitest run tests/site/delivery-journeys.realdb.test.ts
+      - name: Calibration capture - truncate guards, submitter/evidence separation, E5-only, measurement kind, site_ref and provenance, ledger-eligible export view, privileges on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_calibration_capture_migration.py -q
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true

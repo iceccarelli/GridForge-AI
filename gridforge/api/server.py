@@ -57,6 +57,7 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
 from ..calibration import accuracy_block, all_keys as calibration_keys, load_ledger
+from ..calibration.ledger import LedgerIntegrityError
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
@@ -659,6 +660,11 @@ def handle_revoke(body: dict, tier: Tier) -> dict:
     key_id = str(body.get("key_id") or "").strip()
     if not key_id:
         raise ApiError(422, "key_id is required")
+    # Never "revoked" on a machine whose store would not survive a restart (a Fly machine with no volume): a write there succeeds, the
+    # key is dead until the next restart, and the caller has been told it is gone. Ask the same question the operator tier reports.
+    if not revocation_persistable():
+        raise ApiError(503, "revocation is not persistable on this deployment",
+                       fix="the revocation file must be on the mounted /data volume; check GET /v1/version (operator) revocation_persistable")
     stored = revoke(key_id)
     if not stored:
         # Never report a revocation that did not happen. A caller told "revoked"
@@ -785,6 +791,9 @@ def _ranked_rows(pkg, ranked) -> list[dict]:
         "scores": {k: round(v, 1) for k, v in a.scores.items()},
         "mandatory_failed": a.mandatory_failed, "notes": a.notes,
         "schedule_impact": schedule_impact(pkg, a),
+        # A bid with no install time is ranked on its LEAD time only and says so: weeks_to_energised is then not an energisation time.
+        "install_weeks_missing": a.install_weeks_missing, "programme_basis": a.programme_basis,
+        "needs_engineering_review": a.needs_engineering_review,
     } for i, a in enumerate(ranked, 1)]
 
 
@@ -1369,7 +1378,13 @@ class Handler(BaseHTTPRequestHandler):
             # Public, and public precisely because the answer is currently "none".
             # An accuracy record that only becomes visible once it flatters us is a
             # marketing number; this one is a commitment.
-            led = load_ledger()
+            # The PUBLISHED ledger only: an observation a client supplied never reaches a public page, whatever it says. A ledger whose
+            # hash chain is broken is not served as an empty or as a partial record; it is a 503 that says so.
+            try:
+                led = load_ledger(published_only=True)
+            except LedgerIntegrityError:
+                return self._send(503, {"error": "the calibration ledger failed its integrity check and is not being served",
+                                        "state": "unavailable"})
             block = accuracy_block(calibration_keys(), led)
             block["ledger_sources"] = len(led.sources)
             block["policy"] = (

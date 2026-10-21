@@ -290,7 +290,8 @@ export class PostgrestFake {
     if (method === "GET") {
       // Verbatim shape of PostgREST refusing a select that names a column the table does not have.
       const absentCols = this.missingColumns.get(table);
-      const named = absentCols && [...absentCols].find((c) => (params.get("select") ?? "").split(",").includes(c));
+      const orderCols = (params.get("order") ?? "").split(",").map((k) => k.split(".")[0]);
+      const named = absentCols && [...absentCols].find((c) => (params.get("select") ?? "").split(",").includes(c) || orderCols.includes(c));
       if (named) {
         return json(JSON.stringify({ code: "42703", message: `column ${table}.${named} does not exist` }), 400);
       }
@@ -372,6 +373,12 @@ export class PostgrestFake {
     }
 
     if (method === "PATCH") {
+      // Verbatim shape of PostgREST refusing an update that names a column the table does not have (the deploy-before-migration window).
+      const absentPatch = this.missingColumns.get(table);
+      const namedPatch = absentPatch && Object.keys((body as Row | null) ?? {}).find((k) => absentPatch.has(k));
+      if (namedPatch) {
+        return json(JSON.stringify({ code: "PGRST204", message: `Could not find the '${namedPatch}' column of '${table}' in the schema cache` }), 400);
+      }
       for (const row of matching) {
         const old = { ...row };
         Object.assign(row, body as Row);

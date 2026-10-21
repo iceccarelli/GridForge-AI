@@ -19,6 +19,7 @@ from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import EnvelopeContext
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
+from ..power.plausibility import intake_warnings
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .labels import date_basis, date_basis_text, full_capacity_q, racks_q
@@ -105,7 +106,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         s.blocks.append(Para(
             "Intake is complete. Nothing further is required to begin; the clock starts on "
             "commissioning."))
-    for w in intake.report.warnings:
+    for w in intake_warnings(intake):
         s.blocks.append(Callout("note", w))
     r.sections.append(s)
 

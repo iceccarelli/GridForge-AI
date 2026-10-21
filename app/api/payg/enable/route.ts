@@ -5,6 +5,7 @@ import { PAYG, parseCapEur } from "@/lib/payg";
 import { accountByToken } from "@/lib/payg-accounts";
 import { paygStripe, stripeFault } from "@/lib/payg-stripe";
 import { guardRequest } from "@/lib/rate-limit";
+import { meteredUnavailable } from "@/lib/api-readiness";
 import { RETURN_PATH, returnCookie } from "@/lib/payg-return";
 
 export const runtime = "nodejs";
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
   }
   const g = await guardRequest(req, "payg_manage");
   if (g.denied) return g.denied;
+  // Opening pay-as-you-go commits the customer to a key and an invoice the engine must be able to produce: verified first.
+  const closed = await meteredUnavailable();
+  if (closed) return closed;
 
   const acct = token ? await accountByToken(token) : null;
   if (acct === "error") return NextResponse.json({ ok: false, error: "This is unavailable just now. Nothing was changed." }, { status: 503 });
