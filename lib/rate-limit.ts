@@ -93,7 +93,7 @@ export type RatePolicyName = keyof typeof RATE_POLICIES;
 export type Provider = "engine" | "anthropic";
 
 /** Engine paths the engine itself serves without a key and without metering (tier "public"). Everything else is metered. */
-export const FREE_ENGINE_PATHS: ReadonlySet<string> = new Set(["/v1/qualify"]);
+export const FREE_ENGINE_PATHS: ReadonlySet<string> = new Set(["/v1/qualify", "/v1/estimate"]);
 
 interface ProviderBudget {
   /** Per caller, across EVERY route: a caller cannot get a second allowance by switching route. Absent where no per-caller bound is needed. */

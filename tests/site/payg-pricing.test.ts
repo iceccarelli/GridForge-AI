@@ -38,9 +38,10 @@ describe("the rate rows come from the engine's own catalogue", () => {
     expect(rates.length).toBe(toolsJson.tools.length);
     for (const t of toolsJson.tools) expect(byEndpoint(t.endpoint).units).toBe(t.units);
   });
-  it("the free qualifier is zero units and nothing else is free", () => {
+  it("the free qualifier and the free estimator are zero units and nothing else is free", () => {
     expect(byEndpoint("/v1/qualify").units).toBe(0);
-    expect(rates.filter((r) => r.units === 0).map((r) => r.endpoint)).toEqual(["/v1/qualify"]);
+    expect(byEndpoint("/v1/estimate").units).toBe(0);
+    expect(rates.filter((r) => r.units === 0).map((r) => r.endpoint).sort()).toEqual(["/v1/estimate", "/v1/qualify"]);
   });
   it("drops malformed rows instead of repairing them", () => {
     const parsed = parseToolRates({ tools: [{ name: "a", endpoint: "/x", units: 2 }, { name: "b" }, { name: "c", endpoint: "/c", units: -1 }, null, "x"] });

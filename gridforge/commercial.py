@@ -169,7 +169,7 @@ API_SCOPE_OUT = (
     "No issued engineering opinion, no named signatory and no professional indemnity. "
     "Every API response is screening-mode output and says so.",
     "No design, no procurement and no equipment selection.",
-    "No SLA on availability beyond best effort at the Triage tier.",
+    "No availability SLA on any plan: access is best effort.",
 )
 
 API_PLANS: dict[str, ApiPlan] = {
@@ -195,8 +195,7 @@ API_PLANS: dict[str, ApiPlan] = {
         includes=(
             "2,500 units a month.",
             "Portfolio endpoint billed per hall, so a 200-hall sweep is 200 units.",
-            "Change notes via /v1/diff: what moved and which input moved it.",
-            "Priority on new platform library entries.",
+            "Change notes via /v1/diff: what moved and which input moved it (available on every plan).",
         ),
     ),
     "api_platform": ApiPlan(
@@ -207,9 +206,8 @@ API_PLANS: dict[str, ApiPlan] = {
         audience="Embedding the engine in a product your own customers use.",
         includes=(
             "10,000 units a month.",
-            "A named engineer on call for model questions.",
-            "Input on the constraint roadmap and the platform library.",
-            "Redistribution terms for output shown to your own customers.",
+            "The lowest per-unit rate on offer.",
+            "Showing output to your own customers is not licensed by default; ask first, and any terms are agreed by email.",
         ),
     ),
 }

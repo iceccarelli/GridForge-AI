@@ -207,7 +207,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     capability_id: "api_platform",
     family: "api",
     name: "API — Platform",
-    description: "Metered engine access, 10,000 units/month, embeddable redistribution terms.",
+    description: "Metered engine access, 10,000 units/month.",
     product_id: "api_platform",
     engine_capability: "every /v1/* route, metered by gridforge/api/metering.py",
     rest_endpoint: "/v1/*",
