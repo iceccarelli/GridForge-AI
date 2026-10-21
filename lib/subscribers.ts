@@ -330,7 +330,46 @@ export async function recordSubscription(p: {
   const existing = await subscriptionBySession(p.sessionId);
   if (existing) return existing; // replayed webhook
 
-  // Supersede everything that still entitles this email, so the partial unique
+  // WHO may supersede an existing entitlement. The email on a checkout session is typed by whoever pays (Checkout's own field, or
+  // a client-supplied customer_email), so it proves nothing about who owns it. Superseding on the email alone let a stranger pay
+  // for the cheapest plan with a victim's address and strip the victim's seats. A new purchase replaces an existing entitling
+  // subscription ONLY when it is the same Stripe customer (the same payer, e.g. an upgrade started from the signed-in portal, which
+  // reuses the customer). Any other payer's purchase is recorded as `superseded` from the start: it entitles nothing, the existing
+  // subscription and its seats are untouched, and the webhook tells the operator (who refunds or merges deliberately).
+  const prior = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${ENTITLING}&select=id,stripe_customer_id`);
+  if (!prior) return null;
+  const priorRes = await fetch(prior.url, { headers: prior.headers, cache: "no-store" });
+  if (!priorRes.ok) {
+    console.error("[GridForge] could not read prior subscriptions:", await storeFault(priorRes));
+    return null;
+  }
+  const priorRows = (await priorRes.json()) as { id: string; stripe_customer_id: string | null }[];
+  // (A checkout always names its customer in production; two records that BOTH carry none cannot be told apart and are not
+  // treated as different payers, which is what keeps record-level callers that never had a customer id working.)
+  const foreign = priorRows.some((r) => (r.stripe_customer_id ?? null) !== (p.customerId ?? null));
+  if (foreign) {
+    const r = rest("subscriptions");
+    if (!r) return null;
+    const res = await fetch(r.url, {
+      method: "POST",
+      headers: { ...r.headers, Prefer: "return=representation" },
+      body: JSON.stringify({
+        email,
+        plan: p.plan,
+        status: "superseded",
+        stripe_session_id: p.sessionId,
+        stripe_customer_id: p.customerId ?? null,
+        stripe_subscription_id: p.subscriptionId ?? null,
+      }),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] unentitled subscription record FAILED: session", p.sessionId, await storeFault(res));
+      return null;
+    }
+    return ((await res.json()) as SubscriptionRecord[])[0] ?? null;
+  }
+
+  // Supersede everything that still entitles this email (all of it the same payer's), so the partial unique
   // index cannot reject the insert below AND an abandoned past_due row cannot go
   // on granting access after the subscription that replaced it is cancelled.
   const sup = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${ENTITLING}`);

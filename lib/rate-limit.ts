@@ -77,6 +77,12 @@ export const RATE_POLICIES = {
   team_invite_account: { bucket: "team_invite_account", limit: 20, windowSeconds: HOUR },
   /** POST /api/team/invitation (preview, accept, decline): per caller address. A secret is 256 bits; this bounds noise, not guessing. */
   team_redeem: { bucket: "team_redeem", limit: 60, windowSeconds: HOUR },
+  /** POST /api/free-account: each one can queue an email to an address the visitor typed. 5 per hour per caller address: an office behind one address is not the use case. */
+  free_account: { bucket: "free_account", limit: 5, windowSeconds: HOUR },
+  /** POST /api/payg/enable and /api/payg/cap: token-addressed account changes (a Stripe session, or a key rotation). */
+  payg_manage: { bucket: "payg_manage", limit: 30, windowSeconds: HOUR },
+  /** GET /api/usage: token-addressed reads of the account's own usage; polled by the portal. */
+  usage_read: { bucket: "usage_read", limit: 240, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;
 
 export type RatePolicyName = keyof typeof RATE_POLICIES;

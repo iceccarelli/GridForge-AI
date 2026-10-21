@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
+import { PAYG } from "@/lib/products";
 
 /**
  * Self-serve API accounts.
@@ -22,7 +23,7 @@ import { storeFault } from "@/lib/safe-log";
 
 const PREFIX = "gfk1";
 
-export type ApiScope = "machine" | "client" | "trial";
+export type ApiScope = "machine" | "client" | "trial" | "payg";
 
 export interface ApiKeyPayload {
   a: string; // account
@@ -114,6 +115,11 @@ export function issueKey(opts: {
   }
   const account = opts.account.trim();
   if (!account) throw new Error("a key must name the account it bills to");
+  // A free-allowance or pay-as-you-go key carries its bound in the signature: the engine enforces `q` and treats 0 as
+  // "unlimited" for a subscription key only. Minting a bounded scope with no bound would be an uncapped, unbilled key.
+  if ((opts.scope === "trial" || opts.scope === "payg") && !(Math.trunc(opts.quota) > 0)) {
+    throw new Error(`a ${opts.scope} key must carry a quota above zero`);
+  }
 
   const start = opts.issuedOn ?? new Date();
   const end = new Date(start.getTime());
@@ -174,6 +180,18 @@ export interface ApiAccount {
   revoked_key_ids: string[] | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  /** Pay-as-you-go: the customer's hard cap in units (cap in EUR / unit price, rounded down). */
+  cap_units?: number | null;
+  stripe_payment_method_id?: string | null;
+  payg_enabled_at?: string | null;
+  free_email_norm?: string | null;
+  /** Scope of the key recorded as live: trial | payg | machine | client. */
+  key_scope?: string | null;
+  /** Revoked ids the engine has confirmed. Anything in revoked_key_ids and not here is retried by the cron. */
+  revoked_confirmed_ids?: string[] | null;
+  revocation_pending?: boolean;
+  /** Stripe event.created of the newest invoice event applied to this (subscription) account. */
+  last_billing_event_ts?: number | null;
 }
 
 function rest(pathAndQuery: string): { url: string; headers: Record<string, string> } | null {
@@ -395,29 +413,141 @@ export interface MintResult {
  * result says honestly whether the engine confirmed. Without it (a mint inside the renewal window) the old
  * key keeps working until it expires, on purpose, but it is tracked.
  */
-export async function mintForAccount(
-  row: ApiAccount,
-  opts: { rotate?: boolean } = {}
-): Promise<MintResult | null> {
-  const { token, payload } = issueKey({
-    account: row.account,
-    quota: row.monthly_units,
-    scope: "machine",
-  });
+export async function mintForAccount(row: ApiAccount, opts: MintOptions = {}): Promise<MintResult | null> {
+  const out = await mintChecked(row, opts);
+  return out.ok ? out.result : null;
+}
+
+export type MintOutcome =
+  | { ok: true; result: MintResult }
+  | { ok: false; reason: "conflict" | "store" | "refused"; message?: string };
+
+export interface MintOptions {
+  rotate?: boolean;
+  /** Extra account columns written in the SAME compare-and-set write as the key (the cap, on a cap change). */
+  extra?: Record<string, unknown>;
+  /** Override what the plan would mint (a cap change mints for the NEW cap before the account row says so). */
+  entitlement?: { scope: "trial" | "payg" | "machine"; quota: number };
+}
+
+/**
+ * What a key for this account must carry, by plan: the free allowance (scope trial, bounded), the customer's own cap (scope
+ * payg, bounded) or the subscription allowance (scope machine). A bounded scope with no bound is REFUSED here as well as in
+ * issueKey: a quota of 0 means "unlimited" to the engine, and neither a free account nor a pay-as-you-go account may have that.
+ */
+export function keyEntitlement(
+  row: Pick<ApiAccount, "plan" | "monthly_units" | "cap_units">
+): { ok: true; scope: "trial" | "payg" | "machine"; quota: number } | { ok: false; error: string } {
+  if (row.plan === "api_free") return { ok: true, scope: "trial", quota: PAYG.freeAllowanceUnits };
+  if (row.plan === "api_payg") {
+    const cap = Math.trunc(Number(row.cap_units ?? 0));
+    if (!(cap > 0)) return { ok: false, error: "This account has no spending cap on record, so a pay-as-you-go key cannot be issued. Set a cap first." };
+    return { ok: true, scope: "payg", quota: cap };
+  }
+  return { ok: true, scope: "machine", quota: row.monthly_units };
+}
+
+/**
+ * Compare-and-set write of the key columns. The PATCH only matches while the account still has the key id (and the status) this
+ * mint was based on, so two concurrent mints cannot both "win": the loser's PATCH matches no row and its key is never handed out.
+ * Without this the last write silently replaced the first mint's id, which was then recorded nowhere and could never be
+ * revoked (it lives up to 35 days).
+ */
+async function casUpdateKey(row: ApiAccount, patch: Record<string, unknown>): Promise<"ok" | "conflict" | "error"> {
+  const r = rest(
+    `api_accounts?token=eq.${encodeURIComponent(row.token)}` +
+      (row.key_id ? `&key_id=eq.${encodeURIComponent(row.key_id)}` : "&key_id=is.null") +
+      `&status=eq.${encodeURIComponent(row.status)}`
+  );
+  if (!r) return "error";
+  try {
+    const res = await fetch(r.url, {
+      method: "PATCH",
+      headers: { ...r.headers, Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] api account key write failed:", await storeFault(res));
+      return "error";
+    }
+    const rows = (await res.json()) as unknown[];
+    return rows.length === 1 ? "ok" : "conflict";
+  } catch {
+    console.error("[GridForge] api account key write unreachable");
+    return "error";
+  }
+}
+
+/** Record that the engine confirmed these ids revoked (the DB unions them in; they only accumulate). */
+export async function confirmRevoked(token: string, ids: string[]): Promise<boolean> {
+  if (ids.length === 0) return true;
+  const row = await getApiAccount(token);
+  if (!row) return false;
+  const confirmed = [...new Set([...(row.revoked_confirmed_ids ?? []), ...ids])];
+  return Boolean(await updateApiAccount(token, { revoked_confirmed_ids: confirmed }));
+}
+
+/**
+ * The compare-and-set mint (see casUpdateKey): a concurrent mint makes this one answer "conflict" and no key is handed out.
+ */
+export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Promise<MintOutcome> {
+  const want = opts.entitlement ? ({ ok: true, ...opts.entitlement } as const) : keyEntitlement(row);
+  if (!want.ok) return { ok: false, reason: "refused", message: want.error };
+  const { token, payload } = issueKey({ account: row.account, quota: want.quota, scope: want.scope });
   const revoked = [...(row.revoked_key_ids ?? [])];
   const previous = row.key_id || null;
   if (previous && !revoked.includes(previous)) revoked.push(previous);
   // The key is only handed over once the account records which id is live. A key the account does
   // not know about can be neither rotated nor revoked on cancellation, so a failed write must not
   // produce a working credential the customer then holds.
-  const saved = await updateApiAccount(row.token, {
+  const saved = await casUpdateKey(row, {
     key_id: payload.k,
     key_issued_at: payload.i,
     key_expires_at: payload.e,
+    key_scope: want.scope,
     revoked_key_ids: revoked,
+    ...(opts.extra ?? {}),
   });
-  if (!saved) return null;
+  if (saved === "conflict") return { ok: false, reason: "conflict" };
+  if (saved === "error") return { ok: false, reason: "store" };
   let engine_revoked: boolean | null = null;
-  if (opts.rotate && previous) engine_revoked = await revokeOnEngine(previous);
-  return { token, expires: payload.e, revoked, previous, engine_revoked };
+  if (opts.rotate && previous) {
+    engine_revoked = await revokeOnEngine(previous);
+    if (engine_revoked) await confirmRevoked(row.token, [previous]);
+  }
+  return { ok: true, result: { token, expires: payload.e, revoked, previous, engine_revoked } };
+}
+
+/**
+ * Push every revoked key id the engine has not yet confirmed. This is what makes "revocation will be retried" true: the mint
+ * and the cancellation paths each try once and record the id as unconfirmed, and this sweep (run by /api/cron/payg) keeps trying
+ * until the engine says yes. Bounded per run; an id the engine refuses stays pending and is counted, never silently dropped.
+ */
+export async function retryRevocations(limit = 50): Promise<{ accounts: number; confirmed: number; stillPending: number }> {
+  const r = rest(`api_accounts?revocation_pending=eq.true&select=token,revoked_key_ids,revoked_confirmed_ids&limit=${Math.max(1, Math.min(limit, 200))}`);
+  if (!r) return { accounts: 0, confirmed: 0, stillPending: 0 };
+  let rows: Pick<ApiAccount, "token" | "revoked_key_ids" | "revoked_confirmed_ids">[] = [];
+  try {
+    const res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+    if (!res.ok) {
+      console.error("[GridForge] revocation sweep could not read accounts:", await storeFault(res));
+      return { accounts: 0, confirmed: 0, stillPending: 0 };
+    }
+    rows = (await res.json()) as typeof rows;
+  } catch {
+    return { accounts: 0, confirmed: 0, stillPending: 0 };
+  }
+  let confirmed = 0;
+  let stillPending = 0;
+  for (const row of rows) {
+    const done = new Set(row.revoked_confirmed_ids ?? []);
+    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id));
+    const ok: string[] = [];
+    for (const id of todo) {
+      if (await revokeOnEngine(id)) ok.push(id);
+      else stillPending++;
+    }
+    if (ok.length && (await confirmRevoked(row.token, ok))) confirmed += ok.length;
+  }
+  return { accounts: rows.length, confirmed, stillPending };
 }

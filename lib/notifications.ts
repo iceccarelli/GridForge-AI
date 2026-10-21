@@ -29,8 +29,10 @@ import { SITE_URL } from "@/lib/site";
 import { keyLife } from "@/lib/api-access";
 import { creds } from "@/lib/projects";
 import { inviteToken } from "@/lib/team-token";
+import { PAYG, eurText, utcMonth } from "@/lib/payg";
+import { usageNet } from "@/lib/payg-usage";
 
-export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation"] as const;
+export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 type SubjectTable = "deliverables" | "api_accounts" | "watches" | "subscriptions" | "subscription_invitations";
 export type NotificationStatus = "pending" | "accepted" | "ambiguous" | "abandoned" | "cancelled";
@@ -42,6 +44,7 @@ const SUBJECT: Record<NotificationKind, SubjectTable> = {
   key_rotation: "api_accounts",
   subscription_welcome: "subscriptions",
   team_invitation: "subscription_invitations",
+  usage_alert: "api_accounts",
 };
 
 const LEASE_MS = 2 * 60_000;
@@ -184,6 +187,23 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     if (!token) throw new Blocked("credential_missing");
     if (row.status === "cancelled") throw new NotApplicable("subscription cancelled");
     const units = Number(row.monthly_units ?? 0);
+    if (row.plan === "api_free") {
+      return {
+        to,
+        subject: "Your free GridForge API allowance",
+        text:
+          "Your free allowance is ready. Open the link below to create your key:\n\n" +
+          `${SITE_URL}/api-access/${token}` +
+          "\n\nThis link is the email verification: the key is only ever issued from it, and it is shown once. We do not store it.\n\n" +
+          `The allowance is ${PAYG.freeAllowanceUnits} units a month and is never invoiced. A constraint screen is 1 unit, a full solve ` +
+          "is 5 and a portfolio run is 1 per hall; the free qualifier does not use the allowance. When the allowance is used up, requests " +
+          "are refused with HTTP 402 (never silently charged). To go beyond it you choose to enable pay-as-you-go from the same page: " +
+          `you set a hard monthly cap, a card is saved but nothing is charged when you save it, and usage is invoiced in arrears at ${eurText(PAYG.unitPriceCents)} per unit.\n\n` +
+          "Screening-mode output is not an issued engineering opinion: it has no named signatory and no indemnity behind it. Every number " +
+          "carries an evidence class and a provenance digest.\n\n" +
+          "If you did not ask for this, ignore this message: nothing is created until you open the link.",
+      };
+    }
     return {
       to,
       subject: "Your GridForge API access is live",
@@ -235,6 +255,42 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `${SITE_URL}/account/invite/${secret}` +
         "\n\nThe link works only for this address, once, and expires " +
         `${new Date(String(row.expires_at)).toISOString().slice(0, 10)}. If you were not expecting it, ignore this message and nothing changes.`,
+    };
+  }
+  if (n.kind === "usage_alert") {
+    // dedupe key: usage_alert:{account id}:{YYYY-MM}:{percent}. The numbers are read NOW, at send time, from the ledger copy.
+    const m = /:(\d{4}-\d{2}):(\d{1,3})$/.exec(n.dedupe_key);
+    if (!m) throw new NotApplicable("malformed alert");
+    const [, month, pctText] = m;
+    const percent = Number(pctText);
+    const plan = String(row.plan ?? "");
+    if (row.status !== "active") throw new NotApplicable("account not active");
+    if (plan !== "api_free" && plan !== "api_payg") throw new NotApplicable("plan has no usage alert");
+    const cap = plan === "api_free" ? PAYG.freeAllowanceUnits : Number(row.cap_units ?? 0);
+    const token = credential(row.token);
+    if (!token) throw new Blocked("credential_missing");
+    if (!(cap > 0)) throw new NotApplicable("no cap on record");
+    if (month !== utcMonth(new Date())) throw new NotApplicable("alert is for a month that has ended");
+    const net = await usageNet(String(row.account), month);
+    if (!net) throw new Error("usage unreadable");
+    const used = net.net;
+    const portal = `${SITE_URL}/api-access/${token}`;
+    const stopLine =
+      plan === "api_payg"
+        ? `Your cap is a hard stop: at ${cap} units a request is refused with HTTP 402 and nothing beyond the cap is ever charged. ` +
+          "The count restarts at the start of the next UTC month, or you can raise the cap from the portal (raising it issues a new key and revokes the current one)."
+        : "When the free allowance is used up, requests are refused with HTTP 402 and nothing is charged. " +
+          "The count restarts at the start of the next UTC month, or you can enable pay-as-you-go from the portal.";
+    const money =
+      plan === "api_payg"
+        ? `\nAccrued this month so far: ${eurText(used * PAYG.unitPriceCents)} (${used} units at ${eurText(PAYG.unitPriceCents)}, net of refunds), invoiced in arrears. A month below ${eurText(PAYG.minInvoiceCents)} is carried into the next.`
+        : "\nFree-allowance usage is never invoiced.";
+    return {
+      to,
+      subject: percent >= 100 ? `GridForge: you have reached ${percent}% of your monthly ${plan === "api_free" ? "free allowance" : "cap"}` : `GridForge: ${percent}% of your monthly ${plan === "api_free" ? "free allowance" : "cap"} used`,
+      text:
+        `You have used ${used} of ${cap} units in ${month} (${Math.floor((used / cap) * 100)}%).${money}\n\n${stopLine}\n\n${portal}\n\n` +
+        "Counts are net of refunds: a rejected or failed request is refunded and does not count.",
     };
   }
   // key_rotation -- rebuilt from the account's CURRENT key. The dedupe key carries the expiry the obligation
@@ -541,9 +597,9 @@ export async function listNotifications(state: "open" | "all" = "open"): Promise
 export interface ReconcileCandidate { kind: NotificationKind; subject_id: string; created_at: string | null; eligible: boolean; reason: string }
 
 /** Obligations that are not a purchase: nothing to reconcile after the fact (a rotation warning, a seat invitation). */
-const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation"]);
+const NOT_RECONCILABLE: ReadonlySet<NotificationKind> = new Set(["key_rotation", "team_invitation", "usage_alert"]);
 
-const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation">, { table: SubjectTable; filter: string }> = {
+const SELECT: Record<Exclude<NotificationKind, "key_rotation" | "team_invitation" | "usage_alert">, { table: SubjectTable; filter: string }> = {
   intake_link: { table: "deliverables", filter: "status=eq.awaiting_intake&email=not.is.null" },
   api_access_link: { table: "api_accounts", filter: "status=eq.active&key_id=is.null&email=not.is.null" },
   watch_link: { table: "watches", filter: "status=eq.active&email=not.is.null" },
@@ -561,7 +617,7 @@ export async function inventoryUnnotified(): Promise<{ available: boolean; candi
   if (!probe.ok) return { available: false, candidates: [] };
   const out: ReconcileCandidate[] = [];
   for (const kind of NOTIFICATION_KINDS) {
-    if (kind === "key_rotation" || kind === "team_invitation") continue;
+    if (kind === "key_rotation" || kind === "team_invitation" || kind === "usage_alert") continue;
     const { table, filter } = SELECT[kind];
     const cols = `id,created_at${kind === "intake_link" ? ",token,intake_token" : ""}`;
     const rows = await db<{ id: string; created_at?: string; token?: unknown; intake_token?: unknown }[]>(
