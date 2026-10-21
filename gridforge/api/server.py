@@ -764,6 +764,19 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
 _CTX = threading.local()
 
 _IDEM_REUSED = "this Idempotency-Key was already used with a different request body"
+#: The longest Idempotency-Key header accepted, REST and MCP alike. The website ingests ledger events and rejects
+#: an `idem` over 200 characters, so what is STORED is bounded too (see _ledger_idem): a header at the limit plus a
+#: batch suffix, or anything longer, is stored as a digest.
+MAX_IDEM_KEY_CHARS = 150
+_IDEM_TOO_LONG = f"Idempotency-Key is longer than {MAX_IDEM_KEY_CHARS} characters"
+
+
+def _ledger_idem(raw: str) -> str:
+    """The idempotency key as it is written on a ledger event: itself when short, else `sha256:<hex>`.
+    Deterministic, so a retry finds the same stored value (ledger replay keeps working)."""
+    if len(raw.encode("utf-8", "replace")) <= MAX_IDEM_KEY_CHARS:
+        return raw
+    return "sha256:" + hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
 MAX_ESTIMATE_HALLS = 100_000
 MAX_MCP_BATCH = 10
 _PORTFOLIO = "/v1/portfolio"
@@ -945,7 +958,14 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     if denied:
         status = denied.get("status")
         raise RpcError(-32003 if status == 503 else -32602 if status == 422 else -32002, denied["error"], denied)
-    refund = getattr(charge, "refund", lambda: None)
+    # The reservation THIS call took (None for a free call or an idempotent replay). A failure refunds that
+    # one and nothing else: in a batch the request's other calls were answered and stay charged.
+    mine = getattr(charge, "current", lambda: None)()
+    refund_one = getattr(charge, "refund", lambda res=None: None)
+
+    def refund() -> None:
+        if mine is not None:
+            refund_one(mine)
     try:
         result = _invoke(endpoint, handler, args, tier)
         if idem is not None:
@@ -1192,7 +1212,9 @@ class Handler(BaseHTTPRequestHandler):
                 "signed_keys": bool(os.environ.get("GRIDFORGE_KEY_SECRET")),
                 "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
                 "schema": API_SCHEMA,
-                "idempotency": "send an Idempotency-Key header on a POST to make a retry free and identical",
+                "idempotency": (f"send an Idempotency-Key header (at most {MAX_IDEM_KEY_CHARS} characters) on a POST, "
+                                f"or on an /mcp tools/call, to make a retry free and identical"),
+                "idempotency_key_max_chars": MAX_IDEM_KEY_CHARS,
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
                 "unit_rates": dict(sorted(UNIT_COST.items())),
@@ -1261,6 +1283,9 @@ class Handler(BaseHTTPRequestHandler):
         reused with another body). Billing happens BEFORE the work: an agent in a loop can
         otherwise run a month's quota of solves while the first response is still being rendered.
         """
+        # Per-call state. A call that takes no reservation (free, replayed, refused) must not inherit the previous
+        # call's: in an MCP batch that is exactly how a failing free call used to refund a paid sibling.
+        self._open_res = None
         plan = self._plan()
         if plan is None:
             return None
@@ -1325,15 +1350,20 @@ class Handler(BaseHTTPRequestHandler):
                              "allowance to reset at the start of next month"))
         return body
 
-    def _refund(self) -> None:
-        """Undo this request's latest charge: the call produced no answer."""
-        res = getattr(self, "_open_res", None)
-        if res is not None:
-            METER.refund_reservation(res)
+    def _refund(self, res=None) -> None:
+        """Undo one charge: the call produced no answer. With no argument, this request's open reservation
+        (REST has one call per request); an MCP call passes the reservation it took. Always exactly one
+        reservation, refunded once."""
+        res = res if res is not None else getattr(self, "_open_res", None)
+        if res is None or getattr(res, "_refunded", False):
+            return
+        res._refunded = True
+        METER.refund_reservation(res)
+        if getattr(self, "_open_res", None) is res:
             self._open_res = None
-            self._req_units = max(0, getattr(self, "_req_units", 0) - res.units)
-            self._last_units = self._req_units
-            self._last_usage = METER.current(res.account)
+        self._req_units = max(0, getattr(self, "_req_units", 0) - res.units)
+        self._last_units = self._req_units
+        self._last_usage = METER.current(res.account)
 
     def _usage_headers(self) -> None:
         units = getattr(self, "_last_units", None)
@@ -1419,8 +1449,8 @@ class Handler(BaseHTTPRequestHandler):
         body_hash = hashlib.sha256(raw).hexdigest()
         plan = self._plan()
         if idem and plan is not None and path != "/v1/estimate":
-            if len(idem) > 200:
-                return self._send(400, {"error": "Idempotency-Key is longer than 200 characters"})
+            if len(idem) > MAX_IDEM_KEY_CHARS:
+                return self._send(400, {"error": _IDEM_TOO_LONG, "max_chars": MAX_IDEM_KEY_CHARS})
             idem_key = (plan.account, path, idem)
             hit = IDEMPOTENCY.get(idem_key)
             if hit is not None:
@@ -1431,7 +1461,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._last_units, self._last_usage = 0, METER.current(plan.account)
                 return self._send(hit[2], hit[3])
 
-        denied = self._charge(path, body, idem=idem_key[2] if idem_key else "", body_sha=body_hash[:16])
+        denied = self._charge(path, body, idem=_ledger_idem(idem_key[2]) if idem_key else "",
+                              body_sha=body_hash[:16])
         if denied:
             return self._send(denied.pop("status", 402), denied)
 
@@ -1470,8 +1501,8 @@ class Handler(BaseHTTPRequestHandler):
             plan = self._plan()
             if not header or plan is None or endpoint == "/v1/estimate":
                 return None
-            if len(header) > 200:
-                raise RpcError(-32602, "Idempotency-Key is longer than 200 characters", {"status": 400})
+            if len(header) > MAX_IDEM_KEY_CHARS:
+                raise RpcError(-32602, _IDEM_TOO_LONG, {"status": 400, "max_chars": MAX_IDEM_KEY_CHARS})
             idem = header if position[0] is None else f"{header}#{position[0]}"
             canon = json.dumps({"endpoint": endpoint, "arguments": args}, sort_keys=True, separators=(",", ":"))
             return (plan.account, endpoint, idem), hashlib.sha256(canon.encode()).hexdigest()
@@ -1480,9 +1511,10 @@ class Handler(BaseHTTPRequestHandler):
             info = idem_for(endpoint, args)
             if info is None:
                 return self._charge(endpoint, args)
-            return self._charge(endpoint, args, idem=info[0][2], body_sha=info[1][:16])
+            return self._charge(endpoint, args, idem=_ledger_idem(info[0][2]), body_sha=info[1][:16])
 
         charge.refund = self._refund
+        charge.current = lambda: self._open_res        # the reservation the call just made, if any
         charge.idem = idem_for
 
         def replayed() -> None:
