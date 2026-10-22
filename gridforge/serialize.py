@@ -32,6 +32,14 @@ def _q(q: Quantity | None) -> dict | None:
             "model": f"{q.prov.model_id}@{q.prov.model_version}", "digest": q.prov.digest}
 
 
+def _q_n_a(q: Quantity | None) -> dict | None:
+    """A quantity that does not apply: provenance stays (the model pack carries evidence on every headline number), the figures are null."""
+    d = _q(q)
+    if d is not None:
+        d.update(value=None, low=None, high=None)
+    return d
+
+
 def _constraint(c) -> dict:
     return {"id": c.id, "domain": c.domain, "name": c.name, "gate": c.gate,
             "racks_permitted": None if c.racks == float("inf") else int(c.racks),
@@ -51,12 +59,12 @@ def economics_dict(res: ScenarioResult) -> dict:
     e = res.economics
     btm = e.btm
     return {
-        # The model pack keeps its provenance on every headline number, so the quantity stays; a hall that can carry nothing says in
-        # words, next to it, that there is no capex to quote (the comparison payload nulls it; the pack must still carry evidence).
-        "capex_total_eur": _q(e.capex_total_eur),
+        # The model pack keeps its provenance on every headline number, so the quantity stays; for a hall that can carry nothing its
+        # figures are null (never 0 EUR) and the reason is stated next to it.
+        "capex_total_eur": _q_n_a(e.capex_total_eur) if e.nothing_deployable else _q(e.capex_total_eur),
         "nothing_deployable": bool(e.nothing_deployable),
         "capex_na_reason": "n/a: nothing deployable" if e.nothing_deployable else None,
-        "capex_per_kW_it": _q(e.capex_eur_per_kW_it),
+        "capex_per_kW_it": _q_n_a(e.capex_eur_per_kW_it) if e.nothing_deployable else _q(e.capex_eur_per_kW_it),
         "capex_components": {
             "relief_works_eur": _q(e.capex_relief_eur),
             "in_hall_conversion_eur": _q(e.capex_conversion_eur),

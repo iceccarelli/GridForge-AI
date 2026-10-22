@@ -348,3 +348,16 @@ def test_the_comparison_row_of_a_zero_rack_scenario_says_capex_is_n_a():
     assert row["economics"]["capex_total_eur"] is None
     assert row["economics"]["capex_na_reason"] == "n/a: nothing deployable"
     assert row["economics"]["capex_complete"] is False
+
+
+def test_economics_dict_of_a_zero_rack_scenario_has_null_figures_but_keeps_provenance():
+    from gridforge.serialize import economics_dict
+    d = doc("reference_hall")
+    d["hall"]["positions_available"] = 0
+    _, results = solve(d)
+    econ = economics_dict(results[0])
+    assert econ["nothing_deployable"] is True and econ["capex_na_reason"] == "n/a: nothing deployable"
+    for key in ("capex_total_eur", "capex_per_kW_it"):
+        q = econ[key]
+        assert q is not None and q["value"] is None and q["low"] is None and q["high"] is None, "never 0 EUR"
+        assert q["evidence"] and q["digest"], "the model pack still carries the evidence on the number"

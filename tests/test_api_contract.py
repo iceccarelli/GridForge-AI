@@ -113,7 +113,7 @@ def test_concurrent_calls_cannot_overshoot_the_quota():
 def test_refund_returns_units():
     acct = "refund-account"
     METER.reserve(acct, "/v1/study", 23, 100)
-    METER.refund(acct, "/v1/study", 23)
+    METER.refund(acct, "/v1/study", 23, "client")
     assert used(acct) == 0 and METER.current(acct).calls == 0
 
 
