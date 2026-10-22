@@ -54,6 +54,8 @@ export interface CommissionContext {
    * asking a customer who has just paid to retype what they typed ten seconds ago.
    */
   qualificationId?: string | null;
+  /** The q-token of that read (the secret in its /q/ link); checkout drops the id without it. */
+  qualificationToken?: string | null;
   company?: string | null;
   capacityMW?: number | null;
 }
@@ -79,6 +81,7 @@ export async function startCommission(
       body: JSON.stringify({
         product,
         qualificationId: ctx.qualificationId ?? undefined,
+        qualificationToken: ctx.qualificationToken ?? undefined,
         company: ctx.company ?? undefined,
         capacityMW: ctx.capacityMW ?? undefined,
         service: ctx.context ?? undefined,

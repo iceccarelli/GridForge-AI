@@ -211,3 +211,14 @@ describe("funnel events are a closed vocabulary", () => {
     expect(all).not.toMatch(/@|gfk1|token|someone|Some Co|acme-123456|ops@/i);
   });
 });
+
+describe("per-scope cap usage (the engine counts caps per account, month and scope)", () => {
+  it("a payg cap is spent only by payg units, the free allowance only by the rest, a subscription by everything", async () => {
+    const { capUsedUnits } = await import("@/lib/payg-usage");
+    const n = { net: 30, billable_net: 5 };
+    expect(capUsedUnits("api_payg", n)).toBe(5);
+    expect(capUsedUnits("api_free", n)).toBe(25);
+    expect(capUsedUnits("api_scale", n)).toBe(30);
+    expect(capUsedUnits("api_free", { net: 3, billable_net: 5 })).toBe(0);
+  });
+});

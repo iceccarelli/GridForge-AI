@@ -12,6 +12,7 @@
  */
 import { adminToken } from "@/lib/admin";
 import { reviewHash } from "@/lib/deliverables";
+import { sessionRef } from "@/lib/projects";
 import fs from "node:fs";
 
 import os from "node:os";
@@ -329,7 +330,7 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
       deliverables: (await rows("deliverables", `&stripe_session_id=in.(cs_ds_${sid},cs_ps_${sid})`)).length,
       watches: (await rows("watches", `&stripe_subscription_id=eq.sub_${sid}`)).length,
       links: (await rows("project_links", `&project_id=eq.${p.id}`)).map((l) => l.object_type).sort(),
-      events: (await eventsOf(p.id)).map((e) => [e.payload.kind, e.payload.stripe_session_id, e.payload.amount_cents]).sort(),
+      events: (await eventsOf(p.id)).map((e) => [e.payload.kind, e.payload.session_ref, e.payload.amount_cents]).sort(),
     });
     for (const [kind, session, extra] of buy) expect((await hook(session, kind, p.id, extra)).status).toBe(200);
     const once = await snapshot();
@@ -337,7 +338,7 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
     expect(await snapshot()).toBe(once);                       // identical final state after 3 deliveries
     expect(JSON.parse(once)).toEqual({
       deliverables: 2, watches: 1, links: ["deliverable", "deliverable", "watch"],
-      events: expect.arrayContaining([["procurement_spec", `cs_ps_${sid}`, 1_800_000], ["envelope_study_deposit", `cs_es_${sid}`, 900_000]]),
+      events: expect.arrayContaining([["procurement_spec", sessionRef(`cs_ps_${sid}`), 1_800_000], ["envelope_study_deposit", sessionRef(`cs_es_${sid}`), 900_000]]),
     });
     expect(JSON.parse(once).events).toHaveLength(4);
   }, 60_000);

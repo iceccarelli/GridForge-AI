@@ -194,8 +194,30 @@ describe("enablePayg / changeCap", () => {
   it("cap change returns the new key once, with revocation caveats", async () => {
     const fetchFn = fetching(json({ ok: true, issued: true, key: "gfk1.a.b", expires: "2026-04-01", revocation_pending: true, revocation_note: "retrying" }));
     const r = await changeCap("tok", 300, fetchFn);
-    expect(r).toEqual({ ok: true, data: { key: "gfk1.a.b", expires: "2026-04-01", revocationPending: true, revocationNote: "retrying" } });
+    // A verified rotation carries no unverified-key caveat: the two rotation fields are present, false and null (an absent field is
+    // not a quiet success; the client always says which it is).
+    expect(r).toEqual({
+      ok: true,
+      data: { key: "gfk1.a.b", expires: "2026-04-01", revocationPending: true, revocationNote: "retrying", newKeyUnverified: false, rotationNote: null },
+    });
     expect(await changeCap("t", 300, fetching(json({ ok: true })))).toMatchObject({ ok: false });
+  });
+  it("a rotation whose new key the engine could not verify says so: the previous key was NOT revoked, and the caveat reaches the customer", async () => {
+    const body = {
+      ok: true, issued: true, key: "gfk1.a.b", expires: "2026-04-01",
+      rotation_deferred: true, new_key_unverified: true,
+      rotation_note: "We could not confirm with the engine that this new key works yet, so your previous key stays valid for now.",
+      revocation_pending: true, revocation_note: "the previous key id is recorded and will be revoked once the engine verifies keys",
+    };
+    const r = await changeCap("tok", 300, fetching(json(body)));
+    expect(r).toMatchObject({ ok: true, data: { newKeyUnverified: true, revocationPending: true } });
+    expect(r.ok && r.data.rotationNote).toMatch(/previous key stays valid/);
+  });
+  it("only a literal true counts as the unverified-key flag (a string or number is not the server's answer)", async () => {
+    for (const odd of ["true", 1, "yes", {}]) {
+      const r = await changeCap("tok", 300, fetching(json({ ok: true, issued: true, key: "gfk1.a.b", new_key_unverified: odd })));
+      expect(r.ok && r.data.newKeyUnverified, JSON.stringify(odd)).toBe(false);
+    }
   });
 });
 

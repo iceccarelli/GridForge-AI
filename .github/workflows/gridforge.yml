@@ -626,6 +626,10 @@ jobs:
         run: npx vitest run tests/site/delivery-journeys.realdb.test.ts
       - name: Calibration capture - truncate guards, submitter/evidence separation, E5-only, measurement kind, site_ref and provenance, ledger-eligible export view, privileges on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_calibration_capture_migration.py -q
+      - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_integrity_hardening_migration.py -q
+      - name: Metered API lifecycle - free allowance, pay-as-you-go, settlement, failure, recovery, cancellation, concurrency - REAL engine process + real PostgREST + PostgreSQL, Stripe and mail mocked (fails, never skips)
+        run: npx vitest run tests/site/payg-journey.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true

@@ -227,6 +227,33 @@ export async function getQualification(token: string): Promise<StoredQualificati
   }
 }
 
+/** A read can start a purchase for a day. After that the buyer is asked to run it again: the form is prefilled from it. */
+export const CHECKOUT_QUALIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The qualification id a checkout may carry, or null.
+ *
+ * The id goes into Stripe metadata, then into `deliverables.qualification_id`, then seeds the engagement intake form (and
+ * links it to the read). So it is accepted only from someone who PRESENTS the read's own q-token -- the secret in its
+ * /q/<token> link -- and only while the read is under 24 hours old; a claimed id that is not the id behind that token is
+ * dropped too. Anything else returns null and the purchase proceeds unattached: the id is a convenience, never a requirement.
+ */
+export async function qualificationForCheckout(
+  token: unknown,
+  claimedId: unknown,
+  now: number = Date.now()
+): Promise<string | null> {
+  if (typeof token !== "string" || !token.trim() || token.length > 200) return null;
+  const q = await getQualification(token.trim());
+  if (!q || !q.id) return null;
+  const created = Date.parse(q.created_at);
+  if (!Number.isFinite(created) || now - created > CHECKOUT_QUALIFICATION_WINDOW_MS || created - now > 5 * 60 * 1000) return null;
+  if (claimedId !== undefined && claimedId !== null && claimedId !== "") {
+    if (typeof claimedId !== "string" || claimedId.trim().toLowerCase() !== q.id.toLowerCase()) return null;
+  }
+  return q.id;
+}
+
 /**
  * How this hall compares with every other hall the engine has seen.
  *
@@ -254,8 +281,11 @@ export interface Benchmark {
  * has been taken and before the product has been delivered, which is where an
  * abandoned intake becomes revenue collected for a document nobody ever gets.
  *
- * Addressed by id, which only reaches here from `deliverables.qualification_id` —
- * a uuid foreign key set by our own webhook, never by a caller.
+ * Addressed by id, which only reaches here from `deliverables.qualification_id` — a uuid foreign key written by our own
+ * webhook from the checkout session's metadata. That metadata is NOT the caller's word: /api/checkout puts a qualification id
+ * there only after `qualificationForCheckout` has seen the q-token that goes with it (below). An id alone is no credential --
+ * ids are not secret (the /q/ page renders its own) -- so an id someone else supplies must never reach a stranger's intake,
+ * which is seeded from the numbers behind it.
  */
 export async function qualificationById(id: string): Promise<StoredQualification | null> {
   const c = sbAuth();

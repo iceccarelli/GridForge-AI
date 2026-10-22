@@ -234,6 +234,16 @@ export interface MonthNet {
   billable_net: number;
 }
 
+/**
+ * The units that count against this plan's own cap. The engine counts caps per (account, month, scope): a pay-as-you-go cap is spent only
+ * by `payg` units, the free allowance only by the other (trial) units, and a subscription by everything it ran.
+ */
+export function capUsedUnits(plan: string, n: { net: number; billable_net: number }): number {
+  if (plan === "api_payg") return n.billable_net;
+  if (plan === "api_free") return Math.max(0, n.net - n.billable_net);
+  return n.net;
+}
+
 export async function usageNet(account: string, month: string): Promise<MonthNet | null> {
   if (!MONTH.test(month)) return null;
   const { from, to } = monthBounds(month);

@@ -229,8 +229,8 @@ describe("events are recorded at the real points, and carry nothing about the pe
       paygAccount(db, { account: "free-x", token: "tok-freex-0123456789abcdefghij", plan: "api_free", cap_units: null, monthly_units: 25 });
       paygAccount(db, { account: "pay-x", token: "tok-payx-0123456789abcdefghijk", cap_units: 50 });
       paygAccount(db, { account: "partial", token: "tok-part-0123456789abcdefghijk", cap_units: 50 });
-      const use = (account: string, units: number, n: number) => db.rows("usage_events").push({ event_id: `u${n}`, seq: n, account, scope: "payg", kind: "charge", units, occurred_at: "2026-10-05T10:00:00.000Z", ref: "" });
-      use("free-x", 25, 1); use("pay-x", 50, 2); use("partial", 49, 3);
+      const use = (account: string, units: number, n: number, scope = "payg") => db.rows("usage_events").push({ event_id: `u${n}`, seq: n, account, scope, kind: "charge", units, occurred_at: "2026-10-05T10:00:00.000Z", ref: "" });
+      use("free-x", 25, 1, "trial"); use("pay-x", 50, 2); use("partial", 49, 3);
       const { sendUsageAlerts } = await import("@/lib/payg-alerts");
       await sendUsageAlerts(NOW);
       await sendUsageAlerts(NOW);

@@ -8,7 +8,7 @@ import { PAYG, accountRef, utcMonth } from "@/lib/payg";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { notifyCustomer } from "@/lib/notifications";
 import { enc, pg } from "@/lib/payg-store";
-import { monthTotals } from "@/lib/payg-usage";
+import { capUsedUnits, monthTotals } from "@/lib/payg-usage";
 import type { ApiAccount } from "@/lib/api-access";
 
 export interface AlertReport {
@@ -45,10 +45,12 @@ export async function sendUsageAlerts(now: Date = new Date()): Promise<AlertRepo
     const cap = acct ? alertCapUnits(acct) : null;
     if (!acct || !cap || acct.status !== "active") continue;
     report.considered++;
-    const pct = (t.net_units / cap) * 100;
+    // Per-scope: free-allowance units never count against a pay-as-you-go cap (the engine counts caps per account, month and scope).
+    const used = capUsedUnits(acct.plan, { net: t.net_units, billable_net: t.billable_units });
+    const pct = (used / cap) * 100;
     // Adoption funnel: the allowance (or the customer's own cap) is fully used. The engine records no refusals, so this is derived at
     // ingest from used >= cap; once per account and month.
-    if (t.net_units >= cap) {
+    if (used >= cap) {
       const ref = accountRef(acct.account);
       await recordFunnelEvent("allowance_exhausted", { plan: acct.plan, month, account_ref: ref }, { dedupeKey: `allowance_exhausted:${ref}:${month}` });
     }

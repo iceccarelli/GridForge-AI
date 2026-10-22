@@ -11,6 +11,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
+import { sessionRef } from "@/lib/projects";
 
 const created: Record<string, any>[] = [];
 vi.mock("stripe", async (orig) => {
@@ -133,8 +134,9 @@ describe("the webhook attaches the purchase to its project, once", () => {
     ]);
     expect(purchaseEvents()).toHaveLength(1);
     expect(purchaseEvents()[0].payload).toMatchObject({
-      kind: "density_screen", object_type: "deliverable", object_id: d.id, amount_cents: 450000, stripe_session_id: "cs_ds_1",
+      kind: "density_screen", object_type: "deliverable", object_id: d.id, amount_cents: 450000, session_ref: sessionRef("cs_ds_1"),
     });
+    expect(JSON.stringify(purchaseEvents())).not.toContain("cs_ds_1");           // the raw session id is never in the history
     // the document/intake tokens never reach the project record
     expect(JSON.stringify(db.rows("project_links")) + JSON.stringify(purchaseEvents())).not.toContain(String(d.token));
   });
@@ -216,5 +218,44 @@ describe("the project record shows what was bought, from real records", () => {
     ]);
     // a deliverable's credentials never appear in project state
     expect(JSON.stringify(s)).not.toMatch(/intake_token|document_html/);
+  });
+
+  it("F1: another buyer's Stripe session id (which /commissioned turns into their private link) is NOT readable from the project state", async () => {
+    const p = await project();
+    // a DIFFERENT buyer attached this purchase through a share link; the project token holder reads the project
+    await hook(completed("cs_other_buyer_secret_1", "density_screen", { project_id: p.id }, { customer_email: "someone.else@rival.example" }));
+    await hook(completed("cs_other_buyer_secret_2", "envelope_study_deposit", { project_id: p.id }, { amount_total: 900000 }));
+    const { GET } = await import("@/app/api/projects/[token]/route");
+    const res = await GET(new Request(siteUrl("/x")), { params: Promise.resolve({ token: p.token }) });
+    const text = JSON.stringify(await res.json());
+    expect(text).not.toContain("cs_other_buyer_secret");
+    expect(text).not.toMatch(/stripe_session_id|session_ref|\/intake\/|\/watch\/|\/api-access\//);
+    const d = db.rows("deliverables")[0] as any;
+    expect(text).not.toContain(d.id);                           // nor the id of the purchased object
+    expect(text).not.toContain(d.token);
+    expect(text).not.toContain(d.intake_token ?? "no-intake-token");
+    // what the history DOES say about the purchase is descriptive
+    const s: any = JSON.parse(text);
+    const bought = s.events.filter((e: any) => e.event_type === "paid_product_attached");
+    expect(bought.map((e: any) => Object.keys(e.payload).sort())).toEqual([
+      ["amount_cents", "kind", "object_type"], ["amount_cents", "kind", "object_type"],
+    ]);
+    // and the stored event carries only a one-way reference, so the stored history cannot leak it either
+    expect(JSON.stringify(purchaseEvents())).not.toContain("cs_other_buyer_secret");
+    expect(purchaseEvents().map((e) => (e.payload as any).session_ref)).toEqual([sessionRef("cs_other_buyer_secret_1"), sessionRef("cs_other_buyer_secret_2")]);
+  });
+
+  it("F1: events written BEFORE this change (a raw session id in the stored payload) are filtered on the way out too", async () => {
+    const p = await project();
+    db.rows("project_events").push({ id: "legacy", project_id: p.id, event_type: "paid_product_attached", occurred_at: new Date().toISOString(), actor: "stripe_webhook",
+      payload: { kind: "density_screen", object_type: "deliverable", object_id: "00000000-0000-4000-8000-0000000000aa", amount_cents: 450000, stripe_session_id: "cs_legacy_secret", case_token: "case-secret", package_token: "pkg-secret", prediction_ref: "power_deployment_case:case-secret:r1:A" } });
+    const { GET } = await import("@/app/api/projects/[token]/route");
+    const text = JSON.stringify(await (await GET(new Request(siteUrl("/x")), { params: Promise.resolve({ token: p.token }) })).json());
+    expect(text).not.toMatch(/cs_legacy_secret|case-secret|pkg-secret/);
+    const { publicEventPayload, PUBLIC_EVENT_KEYS } = await import("@/lib/project-state");
+    expect(publicEventPayload({ kind: "x", stripe_session_id: "s", token: "t", object_id: "o", brand_new_key: 1 })).toEqual({ kind: "x" });
+    for (const forbidden of ["stripe_session_id", "session_ref", "object_id", "case_token", "package_token", "prediction_ref", "token", "intake_token"]) {
+      expect(PUBLIC_EVENT_KEYS.has(forbidden), forbidden).toBe(false);
+    }
   });
 });

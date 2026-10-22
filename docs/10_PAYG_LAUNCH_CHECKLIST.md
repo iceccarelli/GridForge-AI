@@ -63,6 +63,9 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 ## 3. Known limits (stated, not hidden)
 - Portal usage is copied from the engine ledger by a daily cron; the engine's own counter enforces the cap in real time.
 - A balance that never reaches the EUR 5 minimum is never invoiced.
+- Caps are counted per (account, month, scope): free-allowance units never count against a pay-as-you-go cap, and the reverse
+  (`tests/test_payg_scope_counters.py`; `tests/site/payg-journey.realdb.test.ts` runs a EUR 100 cap to exactly 50 billable units after the 25 free ones).
+  The deployed engine must be v0.9.0+ with this change; until it is redeployed the live engine still counts per account.
 - Ledger loss (volume failure) loses at most the events since the last ingest; there is no replica.
 - A hard kill while a refund is queued after a failed ledger write can leave a charge that support must reverse by hand.
 - The free-account route has no bound on unverified rows beyond a per-IP rate limit.

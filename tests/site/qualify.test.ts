@@ -85,6 +85,9 @@ describe("the read can become a sale that remembers it", () => {
     expect(body.ok).toBe(true);
     expect(typeof body.qualificationId).toBe("string");
     expect(body.qualificationId).toBe(db.rows("qualifications")[0].id);
+    // the id alone no longer joins a purchase to a read (F7): the browser also gets the q-token to present at checkout
+    expect(body.qualificationToken).toBe(db.rows("qualifications")[0].token);
+    expect(body.share).toBe(`/q/${body.qualificationToken}`);
   });
 
   it("stores the numbers the intake will later be seeded from", async () => {

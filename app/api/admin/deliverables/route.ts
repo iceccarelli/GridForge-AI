@@ -202,7 +202,12 @@ export async function PATCH(req: Request) {
           _gridforge: { ...priorMeta, review: { by: reviewer || null, at: releasedAt, pack_sha256: current } },
         },
       },
-      ["draft"]
+      ["draft"],
+      undefined,
+      // The version of the row that was HASHED and reviewed (migration 0037's row_version, bumped by every UPDATE): a document
+      // changed between the hash check above and this write cannot be released under the stale approval. Without the column
+      // (migration not applied) the status compare-and-set alone applies, as before.
+      typeof row.row_version === "number" ? row.row_version : undefined
     );
     if (written === "error") {
       return NextResponse.json(
@@ -212,7 +217,7 @@ export async function PATCH(req: Request) {
     }
     if (written === "lost") {
       return NextResponse.json(
-        { ok: false, error: "This engagement is no longer a draft; reload and check it." },
+        { ok: false, error: "This engagement changed since you reviewed it (it is no longer the draft you hashed). Nothing was released and the buyer was not emailed: reload, re-read it, and release again." },
         { status: 409 }
       );
     }
