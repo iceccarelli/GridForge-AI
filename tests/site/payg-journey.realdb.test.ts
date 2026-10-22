@@ -425,9 +425,10 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     };
     let payg = 0;
     payg += await priced("/v1/study", () => study(key));
-    for (let i = 0; i < 20; i++) payg += await priced("/v1/screen", () => screen(key));
-    expect(payg).toBe(25);
-    expect(net(row.account, "payg")).toBe(25);
+    // The free allowance (25 trial units) does not count against the pay-as-you-go cap: the whole EUR 100 cap (50 units) is billable
+    for (let i = 0; i < 45; i++) payg += await priced("/v1/screen", () => screen(key));
+    expect(payg).toBe(50);
+    expect(net(row.account, "payg")).toBe(50);
     expect(net(row.account, "trial")).toBe(25);
     const over = await screen(key);
     expect(over.status).toBe(402);

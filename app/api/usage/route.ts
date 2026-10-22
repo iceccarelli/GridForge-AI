@@ -4,7 +4,7 @@ import { PAYG, billingRuleText, paygChargeCents, scopeForPlan, utcMonth } from "
 import { accountByToken } from "@/lib/payg-accounts";
 import { alertCapUnits } from "@/lib/payg-alerts";
 import { enc, pg } from "@/lib/payg-store";
-import { recentEvents, usageNet } from "@/lib/payg-usage";
+import { capUsedUnits, recentEvents, usageNet } from "@/lib/payg-usage";
 import type { Settlement } from "@/lib/payg-settle";
 import { guardRequest } from "@/lib/rate-limit";
 
@@ -41,6 +41,7 @@ export async function GET(req: Request) {
 
   const scope = scopeForPlan(acct.plan);
   const cap = acct.plan === "api_payg" || acct.plan === "api_free" ? alertCapUnits(acct) : acct.monthly_units > 0 ? acct.monthly_units : null;
+  const used = capUsedUnits(acct.plan, net);
   const life = keyLife(acct);
   const sent = new Set((alerts.data ?? []).map((a) => a.percent));
   return NextResponse.json(
@@ -57,10 +58,11 @@ export async function GET(req: Request) {
         payment_method_saved: Boolean(acct.stripe_payment_method_id),
       },
       month,
-      // What counts against the cap: net units across scopes, as the engine counts them.
-      units_used: net.net,
+      // What counts against the cap: net units of this plan's own scope, as the engine counts them (free units never spend a payg cap).
+      units_used: used,
       units_cap: cap,
-      remaining_units: cap === null ? null : Math.max(0, cap - net.net),
+      remaining_units: cap === null ? null : Math.max(0, cap - used),
+      free_units_used: Math.max(0, net.net - net.billable_net),
       // What will be INVOICED: only pay-as-you-go units. The free allowance is never invoiced.
       billable_units: net.billable_net,
       eur_accrued_cents: acct.plan === "api_payg" ? paygChargeCents(net.billable_net) : 0,

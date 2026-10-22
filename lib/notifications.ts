@@ -30,7 +30,7 @@ import { keyLife } from "@/lib/api-access";
 import { creds } from "@/lib/projects";
 import { inviteToken } from "@/lib/team-token";
 import { PAYG, eurText, utcMonth } from "@/lib/payg";
-import { usageNet } from "@/lib/payg-usage";
+import { capUsedUnits, usageNet } from "@/lib/payg-usage";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
 import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
@@ -358,7 +358,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     if (month !== utcMonth(new Date())) throw new NotApplicable("alert is for a month that has ended");
     const net = await usageNet(String(row.account), month);
     if (!net) throw new Error("usage unreadable");
-    const used = net.net;
+    const used = capUsedUnits(plan, net);
     const portal = `${SITE_URL}/api-access/${token}`;
     const stopLine =
       plan === "api_payg"
