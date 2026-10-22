@@ -937,7 +937,7 @@ def handle_estimate(body: dict, tier: Tier) -> dict:
     plan = getattr(_CTX, "plan", None)
     supplied = getattr(_CTX, "supplied_key", "")
     if plan is not None:
-        used = METER.current(plan.account).units
+        used = METER.current(plan.account).scope_units(plan.scope)
         cap = plan.monthly_quota or None
         remaining = (max(0, cap - used) if cap else None)
         beyond = max(0, units - remaining) if remaining is not None else 0
@@ -1508,11 +1508,13 @@ class Handler(BaseHTTPRequestHandler):
         if units is None or usage is None:
             return
         self.send_header("X-GridForge-Units", str(units))
-        self.send_header("X-GridForge-Units-Month", str(usage.units))
         plan = self._plan()
+        # Scope-specific: the free allowance and a pay-as-you-go cap are counted separately.
+        month_units = usage.scope_units(plan.scope) if plan else usage.units
+        self.send_header("X-GridForge-Units-Month", str(month_units))
         if plan and plan.monthly_quota:
             self.send_header("X-GridForge-Units-Remaining",
-                             str(max(0, plan.monthly_quota - usage.units)))
+                             str(max(0, plan.monthly_quota - month_units)))
         if plan and plan.scope == "payg":
             # What THIS request adds to the invoice: net units (after any refund) x the unit price.
             self.send_header("X-GridForge-Charge-Cents", str(PAYG.charge_cents(units)))

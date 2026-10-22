@@ -83,7 +83,7 @@ def month_of(ts: str) -> str:
 
 class Totals:
     """Net usage for one (account, month), rebuilt from the file."""
-    __slots__ = ("units", "calls", "by_endpoint", "first", "last", "scopes")
+    __slots__ = ("units", "calls", "by_endpoint", "first", "last", "scopes", "by_scope")
 
     def __init__(self) -> None:
         self.units = 0
@@ -92,6 +92,7 @@ class Totals:
         self.first = ""
         self.last = ""
         self.scopes: set[str] = set()
+        self.by_scope: dict[str, int] = {}       # net units per key scope: what a cap is counted against
 
 
 class Ledger:
@@ -237,6 +238,8 @@ class Ledger:
         t.first = t.first or ts
         t.last = ts
         t.scopes.add(str(ev.get("scope") or ""))
+        sc = str(ev.get("scope") or "")
+        t.by_scope[sc] = t.by_scope.get(sc, 0) + sign * units
         e = self._econ.setdefault((month_of(ts), endpoint, str(ev.get("scope") or "")), [0, 0])
         e[0] += sign
         e[1] += sign * units
