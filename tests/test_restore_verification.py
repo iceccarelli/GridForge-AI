@@ -14,9 +14,9 @@ NO_DB = not os.environ.get("PGHOST") and not os.environ.get("GRIDFORGE_TEST_PG_U
 pytestmark = pytest.mark.skipif(NO_DB and not REQUIRED, reason="no scratch PostgreSQL available")
 
 
-def run(tmp_path, tables, host=None):
+def run(tmp_path, tables, host=None, migrations=None):
     f = tmp_path / "export.json"
-    f.write_text(json.dumps({"tables": tables}))
+    f.write_text(json.dumps({"tables": tables, **({"migrations": migrations} if migrations else {})}))
     env = dict(os.environ)
     if host:
         env["PGHOST"] = host
@@ -66,3 +66,25 @@ def test_an_append_only_table_that_guards_truncate_does_not_stop_the_restore(tmp
     r = run(tmp_path, {"project_comparisons": []})
     assert r.returncode == 0, r.stdout + r.stderr
     assert "RESTORE VERIFIED" in r.stdout
+
+
+def test_an_export_restores_into_the_schema_it_was_taken_from_and_the_pending_migrations_are_rehearsed_on_top(tmp_path):
+    """Production had one released deliverable with no reviewer name (it predates the rule). Migration 0040 forbids that for NEW rows.
+    A backup of that production is still a good backup: it must restore into the schema production HAD, and the pending migration
+    must then apply on top of the restored data without disturbing it. Loading it into the newest schema (the old behaviour) refused
+    it, which is how the real project's backup was wrongly declared unrestorable."""
+    q = "0e9053f6-1c27-4bc0-b629-a0b3ebc1359d"
+    r = run(tmp_path, {
+        "qualifications": [{"id": q, "inputs": {}, "token": "q" * 32}],
+        "deliverables": [{"id": "1b9053f6-1c27-4bc0-b629-a0b3ebc1359d", "token": "t" * 32, "kind": "density_screen",
+                          "status": "released", "released_at": "2026-09-01T00:00:00+00:00", "qualification_id": q}],
+    }, migrations=["gf_0021_customer_notifications", "gf_0039_billing_event_clock"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "pending 0040 applies cleanly on the restored data" in r.stdout
+    assert "deliverables: rows unchanged by the pending migrations -> OK" in r.stdout
+    assert "RESTORE VERIFIED" in r.stdout
+
+
+def test_without_a_migration_list_the_whole_repository_schema_is_used_as_before(tmp_path):
+    r = run(tmp_path, {"leads": []})
+    assert r.returncode == 0 and "pending" not in r.stdout.split("schema built from", 1)[1].splitlines()[0]

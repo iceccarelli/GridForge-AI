@@ -15,6 +15,7 @@ Exit 0 only if every exported table restored with identical counts and digests.
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -56,9 +57,21 @@ def main():
         psql(name, "create extension if not exists pgcrypto")
         psql(name, "do $$ declare r text; begin foreach r in array array['anon','authenticated','service_role'] loop "
                    "if not exists (select 1 from pg_roles where rolname = r) then execute format('create role %I nologin', r); end if; end loop; end $$")
-        for m in MIGRATIONS:
+        # An export restores into the schema it was TAKEN from. Building the target from every repository migration would reject
+        # a perfectly good backup of production whenever a newer migration tightens a rule the old rows predate (a CHECK, a
+        # NOT NULL): the backup is fine, the schema it is being loaded into is from the future. So the base schema is the repository
+        # migrations up to the newest one the export says production had; those after it are the PENDING ones and are applied on top
+        # of the restored data afterwards (the rehearsal below), where they must run cleanly and leave every restored row as it was.
+        base, pending = MIGRATIONS, []
+        if export.get("migrations"):
+            have = {int(m.group(1)) for n in export["migrations"] if (m := re.match(r"gf_(\d{4})_", n))}
+            if have:
+                newest = max(have)
+                base = [m for m in MIGRATIONS if int(m.name[:4]) <= newest]
+                pending = [m for m in MIGRATIONS if int(m.name[:4]) > newest]
+        for m in base:
             psql(name, file=m)
-        print(f"schema built from {len(MIGRATIONS)} repository migrations")
+        print(f"schema built from {len(base)} repository migrations" + (f" (the export's level); {len(pending)} pending" if pending else ""))
         # Parents before children: foreign keys are real constraints here, so order the load by them.
         edges = psql(name, "select conrelid::regclass::text, confrelid::regclass::text from pg_constraint where contype='f' and connamespace='public'::regnamespace")
         deps = {t: set() for t in tables}
@@ -95,6 +108,19 @@ def main():
                 json.loads(psql(name, f'select coalesce(jsonb_agg(to_jsonb(t)), \'[]\'::jsonb) from (select * from jsonb_populate_recordset(null::public."{table}", $gf${payload}$gf$::jsonb)) t')))
             print(f"{table}: {len(rows)} exported, {len(got)} restored, digest {'match' if same else 'MISMATCH'} -> {'OK' if same else 'FAIL'}")
             ok &= same
+        # Rehearsal: the pending migrations, in order, on the restored data. Each must apply, and no restored row may change in any of
+        # the columns it already had.
+        if pending and ok:
+            before = {t: json.loads(psql(name, f'select coalesce(jsonb_agg(to_jsonb(x)), \'[]\'::jsonb) from public."{t}" x')) for t in tables if tables[t]}
+            for m in pending:
+                psql(name, file=m)
+                print(f"pending {m.name[:4]} applies cleanly on the restored data")
+            for t, rows in before.items():
+                after = json.loads(psql(name, f'select coalesce(jsonb_agg(to_jsonb(x)), \'[]\'::jsonb) from public."{t}" x'))
+                keys = list(rows[0].keys())
+                same = len(after) == len(rows) and digest([{k: r[k] for k in keys if k in r} for r in after]) == digest(rows)
+                print(f"{t}: rows unchanged by the pending migrations -> {'OK' if same else 'FAIL'}")
+                ok &= same
     finally:
         psql("postgres", f"drop database {name}")
     print("RESTORE VERIFIED" if ok else "RESTORE FAILED")
