@@ -39,6 +39,13 @@ export async function runCompare(r: CompareRequest, costEvidence?: Record<string
     const { error: _e, schema_version: _s, ...detail } = out.body as Record<string, unknown>;
     return { ok: false, status: 422, error: out.error, detail };
   }
+  if (out.routeMissing) {
+    return {
+      ok: false,
+      status: 503,
+      error: "The scenario comparison is not available yet: the engine release that serves it has not been deployed. Nothing was calculated, saved or charged.",
+    };
+  }
   console.error("[GridForge] compare failed:", out.status, out.error);
   return {
     ok: false,

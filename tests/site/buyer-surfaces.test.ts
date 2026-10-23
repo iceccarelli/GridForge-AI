@@ -53,8 +53,18 @@ describe("the pricing page", () => {
 });
 
 describe("llms.txt", () => {
-  it("documents the comparison, the buyer link and the checkout parameter, from the catalogue", async () => {
-    const txt = await (await (await import("@/app/llms.txt/route")).GET()).text();
+  it("documents the comparison, the buyer link and the checkout parameter, from the catalogue (engine serving /v1/compare)", async () => {
+    const { resetEngineCapabilityCache } = await import("@/lib/engine-capabilities");
+    resetEngineCapabilityCache();
+    const real = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ endpoints: ["/v1/qualify", "/v1/compare"] }), { status: 200 })) as typeof fetch;
+    let txt = "";
+    try {
+      txt = await (await (await import("@/app/llms.txt/route")).GET()).text();
+    } finally {
+      globalThis.fetch = real;
+      resetEngineCapabilityCache();
+    }
     expect(txt).toContain("/power/compare");
     expect(txt).toContain("gridforge_compare");
     expect(txt).toMatch(/may answer 429 with a Retry-After/);

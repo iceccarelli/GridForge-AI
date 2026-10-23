@@ -51,3 +51,26 @@ Rule for this file: record what was built and what was actually run. An intentio
 2. Confirm Vercel ran each cron; confirm the Stripe Billing Portal is configured; set `FUNNEL_REF_KEY`.
 3. Decide the transformer replacement lead-time default (160 weeks, E0, banded): it is labelled everywhere it sets a date.
 4. Collect real paid-demand evidence (the funnel panel measures it from now; there is none before this ships).
+
+## Log: 2026-10-23, branch `claude/lucid-cannon-4dzp8k`, based on origin/main 9d0c709 (CI green on that commit)
+Confirmed against the live system before changing anything: `check-engine-drift.py` still reports 15 differences (the deployed engine lacks
+`/v1/compare`, `/v1/estimate`, `/v1/power/*`, `/v1/revoke`, publishes no code digest and no `ledger_durable`); every sitemap `<lastmod>` was the build time.
+Built:
+- Sitemap `lastmod` is the date a page's content last changed (`scripts/page-lastmod.mjs`, manifest `lib/page-lastmod.json`, `--check` in the `site` CI job).
+  Limit: sources are the page file and the data it renders, not the component tree.
+- `lib/engine-capabilities.ts`: reads the deployed engine's `/v1/version`. `/llms.txt` advertises `/v1/compare` only while the engine lists it.
+  `callEngine` turns the engine's own "not found" for a route into a 503 "not deployed yet, nothing charged" (compare names it plainly).
+  New workflow `engine-drift.yml` (push to main, daily, manual) is red while the deployed engine differs from the repository.
+- Release gate (`lib/payment-standing.ts`, `app/api/admin/deliverables`): asks Stripe at release time; a fully refunded or disputed payment (409) or one Stripe
+  cannot report on (503) is not released unless the operator sends `acknowledge_payment_issue: true`, which is recorded as `review.payment_override`.
+  Rows with no Stripe session, or no `STRIPE_SECRET_KEY`, are not checked (logged).
+- Metadata: `noindex` layouts for /account, /dashboard, /admin/login; canonical + og for /power/*, /legal/*; `og:image` on every page that set its own openGraph;
+  the layout's twitter block no longer hands every page the homepage title.
+Tests actually run (local): vitest 1650 passed / 191 skipped; pytest 1756 passed / 332 skipped (no Python changed; real-DB skips); `tsc`, `next lint`, `next build` clean.
+Not run: anything against live Stripe, the deployed engine's new routes, Vercel, Search Console.
+Open, from this session's audits (not yet fixed):
+- /pricing, /developers and `public/reference/tools.json` still list estimate / compare / `power_*` as callable while the deployed engine 404s them. Needs the redeploy (Fly credentials), or per-row "not yet deployed" marking.
+- Refund or dispute on a SUBSCRIPTION charge does not touch `api_accounts` / `watches`; a `past_due` API plan keeps an already-minted key (up to 35 days). Product decision needed on revoke-vs-grace.
+- `checkout.session.completed` does not check `payment_status` (safe only while checkout is card-only).
+- Homepage JSON-LD: deposits marked `InStock`; Hall Watch price has no quarterly recurrence.
+- Static `/reference/*.html` have no canonical/description.

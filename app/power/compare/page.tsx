@@ -2,10 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TtpCompare } from "@/components/TtpCompare";
 import { comparisonToolJsonLd } from "@/lib/jsonld";
+import { OG_IMAGES } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 
 export const metadata: Metadata = {
   title: "Time-to-Power scenario comparison",
+  alternates: { canonical: "/power/compare" },
+  openGraph: { url: "/power/compare", images: OG_IMAGES },
   description:
     "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",
 };

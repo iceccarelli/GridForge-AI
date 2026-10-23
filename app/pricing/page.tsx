@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import Link from "next/link";
 import CostEstimator from "@/components/CostEstimator";
 import { EngagementLadder } from "@/components/EngagementLadder";
@@ -16,6 +17,7 @@ export const metadata: Metadata = {
   description: PRICING_DESCRIPTION,
   alternates: { canonical: "/pricing" },
   openGraph: {
+    images: OG_IMAGES,
     title: "Pricing — free check, metered API, fixed-fee engagements",
     description: PRICING_DESCRIPTION,
     url: "/pricing",

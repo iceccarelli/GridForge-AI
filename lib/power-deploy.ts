@@ -131,7 +131,7 @@ export async function callEngine(
   request: Record<string, unknown>
 ): Promise<
   | { ok: true; body: Record<string, unknown> }
-  | { ok: false; error: string; status: number; body: Record<string, unknown> }
+  | { ok: false; error: string; status: number; body: Record<string, unknown>; routeMissing?: true }
 > {
   const base = process.env.GRIDFORGE_API_URL;
   const key = process.env.GRIDFORGE_API_KEY;
@@ -149,6 +149,17 @@ export async function callEngine(
     });
     const body = ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
     if (!res.ok) {
+      // The engine's own answer to a path it does not serve lists the paths it does. That is an engine release that
+      // predates this site, not a bad request and not an outage: say so, so no one is told to "try again later".
+      if (res.status === 404 && body.error === "not found" && Array.isArray(body.endpoints)) {
+        return {
+          ok: false,
+          status: 503,
+          routeMissing: true,
+          body,
+          error: `the deployed engine does not serve ${path} yet; this capability is unavailable until the engine is redeployed`,
+        };
+      }
       return {
         ok: false,
         status: res.status,

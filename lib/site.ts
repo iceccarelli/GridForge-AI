@@ -319,3 +319,6 @@ export const COMPARATOR = {
 //
 // The catalogue in lib/products.ts, parity-tested against gridforge/commercial.py,
 // is the only price list. Prices do not live in this file.
+
+/** Next replaces (does not merge) a page's `openGraph` object, so any page that sets its own must name the image itself. */
+export const OG_IMAGES = [{ url: "/og.png", width: 1200, height: 630, alt: "Time to Power" }];

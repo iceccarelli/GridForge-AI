@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
     "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
   alternates: { canonical: "/developers" },
   openGraph: {
+    images: OG_IMAGES,
     title: "Machine interface — call the GridForge engine",
     description:
       "JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number the engine returns.",

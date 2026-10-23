@@ -1,0 +1,25 @@
+name: engine-drift
+
+# The repository can be ahead of the engine running on Fly (the Python tree is deployed by scripts/deploy-engine.sh, a
+# separate step). This is the standing check that the engine customers actually reach serves every route and unit rate
+# this repository and the website describe. Read-only: it sends GET /v1/version with no credentials.
+#
+# It is its own workflow so that a stale deployment is visible (red) without blocking unrelated pull requests. A red run
+# means: do not announce or sell the routes it lists until the engine is redeployed.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: The deployed engine must serve what this repository describes
+        run: python3 scripts/check-engine-drift.py

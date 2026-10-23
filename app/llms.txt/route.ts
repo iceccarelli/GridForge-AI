@@ -2,8 +2,10 @@ import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE_URL } from "@/lib/site";
+import { engineServes } from "@/lib/engine-capabilities";
 
-export const dynamic = "force-static";
+// Regenerated at most every five minutes: what it says about the engine must follow the engine, not the last build.
+export const revalidate = 300;
 
 const SITE = SITE_URL;
 const ENGINE = "https://gridforge-engine.fly.dev";
@@ -30,6 +32,14 @@ const ENGINE = "https://gridforge-engine.fly.dev";
 export async function GET() {
   const ref = await constraintReference();
   const lib = await platformLibrary();
+  // Advertise a route only while the deployed engine lists it; the repository can be ahead of the engine on Fly.
+  const compareLive = await engineServes("/v1/compare");
+  const compareLines = compareLive
+    ? `- Time-to-Power scenario comparison, free and without an account: ${SITE}/power/compare
+  (engine: POST ${ENGINE}/v1/compare, MCP tool \`gridforge_compare\`, CLI \`gridforge compare\`). Scenarios whose lead time
+  is unknown are not dated and not ranked. The site's own route is rate limited and may answer 429 with a Retry-After.
+`
+    : "";
 
   const constraintLines = (ref?.constraints ?? [])
     .map(
@@ -80,10 +90,7 @@ seven numbers about a hall in, the binding constraint out.
 - Free qualifier: POST ${ENGINE}/v1/qualify
 - Published unit rates: ${ENGINE}/v1/version
 - Model accuracy record: ${ENGINE}/v1/calibration
-- Time-to-Power scenario comparison, free and without an account: ${SITE}/power/compare
-  (engine: POST ${ENGINE}/v1/compare, MCP tool \`gridforge_compare\`, CLI \`gridforge compare\`). Scenarios whose lead time
-  is unknown are not dated and not ranked. The site's own route is rate limited and may answer 429 with a Retry-After.
-
+${compareLines}
 ## How to read our numbers
 
 Every numeric field carries an evidence class and a provenance digest:
