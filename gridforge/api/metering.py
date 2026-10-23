@@ -551,7 +551,7 @@ class Meter:
         except Exception:
             pass
 
-    def refund(self, account: str, path: str, units: int, scope: str = "client") -> None:
+    def refund(self, account: str, path: str, units: int, scope: str) -> None:
         """Give back units for a call that produced no answer (the work failed on our side or the
         request was invalid). A caller is billed for results, not for errors."""
         m = _month()

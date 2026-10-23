@@ -366,7 +366,7 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     expect(await estimate(key, "/v1/screen")).toMatchObject({ json: { remaining_units: 0, fits: false } });
   });
 
-  it("(4a) enable pay-as-you-go (MockStripe Checkout, then the signed setup webhook), mint a payg key; the cap counts the free units already used (ENGINE DEFECT, reported)", async () => {
+  it("(4a) enable pay-as-you-go (MockStripe Checkout, then the signed setup webhook), mint a payg key; the free units already used do not count against the cap", async () => {
     const { token, row } = J.A;
     const enabledRow = await enablePayg(token, 20);
     expect(enabledRow).toMatchObject({ plan: "api_payg", cap_units: 10, monthly_units: 10, status: "active", account: row.account });
@@ -386,13 +386,12 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     expect(revokedOnEngine()).toContain(oldTrial);
     expect((await acct(token)).revoked_confirmed_ids).toContain(oldTrial);
     expect((await version(J.A.payg)).json.tier).toBe("client");
-    // ENGINE DEFECT (gridforge/api/metering.py, reported to the lead, not edited here): the engine's counter is per account and month
-    // ACROSS scopes, so the 25 FREE units already used count against the customer's EUR 20 (10-unit) pay-as-you-go cap, and the first
-    // billable call is refused although nothing has been billed. Pinned so that fixing the engine turns this red on purpose.
+    // The engine counts caps per (account, month, scope): the 25 FREE units already used do not count against the EUR 20 (10-unit)
+    // pay-as-you-go cap, so the first billable call is served and charged to the payg scope.
     const first = await screen(J.A.payg);
-    expect(first.status).toBe(402);
-    expect(first.json).toMatchObject({ reason: "spending_cap_reached", plan: "api_payg", cap_units: 10, units_used: 25 });
-    expect(net(row.account, "payg")).toBe(0);
+    expect(first.status).toBe(200);
+    expect(net(row.account, "payg")).toBe(1);
+    expect(net(row.account, "trial")).toBe(25);
   });
 
   it("(4b) the customer raises the cap (new key, old one revoked); billable calls run to the cap and are refused with spending_cap_reached; estimates match the ledger", async () => {
@@ -423,10 +422,10 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
       expect(e.would_cost_after_allowance).toBe(ev[0].units * PAYG.unitPriceCents);
       return ev[0].units;
     };
-    let payg = 0;
+    let payg = net(row.account, "payg"); // the one screen served in (4a)
     payg += await priced("/v1/study", () => study(key));
     // The free allowance (25 trial units) does not count against the pay-as-you-go cap: the whole EUR 100 cap (50 units) is billable
-    for (let i = 0; i < 45; i++) payg += await priced("/v1/screen", () => screen(key));
+    while (payg < 50) payg += await priced("/v1/screen", () => screen(key));
     expect(payg).toBe(50);
     expect(net(row.account, "payg")).toBe(50);
     expect(net(row.account, "trial")).toBe(25);
@@ -434,7 +433,7 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     expect(over.status).toBe(402);
     expect(over.json).toMatchObject({ reason: "spending_cap_reached", plan: "api_payg", cap_units: 50, cap_eur: 100, units_used: 50 });
     expect(await estimate(key, "/v1/screen")).toMatchObject({ json: { remaining_units: 0, fits: false } });
-  });
+  }, 60_000);
 
   it("(4c) a payg account that never used the free allowance: cap EUR 20 = 10 units, run to the cap, 402 spending_cap_reached at exactly 10", async () => {
     const b = await freeAccount();
@@ -507,10 +506,10 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     expect(run.settle.errors).toEqual([]);
     const settlements = (await rows("usage_settlements", `&account=in.(${mine.join(",")})&order=account.asc`)) as any[];
     const by = (a: string) => settlements.filter((s) => s.account === a);
-    // A: 25 payg units (the 25 free units are not in the invoice at all)
+    // A: 50 payg units (the whole EUR 100 cap) (the 25 free units are not in the invoice at all)
     expect(by(J.A.row.account)).toHaveLength(1);
-    expect(by(J.A.row.account)[0]).toMatchObject({ month, units: 25, amount_cents: 2 * 100 * 25, status: "invoiced", carried_units: 0 });
-    expect(by(J.A.row.account)[0].amount_cents).toBe(paygChargeCents(25));
+    expect(by(J.A.row.account)[0]).toMatchObject({ month, units: 50, amount_cents: 2 * 100 * 50, status: "invoiced", carried_units: 0 });
+    expect(by(J.A.row.account)[0].amount_cents).toBe(paygChargeCents(50));
     expect(by(J.B.account)[0]).toMatchObject({ month, units: 10, amount_cents: 2000, status: "invoiced" });
     // C: EUR 2.00 is under the EUR 5 minimum: carried, no invoice
     expect(by(J.C.account)[0]).toMatchObject({ month, units: 1, amount_cents: 200, status: "carried", rolled_into: null });
@@ -520,7 +519,7 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     expect(invoicesOf(J.C.customer)).toHaveLength(0);
     const inv = invoicesOf(J.A.customer)[0];
     expect(inv.metadata).toMatchObject({ kind: "payg_settlement", account: J.A.row.account, month });
-    expect(mock.items.filter((i) => i.invoice === inv.id)).toEqual([expect.objectContaining({ amount: paygChargeCents(25) })]);
+    expect(mock.items.filter((i) => i.invoice === inv.id)).toEqual([expect.objectContaining({ amount: paygChargeCents(50) })]);
     expect(inv.params.default_payment_method).toBe((await acct(J.A.token)).stripe_payment_method_id);
     expect(by(J.A.row.account)[0].stripe_invoice_id).toBe(inv.id);
     J.A.invoice = inv;

@@ -1,6 +1,6 @@
 # Execution state (factual handoff)
 
-Updated: 2026-10-21. Branch `claude/trusting-ramanujan-ytb6t2`, based on `origin/main` ea719e1 (PR #67 merged).
+Updated: 2026-10-22. Follow-up branch `claude/ci-green-and-integrity-0040`, based on `origin/main` 052166c (PR #68 and #69 merged).
 Rule for this file: record what was built and what was actually run. An intention is not an entry.
 
 ## What exists now, beyond PR #67
@@ -9,7 +9,10 @@ Rule for this file: record what was built and what was actually run. An intentio
   (REST and MCP), batch-safe refunds, a 150-character idempotency-key bound, strict cost-file validation.
 - Website billing: free accounts, usage API, PAYG enable (Stripe setup mode), cap change by key rotation, card replacement,
   billing portal route, daily ingest + settlement + alerts + reminders cron, payment-failure notice, funnel and economics
-  admin views. Migrations 0028, 0030-0037 (0029 intentionally unused; apply in filename order).
+  admin views. Migrations 0028, 0030-0040 (0029 intentionally unused; apply in filename order). **Production database: all applied through
+  0040 on 2026-10-21/22, each through `scripts/export-prod-data.py` -> `verify-backup-restore.py` -> `apply-migration.py` (4 gates).**
+  After 0040 the API roles hold no table or `gf_` function privilege, append-only tables have truncate guards, and row counts were unchanged.
+  Caps are counted per (account, month, scope) on the engine and on the website.
 - Delivery: stuck-generation recovery with a claim-stamp compare-and-set, deposit hand-off ledger with confirmed credits,
   deposit receipt email, release email through the outbox, release hash over every delivered file, required reviewer,
   operator digest, Hall Watch first-run fix and date labels, project limits.
@@ -21,18 +24,25 @@ Rule for this file: record what was built and what was actually run. An intentio
 - Site: one formatter for any time-to-power figure (`lib/date-basis.ts`), PAYG rate card and estimator from the registry,
   usage portal, truthful privacy page, corrected plan promises.
 
-## Tests actually run on the final tree (local, 2026-10-21)
-- `python3 -m pytest` with a local PostgreSQL 16: 1842 passed, 1 skipped, then 3 guard tests fixed (see commit e0d001a).
-- `npx vitest run`: 1497 passed, 169 skipped (the skips are the real-database files when no stack is up).
-- Real PostgreSQL 16 + PostgREST 12.2.3 via `scripts/realdb-up.sh`, all 8 `*.realdb.test.ts`: 129 passed, 24 skipped.
-- `npm run lint`, `npm run build`: clean. `npm run verify:local`: 105/105. Browser journeys: 36 renders, 8 journeys.
-- Not run: anything against live Stripe, live Supabase, Vercel crons, Resend, or the deployed engine. Stripe is a fake client
-  in every test. `docs/10_PAYG_LAUNCH_CHECKLIST.md` lists what the owner must verify in test mode.
+## Tests actually run on the integrated head (local, 2026-10-22, sequential, quiet machine)
+- `python3 -m pytest` with local PostgreSQL 16: 2086 passed, 1 skipped (before the last review-fix commit; the touched files were re-run: 37 + 156 passed).
+- `npx vitest run`: 1621 passed, 191 skipped (the skips are the real-database files when no stack is up).
+- Fresh real PostgreSQL + PostgREST stack (`scripts/realdb-up.sh`): all 10 `*.realdb.test.ts` pass, `payg-journey` 13 passed / 1 skipped against the
+  real engine process; migration invariant pytest files for projects, calibration capture and integrity hardening: 47, 50, 57 passed.
+- `npm run lint`, `tsc --noEmit`, `npm run build`: clean. `npm run verify:local`: 105/105. Browser journeys: 36 renders, 8 journeys.
+- `verify-backup-restore.py` on the 2026-10-22 production export: RESTORE VERIFIED (pending 0040 applied cleanly, rows unchanged).
+- `check-engine-drift.py`: the deployed engine is still stale (expected; see below).
+- Not run: anything against live Stripe, Vercel crons, Resend, or the deployed engine. Stripe is a fake client in every test.
 
 ## Known failures and blockers
 - The deployed engine (gridforge-engine.fly.dev) is older than this repository: `python3 scripts/check-engine-drift.py`
   reported /v1/compare, /v1/power/*, /v1/revoke missing. Needs a redeploy with Fly credentials (not done).
-- Vercel deployment details and Stripe were not reachable from this environment.
+- Vercel deployment details and Stripe were not reachable from this environment (the Vercel connector needs team access granted by the owner).
+- Stripe: Issue #4 stays open until the owner confirms in test mode that the webhook endpoint delivers the 5 required events
+  (`REQUIRED_WEBHOOK_EVENTS` in `lib/stripe-health.ts`; 3 more are recommended) and the Billing Portal allows cancel, payment-method update and
+  invoice history with plan switching and pause off. `/api/admin/stripe-health` reports both from the live account.
+- Database drift to know about: production `leads`, `scenarios` and `subscriptions` carry columns the repo schema does not; platform default ACLs
+  for `supabase_admin` still grant anon/authenticated on future tables (existing tables are clean, `rls_auto_enable` is a platform event trigger).
 - Real-database concurrency tests (provider-spend, ttp-quotation) failed under CPU load from parallel agents and passed on
   a quiet machine; treat a single failure there under load as a timing artefact only after re-running quietly.
 
