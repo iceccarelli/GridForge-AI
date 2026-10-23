@@ -89,6 +89,15 @@ describe("release checks that the payment still stands", () => {
     expect(row().intake._gridforge.review.payment_override).toBe(state);
   });
 
+  it("a malformed release is refused for what is wrong with it before Stripe is asked (wrong hash 409, no reviewer 422)", async () => {
+    seed({ stripe_session_id: "cs_test_1" });
+    standing = { state: "unavailable" };
+    const { PATCH } = await admin();
+    expect((await PATCH(patch({ token: "doc-token", reviewed_hash: "0".repeat(64), reviewed_by: "A. Rivera" }))).status).toBe(409);
+    expect((await PATCH(patch({ token: "doc-token", reviewed_hash: "0".repeat(64) }))).status).toBe(422);
+    expect(row().status).toBe("draft");
+  });
+
   it("a release with nothing to override carries no override mark", async () => {
     seed({ stripe_session_id: "cs_test_1" });
     const { PATCH } = await admin();

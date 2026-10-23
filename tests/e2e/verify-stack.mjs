@@ -196,13 +196,16 @@ function packHashV2(row) {
   return h.digest("hex");
 }
 
-async function release(token, cookie) {
+// The stack's checkout sessions (cs_density_screen ...) are fabricated, so Stripe cannot say whether their payments stand and the
+// release gate (lib/payment-standing.ts) refuses them. The helper therefore takes the operator's explicit acknowledgement, the
+// route's own override; the gate itself is asserted below without it, and in tests/site/release-payment-standing.test.ts.
+async function release(token, cookie, acknowledge = true) {
   const row = (await (await sb(`deliverables?token=eq.${token}&select=document_html,document_md,deck_html,working_files,intake`)).json())[0] ?? {};
   const v2 = row?.intake?._gridforge?.hash_version === 2;
   const hash = v2 ? packHashV2(row) : crypto.createHash("sha256").update(row?.document_html ?? "", "utf8").digest("hex");
   return fetch(`${SITE}/api/admin/deliverables`, {
     method: "PATCH", headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ token, action: "release", reviewed_hash: hash, reviewed_by: "A. Reviewer" }),
+    body: JSON.stringify({ token, action: "release", reviewed_hash: hash, reviewed_by: "A. Reviewer", ...(acknowledge ? { acknowledge_payment_issue: true } : {}) }),
   });
 }
 
@@ -468,7 +471,9 @@ async function main() {
      (await fetch(`${SITE}/api/admin/deliverables`, { method: "PATCH",
        headers: { "content-type": "application/json", cookie },
        body: JSON.stringify({ token, action: "release", reviewed_hash: "0".repeat(64) }) })).status === 422);
-  ok("and succeeds with the hash of the draft that was read",
+  ok("and is refused, with nothing released, while Stripe cannot say the payment still stands",
+     (await release(token, cookie, false)).status === 503);
+  ok("and succeeds with the hash of the draft that was read (the operator acknowledging the unchecked payment)",
      (await release(token, cookie)).status === 200);
 
   ok("the customer can now read it", (await fetch(`${SITE}/api/deliverable/${token}`)).status === 200);
