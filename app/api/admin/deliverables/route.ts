@@ -18,6 +18,7 @@ import { sendMail } from "@/lib/mail";
 import { ensureNotification, notificationState, type Outcome } from "@/lib/notifications";
 import { SITE_URL } from "@/lib/site";
 import { runTrusted } from "@/lib/spend-scope";
+import { paymentStanding } from "@/lib/payment-standing";
 
 export const runtime = "nodejs";
 
@@ -41,7 +42,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { token?: string; action?: string; reviewed_hash?: string; reviewed_by?: string };
+  let body: { token?: string; action?: string; reviewed_hash?: string; reviewed_by?: string; acknowledge_payment_issue?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -157,6 +158,25 @@ export async function PATCH(req: Request) {
         { status: 409 }
       );
     }
+    // Release hands the buyer the work and cannot be taken back. Stripe is asked now, not at checkout: a payment refunded or
+    // disputed since is not released without a person saying so (acknowledge_payment_issue), and a payment whose standing
+    // Stripe could not report is not guessed at.
+    const standing = await paymentStanding(row.stripe_session_id);
+    const overrode = (standing.state === "refunded" || standing.state === "disputed" || standing.state === "unavailable") && body.acknowledge_payment_issue === true;
+    if ((standing.state === "refunded" || standing.state === "disputed" || standing.state === "unavailable") && body.acknowledge_payment_issue !== true) {
+      const reason =
+        standing.state === "unavailable"
+          ? "Stripe could not be asked whether this payment still stands, so nothing was released."
+          : `Not released: ${standing.detail}.`;
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `${reason} Check the payment in Stripe; to release anyway (a goodwill delivery, a dispute you have decided to contest), send acknowledge_payment_issue: true.`,
+          payment_standing: standing.state,
+        },
+        { status: standing.state === "unavailable" ? 503 : 409 }
+      );
+    }
     // What is released must be exactly what was reviewed: the caller names the
     // sha256 of the draft (the whole pack) they read (AdminDeliverable.document_hash), and it must
     // still match the stored document — and the hash recorded at generation.
@@ -199,7 +219,7 @@ export async function PATCH(req: Request) {
         released_at: releasedAt,
         intake: {
           ...((row.intake as Record<string, unknown> | null) ?? {}),
-          _gridforge: { ...priorMeta, review: { by: reviewer || null, at: releasedAt, pack_sha256: current } },
+          _gridforge: { ...priorMeta, review: { by: reviewer || null, at: releasedAt, pack_sha256: current, ...(overrode ? { payment_override: standing.state } : {}) } },
         },
       },
       ["draft"],

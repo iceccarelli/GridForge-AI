@@ -73,13 +73,9 @@ export const metadata: Metadata = {
     siteName: "Time to Power",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "Time to Power" }],
   },
-  twitter: {
-    card: "summary_large_image",
-    title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
-    description:
-      `What stops your hall taking AI racks, named in ${SCREEN_DAYS} working days. Density Screen, ${SCREEN_PRICE} — or run the free qualifier first.`,
-    images: ["/og.png"],
-  },
+  // Only the card type and image: a page that sets its own openGraph title and description would otherwise inherit THIS
+  // twitter title, so a shared link would show the homepage text for any page. Without twitter:title the platform uses og:title.
+  twitter: { card: "summary_large_image", images: ["/og.png"] },
   robots: { index: true, follow: true },
 };
 

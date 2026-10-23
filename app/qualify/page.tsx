@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
 import { TtpPhoto } from "@/components/TtpPhoto";
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
   alternates: { canonical: "/qualify" },
   openGraph: {
+    images: OG_IMAGES,
     title: "Free capacity qualifier — what stops your hall taking AI racks",
     description:
       "Seven numbers in, the binding constraint out. No card, no call, no contact details required.",

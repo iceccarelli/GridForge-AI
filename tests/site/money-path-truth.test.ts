@@ -47,6 +47,8 @@ vi.mock("stripe", async (orig) => {
 });
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
+// Release asks Stripe whether the payment still stands (tests/site/release-payment-standing.test.ts covers that); these chains use sessions Stripe has never seen.
+vi.mock("@/lib/payment-standing", () => ({ paymentStanding: async () => ({ state: "ok", partial_refund_cents: 0 }) }));
 
 const WH_SECRET = "whsec_money_path_truth_table_secret";
 const hasPython = spawnSync("python3", ["--version"]).status === 0;

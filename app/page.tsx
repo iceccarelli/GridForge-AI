@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import { HomeClient } from "@/components/HomeClient";
 
 // A canonical tag can only be set from a Server Component's metadata export,
@@ -8,7 +9,7 @@ import { HomeClient } from "@/components/HomeClient";
 // layout's default metadata, which already describes the home page.
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
-  openGraph: { url: "/" },
+  openGraph: { url: "/", images: OG_IMAGES },
 };
 
 export default function Page() {

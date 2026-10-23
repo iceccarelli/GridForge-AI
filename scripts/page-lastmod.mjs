@@ -1,0 +1,117 @@
+#!/usr/bin/env node
+// Honest sitemap <lastmod>.
+//
+// A sitemap that stamps every URL with the build time tells a crawler that everything changed on every deploy, which is
+// untrue and teaches the crawler to ignore the field. Here each public route is tied to the files whose content it
+// renders, a content hash of those files is recorded in lib/page-lastmod.json, and the recorded date moves only when
+// that hash moves.
+//
+//   node scripts/page-lastmod.mjs --write   after changing a page (or its data): re-hash, date what changed as today (UTC)
+//   node scripts/page-lastmod.mjs --check   CI: fail when a page changed without the manifest being updated
+//
+// Limit, stated plainly: the sources are the page file and the data files it renders (catalogue, reference JSON), not the
+// whole component tree. A change confined to a shared component does not move a page's date. That errs toward an older
+// date, never a newer one than the content deserves.
+
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const MANIFEST = path.join(ROOT, "lib", "page-lastmod.json");
+
+/** route -> files (relative to the repository root) whose content the page renders. */
+export function routeSources() {
+  const slugs = existsSync(path.join(ROOT, "public/reference/constraints"))
+    ? readdirSync(path.join(ROOT, "public/reference/constraints")).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
+    : [];
+  const routes = {
+    "/": ["app/page.tsx", "lib/products.ts", "lib/site.ts"],
+    "/qualify": ["app/qualify/page.tsx"],
+    "/reference": ["app/reference/page.tsx", "public/reference/model_pack.json", "public/reference/calibration.json"],
+    "/constraints": ["app/constraints/page.tsx", "public/reference/constraints.json", "lib/constraints.ts"],
+    "/platforms": ["app/platforms/page.tsx", "public/reference/platforms.json"],
+    "/developers": ["app/developers/page.tsx", "public/reference/tools.json", "lib/products.ts"],
+    "/power/compare": ["app/power/compare/page.tsx", "lib/ttp-compare.ts"],
+    "/power/deploy": ["app/power/deploy/page.tsx", "lib/power-deploy.ts"],
+    "/pricing": ["app/pricing/page.tsx", "lib/products.ts", "lib/site.ts"],
+    "/intelligence": ["app/intelligence/page.tsx", "lib/products.ts"],
+    "/legal/privacy": ["app/legal/privacy/page.tsx"],
+    "/legal/terms": ["app/legal/terms/page.tsx"],
+    "/legal/security": ["app/legal/security/page.tsx"],
+  };
+  for (const slug of slugs) routes[`/constraints/${slug}`] = ["app/constraints/[slug]/page.tsx", `public/reference/constraints/${slug}.json`];
+  return routes;
+}
+
+export function computeHashes() {
+  const out = {};
+  for (const [route, files] of Object.entries(routeSources())) {
+    const h = createHash("sha256");
+    for (const f of [...files].sort()) {
+      h.update(f + "\0");
+      h.update(existsSync(path.join(ROOT, f)) ? readFileSync(path.join(ROOT, f), "utf8").replace(/\r\n/g, "\n") : "MISSING");
+      h.update("\0");
+    }
+    out[route] = { files, hash: h.digest("hex") };
+  }
+  return out;
+}
+
+export function readManifest() {
+  return existsSync(MANIFEST) ? JSON.parse(readFileSync(MANIFEST, "utf8")) : { pages: {} };
+}
+
+function lastCommitDate(files) {
+  try {
+    const d = execFileSync("git", ["log", "-1", "--format=%cs", "--", ...files.filter((f) => existsSync(path.join(ROOT, f)))], { cwd: ROOT, encoding: "utf8" }).trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Routes whose recorded hash differs from the content on disk (or that have no record, or whose record is gone). */
+export function stale(manifest = readManifest(), hashes = computeHashes()) {
+  const problems = [];
+  for (const [route, now] of Object.entries(hashes)) {
+    const rec = manifest.pages?.[route];
+    if (!rec) problems.push(`${route}: no recorded date`);
+    else if (rec.hash !== now.hash) problems.push(`${route}: content changed since ${rec.lastmod}`);
+  }
+  for (const route of Object.keys(manifest.pages ?? {})) if (!hashes[route]) problems.push(`${route}: recorded but no longer a public route`);
+  return problems;
+}
+
+function write() {
+  const prev = readManifest();
+  const today = new Date().toISOString().slice(0, 10);
+  const pages = {};
+  for (const [route, now] of Object.entries(computeHashes())) {
+    const rec = prev.pages?.[route];
+    // New route: seed from the last commit that touched its files. Changed route: today. Unchanged: keep.
+    const lastmod = !rec ? (lastCommitDate(now.files) ?? today) : rec.hash === now.hash ? rec.lastmod : today;
+    pages[route] = { lastmod, hash: now.hash };
+  }
+  const sorted = Object.fromEntries(Object.entries(pages).sort(([a], [b]) => a.localeCompare(b)));
+  writeFileSync(MANIFEST, JSON.stringify({ note: "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.", pages: sorted }, null, 2) + "\n");
+  console.log(`wrote ${Object.keys(sorted).length} page dates`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const mode = process.argv[2];
+  if (mode === "--write") write();
+  else if (mode === "--check") {
+    const problems = stale();
+    if (problems.length) {
+      console.error("sitemap dates are out of date:\n  " + problems.join("\n  ") + "\nRun: node scripts/page-lastmod.mjs --write");
+      process.exit(1);
+    }
+    console.log("sitemap dates match page content");
+  } else {
+    console.error("usage: page-lastmod.mjs --write | --check");
+    process.exit(2);
+  }
+}

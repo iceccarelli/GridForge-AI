@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
 
 export const metadata: Metadata = {
   title: "BTM Power Deployment Assessment",
+  alternates: { canonical: "/power/deploy" },
+  openGraph: { url: "/power/deploy", images: OG_IMAGES },
   description:
     "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.",
 };

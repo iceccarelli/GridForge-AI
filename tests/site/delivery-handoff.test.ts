@@ -20,6 +20,8 @@ import { PostgrestFake } from "./postgrest-fake";
 
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
+// Release asks Stripe whether the payment still stands (tests/site/release-payment-standing.test.ts covers that); these chains use sessions Stripe has never seen.
+vi.mock("@/lib/payment-standing", () => ({ paymentStanding: async () => ({ state: "ok", partial_refund_cents: 0 }) }));
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const WH = "whsec_delivery_handoff_secret";

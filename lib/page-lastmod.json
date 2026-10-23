@@ -1,0 +1,109 @@
+{
+  "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
+  "pages": {
+    "/": {
+      "lastmod": "2026-10-23",
+      "hash": "1cd8ad0bec3bcec3f724eeeb7ee77042f0f25a123329359b1aaa2c4af974bc5b"
+    },
+    "/constraints": {
+      "lastmod": "2026-10-23",
+      "hash": "7be065c556ebd91a90a3eef980af51fb45dfe13bd77fe461e854cdc5876abe5f"
+    },
+    "/constraints/achievable-facility-water-temperature": {
+      "lastmod": "2026-10-23",
+      "hash": "ae86811ede5f648a306184969d2446f0cf569566b13156d408c79bbf1858504f"
+    },
+    "/constraints/available-rack-positions": {
+      "lastmod": "2026-10-23",
+      "hash": "1fb040315560f3daeef92d38eeaa090d5343dd5e7ccddfc4b0bbd75253f55b32"
+    },
+    "/constraints/busway-ampacity": {
+      "lastmod": "2026-10-23",
+      "hash": "c3643727b2b472aba7c57507c58713372db14c352e6a6dd79ce2aeb36f551200"
+    },
+    "/constraints/cdu-capacity-site-conditions": {
+      "lastmod": "2026-10-23",
+      "hash": "4528b945687e01d5c814f72403cc6c3641a2d952c06637e7d64dd7e84acbae75"
+    },
+    "/constraints/chilled-water-plant-capacity": {
+      "lastmod": "2026-10-23",
+      "hash": "299906aa8749a58b52ed0bd952919ab1c559f462d122cbab8f6686482f486736"
+    },
+    "/constraints/cooling-architecture-capability": {
+      "lastmod": "2026-10-23",
+      "hash": "d697081c672dd5074502b653233d6d8c758547f425468d54322ea53af55fae78"
+    },
+    "/constraints/firm-supply-capacity": {
+      "lastmod": "2026-10-23",
+      "hash": "8fb6612837d7a6f796ed344e566104cee4733e3539da5099026f62f74ab770e6"
+    },
+    "/constraints/floor-loading": {
+      "lastmod": "2026-10-23",
+      "hash": "93afb480512f457e59dd18bc912dcfb94f023049978f880a44b46b2d44484102"
+    },
+    "/constraints/hydraulic-flow-capacity": {
+      "lastmod": "2026-10-23",
+      "hash": "90e30230381b8e9893b08f0130c7fda9682fd2bf339aadef0ef65b296782a7de"
+    },
+    "/constraints/rack-feed-tapoff-rating": {
+      "lastmod": "2026-10-23",
+      "hash": "8484c2a22750e9c366eb422caee7c402829aca82578f173e914156c2423b2e17"
+    },
+    "/constraints/residual-air-load-removal": {
+      "lastmod": "2026-10-23",
+      "hash": "dc31901c87df5a08ab2d1a0551f3391f1ecb39395eb6329b06d0c0328b4bb00f"
+    },
+    "/constraints/transformer-capacity": {
+      "lastmod": "2026-10-23",
+      "hash": "529af862e275a9bf7e115a4fdcd8636f7957838572cdded0139602e8c6b76937"
+    },
+    "/constraints/ups-capacity": {
+      "lastmod": "2026-10-23",
+      "hash": "1a1e7b3560efbea97388fb59999614e90734460103636cb8ef4b14cc988167a3"
+    },
+    "/developers": {
+      "lastmod": "2026-10-23",
+      "hash": "a2b6f275acd7f8d20dcda631546a61f393a2e21d9fd263d7de52ed1d68c21b3f"
+    },
+    "/intelligence": {
+      "lastmod": "2026-10-23",
+      "hash": "40d82c4d1999e054dd63aaee4321268b83088a6bd691a10eaa3cf29b96fcc307"
+    },
+    "/legal/privacy": {
+      "lastmod": "2026-10-23",
+      "hash": "f80ed87da6285d21509b3333ff09b09359e9d01c985937b88145f580e88afa24"
+    },
+    "/legal/security": {
+      "lastmod": "2026-10-23",
+      "hash": "e4626f21f50ed5a38974917882b721f5507d954fb86b1011f91e2b4eb35f16d0"
+    },
+    "/legal/terms": {
+      "lastmod": "2026-10-23",
+      "hash": "470e532313c87ba5e9aff18cf2881341cc903855487b6c103db16a0c1043433f"
+    },
+    "/platforms": {
+      "lastmod": "2026-10-23",
+      "hash": "446412dbc6e2e74bb319888d121f19afa4ee52f76510753de1821cef6a2aea41"
+    },
+    "/power/compare": {
+      "lastmod": "2026-10-23",
+      "hash": "6fa5e1b2f44681ab214b7ffe809d982f050c257ba5967530ae83df4c24b964f9"
+    },
+    "/power/deploy": {
+      "lastmod": "2026-10-23",
+      "hash": "4d70e903ad661411f7be5ce2569e113c890cdfe4d56ee677d0a9ee3be1ccd682"
+    },
+    "/pricing": {
+      "lastmod": "2026-10-23",
+      "hash": "b0769d69bf223e3e03e9bc4ba788a340a8ecba2beb7affd617a4329f54339829"
+    },
+    "/qualify": {
+      "lastmod": "2026-10-23",
+      "hash": "776e8b23bf8c9c23bd909657a941db2a87d7e563fe94f201ece63f48ee704916"
+    },
+    "/reference": {
+      "lastmod": "2026-10-23",
+      "hash": "039d7edb0eb2969eaa19f4f3ed399e3d2c9dbd9a68f1c31da54ac85315733633"
+    }
+  }
+}

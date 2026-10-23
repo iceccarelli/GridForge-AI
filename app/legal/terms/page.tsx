@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import { LegalShell, Note } from "@/components/LegalShell";
 
-export const metadata: Metadata = { title: "Terms" };
+export const metadata: Metadata = {
+  title: "Terms",
+  description:
+    "The terms on which Time to Power sells screening opinions, engineering studies, subscriptions and metered API access.",
+  alternates: { canonical: "/legal/terms" },
+  openGraph: { url: "/legal/terms", title: "Terms", description: "The terms on which Time to Power sells screening opinions, engineering studies, subscriptions and metered API access.", images: OG_IMAGES },
+};
 
 export default function Terms() {
   return (

@@ -461,6 +461,8 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx next lint
+      - name: Sitemap dates must follow page content, not the build clock
+        run: node scripts/page-lastmod.mjs --check
       - name: The route handlers must be executed, not described
         run: |
           # Every other assertion about this layer is a regex over source text,

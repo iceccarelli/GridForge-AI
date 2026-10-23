@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, Calculator } from "lucide-react";
@@ -51,6 +52,7 @@ export async function generateMetadata({
     description: `${c.headline} ${c.limits}`.slice(0, 300),
     alternates: { canonical: `/constraints/${c.slug}` },
     openGraph: {
+      images: OG_IMAGES,
       title: `${c.name} — AI rack density in an existing hall`,
       description: c.headline,
       url: `/constraints/${c.slug}`,

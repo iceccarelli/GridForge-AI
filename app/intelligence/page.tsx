@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OG_IMAGES } from "@/lib/site";
 import { IntelligenceClient } from "@/components/IntelligenceClient";
 
 // Previously this route had no metadata export at all — a "use client" page
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   alternates: { canonical: "/intelligence" },
   openGraph: {
+    images: OG_IMAGES,
     title: TITLE,
     description: DESCRIPTION,
     url: "/intelligence",
