@@ -27,6 +27,8 @@ import { siteUrl } from "@/lib/site";
 // The admin review route reads the signed-in cookie; there is no request scope in a test.
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
+// These journeys prove database behaviour with checkout sessions Stripe has never seen; the release gate that asks Stripe whether a payment still stands is covered in tests/site/release-payment-standing.test.ts.
+vi.mock("@/lib/payment-standing", () => ({ paymentStanding: async () => ({ state: "ok", partial_refund_cents: 0 }) }));
 
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
