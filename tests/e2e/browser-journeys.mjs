@@ -6,6 +6,9 @@
  *
  *   npm run build && node tests/e2e/browser-journeys.mjs
  *
+ * MANUAL: no CI job runs this file (Playwright is not a dependency of the project, and CI installs none), so its claims are checked
+ * only when someone runs it; `npm run verify:local` is the automated gate. Do not read a green CI run as proof of these journeys.
+ *
  * Playwright is not a project dependency. Point PLAYWRIGHT_MODULE at an install (default
  * /opt/node-tools/node_modules/playwright) and CHROMIUM at a browser (default /opt/pw-browsers/chromium).
  * The server runs with no Supabase, Stripe or engine configured, so every journey below also proves the

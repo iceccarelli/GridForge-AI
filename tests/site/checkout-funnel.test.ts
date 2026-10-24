@@ -453,6 +453,32 @@ describe("API plans: an attempt only when readiness is proven", () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------------------- buyer input is not a Stripe failure
+
+describe("input Stripe would reject is refused as the buyer's input, before it counts as an attempt", () => {
+  const bad: [string, Record<string, unknown>][] = [
+    ["a malformed email", { product: "density_screen", email: "not-an-email" }],
+    ["an email with spaces", { product: "density_screen", email: "a b@c.example" }],
+    ["an over-long email", { product: "density_screen", email: `${"a".repeat(250)}@c.example` }],
+    ["an over-long company (Stripe's metadata limit)", { product: "density_screen", company: "x".repeat(201) }],
+    ["an over-long service tag", { product: "density_screen", service: "y".repeat(201) }],
+  ];
+  for (const [label, body] of bad) {
+    it(`${label}: 400, no Stripe call, nothing recorded as an attempt or a Stripe failure`, async () => {
+      const res = await checkout(body);
+      expect(res.status).toBe(400);
+      expect(sessions).toHaveLength(0);
+      expect(db.rows("funnel_events")).toHaveLength(0);
+    });
+  }
+
+  it("a normal email and company still check out", async () => {
+    const res = await checkout({ product: "density_screen", email: "ops@hall.example", company: "North Hall Ltd" });
+    expect(res.status).toBe(200);
+    expect(names()).toEqual(["checkout_attempted", "checkout_session_created"]);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------- the request limit
 
 describe("POST /api/checkout is rate limited, so the funnel and Stripe cannot be inflated for free", () => {

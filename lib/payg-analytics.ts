@@ -184,6 +184,7 @@ const UNMEASURED = [
   "Cancellation reasons beyond Stripe's own fixed reason (cancellation_requested, payment_failed, payment_disputed) are not collected, and free-text cancellation comments are deliberately never read.",
   "Funnel events are only recorded from the day the instrumentation shipped; nothing earlier can be reconstructed except what the usage ledger itself holds (first use, repeat use).",
   "Payment: a created checkout session is not a payment. Whether the buyer opened Stripe's page, abandoned it or paid is not measured by the checkout events (returning from Stripe proves nothing); the only payment evidence is the engagement_commissioned and subscription_started events from the Stripe webhook.",
+  "Checkout counts are requests recorded by the route, not unique buyers: they include repeated and automated traffic (the route is limited to 60 requests an hour per caller address, and invalid input records nothing), so session_creation_rate describes requests, not buyer behaviour.",
   "Checkout refusals of invalid, unknown or malformed product input are deliberately not recorded (no commercial activity), and a checkout event lost to a telemetry failure is a missing measurement, not a refusal.",
   "Time between steps is not reported: events are dated when recorded, and first use is dated when the charge happened.",
 ];

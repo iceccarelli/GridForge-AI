@@ -93,7 +93,7 @@ export function CheckoutSection({ checkout, days }: { checkout: Checkout; days: 
             <details className="mt-2">
               <summary className="cursor-pointer text-mute">By product kind</summary>
               <table className="mt-2 text-xs">
-                <thead><tr className="text-left text-mute"><th className="pr-3 font-normal">Kind</th><th className="pr-3 font-normal">Attempted</th><th className="pr-3 font-normal">Session created</th><th className="pr-3 font-normal">Failed</th><th className="font-normal">Session creation rate (derived)</th></tr></thead>
+                <thead><tr className="text-left text-mute"><th className="pr-3 font-normal">Kind</th><th className="pr-3 font-normal">Attempted</th><th className="pr-3 font-normal">Session created</th><th className="pr-3 font-normal">Failed (refused before Stripe or no session)</th><th className="font-normal">Session creation rate (derived)</th></tr></thead>
                 <tbody>
                   {Object.entries(checkout.measured.by_kind).map(([kind, m]) => (
                     <tr key={kind} className="border-t border-line">

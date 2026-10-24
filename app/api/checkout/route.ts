@@ -85,6 +85,15 @@ export async function POST(req: Request) {
   const capacityMW = typeof body.capacityMW === "number" ? body.capacityMW : undefined;
   const service = typeof body.service === "string" ? body.service : undefined;
   const wantsFounding = body.founding === true;
+  // Buyer-supplied text Stripe would reject (a malformed address, a metadata value over its 500-character limit) is the buyer's input,
+  // not a Stripe failure: refuse it here, before the request counts as an attempt, so the funnel does not call it "Stripe failed".
+  if (
+    (email !== undefined && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
+    company.length > 200 ||
+    (service !== undefined && service.length > 200)
+  ) {
+    return NextResponse.json({ ok: false, error: "Check the email address and company name you entered." }, { status: 400 });
+  }
   const selectorKeys = ["product", "productId", "sku", "product_id", "priceId", "price_id"] as const;
   const suppliedSelectors = selectorKeys.filter((key) => key in body);
   const rawProduct = body.product;
