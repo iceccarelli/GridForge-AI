@@ -46,7 +46,13 @@ export async function GET(req: Request) {
       expired: life.expired,
       days_left: life.days_left,
       needs_rotation: life.needs_rotation,
+      // Ids the site has recorded as revoked, and how many of those the ENGINE has confirmed. The difference is a revocation that is still
+      // pending: that key may still verify at the engine until it expires, and a daily job keeps pushing it. Never read "revoked" alone.
       revoked: (row.revoked_key_ids ?? []).length,
+      revoked_confirmed: (row.revoked_confirmed_ids ?? []).length,
+      revocation_pending: row.revocation_pending === true,
+      billing_hold: row.billing_hold ?? null,
+      past_due_since: row.past_due_since ?? null,
       company: row.company,
       email: row.email,
     },
@@ -90,6 +96,22 @@ export async function POST(req: Request) {
   // Only an ACTIVE subscription mints. A key lasts 35 days, so letting a past_due account mint or rotate
   // hands out a month of access against a payment that has not cleared. Reading status/usage stays open
   // (GET); the key is minted again once the payment clears and the account returns to active.
+  if (row.status !== "active" && row.billing_hold) {
+    // A refunded, disputed or paused payment: not a card to update. Paid access resumes when a later payment clears (a refund or a
+    // dispute) or when billing resumes (a pause); until then no key is issued.
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          row.billing_hold === "paused"
+            ? "Billing for this subscription is paused, so a key cannot be issued. It can be issued again as soon as billing resumes."
+            : "The payment for this subscription was refunded or is under dispute, so a key cannot be issued. Access resumes when a later payment on the subscription clears, or when a dispute is resolved in our favour.",
+        status: row.status,
+        hold: row.billing_hold,
+      },
+      { status: 402 }
+    );
+  }
   if (row.status !== "active") {
     return NextResponse.json(
       {

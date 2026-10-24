@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import Stripe from "stripe";
 import { verifyAdminCookie, ADMIN_COOKIE } from "@/lib/admin";
 import { siteUrl } from "@/lib/site";
-import { checkBillingPortal, checkStripeWebhookHealth } from "@/lib/stripe-health";
+import { checkBillingPortal, checkRevocationBacklog, checkStripeWebhookHealth } from "@/lib/stripe-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,5 +23,7 @@ export async function GET() {
   const stripe = key ? new Stripe(key) : null;
   const health = await checkStripeWebhookHealth(stripe, siteUrl("/api/stripe/webhook"));
   const portal = await checkBillingPortal(stripe);
-  return NextResponse.json({ ok: true, health, portal });
+  // Key revocations the engine has not confirmed (a durable obligation; see lib/api-access.ts revokeOnEngineDetailed).
+  const revocations = await checkRevocationBacklog();
+  return NextResponse.json({ ok: true, health, portal, revocations });
 }

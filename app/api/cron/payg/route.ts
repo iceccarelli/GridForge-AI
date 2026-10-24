@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
+import { enforcePastDueGrace } from "@/lib/billing-holds";
 import { runPaygCron } from "@/lib/payg-cron";
+import { notifyOperatorOnce } from "@/lib/payg-operator";
+import { checkRevocationBacklog } from "@/lib/stripe-health";
 import { paygStripe } from "@/lib/payg-stripe";
 import { engineLedgerFetcher } from "@/lib/payg-usage";
 
@@ -22,5 +25,18 @@ function authorised(req: Request): boolean {
 export async function GET(req: Request) {
   if (!authorised(req)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const report = await runPaygCron({ fetcher: engineLedgerFetcher(), stripe: paygStripe() });
-  return NextResponse.json({ ok: true, ...report });
+  // After the sweep above: end the past_due grace of subscription API accounts (revoke the live key of any past API_PAST_DUE_GRACE_DAYS),
+  // then report what the engine still has not confirmed. Neither throws; both are idempotent.
+  const grace = await enforcePastDueGrace();
+  const backlog = await checkRevocationBacklog();
+  if (backlog.checked && !backlog.ok) {
+    // A credential the site has cut off and the engine has not: said once a day while it holds, not left to a log line.
+    await notifyOperatorOnce(
+      `revocation_backlog:${new Date().toISOString().slice(0, 10)}`,
+      `Key revocations NOT confirmed by the engine — ${backlog.idsPendingOnCutOffAccounts} on cut-off accounts`,
+      `${backlog.error}\n\nAccounts with an unconfirmed id: ${backlog.accountsPending}; ids: ${backlog.idsPending}; engine /v1/revoke: ${backlog.engineRevokeRoute}. ` +
+        "GET /api/admin/stripe-health lists the same numbers. This notice is sent once a day while the backlog stands."
+    );
+  }
+  return NextResponse.json({ ok: true, ...report, grace, revocation_backlog: backlog });
 }
