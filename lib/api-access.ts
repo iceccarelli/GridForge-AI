@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PAYG } from "@/lib/products";
+import { pauseDue } from "@/lib/billing-pause-due";
 
 /**
  * Self-serve API accounts.
@@ -206,6 +207,10 @@ export interface ApiAccount {
   billing_hold_invoice?: string | null;
   billing_hold_at?: string | null;
   billing_hold_prev_status?: string | null;
+  /** A pause scheduled for the end of the paid period (migration 0043): see lib/billing-pause.ts. */
+  billing_pause_from?: string | null;
+  billing_pause_resumes_at?: string | null;
+  billing_pause_event_ts?: number | null;
 }
 
 /**
@@ -592,6 +597,11 @@ export async function confirmRevoked(token: string, ids: string[]): Promise<bool
  * The compare-and-set mint (see casUpdateKey): a concurrent mint makes this one answer "conflict" and no key is handed out.
  */
 export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Promise<MintOutcome> {
+  // A pause scheduled for the end of the paid period (lib/billing-pause.ts) has started to hold access once that instant has passed, even
+  // before the daily job writes the hold: no new key is minted for a period nobody paid for. (Up to the instant, minting is the customer's.)
+  if (row.status !== "cancelled" && pauseDue(row)) {
+    return { ok: false, reason: "refused", message: "Billing for this plan is paused and the period you paid for has ended, so a new key cannot be issued. Resume billing in the billing portal to continue." };
+  }
   const want = opts.entitlement ? ({ ok: true, ...opts.entitlement } as const) : keyEntitlement(row);
   if (!want.ok) return { ok: false, reason: "refused", message: want.error };
   const { token, payload } = issueKey({ account: row.account, quota: want.quota, scope: want.scope });

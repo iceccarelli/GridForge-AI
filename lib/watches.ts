@@ -41,6 +41,10 @@ export interface WatchRecord {
   billing_hold_invoice?: string | null;
   billing_hold_at?: string | null;
   billing_hold_prev_status?: string | null;
+  /** A pause scheduled for the end of the paid period (migration 0043): see lib/billing-pause.ts. */
+  billing_pause_from?: string | null;
+  billing_pause_resumes_at?: string | null;
+  billing_pause_event_ts?: number | null;
 }
 
 export interface WatchNote {

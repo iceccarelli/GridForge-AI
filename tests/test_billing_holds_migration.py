@@ -91,9 +91,9 @@ def audit(db, key=None, table="api_accounts", subject=None, action="hold_applied
     return key
 
 
-def test_it_is_the_highest_migration_and_the_chain_applies(db):
+def test_it_is_in_the_chain_and_the_chain_applies(db):
     names = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
-    assert names[-1].startswith("0041_"), names[-3:]
+    assert "0041_billing_holds.sql" in names, names[-3:]
 
 
 def test_reapplying_changes_nothing_and_leaves_row_level_security_as_it_was(db):

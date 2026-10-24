@@ -51,6 +51,7 @@ afterEach(() => { setPaygStripeForTests(null); engine.restore(); restore(); vi.r
 
 let evt = 0;
 async function send(type: string, object: Record<string, unknown>, created?: number) {
+  mock.observe(type, object);
   const payload = JSON.stringify({ id: `evt_${++evt}`, type, ...(created ? { created } : {}), data: { object } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sdk.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));

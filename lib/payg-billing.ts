@@ -9,11 +9,13 @@
 //        has since changed, and never lifts a past_due.
 //   invoice.paid / invoice.payment_failed, invoice.metadata.kind === "payg_settlement"
 //        the settlement row moves paid / failed (a late `failed` can never override `paid`), and the ACCOUNT is derived from
-//        its settlements: past_due (live key revoked, no mint) while any is failed, active again when none is.
+//        its settlements: past_due (live key revoked, no mint) while any is failed, active again when none is. An account on a refund
+//        or dispute hold (lib/payg-refunds.ts) is left to that hold: this derivation neither lifts nor re-applies it, and a LATER
+//        settlement that is paid in full lifts it (the customer is current).
 
 import type Stripe from "stripe";
 import { suspendApiKeys, updateApiAccount, type ApiAccount } from "@/lib/api-access";
-import { noteUnconfirmedRevocation } from "@/lib/billing-holds";
+import { liftHold, noteUnconfirmedRevocation } from "@/lib/billing-holds";
 import { notifyOperator } from "@/lib/mail";
 import { accountRef, MONTH, paygCapUnits, parseCapEur } from "@/lib/payg";
 import { recordFunnelEvent } from "@/lib/funnel";
@@ -176,6 +178,8 @@ export async function reconcileAccount(accountName: string): Promise<Applied> {
   const acct = await accountByName(accountName);
   if (acct === "error") return { ok: false, why: "account lookup failed" };
   if (!acct || acct.plan !== "api_payg" || acct.status === "cancelled") return { ok: true };
+  // A refund or dispute hold decides this account; a failed settlement elsewhere neither adds to it nor ends it.
+  if (acct.billing_hold) return { ok: true };
   const failed = await pg<{ id: string }[]>("GET", `usage_settlements?account=eq.${enc(accountName)}&status=eq.failed&select=id&limit=1`);
   if (!failed.ok) return { ok: false, why: "settlement lookup failed" };
   const hasFailed = (failed.data?.length ?? 0) > 0;
@@ -186,6 +190,25 @@ export async function reconcileAccount(accountName: string): Promise<Applied> {
     if (!(await updateApiAccount(acct.token, { status: "active" }))) return { ok: false, why: "account write failed" };
   }
   return { ok: true };
+}
+
+/**
+ * A settlement invoice PAID for a month LATER than the one a refund or dispute hold was about: the customer is current again, so the hold
+ * ends (to what the account was before; the revoked key stays revoked and the customer mints a new one). An older month, the same
+ * invoice, or a payment of nothing lifts nothing. `ok: false` = retry.
+ */
+async function liftHoldOnLaterPayment(acct: ApiAccount, inv: Stripe.Invoice, month: string, eventId: string): Promise<Applied> {
+  if (acct.billing_hold !== "refunded" && acct.billing_hold !== "disputed") return { ok: true };
+  if (!(typeof inv.amount_paid === "number" && inv.amount_paid > 0) || !acct.billing_hold_invoice) return { ok: true };
+  const held = await pg<{ month: string }[]>("GET", `usage_settlements?account=eq.${enc(acct.account)}&stripe_invoice_id=eq.${enc(acct.billing_hold_invoice)}&select=month&limit=1`);
+  if (!held.ok) return { ok: false, why: "held settlement lookup failed" };
+  const heldMonth = held.data?.[0]?.month;
+  if (!heldMonth || !(month > heldMonth)) return { ok: true };
+  const lifted = await liftHold(
+    { api: acct, watch: null, intelligence: null },
+    { kinds: ["refunded", "disputed"], notInvoice: inv.id, paidCents: inv.amount_paid, restore: "prev", cause: "invoice_paid", clock: "none", subscriptionId: "", eventId }
+  );
+  return lifted.ok ? { ok: true } : { ok: false, why: "settlement hold could not be lifted" };
 }
 
 /** null = not a pay-as-you-go invoice (the caller carries on with subscription handling). */
@@ -245,6 +268,14 @@ export async function handlePaygInvoice(event: Stripe.Event): Promise<Applied | 
   // durable obligation per failed settlement. Stripe reports every retried failure and may redeliver; the outbox's unique key makes
   // all of those the same single email, and a settlement that has since been paid cancels it unsent. A late `failed` that did not
   // apply (the row was already paid) enqueues nothing. If the obligation cannot be recorded the event is retried.
+  if (event.type === "invoice.paid") {
+    const acct = await accountByName(accountName);
+    if (acct === "error") return { ok: false, why: "account lookup failed" };
+    if (acct && acct.billing_hold && acct.status !== "cancelled") {
+      const lifted = await liftHoldOnLaterPayment(acct, inv, month, event.id);
+      if (!lifted.ok) return lifted;
+    }
+  }
   const reconciled = await reconcileAccount(accountName);
   if (!reconciled.ok) return reconciled;
   if (failedApplied && (await notifyCustomer("payg_payment_failed", s.id)) === "retry_webhook") return { ok: false, why: "notification not recorded" };

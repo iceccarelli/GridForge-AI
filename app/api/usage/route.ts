@@ -5,6 +5,7 @@ import { accountByToken } from "@/lib/payg-accounts";
 import { alertCapUnits } from "@/lib/payg-alerts";
 import { enc, pg } from "@/lib/payg-store";
 import { capUsedUnits, recentEvents, usageNet } from "@/lib/payg-usage";
+import { reversalViews } from "@/lib/payg-refunds";
 import type { Settlement } from "@/lib/payg-settle";
 import { guardRequest } from "@/lib/rate-limit";
 
@@ -28,14 +29,16 @@ export async function GET(req: Request) {
   if (!acct) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
 
   const month = utcMonth(new Date());
-  const [net, events, settlements, alerts, cursor] = await Promise.all([
+  const [net, events, settlements, alerts, cursor, reversals] = await Promise.all([
     usageNet(acct.account, month),
     recentEvents(acct.account, 50),
     pg<Settlement[]>("GET", `usage_settlements?account=eq.${enc(acct.account)}&select=month,units,amount_cents,status,carried_units,hosted_invoice_url&order=month.desc&limit=24`),
     pg<{ percent: number }[]>("GET", `usage_alerts?account=eq.${enc(acct.account)}&month=eq.${month}&select=percent`),
     pg<{ updated_at: string }[]>("GET", "payg_cursor?id=eq.1&select=updated_at&limit=1"),
+    reversalViews(acct.account),
   ]);
-  if (!net || !events || !settlements.ok || !alerts.ok) {
+  // A refund or dispute of a settlement is part of what the customer is told about it; an unreadable record is never read as "none".
+  if (!net || !events || !settlements.ok || !alerts.ok || !reversals) {
     return NextResponse.json({ ok: false, error: "Usage is unavailable just now." }, { status: 503 });
   }
 
@@ -67,7 +70,16 @@ export async function GET(req: Request) {
       billable_units: net.billable_net,
       eur_accrued_cents: acct.plan === "api_payg" ? paygChargeCents(net.billable_net) : 0,
       events,
-      settlements: (settlements.data ?? []).map((s) => ({ month: s.month, units: s.units, amount_cents: s.amount_cents, status: s.status, carried_units: s.carried_units, hosted_invoice_url: s.hosted_invoice_url })),
+      // `status` is the invoice's own history (it was paid). A refund or dispute of it is stated beside it, never written over it: the
+      // amount refunded (cents, as Stripe reports it), whether that was partial or in full, and an open / lost / won dispute. The units
+      // consumed, the cap and the usage above are unchanged by either, and nothing is credited to a later invoice.
+      settlements: (settlements.data ?? []).map((s) => {
+        const r = reversals.get(s.month);
+        return {
+          month: s.month, units: s.units, amount_cents: s.amount_cents, status: s.status, carried_units: s.carried_units, hosted_invoice_url: s.hosted_invoice_url,
+          refunded_cents: r?.refundedCents ?? 0, refund_state: r?.refundState ?? null, dispute: r?.dispute ?? null,
+        };
+      }),
       alerts: Object.fromEntries(PAYG.alertPercents.map((p) => [String(p), sent.has(p)])),
       unit_price_cents: PAYG.unitPriceCents,
       currency: PAYG.currency,

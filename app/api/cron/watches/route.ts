@@ -5,6 +5,7 @@ import { cronAuthorised as authorised } from "@/lib/cron-auth";
 import {
   claimWatch,
   dueWatches,
+  getWatch,
   nextRun,
   recordNote,
   storedChange,
@@ -18,6 +19,9 @@ import {
   type WatchRecord,
 } from "@/lib/watches";
 import { runTrusted } from "@/lib/spend-scope";
+import type { ReversalStripe } from "@/lib/billing-holds";
+import { gateWatch, pauseWatchNow } from "@/lib/billing-pause";
+import { paygStripe } from "@/lib/payg-stripe";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -60,6 +64,13 @@ export async function GET(req: Request) {
         }
         seen.add(w.token);
         considered += 1;
+        // A billing pause is scheduled for the end of the period the customer paid for. Once that instant has passed, a note that fell due
+        // BEFORE it is still delivered (then the pause is written); one that falls due after it is not, and the watch is paused now.
+        const gate = await gateWatch(w, stripeForPause());
+        if (gate.skip) {
+          results.push({ token: w.token, status: gate.status });
+          continue;
+        }
         // Lease first: a conditional update of next_run_at, so an overlapping
         // invocation that read the same due list skips this watch instead of
         // re-running it and double-notifying the client.
@@ -69,6 +80,10 @@ export async function GET(req: Request) {
           continue;
         }
         results.push(await runOne(w));
+        if (gate.pauseAfter) {
+          const fresh = await getWatch(w.token);
+          if (fresh) await pauseWatchNow(fresh, stripeForPause());
+        }
       }
     }
 
@@ -87,6 +102,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, considered, remaining, budget_exhausted: exhausted, results });
   });
 }
+
+const stripeForPause = (): ReversalStripe | null => paygStripe() as unknown as ReversalStripe | null;
 
 /** Statuses that mean a watch did NOT get its run. */
 const FAILED = /^(engine_error|store_error|note_not_stored|state_not_advanced|claim_error)/;

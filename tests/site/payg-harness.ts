@@ -308,6 +308,28 @@ export class MockStripe implements PaygStripe {
       return { id, invoice_settings: { default_payment_method: this.customerDefaults.get(id) ?? null } };
     },
   };
+  /**
+   * Disputes as Stripe holds them NOW, by id (disputes.retrieve: every dispute event is decided from this, never from its own payload).
+   * `observe` mirrors a delivered dispute event's payload into it, as Stripe's state follows its latest event in an orderly test; a test
+   * about reordering or a stale payload PINS the dispute's real state instead (`pinDispute`). An unknown dispute is a Stripe 404.
+   */
+  disputeStore = new Map<string, Record<string, unknown>>();
+  private pinned = new Set<string>();
+  observe(type: string, object: Record<string, unknown>) {
+    if (type.startsWith("charge.dispute.") && typeof object.id === "string" && !this.pinned.has(object.id)) this.disputeStore.set(object.id, object);
+  }
+  pinDispute(id: string, state: Record<string, unknown>) {
+    this.pinned.add(id);
+    this.disputeStore.set(id, { id, object: "dispute", ...state });
+  }
+  disputes = {
+    retrieve: async (id: string) => {
+      this.maybeFail("disputes.retrieve");
+      const d = this.disputeStore.get(id);
+      if (!d) throw Object.assign(new Error("No such dispute"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
+      return d;
+    },
+  };
   /** Charge id -> customer id, for a dispute's lookup. An unknown charge is a Stripe 404. */
   chargeCustomers = new Map<string, string>();
   charges = {
