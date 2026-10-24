@@ -1,3 +1,4 @@
+import { withStripeTimeout } from "@/lib/stripe-timeout";
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PAYG } from "@/lib/products";
@@ -599,7 +600,7 @@ async function billingStillPaused(row: Pick<ApiAccount, "stripe_subscription_id"
   const stripe = paygStripe() as unknown as { subscriptions?: { retrieve(id: string): Promise<{ status?: string | null; pause_collection?: unknown }> } } | null;
   if (!stripe?.subscriptions || !row.stripe_subscription_id) return true;
   try {
-    const sub = await stripe.subscriptions.retrieve(row.stripe_subscription_id);
+    const sub = await withStripeTimeout(stripe.subscriptions.retrieve(row.stripe_subscription_id));
     return Boolean(sub.pause_collection) || sub.status === "paused" || sub.status === "canceled" || sub.status === "unpaid" || sub.status === "incomplete_expired";
   } catch {
     return true;
@@ -618,7 +619,11 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
     if (await billingStillPaused(row)) {
       return { ok: false, reason: "refused", message: "Billing for this plan is paused and the period you paid for has ended, so a new key cannot be issued. Resume billing in the billing portal to continue." };
     }
-    await updateApiAccountUnlessCancelled(row.token, { billing_pause_from: null, billing_pause_resumes_at: null });
+    const cleared = await updateApiAccountUnlessCancelled(row.token, { billing_pause_from: null, billing_pause_resumes_at: null }, row.billing_pause_from ?? undefined);
+    // No row matched: the pause was scheduled AGAIN between the Stripe read and this write. It keeps its schedule and the mint is refused.
+    if (cleared === "terminal") {
+      return { ok: false, reason: "refused", message: "Billing for this plan is paused and the period you paid for has ended, so a new key cannot be issued. Resume billing in the billing portal to continue." };
+    }
     row = { ...row, billing_pause_from: null, billing_pause_resumes_at: null };
   }
   const want = opts.entitlement ? ({ ok: true, ...opts.entitlement } as const) : keyEntitlement(row);
@@ -839,8 +844,10 @@ export async function cancelApiAccount(
  * Write to an account only while it is NOT cancelled (a conditional update, like claimWatch): a hold, a lift or a payment event that
  * races a cancellation can never turn cancelled back into active or past_due. "terminal": no row matched, the account is cancelled.
  */
-export async function updateApiAccountUnlessCancelled(token: string, patch: Partial<ApiAccount>): Promise<"ok" | "terminal" | "error"> {
-  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}&status=neq.cancelled`);
+export async function updateApiAccountUnlessCancelled(token: string, patch: Partial<ApiAccount>, onlyIfPauseFrom?: string): Promise<"ok" | "terminal" | "error"> {
+  // `onlyIfPauseFrom`: also only while billing_pause_from is still the value the caller read (a pause scheduled again meanwhile keeps its schedule;
+  // then "terminal" means "no row matched").
+  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}&status=neq.cancelled` + (onlyIfPauseFrom ? `&billing_pause_from=eq.${encodeURIComponent(onlyIfPauseFrom)}` : ""));
   if (!r) return "error";
   try {
     const res = await fetch(r.url, { method: "PATCH", headers: { ...r.headers, Prefer: "return=representation" }, body: JSON.stringify(patch) });

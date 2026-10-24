@@ -612,20 +612,51 @@ describe("15. a pause survives a stronger hold that replaces it", () => {
     expect(b).toMatchObject({ billing_hold: "paused", status: "past_due", key_id: null });
   });
 
-  it("a dispute is open when the pause arrives: the pause is recorded (not dropped) and is put back when the dispute is won", async () => {
+  it("a dispute is open when the pause arrives: the pause is recorded with ITS OWN start (the end of the paid period), and winning mid-period does not take the paid days away", async () => {
+    const { a, i } = all();
+    rig.stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    rig.stripe.link("ch_i", "pi_i", "in_i", "sub_i");
+    at(rig.T0 + 1 * DAY);
+    await send(rig, "charge.dispute.created", dispute(), { created: rig.T0 + 1 * DAY });
+    await send(rig, "charge.dispute.created", dispute({ id: "dp_i", charge: "ch_i" }), { created: rig.T0 + 1 * DAY });
+    expect(a.billing_hold).toBe("disputed");
+    at(rig.T0 + 2 * DAY); // the customer pauses the next day: the paid period still has days to run
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 2 * DAY });
+    await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 2 * DAY });
+    expect(a).toMatchObject({ billing_hold: "disputed", billing_pause_event_ts: rig.T0 + 2 * DAY });
+    expect(a.billing_pause_from).toBe(iso(rig.T0 + PERIOD)); // before: "now", which made the pause due the moment the dispute ended
+    expect(i.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
+    // the dispute is WON on day 5 of the remaining 10: the rows go back to what they were, with the pause still to come
+    stripePausedUntil(PERIOD, "sub_api", "sub_i");
+    at(rig.T0 + 5 * DAY);
+    rig.stripe.pinDispute("dp_1", dispute({ status: "won" }));
+    rig.stripe.pinDispute("dp_i", dispute({ id: "dp_i", charge: "ch_i", status: "won" }));
+    await send(rig, "charge.dispute.closed", dispute({ status: "won" }), { created: rig.T0 + 5 * DAY });
+    await send(rig, "charge.dispute.closed", dispute({ id: "dp_i", charge: "ch_i", status: "won" }), { created: rig.T0 + 5 * DAY });
+    expect(a).toMatchObject({ billing_hold: null, status: "active", billing_pause_from: iso(rig.T0 + PERIOD) });
+    expect(i).toMatchObject({ billing_hold: null, status: "active", billing_pause_from: iso(rig.T0 + PERIOD) });
+    expect((await lookupEntitlement("i@hall.example")).entitlement).not.toBeNull(); // paid days kept
+    expect(await runDue()).toMatchObject({ due: 0 });
+    // ... and access ends at the period end, not before
+    at(rig.T0 + PERIOD + 60);
+    expect((await lookupEntitlement("i@hall.example")).entitlement).toBeNull();
+    expect(await runDue()).toMatchObject({ promoted: 2 });
+    expect(a).toMatchObject({ billing_hold: "paused", status: "past_due" });
+  });
+
+  it("the daily job keeps the pause's own start under a stronger hold too (a day-6 pause is not due on day 7)", async () => {
     const { a } = all();
     rig.stripe.link("ch_1", "pi_1", "in_1", "sub_api");
     await send(rig, "charge.dispute.created", dispute(), { created: rig.T0 + 5 });
-    expect(a.billing_hold).toBe("disputed");
-    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 10 }); // before: cleared billing_pause_from and returned
-    expect(a).toMatchObject({ billing_hold: "disputed", billing_pause_event_ts: rig.T0 + 10 });
-    expect(a.billing_pause_from).not.toBeNull();
-    // the daily job does not touch it while the stronger hold stands, and does not lose it
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 10 });
     stripePausedUntil(PERIOD, "sub_api");
+    at(rig.T0 + 3 * DAY);
+    expect(await runDue()).toMatchObject({ due: 0 });
+    expect(a.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
     at(rig.T0 + PERIOD + 60);
     expect(await runDue()).toMatchObject({ deferred: 1, promoted: 0 });
     expect(a).toMatchObject({ billing_hold: "disputed" });
-    expect(a.billing_pause_from).not.toBeNull();
+    expect(a.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
     rig.stripe.pinDispute("dp_1", dispute({ status: "won" }));
     await send(rig, "charge.dispute.closed", dispute({ status: "won" }), { created: rig.T0 + PERIOD + 100 });
     expect(a).toMatchObject({ billing_hold: "paused", status: "past_due" });
@@ -696,15 +727,23 @@ describe("16. the customer-facing Hall Watch routes stop at the instant, not at 
     restoreDiff = () => { globalThis.fetch = inner; };
   });
   afterEach(() => restoreDiff());
-  const intake = { siteName: "N", jurisdiction: "DE" };
+  const intake = {
+    siteName: "North Hall", hallId: "H1", metro: "Dublin", firmCapacityMVA: 15, contractedMW: 12,
+    currentPeakMW: 7.4, currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, floorLoadingKPa: 12,
+    positionsAvailable: 180, plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  };
   const postIntake = async (token: string) => (await import("@/app/api/watch/[token]/route")).POST(new Request(siteUrl(`/api/watch/${token}`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intake) }), { params: Promise.resolve({ token }) });
 
   it("a watch whose pause has started (the daily job has not run) answers 409 and spends no engine work, however often it is posted; the instant before, it is not refused", async () => {
     const w = watchRow(rig);
     await send(rig, "customer.subscription.updated", paused("sub_w"), { created: rig.T0 + 5 });
     at(rig.T0 + PERIOD - 1);
-    expect((await postIntake(w.token as string)).status).not.toBe(409);
+    const before = await postIntake(w.token as string);
+    expect(before.status, await before.clone().text()).toBe(200); // the paid period is the customer's: the engine is called
+    expect(diff).toBeGreaterThan(0);
+    expect(rig.db.rows("watch_notes").length).toBeGreaterThan(0);
     diff = 0;
+    rig.db.rows("watch_notes").length = 0;
     at(rig.T0 + PERIOD + 1);
     for (let n = 0; n < 3; n++) {
       const res = await postIntake(w.token as string);
@@ -774,5 +813,164 @@ describe("18. a mint after the instant asks Stripe once whether billing is still
     expect(ok.status).toBe(200);
     expect((await ok.json()).issued).toBe(true);
     expect(a.billing_pause_from).toBeNull();
+  });
+});
+
+// ============================================================================================================================
+// Second review round
+// ============================================================================================================================
+describe("19. a kept schedule does not outlive the pause", () => {
+  it("resumed at Stripe with the resume event lost, the stronger hold ended: the kept (due) schedule is cleared so access is not denied for a day", async () => {
+    const { i, a } = all();
+    rig.stripe.link("ch_i", "pi_i", "in_i", "sub_i");
+    rig.stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    await send(rig, "charge.dispute.created", dispute({ id: "dp_i", charge: "ch_i" }), { created: rig.T0 + 5 });
+    await send(rig, "charge.dispute.created", dispute(), { created: rig.T0 + 5 });
+    await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 6 });
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 6 });
+    expect(i.billing_pause_from).not.toBeNull();
+    // the customer resumes; the resume event is never delivered
+    for (const sb of ["sub_i", "sub_api"]) rig.stripe.setSubscription(sb, { status: "active", pause_collection: null });
+    at(rig.T0 + PERIOD + 60);
+    rig.stripe.pinDispute("dp_i", dispute({ id: "dp_i", charge: "ch_i", status: "won" }));
+    rig.stripe.pinDispute("dp_1", dispute({ status: "won" }));
+    await send(rig, "charge.dispute.closed", dispute({ id: "dp_i", charge: "ch_i", status: "won" }), { created: rig.T0 + PERIOD + 60 });
+    await send(rig, "charge.dispute.closed", dispute({ status: "won" }), { created: rig.T0 + PERIOD + 60 });
+    expect(i).toMatchObject({ billing_hold: null, status: "active", billing_pause_from: null });
+    expect(a).toMatchObject({ billing_hold: null, billing_pause_from: null });
+    expect((await lookupEntitlement("i@hall.example")).entitlement).not.toBeNull(); // before: denied until the daily job dropped it
+    expect(audit(rig, "pause_schedule_dropped").length).toBe(2);
+  });
+});
+
+describe("20. a resume that lands between the read of Stripe and the hold", () => {
+  /** Stripe answers "paused" once, then the customer resumes (the resume event is processed while the hold is being written). */
+  const resumeAfterFirstRead = (sb: string) => {
+    const orig = (rig.stripe as any).subscriptions.retrieve;
+    let first = true;
+    (rig.stripe as any).subscriptions.retrieve = async (id: string) => {
+      const out = await orig(id);
+      if (id === sb && first) {
+        first = false;
+        rig.stripe.setSubscription(sb, { status: "active", pause_collection: null });
+      }
+      return out;
+    };
+  };
+
+  it("the daily job: the hold it just wrote is lifted again, not left for ever", async () => {
+    const { a } = all();
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    stripePausedUntil(PERIOD, "sub_api");
+    at(rig.T0 + PERIOD + 60);
+    resumeAfterFirstRead("sub_api");
+    const rep = await runDue();
+    expect(rep).toMatchObject({ promoted: 0, dropped: 1, errors: 0 });
+    expect(a).toMatchObject({ billing_hold: null, status: "active", billing_pause_from: null });
+    expect(audit(rig, "hold_lifted")).toHaveLength(1);
+  });
+
+  it("after a lift (dispute won): the same", async () => {
+    const { a } = all();
+    rig.stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    stripePausedUntil(PERIOD, "sub_api");
+    at(rig.T0 + PERIOD + 60);
+    await runDue();
+    await send(rig, "charge.dispute.created", dispute(), { created: rig.T0 + PERIOD + 70 });
+    rig.stripe.pinDispute("dp_1", dispute({ status: "won" }));
+    resumeAfterFirstRead("sub_api");
+    await send(rig, "charge.dispute.closed", dispute({ status: "won" }), { created: rig.T0 + PERIOD + 80 });
+    expect(a).toMatchObject({ billing_hold: null, status: "active" });
+  });
+});
+
+describe("21. `unpaid` is one rule: billing is stopped", () => {
+  it("a pause replaced by a dispute that is won while Stripe says `unpaid` (no pause_collection) goes back to a hold, and the job's own re-check does not undo an unpaid hold", async () => {
+    const { w } = all();
+    rig.stripe.link("ch_w", "pi_w", "in_w", "sub_w");
+    await send(rig, "customer.subscription.updated", paused("sub_w"), { created: rig.T0 + 5 });
+    stripePausedUntil(PERIOD, "sub_w");
+    at(rig.T0 + PERIOD + 60);
+    await runDue();
+    await send(rig, "charge.dispute.created", dispute({ charge: "ch_w" }), { created: rig.T0 + PERIOD + 70 });
+    rig.stripe.setSubscription("sub_w", { status: "unpaid", pause_collection: null });
+    rig.stripe.pinDispute("dp_1", dispute({ charge: "ch_w", status: "won" }));
+    await send(rig, "charge.dispute.closed", dispute({ charge: "ch_w", status: "won" }), { created: rig.T0 + PERIOD + 80 });
+    expect(w).toMatchObject({ billing_hold: "paused", status: "paused" });
+  });
+});
+
+describe("22. the daily pass without the rotation column, and when it cannot read at all", () => {
+  it("a store without billing_pause_checked_at (400 on the ordering) still starts the due pauses, oldest first", async () => {
+    const { a } = all();
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    stripePausedUntil(PERIOD, "sub_api");
+    rig.db.missingColumns.set("api_accounts", new Set(["billing_pause_checked_at"]));
+    at(rig.T0 + PERIOD + 60);
+    expect(await runDue()).toMatchObject({ due: 1, promoted: 1, errors: 0 });
+    expect(a.billing_hold).toBe("paused");
+  });
+
+  it("a store without billing_pause_from cannot be read: the report says why AND the operator is mailed, once a day", async () => {
+    all();
+    rig.db.missingColumns.set("api_accounts", new Set(["billing_pause_from"]));
+    rig.db.missingColumns.set("watches", new Set(["billing_pause_from"]));
+    rig.db.missingColumns.set("subscriptions", new Set(["billing_pause_from"]));
+    expect((await runDue()).skippedReason).toMatch(/0043/);
+    await runDue();
+    const m = () => operatorMail(rig).filter((x) => /did NOT run/.test(x.subject));
+    expect(m()).toHaveLength(1);
+    at(rig.T0 + 86_400 + 5);
+    await runDue();
+    expect(m()).toHaveLength(2);
+  });
+});
+
+describe("23. a mint that finds a due pause", () => {
+  it("a pause scheduled AGAIN between the Stripe read and the write keeps its schedule, and the mint is refused", async () => {
+    const { a } = all();
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    at(rig.T0 + PERIOD + 60);
+    rig.stripe.setSubscription("sub_api", { status: "active", pause_collection: null }); // Stripe: resumed...
+    const orig = (rig.stripe as any).subscriptions.retrieve;
+    (rig.stripe as any).subscriptions.retrieve = async (id: string) => {
+      const out = await orig(id);
+      a.billing_pause_from = iso(rig.T0 + PERIOD + 30 * DAY); // ...and paused again before the write
+      return out;
+    };
+    const { POST } = await import("@/app/api/keys/route");
+    expect((await POST(post("/api/keys", { token: a.token, rotate: true }))).status).toBe(409);
+    expect(a.billing_pause_from).toBe(iso(rig.T0 + PERIOD + 30 * DAY));
+  });
+
+  it("a Stripe call that never answers is a refusal ('cannot say'), after the bound, not a hang", async () => {
+    const { a } = all();
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    at(rig.T0 + PERIOD + 60);
+    process.env.STRIPE_CALL_TIMEOUT_MS = "40";
+    (rig.stripe as any).subscriptions.retrieve = () => new Promise(() => {});
+    try {
+      const { POST } = await import("@/app/api/keys/route");
+      const t0 = performance.now();
+      expect((await POST(post("/api/keys", { token: a.token, rotate: true }))).status).toBe(409);
+      expect(performance.now() - t0).toBeLessThan(2_000);
+    } finally {
+      delete process.env.STRIPE_CALL_TIMEOUT_MS;
+    }
+    expect(a.billing_pause_from).not.toBeNull();
+  });
+
+  it("the daily job: a hanging Stripe is a failed row (retried), not a stuck pass", async () => {
+    all();
+    await send(rig, "customer.subscription.updated", paused("sub_api"), { created: rig.T0 + 5 });
+    at(rig.T0 + PERIOD + 60);
+    process.env.STRIPE_CALL_TIMEOUT_MS = "40";
+    (rig.stripe as any).subscriptions.retrieve = () => new Promise(() => {});
+    try {
+      expect(await runDue()).toMatchObject({ errors: 1, promoted: 0 });
+    } finally {
+      delete process.env.STRIPE_CALL_TIMEOUT_MS;
+    }
   });
 });
