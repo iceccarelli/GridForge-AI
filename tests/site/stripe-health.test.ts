@@ -199,16 +199,30 @@ describe("the subscription-update and dispute-closed events", () => {
     expect(health.error).toMatch(/customer\.subscription\.updated/);
   });
 
-  it("charge.dispute.closed is recommended, never required: its absence is reported and does not make the endpoint unhealthy", async () => {
-    expect(RECOMMENDED_WEBHOOK_EVENTS).toContain("charge.dispute.closed");
-    expect(REQUIRED_WEBHOOK_EVENTS as readonly string[]).not.toContain("charge.dispute.closed");
+  it.each(["charge.refunded", "charge.dispute.created", "charge.dispute.closed"])(
+    "%s is required: paid access is suspended and restored by it, so an endpoint without it is unhealthy and the error names it",
+    async (event) => {
+      expect(REQUIRED_WEBHOOK_EVENTS as readonly string[]).toContain(event);
+      expect(RECOMMENDED_WEBHOOK_EVENTS as readonly string[]).not.toContain(event);
+      const without = REQUIRED_WEBHOOK_EVENTS.filter((e) => e !== event);
+      const health = await checkStripeWebhookHealth(
+        fakeClient([{ id: "we_1", url: EXPECTED_URL, status: "enabled", enabled_events: [...without, ...RECOMMENDED_WEBHOOK_EVENTS] }]),
+        EXPECTED_URL
+      );
+      expect(health.healthy).toBe(false);
+      expect(health.missingEvents).toEqual([event]);
+      expect(health.error).toContain(event);
+    }
+  );
+
+  it("the delayed-payment checkout events stay recommended: their absence is reported and does not make the endpoint unhealthy", async () => {
+    expect(RECOMMENDED_WEBHOOK_EVENTS).toEqual(["checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"]);
     const health = await checkStripeWebhookHealth(
-      fakeClient([{ id: "we_1", url: EXPECTED_URL, status: "enabled", enabled_events: [...REQUIRED_WEBHOOK_EVENTS, "charge.refunded", "charge.dispute.created"] }]),
+      fakeClient([{ id: "we_1", url: EXPECTED_URL, status: "enabled", enabled_events: [...REQUIRED_WEBHOOK_EVENTS] }]),
       EXPECTED_URL
     );
     expect(health.healthy).toBe(true);
-    // (the two delayed-payment checkout events are recommended too, since the handler acts on them)
-    expect(health.missingRecommended).toEqual(["charge.dispute.closed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"]);
+    expect(health.missingRecommended).toEqual(["checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"]);
   });
 
   it("the route handles the events the health check requires and recommends", async () => {

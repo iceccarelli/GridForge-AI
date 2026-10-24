@@ -26,24 +26,23 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   // A plan switch, a pause or a cancellation made in the Stripe Billing Portal reaches the site only as this event; without it the
   // entitlement silently stays what it was while Stripe bills something else.
   "customer.subscription.updated",
+  // A subscription payment refunded in full or disputed suspends the API key / Hall Watch / Intelligence entitlement, and a dispute won
+  // restores it (lib/billing-holds.ts). Without these three a refunded or charged-back customer keeps paid access until the
+  // subscription is cancelled, which is the failure the holds exist to close, so a missing one makes the endpoint unhealthy.
+  "charge.refunded",
+  "charge.dispute.created",
+  "charge.dispute.closed",
 ] as const;
 
 /**
- * Events the handlers act on beyond the five required ones. A missing one does not make the endpoint unhealthy (nothing here is needed to
- * sell or renew), but it is reported because a customer-visible outcome depends on it:
- *   charge.refunded, charge.dispute.created, charge.dispute.closed
- *       the refund and dispute counts and operator mails, AND the suspension of paid access: a subscription payment refunded in full or
- *       disputed suspends the API key / Hall Watch / Intelligence entitlement, and a dispute won restores it. Without them a refunded
- *       or charged-back customer keeps paid access until the subscription is cancelled.
+ * Events the handlers act on beyond the required ones. A missing one does not make the endpoint unhealthy, but it is reported because a
+ * customer-visible outcome depends on it:
  *   checkout.session.async_payment_succeeded, checkout.session.async_payment_failed
  *       a delayed payment method (a bank debit or transfer) completes a checkout unpaid; the sale is fulfilled when the first arrives and
  *       never when the second does. Needed only if such a payment method is ever enabled on Checkout (today it is card only).
  * The handler really handles each of these (tests/site/billing-holds.test.ts).
  */
 export const RECOMMENDED_WEBHOOK_EVENTS = [
-  "charge.refunded",
-  "charge.dispute.created",
-  "charge.dispute.closed",
   "checkout.session.async_payment_succeeded",
   "checkout.session.async_payment_failed",
 ] as const;
