@@ -6,11 +6,28 @@ Nothing here was run against live Stripe, live Supabase or the deployed engine. 
 Stripe **test mode** and a **preview** deployment first. Do not charge a real card to test.
 
 ## 1. Deploy order
-1. Engine first: `bash scripts/deploy-engine.sh` (needs Fly credentials). The deployed engine at the time of writing
-   did not serve `/v1/compare`, `/v1/power/*` or `/v1/revoke`. Confirm with `python3 scripts/check-engine-drift.py`
-   (read-only). It must print "serves every route and unit rate".
+1. Engine first. The deployed engine at the time of writing did not serve `/v1/estimate`, `/v1/compare`, `/v1/power/*`
+   or `/v1/revoke`, and published no `provenance.code_sha256` or `metering.ledger_durable`. Nothing in this repository
+   has deployed it; a deploy needs a Fly credential that only the owner holds.
+   - One-time: create a deploy token and add it as the repository secret **`FLY_API_TOKEN`**:
+     `fly tokens create deploy -a gridforge-engine`, then GitHub, Settings, Secrets and variables, Actions, New
+     repository secret. Optionally add required reviewers to the `production-engine` environment (Settings,
+     Environments) so a deploy needs a second approval.
+   - Deploy: GitHub, Actions, **deploy-engine**, Run workflow, type `DEPLOY`. It stops at once, naming the fix, if the
+     secret is missing; then runs the engine tests, `bash scripts/deploy-engine.sh` (no `--bootstrap`: a deploy never
+     creates, rotates or overwrites a credential; one machine with the `gridforge_data` volume), and finally
+     `python3 scripts/check-engine-drift.py` against the live engine. The job is red if any drift remains.
+     From a machine already signed in to Fly the same script is `bash scripts/deploy-engine.sh` (exit 3 means no
+     credential, nothing was changed; exit 1 means it deployed but verification failed).
+   - Verify (read-only, any machine): `python3 scripts/check-engine-drift.py`. It must print "serves every route and
+     unit rate". Differences are grouped (routes, unit rates, version, provenance, ledger, tool names) and `--json`
+     gives the same for tooling. The `engine-drift` workflow repeats this daily and lists the differences in its job summary.
+   - Then refresh the website's record of the deployed engine from the live engine:
+     `python3 scripts/check-engine-drift.py --write-snapshot lib/engine-deployed.json`
+     (the deploy workflow also uploads `engine-deployed.json` as an artifact), and commit it.
 2. The engine must run **exactly one machine** with the `gridforge_data` volume: usage counter, ledger, revocations and
-   the cost file are local state. `fly scale count 1`. A second machine would split the ledger.
+   the cost file are local state. The deploy script uses `--ha=false` and fails if it finds anything other than exactly
+   one machine mounting the volume; to repair by hand, `fly scale count 1`. A second machine would split the ledger.
 3. Set on the engine: `GRIDFORGE_KEY_SECRET` (same value as the site), `GRIDFORGE_ADMIN_KEY`,
    `GRIDFORGE_LEDGER_FILE=/data/ledger.jsonl`, `GRIDFORGE_USAGE_FILE`, `GRIDFORGE_REVOKED_FILE`.
 4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0039 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.

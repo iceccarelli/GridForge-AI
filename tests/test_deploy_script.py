@@ -44,7 +44,9 @@ import json, sys
 open(sys.argv[1], "a").write(json.dumps(sys.argv[2:]) + "\n")
 PY
 case "$1 $2" in
-  "auth whoami")   echo "tester@example.com" ;;
+  "auth whoami")
+    if [ "${FAKE_WHOAMI_RC:-0}" != "0" ]; then echo "Error: no access token available" >&2; exit "$FAKE_WHOAMI_RC"; fi
+    echo "tester@example.com" ;;
   "status --app")  exit "${FAKE_STATUS_RC:-0}" ;;
   "secrets list")  cat "${FAKE_SECRETS_OUT:-/dev/null}"; exit "${FAKE_SECRETS_RC:-0}" ;;
   "volumes list")
@@ -448,3 +450,143 @@ class TestPostDeployProof:
         assert proc.returncode == 1, proc.stdout
         assert "DRIFT from this repository" in proc.stdout
         assert re.search(r"!!\s+pay-as-you-go published", proc.stdout) and re.search(r"!!\s+durable usage ledger", proc.stdout)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Credentials: auth failure is explicit and early; a deploy never writes a secret; the post-deploy drift check is not optional.
+# ---------------------------------------------------------------------------------------------------------------------
+MUTATING = (["apps", "create"], ["secrets", "set"], ["volumes", "create"], ["deploy"])
+
+
+def mutations(calls):
+    return [c for c in calls if any(c[:len(m)] == m for m in MUTATING)]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestAuthFailsEarly:
+    def test_missing_auth_fails_before_any_mutation(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1", "GRIDFORGE_SKIP_DEPLOY": "0"},
+                          args=("--bootstrap",))
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert calls == [["auth", "whoami"]], f"anything after the auth check is a mutation or a read it had no right to make: {calls}"
+        assert mutations(calls) == []
+        assert "Add repository secret FLY_API_TOKEN (fly tokens create deploy -a test-engine)" in proc.stderr
+
+    def test_there_is_no_interactive_login_fallback(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1"})
+        assert not [c for c in calls if c[:2] == ["auth", "login"]], "a script run in CI must not try to sign in"
+
+    def test_a_rejected_token_is_named_and_never_printed(self, tmp_path):
+        secret = "fo1_SuperSecretTokenValue123"
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FLY_API_TOKEN": secret})
+        assert proc.returncode == 3
+        assert "Fly rejected it" in proc.stderr
+        assert secret not in proc.stdout + proc.stderr
+        assert mutations(calls) == []
+
+    def test_an_empty_token_counts_as_no_token(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FLY_API_TOKEN": ""})
+        assert proc.returncode == 3
+        assert "FLY_API_TOKEN is set but empty" in proc.stdout
+        assert "Add repository secret FLY_API_TOKEN" in proc.stderr
+
+    def test_check_mode_also_needs_auth(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="[]", args=("--check",), env_extra={"FAKE_WHOAMI_RC": "1"})
+        assert proc.returncode == 3 and mutations(calls) == []
+
+    def test_check_mode_still_stops_before_the_deploy(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, args=("--check",), env_extra={"GRIDFORGE_SKIP_DEPLOY": "0"})
+        assert proc.returncode == 0, proc.stderr
+        assert [c for c in calls if c[:1] == ["deploy"]] == []
+        assert "--check: stopping before deploy" in proc.stdout
+        assert "Post-deploy drift check" not in proc.stdout
+
+
+def _stub_engine(*, mutate=None):
+    """An HTTP stub that reports exactly what THIS repository says an engine serves (so there is no drift), optionally mutated."""
+    import http.server
+    import threading
+
+    from gridforge.api.metering import UNIT_COST
+    from gridforge.api.server import ROUTES, VERSION
+    from gridforge.api.tools import catalogue
+    from gridforge.provenance import code_sha256
+
+    version = {"version": VERSION, "auth_configured": True, "signed_keys": True, "payg": {"unit_price_cents": 1},
+               "endpoints": sorted(ROUTES) + ["/health"], "unit_rates": dict(UNIT_COST),
+               "provenance": {"code_sha256": code_sha256()}, "metering": {"durable": True, "ledger_durable": True}}
+    if mutate:
+        mutate(version)
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = {"/v1/version": version, "/v1/tools": catalogue()}.get(self.path, {"ok": True})
+            raw = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(raw)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestDeployNeverWritesSecretsAndVerifies:
+    def _deploy(self, tmp_path, url, secrets_out=JSON_LIST):
+        return run(tmp_path, secrets_out=secrets_out, env_extra={
+            "GRIDFORGE_SKIP_DEPLOY": "0", "GRIDFORGE_ENGINE_URL": url,
+            "FAKE_MACHINES_OUT": machines_file(tmp_path, ONE_MACHINE)})
+
+    def test_a_real_deploy_never_calls_secrets_set_and_deploys_one_machine(self, tmp_path):
+        srv, url = _stub_engine()
+        try:
+            proc, calls = self._deploy(tmp_path, url)
+        finally:
+            srv.shutdown()
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert secret_sets(calls) == [], "a deploy wrote a secret that already existed"
+        deploys = [c for c in calls if c[:1] == ["deploy"]]
+        assert len(deploys) == 1 and "--ha=false" in deploys[0]
+        assert not [c for c in calls if c[:1] == ["scale"] or c[:2] in (["machine", "clone"], ["machines", "clone"])], "never scale out"
+        # auth is the first thing asked of Fly
+        assert calls[0] == ["auth", "whoami"]
+
+    def test_a_deploy_with_missing_secrets_still_does_not_mint_them(self, tmp_path):
+        srv, url = _stub_engine()
+        try:
+            proc, calls = self._deploy(tmp_path, url, secrets_out="[]")
+        finally:
+            srv.shutdown()
+        assert secret_sets(calls) == []
+
+    def test_the_post_deploy_drift_check_runs_and_a_clean_engine_passes(self, tmp_path):
+        srv, url = _stub_engine()
+        try:
+            proc, _ = self._deploy(tmp_path, url)
+        finally:
+            srv.shutdown()
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "Post-deploy drift check" in proc.stdout
+        assert "serves every route and unit rate" in proc.stdout
+
+    def test_remaining_drift_alone_fails_the_deploy(self, tmp_path):
+        """Everything else about the engine is healthy; only the code digest differs. The script must still exit non-zero."""
+        srv, url = _stub_engine(mutate=lambda v: v.update(provenance={"code_sha256": "0" * 64}))
+        try:
+            proc, _ = self._deploy(tmp_path, url)
+        finally:
+            srv.shutdown()
+        assert proc.returncode == 1, proc.stdout
+        assert "Provenance (code digest)" in proc.stdout and "different tree" in proc.stdout
+        assert "Post-deploy verification FAILED" in proc.stdout
+        assert not re.search(r"!!\s+(paid endpoints|self-serve keys|durable usage|pay-as-you-go)", proc.stdout)
+
+    def test_an_engine_that_cannot_be_read_after_deploy_fails_rather_than_passes(self, tmp_path):
+        proc, _ = run(tmp_path, secrets_out=JSON_LIST, env_extra={"GRIDFORGE_SKIP_DEPLOY": "0", "GRIDFORGE_HEALTH_TRIES": "1", "FAKE_MACHINES_OUT": machines_file(tmp_path, ONE_MACHINE)})
+        assert proc.returncode == 1, proc.stdout
+        assert "Post-deploy verification FAILED" in proc.stdout
