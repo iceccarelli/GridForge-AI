@@ -8,8 +8,26 @@ import { RefreshCw } from "lucide-react";
 // divide by, and lists what cannot be measured. It claims no margin.
 
 interface Step { key: string; label: string; count: number; denominator: number | null; rate: number | null; source: "events" | "derived"; basis: string }
+interface Derived { label: string; formula: string; numerator: number; denominator: number; value: number | null }
+interface Checkout {
+  available: boolean;
+  reason?: string;
+  statement: string;
+  measured?: { attempted: number; session_created: number; failed: number; failed_by_reason: Record<string, number>; by_kind: Record<string, { attempted: number; session_created: number; failed: number }>; basis: string };
+  derived?: {
+    refused_before_stripe: number;
+    failed_at_stripe: number;
+    session_creation_rate: Derived;
+    stripe_failure_rate: Derived;
+    refusal_rate: Derived;
+    unresolved_attempts: { label: string; formula: string; value: number; note: string };
+    by_kind: Record<string, { attempted: number; session_created: number; session_creation_rate: Derived }>;
+    basis: string;
+  };
+}
 interface Funnel {
   days: number;
+  checkout?: Checkout;
   steps: Step[];
   cohort_definition: string;
   unmeasured: string[];
@@ -32,6 +50,70 @@ interface Economics {
 
 const pct = (r: number | null) => (r === null ? "n/a" : `${(r * 100).toFixed(1)}%`);
 const eur = (c: number) => `EUR ${(c / 100).toFixed(2)}`;
+
+/** The checkout section. Measured counts and derived values are two separate blocks, and a created session is never presented as a payment. */
+export function CheckoutSection({ checkout, days }: { checkout: Checkout; days: number }) {
+  return (
+    <div className="mt-5 border-t border-line pt-3 text-sm" aria-label="Checkout funnel">
+      <div className="text-mute mb-1">Checkout ({days} d)</div>
+      <p className="text-xs mb-2">{checkout.statement}</p>
+      {!checkout.available || !checkout.measured || !checkout.derived ? (
+        <p className="text-mute">Checkout figures unavailable: {checkout.reason}</p>
+      ) : (
+        <>
+          <div className="font-medium">Measured (recorded events)</div>
+          <table className="w-full text-sm mb-2">
+            <tbody>
+              <tr className="border-t border-line"><td className="py-1 pr-3">Checkout attempted (valid request handed to Stripe)</td><td className="tabular-nums">{checkout.measured.attempted}</td></tr>
+              <tr className="border-t border-line"><td className="py-1 pr-3">Session created (Stripe returned a URL; not a payment)</td><td className="tabular-nums">{checkout.measured.session_created}</td></tr>
+              <tr className="border-t border-line"><td className="py-1 pr-3">Checkout failed (refused or no session)</td><td className="tabular-nums">{checkout.measured.failed}</td></tr>
+              {Object.entries(checkout.measured.failed_by_reason).map(([reason, n]) => (
+                <tr key={reason} className="border-t border-line text-mute"><td className="py-1 pl-4 pr-3">failed: {reason}</td><td className="tabular-nums">{n}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="font-medium">Derived (calculated from the counts above; not recorded)</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-mute"><th className="py-1 pr-3 font-normal">Value</th><th className="font-normal pr-3">Of</th><th className="font-normal pr-3">Rate</th><th className="font-normal">Formula</th></tr>
+            </thead>
+            <tbody>
+              {[checkout.derived.session_creation_rate, checkout.derived.stripe_failure_rate, checkout.derived.refusal_rate].map((d) => (
+                <tr key={d.label} className="border-t border-line align-top">
+                  <td className="py-1 pr-3">{d.label} (derived)</td>
+                  <td className="pr-3 tabular-nums">{d.numerator} of {d.denominator}</td>
+                  <td className="pr-3 tabular-nums">{pct(d.value)}</td>
+                  <td className="text-mute">{d.formula}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-mute mt-1">{checkout.derived.unresolved_attempts.label} (derived): {checkout.derived.unresolved_attempts.value}. {checkout.derived.unresolved_attempts.note}</p>
+          {Object.keys(checkout.measured.by_kind).length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-mute">By product kind</summary>
+              <table className="mt-2 text-xs">
+                <thead><tr className="text-left text-mute"><th className="pr-3 font-normal">Kind</th><th className="pr-3 font-normal">Attempted</th><th className="pr-3 font-normal">Session created</th><th className="pr-3 font-normal">Failed</th><th className="font-normal">Session creation rate (derived)</th></tr></thead>
+                <tbody>
+                  {Object.entries(checkout.measured.by_kind).map(([kind, m]) => (
+                    <tr key={kind} className="border-t border-line">
+                      <td className="pr-3 py-1">{kind}</td>
+                      <td className="pr-3 tabular-nums">{m.attempted}</td>
+                      <td className="pr-3 tabular-nums">{m.session_created}</td>
+                      <td className="pr-3 tabular-nums">{m.failed}</td>
+                      <td className="tabular-nums">{pct(checkout.derived?.by_kind[kind]?.session_creation_rate.value ?? null)} ({m.session_created} of {m.attempted})</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+          <p className="text-xs text-mute mt-2">{checkout.derived.basis}</p>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function AdminFunnelPanel() {
   const [days, setDays] = useState(30);
@@ -112,6 +194,7 @@ export function AdminFunnelPanel() {
               <div>{funnel.payments.payment_failed.total} failed, {funnel.payments.refunds} refunds, {funnel.payments.disputes} disputes</div>
             </div>
           </div>
+          {funnel.checkout && <CheckoutSection checkout={funnel.checkout} days={funnel.days} />}
           {funnel.retention.cohorts.length > 0 && (
             <details className="mt-3 text-sm">
               <summary className="cursor-pointer text-mute">Retention by cohort week (net usage, from the ledger)</summary>
