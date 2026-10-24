@@ -15,6 +15,10 @@
 --       out-of-order pause and resume events. It is a clock of its own because last_billing_event_ts orders PAYMENT events, and a resume
 --       must not make an older (but not yet delivered) invoice.paid look stale.
 --
+--       billing_pause_checked_at is stamped by the daily job on every due pause it examines and does not start (Stripe unreachable, a
+--       stronger hold standing, a cancellation not yet delivered); the job reads the least recently examined first, so a row that stays
+--       stuck goes to the back and cannot starve the rest.
+--
 --   billing_audit.subject_table
 --       Also accepts 'stripe_disputes' (the subject of a dispute Stripe says does not exist, which belongs to no account).
 --
@@ -32,14 +36,17 @@
 alter table public.api_accounts add column if not exists billing_pause_from timestamptz;
 alter table public.api_accounts add column if not exists billing_pause_resumes_at timestamptz;
 alter table public.api_accounts add column if not exists billing_pause_event_ts bigint;
+alter table public.api_accounts add column if not exists billing_pause_checked_at timestamptz;
 
 alter table public.watches add column if not exists billing_pause_from timestamptz;
 alter table public.watches add column if not exists billing_pause_resumes_at timestamptz;
 alter table public.watches add column if not exists billing_pause_event_ts bigint;
+alter table public.watches add column if not exists billing_pause_checked_at timestamptz;
 
 alter table public.subscriptions add column if not exists billing_pause_from timestamptz;
 alter table public.subscriptions add column if not exists billing_pause_resumes_at timestamptz;
 alter table public.subscriptions add column if not exists billing_pause_event_ts bigint;
+alter table public.subscriptions add column if not exists billing_pause_checked_at timestamptz;
 
 create index if not exists api_accounts_pause_due_idx on public.api_accounts (billing_pause_from) where billing_pause_from is not null;
 create index if not exists watches_pause_due_idx on public.watches (billing_pause_from) where billing_pause_from is not null;

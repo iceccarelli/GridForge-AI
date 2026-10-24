@@ -127,10 +127,31 @@ def test_the_pause_columns_exist_with_their_types_and_default_to_null(db):
         assert col(t, "billing_pause_from") == "timestamp with time zone", t
         assert col(t, "billing_pause_resumes_at") == "timestamp with time zone", t
         assert col(t, "billing_pause_event_ts") == "bigint", t
+        assert col(t, "billing_pause_checked_at") == "timestamp with time zone", t
         assert q(db, f"select count(*) from pg_indexes where tablename = '{t}' and indexname = '{t}_pause_due_idx'") == "1", t
     a = f"acct-{uid()}"
     psql(db, f"insert into api_accounts (token, account, plan) values ('tok-{uid()}{uid()}', '{a}', 'api_scale')")
     assert q(db, f"select billing_pause_from is null and billing_pause_resumes_at is null and billing_pause_event_ts is null from api_accounts where account = '{a}'") == "t"
+
+
+def release_sql(sid, account, month, ref):
+    """The statement the operator's mail gives, read from the same source file the mail is built from (lib/payg-release-sql.ts)."""
+    src = (ROOT / "lib" / "payg-release-sql.ts").read_text()
+    start = src.index('"insert into payg_settlement_reversals')
+    template = src[start + 1:src.index('";', start)]
+    return template.replace("{settlement_id}", sid).replace("{account}", account).replace("{month}", month).replace("{ref}", ref)
+
+
+def test_the_operators_release_statement_runs_as_given_and_the_columns_it_leaves_out_take_their_defaults(db):
+    sid, a, m = settlement(db)
+    for ref in ("ch_x", "dp_y"):
+        psql(db, release_sql(sid, a, m, ref))
+    psql(db, release_sql(sid, a, m, "ch_x"))  # the same release twice is two rows, never a key collision
+    assert q(db, f"select count(*) from payg_settlement_reversals where settlement_id = '{sid}' and kind = 'release'") == "3"
+    assert q(db, f"select count(distinct dedupe_key) from payg_settlement_reversals where settlement_id = '{sid}' and kind = 'release'") == "3"
+    assert q(db, f"select min(state) from payg_settlement_reversals where settlement_id = '{sid}' and kind = 'release'") == "operator_release"
+    assert q(db, f"select bool_and(dedupe_key like 'release:%') from payg_settlement_reversals where settlement_id = '{sid}' and kind = 'release'") == "t"
+    assert q(db, f"select bool_and(created_at <= now()) from payg_settlement_reversals where settlement_id = '{sid}' and kind = 'release'") == "t"
 
 
 def test_the_daily_job_query_for_due_pauses_is_served_by_the_partial_index_and_ignores_rows_with_no_pause(db):
