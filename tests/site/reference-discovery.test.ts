@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SITE_URL } from "@/lib/site";
 
 const DIR = path.join(process.cwd(), "public", "reference");
 const PAGES = ["envelope_study", "board_summary", "proposal", "specification", "walkthrough"];
@@ -16,7 +17,7 @@ describe.each(PAGES)("public/reference/%s.html", (name) => {
 
   it("is canonical at its own absolute URL, exactly once", () => {
     const links = [...head.matchAll(/<link rel='canonical' href='([^']+)'>/g)].map((m) => m[1]);
-    expect(links).toEqual([`https://timetopower.ai/reference/${name}.html`]);
+    expect(links).toEqual([`${SITE_URL}/reference/${name}.html`]);
   });
 
   it("has a description that says the data is synthetic, and an indexable robots tag", () => {

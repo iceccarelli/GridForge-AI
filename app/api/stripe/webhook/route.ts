@@ -711,7 +711,9 @@ async function disputeNotice(closed: boolean, d: Stripe.Dispute): Promise<void> 
     `dispute:${d.id}:created`,
     `Stripe dispute OPENED — ${amount} (charge ${chargeId || "-"})${due ? `, evidence due ${due}` : ""}`,
     `${head}\n\n${due ? `Evidence is due by ${due}. ` : ""}Unanswered, the dispute is lost and the amount stays debited. Respond in the Stripe Dashboard (Payments, Disputes) before the deadline. ` +
-      "Nothing about the customer's access has been changed by this notice."
+      "This notice changes nothing itself. Access is handled separately: a real dispute on a SUBSCRIPTION payment suspends that subscription's paid " +
+      "access (recorded in billing_audit) and a dispute won restores it; a one-off engagement is not released while the payment is disputed " +
+      "unless you acknowledge it."
   );
 }
 
