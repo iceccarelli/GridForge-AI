@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { OG_IMAGES } from "@/lib/site";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
+import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
+import { NotYetAvailable } from "@/app/power/NotYetAvailable";
+
+// Whether the form is shown follows the DEPLOYED engine (its /v1/version), not the last build of this site.
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "BTM Power Deployment Assessment",
@@ -18,7 +23,8 @@ export const metadata: Metadata = {
  * writes the answer as revision 1 of a persistent case. There is no sample
  * project and no canned result — an empty state here means no case exists.
  */
-export default function PowerDeployPage() {
+export default async function PowerDeployPage() {
+  const state = availabilityIn(await deployedEngineRoutes(), "/v1/power/deploy/assess");
   return (
     <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
@@ -28,14 +34,22 @@ export default function PowerDeployPage() {
         What combination of grid, generation and storage gets you to firm power?
       </h1>
       <p className="mt-4 text-mute">
-        Compares GRID ONLY, GRID + GENERATION, GRID + BESS and GRID + BESS + GENERATION against
-        your declared redundancy policy, each priced and dated from what you enter below — never
+        {state === "available" ? "Compares" : "Once it is available, this compares"} GRID ONLY, GRID + GENERATION, GRID + BESS and GRID + BESS + GENERATION against
+        your declared redundancy policy, each priced and dated from what you enter — never
         priced at zero when a unit is uncosted. This is screening-level engineering: a directional
         read from a flat load assumption, not a bankable number. The API accepts a fuller request, including a real interval load profile.
       </p>
-      <div className="mt-8">
-        <PowerDeployCaseForm />
-      </div>
+      {state === "available" ? (
+        <div className="mt-8">
+          <PowerDeployCaseForm />
+        </div>
+      ) : (
+        <NotYetAvailable
+          what="The BTM power deployment assessment"
+          unreadable={state === "unknown"}
+          alternative={{ href: "/qualify", label: "Run the free capacity check instead" }}
+        />
+      )}
     </main>
   );
 }

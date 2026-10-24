@@ -45,6 +45,12 @@ export interface Capability {
   stripe_product_or_price: string | null; // "none" is a valid, honest answer
   deliverable: string | null;
   status: CapabilityStatus;
+  /**
+   * "live" only while the DEPLOYED engine serves `rest_endpoint` (lib/engine-deployed.json is the committed snapshot of
+   * what it served when last read; tests/site/engine-deployed-snapshot.test.ts fails when a live entry names a route
+   * that is not in it). Everything the repository implements but the engine on Fly does not yet serve is
+   * "not_deployed", whatever the repository's own tests say.
+   */
   production_status: "live" | "not_deployed";
   notes?: string;
 }
@@ -152,10 +158,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     name: "Hall Watch",
     description: "Quarterly re-solve of a hall's model with a change note on what moved.",
     product_id: "hall_watch",
-    engine_capability: "gridforge/reporting/readiness.py (re-solved on cron)",
-    rest_endpoint: "/v1/power/assess",
-    mcp_tool: "gridforge_power_assess",
-    cli_command: "gridforge power-assess",
+    engine_capability: "gridforge/reporting/change_note.py (re-solved on cron through POST /v1/diff, lib/watches.ts)",
+    rest_endpoint: "/v1/diff",
+    mcp_tool: "gridforge_diff",
+    cli_command: "gridforge diff",
     web_route: "/pricing",
     workspace_action: "commercial-action:hall_watch",
     database_record: "watches",
@@ -369,8 +375,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "power_deployment_cases row (case_token) + JSON assessment",
     status: "metered_only",
-    production_status: "live",
+    production_status: "not_deployed",
     notes:
+      "Not deployed: the engine on Fly does not serve /v1/power/deploy/assess yet (lib/engine-deployed.json), so the web " +
+      "page shows 'not available yet' and the API answers 503 with nothing charged until the engine is redeployed. " +
       "Real gap: priced and sellable through the API today, but not through a direct one-off " +
       "web checkout the way density_screen/procurement_spec are. Before adding a one-off SKU, " +
       "the pricing basis must come from somewhere real (e.g. parity with envelope_study_deposit " +
@@ -397,8 +405,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "Equipment spec document (HTML/Markdown/JSON) + response template",
     status: "metered_only",
-    production_status: "live",
-    notes: "Same open gap as btm_deploy_assess: no dedicated one-off web SKU yet.",
+    production_status: "not_deployed",
+    notes:
+      "Not deployed: the engine on Fly does not serve /v1/power/deploy/spec yet (lib/engine-deployed.json). " +
+      "Same open gap as btm_deploy_assess: no dedicated one-off web SKU yet.",
   },
   {
     capability_id: "project_record",
@@ -457,8 +467,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "RFQ specification (HTML/Markdown), response schedule, persisted comparison, selection event",
     status: "metered_only",
-    production_status: "live",
+    production_status: "not_deployed",
     notes:
+      "Not deployed: the engine on Fly does not serve /v1/power/deploy/bids (nor /v1/power/deploy/spec) yet " +
+      "(lib/engine-deployed.json). " +
       "No BTM price, SKU or checkout exists and none is implied. Supplier responses are validated " +
       "by the engine and stored as submitted; selection is a human decision and never rewrites the " +
       "ranking. Installation method and evidence quality remain engineer-scored.",

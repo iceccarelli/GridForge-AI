@@ -8,6 +8,7 @@ import path from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { FULL_ENGINE, stubEngine } from "./engine-stub";
 import ApiKeyPanel from "@/components/ApiKeyPanel";
 import ApiPlans from "@/components/ApiPlans";
 import CostEstimator from "@/components/CostEstimator";
@@ -141,9 +142,13 @@ describe("the rate card is generated, and degrades honestly", () => {
     expect(text(empty)).toMatch(/not available on this deployment/);
   });
   it("the estimator renders and also degrades without a catalogue", () => {
-    const t = text(render(React.createElement(CostEstimator, { rates, engine: "https://engine.example" })));
+    const t = text(render(React.createElement(CostEstimator, { rates, engine: "https://engine.example", estimateAvailable: true })));
     expect(t).toMatch(/What will this cost\?/);
     expect(t).toMatch(/Check against the live engine/);
+    // Without the engine's /v1/estimate the button is not offered and the page says why.
+    const without = text(render(React.createElement(CostEstimator, { rates, engine: "https://engine.example" })));
+    expect(without).not.toMatch(/Check against the live engine/);
+    expect(without).toMatch(/not available yet/);
     expect(text(render(React.createElement(CostEstimator, { rates: [], engine: "x" })))).toMatch(/not available on this deployment/);
   });
 });
@@ -284,7 +289,7 @@ describe("the usage meter", () => {
 });
 
 describe("setup snippets cost nothing until the paid call, and never contain a key", () => {
-  const html = text(render(React.createElement(SetupSnippets, { engine: "https://engine.example", rates })));
+  const html = text(render(React.createElement(SetupSnippets, { engine: "https://engine.example", rates, estimateAvailable: true })));
   it("estimate and usage first, then a paid call with idempotency and project headers", () => {
     expect(html.indexOf("/v1/estimate")).toBeLessThan(html.indexOf("/v1/usage"));
     expect(html.indexOf("/v1/usage")).toBeLessThan(html.indexOf("-X POST https://engine.example/v1/screen"));
@@ -303,7 +308,13 @@ describe("setup snippets cost nothing until the paid call, and never contain a k
 describe("pages", () => {
   it("the pricing page tells the three-part story and keeps the engagement ladder", async () => {
     const { default: Pricing } = await import("@/app/pricing/page");
-    const html = render(React.createElement(Pricing));
+    const stop = stubEngine(FULL_ENGINE);
+    let html: string;
+    try {
+      html = render(await Pricing());
+    } finally {
+      stop();
+    }
     const t = text(html);
     expect(html).toContain('id="engagements"');
     expect(html).toContain('id="metered"');
@@ -314,7 +325,13 @@ describe("pages", () => {
   });
   it("the developers page offers the free allowance first, then rates, then plans", async () => {
     const { default: Developers } = await import("@/app/developers/page");
-    const html = render(await Developers());
+    const stop = stubEngine(FULL_ENGINE);
+    let html: string;
+    try {
+      html = render(await Developers());
+    } finally {
+      stop();
+    }
     expect(html.indexOf('id="free"')).toBeGreaterThan(-1);
     expect(html.indexOf('id="free"')).toBeLessThan(html.indexOf('id="rates"'));
     expect(html.indexOf('id="rates"')).toBeLessThan(html.indexOf('id="plans"'));

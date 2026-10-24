@@ -8,6 +8,7 @@ import {
   callsInFreeAllowance,
   compareMonthly,
   eurExact,
+  callableRates,
   estimateOperation,
   isPerHall,
   normaliseHalls,
@@ -33,19 +34,32 @@ function toCount(raw: string, fallback: number, max: number): number {
  * GET /v1/estimate and shows its answer next to ours; if that route is missing or the browser cannot reach it,
  * it says so and keeps the computed figure, clearly labelled as computed.
  */
-export default function CostEstimator({ rates, engine }: { rates: ToolRate[]; engine: string }) {
+export default function CostEstimator({
+  rates: offered,
+  engine,
+  estimateAvailable = false,
+}: {
+  rates: ToolRate[];
+  engine: string;
+  /** The deployed engine serves GET /v1/estimate. Without it the "check against the live engine" button is not shown. */
+  estimateAvailable?: boolean;
+}) {
   const uid = useId();
+  // Only operations the deployed engine serves can be estimated: a price for one that cannot run is a price nobody pays.
+  const rates = useMemo(() => callableRates(offered), [offered]);
   const paid = useMemo(() => rates.filter((r) => r.units > 0), [rates]);
   const [endpoint, setEndpoint] = useState(paid[0]?.endpoint ?? rates[0]?.endpoint ?? "");
   const [hallsRaw, setHallsRaw] = useState("10");
   const [callsRaw, setCallsRaw] = useState("20");
   const [live, setLive] = useState<Live>({ state: "idle" });
 
-  const rate = rates.find((r) => r.endpoint === endpoint) ?? null;
+  const rate = rates.find((r) => r.endpoint === endpoint) ?? paid[0] ?? rates[0] ?? null;
   if (!rate) {
     return (
       <p role="status" className="rounded border border-line bg-panel p-4 text-sm text-mute">
-        The tool catalogue is not available on this deployment, so there is nothing to estimate against.
+        {offered.length > 0
+          ? "No operation can be called on the deployed engine right now, so there is nothing to estimate. Nothing is guessed in its place."
+          : "The tool catalogue is not available on this deployment, so there is nothing to estimate against."}
       </p>
     );
   }
@@ -96,7 +110,7 @@ export default function CostEstimator({ rates, engine }: { rates: ToolRate[]; en
           <label htmlFor={`${uid}-op`} className={lab}>Operation</label>
           <select
             id={`${uid}-op`}
-            value={endpoint}
+            value={rate.endpoint}
             onChange={(e) => {
               setEndpoint(e.target.value);
               setLive({ state: "idle" });
@@ -189,19 +203,26 @@ export default function CostEstimator({ rates, engine }: { rates: ToolRate[]; en
         ) : null}
       </ul>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
-        <button
-          type="button"
-          onClick={checkLive}
-          disabled={live.state === "checking"}
-          className="inline-flex min-h-11 items-center rounded border border-line px-4 py-2 text-sm font-semibold text-ghost hover:border-power/50 disabled:opacity-60"
-        >
-          {live.state === "checking" ? "Asking the engine" : "Check against the live engine"}
-        </button>
-        <span className="text-[11px] text-faint">
-          Asks the engine&apos;s public, free <span className="font-mono">/v1/estimate</span>. It never counts against anything.
-        </span>
-      </div>
+      {estimateAvailable ? (
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <button
+            type="button"
+            onClick={checkLive}
+            disabled={live.state === "checking"}
+            className="inline-flex min-h-11 items-center rounded border border-line px-4 py-2 text-sm font-semibold text-ghost hover:border-power/50 disabled:opacity-60"
+          >
+            {live.state === "checking" ? "Asking the engine" : "Check against the live engine"}
+          </button>
+          <span className="text-[11px] text-faint">
+            Asks the engine&apos;s public, free <span className="font-mono">/v1/estimate</span>. It never counts against anything.
+          </span>
+        </div>
+      ) : (
+        <p className="mt-5 border-t border-line pt-4 text-[11px] text-faint">
+          The engine&apos;s own live estimate (<span className="font-mono">/v1/estimate</span>) is not available yet: the
+          figures above are computed from the published unit weights, not read back from the engine.
+        </p>
+      )}
       <div aria-live="polite" className="mt-3">
         {live.state === "done" ? (
           <p className="text-sm text-mute">

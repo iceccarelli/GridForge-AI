@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  ROUTE_NOT_DEPLOYED_MESSAGE,
   appendDeploymentRevision,
   deploymentCaseHistory,
   latestDeploymentCase,
@@ -74,6 +75,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (g.denied) return g.denied;
   return g.run(async () => {
     const assessed = await runDeploymentAssessment(request);
+    if (!assessed.ok && assessed.routeMissing) {
+      return NextResponse.json({ ok: false, error: ROUTE_NOT_DEPLOYED_MESSAGE }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    }
     if (!assessed.ok) {
       return NextResponse.json(
         { ok: false, error: `The engine could not re-solve this case: ${assessed.error}` },
