@@ -588,6 +588,15 @@ export async function liftHold(found: Entitlements, l: LiftRequest): Promise<Lif
   return res;
 }
 
+/**
+ * Did THIS event already lift a hold (its hold_lifted audit row exists)? A retried event finds the hold gone, so "nothing to lift" alone
+ * cannot tell a retry that must still finish its follow-up (re-checking a pause at Stripe) from an event that never lifted anything.
+ */
+export async function liftedByEvent(eventId: string): Promise<boolean> {
+  const r = await pg<{ id: string }[]>("GET", `billing_audit?stripe_event_id=eq.${enc(eventId)}&action=eq.hold_lifted&select=id&limit=1`);
+  return r.ok && (r.data?.length ?? 0) > 0;
+}
+
 // ------------------------------------------------------------------------------------------ charge and dispute events
 
 /** `found`: the subscription's entitlements as they stood when the decision was taken, when there were any (callers audit against them). */

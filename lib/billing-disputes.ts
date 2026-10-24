@@ -26,6 +26,7 @@
 import { classifyDispute, LIFTS_DISPUTE_HOLD, type DisputeState } from "@/lib/dispute-state";
 import {
   idOf,
+  liftedByEvent,
   liftHold,
   recordBillingAudit,
   resolveSubscription,
@@ -37,6 +38,7 @@ import {
   type HoldKind,
   type ReversalStripe,
 } from "@/lib/billing-holds";
+import { reassertPause } from "@/lib/billing-pause";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
 import { cents, reverseSettlement, settlementRefOf } from "@/lib/payg-refunds";
 
@@ -142,6 +144,11 @@ export async function reconcileDispute(p: { payload: DisputeLike; stripe: Revers
     const lifted = await liftHold(f, { kinds: ["disputed"], ref: id, restore: "prev", cause: "dispute_won", clock: "none", subscriptionId: owner.subscriptionId, eventId: p.eventId });
     if (!lifted.ok) return { ok: false, why: "dispute hold could not be lifted" };
     decision = lifted.lifted.api || lifted.lifted.watch || lifted.lifted.intelligence ? "lift" : "none";
+    // The dispute may have REPLACED a pause (one hold column); billing may still be paused at Stripe, and then the pause goes back at once.
+    if (decision === "lift" || (await liftedByEvent(p.eventId))) {
+      const again = await reassertPause(owner.subscriptionId, p.stripe, { id: p.eventId });
+      if (!again.ok) return { ok: false, why: "pause could not be re-checked after the lift" };
+    }
   }
   if (!found) return { ok: true };
 

@@ -16,17 +16,34 @@ import { siteUrl } from "@/lib/site";
 import { accountRef } from "@/lib/payg";
 import { settleClosedMonths } from "@/lib/payg-settle";
 import { paygAccount } from "./payg-harness";
-import { audit, operatorMail, revokeCalls, send, startRig, type Rig } from "./billing-holds-harness";
+import { at, audit, operatorMail, revokeCalls, send, startRig, type Rig } from "./billing-holds-harness";
+import { releaseSql } from "@/lib/payg-release-sql";
 import type { Row } from "./postgrest-fake";
 
 let rig: Rig;
 beforeEach(() => {
   rig = startRig();
   rig.db.appendOnly.add("payg_settlement_reversals");
+  // the table's own default for a release that names no key
+  rig.db.rowDefaults.set("payg_settlement_reversals", () => ({ dedupe_key: `release:${++releaseSeq}` }));
 });
 afterEach(() => rig.stop());
 
 const ACCOUNT = "acme-123456";
+const releaseFor = (settlement: Row, ref: string) => releaseSql({ id: String(settlement.id), account: ACCOUNT, month: "2026-09" }, ref);
+let releaseSeq = 0;
+/**
+ * Run the INSERT the operator's mail gives (or releaseSql builds) against the fake store: the column list and the values are parsed from the
+ * statement, so what the statement leaves out (dedupe_key) is what the table's own default fills, as in PostgreSQL.
+ */
+function operatorRuns(text: string) {
+  const m = text.match(/insert into payg_settlement_reversals \(([^)]*)\)\s+values \(([^;]*)\);/);
+  if (!m) throw new Error("no release statement in: " + text.slice(0, 200));
+  const cols = m[1].split(",").map((c) => c.trim());
+  const vals = [...m[2].matchAll(/'([^']*)'|(\d+)/g)].map((x) => (x[1] !== undefined ? x[1] : Number(x[2])));
+  const row: Record<string, unknown> = Object.fromEntries(cols.map((c, i) => [c, vals[i]]));
+  rig.db.insertRow("payg_settlement_reversals", row as Row);
+}
 const reversals = () => rig.db.rows("payg_settlement_reversals") as Row[];
 
 /** A pay-as-you-go account with a live key, and its September settlement, PAID. */
@@ -259,24 +276,92 @@ describe("5. getting access back", () => {
     const { acct, settlement } = setup();
     await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0 });
     const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
-    rig.db.insertRow("payg_settlement_reversals", { dedupe_key: "release:other", settlement_id: settlement.id, account: ACCOUNT, month: "2026-09", kind: "release", stripe_object_id: "ch_OTHER", amount_cents: 0, state: "operator_release", note: "wrong hold" });
+    at(rig.T0 + 60);
+    operatorRuns(releaseFor(settlement, "ch_OTHER")); // the SQL the mail shows, for the wrong charge
     let rep = await runSettlementReversalPass();
     expect(rep).toMatchObject({ releasesApplied: 0, errors: 0 });
     expect(rep.heldAccounts).toEqual([{ account_ref: accountRef(ACCOUNT), hold: "refunded", since: expect.any(String) }]);
     expect(acct.billing_hold).toBe("refunded");
-    rig.db.insertRow("payg_settlement_reversals", { dedupe_key: "release:1", settlement_id: settlement.id, account: ACCOUNT, month: "2026-09", kind: "release", stripe_object_id: "ch_s9", amount_cents: 0, state: "operator_release", note: "goodwill refund, customer is fine" });
+    at(rig.T0 + 120);
+    operatorRuns(operatorMail(rig).map((m) => m.text).join("\n")); // the SQL in the operator's own mail, verbatim
     rep = await runSettlementReversalPass();
     expect(rep.releasesApplied).toBe(1);
     expect(acct).toMatchObject({ status: "active", billing_hold: null, key_id: null });
     expect(audit(rig, "hold_lifted")[0].detail).toMatchObject({ cause: "operator_release" });
-    // idempotent, and a LATER hold is not touched by the old release
+    expect((await runSettlementReversalPass()).releasesApplied).toBe(0); // idempotent
+  });
+
+  it("A: a release, then Stripe REDELIVERS the same charge.refunded: the hold is not re-applied, the replacement key the customer minted is not revoked, and no later daily run lifts anything", async () => {
+    const { acct, settlement } = setup();
+    await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0, id: "evt_first" });
+    const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
+    at(rig.T0 + 60);
+    operatorRuns(releaseFor(settlement, "ch_s9"));
+    expect((await runSettlementReversalPass()).releasesApplied).toBe(1);
+    expect(acct).toMatchObject({ status: "active", billing_hold: null, key_id: null });
+    // the customer mints a new key
+    const { POST } = await import("@/app/api/keys/route");
+    const minted = await POST(new Request(siteUrl("/api/keys"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: acct.token }) }));
+    expect(minted.status).toBe(200);
+    const newKey = acct.key_id;
+    expect(newKey).not.toBeNull();
+    const revokesBefore = revokeCalls(rig).length;
+    at(rig.T0 + 3600);
+    for (const id of ["evt_first", "evt_second"]) expect((await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0, id })).status).toBe(200);
+    expect(acct).toMatchObject({ status: "active", billing_hold: null, key_id: newKey });
+    expect(revokeCalls(rig)).toHaveLength(revokesBefore);
+    // and the next days' runs find nothing to lift
+    at(rig.T0 + 2 * 86_400);
     expect((await runSettlementReversalPass()).releasesApplied).toBe(0);
-    await send(rig, "charge.refunded", refunded(10_000, { id: "ch_s9b" }), { created: rig.T0 + 500 });
-    rig.stripe.linkSettlement("ch_s9b", "pi_s9", "in_set_09", { account: ACCOUNT, month: "2026-09" });
-    await send(rig, "charge.refunded", refunded(10_000, { id: "ch_s9b" }), { created: rig.T0 + 501, id: "evt_again" });
-    expect(acct.billing_hold).toBe("refunded");
+    expect(acct.key_id).toBe(newKey);
+    expect(audit(rig, "hold_lifted")).toHaveLength(1);
+  });
+
+  it("B: a release of an OPEN dispute does not cover its later LOST state: the hold applied for `lost` stands, on this run and every later one", async () => {
+    const { acct, settlement } = setup();
+    await send(rig, "charge.dispute.created", dispute("needs_response"), { created: rig.T0 });
+    expect(acct.billing_hold).toBe("disputed");
+    const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
+    at(rig.T0 + 60);
+    operatorRuns(releaseFor(settlement, "dp_s9"));
+    expect((await runSettlementReversalPass()).releasesApplied).toBe(1);
+    expect(acct.billing_hold).toBeNull();
+    // it goes on to be lost
+    at(rig.T0 + 120);
+    rig.stripe.pinDispute("dp_s9", dispute("lost"));
+    await send(rig, "charge.dispute.closed", dispute("lost"), { created: rig.T0 + 120 });
+    expect(acct).toMatchObject({ billing_hold: "disputed", billing_hold_ref: "dp_s9", status: "past_due" });
+    for (let day = 1; day <= 3; day++) {
+      at(rig.T0 + day * 86_400);
+      expect((await runSettlementReversalPass()).releasesApplied).toBe(0);
+      expect(acct).toMatchObject({ billing_hold: "disputed", status: "past_due" });
+    }
+    expect(audit(rig, "hold_lifted")).toHaveLength(1);
+  });
+
+  it("B2: the dispute turns `lost` BEFORE the daily run has applied the release of its open state: the release does not lift the lost hold either", async () => {
+    const { acct, settlement } = setup();
+    await send(rig, "charge.dispute.created", dispute("needs_response"), { created: rig.T0 });
+    const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
+    at(rig.T0 + 60);
+    operatorRuns(releaseFor(settlement, "dp_s9"));
+    at(rig.T0 + 120);
+    rig.stripe.pinDispute("dp_s9", dispute("lost"));
+    await send(rig, "charge.dispute.closed", dispute("lost"), { created: rig.T0 + 120 });
+    at(rig.T0 + 3600);
     expect((await runSettlementReversalPass()).releasesApplied).toBe(0);
-    expect(acct.billing_hold).toBe("refunded");
+    expect(acct).toMatchObject({ billing_hold: "disputed", status: "past_due" });
+  });
+
+  it("a release written BEFORE a hold began never lifts it (a new refund of the same charge id after an old release)", async () => {
+    const { acct, settlement } = setup();
+    const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
+    operatorRuns(releaseFor(settlement, "ch_s9")); // a release for a hold that does not exist yet
+    at(rig.T0 + 60);
+    await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0 + 60 });
+    at(rig.T0 + 3600);
+    expect((await runSettlementReversalPass()).releasesApplied).toBe(0);
+    expect(acct).toMatchObject({ status: "past_due", billing_hold: "refunded" });
   });
 
   it("the daily route runs the pass, reports the held accounts, and mails the operator once a day while any stands", async () => {
@@ -313,6 +398,19 @@ describe("6. the record is append-only and durable", () => {
     expect((await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0, id: "evt_m" })).status).toBe(200);
     expect(reversals()).toHaveLength(1);
     expect(revokeCalls(rig)).toEqual(["keyPAYG1"]);
+  });
+
+  it("migration 0043 not applied: a PARTIAL refund (no access decision) is acknowledged, not 500-looped, and the operator's mail is its record; a full one still waits for the table", async () => {
+    const { acct } = setup();
+    rig.db.dropTable("payg_settlement_reversals");
+    expect((await send(rig, "charge.refunded", refunded(2_500), { created: rig.T0, id: "evt_p" })).status).toBe(200);
+    expect(acct.billing_hold ?? null).toBeNull();
+    const m = operatorMail(rig).filter((x) => /partly refunded/.test(x.subject));
+    expect(m).toHaveLength(1);
+    expect(m[0].text).toMatch(/NOT RECORDED/);
+    expect(operatorMail(rig).filter((x) => /Migration 0043/.test(x.subject))).toHaveLength(1);
+    expect((await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0, id: "evt_f" })).status).toBe(500);
+    expect(acct.billing_hold).toBe("refunded");
   });
 
   it("a store failure while recording answers 500 and records nothing twice on the retry", async () => {

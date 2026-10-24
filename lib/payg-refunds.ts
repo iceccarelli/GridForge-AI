@@ -29,6 +29,7 @@ import type { ApiAccount } from "@/lib/api-access";
 import { applyHold, liftHold, recordBillingAudit, type Handled, type PaymentOwner } from "@/lib/billing-holds";
 import { classifyDispute, HOLDS_ACCESS, LIFTS_DISPUTE_HOLD, type DisputeState } from "@/lib/dispute-state";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
+import { releaseSql } from "@/lib/payg-release-sql";
 import { eurText, accountRef, MONTH } from "@/lib/payg";
 import { reconcileAccount } from "@/lib/payg-billing";
 import type { Settlement } from "@/lib/payg-settle";
@@ -92,9 +93,8 @@ async function operatorNotice(ev: ReversalEvent, s: Settlement, key: string, out
       "What it did NOT do, on purpose: the usage ledger and the units already consumed are unchanged (the engine's record of what was used stays as it is), the account's cap is unchanged, the settlement row was not edited, and no credit was applied to any future invoice. " +
       "A person decides whether this customer's access continues.\n\n" +
       `To restore a held account without waiting for a won dispute or a paid later settlement, append a release (Supabase SQL editor, service role):\n` +
-      `  insert into payg_settlement_reversals (settlement_id, account, month, kind, stripe_object_id, amount_cents, state, note)\n` +
-      `  values ('${s.id}', '${s.account}', '${s.month}', 'release', '${ev.ref}', 0, 'operator_release', 'why');\n` +
-      "The daily job lifts exactly that hold, once, and audits it. The revoked key stays revoked; the customer mints a new one. This notice is sent once per refund amount or dispute status."
+      `  ${releaseSql(s, ev.ref)}\n` +
+      "The daily job lifts exactly that hold, once, and audits it. The release covers the hold as it stands NOW: a later state of the same dispute (open, then lost) or a later hold needs its own release. The revoked key stays revoked; the customer mints a new one. This notice is sent once per refund amount or dispute status."
   );
 }
 
@@ -140,6 +140,7 @@ export async function reverseSettlement(p: { s: SettlementRef | "malformed"; ev:
   );
   const missingTable = tableMissing(ins);
   if (!ins.ok && !missingTable) return { ok: false, why: "settlement reversal could not be recorded" };
+  const recordedNow = ins.ok && (ins.data?.length ?? 0) > 0;
 
   // 2. The decision.
   const wantsHold = !mismatch && (ev.kind === "refund" ? ev.full : HOLDS_ACCESS.includes(ev.state));
@@ -150,6 +151,8 @@ export async function reverseSettlement(p: { s: SettlementRef | "malformed"; ev:
     if (acct === "error") return { ok: false, why: "account lookup failed" };
     if (!acct || acct.plan !== "api_payg" || acct.status === "cancelled") {
       outcome = "recorded it; the account is not an active pay-as-you-go account, so there is no access to suspend or restore.";
+    } else if (wantsHold && !(await mayApplyHold(ev.ref, key, recordedNow))) {
+      outcome = "recorded it; an operator RELEASED this hold after this state was first recorded, so the redelivery did not re-apply it.";
     } else if (wantsHold) {
       const later = await pg<{ id: string }[]>("GET", `usage_settlements?account=eq.${enc(account)}&month=gt.${enc(month)}&status=eq.paid&select=id&limit=1`);
       if (!later.ok) return { ok: false, why: "later settlements could not be read" };
@@ -182,12 +185,27 @@ export async function reverseSettlement(p: { s: SettlementRef | "malformed"; ev:
     }
   }
 
+  // The operator hears of it whether or not the record could be written (it is the only trace there is until the table exists).
+  await operatorNotice(ev, s, key, missingTable ? `${outcome} (NOT RECORDED: payg_settlement_reversals does not exist, migration 0043 is not applied.)` : outcome, mismatch);
   if (missingTable) {
-    await notifyOperatorOnce("migration_0043_reversals_missing", "Migration 0043 (settlement reversals) is not applied", `A refund or dispute of a pay-as-you-go settlement could not be recorded because payg_settlement_reversals does not exist. The access decision was applied; the event is answered with a failure so Stripe redelivers it once the migration is applied (supabase/migrations/0043_billing_pause_and_settlement_reversals.sql). This notice is sent once.`);
-    return { ok: false, why: "payg_settlement_reversals is missing (migration 0043)" };
+    await notifyOperatorOnce("migration_0043_reversals_missing", "Migration 0043 (settlement reversals) is not applied", `A refund or dispute of a pay-as-you-go settlement could not be recorded because payg_settlement_reversals does not exist. Any access decision was applied. An event that took an access decision is answered with a failure so Stripe redelivers it and the record is written once the migration is applied (supabase/migrations/0043_billing_pause_and_settlement_reversals.sql); one that needed none (a partial refund) is acknowledged, and the operator mail above is its only record. This notice is sent once.`);
+    if (wantsHold || wantsLift) return { ok: false, why: "payg_settlement_reversals is missing (migration 0043)" };
   }
-  await operatorNotice(ev, s, key, outcome, mismatch);
   return { ok: true };
+}
+
+/**
+ * False when an operator RELEASE of this hold (a release row naming the same charge or dispute) is newer than the record of the state being
+ * applied: the redelivery of an event that was already recorded must not re-apply a hold a person lifted. A state recorded NOW (a new
+ * dispute status, a first refund) is newer than any release, so it applies.
+ */
+async function mayApplyHold(ref: string, key: string, recordedNow: boolean): Promise<boolean> {
+  if (recordedNow) return true;
+  const rel = await pg<{ created_at: string }[]>("GET", `payg_settlement_reversals?kind=eq.release&stripe_object_id=eq.${enc(ref)}&select=created_at&order=created_at.desc&limit=1`);
+  if (!rel.ok || !rel.data?.[0]) return true;
+  const mine = await pg<{ created_at: string }[]>("GET", `payg_settlement_reversals?dedupe_key=eq.${enc(key)}&select=created_at&limit=1`);
+  if (!mine.ok || !mine.data?.[0]) return true;
+  return !(Date.parse(rel.data[0].created_at) > Date.parse(mine.data[0].created_at));
 }
 
 // ------------------------------------------------------------------------------------------------- the refund event itself
@@ -257,7 +275,7 @@ export interface ReversalReport {
 /** Operator releases (append-only rows naming a hold's own charge or dispute id) become lifts, once; then the accounts still held are listed. Never throws. */
 export async function runSettlementReversalPass(): Promise<ReversalReport> {
   const report: ReversalReport = { heldAccounts: [], releasesApplied: 0, errors: 0 };
-  const rel = await pg<{ id: string; account: string; stripe_object_id: string | null }[]>("GET", "payg_settlement_reversals?kind=eq.release&select=id,account,stripe_object_id&order=created_at.desc&limit=100");
+  const rel = await pg<{ id: string; account: string; stripe_object_id: string | null; created_at: string }[]>("GET", "payg_settlement_reversals?kind=eq.release&select=id,account,stripe_object_id,created_at&order=created_at.desc&limit=100");
   if (tableMissing(rel)) {
     report.skipped = "migration 0043 not applied (no payg_settlement_reversals)";
     return report;
@@ -272,6 +290,17 @@ export async function runSettlementReversalPass(): Promise<ReversalReport> {
         continue;
       }
       if (!acct || !acct.billing_hold || acct.billing_hold === "paused" || !row.stripe_object_id || acct.billing_hold_ref !== row.stripe_object_id) continue;
+      // A release is a decision about the hold AS IT STOOD when it was made. It never lifts a hold that began after it, nor one whose state
+      // changed after it (a dispute released while open that is then LOST): both need a release of their own.
+      const releasedAt = Date.parse(row.created_at);
+      const heldAt = acct.billing_hold_at ? Date.parse(acct.billing_hold_at) : NaN;
+      if (Number.isFinite(heldAt) && releasedAt < heldAt) continue;
+      const newest = await pg<{ created_at: string }[]>("GET", `payg_settlement_reversals?stripe_object_id=eq.${enc(row.stripe_object_id)}&kind=in.(refund,dispute)&select=created_at&order=created_at.desc&limit=1`);
+      if (!newest.ok) {
+        report.errors++;
+        continue;
+      }
+      if (newest.data?.[0] && Date.parse(newest.data[0].created_at) >= releasedAt) continue;
       const lifted = await liftHold({ api: acct, watch: null, intelligence: null }, { kinds: ["refunded", "disputed"], ref: row.stripe_object_id, restore: "prev", cause: "operator_release", clock: "none", subscriptionId: "", eventId: `release:${row.id}` });
       if (!lifted.ok) {
         report.errors++;

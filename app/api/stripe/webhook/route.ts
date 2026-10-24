@@ -30,6 +30,7 @@ import {
   enforceGraceRow,
   isFullRefund,
   isOurSubscriptionKind,
+  liftedByEvent,
   liftHold,
   noteUnconfirmedRevocation,
   resolveSubscription,
@@ -43,7 +44,7 @@ import {
   type Resolved as ResolvedResult,
 } from "@/lib/billing-holds";
 import { reconcileDispute } from "@/lib/billing-disputes";
-import { applyPauseState, extendScheduledPause, type PausedSub } from "@/lib/billing-pause";
+import { applyPauseState, extendScheduledPause, reassertPause, type PausedSub } from "@/lib/billing-pause";
 import { cents, reverseSettlement, settlementRefOf } from "@/lib/payg-refunds";
 import { depositBySession, recordDeposit } from "@/lib/deposits";
 import { depositTerms } from "@/lib/engagement-state";
@@ -140,7 +141,20 @@ export async function POST(req: Request) {
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const session = event.data.object as Stripe.Checkout.Session;
     if (!checkoutIsPaid(session)) {
-      console.log(`[GridForge] checkout ${session.id} completed with payment_status ${String(session.payment_status)}; not fulfilled until it is paid (checkout.session.async_payment_succeeded)`);
+      const ps = String(session.payment_status);
+      if (ps === "unpaid") {
+        console.log(`[GridForge] checkout ${session.id} completed with payment_status ${ps}; not fulfilled until it is paid (checkout.session.async_payment_succeeded)`);
+      } else {
+        // A value Stripe has never been seen to send (or one this site does not know): a sale that may be PAID is not being fulfilled. The 200
+        // stays (a retry cannot change the payload), but a person is told, once per session and value, with the session id to look up.
+        console.error(`[GridForge] checkout ${session.id} completed with an UNKNOWN payment_status ${ps.slice(0, 40)}; NOT fulfilled (acknowledged)`);
+        await notifyOperatorOnce(
+          `payment_status_unknown:${session.id}:${ps.slice(0, 40)}`,
+          "A Stripe checkout arrived with a payment_status this site does not know — NOT fulfilled",
+          `Checkout session ${session.id} (kind ${String(session.metadata?.kind ?? "-")}) completed with payment_status "${ps.slice(0, 40)}". Only "paid" and "no_payment_required" are fulfilled and "unpaid" waits for ` +
+            "checkout.session.async_payment_succeeded; anything else is acknowledged WITHOUT fulfilment. If the customer has paid, look the session up in Stripe and fulfil it by hand. This notice is sent once per session and value."
+        );
+      }
       return NextResponse.json({ ok: true, received: true, fulfilled: false });
     }
     const email = session.customer_email || session.customer_details?.email || "";
@@ -501,6 +515,11 @@ export async function POST(req: Request) {
         );
       }
       if (!applied) return lifecycleRetry("renewal (write failed)", subId);
+      // A hold that replaced a pause is gone and the writes above restored what the rows were before; if billing is STILL paused at Stripe the
+      // pause goes back (the hold now, or the schedule) instead of access returning with no payment. After the writes, so it has the last word.
+      if (lift.lifted.api || lift.lifted.watch || lift.lifted.intelligence || (await liftedByEvent(event.id))) {
+        if (!(await reassertPause(subId, reversalStripe(), { id: event.id })).ok) return lifecycleRetry("renewal (pause could not be re-checked)", subId);
+      }
       if (found.api?.revocation_pending) await retryRevocationsFor(found.api.token);
       // The payment renewed. The KEY does not — it is a signed token with a fixed expiry, and nothing
       // can extend one in place. Tell the customer while there is still a working key to replace

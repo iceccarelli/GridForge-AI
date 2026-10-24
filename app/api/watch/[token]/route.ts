@@ -1,3 +1,4 @@
+import { pauseDue } from "@/lib/billing-pause-due";
 import { NextResponse } from "next/server";
 import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
 import { BASELINE_HEADLINE, weeksLine, getWatch, nextRun, notesFor, recordNote, runWatch, storedChange, updateWatch } from "@/lib/watches";
@@ -59,6 +60,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
             ? "This watch is paused because the last payment did not clear. Nothing is re-solved while it is paused; your numbers are kept and it resumes when a payment clears."
             : "This watch was cancelled. Nothing is re-solved.",
       },
+      { status: 409 }
+    );
+  }
+
+  // A pause scheduled for the end of the paid period has started once that instant has passed, even before the daily job writes the hold
+  // (lib/billing-pause.ts): nothing is re-solved, and no engine work is spent, for a period nobody paid for.
+  if (pauseDue(w)) {
+    return NextResponse.json(
+      { ok: false, status: "paused", error: "Billing for this watch is paused and the period you paid for has ended. Nothing is re-solved while it is paused; your numbers are kept and it resumes when billing resumes." },
       { status: 409 }
     );
   }
