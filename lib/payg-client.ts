@@ -227,6 +227,14 @@ export interface Settlement {
   carriedUnits: number | null;
   /** Only ever an https Stripe-hosted invoice URL; anything else is dropped. */
   invoiceUrl: string | null;
+  /**
+   * What Stripe reports refunded of this invoice, in cents (0 = nothing; null on routes that predate the field). `status` stays the
+   * invoice's own history; a refund is stated beside it. The units consumed and the cap are unchanged by it.
+   */
+  refundedCents: number | null;
+  refundState: "partial" | "full" | null;
+  /** A card dispute of this invoice: open (money debited, standing), lost or won. Null: none. */
+  dispute: "open" | "lost" | "won" | null;
 }
 
 export interface UsageAccount {
@@ -303,6 +311,9 @@ function parseSettlement(v: unknown): Settlement | null {
     status,
     carriedUnits: num(r.carried_units),
     invoiceUrl: safeInvoiceUrl(r.hosted_invoice_url ?? r.invoice_url),
+    refundedCents: num(r.refunded_cents),
+    refundState: r.refund_state === "partial" || r.refund_state === "full" ? r.refund_state : null,
+    dispute: r.dispute === "open" || r.dispute === "lost" || r.dispute === "won" ? r.dispute : null,
   };
 }
 

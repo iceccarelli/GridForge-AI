@@ -1,4 +1,5 @@
 import { storeFault } from "@/lib/safe-log";
+import { pauseDue } from "@/lib/billing-pause-due";
 // Server-only data layer for GridForge Intelligence subscriptions and the
 // scenarios a subscriber saves.
 //
@@ -34,6 +35,10 @@ export interface SubscriptionRecord {
   stripe_subscription_id: string | null;
   /** Stripe event.created of the newest invoice event applied to this subscription (migration 0039). */
   last_billing_event_ts?: number | null;
+  /** A pause scheduled for the end of the paid period (migration 0043): see lib/billing-pause.ts. */
+  billing_pause_from?: string | null;
+  billing_pause_resumes_at?: string | null;
+  billing_pause_event_ts?: number | null;
 }
 
 export interface ScenarioRecord {
@@ -181,7 +186,7 @@ async function lookupMembership(email: string): Promise<EntitlementLookup> {
   const sub = found.subscription;
   // Belt and braces: whatever the database said, a row that is not an entitling subscription of that owner grants nothing.
   if (
-    !sub || typeof sub.id !== "string" || !ENTITLING_STATUSES.has(sub.status) ||
+    !sub || typeof sub.id !== "string" || !ENTITLING_STATUSES.has(sub.status) || pauseDue(sub) ||
     typeof found.owner_email !== "string" || normaliseEmail(sub.email) !== found.owner_email
   ) {
     return { reachable: true, entitlement: null };
@@ -215,7 +220,9 @@ export async function lookupEntitlement(email: string): Promise<EntitlementLooku
     return ENTITLEMENT_UNREACHABLE;
   }
   const rows = (await res.json()) as SubscriptionRecord[];
-  if (rows[0]) return { reachable: true, entitlement: { subscription: rows[0], role: "owner", ownerEmail: e } };
+  // A pause scheduled for the end of the paid period (lib/billing-pause.ts) entitles nothing once that instant has passed, even before the
+  // daily job writes the hold: the subscriber has had the period they paid for, and the free view follows it.
+  if (rows[0] && !pauseDue(rows[0])) return { reachable: true, entitlement: { subscription: rows[0], role: "owner", ownerEmail: e } };
   return lookupMembership(e);
 }
 

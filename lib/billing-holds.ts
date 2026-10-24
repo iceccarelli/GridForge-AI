@@ -28,13 +28,19 @@
 // (last_billing_event_ts, migration 0039): an event older than the newest one applied is stale and changes nothing, and redelivery of an
 // event whose effect is already recorded is a no-op that still re-checks the audit row. Every write is an absolute state.
 //
-// Known limits, deliberately not handled here:
-//   - Pause at period end. pause_collection takes effect at once in this code, but Stripe can be told to pause only from the end of the
-//     current period (pause_collection.resumes_at, or a schedule). The customer has paid for that period and loses it early; the safe
-//     direction for revenue, the unsafe one for goodwill. Reading the period end would need the subscription's current_period_end.
-//   - Dispute events out of order. A charge.dispute.closed (won) that arrives BEFORE its charge.dispute.created finds nothing to lift, and
-//     the created event that follows then applies a hold that nothing lifts. The status in the created payload is not re-fetched from
-//     Stripe; the clock (last_billing_event_ts) does not order disputes against each other, only against invoice events.
+// Pause. Stripe's pause_collection stops FUTURE invoices only, so a customer who pauses mid-period has already paid for access up to the
+// end of that period. A pause therefore does NOT start a hold at once: lib/billing-pause.ts records it as a scheduled pause (migration 0043:
+// billing_pause_from = the end of the paid period) and the hold begins then, applied by the daily job, the Hall Watch cron and the access
+// checks. A resume before that instant cancels the schedule (no interruption). Pause and resume events are ordered by a clock of their own
+// (billing_pause_event_ts), not by last_billing_event_ts, which orders payments. Where no paid period can be established (status paused,
+// no period on the subscription, a period already over, migration 0043 not applied) the hold is immediate, as before.
+//
+// Disputes. charge.dispute.created / updated / closed arrive in any order and are redelivered. lib/billing-disputes.ts asks Stripe for the
+// dispute's CURRENT state before it applies or lifts anything, so a stale event can neither create a hold on a dispute already won nor
+// leave one behind; the decision is keyed per dispute and state, never per delivery.
+//
+// Pay-as-you-go settlement invoices have no subscription: a refund or dispute of one is handled by lib/payg-refunds.ts, which reuses the
+// same hold machinery (kind refunded / disputed on the api_accounts row, same lifts) and records an append-only event of its own.
 //
 // Deploy order: if migration 0041 has not been applied, an API plan or a Hall Watch is still suspended (as a status only: it is reinstated
 // by a later payment for a different invoice, not by a dispute won, and it is not audited) and the operator is told once. An Intelligence
@@ -71,6 +77,10 @@ export interface HoldFields {
   billing_hold_at?: string | null;
   billing_hold_prev_status?: string | null;
   last_billing_event_ts?: number | null;
+  /** Scheduled pause (migration 0043): see lib/billing-pause.ts. */
+  billing_pause_from?: string | null;
+  billing_pause_resumes_at?: string | null;
+  billing_pause_event_ts?: number | null;
 }
 /** Intelligence rows also take the status "suspended" (SubscriptionStatus, lib/subscribers.ts, predates holds). */
 export type IntelligenceRow = Omit<SubscriptionRecord, "status"> & HoldFields & { status: SubscriptionRecord["status"] | "suspended" };
@@ -180,7 +190,7 @@ export function subscriptionIdOf(inv: Stripe.Invoice): string {
 export interface AuditEntry {
   /** Once-only key: a redelivered event records nothing twice. */
   dedupeKey: string;
-  table: "api_accounts" | "watches" | "subscriptions";
+  table: "api_accounts" | "watches" | "subscriptions" | "stripe_disputes";
   subjectId: string;
   action: string;
   eventId?: string;
@@ -206,7 +216,7 @@ export async function recordBillingAudit(e: AuditEntry): Promise<"recorded" | "d
       stripe_event_id: e.eventId ?? null,
       stripe_object_id: e.objectId ?? null,
       stripe_invoice_id: e.invoiceId ?? null,
-      stripe_subscription_id: e.subscriptionId ?? null,
+      stripe_subscription_id: e.subscriptionId || null,
       detail: e.detail ?? {},
     },
     "resolution=ignore-duplicates,return=representation"
@@ -264,14 +274,23 @@ export async function noteUnconfirmedRevocation(row: Pick<ApiAccount, "id" | "ac
 /** The slice of the Stripe client the reversal handlers read: injectable, so tests never touch a live service. */
 export interface ReversalStripe {
   charges: { retrieve(id: string): Promise<unknown> };
+  /** The dispute as Stripe holds it NOW: every dispute event is reconciled against this (lib/billing-disputes.ts). */
+  disputes?: { retrieve(id: string): Promise<unknown> };
   invoices: { retrieve(id: string): Promise<unknown> };
   subscriptions?: { retrieve(id: string): Promise<unknown> };
   invoicePayments?: { list(params: Record<string, unknown>): Promise<{ data: { invoice?: unknown }[] }> };
 }
 
-const idOf = (v: unknown): string => (typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string" ? (v as { id: string }).id : "");
+export const idOf = (v: unknown): string => (typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string" ? (v as { id: string }).id : "");
 
-export type PaymentOwner = { ok: true; subscriptionId: string | null; invoiceId: string | null } | { ok: false };
+/** `invoiceMeta`: the metadata Stripe holds on the invoice (a pay-as-you-go settlement invoice names itself there). */
+export type PaymentOwner = { ok: true; subscriptionId: string | null; invoiceId: string | null; invoiceMeta?: Record<string, string> | null } | { ok: false };
+
+const metaOf = (v: unknown): Record<string, string> | null => {
+  const m = v && typeof v === "object" ? (v as { metadata?: unknown }).metadata : null;
+  if (!m || typeof m !== "object") return null;
+  return Object.fromEntries(Object.entries(m as Record<string, unknown>).filter(([, x]) => typeof x === "string")) as Record<string, string>;
+};
 
 /**
  * Which subscription (if any) a payment belongs to. Newer Stripe API versions removed `invoice` from Charge, so it is read from the
@@ -293,13 +312,16 @@ export async function subscriptionOfPayment(stripe: ReversalStripe | null, p: { 
       invoice = list.data?.[0]?.invoice;
       invoiceId = idOf(invoice);
     }
-    if (!invoiceId) return { ok: true, subscriptionId: null, invoiceId: null };
+    if (!invoiceId) return { ok: true, subscriptionId: null, invoiceId: null, invoiceMeta: null };
     let subscriptionId = invoice && typeof invoice === "object" ? subscriptionIdOf(invoice as Stripe.Invoice) : "";
+    let invoiceMeta = metaOf(invoice);
     if (!subscriptionId) {
       if (!stripe) return { ok: false };
-      subscriptionId = subscriptionIdOf((await stripe.invoices.retrieve(invoiceId)) as Stripe.Invoice);
+      const full = await stripe.invoices.retrieve(invoiceId);
+      subscriptionId = subscriptionIdOf(full as Stripe.Invoice);
+      invoiceMeta = metaOf(full) ?? invoiceMeta;
     }
-    return { ok: true, subscriptionId: subscriptionId || null, invoiceId };
+    return { ok: true, subscriptionId: subscriptionId || null, invoiceId, invoiceMeta };
   } catch (err) {
     // An invoice or payment Stripe says does not exist can never be resolved by a redelivery: nothing of ours to suspend.
     if ((err as { code?: string } | null)?.code === "resource_missing") return { ok: true, subscriptionId: null, invoiceId: invoiceId || null };
@@ -319,6 +341,13 @@ export interface HoldRequest {
   subscriptionId: string;
   eventId: string;
   created?: number;
+  /**
+   * The hold is ordered by a clock of its own (a pause: billing_pause_event_ts, written by lib/billing-pause.ts) or by none (a pause that
+   * came due, a settlement refund), so it neither consults nor advances last_billing_event_ts, which orders PAYMENT events.
+   */
+  noPaymentClock?: boolean;
+  /** When the hold takes effect, if that is not now (a scheduled pause that has come due): recorded as billing_hold_at. */
+  effectiveFrom?: string;
 }
 
 type Outcome = "applied" | "already" | "stale" | "skipped" | "failed";
@@ -326,8 +355,12 @@ type Outcome = "applied" | "already" | "stale" | "skipped" | "failed";
 const nowIso = () => new Date().toISOString();
 
 function holdColumns(h: HoldRequest, prev: string): Record<string, unknown> {
-  return { billing_hold: h.kind, billing_hold_ref: h.ref, billing_hold_invoice: h.invoiceId, billing_hold_at: nowIso(), billing_hold_prev_status: prev };
+  return { billing_hold: h.kind, billing_hold_ref: h.ref, billing_hold_invoice: h.invoiceId, billing_hold_at: h.effectiveFrom ?? nowIso(), billing_hold_prev_status: prev };
 }
+
+/** The payment clock a hold consults and advances: none for a hold with a clock of its own (see HoldRequest.noPaymentClock). */
+const holdIsCurrent = (row: { last_billing_event_ts?: number | null }, h: HoldRequest): boolean => h.noPaymentClock || billingEventIsCurrent(row, h.created, "failed");
+const holdClock = (h: HoldRequest): { last_billing_event_ts?: number } => (!h.noPaymentClock && typeof h.created === "number" ? { last_billing_event_ts: h.created } : {});
 const clearedHold = { billing_hold: null, billing_hold_ref: null, billing_hold_invoice: null, billing_hold_at: null, billing_hold_prev_status: null };
 
 async function audit(entry: AuditEntry): Promise<boolean> {
@@ -338,9 +371,9 @@ async function holdApi(api: ApiAccount, h: HoldRequest): Promise<Outcome> {
   if (endedRow(api)) return "skipped";
   if (api.billing_hold === h.kind && api.billing_hold_ref === h.ref) return "already";
   if (api.billing_hold && RANK[api.billing_hold] >= RANK[h.kind]) return "skipped";
-  if (!billingEventIsCurrent(api, h.created, "failed")) return "stale";
+  if (!holdIsCurrent(api, h)) return "stale";
   const prev = api.billing_hold ? api.billing_hold_prev_status ?? "active" : api.status;
-  const clock = typeof h.created === "number" ? { last_billing_event_ts: h.created } : {};
+  const clock = holdClock(h);
   const status = { status: "past_due" as const };
   // Richest first. The bare variants exist so that access is still cut off before migration 0041 is applied: such a row is past_due with
   // no hold, and a LATER payment for a different invoice (newer than the clock it carries) reinstates it like any past_due account.
@@ -364,9 +397,9 @@ async function holdWatch(w: WatchRecord, h: HoldRequest): Promise<Outcome> {
   if (endedRow(w)) return "skipped";
   if (w.billing_hold === h.kind && w.billing_hold_ref === h.ref) return "already";
   if (w.billing_hold && RANK[w.billing_hold] >= RANK[h.kind]) return "skipped";
-  if (!billingEventIsCurrent(w, h.created, "failed")) return "stale";
+  if (!holdIsCurrent(w, h)) return "stale";
   const prev = w.billing_hold ? w.billing_hold_prev_status ?? "active" : w.status;
-  const clock = typeof h.created === "number" ? { last_billing_event_ts: h.created } : {};
+  const clock = holdClock(h);
   const done = await firstAccepted((p) => updateWatchUnlessCancelled(w.token, p as Partial<WatchRecord>), [
     { status: "paused", ...holdColumns(h, prev), ...clock },
     { status: "paused", ...holdColumns(h, prev) },
@@ -384,9 +417,9 @@ async function holdIntelligence(s: IntelligenceRow, h: HoldRequest): Promise<Out
   if (s.status !== "active" && s.status !== "past_due" && s.status !== "suspended") return "skipped";
   if (s.billing_hold === h.kind && s.billing_hold_ref === h.ref) return "already";
   if (s.billing_hold && RANK[s.billing_hold] >= RANK[h.kind]) return "skipped";
-  if (!billingEventIsCurrent(s, h.created, "failed")) return "stale";
+  if (!holdIsCurrent(s, h)) return "stale";
   const prev = s.billing_hold ? s.billing_hold_prev_status ?? "active" : s.status;
-  const clock = typeof h.created === "number" ? { last_billing_event_ts: h.created } : {};
+  const clock = holdClock(h);
   // NO bare {status: "suspended"} variant: a suspended Intelligence row without its hold columns could never be lifted (nothing would say
   // why it was suspended), and the entitlement is a paid, seat-bearing plan. Until migration 0041 is applied the event is answered 500 and
   // Stripe retries, so it applies the moment the columns exist. (The clock column is older, 0039, so that variant may fall back.)
@@ -410,7 +443,7 @@ async function writeIntelligenceState(id: string, p: Record<string, unknown>): P
 export async function applyHold(found: Entitlements, h: HoldRequest): Promise<{ ok: boolean; applied: number }> {
   let ok = true;
   let applied = 0;
-  const detail = { kind: h.kind };
+  const detail: Record<string, string | number | boolean | null> = { kind: h.kind, ...(h.effectiveFrom ? { effective_from: h.effectiveFrom } : {}) };
   const one = async (table: AuditEntry["table"], id: string, out: Outcome) => {
     if (out === "failed") ok = false;
     if (out === "applied") applied++;
@@ -440,10 +473,16 @@ export interface LiftRequest {
   paidCents?: number | null;
   /** "active": a new payment cleared, so the row is active. "prev": back to what it was before the hold. */
   restore: "active" | "prev";
-  cause: "invoice_paid" | "dispute_won" | "billing_resumed";
+  cause: "invoice_paid" | "dispute_won" | "billing_resumed" | "operator_release";
   subscriptionId: string;
   eventId: string;
   created?: number;
+  /**
+   * Which clock orders this lift against what was applied. "payment" (default): last_billing_event_ts, as for a payment that clears.
+   * "pause": billing_pause_event_ts, the pause/resume clock. "none": the lift is a statement about a Stripe object whose CURRENT state was
+   * just read (a dispute won, an operator's release), so no event time can make it stale; nothing is written to either clock.
+   */
+  clock?: "payment" | "pause" | "none";
 }
 
 export interface LiftResult {
@@ -451,12 +490,21 @@ export interface LiftResult {
   lifted: { api: boolean; watch: boolean; intelligence: boolean };
 }
 
-function liftable(row: { billing_hold?: HoldKind | null; billing_hold_ref?: string | null; billing_hold_invoice?: string | null; last_billing_event_ts?: number | null }, l: LiftRequest): boolean {
+/** Is a pause or resume event of time `created` at least as new as the newest one applied? (Equal: a redelivery or the same second; a resume wins ties.) */
+export function pauseEventIsCurrent(row: { billing_pause_event_ts?: number | null }, created: number | undefined): boolean {
+  if (typeof created !== "number") return true;
+  const last = row.billing_pause_event_ts;
+  return typeof last !== "number" || created >= last;
+}
+
+function liftable(row: { billing_hold?: HoldKind | null; billing_hold_ref?: string | null; billing_hold_invoice?: string | null; last_billing_event_ts?: number | null; billing_pause_event_ts?: number | null }, l: LiftRequest): boolean {
   if (!row.billing_hold || !l.kinds.includes(row.billing_hold)) return false;
   if (l.cause === "invoice_paid" && typeof l.paidCents === "number" && !(l.paidCents > 0)) return false;
   if (l.ref && row.billing_hold_ref !== l.ref) return false;
   if (l.notInvoice && row.billing_hold_invoice && row.billing_hold_invoice === l.notInvoice) return false;
-  return billingEventIsCurrent(row, l.created, "paid");
+  const clock = l.clock ?? "payment";
+  if (clock === "none") return true;
+  return clock === "pause" ? pauseEventIsCurrent(row, l.created) : billingEventIsCurrent(row, l.created, "paid");
 }
 
 const restoredStatus = (l: LiftRequest, prev: string | null | undefined, allowed: readonly string[]): string => (l.restore === "prev" && prev && allowed.includes(prev) ? prev : "active");
@@ -464,7 +512,9 @@ const restoredStatus = (l: LiftRequest, prev: string | null | undefined, allowed
 /** Lift the holds this event is allowed to lift. Rows with no such hold are untouched. */
 export async function liftHold(found: Entitlements, l: LiftRequest): Promise<LiftResult> {
   const res: LiftResult = { ok: true, lifted: { api: false, watch: false, intelligence: false } };
-  const clock = typeof l.created === "number" ? { last_billing_event_ts: l.created } : {};
+  // Only a lift ordered by the payment clock advances it; a pause's own clock is advanced by lib/billing-pause.ts, a dispute's or an
+  // operator's lift is ordered by none (a stale clock write must never move last_billing_event_ts backwards).
+  const clock = (l.clock ?? "payment") === "payment" && typeof l.created === "number" ? { last_billing_event_ts: l.created } : {};
   const record = async (table: AuditEntry["table"], id: string, row: { billing_hold?: HoldKind | null; billing_hold_ref?: string | null; billing_hold_invoice?: string | null }, restored: string) => {
     const ok = await audit({
       // The event id is part of the key: a pause can be lifted again and again under the same ref (the subscription), and each lift is a
@@ -540,7 +590,8 @@ export async function liftHold(found: Entitlements, l: LiftRequest): Promise<Lif
 
 // ------------------------------------------------------------------------------------------ charge and dispute events
 
-export type Handled = { ok: true } | { ok: false; why: string };
+/** `found`: the subscription's entitlements as they stood when the decision was taken, when there were any (callers audit against them). */
+export type Handled = { ok: true; found?: Entitlements; subscriptionId?: string; invoiceId?: string | null } | { ok: false; why: string };
 
 /** A charge refunded in full (partial refunds suspend nothing). */
 export function isFullRefund(ch: { refunded?: boolean | null; amount?: number | null; amount_refunded?: number | null }): boolean {
@@ -560,8 +611,10 @@ export async function reversePayment(p: {
   stripe: ReversalStripe | null;
   eventId: string;
   created?: number;
+  /** The payment already resolved to its owner (so Stripe is not asked twice for one event). */
+  owner?: PaymentOwner;
 }): Promise<Handled> {
-  const owner = await subscriptionOfPayment(p.stripe, { invoice: p.invoice, paymentIntent: p.paymentIntent });
+  const owner = p.owner ?? (await subscriptionOfPayment(p.stripe, { invoice: p.invoice, paymentIntent: p.paymentIntent }));
   if (!owner.ok) return { ok: false, why: "payment could not be resolved to its subscription" };
   if (!owner.subscriptionId) return { ok: true };
   const found = await resolveSubscription(owner.subscriptionId);
@@ -591,14 +644,17 @@ export async function reversePayment(p: {
       ]) {
         if (!(await audit({ dedupeKey: `hold_skipped_stale:${p.kind}:${p.ref}:${table}:${id}`, table, subjectId: id, action: "hold_skipped_stale_invoice", eventId: p.eventId, objectId: p.ref, invoiceId: owner.invoiceId, subscriptionId: owner.subscriptionId, detail }))) ok = false;
       }
-      return ok ? { ok: true } : { ok: false, why: "stale-invoice decision could not be recorded" };
+      return ok ? { ok: true, found, subscriptionId: owner.subscriptionId, invoiceId: owner.invoiceId } : { ok: false, why: "stale-invoice decision could not be recorded" };
     }
   }
   const out = await applyHold(found, { kind: p.kind, ref: p.ref, invoiceId: owner.invoiceId, subscriptionId: owner.subscriptionId, eventId: p.eventId, created: p.created });
-  return out.ok ? { ok: true } : { ok: false, why: `${p.kind} hold could not be applied` };
+  if (!out.ok) return { ok: false, why: `${p.kind} hold could not be applied` };
+  // Re-read after the write: the caller audits against what the rows say NOW (a hold it just applied).
+  const after = await resolveSubscription(owner.subscriptionId);
+  return { ok: true, found: after.ok ? after : found, subscriptionId: owner.subscriptionId, invoiceId: owner.invoiceId };
 }
 
-type SubscriptionRead = { ok: true; latestInvoiceId: string; kind: string } | { ok: false };
+export type SubscriptionRead = { ok: true; latestInvoiceId: string; kind: string } | { ok: false };
 
 /** The subscription as Stripe holds it: its newest invoice and the kind our checkout stamped on it. A subscription Stripe no longer has reads as empty. */
 async function readSubscription(stripe: ReversalStripe | null, id: string): Promise<SubscriptionRead> {
@@ -626,56 +682,6 @@ async function readInvoice(stripe: ReversalStripe | null, id: string): Promise<I
     if ((err as { code?: string } | null)?.code === "resource_missing") return { ok: true, status: "", amountPaid: 0 };
     return { ok: false };
   }
-}
-
-/** charge.dispute.closed with status won: the disputed hold that dispute caused is lifted (to what the row was before). */
-export async function disputeWon(p: {
-  disputeId: string;
-  invoice?: unknown;
-  paymentIntent?: unknown;
-  stripe: ReversalStripe | null;
-  eventId: string;
-  created?: number;
-}): Promise<Handled> {
-  const owner = await subscriptionOfPayment(p.stripe, { invoice: p.invoice, paymentIntent: p.paymentIntent });
-  if (!owner.ok) return { ok: false, why: "payment could not be resolved to its subscription" };
-  if (!owner.subscriptionId) return { ok: true };
-  const found = await resolveSubscription(owner.subscriptionId);
-  if (!found.ok) return { ok: false, why: "subscription lookup failed" };
-  const out = await liftHold(found, { kinds: ["disputed"], ref: p.disputeId, restore: "prev", cause: "dispute_won", subscriptionId: owner.subscriptionId, eventId: p.eventId, created: p.created });
-  return out.ok ? { ok: true } : { ok: false, why: "dispute hold could not be lifted" };
-}
-
-/**
- * A dispute that was LOST: the hold stays, and it is recorded. If NO hold exists (the created event was missed, or the dispute never
- * showed as anything but a warning inquiry), it is applied now: a chargeback that stood is a payment taken back, whatever came before.
- */
-export async function disputeLost(p: {
-  disputeId: string;
-  invoice?: unknown;
-  paymentIntent?: unknown;
-  stripe: ReversalStripe | null;
-  eventId: string;
-  created?: number;
-}): Promise<Handled> {
-  const applied = await reversePayment({ kind: "disputed", ref: p.disputeId, invoice: p.invoice, paymentIntent: p.paymentIntent, stripe: p.stripe, eventId: p.eventId, created: p.created });
-  if (!applied.ok) return applied;
-  const owner = await subscriptionOfPayment(p.stripe, { invoice: p.invoice, paymentIntent: p.paymentIntent });
-  if (!owner.ok) return { ok: false, why: "payment could not be resolved to its subscription" };
-  if (!owner.subscriptionId) return { ok: true };
-  const found = await resolveSubscription(owner.subscriptionId);
-  if (!found.ok) return { ok: false, why: "subscription lookup failed" };
-  const rows: { table: AuditEntry["table"]; id: string; hold?: HoldKind | null; ref?: string | null }[] = [
-    ...(found.api ? [{ table: "api_accounts" as const, id: found.api.id, hold: found.api.billing_hold, ref: found.api.billing_hold_ref }] : []),
-    ...(found.watch ? [{ table: "watches" as const, id: found.watch.id, hold: found.watch.billing_hold, ref: found.watch.billing_hold_ref }] : []),
-    ...(found.intelligence ? [{ table: "subscriptions" as const, id: found.intelligence.id, hold: found.intelligence.billing_hold, ref: found.intelligence.billing_hold_ref }] : []),
-  ];
-  let ok = true;
-  for (const r of rows) {
-    if (r.hold !== "disputed" || r.ref !== p.disputeId) continue;
-    if (!(await audit({ dedupeKey: `dispute_lost:${p.disputeId}:${r.table}:${r.id}`, table: r.table, subjectId: r.id, action: "dispute_lost_hold_stands", eventId: p.eventId, objectId: p.disputeId, invoiceId: owner.invoiceId, subscriptionId: owner.subscriptionId }))) ok = false;
-  }
-  return ok ? { ok: true } : { ok: false, why: "dispute outcome could not be recorded" };
 }
 
 // ------------------------------------------------------------------------------------------------ past_due grace

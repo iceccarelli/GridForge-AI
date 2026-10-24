@@ -24,11 +24,8 @@ import {
 } from "@/lib/api-access";
 import { recordSubscription, subscriptionBySession, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
 import {
-  applyHold,
   billingEventIsCurrent,
   clockedWrite,
-  disputeLost,
-  disputeWon,
   endedRow,
   enforceGraceRow,
   isFullRefund,
@@ -38,12 +35,16 @@ import {
   resolveSubscription,
   reversePayment,
   subscriptionIdOf,
+  subscriptionOfPayment,
   writeApi,
   writeIntelligence,
   writeWatch,
   type ReversalStripe,
   type Resolved as ResolvedResult,
 } from "@/lib/billing-holds";
+import { reconcileDispute } from "@/lib/billing-disputes";
+import { applyPauseState, extendScheduledPause, type PausedSub } from "@/lib/billing-pause";
+import { cents, reverseSettlement, settlementRefOf } from "@/lib/payg-refunds";
 import { depositBySession, recordDeposit } from "@/lib/deposits";
 import { depositTerms } from "@/lib/engagement-state";
 import { notifyCustomer } from "@/lib/notifications";
@@ -305,19 +306,27 @@ export async function POST(req: Request) {
   // disputed, whose invoice belongs to a subscription suspends what that subscription entitles (API key revoked and minting refused,
   // Hall Watch paused, Intelligence not entitled), reversibly, with an audit row. A partial refund only counts. The charge is traced to its
   // subscription through the Stripe objects in the event, falling back to Stripe itself; a lookup that fails answers 500 so Stripe redelivers.
+  // A refund or dispute of a pay-as-you-go MONTHLY SETTLEMENT invoice (no subscription behind it) is recorded as an append-only event
+  // linked to the settlement and, in full / when the dispute stands, suspends further pay-as-you-go use the same reversible way; a
+  // partial refund is recorded and mailed, nothing more (lib/payg-refunds.ts). The usage ledger is never touched.
   if (event.type === "charge.refunded") {
     const ch = event.data.object as Stripe.Charge;
     await recordFunnelEvent("refund_issued", { amount_cents: ch.amount_refunded ?? 0 }, { dedupeKey: `refund_issued:${ch.id}:${ch.amount_refunded ?? 0}` });
-    if (isFullRefund(ch)) {
-      const held = await reversePayment({
-        kind: "refunded",
-        ref: ch.id,
-        invoice: (ch as unknown as { invoice?: unknown }).invoice,
-        paymentIntent: ch.payment_intent,
-        stripe: reversalStripe(),
+    const stripeClient = reversalStripe();
+    // Which payment is it? (A partial refund asks too: a refund of a settlement invoice is recorded whatever its size.)
+    const owner = await subscriptionOfPayment(stripeClient, { invoice: (ch as unknown as { invoice?: unknown }).invoice, paymentIntent: ch.payment_intent });
+    if (!owner.ok) return lifecycleRetry("refund (payment could not be resolved to its subscription)", ch.id);
+    const settlement = settlementRefOf(owner);
+    if (settlement !== null) {
+      const recorded = await reverseSettlement({
+        s: settlement,
+        ev: { kind: "refund", ref: ch.id, full: isFullRefund(ch), refundedCents: cents(ch.amount_refunded), chargeCents: cents(ch.amount) },
         eventId: event.id,
         created: event.created,
       });
+      if (!recorded.ok) return lifecycleRetry(`settlement refund (${recorded.why})`, ch.id);
+    } else if (isFullRefund(ch)) {
+      const held = await reversePayment({ kind: "refunded", ref: ch.id, stripe: stripeClient, eventId: event.id, created: event.created, owner });
       if (!held.ok) return lifecycleRetry(`refund (${held.why})`, ch.id);
     }
   }
@@ -331,27 +340,13 @@ export async function POST(req: Request) {
     await disputeNotice(event.type === "charge.dispute.closed", event.data.object as Stripe.Dispute);
   }
   // A real chargeback (not a warning inquiry, where no money has moved) suspends paid access; it is lifted only if Stripe says it was won.
-  // charge.dispute.updated matters because a dispute can OPEN as a warning inquiry (no money moved, no hold) and ESCALATE to a real one: the
-  // hold is applied then. A dispute closed as lost applies the hold if none exists yet. An update that carries a final status (won, lost)
-  // is left to the closed event.
+  // The three events (created, updated, closed) arrive in any order and are redelivered, so NONE of them is trusted for the dispute's
+  // state: each asks Stripe what the dispute is NOW and decides from that (lib/billing-disputes.ts). A stale created/updated after the
+  // dispute is over cannot create a hold; a closed (won) before its created leaves none; a lost dispute applies the hold once.
   if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated" || event.type === "charge.dispute.closed") {
     const d = event.data.object as Stripe.Dispute;
-    const inquiry = typeof d.status === "string" && d.status.startsWith("warning_");
-    const final = d.status === "won" || d.status === "lost";
-    if (!inquiry && !(event.type === "charge.dispute.updated" && final)) {
-      const via = await disputedPayment(d);
-      if (!via.ok) return lifecycleRetry("dispute (payment could not be read)", d.id);
-      const base = { stripe: reversalStripe(), eventId: event.id, invoice: via.invoice, paymentIntent: via.paymentIntent };
-      const out =
-        event.type !== "charge.dispute.closed"
-          ? await reversePayment({ ...base, kind: "disputed", ref: d.id, created: event.created })
-          : d.status === "won"
-            ? await disputeWon({ ...base, disputeId: d.id, created: event.created })
-            : d.status === "lost"
-              ? await disputeLost({ ...base, disputeId: d.id, created: event.created })
-              : ({ ok: true } as const);
-      if (!out.ok) return lifecycleRetry(`dispute (${out.why})`, d.id);
-    }
+    const out = await reconcileDispute({ payload: d as never, stripe: reversalStripe(), eventId: event.id, created: event.created });
+    if (!out.ok) return lifecycleRetry(`dispute (${out.why})`, d.id);
   }
 
   if (event.type === "customer.subscription.deleted") {
@@ -443,6 +438,8 @@ export async function POST(req: Request) {
       // same invoice, lifts nothing (the clock and the invoice id say so), and a row that is still held takes no state from this event.
       const lift = await liftHold(found, { kinds: ["refunded", "disputed"], notInvoice: paidInvoice.id, paidCents: paidInvoice.amount_paid, restore: "active", cause: "invoice_paid", subscriptionId: subId, eventId: event.id, created: event.created });
       if (!lift.ok) return lifecycleRetry("renewal (hold could not be lifted)", subId);
+      // A payment for a period that ends after a scheduled pause starts moves the pause to the end of that period (order-independent: a maximum).
+      if (!(await extendScheduledPause(found, paidInvoice as never, { id: event.id }))) return lifecycleRetry("renewal (scheduled pause could not be extended)", subId);
       const apiHeld = Boolean(found.api?.billing_hold) && !lift.lifted.api;
       const watchHeld = Boolean(found.watch?.billing_hold) && !lift.lifted.watch;
       if (found.api && found.api.status !== "cancelled" && !apiHeld && billingEventIsCurrent(found.api, event.created, "paid")) {
@@ -578,13 +575,13 @@ async function applySubscriptionUpdate(sub: Stripe.Subscription, ev: { id: strin
     return null;
   }
   if (ended) return applyCancellation(sub, found);
-  // Billing PAUSED (pause_collection set, or status paused): no paid delivery while it lasts. Recorded as a "paused" hold on whatever the
-  // subscription entitles, with the same machinery as a refund hold; the update that clears the pause puts everything back exactly where it
-  // was. The clock keeps this safe against reordering: a pause older than a resume (or the reverse) already applied changes nothing.
+  // Billing PAUSED (pause_collection set, or status paused). Stripe's pause stops FUTURE invoices only, so the customer keeps the period
+  // already paid for: the pause is SCHEDULED for the end of that period and becomes the "paused" hold then (the daily job, the Hall Watch
+  // cron and the access checks apply it; lib/billing-pause.ts). A resume before that instant cancels the schedule, and one after it lifts the
+  // hold, putting everything back exactly where it was. Pause and resume events are ordered by their own clock (billing_pause_event_ts):
+  // a pause older than a resume (or the reverse) already applied changes nothing.
   const paused = Boolean(sub.pause_collection) || (sub.status as string) === "paused";
-  const held = paused
-    ? await applyHold(found, { kind: "paused", ref: sub.id, invoiceId: null, subscriptionId: sub.id, eventId: ev.id, created: ev.created })
-    : await liftHold(found, { kinds: ["paused"], restore: "prev", cause: "billing_resumed", subscriptionId: sub.id, eventId: ev.id, created: ev.created });
+  const held = await applyPauseState(found, sub as unknown as PausedSub, ev, reversalStripe());
   if (!held.ok) return lifecycleRetry(paused ? "pause (write failed)" : "resume (write failed)", sub.id);
   await checkPlanAgainstCatalogue(sub, found);
   return null;
@@ -642,26 +639,6 @@ async function checkPlanAgainstCatalogue(sub: Stripe.Subscription, found: Resolv
 /** The Stripe client the reversal handlers use (the same injectable one the pay-as-you-go billing and the dispute notice use). */
 function reversalStripe(): ReversalStripe | null {
   return paygStripe() as unknown as ReversalStripe | null;
-}
-
-/**
- * The invoice and payment intent a dispute is about. The dispute object names its payment intent in newer API versions and always names
- * its charge, which is retrieved when the intent is not there. `ok: false`: Stripe could not be asked (the event is retried).
- */
-async function disputedPayment(d: Stripe.Dispute): Promise<{ ok: true; invoice?: unknown; paymentIntent?: unknown } | { ok: false }> {
-  const pi = (d as unknown as { payment_intent?: unknown }).payment_intent;
-  if (pi) return { ok: true, paymentIntent: pi };
-  const chargeId = typeof d.charge === "string" ? d.charge : (d.charge as { id?: string } | null)?.id ?? "";
-  if (!chargeId) return { ok: true };
-  const stripe = reversalStripe();
-  if (!stripe) return { ok: false };
-  try {
-    const c = (await stripe.charges.retrieve(chargeId)) as { invoice?: unknown; payment_intent?: unknown };
-    return { ok: true, invoice: c.invoice, paymentIntent: c.payment_intent };
-  } catch (err) {
-    // A charge Stripe says does not exist (another account's, or a deleted test object) can never be resolved by a redelivery.
-    return (err as { code?: string } | null)?.code === "resource_missing" ? { ok: true } : { ok: false };
-  }
 }
 
 /**

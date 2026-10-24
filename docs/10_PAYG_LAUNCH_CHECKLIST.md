@@ -48,7 +48,12 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
   Portal reaches the site only as `customer.subscription.updated`; **a subscription payment refunded in full or disputed suspends paid
   access** - API key revoked, Hall Watch paused, Intelligence not entitled - a dispute that opens as a warning inquiry and escalates
   arrives as `charge.dispute.updated`, and a dispute won restores access, so without these a charged-back customer keeps it; the
-  operator is also mailed when a dispute opens, with its evidence deadline, and how it ended), and, recommended,
+  operator is also mailed when a dispute opens, with its evidence deadline, and how it ended; every dispute event is decided from the
+  dispute's CURRENT state, which the site reads from Stripe with `STRIPE_SECRET_KEY`, so created/updated/closed may arrive in any order;
+  a pause set in the Billing Portal takes effect when the **paid period ends**, not at once (migration 0043: the end of the period is
+  recorded and the daily job starts the hold); and `charge.refunded` / `charge.dispute.*` for a pay-as-you-go **monthly settlement
+  invoice** is recorded against that settlement, suspends further pay-as-you-go use when the refund is in full or the dispute stands,
+  and mails the operator, who decides whether access continues), and, recommended,
   `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment method is ever
   enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
   revocations the engine has not confirmed (`revocations`: the deployed engine answers 404 for `/v1/revoke` until it is redeployed).

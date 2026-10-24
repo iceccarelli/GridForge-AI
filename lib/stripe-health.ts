@@ -201,7 +201,7 @@ export interface BillingPortalHealth {
 /** Portal features a customer can switch on for themselves that this site does not implement. */
 const UNHANDLED_PORTAL_FEATURES: Record<string, string> = {
   subscription_update: "subscription_update is enabled: customers can switch plans in the portal, which changes what Stripe bills but not what the site entitles (the operator is mailed once per subscription, nothing is changed automatically). Turn it off in the portal configuration.",
-  subscription_pause: "subscription_pause is enabled: customers can pause billing in the portal. The site holds paid delivery while billing is paused (API key revoked, Hall Watch paused, Intelligence not entitled) and restores it on resume, but only if customer.subscription.updated is delivered; a pause is a customer choosing not to pay, so most operators turn it off in the portal configuration.",
+  subscription_pause: "subscription_pause is enabled: customers can pause billing in the portal. The site holds paid delivery from the END of the period the customer has already paid for (API key revoked, Hall Watch paused, Intelligence not entitled) and restores it on resume, but only if customer.subscription.updated is delivered; a pause is a customer choosing not to pay, so most operators turn it off in the portal configuration.",
 };
 
 /**
