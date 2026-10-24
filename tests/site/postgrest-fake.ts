@@ -379,6 +379,15 @@ export class PostgrestFake {
       if (namedPatch) {
         return json(JSON.stringify({ code: "PGRST204", message: `Could not find the '${namedPatch}' column of '${table}' in the schema cache` }), 400);
       }
+      // The partial unique index 0009 declares (one ACTIVE subscription per email), enforced on UPDATE as well as INSERT: a write that would
+      // leave two active rows for one email is refused with 23505 and changes nothing, as PostgreSQL does.
+      if (table === "subscriptions" && (body as Row | null)?.status === "active") {
+        for (const row of matching) {
+          if (store.some((r) => r !== row && r.status === "active" && r.email === row.email) || matching.some((m) => m !== row && m.email === row.email)) {
+            return json(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "subscriptions_one_active_per_email"' }), 409);
+          }
+        }
+      }
       for (const row of matching) {
         const old = { ...row };
         Object.assign(row, body as Row);

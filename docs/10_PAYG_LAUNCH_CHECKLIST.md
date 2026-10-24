@@ -43,13 +43,14 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 
 ## 2. Stripe test-mode script (owner action)
 - Webhook endpoint subscribed to: `checkout.session.completed`, `customer.subscription.deleted`,
-  `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed` (all required: a plan switch, a pause or a cancellation made
-  in the Stripe Billing Portal reaches the site only as `customer.subscription.updated`), and, recommended,
-  `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` (the operator is mailed when a dispute opens, with its
-  evidence deadline, and how it ended; **and a subscription payment refunded in full or disputed suspends paid access** - API key
-  revoked, Hall Watch paused, Intelligence not entitled - and a dispute won restores it, so without these three a charged-back customer
-  keeps access), `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment
-  method is ever enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
+  `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed`, `charge.refunded`, `charge.dispute.created`,
+  `charge.dispute.updated`, `charge.dispute.closed` (all required: a plan switch, a pause or a cancellation made in the Stripe Billing
+  Portal reaches the site only as `customer.subscription.updated`; **a subscription payment refunded in full or disputed suspends paid
+  access** - API key revoked, Hall Watch paused, Intelligence not entitled - a dispute that opens as a warning inquiry and escalates
+  arrives as `charge.dispute.updated`, and a dispute won restores access, so without these a charged-back customer keeps it; the
+  operator is also mailed when a dispute opens, with its evidence deadline, and how it ended), and, recommended,
+  `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment method is ever
+  enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
   revocations the engine has not confirmed (`revocations`: the deployed engine answers 404 for `/v1/revoke` until it is redeployed).
 - Settings: enable Stripe's customer emails for failed payments (the site sends its own as well); decide VAT/Stripe Tax
   for the settlement invoices (the code does not configure tax).

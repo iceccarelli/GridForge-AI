@@ -37,6 +37,11 @@ class HoldStripe extends MockStripe {
   chargeInfo = new Map<string, { customer?: string; invoice?: string | null; payment_intent?: string | null }>();
   paymentIntentInvoice = new Map<string, string>();
   invoiceSubscription = new Map<string, string>();
+  /** What Stripe says about an invoice (default: paid in full). */
+  invoiceFacts = new Map<string, { status: string; amount_paid: number }>();
+  /** A subscription's newest invoice, and the kind our checkout stamped on it. */
+  subscriptionLatest = new Map<string, string>();
+  subscriptionKinds = new Map<string, string>();
   constructor() {
     super();
     const missing = () => Object.assign(new Error("No such object"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
@@ -66,15 +71,29 @@ class HoldStripe extends MockStripe {
         outage("invoices.retrieve");
         const sub = this.invoiceSubscription.get(id);
         if (!sub) throw missing();
-        return { id, parent: { subscription_details: { subscription: sub } } };
+        return { id, ...(this.invoiceFacts.get(id) ?? { status: "paid", amount_paid: 90_000 }), parent: { subscription_details: { subscription: sub } } };
       },
     };
+    (this as any).subscriptions = {
+      retrieve: async (id: string) => {
+        outage("subscriptions.retrieve");
+        if (!this.subscriptionLatest.has(id) && !this.subscriptionKinds.has(id)) throw missing();
+        return { id, latest_invoice: this.subscriptionLatest.get(id) ?? null, metadata: { kind: this.subscriptionKinds.get(id) } };
+      },
+    };
+  }
+  /** An invoice that exists on a subscription, becomes its newest, and has the given facts. */
+  addInvoice(invoice: string, sub: string, facts: { status: string; amount_paid: number } = { status: "paid", amount_paid: 90_000 }) {
+    this.invoiceSubscription.set(invoice, sub);
+    this.invoiceFacts.set(invoice, facts);
+    this.subscriptionLatest.set(sub, invoice);
   }
   /** charge -> payment intent -> invoice -> subscription, as the newer API versions chain them (Charge carries no `invoice`). */
   link(charge: string, pi: string, invoice: string, sub: string) {
     this.chargeInfo.set(charge, { payment_intent: pi });
     this.paymentIntentInvoice.set(pi, invoice);
     this.invoiceSubscription.set(invoice, sub);
+    this.subscriptionLatest.set(sub, invoice);
   }
 }
 
@@ -705,5 +724,337 @@ describe("5. customer.subscription.updated with a pause", () => {
     db.failMethod = null;
     expect((await send("customer.subscription.updated", sub("sub_w", { pause_collection: { behavior: "void" } }), { created: T0 + 1, id: "evt_p" })).status).toBe(200);
     expect(w.status).toBe("paused");
+  });
+});
+
+// ============================================================================================================================
+// Review round: stale invoices, the unique index, deploy order, disputes that escalate, terminal states, early events, queued
+// notices, bounded inline retries, repeated pause cycles
+// ============================================================================================================================
+describe("R1. a refund or dispute of an OLD invoice does not suspend a subscription whose current period is paid", () => {
+  it("API plan and Hall Watch: the audit row is written, nothing else changes; the refund of the CURRENT invoice does suspend", async () => {
+    const a = apiAcct();
+    const w = watchRow();
+    stripe.link("ch_old", "pi_old", "in_old", "sub_api");
+    stripe.addInvoice("in_new", "sub_api"); // this month's invoice, paid in full
+    stripe.link("ch_oldw", "pi_oldw", "in_oldw", "sub_w");
+    stripe.addInvoice("in_neww", "sub_w");
+    expect((await send("charge.refunded", fullRefund("ch_old", "pi_old"), { created: T0 })).status).toBe(200);
+    expect((await send("charge.refunded", fullRefund("ch_oldw", "pi_oldw"), { created: T0 })).status).toBe(200);
+    expect((await send("charge.dispute.created", dispute({ id: "dp_old", charge: "ch_old" }), { created: T0 })).status).toBe(200);
+    expect(a).toMatchObject({ status: "active", key_id: "keyLIVE1" });
+    expect(a.billing_hold ?? null).toBeNull();
+    expect(w.status).toBe("active");
+    expect(revokeCalls()).toEqual([]);
+    expect(audit("hold_skipped_stale_invoice")).toHaveLength(3);
+    expect(audit("hold_applied")).toHaveLength(0);
+    // redelivered: still one row each
+    await send("charge.refunded", fullRefund("ch_old", "pi_old"), { created: T0 });
+    expect(audit("hold_skipped_stale_invoice")).toHaveLength(3);
+    // refunding the CURRENT invoice is a real suspension
+    stripe.link("ch_new", "pi_new", "in_new", "sub_api");
+    await send("charge.refunded", fullRefund("ch_new", "pi_new"), { created: T0 + 5 });
+    expect(a).toMatchObject({ status: "past_due", key_id: null, billing_hold: "refunded", billing_hold_invoice: "in_new" });
+  });
+
+  it("a newer invoice that is NOT paid (open, or paid zero) does not make the reversed one stale", async () => {
+    const a = apiAcct();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    stripe.addInvoice("in_open", "sub_api", { status: "open", amount_paid: 0 });
+    await send("charge.refunded", fullRefund(), { created: T0 });
+    expect(a.billing_hold).toBe("refunded");
+    const b = apiAcct({ account: "scale-2", token: "tok-scale2-0123456789abcdefghi", stripe_subscription_id: "sub_b", key_id: "keyLIVE2" });
+    stripe.link("ch_b", "pi_b", "in_b", "sub_b");
+    stripe.addInvoice("in_zero", "sub_b", { status: "paid", amount_paid: 0 });
+    await send("charge.refunded", fullRefund("ch_b", "pi_b"), { created: T0 });
+    expect(b.billing_hold).toBe("refunded");
+  });
+
+  it("an invoice.paid that collected nothing (amount_paid 0) never lifts a hold; one that collected money does", async () => {
+    const a = apiAcct();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    await send("charge.refunded", fullRefund(), { created: T0 });
+    await send("invoice.paid", { ...paid("in_credit", "sub_api"), amount_paid: 0 }, { created: T0 + 30 * DAY });
+    expect(a).toMatchObject({ status: "past_due", billing_hold: "refunded" });
+    await send("invoice.paid", { ...paid("in_real", "sub_api"), amount_paid: 90_000 }, { created: T0 + 31 * DAY });
+    expect(a).toMatchObject({ status: "active", billing_hold: null });
+  });
+});
+
+describe("R2. Intelligence: a lift never collides with the one-active-row-per-email index", () => {
+  it("a newer purchase (another payer) was recorded while the old one was suspended: the old row is superseded, the event is answered 200, the newer row stands", async () => {
+    const old = intelRow();
+    stripe.link("ch_i", "pi_i", "in_i", "sub_i");
+    await send("charge.refunded", fullRefund("ch_i", "pi_i"), { created: T0 });
+    expect(old.status).toBe("suspended");
+    const newer = db.insertRow("subscriptions", { email: "i@hall.example", plan: "team", status: "active", stripe_session_id: "cs_new", stripe_customer_id: "cus_other", stripe_subscription_id: "sub_new" });
+    expect((await send("invoice.paid", paid("in_next", "sub_i"), { created: T0 + 30 * DAY })).status).toBe(200);
+    expect(old).toMatchObject({ status: "superseded", billing_hold: null });
+    expect(newer.status).toBe("active");
+    expect(audit("hold_lifted")[0]).toMatchObject({ subject_table: "subscriptions" });
+    expect((audit("hold_lifted")[0].detail as any).restored_status).toBe("superseded");
+  });
+
+  it("the same for a dispute won", async () => {
+    const old = intelRow();
+    stripe.link("ch_i", "pi_i", "in_i", "sub_i");
+    await send("charge.dispute.created", dispute({ charge: "ch_i" }), { created: T0 });
+    const newer = db.insertRow("subscriptions", { email: "i@hall.example", plan: "team", status: "active", stripe_session_id: "cs_new", stripe_customer_id: "cus_other", stripe_subscription_id: "sub_new" });
+    expect((await send("charge.dispute.closed", dispute({ charge: "ch_i", status: "won" }), { created: T0 + 9 })).status).toBe(200);
+    expect(old.status).toBe("superseded");
+    expect(newer.status).toBe("active");
+  });
+
+  it("the fake store really does refuse two active rows (the premise of the tests above)", async () => {
+    intelRow({ status: "suspended" });
+    db.insertRow("subscriptions", { email: "i@hall.example", plan: "team", status: "active", stripe_session_id: "cs_x", stripe_subscription_id: "sub_x" });
+    const res = await fetch("https://stub.supabase.co/rest/v1/subscriptions?stripe_subscription_id=eq.sub_i", { method: "PATCH", headers: { apikey: "k", "content-type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ status: "active" }) });
+    expect(res.status).toBe(409);
+  });
+
+  it("a new purchase by the same payer supersedes a SUSPENDED row too, so it cannot come back next to it", async () => {
+    const old = intelRow({ status: "suspended", billing_hold: "refunded", billing_hold_ref: "ch_i", stripe_customer_id: "cus_i" });
+    const { recordSubscription } = await import("@/lib/subscribers");
+    const row = await recordSubscription({ email: "i@hall.example", plan: "team", sessionId: "cs_new2", customerId: "cus_i", subscriptionId: "sub_new2" });
+    expect(row?.status).toBe("active");
+    expect(old.status).toBe("superseded");
+  });
+});
+
+describe("R3. holds before migration 0041", () => {
+  it("Intelligence is NOT suspended without its hold columns: 500 (Stripe retries), nothing half-done, and it applies once the columns exist", async () => {
+    const i = intelRow();
+    stripe.link("ch_i", "pi_i", "in_i", "sub_i");
+    for (const c of ["billing_hold", "billing_hold_ref", "billing_hold_invoice", "billing_hold_at", "billing_hold_prev_status"]) db.dropColumn("subscriptions", c);
+    expect((await send("charge.refunded", fullRefund("ch_i", "pi_i"), { created: T0, id: "evt_i" })).status).toBe(500);
+    expect(i.status).toBe("active");
+    db.missingColumns.delete("subscriptions");
+    expect((await send("charge.refunded", fullRefund("ch_i", "pi_i"), { created: T0, id: "evt_i" })).status).toBe(200);
+    expect(i).toMatchObject({ status: "suspended", billing_hold: "refunded" });
+  });
+
+  it("API plan without the columns: cut off as a status; the refunded invoice's own paid notice does not lift it, a later payment for a different invoice does", async () => {
+    const a = apiAcct();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    for (const c of ["billing_hold", "billing_hold_ref", "billing_hold_invoice", "billing_hold_at", "billing_hold_prev_status", "past_due_since"]) db.dropColumn("api_accounts", c);
+    expect((await send("charge.refunded", fullRefund(), { created: T0 + 100 })).status).toBe(200);
+    expect(a).toMatchObject({ status: "past_due", key_id: null });
+    expect(a.last_billing_event_ts).toBe(T0 + 100);
+    await send("invoice.paid", paid("in_1", "sub_api"), { created: T0 + 50 }); // the replay of the refunded invoice's own payment
+    expect(a.status).toBe("past_due");
+    await send("invoice.paid", paid("in_next", "sub_api"), { created: T0 + 30 * DAY });
+    expect(a.status).toBe("active");
+  });
+});
+
+describe("R4. disputes that escalate or are lost", () => {
+  it("a warning inquiry that escalates to a real dispute (charge.dispute.updated) applies the hold then, once", async () => {
+    const a = apiAcct();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    await send("charge.dispute.created", dispute({ status: "warning_needs_response" }), { created: T0 });
+    expect(a.status).toBe("active");
+    await send("charge.dispute.updated", dispute({ status: "warning_under_review" }), { created: T0 + 5 });
+    expect(a.status).toBe("active");
+    for (let n = 0; n < 2; n++) expect((await send("charge.dispute.updated", dispute({ status: "needs_response" }), { created: T0 + 10, id: "evt_esc" })).status).toBe(200);
+    expect(a).toMatchObject({ status: "past_due", billing_hold: "disputed", billing_hold_ref: "dp_1", key_id: null });
+    expect(audit("hold_applied")).toHaveLength(1);
+  });
+
+  it("an update that already carries a final status is left to the closed event", async () => {
+    const a = apiAcct();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    await send("charge.dispute.updated", dispute({ status: "won" }), { created: T0 });
+    expect(a.status).toBe("active");
+  });
+
+  it("closed as LOST with no hold yet (the created event was never seen) applies it and records that it stands", async () => {
+    const a = apiAcct();
+    const w = watchRow();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    stripe.link("ch_w", "pi_w", "in_w", "sub_w");
+    expect((await send("charge.dispute.closed", dispute({ status: "lost" }), { created: T0 })).status).toBe(200);
+    expect((await send("charge.dispute.closed", dispute({ id: "dp_w", charge: "ch_w", status: "lost" }), { created: T0 })).status).toBe(200);
+    expect(a).toMatchObject({ status: "past_due", billing_hold: "disputed", key_id: null });
+    expect(w).toMatchObject({ status: "paused", billing_hold: "disputed" });
+    expect(audit("hold_applied")).toHaveLength(2);
+    expect(audit("dispute_lost_hold_stands")).toHaveLength(2);
+  });
+});
+
+describe("R5. a hold or a lift can never turn a terminal state back (either order)", () => {
+  const snapshot = (...rows: Row[]) => rows.map((r) => ({ ...r }) as any);
+
+  it("cancelled AFTER the event read the rows: the hold writes nothing, and the rows stay cancelled / superseded", async () => {
+    const { applyHold } = await import("@/lib/billing-holds");
+    const a = apiAcct();
+    const w = watchRow();
+    const i = intelRow();
+    const [sa, sw, si] = snapshot(a, w, i); // what the event read
+    a.status = "cancelled";
+    w.status = "cancelled";
+    i.status = "superseded";
+    const out = await applyHold({ api: sa, watch: sw, intelligence: si }, { kind: "refunded", ref: "ch_x", invoiceId: "in_x", subscriptionId: "sub_x", eventId: "evt_x", created: T0 });
+    expect(out.ok).toBe(true);
+    expect([a.status, w.status, i.status]).toEqual(["cancelled", "cancelled", "superseded"]);
+    expect([a.billing_hold ?? null, w.billing_hold ?? null, i.billing_hold ?? null]).toEqual([null, null, null]);
+    expect(a.key_id).toBe("keyLIVE1"); // an ended account is not suspended a second time
+  });
+
+  it("cancelled AFTER the hold was read as held: the lift writes nothing and cannot revive it", async () => {
+    const { applyHold, liftHold } = await import("@/lib/billing-holds");
+    const a = apiAcct();
+    const w = watchRow();
+    const i = intelRow();
+    await applyHold({ api: a as any, watch: w as any, intelligence: i as any }, { kind: "refunded", ref: "ch_x", invoiceId: "in_x", subscriptionId: "sub_x", eventId: "evt_x", created: T0 });
+    expect([a.status, w.status, i.status]).toEqual(["past_due", "paused", "suspended"]);
+    const [sa, sw, si] = snapshot(a, w, i); // held, as the invoice.paid event reads them
+    a.status = "cancelled";
+    w.status = "cancelled";
+    i.status = "cancelled";
+    const out = await liftHold({ api: sa, watch: sw, intelligence: si }, { kinds: ["refunded"], restore: "active", cause: "invoice_paid", subscriptionId: "sub_x", eventId: "evt_y", created: T0 + 30 * DAY });
+    expect(out.ok).toBe(true);
+    expect([a.status, w.status, i.status]).toEqual(["cancelled", "cancelled", "cancelled"]);
+  });
+
+  it("the webhook: a refund whose rows are cancelled by the deletion event delivered first leaves them cancelled, and the deletion after a hold wins too", async () => {
+    const a = apiAcct();
+    const w = watchRow();
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    stripe.link("ch_w", "pi_w", "in_w", "sub_w");
+    await send("customer.subscription.deleted", { id: "sub_api", object: "subscription", metadata: { kind: "api_scale" } });
+    await send("charge.refunded", fullRefund(), { created: T0 + 5 });
+    await send("invoice.paid", paid("in_x", "sub_api"), { created: T0 + 9 });
+    expect(a.status).toBe("cancelled");
+    await send("charge.refunded", fullRefund("ch_w", "pi_w"), { created: T0 });
+    expect(w.status).toBe("paused");
+    await send("customer.subscription.deleted", { id: "sub_w", object: "subscription", metadata: { kind: "hall_watch" } });
+    await send("invoice.paid", paid("in_y", "sub_w"), { created: T0 + 30 * DAY });
+    expect(w.status).toBe("cancelled");
+  });
+});
+
+describe("R6. a refund or dispute that arrives before its checkout is recorded", () => {
+  it("one of OUR subscriptions with no record yet is answered 500 (retried); it applies once the checkout is recorded", async () => {
+    stripe.link("ch_1", "pi_1", "in_1", "sub_api");
+    stripe.subscriptionKinds.set("sub_api", "api_scale");
+    expect((await send("charge.refunded", fullRefund(), { created: T0, id: "evt_early" })).status).toBe(500);
+    expect((await send("charge.dispute.created", dispute(), { created: T0, id: "evt_early_d" })).status).toBe(500);
+    const a = apiAcct();
+    expect((await send("charge.refunded", fullRefund(), { created: T0, id: "evt_early" })).status).toBe(200);
+    expect(a.billing_hold).toBe("refunded");
+  });
+
+  it("somebody else's subscription on the same Stripe account is acknowledged, not retried", async () => {
+    stripe.link("ch_x", "pi_x", "in_x", "sub_other");
+    stripe.subscriptionKinds.set("sub_other", "something_else");
+    expect((await send("charge.refunded", fullRefund("ch_x", "pi_x"), { created: T0 })).status).toBe(200);
+  });
+});
+
+describe("R7. a queued Hall Watch note is never sent for a watch that is not active (the REAL attemptNotice)", () => {
+  const queue = (w: Row) => {
+    const note = db.insertRow("watch_notes", { watch_id: w.id, headline: "Racks moved", material: true, weeks_delta: 2, change: null });
+    return db.insertRow("watch_note_notices", { watch_note_id: note.id, watch_id: w.id, status: "pending", attempts: 0, next_attempt_at: new Date(0).toISOString() });
+  };
+  const toWatcher = () => mail.filter((m) => m.to === "w@hall.example");
+
+  it("control: an active watch's queued note is sent by attemptNotice", async () => {
+    const w = watchRow();
+    const { attemptNotice } = await import("@/lib/watch-notices");
+    expect(await attemptNotice(queue(w) as any)).toBe("sent");
+    expect(toWatcher()).toHaveLength(1);
+  });
+
+  it.each(["cancelled", "paused"])("a %s watch: the notice is abandoned and nothing is mailed, however the status changed", async (status) => {
+    const w = watchRow();
+    const n = queue(w);
+    w.status = status; // changed directly: no webhook ran, so nothing abandoned the notice beforehand
+    const { attemptNotice, sweepNotices } = await import("@/lib/watch-notices");
+    expect(await attemptNotice(n as any)).toBe("abandoned");
+    expect(toWatcher()).toHaveLength(0);
+    const m = queue(w);
+    expect((await sweepNotices()).outcomes.sent).toBe(0);
+    expect(toWatcher()).toHaveLength(0);
+    expect(m.status).toBe("abandoned");
+  });
+
+  it("announceNote for a watch that is no longer active sends nothing", async () => {
+    const w = watchRow({ status: "cancelled" });
+    const note = db.insertRow("watch_notes", { watch_id: w.id, headline: "Racks moved", material: true });
+    const { announceNote } = await import("@/lib/watch-notices");
+    await announceNote({ id: note.id as string, watch_id: w.id as string }, w as any, "Racks moved");
+    expect(toWatcher()).toHaveLength(0);
+  });
+});
+
+describe("R8. the inline revocation retry is bounded", () => {
+  let attempts: number;
+  let undo: () => void;
+  let mode: "refuse" | "unreachable" | "ok";
+  beforeEach(() => {
+    attempts = 0;
+    mode = "refuse";
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === "https://engine.test/v1/revoke" && mode !== "ok") {
+        attempts++;
+        if (mode === "unreachable") throw new TypeError("fetch failed");
+        return new Response(JSON.stringify({ error: "down" }), { status: 503 });
+      }
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
+    undo = () => { globalThis.fetch = inner; };
+  });
+  afterEach(() => undo());
+  const many = () => apiAcct({ status: "cancelled", key_id: null, revoked_key_ids: ["k1", "k2", "k3", "k4", "k5", "k6"] });
+
+  it("one billing event pushes at most three ids, and a second one inside ten minutes pushes none; the daily sweep still drains all of them", async () => {
+    const a = many();
+    expect((await send("invoice.paid", paid("in_x", "sub_api"), { created: T0 + 1 })).status).toBe(200);
+    expect(attempts).toBe(3);
+    expect((await send("invoice.paid", paid("in_y", "sub_api"), { created: T0 + 2 })).status).toBe(200);
+    expect(attempts).toBe(3);
+    vi.setSystemTime((T0 + 11 * 60) * 1000);
+    await send("invoice.paid", paid("in_z", "sub_api"), { created: T0 + 11 * 60 });
+    expect(attempts).toBe(6);
+    mode = "ok";
+    expect(await retryRevocations(50, new Date((T0 + 86_400) * 1000))).toMatchObject({ confirmed: 6, stillPending: 0 });
+    expect(a.revocation_pending).toBe(false);
+  });
+
+  it("an engine that does not answer costs one attempt, not three", async () => {
+    many();
+    mode = "unreachable";
+    await send("invoice.paid", paid("in_x", "sub_api"), { created: T0 + 1 });
+    expect(attempts).toBe(1);
+  });
+});
+
+describe("R9. audit keys and the grace pass", () => {
+  it("repeated pause / resume cycles are each on record; a redelivery of one event is not recorded twice", async () => {
+    watchRow();
+    const sub = (over: Record<string, unknown> = {}) => ({ id: "sub_w", object: "subscription", status: "active", pause_collection: null, metadata: {}, ...over });
+    let t = T0;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      t += 100;
+      await send("customer.subscription.updated", sub({ pause_collection: { behavior: "void" } }), { created: t, id: `evt_pause_${cycle}` });
+      await send("customer.subscription.updated", sub({ pause_collection: { behavior: "void" } }), { created: t, id: `evt_pause_${cycle}` });
+      t += 100;
+      await send("customer.subscription.updated", sub(), { created: t, id: `evt_resume_${cycle}` });
+      await send("customer.subscription.updated", sub(), { created: t, id: `evt_resume_${cycle}` });
+    }
+    expect(audit("hold_applied")).toHaveLength(2);
+    expect(audit("hold_lifted")).toHaveLength(2);
+  });
+
+  it("rows whose key is already revoked cannot starve the pass: an expired grace behind 200+ of them is still revoked", async () => {
+    for (let n = 0; n < 205; n++) {
+      paygAccount(db, { account: `done-${n}`, token: `tok-done-${n}`.padEnd(30, "x"), plan: "api_scale", cap_units: null, status: "past_due", key_id: null, stripe_subscription_id: `sub_done_${n}`, past_due_since: new Date(T0 * 1000 - 40 * DAY * 1000).toISOString() });
+    }
+    const a = apiAcct({ status: "past_due", past_due_since: new Date((T0 - 10 * DAY) * 1000).toISOString() });
+    const rep = await enforcePastDueGrace(new Date(T0 * 1000));
+    expect(rep.revoked).toBe(1);
+    expect(a.key_id).toBeNull();
   });
 });

@@ -199,7 +199,7 @@ describe("the subscription-update and dispute-closed events", () => {
     expect(health.error).toMatch(/customer\.subscription\.updated/);
   });
 
-  it.each(["charge.refunded", "charge.dispute.created", "charge.dispute.closed"])(
+  it.each(["charge.refunded", "charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"])(
     "%s is required: paid access is suspended and restored by it, so an endpoint without it is unhealthy and the error names it",
     async (event) => {
       expect(REQUIRED_WEBHOOK_EVENTS as readonly string[]).toContain(event);
