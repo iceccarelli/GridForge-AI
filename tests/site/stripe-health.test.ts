@@ -207,7 +207,8 @@ describe("the subscription-update and dispute-closed events", () => {
       EXPECTED_URL
     );
     expect(health.healthy).toBe(true);
-    expect(health.missingRecommended).toEqual(["charge.dispute.closed"]);
+    // (the two delayed-payment checkout events are recommended too, since the handler acts on them)
+    expect(health.missingRecommended).toEqual(["charge.dispute.closed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"]);
   });
 
   it("the route handles the events the health check requires and recommends", async () => {

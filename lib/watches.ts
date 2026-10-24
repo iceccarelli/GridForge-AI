@@ -35,6 +35,12 @@ export interface WatchRecord {
   stripe_customer_id: string | null;
   /** Stripe event.created of the newest invoice event applied to this watch (migration 0039): orders a late payment_failed against a later paid. */
   last_billing_event_ts?: number | null;
+  /** A suspension that is not a cancellation (migration 0041): see lib/billing-holds.ts. */
+  billing_hold?: "refunded" | "disputed" | "paused" | null;
+  billing_hold_ref?: string | null;
+  billing_hold_invoice?: string | null;
+  billing_hold_at?: string | null;
+  billing_hold_prev_status?: string | null;
 }
 
 export interface WatchNote {
@@ -195,6 +201,64 @@ export async function updateWatch(token: string, patch: Partial<WatchRecord>): P
   });
   if (!res.ok) console.error("[GridForge] watch update failed:", await storeFault(res));
   return res.ok;
+}
+
+/**
+ * Write only while the watch is STILL active (a conditional update on the status, like claimWatch). A run claims a watch, spends up to
+ * minutes in the engine and then records its result; a cancellation, a refund hold or a pause that lands in that time must not be
+ * overtaken by the run's write. "inactive": no row matched, the watch is no longer entitled to a run. "error": the store failed.
+ */
+export async function updateWatchIfActive(token: string, patch: Partial<WatchRecord>): Promise<"ok" | "inactive" | "error"> {
+  const c = creds();
+  if (!c) return "error";
+  try {
+    const res = await fetch(`${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(token)}&status=eq.active`, {
+      method: "PATCH",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] watch conditional update failed:", await storeFault(res));
+      return "error";
+    }
+    return ((await res.json().catch(() => [])) as unknown[]).length > 0 ? "ok" : "inactive";
+  } catch (err) {
+    console.error("[GridForge] watch conditional update unreachable:", err);
+    return "error";
+  }
+}
+
+/** The watch's status as the store holds it NOW, apart from "could not ask" (never read an outage as "cancelled" or as "active"). */
+export async function watchStatusNow(token: string): Promise<WatchStatus | "missing" | "unknown"> {
+  const c = creds();
+  if (!c || !token) return "unknown";
+  try {
+    const res = await fetch(`${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(token)}&select=status&limit=1`, { headers: c.headers, cache: "no-store" });
+    if (!res.ok) return "unknown";
+    const row = ((await res.json()) as { status?: WatchStatus }[])[0];
+    return row?.status ?? "missing";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * A watch that is cancelled or held receives nothing more: a change note already queued for an email (migration 0030) is abandoned, so
+ * the engagements sweep does not send it later. The note itself stays stored. Best effort: the table may not exist (migration 0030).
+ */
+export async function abandonPendingNotices(watchId: string, reason: string): Promise<void> {
+  const c = creds();
+  if (!c || !watchId) return;
+  try {
+    const res = await fetch(`${c.url}/rest/v1/watch_note_notices?watch_id=eq.${encodeURIComponent(watchId)}&status=eq.pending`, {
+      method: "PATCH",
+      headers: { ...c.headers, Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "abandoned", last_error: reason }),
+    });
+    if (!res.ok && res.status !== 404) console.error("[GridForge] could not abandon queued watch notices:", await storeFault(res));
+  } catch {
+    /* the notice sweep re-checks nothing, but a watch with no queued notice has nothing to abandon */
+  }
 }
 
 /**

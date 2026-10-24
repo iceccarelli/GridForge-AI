@@ -198,7 +198,25 @@ export interface ApiAccount {
   last_revocation_attempt_at?: string | null;
   /** Set when the emailed link is first used to mint a key; the monthly free-allowance ceiling counts these. */
   free_verified_at?: string | null;
+  /** When the current past_due episode began (migration 0041): API_PAST_DUE_GRACE_DAYS counts from here. */
+  past_due_since?: string | null;
+  /** A suspension that is not a cancellation (migration 0041): see lib/billing-holds.ts. */
+  billing_hold?: "refunded" | "disputed" | "paused" | null;
+  billing_hold_ref?: string | null;
+  billing_hold_invoice?: string | null;
+  billing_hold_at?: string | null;
+  billing_hold_prev_status?: string | null;
 }
+
+/**
+ * How long a subscription API account may stay past_due with its already-minted key still working: the key is a signed token the
+ * engine verifies offline, so until it is revoked it works for up to 35 days whatever the account says. A card that fails on Tuesday
+ * and clears on Thursday should not cost the customer their integration, and a customer who never pays should not keep a month of
+ * access. Seven days from the FIRST failed payment of the episode (Stripe retries over about that long); after it the daily cron (and
+ * any later failure event) revokes the live key. A payment that clears afterwards reopens minting; the revoked key stays revoked.
+ * Pay-as-you-go accounts have no grace: their key is revoked at the first failed settlement (lib/payg-billing.ts).
+ */
+export const API_PAST_DUE_GRACE_DAYS = 7;
 
 function rest(pathAndQuery: string): { url: string; headers: Record<string, string> } | null {
   const base = process.env.SUPABASE_URL;
@@ -360,14 +378,44 @@ export async function findBySubscription(subscriptionId: string): Promise<ApiAcc
  * environment variable — a redeploy, done by hand, while a leaked key kept
  * working.
  *
- * Best-effort on purpose. This runs inside the Stripe webhook, and a webhook that
- * fails because the engine is briefly unreachable would be redelivered and re-run
- * a cancellation that already happened. A failure here is logged with the id so it
- * can be pushed by hand, and the key still dies at expiry as it always did.
+ * A call that fails does not fail the webhook (a redelivery would re-run a cancellation that
+ * already happened), and it is NOT forgotten either: every caller records the id in
+ * `revoked_key_ids` BEFORE asking the engine and records the engine's confirmation in
+ * `revoked_confirmed_ids` only on a 2xx. An id in the first and not the second is a
+ * DURABLE obligation (`revocation_pending`): the daily sweep (retryRevocations) and the
+ * next billing event for the account push it again, the operator is told once per
+ * account (lib/billing-holds.ts noteUnconfirmedRevocation), and
+ * checkRevocationBacklog (lib/stripe-health.ts) reports it. Nothing may say a key is
+ * revoked on the strength of this function returning false.
  */
-export async function revokeOnEngine(keyId: string | null | undefined): Promise<boolean> {
+export type RevokeResult =
+  | { ok: true }
+  | {
+      ok: false;
+      /**
+       * unconfigured: no engine URL / admin key here. not_deployed: the engine answered 404 for the route (an engine older than this
+       * repository; scripts/check-engine-drift.py). refused: the engine answered and said no (admin key mismatch, revocation store not
+       * persistable). unreachable: no answer.
+       */
+      reason: "unconfigured" | "not_deployed" | "refused" | "unreachable";
+      status?: number;
+    };
+
+/** The one place this site calls the engine's /v1/revoke (an operator-tier route, never reachable with a customer key). */
+function postRevoke(base: string, admin: string, keyId: string, timeoutMs: number): Promise<Response> {
+  return fetch(`${base.replace(/\/$/, "")}/v1/revoke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": admin },
+    body: JSON.stringify({ key_id: keyId }),
+    signal: AbortSignal.timeout(timeoutMs),
+    cache: "no-store",
+  });
+}
+
+/** What the engine said about one revocation, as a category: never "revoked" unless the engine answered 2xx. */
+export async function revokeOnEngineDetailed(keyId: string | null | undefined): Promise<RevokeResult> {
   const id = (keyId ?? "").trim();
-  if (!id) return false;
+  if (!id) return { ok: false, reason: "refused" };
   const base = process.env.GRIDFORGE_API_URL;
   const admin = process.env.GRIDFORGE_ADMIN_KEY;
   if (!base || !admin) {
@@ -375,25 +423,42 @@ export async function revokeOnEngine(keyId: string | null | undefined): Promise<
       "[GridForge] cannot revoke key id on the engine (GRIDFORGE_API_URL / GRIDFORGE_ADMIN_KEY unset):",
       id
     );
-    return false;
+    return { ok: false, reason: "unconfigured" };
   }
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/revoke`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": admin },
-      body: JSON.stringify({ key_id: id }),
-      signal: AbortSignal.timeout(10_000),
-      cache: "no-store",
-    });
+    const res = await postRevoke(base, admin, id, 10_000);
     if (!res.ok) {
       console.error("[GridForge] engine refused a revocation:", await storeFault(res), id);
-      return false;
+      return { ok: false, reason: res.status === 404 ? "not_deployed" : "refused", status: res.status };
     }
     console.log("[GridForge] key id revoked on the engine:", id);
-    return true;
+    return { ok: true };
   } catch (err) {
     console.error("[GridForge] could not reach the engine to revoke:", err, id);
-    return false;
+    return { ok: false, reason: "unreachable" };
+  }
+}
+
+export async function revokeOnEngine(keyId: string | null | undefined): Promise<boolean> {
+  return (await revokeOnEngineDetailed(keyId)).ok;
+}
+
+/**
+ * Does the engine serve the revocation route at all? A POST with an EMPTY key id revokes nothing on an engine that has the route (it
+ * answers 422 "key_id is required") and 404s on one that does not (the deployed engine, today). Used only to tell the operator which
+ * of the two is behind a revocation backlog; "unknown" is any other answer.
+ */
+export async function probeEngineRevokeRoute(): Promise<"served" | "not_deployed" | "unreachable" | "unconfigured" | "unknown"> {
+  const base = process.env.GRIDFORGE_API_URL;
+  const admin = process.env.GRIDFORGE_ADMIN_KEY;
+  if (!base || !admin) return "unconfigured";
+  try {
+    const res = await postRevoke(base, admin, "", 5_000);
+    if (res.status === 404) return "not_deployed";
+    if (res.status === 422 || res.status === 503 || res.ok) return "served";
+    return "unknown";
+  } catch {
+    return "unreachable";
   }
 }
 
@@ -585,7 +650,7 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
 
 
 /** An overlap key is live ON PURPOSE only while its account is ACTIVE and its last valid day has not passed. */
-function overlapHeld(row: Pick<ApiAccount, "status" | "overlap_key_ids">, id: string, today: string): boolean {
+export function overlapHeld(row: Pick<ApiAccount, "status" | "overlap_key_ids">, id: string, today: string): boolean {
   return row.status === "active" && (row.overlap_key_ids ?? {})[id] >= today;
 }
 
@@ -631,27 +696,46 @@ export async function retryRevocations(limit = 50, now: Date = new Date()): Prom
   // For an account that is still ACTIVE the id waiting here is a key it replaced: revoking it before the engine is shown to verify the
   // key that replaced it could leave the customer with nothing. Checked once per run, and only if such an account is in the batch.
   // Cancelled and past-due accounts are being cut off, so their ids are pushed regardless.
-  let verifies: "yes" | "no" | "unknown" | null = null;
+  const ctx: SweepContext = { verifies: null };
   for (const row of rows) {
     await stampRevocationAttempt(row.token, now);
-    const done = new Set(row.revoked_confirmed_ids ?? []);
-    // An overlap key of an active account is live on purpose until its last valid day: neither pushed nor counted pending before then.
-    const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !overlapHeld(row, id, today));
-    if (row.status === "active") {
-      verifies ??= await engineVerifiesOurKeys();
-      if (verifies !== "yes") {
-        stillPending += todo.length;
-        continue;
-      }
-    }
-    const ok: string[] = [];
-    for (const id of todo) {
-      if (await revokeOnEngine(id)) ok.push(id);
-      else stillPending++;
-    }
-    if (ok.length && (await confirmRevoked(row.token, ok))) confirmed += ok.length;
+    const r = await sweepRow(row, today, ctx);
+    confirmed += r.confirmed;
+    stillPending += r.stillPending;
   }
   return { accounts: rows.length, confirmed, stillPending };
+}
+
+interface SweepContext {
+  verifies: "yes" | "no" | "unknown" | null;
+}
+
+async function sweepRow(row: SweepRow, today: string, ctx: SweepContext): Promise<{ confirmed: number; stillPending: number }> {
+  const done = new Set(row.revoked_confirmed_ids ?? []);
+  // An overlap key of an active account is live on purpose until its last valid day: neither pushed nor counted pending before then.
+  const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !overlapHeld(row, id, today));
+  if (row.status === "active") {
+    ctx.verifies ??= await engineVerifiesOurKeys();
+    if (ctx.verifies !== "yes") return { confirmed: 0, stillPending: todo.length };
+  }
+  const ok: string[] = [];
+  let stillPending = 0;
+  for (const id of todo) {
+    if (await revokeOnEngine(id)) ok.push(id);
+    else stillPending++;
+  }
+  const confirmed = ok.length && (await confirmRevoked(row.token, ok)) ? ok.length : 0;
+  return { confirmed, stillPending };
+}
+
+/**
+ * Push one account's unconfirmed revocations now (the next billing event for an account whose revocation is pending calls this, so a
+ * revocation does not wait for the daily sweep). Same rules as the sweep; returns what is still unconfirmed afterwards.
+ */
+export async function retryRevocationsFor(token: string, now: Date = new Date()): Promise<{ confirmed: number; stillPending: number }> {
+  const row = await getApiAccount(token);
+  if (!row) return { confirmed: 0, stillPending: 0 };
+  return sweepRow(row, now.toISOString().slice(0, 10), { verifies: null });
 }
 
 /** Best effort: a failed stamp only costs fairness for one run (and a missing column before 0039 is not an error worth stopping for). */
@@ -707,4 +791,92 @@ export async function cancelApiAccount(
     }
   }
   return { ok: false };
+}
+
+export type SuspendOutcome =
+  | { ok: false }
+  | {
+      ok: true;
+      /** The row as it stood when the key columns were cleared. */
+      row: ApiAccount;
+      /** Every id the account now records as live-or-overlapping and revoked by this call. */
+      revoked: string[];
+      /** The engine answered 2xx for these. */
+      confirmed: string[];
+      /** The engine did NOT confirm these: they stay in revoked_key_ids without a confirmation, a durable obligation the sweep retries. */
+      unconfirmed: { id: string; reason: string }[];
+    };
+
+/**
+ * Cut an account's keys off NOW and record that the account may not mint: the live key, and any key deliberately left live next to a
+ * newer one, are written into revoked_key_ids and key_id/expiry/scope are cleared, in ONE write that carries `extra` (the status, the
+ * hold, the clock). The write is compare-and-set on the key id from a FRESH read (as cancelApiAccount), so a key minted between the
+ * caller's read and this write is the live key and is in the set. Only after the account says so is the engine told; what the engine
+ * confirmed goes into revoked_confirmed_ids and nothing else does, so an engine that cannot be reached (or that does not serve
+ * /v1/revoke yet) leaves a recorded, unconfirmed revocation that the daily sweep and the next billing event keep pushing. The caller
+ * must not tell anybody the key is revoked unless `unconfirmed` is empty.
+ *
+ * Used by every path that suspends rather than cancels: the pay-as-you-go failed settlement, the end of the past_due grace, and a
+ * refunded, disputed or paused subscription payment.
+ */
+export async function suspendApiKeys(acct: Pick<ApiAccount, "token">, extra: Partial<ApiAccount> = {}, attempts = 5): Promise<SuspendOutcome> {
+  for (let i = 0; i < attempts; i++) {
+    const row = await getApiAccount(acct.token);
+    if (!row) return { ok: false };
+    const live = row.key_id ? [row.key_id] : [];
+    const overlap = Object.keys(row.overlap_key_ids ?? {});
+    const toRevoke = [...new Set([...live, ...overlap])];
+    const revoked = new Set([...(row.revoked_key_ids ?? []), ...toRevoke]);
+    const r = rest(
+      `api_accounts?token=eq.${encodeURIComponent(row.token)}` + (row.key_id ? `&key_id=eq.${encodeURIComponent(row.key_id)}` : "&key_id=is.null")
+    );
+    if (!r) return { ok: false };
+    try {
+      const res = await fetch(r.url, {
+        method: "PATCH",
+        headers: { ...r.headers, Prefer: "return=representation" },
+        body: JSON.stringify({
+          ...extra,
+          key_id: null,
+          key_issued_at: null,
+          key_expires_at: null,
+          key_scope: null,
+          revoked_key_ids: [...revoked],
+        }),
+      });
+      if (!res.ok) {
+        console.error("[GridForge] api account suspension write failed:", await storeFault(res));
+        return { ok: false };
+      }
+      const rows = (await res.json()) as ApiAccount[];
+      if (rows.length !== 1) continue; // a mint landed under us: read again and rebuild the set from what is live NOW
+      const confirmed: string[] = [];
+      const unconfirmed: { id: string; reason: string }[] = [];
+      for (const id of toRevoke) {
+        const out = await revokeOnEngineDetailed(id);
+        if (out.ok) confirmed.push(id);
+        else unconfirmed.push({ id, reason: out.reason });
+      }
+      if (confirmed.length) await confirmRevoked(row.token, confirmed);
+      return { ok: true, row, revoked: [...revoked], confirmed, unconfirmed };
+    } catch {
+      console.error("[GridForge] api account suspension write unreachable");
+      return { ok: false };
+    }
+  }
+  return { ok: false };
+}
+
+/** Milliseconds a past_due subscription API account may keep its minted key. */
+export const API_PAST_DUE_GRACE_MS = API_PAST_DUE_GRACE_DAYS * 86_400_000;
+
+/**
+ * Has this subscription API account's grace run out? Only a past_due row with a start time, no hold of its own (a hold already cut the
+ * key off) and a subscription behind it (pay-as-you-go and free accounts have their own rules) can be over grace.
+ */
+export function graceElapsed(row: Pick<ApiAccount, "status" | "past_due_since" | "billing_hold" | "plan" | "stripe_subscription_id">, nowMs: number): boolean {
+  if (row.status !== "past_due" || row.billing_hold) return false;
+  if (row.plan === "api_payg" || row.plan === "api_free" || !row.stripe_subscription_id) return false;
+  const since = row.past_due_since ? Date.parse(row.past_due_since) : NaN;
+  return Number.isFinite(since) && nowMs - since >= API_PAST_DUE_GRACE_MS;
 }

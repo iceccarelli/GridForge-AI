@@ -11,6 +11,8 @@ import {
   weeksLine,
   runWatch,
   updateWatch,
+  updateWatchIfActive,
+  watchStatusNow,
   WATCH_CRON_START_BY_MS,
   WATCH_RETRY_BACKOFF_MS,
   type WatchRecord,
@@ -111,12 +113,14 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
       await backOff(w);
       return { token: w.token, status: `engine_error: ${baseline.error}` };
     }
-    const saved = await updateWatch(w.token, {
+    // Conditional on the watch still being active: a cancellation or hold that landed while the engine was working is not overtaken.
+    const saved = await updateWatchIfActive(w.token, {
       last_state: baseline.diff.after,
       last_run_at: new Date().toISOString(),
       next_run_at: nextRun(new Date(), w.cadence),
     });
-    if (!saved) {
+    if (saved === "inactive") return { token: w.token, status: "skipped_inactive" };
+    if (saved === "error") {
       await backOff(w);
       return { token: w.token, status: "store_error" };
     }
@@ -129,6 +133,16 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
     return { token: w.token, status: `engine_error: ${out.error}` };
   }
   const d = out.diff;
+
+  // The watch was due and claimed when this run began; the engine has taken up to minutes since. A cancellation (or a refund, dispute
+  // or pause hold) that landed in that time ends the run HERE: no note is stored, no state advances, nothing is sent. The store is asked,
+  // not the copy read at the start; and an answer that cannot be had is not read as "still active".
+  const live = await watchStatusNow(w.token);
+  if (live === "unknown") {
+    await backOff(w);
+    return { token: w.token, status: "store_error" };
+  }
+  if (live !== "active") return { token: w.token, status: "skipped_inactive" };
 
   // The note is the durable record of what moved. last_state is the baseline the
   // NEXT run compares against, so it advances only once the note is stored: if it
@@ -149,18 +163,22 @@ async function runOne(w: WatchRecord): Promise<{ token: string; status: string; 
     await backOff(w);
     return { token: w.token, status: "note_not_stored" };
   }
-  const advanced = await updateWatch(w.token, {
+  const advanced = await updateWatchIfActive(w.token, {
     last_state: d.after,
     last_run_at: new Date().toISOString(),
     next_run_at: nextRun(new Date(), w.cadence),
   });
-  if (!advanced) {
+  // Cancelled between the check above and now: the note exists (rows are never deleted) but is not announced and the state stays.
+  if (advanced === "inactive") return { token: w.token, status: "skipped_inactive" };
+  if (advanced === "error") {
     // Note stored but state not advanced: do not email (the retry would email again).
     await backOff(w);
     return { token: w.token, status: "state_not_advanced" };
   }
 
-  // The change note is stored and on the watch page; its email is a durable obligation retried by the engagements sweep.
+  // The change note is stored and on the watch page; its email is a durable obligation retried by the engagements sweep. One last look
+  // first: a watch that stopped being active since the write above receives nothing.
+  if (d.material && (await watchStatusNow(w.token)) !== "active") return { token: w.token, status: "skipped_inactive", headline: d.headline };
   if (d.material) await announceNote({ id: noteId, watch_id: w.id }, w, d.headline, weeksLine({ weeks_delta: d.weeks_delta, change: d }));
   return { token: w.token, status: d.material ? "changed" : "no_change", headline: d.headline };
 }
