@@ -55,6 +55,13 @@ export function availabilityIn(routes: Set<string> | null, path: string): Availa
   return routes.has(path) ? "available" : "unavailable";
 }
 
+/** The MCP install is offered only when the engine serves both its transport and the free tool every client starts with. */
+export function mcpAvailabilityIn(routes: Set<string> | null): Availability {
+  const states = (["/mcp", "/v1/qualify"] as const).map((e) => availabilityIn(routes, e));
+  if (states.includes("unknown")) return "unknown";
+  return states.every((x) => x === "available") ? "available" : "unavailable";
+}
+
 /** Test seam. */
 export function resetEngineCapabilityCache(): void {
   cache = null;

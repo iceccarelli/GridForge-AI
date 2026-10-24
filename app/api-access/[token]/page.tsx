@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { getApiAccount, keyLife, signingConfigured } from "@/lib/api-access";
 import { PAYG } from "@/lib/products";
 import { planLabel } from "@/lib/payg-client";
-import { eurExact, isFree as isFreeRate, isPerHall, unitSummary } from "@/lib/payg-pricing";
-import { readToolRates } from "@/lib/tool-rates";
+import { callableRates, eurExact, isFree as isFreeRate, isPerHall, unavailableLabel, unitSummary } from "@/lib/payg-pricing";
+import { readToolRatesWithAvailability, estimateEndpointServed } from "@/lib/tool-rates";
+import { deployedEngineRoutes, mcpAvailabilityIn } from "@/lib/engine-capabilities";
 import ApiKeyPanel from "@/components/ApiKeyPanel";
 import McpInstall from "@/components/McpInstall";
 import PaygPortal from "@/components/PaygPortal";
@@ -43,7 +44,12 @@ export default async function ApiAccessPage({
   if (!row) notFound();
 
   const engine = process.env.GRIDFORGE_API_URL || "https://gridforge-engine.fly.dev";
-  const rates = await readToolRates();
+  // Unit weights come from the engine's catalogue; whether each operation is served comes from the engine that is deployed.
+  const allRates = await readToolRatesWithAvailability();
+  const rates = callableRates(allRates);
+  const notServed = allRates.filter((r) => r.availability !== "available");
+  const estimateAvailable = await estimateEndpointServed();
+  const mcpState = mcpAvailabilityIn(await deployedEngineRoutes());
   const life = keyLife(row);
   const isFree = row.plan === "api_free";
   const isPayg = row.plan === "api_payg";
@@ -82,10 +88,10 @@ export default async function ApiAccessPage({
         <PaygPortal token={token} plan={row.plan} status={row.status} monthlyUnits={row.monthly_units} returned={returned} hasStripeCustomer={Boolean(row.stripe_customer_id)} />
       </div>
 
-      <SetupSnippets engine={engine} rates={rates} />
+      <SetupSnippets engine={engine} rates={rates} estimateAvailable={estimateAvailable} />
 
       <section className="mt-8">
-        <McpInstall engine={engine} />
+        <McpInstall engine={engine} availability={mcpState} />
       </section>
 
       <section className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -104,6 +110,11 @@ export default async function ApiAccessPage({
                     {isFreeRate(r) ? "0 units (free, no key needed)" : `${r.units} unit${r.units === 1 ? "" : "s"}${isPerHall(r) ? " per hall in the request" : ""}`}
                   </li>
                 ))}
+              {notServed.map((r) => (
+                <li key={r.endpoint} className="text-faint">
+                  <span className="font-mono text-xs">{r.endpoint}</span>: {unavailableLabel(r)}. Not billable until it is served.
+                </li>
+              ))}
             </ul>
           )}
           <p className="mt-3 text-[11px] text-faint">

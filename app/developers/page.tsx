@@ -14,7 +14,7 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { PAYG } from "@/lib/products";
 import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
-import { availabilityIn, deployedEngineRoutes, type Availability } from "@/lib/engine-capabilities";
+import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
@@ -98,11 +98,7 @@ export default async function DevelopersPage() {
   const callable = callableRates(rates);
   const estimateAvailable = await estimateEndpointServed();
   const state = (endpoint: string): Availability => availabilityIn(routes, endpoint);
-  const mcpState: Availability = (["/mcp", "/v1/qualify"] as const).map(state).includes("unknown")
-    ? "unknown"
-    : (["/mcp", "/v1/qualify"] as const).every((e) => state(e) === "available")
-      ? "available"
-      : "unavailable";
+  const mcpState: Availability = mcpAvailabilityIn(routes);
   const qualifyState = state("/v1/qualify");
 
   return (
