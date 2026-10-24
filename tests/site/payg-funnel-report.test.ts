@@ -59,7 +59,7 @@ const props = (name: string) => events(name).map((e) => e.props);
 describe("the funnel vocabulary is closed and privacy-safe", () => {
   it("names and property keys are exactly these (adding one is a deliberate change to this list)", () => {
     expect([...FUNNEL_EVENTS].sort()).toEqual([
-      "alert_sent", "allowance_exhausted", "dispute_opened", "engagement_commissioned", "first_charge", "first_engine_use", "free_account_created", "key_minted",
+      "alert_sent", "allowance_exhausted", "checkout_attempted", "checkout_failed", "checkout_session_created", "dispute_opened", "engagement_commissioned", "first_charge", "first_engine_use", "free_account_created", "key_minted",
       "payg_enabled", "payment_failed", "project_created", "project_saved_result", "qualify_completed", "qualify_started", "refund_issued",
       "subscription_cancelled", "subscription_started",
     ]);

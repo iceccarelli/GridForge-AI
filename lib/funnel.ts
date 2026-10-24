@@ -10,13 +10,44 @@
 
 import { funnelKey } from "@/lib/payg";
 import { pg } from "@/lib/payg-store";
+import { PRODUCTS } from "@/lib/products";
 
 export const FUNNEL_EVENTS = [
   "free_account_created", "key_minted", "payg_enabled", "first_charge", "payment_failed", "alert_sent",
   "qualify_started", "qualify_completed", "project_created", "project_saved_result", "first_engine_use", "allowance_exhausted",
   "engagement_commissioned", "subscription_started", "subscription_cancelled", "refund_issued", "dispute_opened",
+  "checkout_attempted", "checkout_session_created", "checkout_failed",
 ] as const;
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[number];
+
+// ---- Checkout funnel (migration 0042). Three events that must never be confused with one another or with a payment:
+//   checkout_attempted        a valid catalogue request passed every gate this site controls and was handed to Stripe;
+//   checkout_session_created  Stripe returned a hosted-page URL. That is NOT a payment: nothing was charged by it, and the buyer may
+//                             never open the page. The only payment evidence is the webhook's engagement_commissioned / subscription_started;
+//   checkout_failed           a valid catalogue request that was refused or that Stripe could not turn into a session, with one fixed reason.
+// Props are exactly `kind` (+ `reason` on a failure), checked against closed lists here AND by a check constraint in the database.
+export const CHECKOUT_EVENTS = ["checkout_attempted", "checkout_session_created", "checkout_failed"] as const;
+export type CheckoutEvent = (typeof CHECKOUT_EVENTS)[number];
+
+/** Every way a VALID request can end without a session. Closed: a new refusal path needs a new entry here and in migration 0042. */
+export const CHECKOUT_FAILURE_REASONS = [
+  "payments_not_configured", // no STRIPE_SECRET_KEY on this deployment (503)
+  "project_reference_rejected", // the named project token / buyer link is wrong, revoked, unusable for this product, or both were sent (400/404)
+  "store_unavailable", // the project could not be confirmed because the store could not be read (502/503)
+  "api_plan_not_ready", // API plan: key issuance not proven against the engine (503), nothing sold
+  "founding_slots_unreadable", // legacy deposit: Founding availability could not be counted (503)
+  "founding_reservation_failed", // legacy deposit: the Founding slot could not be reserved (503)
+  "stripe_coupon_failed", // Stripe refused to create the Founding coupon (500)
+  "stripe_session_failed", // Stripe refused to create the session (500)
+] as const;
+export type CheckoutFailureReason = (typeof CHECKOUT_FAILURE_REASONS)[number];
+/** The reasons that happen AFTER Stripe was asked (the others are refusals before it was). */
+export const CHECKOUT_STRIPE_STAGE_REASONS: readonly CheckoutFailureReason[] = ["stripe_coupon_failed", "stripe_session_failed"];
+
+/** The kind of the off-catalogue deposit, recorded only when the operator has switched that path on (GRIDFORGE_LEGACY_DEPOSIT=1). */
+export const LEGACY_DEPOSIT_KIND = "engagement_deposit";
+/** The product kinds a checkout event may name: the catalogue (lib/products.ts) plus the legacy deposit. Mirrored in migration 0042. */
+export const CHECKOUT_KINDS: readonly string[] = [...new Set(Object.values(PRODUCTS).map((p) => p.kind)), LEGACY_DEPOSIT_KIND];
 
 /** The only property keys an event may carry. Anything else is refused, not stripped: a caller that sends a stray key has a bug. */
 export const FUNNEL_PROP_KEYS = ["plan", "scope", "cap_eur", "percent", "month", "units", "amount_cents", "account_ref", "reason", "evidence_class", "kind"] as const;
@@ -58,6 +89,14 @@ export function checkFunnelEvent(name: unknown, props: unknown): Checked {
     }
     out[k] = v;
   }
+  if ((CHECKOUT_EVENTS as readonly string[]).includes(name)) {
+    // Exactly the catalogue kind (and, on a failure, one fixed reason): nothing else, nothing optional.
+    for (const k of Object.keys(out)) if (k !== "kind" && k !== "reason") return { ok: false, reason: "prop_not_allowed" };
+    if (typeof out.kind !== "string" || !CHECKOUT_KINDS.includes(out.kind)) return { ok: false, reason: "bad_value" };
+    if (name === "checkout_failed") {
+      if (typeof out.reason !== "string" || !(CHECKOUT_FAILURE_REASONS as readonly string[]).includes(out.reason)) return { ok: false, reason: "bad_value" };
+    } else if ("reason" in out) return { ok: false, reason: "prop_not_allowed" };
+  }
   return { ok: true, props: out };
 }
 
@@ -84,5 +123,35 @@ export async function recordFunnelEvent(name: FunnelEvent, props: FunnelProps = 
     return r.ok && Array.isArray(r.data) ? r.data.length > 0 : false;
   } catch {
     return false;
+  }
+}
+
+/** The longest a checkout response waits for a checkout event to be written. Past it the response goes out and the write is abandoned. */
+export const CHECKOUT_RECORD_TIMEOUT_MS = 600;
+
+/**
+ * Record a checkout event from the checkout route. It can NEVER change what the route does: it does not throw, it does not reject, and it
+ * does not wait longer than CHECKOUT_RECORD_TIMEOUT_MS (a store that hangs, errors or is down costs the buyer at most that, once per event,
+ * and changes nothing else). A refused, failed or abandoned write is simply a missing measurement.
+ */
+export async function recordCheckoutEvent(
+  name: CheckoutEvent,
+  props: { kind: string; reason?: CheckoutFailureReason },
+  timeoutMs: number = CHECKOUT_RECORD_TIMEOUT_MS
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const write = recordFunnelEvent(name, props).then(
+      () => undefined,
+      () => undefined
+    );
+    const limit = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, timeoutMs));
+    });
+    await Promise.race([write, limit]);
+  } catch {
+    /* never surfaces */
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

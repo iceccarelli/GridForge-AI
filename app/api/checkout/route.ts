@@ -8,6 +8,7 @@ import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 import { projectForShare } from "@/lib/project-share";
 import { qualificationForCheckout } from "@/lib/qualify";
 import { pg, rpc } from "@/lib/payg-store";
+import { LEGACY_DEPOSIT_KIND, recordCheckoutEvent, type CheckoutFailureReason } from "@/lib/funnel";
 
 export const runtime = "nodejs";
 
@@ -23,7 +24,26 @@ async function releaseFoundingReservation(id: string | null): Promise<void> {
 /** RFC 4122 shape. The database column is a uuid; nothing else can be stored. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Which ONE catalogue selector a body names. The same rule the route applies, in one place so the funnel and the route cannot disagree
+ * about what a valid product is. Anything else (several selectors, an unknown id, a non-object) is not a valid product.
+ */
+function selectProduct(body: unknown): { valid: true; productId: ProductId | null } | { valid: false } {
+  if (body === null || typeof body !== "object") return { valid: false };
+  const b = body as Record<string, unknown>;
+  const selectorKeys = ["product", "productId", "sku", "product_id", "priceId", "price_id"] as const;
+  const supplied = selectorKeys.filter((key) => key in b);
+  if (supplied.length === 0) return { valid: true, productId: null };
+  if (supplied.length !== 1 || !isProductId(b.product)) return { valid: false };
+  return { valid: true, productId: b.product };
+}
+
 // Creates a Stripe Checkout Session.
+//
+// Funnel (lib/funnel.ts, migration 0042): a VALID catalogue request records `checkout_attempted` when it is handed to Stripe,
+// `checkout_session_created` when Stripe returns a URL (that is NOT a payment), or `checkout_failed` with one fixed reason when it is
+// refused or Stripe fails. An invalid product, an unknown selector or a malformed body records nothing. Recording is best-effort and
+// bounded (recordCheckoutEvent): it cannot change the response, the status, what is sent to Stripe, or whether a session exists.
 //
 // Two shapes. Without `product` it is the engagement reservation deposit, exactly
 // as before. With `product` it is a catalogue engagement (see lib/products.ts) —
@@ -36,6 +56,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function POST(req: Request) {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {
+    // The product is not known yet at this point of the route: read it only to count the refusal (a failed read or an invalid product
+    // records nothing). The answer below is the same whatever this finds.
+    try {
+      const peeked = selectProduct(await req.json());
+      const peekedKind = peeked.valid ? (peeked.productId ? PRODUCTS[peeked.productId].kind : process.env.GRIDFORGE_LEGACY_DEPOSIT === "1" ? LEGACY_DEPOSIT_KIND : null) : null;
+      if (peekedKind) await recordCheckoutEvent("checkout_failed", { kind: peekedKind, reason: "payments_not_configured" });
+    } catch {
+      /* an unreadable body is not commercial activity */
+    }
     return NextResponse.json(
       { ok: false, error: "Payments not configured" },
       { status: 503 }
@@ -69,6 +98,9 @@ export async function POST(req: Request) {
     productId = rawProduct;
   }
   const product = productId ? PRODUCTS[productId] : null;
+  // The kind every checkout event carries: the catalogue kind, or (operator-enabled legacy path only) the off-catalogue deposit.
+  const funnelKind = product ? product.kind : LEGACY_DEPOSIT_KIND;
+  const refused = (reason: CheckoutFailureReason) => recordCheckoutEvent("checkout_failed", { kind: funnelKind, reason });
 
   // The generic EUR 5,000 "engagement reservation deposit" and its Founding Partner credit are OFF the catalogue: nothing on the site starts
   // them, and the public price list (lib/products.ts, /pricing, llms.txt) says there is no other. A NEW session of either kind is therefore
@@ -94,6 +126,7 @@ export async function POST(req: Request) {
   let fromBuyerLink = false;
   if ("project_token" in body) {
     if (typeof body.project_token !== "string" || !body.project_token || !product || !isProjectAttachable(product.kind)) {
+      await refused("project_reference_rejected");
       return NextResponse.json(
         { ok: false, error: "A project can only be named for a Density Screen, Envelope Study deposit, Procurement Specification or Hall Watch" },
         { status: 400 }
@@ -101,6 +134,7 @@ export async function POST(req: Request) {
     }
     const found = await getProjectByToken(body.project_token);
     if (!found.ok) {
+      await refused(found.status === 404 ? "project_reference_rejected" : "store_unavailable");
       return NextResponse.json({ ok: false, error: found.error }, { status: found.status === 404 ? 404 : found.status });
     }
     projectId = found.project.id;
@@ -110,9 +144,11 @@ export async function POST(req: Request) {
   // malformed link is one answer, and the link itself never goes into Stripe metadata -- only the project's id does.
   if ("project_share_token" in body) {
     if ("project_token" in body) {
+      await refused("project_reference_rejected");
       return NextResponse.json({ ok: false, error: "Name the project by its token or by a buyer link, not both" }, { status: 400 });
     }
     if (typeof body.project_share_token !== "string" || !body.project_share_token || !product || !isProjectAttachable(product.kind)) {
+      await refused("project_reference_rejected");
       return NextResponse.json(
         { ok: false, error: "A project can only be named for a Density Screen, Envelope Study deposit, Procurement Specification or Hall Watch" },
         { status: 400 }
@@ -120,6 +156,7 @@ export async function POST(req: Request) {
     }
     const found = await projectForShare(body.project_share_token);
     if (!found.ok) {
+      await refused(found.status === 404 ? "project_reference_rejected" : "store_unavailable");
       return NextResponse.json(
         { ok: false, error: found.status === 404 ? "This buyer link is no longer valid. Ask the sender for a new one." : found.error },
         { status: found.status }
@@ -157,6 +194,7 @@ export async function POST(req: Request) {
     const ready = await apiSalesReadiness();
     if (!ready.ready) {
       console.error(`[GridForge] API plan checkout refused: ${ready.category}`);
+      await refused("api_plan_not_ready");
       return NextResponse.json(
         { ok: false, error: "API plans are temporarily unavailable while we finish verifying key issuance. No payment was taken." },
         { status: 503 }
@@ -178,6 +216,7 @@ export async function POST(req: Request) {
     const remaining = await foundingSlotsRemainingLive();
     if (remaining === null) {
       console.error("[GridForge] founding slots unreadable; checkout refused (fail closed)");
+      await refused("founding_slots_unreadable");
       return NextResponse.json(
         { ok: false, error: "We cannot confirm Founding Partner availability right now. No payment was taken. Please try again shortly." },
         { status: 503 }
@@ -195,6 +234,7 @@ export async function POST(req: Request) {
       });
       if (!reserved.ok) {
         console.error("[GridForge] founding slot could not be reserved; checkout refused (fail closed)");
+        await refused("founding_reservation_failed");
         return NextResponse.json(
           { ok: false, error: "We cannot confirm Founding Partner availability right now. No payment was taken. Please try again shortly." },
           { status: 503 }
@@ -204,6 +244,8 @@ export async function POST(req: Request) {
       applyFounding = foundingReservation !== null;
     }
   }
+  // Every gate this site controls has passed: from here the request is handed to Stripe.
+  await recordCheckoutEvent("checkout_attempted", { kind: funnelKind });
   const discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
   if (applyFounding) {
     try {
@@ -216,11 +258,13 @@ export async function POST(req: Request) {
       });
       discounts.push({ coupon: coupon.id });
     } catch (err) {
+      await refused("stripe_coupon_failed");
       await releaseFoundingReservation(foundingReservation);
       throw err;
     }
   }
 
+  let outcomeRecorded = false;
   try {
     const recurring = product?.recurring;
     const session = await stripe.checkout.sessions.create({
@@ -284,6 +328,15 @@ export async function POST(req: Request) {
       cancel_url: product && !fromBuyerLink ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
     });
 
+    // Stripe returned a hosted-page URL. This is NOT a payment (nothing is charged until the buyer pays on Stripe's page, and the
+    // buyer returning from it proves nothing): the only payment evidence is the webhook's engagement_commissioned / subscription_started.
+    outcomeRecorded = true;
+    if (session.url) {
+      await recordCheckoutEvent("checkout_session_created", { kind: funnelKind });
+    } else {
+      await refused("stripe_session_failed"); // no URL is no usable session, whatever Stripe's object says
+    }
+
     // Best-effort AI-origin tag: the workspace's CommercialActionCard passes
     // context: `workspace-${productId}` (see components/ai/CommercialActionCard.tsx),
     // which lands here as `service` and is carried into Stripe metadata.service so
@@ -304,6 +357,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("[GridForge] Stripe checkout error:", err);
+    if (!outcomeRecorded) await refused("stripe_session_failed");
     await releaseFoundingReservation(foundingReservation);
     return NextResponse.json(
       { ok: false, error: "Could not start checkout" },
