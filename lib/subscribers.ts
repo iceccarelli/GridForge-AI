@@ -87,6 +87,13 @@ export function normaliseEmail(value: unknown): string {
 const ENTITLING = "in.(active,past_due)";
 
 /**
+ * What a new purchase supersedes: everything that entitles, AND a row suspended by a refund, dispute or pause hold (lib/billing-holds.ts).
+ * A suspended row entitles nothing today, but lifting its hold would bring it back next to the purchase that replaced it (and the
+ * partial unique index on status = 'active' would refuse the lift), so a replaced suspended row is superseded for good.
+ */
+const SUPERSEDABLE = "in.(active,past_due,suspended)";
+
+/**
  * The result of asking the store about somebody.
  *
  * "No subscription" and "could not ask" are different answers and collapsing them
@@ -338,7 +345,7 @@ export async function recordSubscription(p: {
   // subscription ONLY when it is the same Stripe customer (the same payer, e.g. an upgrade started from the signed-in portal, which
   // reuses the customer). Any other payer's purchase is recorded as `superseded` from the start: it entitles nothing, the existing
   // subscription and its seats are untouched, and the webhook tells the operator (who refunds or merges deliberately).
-  const prior = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${ENTITLING}&select=id,stripe_customer_id`);
+  const prior = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${SUPERSEDABLE}&select=id,stripe_customer_id`);
   if (!prior) return null;
   const priorRes = await fetch(prior.url, { headers: prior.headers, cache: "no-store" });
   if (!priorRes.ok) {
@@ -374,7 +381,7 @@ export async function recordSubscription(p: {
   // Supersede everything that still entitles this email (all of it the same payer's), so the partial unique
   // index cannot reject the insert below AND an abandoned past_due row cannot go
   // on granting access after the subscription that replaced it is cancelled.
-  const sup = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${ENTITLING}`);
+  const sup = rest(`subscriptions?email=eq.${encodeURIComponent(email)}&status=${SUPERSEDABLE}`);
   if (sup) {
     const res = await fetch(sup.url, {
       method: "PATCH",

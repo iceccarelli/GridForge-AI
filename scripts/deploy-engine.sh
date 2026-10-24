@@ -3,6 +3,11 @@
 #
 #   bash scripts/deploy-engine.sh              # deploy; never touches a credential
 #   bash scripts/deploy-engine.sh --bootstrap  # first run: also mint missing secrets
+#   bash scripts/deploy-engine.sh --check      # everything except the deploy itself
+#
+# Needs a Fly credential (FLY_API_TOKEN, or a prior `fly auth login`). Without one the script exits 3 before creating,
+# setting or deploying anything. After a deploy it runs scripts/check-engine-drift.py and exits 1 if the engine now running
+# still differs from this repository. The same steps run from .github/workflows/deploy-engine.yml.
 #
 # THE RULE THIS SCRIPT EXISTS TO OBEY: a deploy must never change a credential.
 #
@@ -30,7 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --bootstrap) BOOTSTRAP=1 ;;
     --check)     SKIP_DEPLOY=1 ;;
-    -h|--help)   sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -62,9 +67,25 @@ if [ ! -x "$FLY" ]; then
   exit 2
 fi
 
-if ! "$FLY" auth whoami >/dev/null 2>&1; then
-  say "Sign in to Fly (a browser window or a device code will follow)"
-  "$FLY" auth login
+# AUTH IS CHECKED FIRST AND FAILS CLOSED. Nothing below this point (apps create, secrets set, volumes create, deploy) runs
+# unless Fly has accepted a credential. There is no interactive `fly auth login` fallback any more: in CI it hangs or half-works,
+# and a deploy that "signs in" halfway through a run has already decided to mutate things. The token itself is never printed.
+if [ "${FLY_API_TOKEN+set}" = "set" ] && [ -z "${FLY_API_TOKEN}" ]; then
+  unset FLY_API_TOKEN   # an empty token is "no token", not a credential to hand to flyctl
+  warn "FLY_API_TOKEN is set but empty."
+fi
+# `fly auth whoami` needs a personal token. The deploy token the workflow asks for is scoped to one app and may not answer it, so a
+# credential is also accepted when it can read this app (a read, not a mutation). With neither, nothing below runs.
+if ! "$FLY" auth whoami >/dev/null 2>&1 && ! "$FLY" status --app "$APP" >/dev/null 2>&1; then
+  warn "Not authenticated to Fly.io — stopping before anything is created, set or deployed."
+  if [ -n "${FLY_API_TOKEN:-}" ]; then
+    echo "  FLY_API_TOKEN is set, but Fly rejected it (expired, revoked, or for another app)." >&2
+    echo "  Create a new one:  fly tokens create deploy -a $APP" >&2
+  else
+    echo "  Add repository secret FLY_API_TOKEN (fly tokens create deploy -a $APP)" >&2
+    echo "  or, on your own machine:  fly auth login   (then re-run this script)" >&2
+  fi
+  exit 3
 fi
 
 # `fly apps list` has shipped several table formats. Asking the app about itself is
@@ -231,12 +252,13 @@ if [ "$SKIP_DEPLOY" = "1" ]; then
 fi
 
 say "Deploying"
-"$FLY" deploy --app "$APP" --regions "$REGION" --ha=false
+# --ha=false: one machine, one volume. Never pass a count or scale here (usage, ledger and revocations are local state).
+"$FLY" deploy --app "$APP" --regions "$REGION" --ha=false --remote-only
 
 # GRIDFORGE_ENGINE_URL exists so the post-deploy verification can be exercised against a local engine; a real run leaves it unset.
 URL="${GRIDFORGE_ENGINE_URL:-https://$APP.fly.dev}"
 say "Checking health"
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "${GRIDFORGE_HEALTH_TRIES:-30}"); do
   curl -sf "$URL/health" >/dev/null && break
   sleep 2
 done
@@ -316,7 +338,11 @@ raise SystemExit(0 if ok else 1)
 if [ "$MACH_RC" -ne 0 ] && [ "$MACH_RC" -ne 2 ]; then VERIFY_FAILED=1; fi
 
 # The repository's own statement of what the engine must serve, checked against what it now serves (routes, unit rates, version).
-if ! python3 "$(dirname "$0")/check-engine-drift.py" "$URL"; then VERIFY_FAILED=1; fi
+say "Post-deploy drift check (read-only)"
+if ! python3 "$(dirname "$0")/check-engine-drift.py" "$URL"; then
+  VERIFY_FAILED=1
+  echo "  !! the engine now running does not match this repository (see the differences above)"
+fi
 
 say "The engine is live at $URL"
 summary

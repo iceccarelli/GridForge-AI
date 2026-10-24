@@ -74,3 +74,20 @@ Open, from this session's audits (not yet fixed):
 - `checkout.session.completed` does not check `payment_status` (safe only while checkout is card-only).
 - Homepage JSON-LD: deposits marked `InStock`; Hall Watch price has no quarterly recurrence.
 - Static `/reference/*.html` have no canonical/description.
+
+## Log: 2026-10-24, branch `claude/lucid-cannon-4dzp8k`, based on origin/main ec9b986 (PR #72 merged; main CI green; production deploy READY on that commit)
+Checked against production (read-only): `POST /api/keys` answers 503 "Key signing is not configured on this deployment"; API-plan checkout refuses to sell with
+"No payment was taken" (honest); Density Screen checkout creates a `cs_test_` session, so **production Stripe is in test mode**. `GRIDFORGE_KEY_SECRET`,
+`GRIDFORGE_ADMIN_KEY`, `RATE_LIMIT_HMAC_KEY`, `INTELLIGENCE_INVITE_SECRET`, `FUNNEL_REF_KEY`, `ADMIN_SESSION_SECRET` are not in the Vercel project's production
+variables (shared team variables were not visible to the check). The Stripe webhook endpoint's real event list could not be read (Stripe connector needs the owner's sign-in).
+Built (see the PR for the exact commits): public pricing/developers/llms/api-access/power pages follow `GET /v1/version` of the deployed engine (unserved operations are
+labelled, never priced, never in a snippet); `lib/engine-deployed.json` snapshot + registry test; JSON-LD deposits carry no availability and Hall Watch carries its
+quarterly billing; static reference HTML carry canonicals; manual `deploy-engine` workflow (credential preflight, one machine / one volume, post-deploy drift check);
+`check-engine-drift.py --json / --write-snapshot / --summary-file`; Stripe billing holds (refund / dispute / pause suspend paid access, reversible, audited), explicit
+7-day past-due grace for API keys, durable unconfirmed-revocation tracking, paid-only checkout fulfilment.
+Operator steps that remain (nothing here can be done from the repository):
+1. Apply `supabase/migrations/0041_billing_holds.sql` through the gated four-step process BEFORE relying on holds (the code degrades without it, see the migration header).
+2. In Stripe, enable on the webhook endpoint: charge.refunded, charge.dispute.created, charge.dispute.closed, charge.dispute.updated (now REQUIRED; /api/admin/stripe-health reports them).
+3. Add repository secret FLY_API_TOKEN (`fly tokens create deploy -a gridforge-engine`), run the `deploy-engine` workflow with DEPLOY, then `python3 scripts/check-engine-drift.py --write-snapshot lib/engine-deployed.json` and commit it.
+4. Set GRIDFORGE_KEY_SECRET (same value on Vercel and Fly) and GRIDFORGE_ADMIN_KEY on Vercel; API plans sell only after /api/admin/api-readiness reports ready.
+5. Switch Stripe to live keys only when ready to take real payments (production is on test keys today).

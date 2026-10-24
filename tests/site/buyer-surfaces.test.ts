@@ -9,11 +9,25 @@ import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
 import { comparisonToolJsonLd } from "@/lib/jsonld";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
+import { FULL_ENGINE, stubEngine } from "./engine-stub";
+
+/** Render an async server page against an engine that serves the given routes. */
+async function renderPage(
+  load: () => Promise<{ default: () => Promise<React.ReactElement> | React.ReactElement }>,
+  routes: string[] | "down"
+) {
+  const stop = stubEngine(routes);
+  try {
+    const Page = (await load()).default;
+    return renderToStaticMarkup(await Page()).replace(/<!-- -->/g, "");
+  } finally {
+    stop();
+  }
+}
 
 describe("the comparison page", () => {
   it("leads to the next step in the buying path, at the catalogue price", async () => {
-    const Page = (await import("@/app/power/compare/page")).default;
-    const html = renderToStaticMarkup(React.createElement(Page)).replace(/<!-- -->/g, "");
+    const html = await renderPage(() => import("@/app/power/compare/page"), FULL_ENGINE);
     expect(html).toContain(PRODUCTS.density_screen.name);
     expect(html).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
     expect(html).toMatch(/href="\/pricing"/);
@@ -22,8 +36,7 @@ describe("the comparison page", () => {
   });
 
   it("carries WebApplication JSON-LD that claims no rating, review or usage figure", async () => {
-    const Page = (await import("@/app/power/compare/page")).default;
-    const html = renderToStaticMarkup(React.createElement(Page));
+    const html = await renderPage(() => import("@/app/power/compare/page"), FULL_ENGINE);
     const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html)![1].replace(/\\u003c/g, "<"));
     expect(ld).toMatchObject({ "@type": "WebApplication", url: expect.stringMatching(/\/power\/compare$/), isAccessibleForFree: true });
     expect(JSON.stringify(ld)).not.toMatch(/aggregateRating|review|ratingValue|userCount|interactionStatistic/i);
@@ -44,8 +57,7 @@ describe("the comparison page", () => {
 
 describe("the pricing page", () => {
   it("offers the free comparison as the way in, and types no price of its own for it", async () => {
-    const Page = (await import("@/app/pricing/page")).default;
-    const html = renderToStaticMarkup(React.createElement(Page));
+    const html = await renderPage(() => import("@/app/pricing/page"), FULL_ENGINE);
     expect(html).toMatch(/href="\/power\/compare"/);
     expect(html).toContain("Not sure which step to start with?");
     expect(html).toMatch(/at the prices above/);

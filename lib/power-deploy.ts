@@ -54,7 +54,7 @@ export async function runDeploymentAssessment(
   request: Record<string, unknown>
 ): Promise<
   | { ok: true; result: Record<string, unknown>; provenance: Record<string, unknown> | null }
-  | { ok: false; error: string }
+  | { ok: false; error: string; routeMissing?: true }
 > {
   // The engine build is read once, immediately AFTER a successful assessment: the metered call is the only thing
   // that touches the engine when the caller's budget is spent, so nothing here may precede it. To bracket the
@@ -64,7 +64,7 @@ export async function runDeploymentAssessment(
   // what it is, the revision is stored without one (and its observations are not ledger-eligible); nothing is invented.
   const earlier = lastRead && Date.now() - lastRead.at < BRACKET_WINDOW_MS ? lastRead.p : null;
   const out = await callEngine("/v1/power/deploy/assess", request);
-  if (!out.ok) return { ok: false, error: out.error };
+  if (!out.ok) return out.routeMissing ? { ok: false, error: out.error, routeMissing: true } : { ok: false, error: out.error };
   const after = await engineProvenance();
   if (after) lastRead = { p: after, at: Date.now() };
   let provenance: Record<string, unknown> | null = null;
@@ -118,6 +118,15 @@ async function insertRevisionRow(
   void _drop;
   return post(rest);
 }
+
+/**
+ * What a visitor is told, with HTTP 503, when the engine they would be calling does not serve the route yet. Said the same
+ * way by every surface (cases, case revisions, RFQ package, supplier responses, comparison) so none of them reports "try
+ * again later" or a generic outage for what is an engine release that has not happened, and so each states that no
+ * charge was made.
+ */
+export const ROUTE_NOT_DEPLOYED_MESSAGE =
+  "This capability is not deployed yet: the engine release that serves it is not live. Nothing was calculated, saved or charged.";
 
 /**
  * One authenticated POST to the deployed engine. The single place the site talks to

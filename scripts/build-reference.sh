@@ -59,6 +59,37 @@ for c in doc["constraints"]:
         json.dumps({**c, "notice": doc["notice"]}, indent=2) + "\n")
 PY
 
+# Discovery tags for the five published HTML documents. The engine's renderer stays untouched (the same renderer
+# produces private customer documents, which must not name a public canonical URL); the public worked example gets
+# its head tags here, in the one place that writes public/reference. Each .html is the canonical copy of its .md twin
+# (same content, two formats), so the page names itself canonical and is indexable. Deterministic; refuses to run
+# twice on one file, because the directory is rebuilt from scratch above.
+python3 - "$OUT" <<'PY'
+import html, pathlib, re, sys
+out = pathlib.Path(sys.argv[1])
+BASE = "https://timetopower.ai/reference/"
+SYNTH = "Synthetic reference hall, modelled data, not a customer asset."
+PAGES = {
+    "envelope_study.html": "The complete Capacity & Density Envelope Study for a synthetic reference hall: binding constraint, headroom ladder, architectures compared, time to power, with an evidence class on every number. " + SYNTH,
+    "board_summary.html": "The board summary of the reference Envelope Study: the answer, what binds, the date and the evidence behind it, in a few pages. " + SYNTH,
+    "proposal.html": "The Density Screen proposal for a synthetic reference hall, opening with a real finding. " + SYNTH,
+    "specification.html": "A tender-ready procurement specification for one relief on the synthetic reference hall, with its supplier response schedule. " + SYNTH,
+    "walkthrough.html": "The client walkthrough deck for the reference Envelope Study, slide by slide. " + SYNTH,
+}
+for name, desc in PAGES.items():
+    f = out / name
+    text = f.read_text()
+    if "rel='canonical'" in text:
+        raise SystemExit(f"{name}: discovery tags already present")
+    tags = (f"<link rel='canonical' href='{BASE}{name}'>"
+            f"<meta name='description' content='{html.escape(desc, quote=True)}'>"
+            "<meta name='robots' content='index,follow'>")
+    new, n = re.subn(r"(<meta name='viewport' content='[^']*'>)", lambda m: m.group(1) + tags, text, count=1)
+    if n != 1:
+        raise SystemExit(f"{name}: no viewport meta to anchor the discovery tags on")
+    f.write_text(new)
+PY
+
 # The machine-callable surface, committed so /developers renders the same schema the
 # server validates against, and so CI notices when a tool, a unit rate or a schema
 # changes without the published contract changing with it.

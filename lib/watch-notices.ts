@@ -54,6 +54,9 @@ async function build(n: Pick<NoticeRow, "watch_note_id" | "watch_id">): Promise<
   const watch = w.data?.[0];
   const row = note.data?.[0];
   if (!watch || !row) return "gone";
+  // A cancelled, paused or held watch receives nothing more: a note queued before that is dropped here, whoever calls (the first attempt
+  // from the cron, or any later sweep), so the check cannot be skipped by a path that does not know the watch's status.
+  if (watch.status !== "active") return "gone";
   const email = typeof watch.email === "string" ? watch.email : "";
   return {
     to: email,
@@ -145,13 +148,14 @@ export async function sweepNotices(now: Date = new Date(), limit = 50): Promise<
  * Tell the buyer a stored change note exists: record the obligation and make the first attempt now. If the store cannot
  * hold the obligation, make one direct attempt and log a failure (the previous behaviour).
  */
-export async function announceNote(note: { id: string; watch_id: string }, watch: { email: string | null; site_name: string | null; hall_id: string | null; token: string }, headline: string, weeks: string | null = null): Promise<void> {
+export async function announceNote(note: { id: string; watch_id: string }, watch: { email: string | null; site_name: string | null; hall_id: string | null; token: string; status?: string }, headline: string, weeks: string | null = null): Promise<void> {
   const queued = await queueNotice(note.id, note.watch_id);
   if (queued === "queued") {
     const row = await rest<NoticeRow[]>("GET", `watch_note_notices?watch_note_id=eq.${q(note.id)}&select=*&limit=1`);
     if (row.ok && row.data?.[0]) await attemptNotice(row.data[0]);
     return;
   }
+  if (watch.status !== undefined && watch.status !== "active") return; // the direct-send fallback checks it too
   if (!watch.email) {
     console.error(`[GridForge] watch change NOT emailed: no address on record (watch ${note.watch_id})`);
     return;

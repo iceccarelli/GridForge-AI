@@ -6,15 +6,35 @@ Nothing here was run against live Stripe, live Supabase or the deployed engine. 
 Stripe **test mode** and a **preview** deployment first. Do not charge a real card to test.
 
 ## 1. Deploy order
-1. Engine first: `bash scripts/deploy-engine.sh` (needs Fly credentials). The deployed engine at the time of writing
-   did not serve `/v1/compare`, `/v1/power/*` or `/v1/revoke`. Confirm with `python3 scripts/check-engine-drift.py`
-   (read-only). It must print "serves every route and unit rate".
+1. Engine first. The deployed engine at the time of writing did not serve `/v1/estimate`, `/v1/compare`, `/v1/power/*`
+   or `/v1/revoke`, and published no `provenance.code_sha256` or `metering.ledger_durable`. Nothing in this repository
+   has deployed it; a deploy needs a Fly credential that only the owner holds.
+   - One-time: create a deploy token and add it as the repository secret **`FLY_API_TOKEN`**:
+     `fly tokens create deploy -a gridforge-engine`, then GitHub, Settings, Secrets and variables, Actions, New
+     repository secret. Optionally add required reviewers to the `production-engine` environment (Settings,
+     Environments) so a deploy needs a second approval.
+   - Deploy: GitHub, Actions, **deploy-engine**, Run workflow, type `DEPLOY`. It stops at once, naming the fix, if the
+     secret is missing; then runs the engine tests, `bash scripts/deploy-engine.sh` (no `--bootstrap`: a deploy never
+     creates, rotates or overwrites a credential; one machine with the `gridforge_data` volume), and finally
+     `python3 scripts/check-engine-drift.py` against the live engine. The job is red if any drift remains.
+     From a machine already signed in to Fly the same script is `bash scripts/deploy-engine.sh` (exit 3 means no
+     credential, nothing was changed; exit 1 means it deployed but verification failed).
+   - Verify (read-only, any machine): `python3 scripts/check-engine-drift.py`. It must print "serves every route and
+     unit rate". Differences are grouped (routes, unit rates, version, provenance, ledger, tool names) and `--json`
+     gives the same for tooling. The `engine-drift` workflow repeats this daily and lists the differences in its job summary.
+   - Then refresh the website's record of the deployed engine from the live engine:
+     `python3 scripts/check-engine-drift.py --write-snapshot lib/engine-deployed.json`
+     (the deploy workflow also uploads `engine-deployed.json` as an artifact), and commit it.
 2. The engine must run **exactly one machine** with the `gridforge_data` volume: usage counter, ledger, revocations and
-   the cost file are local state. `fly scale count 1`. A second machine would split the ledger.
+   the cost file are local state. The deploy script uses `--ha=false` and fails if it finds anything other than exactly
+   one machine mounting the volume; to repair by hand, `fly scale count 1`. A second machine would split the ledger.
 3. Set on the engine: `GRIDFORGE_KEY_SECRET` (same value as the site), `GRIDFORGE_ADMIN_KEY`,
    `GRIDFORGE_LEDGER_FILE=/data/ledger.jsonl`, `GRIDFORGE_USAGE_FILE`, `GRIDFORGE_REVOKED_FILE`.
-4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0039 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
+4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0039, 0041 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
    All are additive and idempotent. Re-applying an older one out of order can narrow a later constraint; apply in order.
+   **0041 (billing holds and the audit trail) before, or with, the deploy that carries it.** Without it a refunded, disputed or paused
+   subscription payment still cuts access off (as a status change) and the operator is mailed once, but the hold is not individually
+   reversible (a dispute won does not restore it), nothing is written to `billing_audit`, and the past_due grace does not start/revoke.
 5. Site env: `GRIDFORGE_API_URL`, `GRIDFORGE_ADMIN_KEY`, `GRIDFORGE_KEY_SECRET`, `CRON_SECRET`, `STRIPE_SECRET_KEY`,
    `STRIPE_WEBHOOK_SECRET`, Supabase service role, `ADMIN_SESSION_SECRET`, and `FUNNEL_REF_KEY` (16+ characters; REQUIRED for stable funnel cohorts: without it the account references and once-only keys derive from `GRIDFORGE_KEY_SECRET` and change if it is rotated, re-firing every once-only event). `GRIDFORGE_LEGACY_DEPOSIT` stays unset: the off-catalogue generic deposit and Founding credit are only created with `=1`.
 6. Vercel crons (`vercel.json`): `/api/cron/payg` daily, `/api/cron/notifications` and `/api/cron/engagements` every 30 min,
@@ -23,10 +43,15 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 
 ## 2. Stripe test-mode script (owner action)
 - Webhook endpoint subscribed to: `checkout.session.completed`, `customer.subscription.deleted`,
-  `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed` (all required: a plan switch, a pause or a cancellation made
-  in the Stripe Billing Portal reaches the site only as `customer.subscription.updated`), and, recommended,
-  `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` (the operator is mailed when a dispute opens, with its
-  evidence deadline, and how it ended). `/api/admin/stripe-health` reports what is missing.
+  `customer.subscription.updated`, `invoice.paid`, `invoice.payment_failed`, `charge.refunded`, `charge.dispute.created`,
+  `charge.dispute.updated`, `charge.dispute.closed` (all required: a plan switch, a pause or a cancellation made in the Stripe Billing
+  Portal reaches the site only as `customer.subscription.updated`; **a subscription payment refunded in full or disputed suspends paid
+  access** - API key revoked, Hall Watch paused, Intelligence not entitled - a dispute that opens as a warning inquiry and escalates
+  arrives as `charge.dispute.updated`, and a dispute won restores access, so without these a charged-back customer keeps it; the
+  operator is also mailed when a dispute opens, with its evidence deadline, and how it ended), and, recommended,
+  `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment method is ever
+  enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
+  revocations the engine has not confirmed (`revocations`: the deployed engine answers 404 for `/v1/revoke` until it is redeployed).
 - Settings: enable Stripe's customer emails for failed payments (the site sends its own as well); decide VAT/Stripe Tax
   for the settlement invoices (the code does not configure tax).
 - Free account: `POST /api/free-account` -> open the emailed link -> mint a trial key -> `GET /v1/usage` shows the allowance.
@@ -41,9 +66,13 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
   the endpoint answers 502; nothing in the repository can configure or verify it. Cancelling there reaches the site through the existing
   `customer.subscription.deleted` webhook (key revoked, account cancelled). Pay-as-you-go has no subscription to cancel: stopping use and
   setting the cap to the minimum is how a customer stops spending; their saved card and invoices are managed in the same portal.
-  **Leave `subscription_update` and `subscription_pause` OFF in the portal configuration.** The site does not implement plan switches
-  or pauses: a switch changes what Stripe bills but not what the site entitles (the webhook mails the operator once per subscription
-  and changes nothing), and a pause is not seen at all. `/api/admin/stripe-health` warns when either is on.
+  **Leave `subscription_update` OFF in the portal configuration.** The site does not implement plan switches: a switch changes what
+  Stripe bills but not what the site entitles (the webhook mails the operator once per subscription and changes nothing). A pause
+  (`subscription_pause`, Stripe's `pause_collection`) is handled: while billing is paused the API key is revoked, the Hall Watch is
+  paused and Intelligence is not entitled, and resuming restores them (the API key is minted again by the customer); most operators leave
+  it off anyway. `/api/admin/stripe-health` warns when either is on.
+- Past due (subscription API plans): the minted key keeps working for `API_PAST_DUE_GRACE_DAYS` (7) from the FIRST failed payment of the
+  episode; the daily `/api/cron/payg` (and any later failure event) then revokes it. A payment that clears reopens minting.
 - Failure path: use a card that declines on charge (4000 0000 0000 0341): settlement fails -> account past_due -> key revoked
   on the engine -> failure email -> the customer replaces the card -> the invoice is paid -> account active -> mint a new key.
   Which "replace the card" does what, exactly:

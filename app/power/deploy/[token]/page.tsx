@@ -5,6 +5,8 @@ import { PowerDeployCaseUpdate } from "@/components/PowerDeployCaseUpdate";
 import { PowerDeployProcurement } from "@/components/PowerDeployProcurement";
 import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 import { describeDate, type DateBasisKeys } from "@/lib/date-basis";
+import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
+import { NOT_YET_AVAILABLE } from "@/lib/payg-pricing";
 
 export const metadata: Metadata = {
   title: "Power Deployment Case",
@@ -109,6 +111,11 @@ export default async function PowerDeployCasePage({
 }) {
   const { token } = await params;
   const row = await latestDeploymentCase(token);
+  // A saved case is always readable. What it can DO next (re-solve it, prepare an RFQ package) needs the engine routes
+  // behind those actions; where the deployed engine does not serve one, the action is not offered, not left to 503.
+  const routes = await deployedEngineRoutes();
+  const canResolve = availabilityIn(routes, "/v1/power/deploy/assess") === "available";
+  const canSpecify = availabilityIn(routes, "/v1/power/deploy/spec") === "available";
 
   if (!row) {
     return (
@@ -275,6 +282,7 @@ export default async function PowerDeployCasePage({
         )}
       </section>
 
+      {canSpecify ? (
       <PowerDeployProcurement
         caseToken={row.case_token}
         ownerEmail={row.email}
@@ -288,14 +296,33 @@ export default async function PowerDeployCasePage({
           readiness_gates: a.readiness_gates,
         }))}
       />
+      ) : (
+        <section role="status" className="mt-8 rounded border border-line bg-panel-2 p-6">
+          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-queue">{NOT_YET_AVAILABLE}</p>
+          <p className="mt-2 text-sm text-mute">
+            The RFQ package, supplier responses and comparison for this case need an engine release that has not been
+            deployed. Nothing is generated, saved or charged here until it is.
+          </p>
+        </section>
+      )}
 
       <section className="mt-8">
         <h2 className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
           Update this case
         </h2>
-        <PowerDeployCaseUpdate token={token} ownerEmail={row.email} />
+        {canResolve ? (
+          <PowerDeployCaseUpdate token={token} ownerEmail={row.email} />
+        ) : (
+          <p role="status" className="text-sm text-mute">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-queue">{NOT_YET_AVAILABLE}</span>
+            <br />
+            Re-solving a case needs an engine release that has not been deployed. This case stays readable as saved;
+            nothing is recalculated or charged until then.
+          </p>
+        )}
       </section>
 
+      {canResolve && canSpecify ? (
       <section className="mt-8 rounded border border-line bg-panel-2 p-6">
         <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
           Run this at scale or inside your own tooling
@@ -318,6 +345,7 @@ export default async function PowerDeployCasePage({
           See API access →
         </Link>
       </section>
+      ) : null}
     </main>
   );
 }

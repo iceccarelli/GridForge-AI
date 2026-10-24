@@ -399,6 +399,8 @@ def test_every_cli_command_parses_and_describes_itself():
 
 
 WEBHOOK_TS = (ROOT / "app" / "api" / "stripe" / "webhook" / "route.ts").read_text()
+#: The resolver lives beside the billing-hold logic that shares it; the webhook imports it.
+BILLING_HOLDS_TS = (ROOT / "lib" / "billing-holds.ts").read_text()
 
 #: Every table that holds something sold on a Stripe subscription, and the lookup
 #: that resolves a subscription id to a row in it. Add a third recurring product
@@ -455,7 +457,8 @@ def test_every_subscription_product_is_resolved_on_every_billing_event(event):
     assert f"{RESOLVER}(" in block, (
         f'the "{event}" handler must resolve the subscription through {RESOLVER}(), which reads every '
         f"table that holds a recurring product")
-    helper = WEBHOOK_TS.split(f"async function {RESOLVER}(", 1)[1].split("\n}\n", 1)[0]
+    assert RESOLVER in WEBHOOK_TS.split("export async function POST", 1)[0], f"the webhook must import {RESOLVER}"
+    helper = BILLING_HOLDS_TS.split(f"export async function {RESOLVER}(", 1)[1].split("\n}\n", 1)[0]
     missing = [table for table, fn in SUBSCRIPTION_LOOKUPS.items() if fn not in helper]
     assert not missing, (
         f'{RESOLVER}() never looks up: {missing}. Every table holding a '

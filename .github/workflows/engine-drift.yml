@@ -1,17 +1,23 @@
 name: engine-drift
 
-# The repository can be ahead of the engine running on Fly (the Python tree is deployed by scripts/deploy-engine.sh, a
-# separate step). This is the standing check that the engine customers actually reach serves every route and unit rate
-# this repository and the website describe. Read-only: it sends GET /v1/version with no credentials.
+# The repository can be ahead of the engine running on Fly (the Python tree is deployed by the deploy-engine workflow /
+# scripts/deploy-engine.sh, a separate step). This is the standing check that the engine customers actually reach serves every
+# route, unit rate, code digest and tool name this repository and the website describe. Read-only: it sends GET /v1/version
+# and GET /v1/tools with no credentials.
 #
 # It is its own workflow so that a stale deployment is visible (red) without blocking unrelated pull requests. A red run
-# means: do not announce or sell the routes it lists until the engine is redeployed.
+# means: do not announce or sell the routes it lists until the engine is redeployed. The job summary lists every difference
+# and the one operator action. It deliberately opens NOTHING (no issues, no comments): permissions are read-only, and the
+# daily schedule would otherwise file the same issue every morning.
 on:
   push:
     branches: [main]
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   drift:
@@ -21,5 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      # No continue-on-error: real drift keeps this job red. The script appends its own Markdown summary (the differences, grouped,
+      # and "run the deploy-engine workflow") to the job summary before it exits non-zero.
       - name: The deployed engine must serve what this repository describes
-        run: python3 scripts/check-engine-drift.py
+        run: python3 scripts/check-engine-drift.py --summary-file "$GITHUB_STEP_SUMMARY"

@@ -12,7 +12,8 @@
 //        its settlements: past_due (live key revoked, no mint) while any is failed, active again when none is.
 
 import type Stripe from "stripe";
-import { confirmRevoked, revokeOnEngine, updateApiAccount, type ApiAccount } from "@/lib/api-access";
+import { suspendApiKeys, updateApiAccount, type ApiAccount } from "@/lib/api-access";
+import { noteUnconfirmedRevocation } from "@/lib/billing-holds";
 import { notifyOperator } from "@/lib/mail";
 import { accountRef, MONTH, paygCapUnits, parseCapEur } from "@/lib/payg";
 import { recordFunnelEvent } from "@/lib/funnel";
@@ -156,28 +157,17 @@ export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, str
   return { ok: true };
 }
 
-/** Revoke the account's live key and block minting: past_due. One write records both; the engine is told after. */
+/**
+ * Revoke the account's live key and block minting: past_due. One write records both (api-access suspendApiKeys: compare-and-set on the
+ * key id, the revocation recorded BEFORE the engine is asked); the engine is told after. Best effort towards the engine, like every
+ * revocation: an unreachable engine must not turn a recorded failure into an endless redelivery. What it does not confirm stays an
+ * unconfirmed revocation (a durable obligation the daily sweep keeps pushing, reported to the operator once and listed by
+ * /api/admin/stripe-health), and a key deliberately left live next to a newer one is revoked with the rest.
+ */
 async function suspend(acct: ApiAccount): Promise<boolean> {
-  const live = acct.key_id;
-  const revoked = new Set(acct.revoked_key_ids ?? []);
-  if (live) revoked.add(live);
-  for (const id of Object.keys(acct.overlap_key_ids ?? {})) revoked.add(id);
-  const done = await updateApiAccount(acct.token, {
-    status: "past_due",
-    key_id: null,
-    key_issued_at: null,
-    key_expires_at: null,
-    key_scope: null,
-    revoked_key_ids: [...revoked],
-  });
-  if (!done) return false;
-  // Best effort, like every revocation: an unreachable engine must not turn a recorded failure into an endless redelivery. The id
-  // stays unconfirmed in revoked_key_ids and the daily sweep (retryRevocations) keeps pushing it.
-  const toRevoke = [...(live ? [live] : []), ...Object.keys(acct.overlap_key_ids ?? {})];
-  // A key deliberately left live next to a newer one is live too: suspension kills it with the rest.
-  const confirmed: string[] = [];
-  for (const id of toRevoke) if (await revokeOnEngine(id)) confirmed.push(id);
-  if (confirmed.length) await confirmRevoked(acct.token, confirmed);
+  const out = await suspendApiKeys(acct, { status: "past_due" });
+  if (!out.ok) return Boolean(out.terminal); // terminal: the account was cancelled meanwhile, so there is nothing to suspend
+  if (out.unconfirmed.length) await noteUnconfirmedRevocation(out.row, out.unconfirmed, "pay-as-you-go payment failed");
   return true;
 }
 

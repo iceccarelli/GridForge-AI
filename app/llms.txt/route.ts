@@ -2,7 +2,9 @@ import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE_URL } from "@/lib/site";
-import { engineServes } from "@/lib/engine-capabilities";
+import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
+import { NOT_YET_AVAILABLE, isPerHall } from "@/lib/payg-pricing";
+import { readToolRates } from "@/lib/tool-rates";
 
 // Regenerated at most every five minutes: what it says about the engine must follow the engine, not the last build.
 export const revalidate = 300;
@@ -33,7 +35,33 @@ export async function GET() {
   const ref = await constraintReference();
   const lib = await platformLibrary();
   // Advertise a route only while the deployed engine lists it; the repository can be ahead of the engine on Fly.
-  const compareLive = await engineServes("/v1/compare");
+  // One read of the engine, then every claim below is checked against it. Unreadable engine: nothing is advertised.
+  const routes = await deployedEngineRoutes();
+  const serves = (path: string) => availabilityIn(routes, path) === "available";
+  const compareLive = serves("/v1/compare");
+
+  // Unit weights come from the engine-generated catalogue (one price list); whether each operation is callable today
+  // comes from the deployed engine. An operation it does not serve carries no unit figure here.
+  const catalogue = await readToolRates();
+  const unitText = (u: number, perHall: boolean) =>
+    u === 0 ? "free" : `${u} unit${u === 1 ? "" : "s"}${perHall ? " per hall" : ""}`;
+  const callableOps = catalogue
+    .filter((r) => serves(r.endpoint))
+    .map((r) => `- \`${r.name}\` — POST ${ENGINE}${r.endpoint} — ${unitText(r.units, isPerHall(r))}`)
+    .join("\n");
+  // An operation the deployed engine does not serve is left out entirely: this file is read by agents that act on it, and
+  // an unpriced, uncallable line is still a line they may try. (The human pages list such rows as "not yet available".)
+  const operationLines = !routes
+    ? "The deployed engine could not be read when this file was generated, so no operation is listed as callable.\n"
+    : `Operations the deployed engine serves today (units are the metered weight; the free qualifier needs no key):
+
+${callableOps || "- none"}
+`;
+  const mcpLine = serves("/mcp") ? `- MCP endpoint (JSON-RPC 2.0): ${ENGINE}/mcp\n` : "";
+  const toolsLine = serves("/v1/tools") ? `- Tool schemas, OpenAI and MCP shape: ${ENGINE}/v1/tools\n` : "";
+  const qualifyLine = serves("/v1/qualify") ? `- Free qualifier: POST ${ENGINE}/v1/qualify\n` : "";
+  const versionLine = serves("/v1/version") ? `- Published unit rates: ${ENGINE}/v1/version\n` : "";
+  const calibrationLine = serves("/v1/calibration") ? `- Model accuracy record: ${ENGINE}/v1/calibration\n` : "";
   const compareLines = compareLive
     ? `- Time-to-Power scenario comparison, free and without an account: ${SITE}/power/compare
   (engine: POST ${ENGINE}/v1/compare, MCP tool \`gridforge_compare\`, CLI \`gridforge compare\`). Scenarios whose lead time
@@ -83,14 +111,11 @@ export async function GET() {
 ## How to use this site as a tool
 
 The engine is callable directly. \`gridforge_qualify\` is free and needs no API key:
-seven numbers about a hall in, the binding constraint out.
+seven numbers about a hall in, the binding constraint out. This section lists only what the
+deployed engine says it serves (read from its own /v1/version when this file is generated).
 
-- MCP endpoint (JSON-RPC 2.0): ${ENGINE}/mcp
-- Tool schemas, OpenAI and MCP shape: ${ENGINE}/v1/tools
-- Free qualifier: POST ${ENGINE}/v1/qualify
-- Published unit rates: ${ENGINE}/v1/version
-- Model accuracy record: ${ENGINE}/v1/calibration
-${compareLines}
+${mcpLine}${toolsLine}${qualifyLine}${versionLine}${calibrationLine}
+${operationLines}${compareLines}
 ## How to read our numbers
 
 Every numeric field carries an evidence class and a provenance digest:
@@ -183,7 +208,8 @@ ${SITE}/qualify — the free qualifier, seven numbers, no account.
   return new Response(body, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "public, max-age=3600, s-maxage=86400",
+      // Short, because what this file says about the engine follows the engine (revalidate above).
+      "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
     },
   });
 }

@@ -1,5 +1,5 @@
-import { SITE, SITE_URL, serviceCards, FAQ } from "@/lib/site";
-import { LADDER_PRODUCTS } from "@/lib/products";
+import { SITE, SITE_URL, FAQ } from "@/lib/site";
+import { engagementCatalogJsonLd } from "@/lib/jsonld";
 
 /**
  * JSON-LD structured data. Sourced from the same SITE / SERVICES / FAQ content
@@ -39,43 +39,10 @@ export function JsonLd() {
     sameAs: [SITE.repo, SITE.founderUrl],
   };
 
-  const serviceCatalog = {
-    "@context": "https://schema.org",
-    "@type": "OfferCatalog",
-    name: `${SITE.name} — Engineering Services`,
-    itemListElement: serviceCards().map((s) => ({
-      "@type": "Offer",
-      itemOffered: {
-        "@type": "Service",
-        name: s.title,
-        description: s.desc,
-        provider: { "@type": "ProfessionalService", name: SITE.name, url: SITE_URL },
-      },
-    })),
-  };
-
-  // The engagement catalogue, priced. Derived from the same product table that
-  // drives checkout, so what a search engine is told an engagement costs cannot
-  // drift from what it actually charges.
-  const offers = {
-    "@context": "https://schema.org",
-    "@type": "OfferCatalog",
-    name: `${SITE.name} — Engagements`,
-    itemListElement: LADDER_PRODUCTS.map((p) => ({
-      "@type": "Offer",
-      name: p.name,
-      description: p.description,
-      priceCurrency: "EUR",
-      price: (p.amountCents / 100).toFixed(0),
-      availability: "https://schema.org/InStock",
-      itemOffered: {
-        "@type": "Service",
-        name: p.name,
-        description: p.deliverable,
-        provider: { "@type": "ProfessionalService", name: SITE.name, url: SITE_URL },
-      },
-    })),
-  };
+  // ONE priced catalogue, derived from the product table that drives checkout (lib/jsonld.ts). It used to be two
+  // overlapping OfferCatalogs describing the same four or five engagements, one unpriced and one priced; a machine
+  // read them as two sets of offers.
+  const offers = engagementCatalogJsonLd();
 
   const faqPage = {
     "@context": "https://schema.org",
@@ -90,7 +57,6 @@ export function JsonLd() {
   return (
     <>
       {jsonLdScript(organization)}
-      {jsonLdScript(serviceCatalog)}
       {jsonLdScript(offers)}
       {jsonLdScript(faqPage)}
     </>

@@ -7,6 +7,7 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
+import { availabilityIn, deployedEngineRoutes, engineServes } from "@/lib/engine-capabilities";
 import { parseToolRates, type ToolRate } from "@/lib/payg-pricing";
 
 export async function readToolRates(): Promise<ToolRate[]> {
@@ -26,4 +27,27 @@ export function readToolRatesSync(): ToolRate[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * The catalogue's rows annotated with what the DEPLOYED engine serves right now.
+ *
+ * Unit weights still come only from public/reference/tools.json (the engine-generated, CI-diffed catalogue, which
+ * describes the repository's engine and so can be ahead of the one on Fly). Availability is the second, separate
+ * question, answered from the engine's own /v1/version at render time. A row the engine does not list, or any row at
+ * all when the engine cannot be read, is not callable and carries no price a visitor could be billed.
+ *
+ * Call it from a server component that revalidates (`export const revalidate = 300`) so the answer follows the engine
+ * without a site redeploy.
+ */
+export async function readToolRatesWithAvailability(): Promise<ToolRate[]> {
+  const rates = await readToolRates();
+  if (rates.length === 0) return rates;
+  const routes = await deployedEngineRoutes();
+  return rates.map((r) => ({ ...r, availability: availabilityIn(routes, r.endpoint) }));
+}
+
+/** The free, public, never-metered cost estimate. Offered (button, curl) only while the engine serves it. */
+export async function estimateEndpointServed(): Promise<boolean> {
+  return engineServes("/v1/estimate");
 }

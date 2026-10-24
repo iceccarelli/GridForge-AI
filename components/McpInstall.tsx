@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Check, Copy, Plug } from "lucide-react";
+import { AVAILABILITY_UNCONFIRMED, NOT_YET_AVAILABLE } from "@/lib/payg-pricing";
+import type { Availability } from "@/lib/engine-capabilities";
 
 /**
  * Adding the engine to an AI client, in one paste.
@@ -49,10 +51,26 @@ const TABS = {
 
 type Tab = keyof typeof TABS;
 
-export default function McpInstall({ engine }: { engine: string }) {
+export default function McpInstall({ engine, availability = "available" }: { engine: string; availability?: Availability }) {
   const [tab, setTab] = useState<Tab>("Claude Code");
   const [copied, setCopied] = useState(false);
   const snippet = TABS[tab].replaceAll("{ENGINE}", engine);
+
+  // The page passes what the deployed engine serves (/mcp and /v1/qualify). A snippet that would point a client at an
+  // endpoint the engine does not serve is not shown.
+  if (availability !== "available") {
+    return (
+      <div className="rounded border border-line bg-panel-2 p-6" data-availability={availability}>
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-ghost">
+          <Plug className="h-4 w-4 text-power" /> Add it to your AI client
+        </h2>
+        <p role="status" className="mt-2 max-w-3xl text-sm text-mute">
+          {availability === "unknown" ? AVAILABILITY_UNCONFIRMED : NOT_YET_AVAILABLE}. No install snippet is shown until the
+          deployed engine confirms it serves the MCP endpoint.
+        </p>
+      </div>
+    );
+  }
 
   async function copy() {
     try {

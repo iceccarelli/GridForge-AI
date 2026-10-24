@@ -107,7 +107,7 @@ export function StripeHealthPanel() {
             <p className="text-flag">Missing: {health.missingEvents.join(", ")}</p>
           )}
           {(health.missingRecommended?.length ?? 0) > 0 && (
-            <p className="text-faint">Not subscribed (refund and dispute counts only; nothing depends on them): {health.missingRecommended!.join(", ")}</p>
+            <p className="text-faint">Not subscribed (only needed if a delayed payment method such as a bank debit is ever enabled): {health.missingRecommended!.join(", ")}</p>
           )}
           {portal && (portal.warnings?.length ?? 0) > 0 && (
             <p className="text-queue">Billing Portal warnings: {portal.warnings!.join(" ")}</p>

@@ -10,6 +10,7 @@
 // No React, no fetch, no Node APIs: the same module runs in a server page, a client component and a test.
 
 import { API_PRODUCTS, PAYG, eurFromCents, paygCapUnits, type Product } from "@/lib/products";
+import type { Availability } from "@/lib/engine-capabilities";
 
 /** One row of public/reference/tools.json `tools[]`, the fields the pricing surfaces read. */
 export interface ToolRate {
@@ -19,6 +20,32 @@ export interface ToolRate {
   tier: string;
   returns?: string;
   description?: string;
+  /**
+   * Whether the DEPLOYED engine serves this endpoint (lib/engine-capabilities.ts), set at render time by the server
+   * page. Unit weights come from tools.json and stay the one price list; this says only whether they apply today.
+   * Absent means "not checked" (a pure helper or test), and is treated as callable.
+   */
+  availability?: Availability;
+}
+
+/** The label that replaces units and price for an operation the deployed engine does not serve yet. */
+export const NOT_YET_AVAILABLE = "Not yet available \u2014 awaiting engine release";
+/** Same, for the case where the engine could not be read at all: nothing is claimed either way. */
+export const AVAILABILITY_UNCONFIRMED = "Availability not confirmed \u2014 the engine could not be read";
+
+/** An operation may be shown as callable (snippets, estimators, plan arithmetic) only when it is known to be served. */
+export function isCallable(rate: Pick<ToolRate, "availability">): boolean {
+  return rate.availability === undefined || rate.availability === "available";
+}
+
+/** The rates a visitor could actually be billed for today. */
+export function callableRates<T extends Pick<ToolRate, "availability">>(rates: readonly T[]): T[] {
+  return rates.filter(isCallable);
+}
+
+/** The words that stand in for a price on a row the engine does not serve. */
+export function unavailableLabel(rate: Pick<ToolRate, "availability">): string {
+  return rate.availability === "unknown" ? AVAILABILITY_UNCONFIRMED : NOT_YET_AVAILABLE;
 }
 
 /**
@@ -58,7 +85,8 @@ export function parseToolRates(json: unknown): ToolRate[] {
 }
 
 /** "A constraint screen is 1 unit, a full study is 5, a portfolio run is 1 per hall." Built from the rows; omits what it cannot find. */
-export function unitSummary(rates: readonly ToolRate[]): string {
+export function unitSummary(all: readonly ToolRate[]): string {
+  const rates = callableRates(all);
   const by = (ep: string) => rates.find((r) => r.endpoint === ep);
   const u = (n: number) => `${n} unit${n === 1 ? "" : "s"}`;
   const parts: string[] = [];

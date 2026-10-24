@@ -1,0 +1,25 @@
+{
+  "note": "A committed snapshot of what the DEPLOYED engine (https://gridforge-engine.fly.dev) served when it was last read: the `endpoints` array of its public GET /v1/version, plus the MCP transport it declares in `machine_interface.mcp`. tests/site/engine-deployed-snapshot.test.ts compares the capability registry and the engine routes this site calls against it. UPDATING THIS FILE IS PART OF AN ENGINE REDEPLOY: after the engine is redeployed, re-read /v1/version, replace `endpoints`, move `snapshot_date`, and flip the matching capability-registry entries to production_status \"live\". Running pages do not depend on this file: they read the live engine (lib/engine-capabilities.ts).",
+  "source": "https://gridforge-engine.fly.dev/v1/version",
+  "snapshot_date": "2026-10-24",
+  "engine_version": "0.9.0",
+  "endpoints": [
+    "/v1/bids",
+    "/v1/deck",
+    "/v1/diff",
+    "/v1/portfolio",
+    "/v1/proposal",
+    "/v1/qualify",
+    "/v1/screen",
+    "/v1/spec",
+    "/v1/study",
+    "/health",
+    "/v1/calibration",
+    "/v1/intake/template",
+    "/v1/platforms",
+    "/v1/tools",
+    "/v1/usage",
+    "/v1/version"
+  ],
+  "machine_interface": { "mcp": "/mcp" }
+}

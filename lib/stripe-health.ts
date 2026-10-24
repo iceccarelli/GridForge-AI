@@ -15,6 +15,9 @@
 // cannot be reached (no key, bad key, network failure), the result says so
 // explicitly rather than defaulting to "ok".
 
+import { overlapHeld, probeEngineRevokeRoute, type ApiAccount } from "@/lib/api-access";
+import { pg } from "@/lib/payg-store";
+
 export const REQUIRED_WEBHOOK_EVENTS = [
   "checkout.session.completed",
   "invoice.paid",
@@ -23,14 +26,28 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   // A plan switch, a pause or a cancellation made in the Stripe Billing Portal reaches the site only as this event; without it the
   // entitlement silently stays what it was while Stripe bills something else.
   "customer.subscription.updated",
+  // A subscription payment refunded in full or disputed suspends the API key / Hall Watch / Intelligence entitlement, and a dispute won
+  // restores it (lib/billing-holds.ts). Without these three a refunded or charged-back customer keeps paid access until the
+  // subscription is cancelled, which is the failure the holds exist to close, so a missing one makes the endpoint unhealthy.
+  "charge.refunded",
+  "charge.dispute.created",
+  "charge.dispute.closed",
+  // A dispute can open as a warning inquiry (no money moved, so no hold) and escalate to a real chargeback: the hold is applied on that update.
+  "charge.dispute.updated",
 ] as const;
 
 /**
- * Events the handlers use for measurement and for notices to the operator (refund and dispute counts in the admin funnel; the mail
- * that a dispute opened, with its evidence deadline, and how it closed). Money, entitlements and delivery never depend on them, so a
- * missing one does not make the endpoint unhealthy; it is reported so it can be added.
+ * Events the handlers act on beyond the required ones. A missing one does not make the endpoint unhealthy, but it is reported because a
+ * customer-visible outcome depends on it:
+ *   checkout.session.async_payment_succeeded, checkout.session.async_payment_failed
+ *       a delayed payment method (a bank debit or transfer) completes a checkout unpaid; the sale is fulfilled when the first arrives and
+ *       never when the second does. Needed only if such a payment method is ever enabled on Checkout (today it is card only).
+ * The handler really handles each of these (tests/site/billing-holds.test.ts).
  */
-export const RECOMMENDED_WEBHOOK_EVENTS = ["charge.refunded", "charge.dispute.created", "charge.dispute.closed"] as const;
+export const RECOMMENDED_WEBHOOK_EVENTS = [
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+] as const;
 
 export interface StripeWebhookHealth {
   configured: boolean;
@@ -174,7 +191,7 @@ export interface BillingPortalHealth {
   /**
    * Portal features that are ENABLED and that the site does not handle (a plan switch, a pause): reported, never a failure of `ok`.
    * A customer who uses one changes what Stripe bills while the site's entitlement stays as it was (a plan switch is reported to the
-   * operator by the webhook; a pause is not seen at all).
+   * operator by the webhook; a pause holds paid delivery until billing resumes, see lib/billing-holds.ts).
    */
   warnings: string[];
   error: string | null;
@@ -184,8 +201,72 @@ export interface BillingPortalHealth {
 /** Portal features a customer can switch on for themselves that this site does not implement. */
 const UNHANDLED_PORTAL_FEATURES: Record<string, string> = {
   subscription_update: "subscription_update is enabled: customers can switch plans in the portal, which changes what Stripe bills but not what the site entitles (the operator is mailed once per subscription, nothing is changed automatically). Turn it off in the portal configuration.",
-  subscription_pause: "subscription_pause is enabled: customers can pause billing in the portal, which the site does not see (the key and access continue). Turn it off in the portal configuration.",
+  subscription_pause: "subscription_pause is enabled: customers can pause billing in the portal. The site holds paid delivery while billing is paused (API key revoked, Hall Watch paused, Intelligence not entitled) and restores it on resume, but only if customer.subscription.updated is delivered; a pause is a customer choosing not to pay, so most operators turn it off in the portal configuration.",
 };
+
+/**
+ * Key revocations the ENGINE has not confirmed. Every revocation is recorded on the account first (revoked_key_ids) and confirmed only
+ * when the engine answers 2xx (revoked_confirmed_ids); the difference is `revocation_pending`, a durable obligation the daily job and the
+ * next billing event push again. This lists it, so a revocation that cannot reach the engine (today the deployed engine answers 404 for
+ * /v1/revoke) is a number an operator sees rather than a log line. `ok` is false while any id of an account the site has CUT OFF
+ * (past_due, cancelled, held) is unconfirmed: that credential still verifies at the engine. Ids an active account holds on purpose
+ * (an overlap key inside its window) are not counted. `engineRevokeRoute` says why when something is pending (asked of the engine
+ * with an empty key id, which revokes nothing).
+ */
+export interface RevocationBacklog {
+  /** false: the store could not be read, so nothing is claimed. */
+  checked: boolean;
+  ok: boolean;
+  accountsPending: number;
+  idsPending: number;
+  /** Unconfirmed ids on accounts that are past_due, cancelled or on hold: credentials the site has cut off and the engine has not. */
+  idsPendingOnCutOffAccounts: number;
+  oldestCreatedAt: string | null;
+  engineRevokeRoute: "served" | "not_deployed" | "unreachable" | "unconfigured" | "unknown" | "not_asked";
+  error: string | null;
+  checkedAt: string;
+}
+
+export async function checkRevocationBacklog(now: Date = new Date()): Promise<RevocationBacklog> {
+  const base = { checkedAt: now.toISOString() };
+  const empty = { accountsPending: 0, idsPending: 0, idsPendingOnCutOffAccounts: 0, oldestCreatedAt: null, engineRevokeRoute: "not_asked" as const };
+  const r = await pg<{ status: string; created_at: string | null; revoked_key_ids: string[] | null; revoked_confirmed_ids: string[] | null; overlap_key_ids: Record<string, string> | null }[]>(
+    "GET",
+    "api_accounts?revocation_pending=eq.true&select=status,created_at,revoked_key_ids,revoked_confirmed_ids,overlap_key_ids&order=created_at.asc&limit=500"
+  );
+  if (!r.ok) return { ...base, ...empty, checked: false, ok: false, error: `The account store could not be read (${r.status}); the revocation backlog is unknown.` };
+  const today = now.toISOString().slice(0, 10);
+  let accountsPending = 0;
+  let idsPending = 0;
+  let cutOff = 0;
+  let oldest: string | null = null;
+  for (const row of r.data ?? []) {
+    const confirmed = new Set(row.revoked_confirmed_ids ?? []);
+    const todo = (row.revoked_key_ids ?? []).filter((id) => !confirmed.has(id) && !overlapHeld({ status: row.status as ApiAccount["status"], overlap_key_ids: row.overlap_key_ids }, id, today));
+    if (todo.length === 0) continue;
+    accountsPending++;
+    idsPending += todo.length;
+    if (row.status !== "active") cutOff += todo.length;
+    if (row.created_at && (!oldest || row.created_at < oldest)) oldest = row.created_at;
+  }
+  const engineRevokeRoute = idsPending > 0 ? await probeEngineRevokeRoute() : "not_asked";
+  const ok = cutOff === 0;
+  return {
+    ...base,
+    checked: true,
+    ok,
+    accountsPending,
+    idsPending,
+    idsPendingOnCutOffAccounts: cutOff,
+    oldestCreatedAt: oldest,
+    engineRevokeRoute,
+    error: ok
+      ? null
+      : `${cutOff} key id(s) on accounts the site has cut off are NOT confirmed revoked by the engine and may still verify there` +
+        (engineRevokeRoute === "not_deployed" ? ": the engine does not serve /v1/revoke (redeploy it; scripts/check-engine-drift.py)." : ".") +
+        " They are retried daily and on the next billing event for each account.",
+  };
+}
 
 export async function checkBillingPortal(
   stripeClient: {
