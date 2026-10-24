@@ -23,6 +23,7 @@
 //
 // A dispute on a pay-as-you-go settlement invoice has no subscription behind it: lib/payg-refunds.ts decides it.
 
+import { withStripeTimeout } from "@/lib/stripe-timeout";
 import { classifyDispute, LIFTS_DISPUTE_HOLD, type DisputeState } from "@/lib/dispute-state";
 import {
   idOf,
@@ -63,7 +64,7 @@ export async function disputedPayment(stripe: ReversalStripe | null, d: DisputeL
   if (!chargeId) return { ok: true };
   if (!stripe) return { ok: false };
   try {
-    const c = (await stripe.charges.retrieve(chargeId)) as { invoice?: unknown; payment_intent?: unknown };
+    const c = (await withStripeTimeout(stripe.charges.retrieve(chargeId))) as { invoice?: unknown; payment_intent?: unknown };
     return { ok: true, invoice: c.invoice, paymentIntent: c.payment_intent };
   } catch (err) {
     // A charge Stripe says does not exist (another account's, or a deleted test object) can never be resolved by a redelivery.
@@ -79,7 +80,7 @@ async function fetchDispute(stripe: ReversalStripe | null, id: string): Promise<
     return { ok: false };
   }
   try {
-    const d = (await stripe.disputes.retrieve(id)) as DisputeLike | null;
+    const d = (await withStripeTimeout(stripe.disputes.retrieve(id))) as DisputeLike | null;
     if (!d || typeof d !== "object") return { ok: false };
     return { ok: true, dispute: { ...d, id } };
   } catch (err) {

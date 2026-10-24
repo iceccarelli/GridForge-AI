@@ -47,6 +47,7 @@
 // subscription is NOT suspended without the hold columns (nothing could ever say why, or lift it): the event is answered 500 and Stripe
 // retries until the migration is applied.
 
+import { withStripeTimeout } from "@/lib/stripe-timeout";
 import type Stripe from "stripe";
 import {
   API_PAST_DUE_GRACE_MS,
@@ -308,7 +309,7 @@ export async function subscriptionOfPayment(stripe: ReversalStripe | null, p: { 
         console.error("[GridForge] cannot resolve a charge to its invoice: no Stripe client with invoicePayments");
         return { ok: false };
       }
-      const list = await stripe.invoicePayments.list({ payment: { type: "payment_intent", payment_intent: pi }, limit: 1, expand: ["data.invoice"] });
+      const list = await withStripeTimeout(stripe.invoicePayments.list({ payment: { type: "payment_intent", payment_intent: pi }, limit: 1, expand: ["data.invoice"] }));
       invoice = list.data?.[0]?.invoice;
       invoiceId = idOf(invoice);
     }
@@ -317,7 +318,7 @@ export async function subscriptionOfPayment(stripe: ReversalStripe | null, p: { 
     let invoiceMeta = metaOf(invoice);
     if (!subscriptionId) {
       if (!stripe) return { ok: false };
-      const full = await stripe.invoices.retrieve(invoiceId);
+      const full = await withStripeTimeout(stripe.invoices.retrieve(invoiceId));
       subscriptionId = subscriptionIdOf(full as Stripe.Invoice);
       invoiceMeta = metaOf(full) ?? invoiceMeta;
     }
@@ -672,7 +673,7 @@ async function readSubscription(stripe: ReversalStripe | null, id: string): Prom
     return { ok: false };
   }
   try {
-    const sub = (await stripe.subscriptions.retrieve(id)) as { latest_invoice?: unknown; metadata?: { kind?: unknown } | null };
+    const sub = (await withStripeTimeout(stripe.subscriptions.retrieve(id))) as { latest_invoice?: unknown; metadata?: { kind?: unknown } | null };
     return { ok: true, latestInvoiceId: idOf(sub.latest_invoice), kind: typeof sub.metadata?.kind === "string" ? sub.metadata.kind : "" };
   } catch (err) {
     if ((err as { code?: string } | null)?.code === "resource_missing") return { ok: true, latestInvoiceId: "", kind: "" };
@@ -685,7 +686,7 @@ type InvoiceRead = { ok: true; status: string; amountPaid: number } | { ok: fals
 async function readInvoice(stripe: ReversalStripe | null, id: string): Promise<InvoiceRead> {
   if (!stripe) return { ok: false };
   try {
-    const inv = (await stripe.invoices.retrieve(id)) as { status?: unknown; amount_paid?: unknown };
+    const inv = (await withStripeTimeout(stripe.invoices.retrieve(id))) as { status?: unknown; amount_paid?: unknown };
     return { ok: true, status: typeof inv.status === "string" ? inv.status : "", amountPaid: typeof inv.amount_paid === "number" ? inv.amount_paid : 0 };
   } catch (err) {
     if ((err as { code?: string } | null)?.code === "resource_missing") return { ok: true, status: "", amountPaid: 0 };

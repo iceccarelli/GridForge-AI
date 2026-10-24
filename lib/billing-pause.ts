@@ -32,6 +32,7 @@
 // (the schedule is weekly); none that falls due after it is. The daily job does not pause a watch that owes such a note for up to
 // WATCH_OWED_NOTE_GRACE_MS; the Hall Watch cron delivers it and then writes the hold.
 
+import { withStripeTimeout } from "@/lib/stripe-timeout";
 import { pg, enc } from "@/lib/payg-store";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
 import { pauseDue, pauseFromMs } from "@/lib/billing-pause-due";
@@ -91,11 +92,13 @@ type Written = "ok" | "terminal" | "error" | "nocolumn";
  * A guarded write: never to a cancelled (or superseded) row. "nocolumn": the store does not know the column (migration 0043 not applied
  * yet); a transient failure is "error" and is retried, never read as "the migration is missing".
  */
-async function patchTarget(t: Target, patch: Record<string, unknown>): Promise<Written> {
+async function patchTarget(t: Target, patch: Record<string, unknown>, opts: { ifFrom?: string } = {}): Promise<Written> {
+  // `ifFrom`: write only while billing_pause_from is STILL the value that was read (a pause that was scheduled again in between keeps its schedule).
+  const cond = opts.ifFrom ? `&billing_pause_from=eq.${enc(opts.ifFrom)}` : "";
   const q =
     t.table === "subscriptions"
-      ? `subscriptions?id=eq.${enc(t.row.id)}&status=not.in.(cancelled,superseded)`
-      : `${t.table}?token=eq.${enc(t.row.token ?? "")}&status=neq.cancelled`;
+      ? `subscriptions?id=eq.${enc(t.row.id)}&status=not.in.(cancelled,superseded)${cond}`
+      : `${t.table}?token=eq.${enc(t.row.token ?? "")}&status=neq.cancelled${cond}`;
   const r = await pg<unknown[]>("PATCH", q, t.table === "subscriptions" ? { ...patch, updated_at: new Date().toISOString() } : patch);
   if (!r.ok) return r.status === 400 && (r.code === "PGRST204" || r.code === "42703") ? "nocolumn" : "error";
   return (r.data?.length ?? 0) > 0 ? "ok" : "terminal";
@@ -126,6 +129,14 @@ export interface PausedSub {
 /** Billing is paused: pause_collection is set, or Stripe's own status says so. */
 export function isPaused(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
   return Boolean(sub.pause_collection) || (sub.status as string | undefined) === "paused";
+}
+
+/**
+ * Billing is STOPPED for the purpose of access: paused (above), or Stripe's `unpaid` (dunning ran out and billing stopped). One rule for the
+ * daily job (promote) and for the re-check after a lift (reassertPause): an unpaid subscription holds, it is never read as "running again".
+ */
+export function billingStopped(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
+  return isPaused(sub) || (sub.status as string | undefined) === "unpaid";
 }
 
 const sec = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
@@ -167,7 +178,7 @@ async function paidPeriodEnd(sub: PausedSub, stripe: ReversalStripe | null): Pro
   let latest = idOf(sub.latest_invoice);
   if (end === null && stripe?.subscriptions) {
     try {
-      const full = (await stripe.subscriptions.retrieve(sub.id)) as PausedSub;
+      const full = (await withStripeTimeout(stripe.subscriptions.retrieve(sub.id))) as PausedSub;
       end = periodEndOf(full);
       start = periodStartOf(full) ?? start;
       latest = idOf(full.latest_invoice) || latest;
@@ -178,7 +189,7 @@ async function paidPeriodEnd(sub: PausedSub, stripe: ReversalStripe | null): Pro
   let facts: InvoiceFacts | null = null;
   if (latest && stripe) {
     try {
-      facts = (await stripe.invoices.retrieve(latest)) as InvoiceFacts;
+      facts = (await withStripeTimeout(stripe.invoices.retrieve(latest))) as InvoiceFacts;
     } catch (err) {
       if (!isMissing(err)) return { ok: false };
     }
@@ -215,6 +226,11 @@ export async function planPause(sub: PausedSub, stripe: ReversalStripe | null, n
 // --------------------------------------------------------------------------------------------------------------- the event
 
 const iso = (s: number) => new Date(s * 1000).toISOString();
+/** A pause already scheduled is never moved LATER by a subscription update (Stripe moves the period on every renewal, paid or not). */
+const existingMin = (row: { billing_pause_from?: string | null }, fromSec: number): number => {
+  const e = pauseFromMs(row);
+  return e !== null ? Math.min(fromSec, Math.floor(e / 1000)) : fromSec;
+};
 const sameInstant = (a: string | null | undefined, s: number): boolean => typeof a === "string" && Date.parse(a) === s * 1000;
 
 async function audit(e: AuditEntry): Promise<boolean> {
@@ -274,7 +290,11 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
     // lost when that hold ends. It is kept as a schedule that is already due; the daily job begins the hold when the stronger one is gone,
     // and every lift re-reads Stripe (reassertPause) and puts the pause back at once.
     if (row.billing_hold && row.billing_hold !== "paused") {
-      const w = await patchTarget(t, { billing_pause_from: row.billing_pause_from ?? new Date().toISOString(), ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      // The schedule is the pause's OWN: the end of the paid period when the plan has one (a dispute opened on day 5 of a 30-day period, the
+      // customer pauses on day 6: the pause starts on day 30, not now), and only a genuinely immediate pause is due now. Never moved later.
+      const fromIso = plan.mode === "scheduled" ? iso(existingMin(row, plan.fromSec)) : row.billing_pause_from ?? new Date().toISOString();
+      const resumes = plan.mode === "scheduled" && plan.resumesAtSec ? { billing_pause_resumes_at: iso(plan.resumesAtSec) } : {};
+      const w = await patchTarget(t, { billing_pause_from: fromIso, ...resumes, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
       if (w === "nocolumn") await noteMigrationMissing();
       return true;
@@ -405,6 +425,28 @@ export function watchOwesNote(w: Pick<WatchRecord, "intake" | "next_run_at" | "b
 export type Promoted = "promoted" | "deferred" | "dropped" | "skipped" | "failed";
 
 /**
+ * After a `paused` hold was written from an earlier read of Stripe: read again. If billing is no longer stopped, a resume event was
+ * processed in between (it found no hold to lift), so the hold just written is lifted here. "held": still stopped (or Stripe has no
+ * client / no such subscription). "fail": Stripe could not be asked; the caller keeps its schedule and asks again later.
+ */
+async function undoIfResumed(t: Target, subId: string, stripe: ReversalStripe | null, eventId: string): Promise<"held" | "resumed" | "fail"> {
+  if (!stripe?.subscriptions) return "held";
+  let sub: PausedSub;
+  try {
+    sub = (await withStripeTimeout(stripe.subscriptions.retrieve(subId))) as PausedSub;
+  } catch (err) {
+    return isMissing(err) ? "held" : "fail";
+  }
+  if (billingStopped(sub)) return "held";
+  const fresh = await resolveSubscription(subId);
+  if (!fresh.ok) return "fail";
+  const row = fresh[t.ent];
+  if (!row) return "held";
+  const lifted = await liftHold({ api: null, watch: null, intelligence: null, [t.ent]: row } as unknown as Entitlements, { kinds: ["paused"], ref: subId, restore: "prev", cause: "billing_resumed", clock: "none", subscriptionId: subId, eventId: `resumed_during_hold:${eventId}` });
+  return lifted.ok ? "resumed" : "fail";
+}
+
+/**
  * A scheduled pause whose instant has passed becomes the hold: once, with an audit row, after asking Stripe that billing is STILL paused
  * (a resume whose event never arrived must not suspend anybody). Stripe unreachable: "failed", tried again at the next run.
  */
@@ -420,11 +462,11 @@ async function promote(t: Target, stripe: ReversalStripe | null, nowMs: number, 
   if (row.billing_hold && row.billing_hold !== "paused") return "deferred";
   if (stripe?.subscriptions) {
     try {
-      const sub = (await stripe.subscriptions.retrieve(subId)) as PausedSub;
+      const sub = (await withStripeTimeout(stripe.subscriptions.retrieve(subId))) as PausedSub;
       // canceled / incomplete_expired: the cancellation events own it (reported, never silent). unpaid is a subscription whose dunning ran out
       // and whose billing is stopped: nobody is paying, so the hold begins rather than waiting for an event that may never come.
       if (sub.status === "canceled" || sub.status === "incomplete_expired") return "skipped";
-      if (!isPaused(sub) && sub.status !== "unpaid") {
+      if (!billingStopped(sub)) {
         // Billing is running again at Stripe and the resume event was never applied: the schedule is void.
         const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null });
         if (w === "error") return "failed";
@@ -446,8 +488,12 @@ async function promote(t: Target, stripe: ReversalStripe | null, nowMs: number, 
     effectiveFrom: fromIso,
   });
   if (!out.ok) return "failed";
+  // Ask again: a resume processed between the read above and the hold would otherwise leave a hold nothing lifts.
+  const chk = await undoIfResumed(t, subId, stripe, `pause_due:${subId}:${Math.floor(from / 1000)}`);
+  if (chk === "fail") return "failed"; // the schedule is still there: the next run asks again
   const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null });
   if (w === "error") return "failed";
+  if (chk === "resumed") return "dropped";
   return "promoted";
 }
 
@@ -483,7 +529,10 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
   for (const p of tables) {
     // Least recently examined first: a row that stays stuck (Stripe unreachable, a stronger hold, a cancellation not yet delivered) is stamped
     // and goes to the back, so it cannot starve the rows behind it run after run.
-    const r = await pg<PauseFields[]>("GET", `${p.table}?billing_pause_from=lte.${enc(now.toISOString())}&${p.status}&select=*&order=billing_pause_checked_at.asc.nullsfirst,billing_pause_from.asc&limit=200`);
+    const query = (order: string) => `${p.table}?billing_pause_from=lte.${enc(now.toISOString())}&${p.status}&select=*&order=${order}&limit=200`;
+    let r = await pg<PauseFields[]>("GET", query("billing_pause_checked_at.asc.nullsfirst,billing_pause_from.asc"));
+    // A store without the rotation column (400) still gets its due pauses started, oldest first; only one without billing_pause_from is skipped.
+    if (!r.ok && r.status === 400) r = await pg<PauseFields[]>("GET", query("billing_pause_from.asc"));
     if (!r.ok) {
       if (r.status === 400) report.skippedReason = "migration 0043 not applied (no billing_pause_from column)";
       else report.errors++;
@@ -503,6 +552,13 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
   }
   // A pause that does not start is a customer's paid access held open (or, worse, a hold that never comes): said to a person, once a day
   // while it lasts, not left in the cron's JSON.
+  if (report.skippedReason) {
+    await notifyOperatorOnce(
+      `pause_job_skipped:${now.toISOString().slice(0, 10)}`,
+      "Scheduled billing pauses could not be read — the daily pass did NOT run",
+      `${report.skippedReason}. No scheduled pause can be started until it is fixed (supabase/migrations/0043_billing_pause_and_settlement_reversals.sql). A pause recorded before then keeps the customer's access. This notice is sent once a day.`
+    );
+  }
   if (report.errors > 0 || report.skipped > 0) {
     await notifyOperatorOnce(
       `pause_job:${now.toISOString().slice(0, 10)}`,
@@ -530,18 +586,30 @@ export async function reassertPause(subId: string, stripe: ReversalStripe | null
   if (!subId || !stripe?.subscriptions) return { ok: true };
   let sub: PausedSub;
   try {
-    sub = (await stripe.subscriptions.retrieve(subId)) as PausedSub;
+    sub = (await withStripeTimeout(stripe.subscriptions.retrieve(subId))) as PausedSub;
   } catch (err) {
     return { ok: isMissing(err) };
   }
-  if (!isPaused(sub)) return { ok: true };
   const found = await resolveSubscription(subId);
   if (!found.ok) return { ok: false };
+  if (!billingStopped(sub)) {
+    // Billing is running again at Stripe. A schedule KEPT under the stronger hold is void now (its resume event was lost or came while the
+    // hold stood): left in place it would deny access for up to a day (every access check reads it). Cleared only if it is still what was read.
+    let cleared = true;
+    for (const t of targetsOf(found)) {
+      if (endedRow(t.row) || t.row.billing_hold || !t.row.billing_pause_from) continue;
+      const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null }, { ifFrom: t.row.billing_pause_from });
+      if (w === "error") cleared = false;
+      else if (w === "ok" && !(await audit({ table: t.table, subjectId: t.row.id, eventId: ev.id, objectId: subId, subscriptionId: subId, dedupeKey: `pause_schedule_dropped:${t.table}:${t.row.id}:${t.row.billing_pause_from}`, action: "pause_schedule_dropped", detail: { why: "billing_running_at_stripe", was_effective_from: t.row.billing_pause_from } }))) cleared = false;
+    }
+    return { ok: cleared };
+  }
   const targets = targetsOf(found).filter((t) => !endedRow(t.row) && !t.row.billing_hold);
   if (targets.length === 0) return { ok: true };
   const planned = await planPause(sub, stripe, nowMs);
   if (!planned.ok) return { ok: false };
-  const plan = planned.plan;
+  // `unpaid` without a pause_collection: billing is stopped and nobody is paying, so the hold is due now.
+  const plan: PausePlan = !sub.pause_collection && !isPaused(sub) ? { mode: "immediate", why: "unpaid" } : planned.plan;
   let ok = true;
   for (const t of targets) {
     const base = { table: t.table, subjectId: t.row.id, eventId: ev.id, objectId: subId, subscriptionId: subId } as const;
@@ -551,8 +619,14 @@ export async function reassertPause(subId: string, stripe: ReversalStripe | null
         ok = false;
         continue;
       }
+      const chk = await undoIfResumed(t, subId, stripe, `pause_reasserted:${ev.id}`);
+      if (chk === "fail") {
+        ok = false;
+        continue;
+      }
       const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null });
       if (w === "error") ok = false;
+      if (chk === "resumed") continue;
       if (!(await audit({ ...base, dedupeKey: `pause_reasserted:${t.table}:${t.row.id}:${ev.id}`, action: "pause_reasserted", detail: { why: "billing_still_paused_at_stripe" } }))) ok = false;
     } else if (plan.mode === "scheduled" && !t.row.billing_pause_from) {
       const w = await patchTarget(t, { billing_pause_from: iso(plan.fromSec), billing_pause_resumes_at: plan.resumesAtSec ? iso(plan.resumesAtSec) : null });
