@@ -15,6 +15,7 @@ import { resetMemoryLimiter } from "@/lib/rate-limit";
 import { MockStripe, ledgerEvent, mockEngine, newPaygDb, paygAccount, resetSeq, type MockEngine } from "./payg-harness";
 import { installProjectRpcs } from "./project-rpc-fake";
 import type { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (name: string) => jar.find((c) => c.name === name) }) }));
@@ -59,7 +60,7 @@ const props = (name: string) => events(name).map((e) => e.props);
 describe("the funnel vocabulary is closed and privacy-safe", () => {
   it("names and property keys are exactly these (adding one is a deliberate change to this list)", () => {
     expect([...FUNNEL_EVENTS].sort()).toEqual([
-      "alert_sent", "allowance_exhausted", "dispute_opened", "engagement_commissioned", "first_charge", "first_engine_use", "free_account_created", "key_minted",
+      "alert_sent", "allowance_exhausted", "checkout_attempted", "checkout_failed", "checkout_session_created", "dispute_opened", "engagement_commissioned", "first_charge", "first_engine_use", "free_account_created", "key_minted",
       "payg_enabled", "payment_failed", "project_created", "project_saved_result", "qualify_completed", "qualify_started", "refund_issued",
       "subscription_cancelled", "subscription_started",
     ]);
@@ -164,7 +165,7 @@ describe("events are recorded at the real points, and carry nothing about the pe
     return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sdk.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
   }
   const checkout = (id: string, kind: string, extra: Record<string, unknown> = {}, meta: Record<string, string> = {}) =>
-    hook("checkout.session.completed", { id, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000, metadata: { kind, company: "Buyer Co", ...meta }, ...extra });
+    hook("checkout.session.completed", paidSession({ id, customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000, metadata: { kind, company: "Buyer Co", ...meta }, ...extra }));
 
   it("subscription_started (an API plan and an Intelligence plan), once per Stripe subscription however often delivered, kind only", async () => {
     for (let i = 0; i < 3; i++) expect((await checkout("cs_api", "api_scale", { subscription: "sub_api" })).status).toBe(200);

@@ -193,7 +193,7 @@ describe("GET /api/usage", () => {
     expect(j.month).toBe(new Date().toISOString().slice(0, 7));
     expect(j.events.map((e: any) => [e.kind, e.units, e.endpoint])).toEqual([["refund", 3, "/v1/screen"], ["charge", 3, "/v1/screen"], ["charge", 5, "/v1/study"]]); // newest first
     expect(Object.keys(j.events[0]).sort()).toEqual(["endpoint", "id", "key_id", "kind", "project", "ref", "ts", "units"]);
-    expect(j.settlements).toEqual([{ month: "2026-08", units: 11, amount_cents: 2200, status: "invoiced", carried_units: 0, hosted_invoice_url: "https://invoice.stripe.test/ACME" }]);
+    expect(j.settlements).toEqual([{ month: "2026-08", units: 11, amount_cents: 2200, status: "invoiced", carried_units: 0, hosted_invoice_url: "https://invoice.stripe.test/ACME", refunded_cents: 0, refund_state: null, dispute: null }]);
     expect(typeof j.billing_rule).toBe("string");
   });
 

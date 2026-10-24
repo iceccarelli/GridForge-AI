@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
@@ -84,8 +85,8 @@ const json = (b: unknown, method = "POST") => new Request(siteUrl("/x"), { metho
 const ctx = (token: string) => ({ params: Promise.resolve({ token }) });
 const stripe = new Stripe("sk_test_placeholder");
 async function buy(email = "buyer@hall.example") {
-  const payload = JSON.stringify({ id: "evt_ds", type: "checkout.session.completed", data: { object: {
-    id: "cs_ds_1", object: "checkout_session", customer_email: email, customer: "cus_1", amount_total: 450_000, metadata: { kind: "density_screen", company: "Hall Co" } } } });
+  const payload = JSON.stringify({ id: "evt_ds", type: "checkout.session.completed", data: { object: paidSession({
+    id: "cs_ds_1", customer_email: email, customer: "cus_1", amount_total: 450_000, metadata: { kind: "density_screen", company: "Hall Co" } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   await POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
   return db.rows("deliverables")[0] as any;

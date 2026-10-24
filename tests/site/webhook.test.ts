@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH_SECRET = "whsec_test_secret_for_signature_generation";
 const BUYER = "director@northhall.example";
@@ -44,16 +45,15 @@ function checkoutCompleted(over: Record<string, unknown> = {}) {
     id: "evt_1",
     type: "checkout.session.completed",
     data: {
-      object: {
+      object: paidSession({
         id: "cs_test_intelligence_1",
-        object: "checkout_session",
         customer_email: BUYER,
         customer: "cus_123",
         subscription: "sub_123",
         amount_total: 199900,
         metadata: { kind: "intelligence_subscription", plan: "team" },
         ...over,
-      },
+      }),
     },
   };
 }
@@ -279,16 +279,15 @@ describe("a payment we cannot fulfil is never reported to Stripe as delivered", 
       id: `evt_${kind}`,
       type: "checkout.session.completed",
       data: {
-        object: {
+        object: paidSession({
           id: `cs_${kind}_1`,
-          object: "checkout_session",
           customer_email: "buyer@northhall.example",
           customer: "cus_buy",
           subscription: `sub_${kind}`,
           amount_total: 450000,
           metadata: { kind, company: "North Hall" },
           ...over,
-        },
+        }),
       },
     };
   }

@@ -27,6 +27,7 @@ import { siteUrl } from "@/lib/site";
 import { PRODUCTS, INTELLIGENCE_PLANS, type Product } from "@/lib/products";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 // ---- stand-ins ------------------------------------------------------------------------------------------
 const sent: Record<string, any>[] = [];
@@ -136,8 +137,8 @@ const eur = (cents: number) => `€${(cents / 100).toLocaleString("en-IE")}`;
 function signed(sessionId: string, kind: string, extra: Record<string, unknown> = {}, meta: Record<string, string> = {}) {
   const payload = JSON.stringify({
     id: `evt_${sessionId}`, type: "checkout.session.completed",
-    data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1",
-      amount_total: 100000, metadata: { kind, company: "Hall Co", ...meta }, ...extra } },
+    data: { object: paidSession({ id: sessionId, customer_email: "buyer@hall.example", customer: "cus_1",
+      amount_total: 100000, metadata: { kind, company: "Hall Co", ...meta }, ...extra }) },
   });
   const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH_SECRET });
   return new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload });

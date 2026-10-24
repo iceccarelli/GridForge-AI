@@ -263,7 +263,8 @@ export function eurFromCents(cents: number): string {
 }
 
 export function isProductId(v: unknown): v is ProductId {
-  return typeof v === "string" && v in PRODUCTS;
+  // Own keys only: `"constructor" in PRODUCTS` is true, and a prototype key is not a product.
+  return typeof v === "string" && Object.hasOwn(PRODUCTS, v);
 }
 
 // --- GridForge Intelligence ---------------------------------------------------

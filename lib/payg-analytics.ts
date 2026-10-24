@@ -13,7 +13,7 @@
 // Accounts appear only as the anonymous account_ref HMAC (lib/payg.ts accountRef); nothing here can name a person.
 
 import { PAYG, accountRef, monthBounds, utcMonth, MONTH } from "@/lib/payg";
-import { recordFunnelEvent } from "@/lib/funnel";
+import { CHECKOUT_FAILURE_REASONS, CHECKOUT_STRIPE_STAGE_REASONS, recordFunnelEvent } from "@/lib/funnel";
 import { enc, pg, rpc } from "@/lib/payg-store";
 
 const DAY = 86_400_000;
@@ -89,6 +89,55 @@ export interface FunnelStep {
   basis: string;
 }
 
+/** One derived value: never a bare number. `value` is null when `denominator` is 0 or not a positive number (never 0, never NaN). */
+export interface DerivedRate {
+  label: string;
+  formula: string;
+  numerator: number;
+  denominator: number;
+  value: number | null;
+  source: "derived";
+}
+
+export interface CheckoutKindRow {
+  attempted: number;
+  session_created: number;
+  failed: number;
+  failed_by_reason: Record<string, number>;
+  /** session_created / attempted for this kind, derived; null when the kind has no attempts. */
+  session_creation_rate: DerivedRate;
+}
+
+export type CheckoutReport =
+  | { available: false; reason: string; statement: string }
+  | {
+      available: true;
+      statement: string;
+      /** MEASURED: counts of recorded events in the window. Nothing in here is computed from anything else. */
+      measured: {
+        source: "events";
+        attempted: number;
+        session_created: number;
+        failed: number;
+        /** checkout_failed events by their fixed reason. Every reason in the closed list is present (0 means none recorded). */
+        failed_by_reason: Record<string, number>;
+        by_kind: Record<string, { attempted: number; session_created: number; failed: number }>;
+        basis: string;
+      };
+      /** DERIVED: arithmetic on the measured counts, each with its explicit numerator and denominator. */
+      derived: {
+        source: "derived";
+        refused_before_stripe: number;
+        failed_at_stripe: number;
+        session_creation_rate: DerivedRate;
+        stripe_failure_rate: DerivedRate;
+        refusal_rate: DerivedRate;
+        unresolved_attempts: { label: string; formula: string; value: number; source: "derived"; note: string };
+        by_kind: Record<string, CheckoutKindRow>;
+        basis: string;
+      };
+    };
+
 export interface FunnelReport {
   ok: true;
   days: number;
@@ -123,6 +172,7 @@ export interface FunnelReport {
     basis: string;
     cohorts: { cohort_week: string; size: number; weeks: { offset: number; week: string; active: number; rate: number | null; partial: boolean }[] }[];
   };
+  checkout: CheckoutReport;
   unmeasured: string[];
 }
 
@@ -133,8 +183,100 @@ const UNMEASURED = [
   "Refunds and disputes depend on the Stripe webhook endpoint being subscribed to charge.refunded and charge.dispute.created, which this site cannot verify: a count of 0 is not proof that none occurred.",
   "Cancellation reasons beyond Stripe's own fixed reason (cancellation_requested, payment_failed, payment_disputed) are not collected, and free-text cancellation comments are deliberately never read.",
   "Funnel events are only recorded from the day the instrumentation shipped; nothing earlier can be reconstructed except what the usage ledger itself holds (first use, repeat use).",
+  "Payment: a created checkout session is not a payment. Whether the buyer opened Stripe's page, abandoned it or paid is not measured by the checkout events (returning from Stripe proves nothing); the only payment evidence is the engagement_commissioned and subscription_started events from the Stripe webhook.",
+  "Checkout counts are requests recorded by the route, not unique buyers: they include repeated and automated traffic (the route is limited to 60 requests an hour per caller address, and invalid input records nothing), so session_creation_rate describes requests, not buyer behaviour.",
+  "Checkout refusals of invalid, unknown or malformed product input are deliberately not recorded (no commercial activity), and a checkout event lost to a telemetry failure is a missing measurement, not a refusal.",
   "Time between steps is not reported: events are dated when recorded, and first use is dated when the charge happened.",
 ];
+
+interface CheckoutSummary {
+  counts?: Record<string, unknown>;
+  by_kind?: Record<string, Record<string, unknown>>;
+  failed_reasons?: Record<string, unknown>;
+  failed_by_kind?: Record<string, Record<string, unknown>>;
+}
+
+/** A recorded count: a whole non-negative number, else 0 (a malformed value never becomes NaN downstream). */
+const tally = (v: unknown): number => {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+};
+
+function derivedRate(label: string, formula: string, numerator: number, denominator: number): DerivedRate {
+  return { label, formula, numerator, denominator, value: rate(numerator, denominator), source: "derived" };
+}
+
+const CHECKOUT_STATEMENT =
+  "A created checkout session is NOT a payment: it means Stripe returned a page address, nothing was charged, and the buyer may never have opened it. " +
+  "The buyer returning from Stripe is not evidence of payment either. The only payment and commission evidence is the engagement_commissioned and subscription_started events recorded by the Stripe webhook (see Engagements and Subscriptions in this report).";
+
+/** The checkout section: measured event counts, then values derived from them. Exported for tests. */
+export function checkoutSection(c: CheckoutSummary | null): CheckoutReport {
+  if (!c) {
+    return {
+      available: false,
+      reason: "The checkout events could not be read (migration 0042 may not be applied yet). No checkout figure is shown, and none should be inferred.",
+      statement: CHECKOUT_STATEMENT,
+    };
+  }
+  const counts = c.counts ?? {};
+  const attempted = tally(counts.checkout_attempted);
+  const created = tally(counts.checkout_session_created);
+  const failed = tally(counts.checkout_failed);
+  const byReason: Record<string, number> = {};
+  for (const r of CHECKOUT_FAILURE_REASONS) byReason[r] = tally(c.failed_reasons?.[r]);
+  const atStripe = CHECKOUT_STRIPE_STAGE_REASONS.reduce((n, r) => n + byReason[r], 0);
+  const classified = Object.values(byReason).reduce((n, v) => n + v, 0);
+  const before = classified - atStripe;
+
+  const kinds = new Set<string>();
+  for (const name of ["checkout_attempted", "checkout_session_created", "checkout_failed"]) for (const k of Object.keys(c.by_kind?.[name] ?? {})) kinds.add(k);
+  const kindMeasured: Record<string, { attempted: number; session_created: number; failed: number }> = {};
+  const kindDerived: Record<string, CheckoutKindRow> = {};
+  for (const k of [...kinds].sort()) {
+    const a = tally(c.by_kind?.checkout_attempted?.[k]);
+    const sc = tally(c.by_kind?.checkout_session_created?.[k]);
+    const f = tally(c.by_kind?.checkout_failed?.[k]);
+    kindMeasured[k] = { attempted: a, session_created: sc, failed: f };
+    const reasons: Record<string, number> = {};
+    for (const r of CHECKOUT_FAILURE_REASONS) reasons[r] = tally(c.failed_by_kind?.[k]?.[r]);
+    kindDerived[k] = {
+      attempted: a, session_created: sc, failed: f, failed_by_reason: reasons,
+      session_creation_rate: derivedRate("Session creation rate", "session_created / attempted", sc, a),
+    };
+  }
+
+  return {
+    available: true,
+    statement: CHECKOUT_STATEMENT,
+    measured: {
+      source: "events",
+      attempted,
+      session_created: created,
+      failed,
+      failed_by_reason: byReason,
+      by_kind: kindMeasured,
+      basis: "Recorded events in the window, by the checkout route only. attempted = a valid catalogue request handed to Stripe; session_created = Stripe returned a URL (not a payment); failed = a valid request refused or not turned into a session, by fixed reason. Invalid or unknown product input records nothing.",
+    },
+    derived: {
+      source: "derived",
+      refused_before_stripe: before,
+      failed_at_stripe: atStripe,
+      session_creation_rate: derivedRate("Session creation rate", "session_created / attempted", created, attempted),
+      stripe_failure_rate: derivedRate("Stripe failure rate", "failed at Stripe (stripe_coupon_failed + stripe_session_failed) / attempted", atStripe, attempted),
+      refusal_rate: derivedRate("Refusal rate before Stripe", "refused before Stripe / (attempted + refused before Stripe)", before, attempted + before),
+      unresolved_attempts: {
+        label: "Attempts with no recorded outcome",
+        formula: "attempted - session_created - failed at Stripe",
+        value: attempted - created - atStripe,
+        source: "derived",
+        note: "Expected to be about 0 for a closed window. A positive value is attempts whose outcome event was lost, still in flight, or whose process died; a negative value means an outcome was recorded without its attempt. It is arithmetic on measured counts, not a measured event.",
+      },
+      by_kind: kindDerived,
+      basis: "Arithmetic on the measured counts above; every rate carries its numerator and denominator and is null (shown as n/a, never as 0%) when the denominator is 0. Refusals before Stripe are NOT attempts, so they are not in the denominator of the session creation rate.",
+    },
+  };
+}
 
 const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((n, v) => n + Number(v), 0);
 
@@ -145,6 +287,9 @@ export async function funnelReport(days: number, now: Date = new Date()): Promis
   if (!s.ok || !s.data) return { ok: false, error: "The funnel events could not be read." };
   const act = await usageActivity();
   if (!act) return { ok: false, error: "The usage ledger could not be read." };
+  // The checkout events have their own read (0042): a deployment without it still gets every other figure, with this section marked unavailable.
+  const co = await rpc<CheckoutSummary>("gf_checkout_funnel_summary", { p_since: since.toISOString() });
+  const checkout = checkoutSection(co.ok && co.data && typeof co.data === "object" ? co.data : null);
   const S: Summary = { ...{ counts: {}, cohort: [], refs: {}, by_kind: {}, cancel_reasons: {}, evidence_classes: {} }, ...(s.data as Partial<Summary>) } as Summary;
 
   // ---- the account funnel: a STRICT cohort. Accounts created in the window; each later step counts only accounts that also reached every earlier one.
@@ -242,6 +387,7 @@ export async function funnelReport(days: number, now: Date = new Date()): Promis
     payments: { payment_failed: { total: sum(failed), by_kind: failed }, refunds: S.counts.refund_issued ?? 0, disputes: S.counts.dispute_opened ?? 0, source: "events", basis: "Events in the window; refunds and disputes only if the Stripe endpoint sends them (see unmeasured)." },
     projects: { created: S.counts.project_created ?? 0, saved_results: { total: S.counts.project_saved_result ?? 0, by_kind: S.by_kind.project_saved_result ?? {} }, source: "events" },
     qualifier_evidence_classes: S.evidence_classes,
+    checkout,
     retention: { source: "derived", basis: "From the usage ledger: of the accounts created in a cohort week, the share with net usage in each later UTC week. The current week is partial.", cohorts },
     unmeasured: UNMEASURED,
   };

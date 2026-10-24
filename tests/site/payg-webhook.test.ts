@@ -14,6 +14,7 @@ import { siteUrl } from "@/lib/site";
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
 import { MockStripe, mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
 import type { PostgrestFake } from "./postgrest-fake";
+import { noPaymentRequiredSession } from "./checkout-fixture";
 
 const WH = "whsec_payg_test_secret";
 const sdk = new Stripe("sk_test_placeholder");
@@ -55,7 +56,7 @@ function freeAccount(over: Record<string, unknown> = {}) {
 function setupIntent(id = "seti_1", over: Record<string, unknown> = {}) {
   mock.setupIntentStore.set(id, { id, status: "succeeded", payment_method: "pm_new", customer: "cus_new", metadata: { kind: "api_payg_enable", account_id: "free-ab12" }, ...over } as any);
 }
-const enableEvent = (over: Record<string, unknown> = {}) => ({
+const enableEvent = (over: Record<string, unknown> = {}) => noPaymentRequiredSession({
   id: "cs_setup_1", object: "checkout.session", mode: "setup", customer: "cus_new", setup_intent: "seti_1",
   metadata: { kind: "api_payg_enable", account_id: "free-ab12", cap_eur: "100" }, ...over,
 });

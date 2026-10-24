@@ -16,8 +16,10 @@ import { retryRevocations, API_PAST_DUE_GRACE_DAYS, type ApiAccount } from "@/li
 import { enforcePastDueGrace } from "@/lib/billing-holds";
 import { checkRevocationBacklog, RECOMMENDED_WEBHOOK_EVENTS } from "@/lib/stripe-health";
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
-import { MockStripe, mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
+import { mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
+import { HoldStripe } from "./billing-holds-harness";
 import type { PostgrestFake, Row } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_holds";
 const sdk = new Stripe("sk_test_placeholder");
@@ -31,71 +33,6 @@ let stripe: HoldStripe;
 let logs: unknown[][];
 let T0: number;
 let evt = 0;
-
-/** MockStripe plus what the reversal handlers read: a charge's invoice / payment intent, and the invoice's subscription. */
-class HoldStripe extends MockStripe {
-  chargeInfo = new Map<string, { customer?: string; invoice?: string | null; payment_intent?: string | null }>();
-  paymentIntentInvoice = new Map<string, string>();
-  invoiceSubscription = new Map<string, string>();
-  /** What Stripe says about an invoice (default: paid in full). */
-  invoiceFacts = new Map<string, { status: string; amount_paid: number }>();
-  /** A subscription's newest invoice, and the kind our checkout stamped on it. */
-  subscriptionLatest = new Map<string, string>();
-  subscriptionKinds = new Map<string, string>();
-  constructor() {
-    super();
-    const missing = () => Object.assign(new Error("No such object"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
-    const outage = (name: string) => {
-      this.calls.push(name);
-      if (this.failOnce.delete(name)) throw Object.assign(new Error("simulated Stripe outage"), { type: "StripeConnectionError", statusCode: 503 });
-    };
-    (this as any).charges = {
-      retrieve: async (id: string) => {
-        outage("charges.retrieve");
-        const c = this.chargeInfo.get(id);
-        if (!c) throw missing();
-        return { id, ...c };
-      },
-    };
-    (this as any).invoicePayments = {
-      list: async (p: { payment: { payment_intent: string } }) => {
-        outage("invoicePayments.list");
-        const inv = this.paymentIntentInvoice.get(p.payment.payment_intent);
-        return { data: inv ? [{ invoice: inv }] : [] };
-      },
-    };
-    const base = this.invoices;
-    (this as any).invoices = {
-      ...base,
-      retrieve: async (id: string) => {
-        outage("invoices.retrieve");
-        const sub = this.invoiceSubscription.get(id);
-        if (!sub) throw missing();
-        return { id, ...(this.invoiceFacts.get(id) ?? { status: "paid", amount_paid: 90_000 }), parent: { subscription_details: { subscription: sub } } };
-      },
-    };
-    (this as any).subscriptions = {
-      retrieve: async (id: string) => {
-        outage("subscriptions.retrieve");
-        if (!this.subscriptionLatest.has(id) && !this.subscriptionKinds.has(id)) throw missing();
-        return { id, latest_invoice: this.subscriptionLatest.get(id) ?? null, metadata: { kind: this.subscriptionKinds.get(id) } };
-      },
-    };
-  }
-  /** An invoice that exists on a subscription, becomes its newest, and has the given facts. */
-  addInvoice(invoice: string, sub: string, facts: { status: string; amount_paid: number } = { status: "paid", amount_paid: 90_000 }) {
-    this.invoiceSubscription.set(invoice, sub);
-    this.invoiceFacts.set(invoice, facts);
-    this.subscriptionLatest.set(sub, invoice);
-  }
-  /** charge -> payment intent -> invoice -> subscription, as the newer API versions chain them (Charge carries no `invoice`). */
-  link(charge: string, pi: string, invoice: string, sub: string) {
-    this.chargeInfo.set(charge, { payment_intent: pi });
-    this.paymentIntentInvoice.set(pi, invoice);
-    this.invoiceSubscription.set(invoice, sub);
-    this.subscriptionLatest.set(sub, invoice);
-  }
-}
 
 beforeEach(() => {
   Object.assign(process.env, {
@@ -121,6 +58,7 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); setPaygStripeForTests(null); engine.restore(); restore(); vi.restoreAllMocks(); });
 
 async function send(type: string, object: Record<string, unknown>, opts: { created?: number; id?: string } = {}) {
+  stripe.observe(type, object);
   const id = opts.id ?? `evt_${++evt}`;
   const payload = JSON.stringify({ id, type, ...(opts.created ? { created: opts.created } : {}), data: { object } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
@@ -191,7 +129,7 @@ describe("1. refund / dispute of a SUBSCRIPTION payment", () => {
     expect(audit("hold_applied").map((r) => r.subject_table).sort()).toEqual(["subscriptions", "watches"]);
   });
 
-  it("a PARTIAL refund suspends nothing (and asks Stripe nothing)", async () => {
+  it("a PARTIAL refund of a subscription payment suspends nothing (it only asks Stripe which payment it was, to see whether it is a settlement invoice)", async () => {
     const a = apiAcct();
     const w = watchRow();
     stripe.link("ch_1", "pi_1", "in_1", "sub_api");
@@ -200,7 +138,8 @@ describe("1. refund / dispute of a SUBSCRIPTION payment", () => {
     expect(w.status).toBe("active");
     expect(audit()).toHaveLength(0);
     expect(revokeCalls()).toEqual([]);
-    expect(stripe.calls).not.toContain("invoicePayments.list");
+    expect(stripe.calls).toContain("invoicePayments.list"); // which payment was it? (a settlement invoice is recorded whatever the size of the refund)
+    expect(stripe.calls).not.toContain("subscriptions.retrieve"); // ...and nothing about a subscription's hold was decided
   });
 
   it("a refunded payment that is not a subscription invoice (an engagement deposit) changes nothing", async () => {
@@ -610,7 +549,7 @@ describe("3. the engine does not serve /v1/revoke (as the deployed engine does t
 // 4. checkout.session.completed fulfils only a PAID session
 // ============================================================================================================================
 describe("4. delayed payment methods", () => {
-  const checkout = (over: Record<string, unknown> = {}) => ({
+  const checkout = (over: Record<string, unknown> = {}) => paidSession({
     id: "cs_async", object: "checkout.session", customer_email: "buyer@hall.example", customer: "cus_async", subscription: "sub_async", amount_total: 90_000, currency: "eur",
     metadata: { kind: "hall_watch", company: "Hall Co" }, ...over,
   });

@@ -17,6 +17,7 @@ import { hashShareToken, isShareToken } from "@/lib/project-share";
 import { resetMemoryLimiter, RATE_POLICIES } from "@/lib/rate-limit";
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
+import { paidSession } from "./checkout-fixture";
 
 const created: Record<string, any>[] = [];
 vi.mock("stripe", async (orig) => {
@@ -492,7 +493,7 @@ describe.runIf(hasPython)("buying from the buyer page, through the existing chec
     const { token } = await newProject();
     const link = await issue(token);
     await checkout({ product: "density_screen", project_share_token: link });
-    const event = { id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_buyer_1", object: "checkout_session", customer_email: "cfo@northhall.example", amount_total: PRODUCTS.density_screen.amountCents, customer: "cus_1", metadata: created[0].metadata } } };
+    const event = { id: "evt_1", type: "checkout.session.completed", data: { object: paidSession({ id: "cs_buyer_1", customer_email: "cfo@northhall.example", amount_total: PRODUCTS.density_screen.amountCents, customer: "cus_1", metadata: created[0].metadata }) } };
     const payload = JSON.stringify(event);
     const hookReq = () => new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: process.env.STRIPE_WEBHOOK_SECRET! }), "content-type": "application/json" }, body: payload });
     const hook = (await import("@/app/api/stripe/webhook/route")).POST;

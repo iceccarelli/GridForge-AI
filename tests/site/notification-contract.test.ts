@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_notification_contract";
 const DOC_TOKEN = "DOCUMENT-token-must-never-be-mailed-0123456789";
@@ -201,9 +202,9 @@ describe("provider success and database success are different facts", () => {
 
   it("the database unavailable before the send: no email, no direct-send fallback, and the webhook asks Stripe to retry", async () => {
     failAll = true;
-    const payload = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: {
-      id: "cs_1", object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
-      metadata: { kind: "density_screen", company: "Hall Co" } } } });
+    const payload = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: paidSession({
+      id: "cs_1", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
+      metadata: { kind: "density_screen", company: "Hall Co" } }) } });
     const { POST } = await import("@/app/api/stripe/webhook/route");
     const res = await POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
       headers: { "stripe-signature": new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
@@ -286,9 +287,9 @@ describe("a queued message is rebuilt from current state, and a stale one is can
 
 describe("the Intelligence welcome", () => {
   const buyIntelligence = async (evt: string) => {
-    const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: {
-      id: "cs_int_1", object: "checkout_session", customer_email: "reader@example.test", customer: "cus_i", subscription: "sub_i", amount_total: 90_000,
-      metadata: { kind: "intelligence_subscription", plan: "pro" } } } });
+    const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: paidSession({
+      id: "cs_int_1", customer_email: "reader@example.test", customer: "cus_i", subscription: "sub_i", amount_total: 90_000,
+      metadata: { kind: "intelligence_subscription", plan: "pro" } }) } });
     const { POST } = await import("@/app/api/stripe/webhook/route");
     return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
       headers: { "stripe-signature": new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));

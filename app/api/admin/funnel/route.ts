@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 // GET ?days=30 -> the adoption funnel, measured: step counts, denominators and conversion rates (null, never 0%, when there is
 // nothing to divide by), each step labelled as measured from events or derived from another record, and an `unmeasured` list naming what
-// this site cannot see. Admin-only, like every route under /api/admin. Accounts appear only as anonymous references; no event or
+// this site cannot see, and a `checkout` section: measured checkout events (attempted / session created / failed by fixed reason) kept apart from
+// values derived from them, with a created session never counted as a payment. Admin-only, like every route under /api/admin. Accounts appear only as anonymous references; no event or
 // response here can carry an email, a token, a site input or free text.
 export async function GET(req: Request) {
   const store = await cookies();

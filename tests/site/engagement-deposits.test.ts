@@ -17,6 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 import { installDepositRpcs } from "./deposit-rpc-fake";
+import { paidSession } from "./checkout-fixture";
 
 // The page is compiled with the classic JSX transform under vitest.
 (globalThis as { React?: unknown }).React = React;
@@ -56,7 +57,7 @@ afterEach(() => { restore(); delete process.env.RESEND_API_KEY; delete process.e
 function completed(sessionId: string, kind: string, amount: number, extra: Record<string, string> = {}) {
   const payload = JSON.stringify({
     id: `evt_${sessionId}`, type: "checkout.session.completed",
-    data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", amount_total: amount, currency: "eur", metadata: { kind, company: "Hall Co", ...extra } } },
+    data: { object: paidSession({ id: sessionId, customer_email: "buyer@hall.example", amount_total: amount, currency: "eur", metadata: { kind, company: "Hall Co", ...extra } }) },
   });
   return new Request(siteUrl("/api/stripe/webhook"), {
     method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH_SECRET }), "content-type": "application/json" }, body: payload,

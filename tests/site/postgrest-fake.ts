@@ -447,6 +447,8 @@ function match(row: Row, f: Filter): boolean {
       return set.includes(String(actual ?? ""));
     }
     case "lt": case "lte": case "gt": case "gte": {
+      // SQL: a comparison with NULL is never true (a row with no value is not "before" or "after" anything).
+      if (actual === null || actual === undefined) return false;
       // PostgREST compares by column type: numbers numerically, text and timestamps in order.
       const numeric = actual !== null && actual !== undefined && actual !== "" && f.value !== "" && Number.isFinite(Number(actual)) && Number.isFinite(Number(f.value));
       const a: string | number = numeric ? Number(actual) : String(actual ?? "");
