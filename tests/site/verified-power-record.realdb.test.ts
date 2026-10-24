@@ -23,6 +23,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import Stripe from "stripe";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
+import { paidSession } from "./checkout-fixture";
 
 // The admin review route reads the signed-in cookie; there is no request scope in a test.
 const jar: { name: string; value: string }[] = [];
@@ -264,8 +265,8 @@ describe.skipIf(!enabled)("project → existing paid product, against real Postg
     delete process.env.RESEND_API_KEY;
     const payload = JSON.stringify({
       id: `evt_${sessionId}`, type: "checkout.session.completed",
-      data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example",
-        amount_total: 450000, customer: "cus_x", metadata: { kind, company: "Hall Co", project_id: projectId }, ...extra } },
+      data: { object: paidSession({ id: sessionId, customer_email: "buyer@hall.example",
+        amount_total: 450000, customer: "cus_x", metadata: { kind, company: "Hall Co", project_id: projectId }, ...extra }) },
     });
     const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
     const { POST } = await import("@/app/api/stripe/webhook/route");
@@ -623,8 +624,8 @@ describe.skipIf(!enabled)("deposit hand-off on real PostgreSQL", () => {
     delete process.env.RESEND_API_KEY;
     const payload = JSON.stringify({
       id: `evt_${sessionId}`, type: "checkout.session.completed",
-      data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", currency: "eur",
-        amount_total: amount, metadata: { kind, company: "Hall Co", ...extra } } },
+      data: { object: paidSession({ id: sessionId, customer_email: "buyer@hall.example", currency: "eur",
+        amount_total: amount, metadata: { kind, company: "Hall Co", ...extra } }) },
     });
     const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
     const { POST } = await import("@/app/api/stripe/webhook/route");
@@ -692,10 +693,10 @@ describe.skipIf(!enabled)("API plan lifecycle on real PostgreSQL, PostgREST and 
     const { POST } = await import("@/app/api/stripe/webhook/route");
     return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
   };
-  const purchase = (sub: string) => send("checkout.session.completed", {
-    id: `cs_${sub}`, object: "checkout_session", customer_email: "buyer@hall.example", customer: `cus_${sub}`, subscription: sub,
+  const purchase = (sub: string) => send("checkout.session.completed", paidSession({
+    id: `cs_${sub}`, customer_email: "buyer@hall.example", customer: `cus_${sub}`, subscription: sub,
     amount_total: 90_000, metadata: { kind: "api_triage", company: "Hall Co" },
-  });
+  }));
   const onEngine = async (key: string) => (await fetch(`${process.env.GRIDFORGE_API_URL}/v1/usage`, { headers: { "x-api-key": key } })).status;
 
   it("concurrent deliveries create one account; a cancellation that cannot be written is retried and then ends a key the engine accepted", async () => {
@@ -763,9 +764,9 @@ describe.skipIf(!enabled)("paid Density Screen, payment to released document, on
     const { createHash } = await import("node:crypto");
     const sid = `cs_ds_${crypto.randomUUID().slice(0, 8)}`;
     const send = async () => {
-      const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: {
-        id: sid, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_ds", amount_total: 450_000,
-        currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } } } });
+      const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: paidSession({
+        id: sid, customer_email: "buyer@hall.example", customer: "cus_ds", amount_total: 450_000,
+        currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } }) } });
       const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
       const { POST } = await import("@/app/api/stripe/webhook/route");
       return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));
@@ -838,9 +839,9 @@ describe.skipIf(!enabled)("customer notification outbox, on real PostgreSQL + Po
     try {
       const sid = `cs_ob_${crypto.randomUUID().slice(0, 8)}`;
       const send = async () => {
-        const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: {
-          id: sid, object: "checkout_session", customer_email: `ob-${sid}@hall.example`, customer: "cus_ob", amount_total: 450_000,
-          currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } } } });
+        const payload = JSON.stringify({ id: `evt_${sid}`, type: "checkout.session.completed", data: { object: paidSession({
+          id: sid, customer_email: `ob-${sid}@hall.example`, customer: "cus_ob", amount_total: 450_000,
+          currency: "eur", metadata: { kind: "density_screen", company: "Hall Co" } }) } });
         const sig = new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH });
         const { POST } = await import("@/app/api/stripe/webhook/route");
         return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sig }, body: payload }));

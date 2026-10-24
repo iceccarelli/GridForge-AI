@@ -17,6 +17,7 @@ import { adminToken } from "@/lib/admin";
 import { reviewHash } from "@/lib/deliverables";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 (globalThis as { React?: unknown }).React = React;
 const jar: { name: string; value: string }[] = [];
@@ -103,8 +104,8 @@ const ctx = (token: string) => ({ params: Promise.resolve({ token }) });
 const stripe = new Stripe("sk_test_placeholder");
 let n = 0;
 async function buy(kind: string, amount: number, email = "buyer@hall.example", session = `cs_${kind}_${++n}`) {
-  const payload = JSON.stringify({ id: `evt_${session}`, type: "checkout.session.completed", data: { object: {
-    id: session, object: "checkout_session", customer_email: email, customer: "cus_1", amount_total: amount, metadata: { kind, company: "Hall Co" } } } });
+  const payload = JSON.stringify({ id: `evt_${session}`, type: "checkout.session.completed", data: { object: paidSession({
+    id: session, customer_email: email, customer: "cus_1", amount_total: amount, metadata: { kind, company: "Hall Co" } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   const res = await POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
   return { res, session };

@@ -14,6 +14,7 @@ import { siteUrl } from "@/lib/site";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION, engagementIntakeSchema } from "@/lib/engagement-intake";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_deposit_receipt";
 let db: PostgrestFake;
@@ -56,9 +57,9 @@ afterEach(() => undo());
 
 const stripe = new Stripe("sk_test_placeholder");
 async function pay(kind: string, amount: number, session = "cs_dep_1") {
-  const payload = JSON.stringify({ id: `evt_${session}`, type: "checkout.session.completed", data: { object: {
-    id: session, object: "checkout_session", customer_email: "buyer@hall.example", currency: "eur", amount_total: amount,
-    metadata: { kind, company: "Hall Co" } } } });
+  const payload = JSON.stringify({ id: `evt_${session}`, type: "checkout.session.completed", data: { object: paidSession({
+    id: session, customer_email: "buyer@hall.example", currency: "eur", amount_total: amount,
+    metadata: { kind, company: "Hall Co" } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
     headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));

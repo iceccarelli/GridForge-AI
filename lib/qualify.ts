@@ -293,16 +293,23 @@ export async function qualificationById(id: string): Promise<StoredQualification
   const cols =
     "id,created_at,token,site_name,hall_id,metro,country,platform,inputs," +
     "racks_as_found,racks_after_relief,binding_constraint,intake_completeness,company,status";
-  const res = await fetch(
-    `${c.url}/rest/v1/qualifications?select=${cols}&id=eq.${encodeURIComponent(id)}&limit=1`,
-    { headers: c.headers, cache: "no-store" }
-  );
-  if (!res.ok) {
-    console.error("[GridForge] qualification by id failed:", await storeFault(res));
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/qualifications?select=${cols}&id=eq.${encodeURIComponent(id)}&limit=1`,
+      { headers: c.headers, cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.error("[GridForge] qualification by id failed:", await storeFault(res));
+      return null;
+    }
+    const rows = (await res.json()) as StoredQualification[];
+    return rows[0] ?? null;
+  } catch (err) {
+    // Seeding the intake is a convenience. A store that cannot be reached (a thrown fetch, not just a 5xx) must leave the buyer an
+    // intake they can fill in, not turn the link they paid for into a 500.
+    console.error("[GridForge] qualification by id unreachable:", err instanceof Error ? err.name : "error");
     return null;
   }
-  const rows = (await res.json()) as StoredQualification[];
-  return rows[0] ?? null;
 }
 
 /**

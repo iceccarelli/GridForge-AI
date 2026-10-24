@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_notification_outbox";
 type Sent = { from: string; to: string[] | string; subject: string; text: string; key: string | null };
@@ -76,9 +77,9 @@ afterEach(() => { undo(); vi.restoreAllMocks(); });
 
 const stripe = new Stripe("sk_test_placeholder");
 async function buy(evt = "evt_1") {
-  const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: {
-    id: "cs_ds_1", object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
-    metadata: { kind: "density_screen", company: "Hall Co" } } } });
+  const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: paidSession({
+    id: "cs_ds_1", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
+    metadata: { kind: "density_screen", company: "Hall Co" } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
     headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));

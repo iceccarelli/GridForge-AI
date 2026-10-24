@@ -12,6 +12,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { NOTICE_MAX_ATTEMPTS } from "@/lib/watch-notices";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 (globalThis as { React?: unknown }).React = React;
 const sent: { to: string; subject: string; text: string; idempotencyKey?: string }[] = [];
@@ -68,7 +69,7 @@ function stripeEvent(type: string, object: Record<string, unknown>) {
   return new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload });
 }
 const hook = async (r: Request) => (await import("@/app/api/stripe/webhook/route")).POST(r);
-const buy = (sub = "sub_1", email = "buyer@hall.example") => hook(stripeEvent("checkout.session.completed", { id: `cs_${sub}`, object: "checkout_session", customer_email: email, customer: "cus_1", subscription: sub, amount_total: 600_000, metadata: { kind: "hall_watch", company: "Hall Co" } }));
+const buy = (sub = "sub_1", email = "buyer@hall.example") => hook(stripeEvent("checkout.session.completed", paidSession({ id: `cs_${sub}`, customer_email: email, customer: "cus_1", subscription: sub, amount_total: 600_000, metadata: { kind: "hall_watch", company: "Hall Co" } })));
 const failedPayment = (sub = "sub_1") => hook(stripeEvent("invoice.payment_failed", { id: "in_1", object: "invoice", subscription: sub }));
 const paidInvoice = (sub = "sub_1") => hook(stripeEvent("invoice.paid", { id: "in_2", object: "invoice", subscription: sub }));
 const cancelled = (sub = "sub_1") => hook(stripeEvent("customer.subscription.deleted", { id: sub, object: "subscription", metadata: { kind: "hall_watch" } }));

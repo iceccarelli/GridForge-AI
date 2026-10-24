@@ -93,6 +93,9 @@ export async function POST(req: Request) {
       // Only offered when the row actually landed. A share link to a row that was
       // never written is a 404 sent to somebody's director.
       share: stored ? `/q/${token}` : null,
+      // Said outright, not left to be inferred from a missing link: the read below is the engine's real answer, and it was (or was
+      // not) kept. When it was not, there is nothing to share, nothing for a purchase to be joined to, and no qualification reference.
+      saved: stored,
       // So a purchase made from this tab carries the read it came from. The id alone is NOT enough for /api/checkout: it also
       // wants the q-token (the secret in `share`), and only accepts a read under 24 hours old. Otherwise anyone could name an
       // id and have another buyer's numbers seeded into their own intake.

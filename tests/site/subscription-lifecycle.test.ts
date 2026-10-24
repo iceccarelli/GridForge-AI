@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_subscription_lifecycle_secret";
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
@@ -91,10 +92,10 @@ function event(type: string, object: Record<string, unknown>, id = `evt_${Math.r
 }
 const hook = async (r: Request) => (await import("@/app/api/stripe/webhook/route")).POST(r);
 const bought = (kind: string, sub: string, extra: Record<string, unknown> = {}) =>
-  event("checkout.session.completed", {
-    id: `cs_${sub}`, object: "checkout_session", customer_email: "buyer@hall.example", customer: `cus_${sub}`,
+  event("checkout.session.completed", paidSession({
+    id: `cs_${sub}`, customer_email: "buyer@hall.example", customer: `cus_${sub}`,
     subscription: sub, amount_total: 90_000, currency: "eur", metadata: { kind, company: "Hall Co", ...extra },
-  });
+  }));
 const invoice = (type: "invoice.paid" | "invoice.payment_failed", sub: string) =>
   event(type, { id: `in_${sub}`, object: "invoice", subscription: sub });
 const deleted = (sub: string, kind?: string) =>
