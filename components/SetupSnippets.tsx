@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { PAYG } from "@/lib/products";
-import { eurExact, estimateOperation, type ToolRate } from "@/lib/payg-pricing";
+import { callableRates, eurExact, estimateOperation, type ToolRate } from "@/lib/payg-pricing";
 
 /**
  * Copy-pasteable setup, in the order that costs nothing first.
@@ -14,29 +14,44 @@ import { eurExact, estimateOperation, type ToolRate } from "@/lib/payg-pricing";
  *    tools.json the rate card reads), an Idempotency-Key so a retry is never charged twice, and a project
  *    header so the usage can be attributed.
  *
+ * Only what the deployed engine serves is shown as a command to run. Step 1 appears only when the engine serves
+ * /v1/estimate (`estimateAvailable`), and a paid call only for an operation that is callable today; nothing here
+ * tells a visitor to run a request that will 404.
+ *
  * The key is a shell variable, never a literal: this page never has it.
  */
-export default function SetupSnippets({ engine, rates }: { engine: string; rates: ToolRate[] }) {
+export default function SetupSnippets({
+  engine,
+  rates: offered,
+  estimateAvailable = false,
+}: {
+  engine: string;
+  rates: ToolRate[];
+  estimateAvailable?: boolean;
+}) {
+  const rates = callableRates(offered);
   const paid = rates.filter((r) => r.units > 0).sort((a, b) => a.units - b.units);
   const screen = rates.find((r) => r.endpoint === "/v1/screen") ?? null;
   const est = screen ? estimateOperation(screen, 1) : null;
   const firstPaid = paid[0] ?? null;
 
-  const steps: { title: string; note: string; code: string }[] = [
-    {
-      title: "1. Ask what it will cost (free, no key)",
+  const steps: { title: string; note: string; code: string }[] = [];
+  if (estimateAvailable && firstPaid) {
+    steps.push({
+      title: `${steps.length + 1}. Ask what it will cost (free, no key)`,
       note: "Public and never metered.",
-      code: `curl -s "${engine}/v1/estimate?endpoint=${(firstPaid ?? { endpoint: "/v1/study" }).endpoint}"`,
-    },
-    {
-      title: "2. Check your key and your meter (free)",
-      note: "Needs your key, costs zero units. If this returns your usage, the key works.",
-      code: `export GRIDFORGE_KEY='paste-your-key-here'\n\ncurl -s ${engine}/v1/usage \\\n  -H "x-api-key: $GRIDFORGE_KEY"`,
-    },
-  ];
+      code: `curl -s "${engine}/v1/estimate?endpoint=${firstPaid.endpoint}"`,
+    });
+  }
+  steps.push({
+    title: `${steps.length + 1}. Check your key and your meter (free)`,
+    note: "Needs your key, costs zero units. If this returns your usage, the key works.",
+    code: `export GRIDFORGE_KEY='paste-your-key-here'\n\ncurl -s ${engine}/v1/usage \\\n  -H "x-api-key: $GRIDFORGE_KEY"`,
+  });
+  const freeSteps = steps.length;
   if (screen && est) {
     steps.push({
-      title: `3. Make your first paid call (${est.units} unit${est.units === 1 ? "" : "s"}${est.units > 0 ? `, ${eurExact(est.cents)} on pay-as-you-go` : ""})`,
+      title: `${steps.length + 1}. Make your first paid call (${est.units} unit${est.units === 1 ? "" : "s"}${est.units > 0 ? `, ${eurExact(est.cents)} on pay-as-you-go` : ""})`,
       note:
         "The Idempotency-Key (up to 150 characters) makes a retry free: a repeat of the same key is never charged twice. " +
         "The project header is optional and lets you attribute usage. A rejected or failed call is refunded. " +
@@ -58,9 +73,10 @@ export default function SetupSnippets({ engine, rates }: { engine: string; rates
         Check your setup, then make a first call
       </h2>
       <p className="mt-2 text-sm text-mute">
-        Steps 1 and 2 cost nothing. Step 3 spends units, up to your cap
-        {` (the free allowance is ${PAYG.freeAllowanceUnits} units a month)`}. When a call would go over, the
-        engine answers 402 and does no work.
+        {freeSteps === 1 ? "Step 1 costs nothing." : "Steps 1 and 2 cost nothing."}{" "}
+        {steps.length > freeSteps
+          ? `Step ${freeSteps + 1} spends units, up to your cap (the free allowance is ${PAYG.freeAllowanceUnits} units a month). When a call would go over, the engine answers 402 and does no work.`
+          : "No metered operation is callable on the deployed engine right now, so no paid call is shown."}
       </p>
       <div className="mt-4 space-y-5">
         {steps.map((s) => (

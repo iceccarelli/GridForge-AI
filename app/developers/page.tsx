@@ -13,7 +13,13 @@ import ThreePaths from "@/components/ThreePaths";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { PAYG } from "@/lib/products";
-import { parseToolRates } from "@/lib/payg-pricing";
+import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
+import { availabilityIn, deployedEngineRoutes, type Availability } from "@/lib/engine-capabilities";
+import { estimateEndpointServed } from "@/lib/tool-rates";
+
+// What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
+// this site is: regenerate at most every five minutes rather than freezing the answer at build time.
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "Machine interface — call the engine",
@@ -85,7 +91,19 @@ export default async function DevelopersPage() {
   const cat = await readJson<Catalogue>("tools.json");
   const acc = await readJson<Accuracy>("calibration.json");
   const tools = cat?.tools ?? [];
-  const rates = parseToolRates(cat);
+  // Unit weights come from the catalogue file; whether each endpoint is served comes from the deployed engine.
+  // Unreadable engine = nothing is presented as callable.
+  const routes = await deployedEngineRoutes();
+  const rates: ToolRate[] = parseToolRates(cat).map((r) => ({ ...r, availability: availabilityIn(routes, r.endpoint) }));
+  const callable = callableRates(rates);
+  const estimateAvailable = await estimateEndpointServed();
+  const state = (endpoint: string): Availability => availabilityIn(routes, endpoint);
+  const mcpState: Availability = (["/mcp", "/v1/qualify"] as const).map(state).includes("unknown")
+    ? "unknown"
+    : (["/mcp", "/v1/qualify"] as const).every((e) => state(e) === "available")
+      ? "available"
+      : "unavailable";
+  const qualifyState = state("/v1/qualify");
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
@@ -176,28 +194,48 @@ export default async function DevelopersPage() {
               </tr>
             </thead>
             <tbody>
-              {tools.map((t) => (
-                <tr key={t.name} className="border-b border-line/60 align-top">
-                  <td className="py-3 pr-4 font-mono text-xs text-ghost">
-                    {t.name}
-                    {t.tier === "public" ? (
-                      <span className="ml-2 rounded bg-verified/15 px-1.5 py-0.5 text-[10px] text-verified">
-                        free
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="py-3 pr-4 font-mono text-xs text-mute">{t.endpoint}</td>
-                  <td className="py-3 pr-4 text-right font-mono text-xs text-power">{t.units}</td>
-                  <td className="py-3 text-xs text-mute">{t.returns}</td>
-                </tr>
-              ))}
+              {tools.map((t) => {
+                const rate: Pick<ToolRate, "availability"> = { availability: state(t.endpoint) };
+                const served = isCallable(rate);
+                return (
+                  <tr key={t.name} data-availability={rate.availability} className="border-b border-line/60 align-top">
+                    <td className="py-3 pr-4 font-mono text-xs text-ghost">
+                      {t.name}
+                      {served && t.tier === "public" ? (
+                        <span className="ml-2 rounded bg-verified/15 px-1.5 py-0.5 text-[10px] text-verified">
+                          free
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-3 pr-4 font-mono text-xs text-mute">{t.endpoint}</td>
+                    {served ? (
+                      <>
+                        <td className="py-3 pr-4 text-right font-mono text-xs text-power">{t.units}</td>
+                        <td className="py-3 text-xs text-mute">{t.returns}</td>
+                      </>
+                    ) : (
+                      <td colSpan={2} className="py-3 text-xs text-queue">
+                        {unavailableLabel(rate)}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        {tools.some((t) => !isCallable({ availability: state(t.endpoint) })) ? (
+          <p role="note" className="mt-3 max-w-3xl text-xs text-faint">
+            The downloadable catalogue (<span className="font-mono">/reference/tools.json</span>) and the schemas it carries
+            describe the engine in this repository. Operations marked not available are not served by the engine that is
+            deployed today, so they cannot be called or billed yet. This table follows the deployed engine and lists them as
+            callable once the release that serves them is live.
+          </p>
+        ) : null}
       </section>
 
       <section className="mt-12">
-        <McpInstall engine={API} />
+        <McpInstall engine={API} availability={mcpState} />
       </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -207,6 +245,11 @@ export default async function DevelopersPage() {
             Seven numbers about an existing air-cooled hall. The answer names the constraint that
             binds first, how many racks fit as found, and which item sets the energisation date.
           </p>
+          {qualifyState !== "available" ? (
+            <p role="status" className="mt-4 rounded bg-ink p-4 text-sm text-queue">
+              {unavailableLabel({ availability: qualifyState })}
+            </p>
+          ) : (
           <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/v1/qualify \\
   -H 'content-type: application/json' \\
@@ -218,6 +261,7 @@ export default async function DevelopersPage() {
        "plant_supply_C":6,
        "positions_available":180}'`}
           </pre>
+          )}
         </div>
         <div className="min-w-0 rounded border border-line bg-panel-2 p-6">
           <h3 className="text-lg font-semibold text-ghost">Point an agent at it</h3>
@@ -230,6 +274,11 @@ export default async function DevelopersPage() {
             . The transport is open; each tool keeps its own tier, so the free qualifier works
             without a key and everything else asks for one.
           </p>
+          {mcpState !== "available" ? (
+            <p role="status" className="mt-4 rounded bg-ink p-4 text-sm text-queue">
+              {unavailableLabel({ availability: mcpState })}
+            </p>
+          ) : (
           <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/mcp \\
   -H 'x-api-key: YOUR_KEY' \\
@@ -239,6 +288,7 @@ export default async function DevelopersPage() {
        "params":{"name":"gridforge_qualify",
                  "arguments":{ ... }}}'`}
           </pre>
+          )}
         </div>
       </section>
 
@@ -307,7 +357,7 @@ export default async function DevelopersPage() {
           <PaygRateCard rates={rates} />
         </div>
         <div className="mt-6">
-          <CostEstimator rates={rates} engine={API} />
+          <CostEstimator rates={callable} estimateAvailable={estimateAvailable} engine={API} />
         </div>
       </section>
 
@@ -319,7 +369,7 @@ export default async function DevelopersPage() {
           is no overage billing.
         </p>
         <div className="mt-6">
-          <ApiPlans rates={rates} />
+          <ApiPlans rates={callable} />
         </div>
       </section>
 
@@ -343,12 +393,14 @@ export default async function DevelopersPage() {
         >
           See the full deliverable
         </Link>
-        <Link
-          href="/power/deploy"
-          className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
-        >
-          Try the BTM power deployment assessment
-        </Link>
+        {state("/v1/power/deploy/assess") === "available" ? (
+          <Link
+            href="/power/deploy"
+            className="inline-flex items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50"
+          >
+            Try the BTM power deployment assessment
+          </Link>
+        ) : null}
       </section>
     </main>
   );

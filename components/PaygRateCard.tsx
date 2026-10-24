@@ -4,8 +4,10 @@ import {
   billingRuleText,
   breakEvens,
   eurExact,
+  isCallable,
   isFree,
   isPerHall,
+  unavailableLabel,
   type ToolRate,
 } from "@/lib/payg-pricing";
 
@@ -13,9 +15,17 @@ import {
  * The rate card. Generated, not written: units per endpoint come from public/reference/tools.json (the
  * engine's own catalogue), the unit price and the allowance from PAYG in lib/products.ts, and the break-even
  * sentences from the API plans in the same file. There is no table of prices in this component to drift.
+ *
+ * Availability is a separate question (`rate.availability`, set by the server page from the deployed engine's own
+ * /v1/version): a row the engine does not serve is listed for information, labelled, and carries neither units nor a
+ * price, so nothing on this card can be read as an amount a visitor will be billed for an operation that cannot run.
  */
 export default function PaygRateCard({ rates, heading = "What one operation costs" }: { rates: ToolRate[]; heading?: string }) {
-  const ordered = [...rates].sort((a, b) => a.units - b.units || a.endpoint.localeCompare(b.endpoint));
+  const ordered = [...rates].sort(
+    (a, b) =>
+      Number(isCallable(b)) - Number(isCallable(a)) || a.units - b.units || a.endpoint.localeCompare(b.endpoint)
+  );
+  const anyUnavailable = ordered.some((t) => !isCallable(t));
   const bes = breakEvens();
   return (
     <div>
@@ -44,30 +54,45 @@ export default function PaygRateCard({ rates, heading = "What one operation cost
               </tr>
             </thead>
             <tbody>
-              {ordered.map((t) => (
-                <tr key={t.name} className="border-b border-line/60">
-                  <th scope="row" className="py-2.5 pr-4 text-left font-mono text-xs font-normal text-ghost">{t.name}</th>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-mute">{t.endpoint}</td>
-                  <td className="py-2.5 pr-4 text-right font-mono text-xs text-power">
-                    {t.units}
-                    {isPerHall(t) ? <span className="text-faint"> per hall</span> : null}
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-xs text-ghost">
-                    {isFree(t) ? (
-                      <span className="text-verified">free</span>
-                    ) : (
-                      <>
-                        {eurExact(t.units * PAYG.unitPriceCents)}
-                        {isPerHall(t) ? <span className="text-faint"> per hall</span> : null}
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {ordered.map((t) =>
+                isCallable(t) ? (
+                  <tr key={t.name} className="border-b border-line/60">
+                    <th scope="row" className="py-2.5 pr-4 text-left font-mono text-xs font-normal text-ghost">{t.name}</th>
+                    <td className="py-2.5 pr-4 font-mono text-xs text-mute">{t.endpoint}</td>
+                    <td className="py-2.5 pr-4 text-right font-mono text-xs text-power">
+                      {t.units}
+                      {isPerHall(t) ? <span className="text-faint"> per hall</span> : null}
+                    </td>
+                    <td className="py-2.5 text-right font-mono text-xs text-ghost">
+                      {isFree(t) ? (
+                        <span className="text-verified">free</span>
+                      ) : (
+                        <>
+                          {eurExact(t.units * PAYG.unitPriceCents)}
+                          {isPerHall(t) ? <span className="text-faint"> per hall</span> : null}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={t.name} data-availability={t.availability} className="border-b border-line/60">
+                    <th scope="row" className="py-2.5 pr-4 text-left font-mono text-xs font-normal text-mute">{t.name}</th>
+                    <td className="py-2.5 pr-4 font-mono text-xs text-faint">{t.endpoint}</td>
+                    <td colSpan={2} className="py-2.5 text-right text-xs text-queue">{unavailableLabel(t)}</td>
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
         </div>
       )}
+      {anyUnavailable ? (
+        <p role="note" className="mt-3 max-w-3xl text-xs text-faint">
+          An operation marked not available is in the engine&apos;s published catalogue but is not served by the engine
+          that is deployed today. It cannot be called, so it cannot be billed. This table follows the deployed engine and
+          lists the operation, with its units and price, once the release that serves it is live.
+        </p>
+      ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <div className="rounded border border-line bg-panel p-4">

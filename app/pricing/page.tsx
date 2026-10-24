@@ -8,7 +8,9 @@ import PaygRateCard from "@/components/PaygRateCard";
 import ThreePaths from "@/components/ThreePaths";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
-import { readToolRatesSync } from "@/lib/tool-rates";
+import { callableRates } from "@/lib/payg-pricing";
+import { engineServes } from "@/lib/engine-capabilities";
+import { estimateEndpointServed, readToolRatesWithAvailability } from "@/lib/tool-rates";
 
 const PRICING_DESCRIPTION = `A free capacity check, metered software with a free allowance and a cap you set, and fixed-fee engineering engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen up to the full Capacity & Density Envelope Study. No retainer hours, no second price list.`;
 
@@ -24,8 +26,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function PricingPage() {
-  const rates = readToolRatesSync();
+// Which metered operations are callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is
+// redeployed, not when this site is. Regenerate at most every five minutes instead of freezing the answer at build time.
+export const revalidate = 300;
+
+export default async function PricingPage() {
+  const rates = await readToolRatesWithAvailability();
+  const estimateAvailable = await estimateEndpointServed();
+  const compareAvailable = await engineServes("/v1/compare");
   return (
     <main className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-7xl mx-auto px-6">
@@ -85,7 +93,11 @@ export default function PricingPage() {
               <PaygRateCard rates={rates} />
             </div>
             <div className="mt-6">
-              <CostEstimator rates={rates} engine={process.env.GRIDFORGE_API_URL || "https://gridforge-engine.fly.dev"} />
+              <CostEstimator
+                rates={callableRates(rates)}
+                estimateAvailable={estimateAvailable}
+                engine={process.env.GRIDFORGE_API_URL || "https://gridforge-engine.fly.dev"}
+              />
             </div>
             <p className="mt-4 text-sm text-mute">
               Plans, the MCP install and the tool schemas are on the{" "}
@@ -100,14 +112,29 @@ export default function PricingPage() {
             <h2 id="start-free" className="text-lg font-semibold text-ghost">
               Not sure which step to start with?
             </h2>
-            <p className="mt-2 text-sm text-mute">
-              Run the free Time-to-Power comparison on your hall: racks as found and after relief, what binds, and the date to full
-              capacity with the evidence class behind it. Save it to a project and send the read-only page to whoever approves the
-              spend; they can commission the next step from it, at the prices above.
-            </p>
-            <Link href="/power/compare" className="mt-3 inline-block text-sm text-power">
-              Run the comparison →
-            </Link>
+            {compareAvailable ? (
+              <>
+                <p className="mt-2 text-sm text-mute">
+                  Run the free Time-to-Power comparison on your hall: racks as found and after relief, what binds, and the date to full
+                  capacity with the evidence class behind it. Save it to a project and send the read-only page to whoever approves the
+                  spend; they can commission the next step from it, at the prices above.
+                </p>
+                <Link href="/power/compare" className="mt-3 inline-block text-sm text-power">
+                  Run the comparison →
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-mute">
+                  Start with the free capacity check on your hall: seven numbers, no account, and it names the constraint that binds
+                  first. The free Time-to-Power scenario comparison is not available yet: it is waiting on an engine release, and
+                  nothing is charged for it either way. The Density Screen is the next step, at the price above.
+                </p>
+                <Link href="/qualify" className="mt-3 inline-block text-sm text-power">
+                  Run the free check →
+                </Link>
+              </>
+            )}
           </section>
 
           <div className="mt-12">

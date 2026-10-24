@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createDeploymentCase, runDeploymentAssessment } from "@/lib/power-deploy";
+import { ROUTE_NOT_DEPLOYED_MESSAGE, createDeploymentCase, runDeploymentAssessment } from "@/lib/power-deploy";
 import { attachCase, getProjectByToken } from "@/lib/projects";
 import { guardRequest } from "@/lib/rate-limit";
 import { ENGINE_BODY_MAX_BYTES, readBoundedJson } from "@/lib/http-body";
@@ -51,6 +51,9 @@ export async function POST(req: Request) {
   if (g.denied) return g.denied;
   return g.run(async () => {
     const assessed = await runDeploymentAssessment(request);
+    if (!assessed.ok && assessed.routeMissing) {
+      return NextResponse.json({ ok: false, error: ROUTE_NOT_DEPLOYED_MESSAGE }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    }
     if (!assessed.ok) {
       // Engine and configuration detail (env var names, upstream URLs) is for the
       // server log, not the person filling in the form.

@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 import { SITE } from "@/lib/site";
-import { breakEven, type ToolRate } from "@/lib/payg-pricing";
+import { breakEven, callableRates, type ToolRate } from "@/lib/payg-pricing";
 
 /**
  * Buy a monthly plan. Checkout runs in subscription mode; the webhook opens an account and emails a link where
@@ -26,7 +26,9 @@ export default function ApiPlans({ rates = [] }: { rates?: ToolRate[] }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const units = (ep: string) => rates.find((r) => r.endpoint === ep)?.units ?? 0;
+  // What a plan's units buy is stated only for operations the deployed engine serves today.
+  const callable = callableRates(rates);
+  const units = (ep: string) => callable.find((r) => r.endpoint === ep)?.units ?? 0;
   const study = units("/v1/study");
   const screen = units("/v1/screen");
 

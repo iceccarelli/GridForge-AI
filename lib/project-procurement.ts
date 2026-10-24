@@ -12,7 +12,7 @@
 // Not monetised: there is no BTM price, SKU or checkout here, and none is implied.
 
 import crypto from "node:crypto";
-import { callEngine, deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
+import { ROUTE_NOT_DEPLOYED_MESSAGE, callEngine, deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
 import {
   creds,
   ev,
@@ -169,6 +169,7 @@ export async function generateRfqPackage(
     format: "html",
     require_rfq_ready: true,
   });
+  if (!spec.ok && spec.routeMissing) return { ok: false, status: 503, error: ROUTE_NOT_DEPLOYED_MESSAGE };
   if (!spec.ok) {
     const refused = spec.status === 409 || spec.status === 422;
     return {
@@ -273,6 +274,7 @@ export async function submitSupplierResponse(
     project: project.project_name,
     responses: [{ ...body, supplier }],
   });
+  if (!check.ok && check.routeMissing) return { ok: false, status: 503, error: ROUTE_NOT_DEPLOYED_MESSAGE };
   if (!check.ok) {
     return check.status === 422
       ? { ok: false, status: 422, error: check.error }
@@ -322,6 +324,7 @@ export async function runPackageComparison(
     project: project.project_name,
     responses: rs.responses.map((r) => r.response),
   });
+  if (!engine.ok && engine.routeMissing) return { ok: false, status: 503, error: ROUTE_NOT_DEPLOYED_MESSAGE };
   if (!engine.ok) {
     return {
       ok: false,
