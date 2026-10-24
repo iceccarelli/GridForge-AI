@@ -353,15 +353,36 @@ describe("5. getting access back", () => {
     expect(acct).toMatchObject({ billing_hold: "disputed", status: "past_due" });
   });
 
-  it("a release written BEFORE a hold began never lifts it (a new refund of the same charge id after an old release)", async () => {
+  it("a release written BEFORE a hold began never lifts it, and it is not silent: counted, and the operator is told which release to write again", async () => {
     const { acct, settlement } = setup();
     const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
     operatorRuns(releaseFor(settlement, "ch_s9")); // a release for a hold that does not exist yet
     at(rig.T0 + 60);
     await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0 + 60 });
     at(rig.T0 + 3600);
-    expect((await runSettlementReversalPass()).releasesApplied).toBe(0);
+    const rep = await runSettlementReversalPass();
+    expect(rep).toMatchObject({ releasesApplied: 0, releasesIgnored: 1 });
     expect(acct).toMatchObject({ status: "past_due", billing_hold: "refunded" });
+    const m = () => operatorMail(rig).filter((x) => /Release IGNORED/.test(x.subject));
+    expect(m()).toHaveLength(1);
+    expect(m()[0].text).toContain("ch_s9");
+    expect(m()[0].text).toMatch(/hold began after it/);
+    await runSettlementReversalPass();
+    expect(m()).toHaveLength(1); // once per release
+  });
+
+  it("a release overtaken by a newer state of the dispute is reported too", async () => {
+    const { settlement } = setup();
+    await send(rig, "charge.dispute.created", dispute("needs_response"), { created: rig.T0 });
+    const { runSettlementReversalPass } = await import("@/lib/payg-refunds");
+    at(rig.T0 + 60);
+    operatorRuns(releaseFor(settlement, "dp_s9"));
+    at(rig.T0 + 120);
+    rig.stripe.pinDispute("dp_s9", dispute("lost"));
+    await send(rig, "charge.dispute.closed", dispute("lost"), { created: rig.T0 + 120 });
+    at(rig.T0 + 3600);
+    expect(await runSettlementReversalPass()).toMatchObject({ releasesApplied: 0, releasesIgnored: 1 });
+    expect(operatorMail(rig).filter((x) => /Release IGNORED/.test(x.subject) && /newer state/.test(x.text))).toHaveLength(1);
   });
 
   it("the daily route runs the pass, reports the held accounts, and mails the operator once a day while any stands", async () => {
@@ -411,6 +432,27 @@ describe("6. the record is append-only and durable", () => {
     expect(operatorMail(rig).filter((x) => /Migration 0043/.test(x.subject))).toHaveLength(1);
     expect((await send(rig, "charge.refunded", refunded(10_000), { created: rig.T0, id: "evt_f" })).status).toBe(500);
     expect(acct.billing_hold).toBe("refunded");
+  });
+
+  it("migration 0043 not applied AND the operator mail cannot be delivered: the acknowledged partial refund is retried (500) until the mail goes, because the mail is its only record", async () => {
+    const { acct } = setup();
+    rig.db.dropTable("payg_settlement_reversals");
+    const inner = globalThis.fetch;
+    let mailUp = false;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      if (url.startsWith("https://api.resend.com") && !mailUp) return new Response("{}", { status: 503 });
+      return inner(i as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      expect((await send(rig, "charge.refunded", refunded(2_500), { created: rig.T0, id: "evt_p" })).status).toBe(500);
+      mailUp = true;
+      expect((await send(rig, "charge.refunded", refunded(2_500), { created: rig.T0, id: "evt_p" })).status).toBe(200);
+    } finally {
+      globalThis.fetch = inner;
+    }
+    expect(operatorMail(rig).filter((x) => /partly refunded/.test(x.subject))).toHaveLength(1);
+    expect(acct.billing_hold ?? null).toBeNull();
   });
 
   it("a store failure while recording answers 500 and records nothing twice on the retry", async () => {

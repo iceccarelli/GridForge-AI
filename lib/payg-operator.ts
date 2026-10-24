@@ -12,6 +12,14 @@ import { notifyOperator } from "@/lib/mail";
 import { funnelKey } from "@/lib/payg";
 import { enc, pg } from "@/lib/payg-store";
 
+/**
+ * Is operator mail expected to work on this deployment? When it is NOT configured at all the "OPERATOR ACTION NEEDED" log line is the only
+ * channel there is, and a caller that makes the mail its record must not fail (and be redelivered for ever) over a mail nobody can send.
+ */
+export function operatorMailExpected(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.LEAD_TO_EMAIL && env.RESEND_API_KEY);
+}
+
 export async function notifyOperatorOnce(key: string, subject: string, text: string): Promise<"sent" | "duplicate" | "unsent"> {
   const dedupe_key = funnelKey(key);
   const claim = await pg<{ dedupe_key: string }[]>("POST", "operator_notices?on_conflict=dedupe_key", { dedupe_key }, "resolution=ignore-duplicates,return=representation");

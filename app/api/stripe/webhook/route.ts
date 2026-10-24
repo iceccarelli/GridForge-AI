@@ -7,7 +7,7 @@ import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { abandonPendingNotices, createWatch, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import { accountRef } from "@/lib/payg";
-import { notifyOperatorOnce } from "@/lib/payg-operator";
+import { notifyOperatorOnce, operatorMailExpected } from "@/lib/payg-operator";
 import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { pg } from "@/lib/payg-store";
@@ -148,12 +148,14 @@ export async function POST(req: Request) {
         // A value Stripe has never been seen to send (or one this site does not know): a sale that may be PAID is not being fulfilled. The 200
         // stays (a retry cannot change the payload), but a person is told, once per session and value, with the session id to look up.
         console.error(`[GridForge] checkout ${session.id} completed with an UNKNOWN payment_status ${ps.slice(0, 40)}; NOT fulfilled (acknowledged)`);
-        await notifyOperatorOnce(
+        const told = await notifyOperatorOnce(
           `payment_status_unknown:${session.id}:${ps.slice(0, 40)}`,
           "A Stripe checkout arrived with a payment_status this site does not know — NOT fulfilled",
           `Checkout session ${session.id} (kind ${String(session.metadata?.kind ?? "-")}) completed with payment_status "${ps.slice(0, 40)}". Only "paid" and "no_payment_required" are fulfilled and "unpaid" waits for ` +
             "checkout.session.async_payment_succeeded; anything else is acknowledged WITHOUT fulfilment. If the customer has paid, look the session up in Stripe and fulfil it by hand. This notice is sent once per session and value."
         );
+        // The mail is the only trace of a sale that may be paid: if it could not be delivered, Stripe retries the event (and the claim was released).
+        if (told === "unsent" && operatorMailExpected()) return lifecycleRetry("unknown payment_status (operator mail not delivered)", session.id);
       }
       return NextResponse.json({ ok: true, received: true, fulfilled: false });
     }
