@@ -68,12 +68,8 @@ Built:
   the layout's twitter block no longer hands every page the homepage title.
 Tests actually run (local): vitest 1650 passed / 191 skipped; pytest 1756 passed / 332 skipped (no Python changed; real-DB skips); `tsc`, `next lint`, `next build` clean.
 Not run: anything against live Stripe, the deployed engine's new routes, Vercel, Search Console.
-Open, from this session's audits (not yet fixed):
-- /pricing, /developers and `public/reference/tools.json` still list estimate / compare / `power_*` as callable while the deployed engine 404s them. Needs the redeploy (Fly credentials), or per-row "not yet deployed" marking.
-- Refund or dispute on a SUBSCRIPTION charge does not touch `api_accounts` / `watches`; a `past_due` API plan keeps an already-minted key (up to 35 days). Product decision needed on revoke-vs-grace.
-- `checkout.session.completed` does not check `payment_status` (safe only while checkout is card-only).
-- Homepage JSON-LD: deposits marked `InStock`; Hall Watch price has no quarterly recurrence.
-- Static `/reference/*.html` have no canonical/description.
+Those items were closed by PR #73 and the work logged below: public surfaces follow the deployed engine, subscription refund/dispute holds and the past_due grace exist,
+`checkout.session.completed` now fails closed on `payment_status`, JSON-LD and the reference pages are corrected. What remains is listed in the latest entry.
 
 ## Log: 2026-10-24, branch `claude/lucid-cannon-4dzp8k`, based on origin/main ec9b986 (PR #72 merged; main CI green; production deploy READY on that commit)
 Checked against production (read-only): `POST /api/keys` answers 503 "Key signing is not configured on this deployment"; API-plan checkout refuses to sell with
@@ -91,3 +87,26 @@ Operator steps that remain (nothing here can be done from the repository):
 3. Add repository secret FLY_API_TOKEN (`fly tokens create deploy -a gridforge-engine`), run the `deploy-engine` workflow with DEPLOY, then `python3 scripts/check-engine-drift.py --write-snapshot lib/engine-deployed.json` and commit it.
 4. Set GRIDFORGE_KEY_SECRET (same value on Vercel and Fly) and GRIDFORGE_ADMIN_KEY on Vercel; API plans sell only after /api/admin/api-readiness reports ready.
 5. Switch Stripe to live keys only when ready to take real payments (production is on test keys today).
+
+## Log: 2026-10-24 (second pass), branch `claude/lucid-cannon-4dzp8k`, based on origin/main c62c03d (PR #73 merged; main CI #245 green)
+Built (all local/test infrastructure; nothing applied to production):
+- Checkout funnel (migration 0042): closed events `checkout_attempted` / `checkout_session_created` (Stripe returned a URL, NOT a payment) / `checkout_failed` with one of eight fixed
+  reasons; props are only the catalogue `kind` and `reason`; recording is best-effort and bounded (<= 600 ms per event) and cannot change a checkout. The admin funnel report has a checkout
+  section with measured counts, derived rates (n/a when the denominator is 0) and an explicit "requests, not unique buyers" note. `/api/checkout` now has a request limit (60/hour per caller,
+  fails closed), prototype keys are not products (400), malformed email / over-long company or service is refused as the buyer's input, and a Stripe session without a URL is a 502 failure.
+- Qualifier -> Density Screen -> paid webhook -> intake is proved end to end in `npm run verify:local` (170 assertions, real engine, production build): one deliverable per payment, linked to the
+  validated qualification, intake seeded from it, duplicate/concurrent/unpaid/refused/failed paths asserted. `checkoutIsPaid` fails closed (only `paid` / `no_payment_required`; an absent
+  `payment_status` answers 500 for redelivery); every checkout test fixture states `payment_status` through one builder, with a guard test. `tests/e2e/browser-journeys.mjs` is MANUAL (no CI job).
+- Billing (migration 0043): a pause starts when the paid period ends (not when it is set); stacked refund/dispute/pause holds no longer lose each other; disputes are decided from Stripe's
+  current dispute state in any event order; a refund or dispute of a PAYG settlement invoice is recorded append-only (`payg_settlement_reversals`), never edits the ledger or settlement, and a
+  full refund or a dispute suspends further PAYG use reversibly (operator release row / dispute won / a later paid settlement lifts it). Stripe calls on these paths are bounded to 8 s.
+- CI: the real-database job now runs the 0041, 0042 and 0043 migration tests (fail, never skip).
+Tests actually run on the final tree (sequential, quiet machine): vitest 2068 passed / 191 skipped; `tsc`, `next lint`, `next build` clean; `verify:local` 170/170; python (no DB) 1796 passed / 371 skipped;
+all migration suites on a throwaway PostgreSQL 16 with `GRIDFORGE_REQUIRE_DB=1`: 396 passed, 0 skipped. Not run here: the `*.realdb.test.ts` files (need PostgREST; CI runs them), anything against live Stripe/Vercel/Fly.
+Owner decision (narrow): a FULL refund of a PAYG settlement suspends further PAYG use automatically (conservative, reversible); a goodwill refund therefore needs an operator release. To flag only, change
+`wantsHold` in `reverseSettlement` (lib/payg-refunds.ts) so only disputes suspend. Undelivered operator mail answers 500 for Stripe retry when mail is configured, and 200 with a logged error when mail is not configured at all.
+Operator steps that remain: apply 0041, 0042 and 0043 through the gated process (the code degrades safely without them; the funnel report says "unavailable" without 0042); enable charge.refunded,
+charge.dispute.created, charge.dispute.updated, charge.dispute.closed on the Stripe endpoint; redeploy the engine (FLY_API_TOKEN + the deploy-engine workflow) so suspensions can revoke keys at the engine;
+set GRIDFORGE_KEY_SECRET (same value on Vercel and Fly) and GRIDFORGE_ADMIN_KEY on Vercel; production Stripe is on TEST keys until the owner switches them.
+Known limits: access changes from the daily job can lag up to ~24 h; Intelligence entitlement does not re-check Stripe on a lost resume event (the daily job clears it); the 8 s Stripe bound does not cover
+the settlement invoice calls in lib/payg-billing.ts.
