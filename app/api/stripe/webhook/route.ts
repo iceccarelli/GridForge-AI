@@ -20,7 +20,6 @@ import {
   keyLife,
   retryRevocationsFor,
   revokeOnEngineDetailed,
-  updateApiAccount,
   type ApiAccount,
 } from "@/lib/api-access";
 import { recordSubscription, subscriptionBySession, updateSubscription, type SubscriptionRecord } from "@/lib/subscribers";
@@ -33,11 +32,15 @@ import {
   endedRow,
   enforceGraceRow,
   isFullRefund,
+  isOurSubscriptionKind,
   liftHold,
   noteUnconfirmedRevocation,
   resolveSubscription,
   reversePayment,
   subscriptionIdOf,
+  writeApi,
+  writeIntelligence,
+  writeWatch,
   type ReversalStripe,
   type Resolved as ResolvedResult,
 } from "@/lib/billing-holds";
@@ -328,20 +331,24 @@ export async function POST(req: Request) {
     await disputeNotice(event.type === "charge.dispute.closed", event.data.object as Stripe.Dispute);
   }
   // A real chargeback (not a warning inquiry, where no money has moved) suspends paid access; it is lifted only if Stripe says it was won.
-  if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed") {
+  // charge.dispute.updated matters because a dispute can OPEN as a warning inquiry (no money moved, no hold) and ESCALATE to a real one: the
+  // hold is applied then. A dispute closed as lost applies the hold if none exists yet. An update that carries a final status (won, lost)
+  // is left to the closed event.
+  if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated" || event.type === "charge.dispute.closed") {
     const d = event.data.object as Stripe.Dispute;
     const inquiry = typeof d.status === "string" && d.status.startsWith("warning_");
-    if (!inquiry) {
+    const final = d.status === "won" || d.status === "lost";
+    if (!inquiry && !(event.type === "charge.dispute.updated" && final)) {
       const via = await disputedPayment(d);
       if (!via.ok) return lifecycleRetry("dispute (payment could not be read)", d.id);
       const base = { stripe: reversalStripe(), eventId: event.id, invoice: via.invoice, paymentIntent: via.paymentIntent };
       const out =
-        event.type === "charge.dispute.created"
+        event.type !== "charge.dispute.closed"
           ? await reversePayment({ ...base, kind: "disputed", ref: d.id, created: event.created })
           : d.status === "won"
             ? await disputeWon({ ...base, disputeId: d.id, created: event.created })
             : d.status === "lost"
-              ? await disputeLost({ ...base, disputeId: d.id })
+              ? await disputeLost({ ...base, disputeId: d.id, created: event.created })
               : ({ ok: true } as const);
       if (!out.ok) return lifecycleRetry(`dispute (${out.why})`, d.id);
     }
@@ -392,10 +399,10 @@ export async function POST(req: Request) {
           // store lacks the column (migration 0041 not applied) the status is still written, and the daily pass starts the grace when it
           // first sees the row.
           since = new Date(event.created ? event.created * 1000 : Date.now()).toISOString();
-          ok = Boolean(await updateApiAccount(found.api.token, { status: "past_due", past_due_since: since, ...clock })) ||
-            Boolean(await updateApiAccount(found.api.token, { status: "past_due", ...clock }));
+          ok = (await writeApi(found.api.token, { status: "past_due", past_due_since: since, ...clock })) ||
+            (await writeApi(found.api.token, { status: "past_due", ...clock }));
         } else {
-          ok = event.created ? Boolean(await updateApiAccount(found.api.token, clock)) : true;
+          ok = event.created ? await writeApi(found.api.token, clock) : true;
         }
         if (!ok) applied = false;
         // A later failure of the SAME episode (Stripe retries) after the grace has run out revokes the live key now rather than at the
@@ -409,11 +416,11 @@ export async function POST(req: Request) {
       // Thursday should not have cost the client a quarter.
       if (found.watch && !endedRow(found.watch) && billingEventIsCurrent(found.watch, event.created, "failed")) {
         const patch: Partial<WatchRecord> = found.watch.status === "active" ? { status: "paused" } : {};
-        if (!(await clockedWrite((p) => updateWatch(found.watch!.token, p), patch, event.created))) applied = false;
+        if (!(await clockedWrite((p) => writeWatch(found.watch!.token, p), patch, event.created))) applied = false;
       }
       if (found.intelligence && (found.intelligence.status === "active" || found.intelligence.status === "past_due") && billingEventIsCurrent(found.intelligence, event.created, "failed")) {
         const patch: Partial<SubscriptionRecord> = found.intelligence.status === "active" ? { status: "past_due" } : {};
-        if (!(await clockedWrite((p) => updateSubscription(found.intelligence!.id, p), patch, event.created))) applied = false;
+        if (!(await clockedWrite((p) => writeIntelligence(found.intelligence!.id, p), patch, event.created))) applied = false;
       }
       if (!applied) return lifecycleRetry("payment failure (write failed)", subId);
       // A revocation the engine has not confirmed is retried with the next billing event for the account, not only by the daily job.
@@ -434,7 +441,7 @@ export async function POST(req: Request) {
       // A later verified payment, for a DIFFERENT invoice than the one that was refunded or disputed, ends that hold (the customer paid
       // again). A paused hold is not a payment matter and is lifted only by the update that resumes billing. An older payment, or the
       // same invoice, lifts nothing (the clock and the invoice id say so), and a row that is still held takes no state from this event.
-      const lift = await liftHold(found, { kinds: ["refunded", "disputed"], notInvoice: paidInvoice.id, restore: "active", cause: "invoice_paid", subscriptionId: subId, eventId: event.id, created: event.created });
+      const lift = await liftHold(found, { kinds: ["refunded", "disputed"], notInvoice: paidInvoice.id, paidCents: paidInvoice.amount_paid, restore: "active", cause: "invoice_paid", subscriptionId: subId, eventId: event.id, created: event.created });
       if (!lift.ok) return lifecycleRetry("renewal (hold could not be lifted)", subId);
       const apiHeld = Boolean(found.api?.billing_hold) && !lift.lifted.api;
       const watchHeld = Boolean(found.watch?.billing_hold) && !lift.lifted.watch;
@@ -442,8 +449,8 @@ export async function POST(req: Request) {
         const clock = event.created ? { last_billing_event_ts: event.created } : {};
         // The grace is over when a payment clears; the key revoked at its end stays revoked and the customer mints a new one.
         const clearing = found.api.status === "past_due" || found.api.past_due_since ? { past_due_since: null } : {};
-        const ok = Boolean(await updateApiAccount(found.api.token, { status: "active", ...clearing, ...clock })) ||
-          (Object.keys(clearing).length > 0 && Boolean(await updateApiAccount(found.api.token, { status: "active", ...clock })));
+        const ok = (await writeApi(found.api.token, { status: "active", ...clearing, ...clock })) ||
+          (Object.keys(clearing).length > 0 && (await writeApi(found.api.token, { status: "active", ...clock })));
         if (!ok) applied = false;
         else remind = found.api;
       }
@@ -452,12 +459,12 @@ export async function POST(req: Request) {
       // The payment is RECORDED even when nothing changes state (an active watch), so a failure that was older than it and is delivered
       // after it finds the clock ahead and changes nothing.
       if (found.watch && found.watch.status !== "cancelled" && !watchHeld && billingEventIsCurrent(found.watch, event.created, "paid") && (found.watch.status === "paused" || typeof event.created === "number")) {
-        if (!(await clockedWrite((p) => updateWatch(found.watch!.token, p), { status: "active" as const }, event.created))) applied = false;
+        if (!(await clockedWrite((p) => writeWatch(found.watch!.token, p), { status: "active" as const }, event.created))) applied = false;
       }
       // Same rule for Intelligence: a payment that clears reinstates access that a failed payment had
       // put past_due. A cancelled one stays cancelled.
       if (found.intelligence && (found.intelligence.status === "active" || found.intelligence.status === "past_due") && billingEventIsCurrent(found.intelligence, event.created, "paid") && (found.intelligence.status === "past_due" || typeof event.created === "number")) {
-        if (!(await clockedWrite((p) => updateSubscription(found.intelligence!.id, p), { status: "active" as const }, event.created))) applied = false;
+        if (!(await clockedWrite((p) => writeIntelligence(found.intelligence!.id, p), { status: "active" as const }, event.created))) applied = false;
       }
       // A payment cleared for a subscription that a NEWER purchase superseded: the buyer re-bought (an upgrade,
       // or simply a second click) and the old Stripe subscription is still billing them. Nothing here may
@@ -706,11 +713,6 @@ async function disputeNotice(closed: boolean, d: Stripe.Dispute): Promise<void> 
     `${head}\n\n${due ? `Evidence is due by ${due}. ` : ""}Unanswered, the dispute is lost and the amount stays debited. Respond in the Stripe Dashboard (Payments, Disputes) before the deadline. ` +
       "Nothing about the customer's access has been changed by this notice."
   );
-}
-
-/** A subscription this site sells: its checkout stamped the subscription with one of these kinds. */
-function isOurSubscriptionKind(kind: unknown): boolean {
-  return typeof kind === "string" && (isApiProduct(kind) || kind === "hall_watch" || kind === "intelligence_subscription");
 }
 
 function lifecycleRetry(what: string, subId: string) {

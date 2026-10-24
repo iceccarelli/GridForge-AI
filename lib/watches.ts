@@ -228,6 +228,30 @@ export async function updateWatchIfActive(token: string, patch: Partial<WatchRec
   }
 }
 
+/**
+ * Write only while the watch is NOT cancelled (a conditional update on the status): a billing event that races a cancellation can never
+ * turn cancelled into paused or active, in either order. "terminal": no row matched, the watch is cancelled and there is nothing to write.
+ */
+export async function updateWatchUnlessCancelled(token: string, patch: Partial<WatchRecord>): Promise<"ok" | "terminal" | "error"> {
+  const c = creds();
+  if (!c) return "error";
+  try {
+    const res = await fetch(`${c.url}/rest/v1/watches?token=eq.${encodeURIComponent(token)}&status=neq.cancelled`, {
+      method: "PATCH",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      console.error("[GridForge] watch guarded update failed:", await storeFault(res));
+      return "error";
+    }
+    return ((await res.json().catch(() => [])) as unknown[]).length > 0 ? "ok" : "terminal";
+  } catch (err) {
+    console.error("[GridForge] watch guarded update unreachable:", err);
+    return "error";
+  }
+}
+
 /** The watch's status as the store holds it NOW, apart from "could not ask" (never read an outage as "cancelled" or as "active"). */
 export async function watchStatusNow(token: string): Promise<WatchStatus | "missing" | "unknown"> {
   const c = creds();

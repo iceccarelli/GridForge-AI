@@ -710,7 +710,7 @@ interface SweepContext {
   verifies: "yes" | "no" | "unknown" | null;
 }
 
-async function sweepRow(row: SweepRow, today: string, ctx: SweepContext): Promise<{ confirmed: number; stillPending: number }> {
+async function sweepRow(row: SweepRow, today: string, ctx: SweepContext, maxIds = Infinity): Promise<{ confirmed: number; stillPending: number }> {
   const done = new Set(row.revoked_confirmed_ids ?? []);
   // An overlap key of an active account is live on purpose until its last valid day: neither pushed nor counted pending before then.
   const todo = (row.revoked_key_ids ?? []).filter((id) => !done.has(id) && !overlapHeld(row, id, today));
@@ -719,23 +719,36 @@ async function sweepRow(row: SweepRow, today: string, ctx: SweepContext): Promis
     if (ctx.verifies !== "yes") return { confirmed: 0, stillPending: todo.length };
   }
   const ok: string[] = [];
-  let stillPending = 0;
+  let tried = 0;
   for (const id of todo) {
-    if (await revokeOnEngine(id)) ok.push(id);
-    else stillPending++;
+    if (tried >= maxIds) break; // the rest stays pending for the daily sweep
+    tried++;
+    const out = await revokeOnEngineDetailed(id);
+    if (out.ok) ok.push(id);
+    else if (out.reason === "unreachable") break; // a down engine will not answer the next id either: do not spend the caller's time on it
   }
   const confirmed = ok.length && (await confirmRevoked(row.token, ok)) ? ok.length : 0;
-  return { confirmed, stillPending };
+  return { confirmed, stillPending: todo.length - confirmed };
 }
+
+/** At most this many key ids are pushed inline by a billing event; the daily sweep drains the rest. */
+export const INLINE_REVOCATION_IDS = 3;
+/** An account whose revocation was attempted more recently than this is not retried inline (the daily sweep stamps it too). */
+export const INLINE_REVOCATION_PAUSE_MS = 10 * 60_000;
 
 /**
  * Push one account's unconfirmed revocations now (the next billing event for an account whose revocation is pending calls this, so a
- * revocation does not wait for the daily sweep). Same rules as the sweep; returns what is still unconfirmed afterwards.
+ * revocation does not wait for the daily sweep). It runs INSIDE the webhook, whose time is limited, so it is bounded: at most
+ * INLINE_REVOCATION_IDS ids (10 s each at worst), none if this account was tried in the last INLINE_REVOCATION_PAUSE_MS, and it stops at
+ * the first id the engine does not answer. The daily sweep has no such limit and drains whatever is left.
  */
-export async function retryRevocationsFor(token: string, now: Date = new Date()): Promise<{ confirmed: number; stillPending: number }> {
+export async function retryRevocationsFor(token: string, now: Date = new Date()): Promise<{ confirmed: number; stillPending: number; skipped?: "recent" }> {
   const row = await getApiAccount(token);
   if (!row) return { confirmed: 0, stillPending: 0 };
-  return sweepRow(row, now.toISOString().slice(0, 10), { verifies: null });
+  const last = row.last_revocation_attempt_at ? Date.parse(row.last_revocation_attempt_at) : NaN;
+  if (Number.isFinite(last) && now.getTime() - last < INLINE_REVOCATION_PAUSE_MS) return { confirmed: 0, stillPending: 0, skipped: "recent" };
+  await stampRevocationAttempt(row.token, now);
+  return sweepRow(row, now.toISOString().slice(0, 10), { verifies: null }, INLINE_REVOCATION_IDS);
 }
 
 /** Best effort: a failed stamp only costs fairness for one run (and a missing column before 0039 is not an error worth stopping for). */
@@ -793,8 +806,28 @@ export async function cancelApiAccount(
   return { ok: false };
 }
 
+/**
+ * Write to an account only while it is NOT cancelled (a conditional update, like claimWatch): a hold, a lift or a payment event that
+ * races a cancellation can never turn cancelled back into active or past_due. "terminal": no row matched, the account is cancelled.
+ */
+export async function updateApiAccountUnlessCancelled(token: string, patch: Partial<ApiAccount>): Promise<"ok" | "terminal" | "error"> {
+  const r = rest(`api_accounts?token=eq.${encodeURIComponent(token)}&status=neq.cancelled`);
+  if (!r) return "error";
+  try {
+    const res = await fetch(r.url, { method: "PATCH", headers: { ...r.headers, Prefer: "return=representation" }, body: JSON.stringify(patch) });
+    if (!res.ok) {
+      console.error("[GridForge] api account conditional update failed:", await storeFault(res));
+      return "error";
+    }
+    return ((await res.json()) as unknown[]).length > 0 ? "ok" : "terminal";
+  } catch {
+    console.error("[GridForge] api account conditional update unreachable");
+    return "error";
+  }
+}
+
 export type SuspendOutcome =
-  | { ok: false }
+  | { ok: false; /** The account is cancelled: nothing to suspend, and not a failure to retry. */ terminal?: true }
   | {
       ok: true;
       /** The row as it stood when the key columns were cleared. */
@@ -823,12 +856,15 @@ export async function suspendApiKeys(acct: Pick<ApiAccount, "token">, extra: Par
   for (let i = 0; i < attempts; i++) {
     const row = await getApiAccount(acct.token);
     if (!row) return { ok: false };
+    // A cancelled account is over: a suspension must never turn it into past_due (cancellation owns its revocations).
+    if (row.status === "cancelled") return { ok: false, terminal: true };
     const live = row.key_id ? [row.key_id] : [];
     const overlap = Object.keys(row.overlap_key_ids ?? {});
     const toRevoke = [...new Set([...live, ...overlap])];
     const revoked = new Set([...(row.revoked_key_ids ?? []), ...toRevoke]);
+    // Compare-and-set on the key id AND not cancelled: a cancellation that lands between the read and this write matches no row.
     const r = rest(
-      `api_accounts?token=eq.${encodeURIComponent(row.token)}` + (row.key_id ? `&key_id=eq.${encodeURIComponent(row.key_id)}` : "&key_id=is.null")
+      `api_accounts?token=eq.${encodeURIComponent(row.token)}&status=neq.cancelled` + (row.key_id ? `&key_id=eq.${encodeURIComponent(row.key_id)}` : "&key_id=is.null")
     );
     if (!r) return { ok: false };
     try {

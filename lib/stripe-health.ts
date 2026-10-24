@@ -32,6 +32,8 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   "charge.refunded",
   "charge.dispute.created",
   "charge.dispute.closed",
+  // A dispute can open as a warning inquiry (no money moved, so no hold) and escalate to a real chargeback: the hold is applied on that update.
+  "charge.dispute.updated",
 ] as const;
 
 /**

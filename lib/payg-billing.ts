@@ -166,7 +166,7 @@ export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, str
  */
 async function suspend(acct: ApiAccount): Promise<boolean> {
   const out = await suspendApiKeys(acct, { status: "past_due" });
-  if (!out.ok) return false;
+  if (!out.ok) return Boolean(out.terminal); // terminal: the account was cancelled meanwhile, so there is nothing to suspend
   if (out.unconfirmed.length) await noteUnconfirmedRevocation(out.row, out.unconfirmed, "pay-as-you-go payment failed");
   return true;
 }
