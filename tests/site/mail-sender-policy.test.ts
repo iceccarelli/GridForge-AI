@@ -13,6 +13,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { mailSender } from "@/lib/mail";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_mail_sender_policy";
 let db: PostgrestFake;
@@ -48,9 +49,9 @@ afterEach(() => { undo(); vi.restoreAllMocks(); });
 
 const stripe = new Stripe("sk_test_placeholder");
 async function buy(id = "cs_ds_1", evt = "evt_ds") {
-  const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: {
-    id, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
-    metadata: { kind: "density_screen", company: "Hall Co" } } } });
+  const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: paidSession({
+    id, customer_email: "buyer@hall.example", customer: "cus_1", amount_total: 450_000,
+    metadata: { kind: "density_screen", company: "Hall Co" } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
     headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));

@@ -31,6 +31,65 @@ for (const m of sql.matchAll(/create table (?:if not exists )?(?:public\.)?([a-z
 for (const v of ["cost_evidence_state", "supplier_reality"]) if (!tables.has(v)) tables.set(v, []);
 console.log("[pgrest] tables from migrations:", [...tables.keys()].join(", "));
 
+// The unique indexes the money path leans on, read out of the migrations themselves (never retyped here). Each one is what turns a
+// duplicate delivery, or two concurrent ones, into ONE row: the webhook checks for an existing row first, but only the index
+// settles a race between two checks. A stand-in that did not enforce them would let a concurrent-duplicate test pass for the wrong
+// reason. Only simple ones are modelled: plain columns, no predicate or `col is not null`.
+const ENFORCED_UNIQUE = ["qualifications_token_idx", "deliverables_one_per_session", "deliverables_intake_token_idx", "watches_one_per_subscription", "api_accounts_one_per_subscription"];
+const uniques = [];
+for (const m of sql.matchAll(/create unique index (?:if not exists )?([a-z_]+)\s+on (?:public\.)?([a-z_]+)\s*\(([a-z_,\s]+)\)\s*(?:where\s*\(?\s*([a-z_]+) is not null\s*\)?)?\s*;/gi)) {
+  if (ENFORCED_UNIQUE.includes(m[1])) uniques.push({ name: m[1], table: m[2], cols: m[3].split(",").map((c) => c.trim()), notNull: m[4] ?? null });
+}
+if (uniques.length !== ENFORCED_UNIQUE.length) {
+  console.error(`[pgrest] could not read every enforced unique index from the migrations (found ${uniques.map((u) => u.name).join(", ")})`);
+  process.exit(1);
+}
+// Column-level `unique` constraints on two tables whose idempotency the journeys exercise: the notification outbox (one obligation per
+// dedupe_key: this is what makes a duplicate delivery send ONE email) and the deposit record (one per Stripe session).
+for (const [table, col] of [["customer_notifications", "dedupe_key"], ["engagement_deposits", "stripe_session_id"]]) {
+  const block = new RegExp(String.raw`create table (?:if not exists )?(?:public\.)?${table}\s*\(([\s\S]*?)\n\);`, "i").exec(sql)?.[1] ?? "";
+  if (!new RegExp(String.raw`\b${col}\s+text[^\n,]*\bunique\b`, "i").test(block)) {
+    console.error(`[pgrest] ${table}.${col} is not declared unique in the migrations; the stand-in would model a constraint that does not exist`);
+    process.exit(1);
+  }
+  uniques.push({ name: `${table}_${col}_key`, table, cols: [col], notNull: null });
+}
+// Column defaults, for the one table whose behaviour DEPENDS on them: a notification row is only attempted while it is `pending` and
+// due (`next_attempt_at <= now`), and both come from the column defaults, never from the code that inserts it. Parsed from the
+// migration (string, number, boolean and now() defaults); other tables keep the stand-in's old behaviour of storing what was sent.
+const DEFAULTED = ["customer_notifications"];
+const defaultsOf = (table) => {
+  const block = new RegExp(String.raw`create table (?:if not exists )?(?:public\.)?${table}\s*\(([\s\S]*?)\n\);`, "i").exec(sql)?.[1] ?? "";
+  const out = {};
+  for (const line of block.split("\n")) {
+    const m = /^\s*([a-z_]+)\s+[a-z]+[^,]*?\bdefault\s+('(?:[^']*)'|-?\d+(?:\.\d+)?|true|false|now\(\))/i.exec(line);
+    if (!m) continue;
+    const v = m[2];
+    out[m[1]] = v.startsWith("'") ? v.slice(1, -1) : v === "true" ? true : v === "false" ? false : v === "now()" ? "NOW" : Number(v);
+  }
+  return out;
+};
+const defaults = Object.fromEntries(DEFAULTED.map((t) => [t, defaultsOf(t)]));
+for (const t of DEFAULTED) {
+  if (!defaults[t].status || defaults[t].attempts === undefined) { console.error(`[pgrest] could not read the column defaults of ${t}`); process.exit(1); }
+}
+const withDefaults = (table, row) => {
+  const d = defaults[table];
+  if (!d) return row;
+  const filled = {};
+  for (const [k, v] of Object.entries(d)) if (row[k] === undefined) filled[k] = v === "NOW" ? new Date().toISOString() : v;
+  return { ...filled, ...row };
+};
+const violates = (table, row, store) => uniques.find((u) => u.table === table
+  && (!u.notNull || (row[u.notNull] ?? null) !== null)
+  && u.cols.every((c) => (row[c] ?? null) !== null)
+  && store.some((x) => u.cols.every((c) => x[c] === row[c])));
+
+// Fault injection for the failure-path journeys: POST /__faults {table, method, status, remaining?} makes the next `remaining`
+// (default: every) matching request answer `status` WITHOUT touching the table; DELETE /__faults clears them. A real outage of
+// the store looks exactly like this to the site: a 5xx from PostgREST.
+const faults = [];
+
 const send = (res, code, body) => {
   res.writeHead(code, { "content-type": "application/json" });
   res.end(body === undefined ? "" : JSON.stringify(body));
@@ -108,9 +167,20 @@ http.createServer((req, res) => {
       console.log(`[pgrest] 404 rpc ${rpc[1]} — not restated in this stand-in`);
       return send(res, 404, { code: "PGRST202", message: `Could not find the function public.${rpc[1]}` });
     }
+    if (u.pathname === "/__faults") {
+      if (req.method === "DELETE") { faults.length = 0; return send(res, 200, { cleared: true }); }
+      if (req.method === "POST") { faults.push({ remaining: Infinity, ...JSON.parse(body) }); return send(res, 200, { faults: faults.length }); }
+      return send(res, 200, faults);
+    }
     const m = u.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (!m) return send(res, 404, { message: "no route" });
     const name = m[1];
+    const fault = faults.find((f) => f.table === name && f.method === req.method && f.remaining > 0);
+    if (fault) {
+      fault.remaining -= 1;
+      console.log(`[pgrest] INJECTED ${fault.status} for ${req.method} ${name}`);
+      return send(res, fault.status, { code: "XX000", message: "injected fault (tests/e2e/postgrest-stub.mjs /__faults)" });
+    }
     if (!tables.has(name)) {
       console.log(`[pgrest] 404 ${req.method} ${name} — no migration creates it`);
       return send(res, 404, { code: "42P01", message: `relation "public.${name}" does not exist` });
@@ -140,18 +210,31 @@ http.createServer((req, res) => {
       return send(res, 200, out);
     }
     if (req.method === "POST") {
-      const rows = (Array.isArray(parsed) ? parsed : [parsed]).map(r => ({
+      const rows = (Array.isArray(parsed) ? parsed : [parsed]).map(r => withDefaults(name, {
         id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r,
       }));
+      // PostgREST's `?on_conflict=a,b` with `Prefer: resolution=ignore-duplicates` skips a row that collides on those columns (and does
+      // not return it); `resolution=merge-duplicates` updates the existing row instead.
+      const onConflict = (u.searchParams.get("on_conflict") || "").split(",").map((c) => c.trim()).filter(Boolean);
+      const prefer = String(req.headers.prefer || "");
+      const written = [];
       for (const r of rows) {
+        if (onConflict.length) {
+          const existing = store.find((x) => onConflict.every((c) => x[c] === r[c]));
+          if (existing && prefer.includes("ignore-duplicates")) continue;
+          if (existing && prefer.includes("merge-duplicates")) { Object.assign(existing, r, { id: existing.id }); written.push(existing); continue; }
+        }
         if (name === "subscriptions" && r.status === "active" &&
             store.some(x => x.email === r.email && x.status === "active")) {
           return send(res, 409, { code: "23505", message: "subscriptions_one_active_per_email" });
         }
+        const dup = violates(name, r, store);
+        if (dup) return send(res, 409, { code: "23505", message: `duplicate key value violates unique constraint "${dup.name}"` });
         store.push(r);
+        written.push(r);
       }
       console.log(`[pgrest] insert ${name} -> ${store.length} row(s)`);
-      return send(res, 201, rep ? rows : undefined);
+      return send(res, 201, rep ? written : undefined);
     }
     if (req.method === "PATCH") {
       hit.forEach(r => Object.assign(r, parsed));

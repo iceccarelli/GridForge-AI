@@ -12,6 +12,7 @@ import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 import { sessionRef } from "@/lib/projects";
+import { paidSession } from "./checkout-fixture";
 
 const created: Record<string, any>[] = [];
 vi.mock("stripe", async (orig) => {
@@ -73,7 +74,7 @@ function completed(sessionId: string, kind: string, extra: Record<string, unknow
   const event = {
     id: `evt_${sessionId}`,
     type: "checkout.session.completed",
-    data: { object: { id: sessionId, object: "checkout_session", customer_email: "buyer@hall.example", amount_total: 450000, customer: "cus_1", metadata: { kind, company: "Hall Co", ...extra }, ...session } },
+    data: { object: paidSession({ id: sessionId, customer_email: "buyer@hall.example", amount_total: 450000, customer: "cus_1", metadata: { kind, company: "Hall Co", ...extra }, ...session }) },
   };
   const payload = JSON.stringify(event);
   return new Request(siteUrl("/api/stripe/webhook"), {

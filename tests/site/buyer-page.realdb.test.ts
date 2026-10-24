@@ -14,6 +14,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PRODUCTS } from "@/lib/products";
 import { RATE_POLICIES, resetMemoryLimiter } from "@/lib/rate-limit";
+import { paidSession } from "./checkout-fixture";
 
 const created: Record<string, any>[] = [];
 vi.mock("stripe", async (orig) => {
@@ -160,7 +161,7 @@ describe.skipIf(!enabled)("buyer page chain — real PostgreSQL via PostgREST", 
     const sessionId = `cs_realdb_${crypto.randomUUID()}`;
     const payload = JSON.stringify({
       id: `evt_${sessionId}`, type: "checkout.session.completed",
-      data: { object: { id: sessionId, object: "checkout_session", customer_email: "cfo@realdb.example", amount_total: PRODUCTS.density_screen.amountCents, customer: "cus_1", metadata: created[0].metadata } },
+      data: { object: paidSession({ id: sessionId, customer_email: "cfo@realdb.example", amount_total: PRODUCTS.density_screen.amountCents, customer: "cus_1", metadata: created[0].metadata }) },
     });
     const hook = (await import("@/app/api/stripe/webhook/route")).POST;
     const deliver = () => hook(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }), "content-type": "application/json" }, body: payload }));

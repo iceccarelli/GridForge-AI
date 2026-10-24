@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_superseded_billing_secret";
 let db: PostgrestFake;
@@ -42,10 +43,10 @@ function send(type: string, object: Record<string, unknown>) {
   return import("@/app/api/stripe/webhook/route").then(({ POST }) =>
     POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload })));
 }
-const buy = (sub: string, plan: string) => send("checkout.session.completed", {
-  id: `cs_${sub}`, object: "checkout_session", customer_email: "buyer@hall.example", customer: "cus_1", subscription: sub,
+const buy = (sub: string, plan: string) => send("checkout.session.completed", paidSession({
+  id: `cs_${sub}`, customer_email: "buyer@hall.example", customer: "cus_1", subscription: sub,
   amount_total: 199_900, metadata: { kind: "intelligence_subscription", plan },
-});
+}));
 const paid = (sub: string) => send("invoice.paid", { id: `in_${sub}`, object: "invoice", subscription: sub });
 const rowOf = (sub: string) => (db.rows("subscriptions") as any[]).find((r) => r.stripe_subscription_id === sub);
 

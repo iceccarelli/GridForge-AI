@@ -18,6 +18,7 @@ import { checkRevocationBacklog, RECOMMENDED_WEBHOOK_EVENTS } from "@/lib/stripe
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
 import { MockStripe, mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
 import type { PostgrestFake, Row } from "./postgrest-fake";
+import { paidSession } from "./checkout-fixture";
 
 const WH = "whsec_holds";
 const sdk = new Stripe("sk_test_placeholder");
@@ -610,7 +611,7 @@ describe("3. the engine does not serve /v1/revoke (as the deployed engine does t
 // 4. checkout.session.completed fulfils only a PAID session
 // ============================================================================================================================
 describe("4. delayed payment methods", () => {
-  const checkout = (over: Record<string, unknown> = {}) => ({
+  const checkout = (over: Record<string, unknown> = {}) => paidSession({
     id: "cs_async", object: "checkout.session", customer_email: "buyer@hall.example", customer: "cus_async", subscription: "sub_async", amount_total: 90_000, currency: "eur",
     metadata: { kind: "hall_watch", company: "Hall Co" }, ...over,
   });

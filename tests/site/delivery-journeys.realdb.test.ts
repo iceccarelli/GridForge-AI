@@ -20,6 +20,7 @@ import { adminToken } from "@/lib/admin";
 import { reviewHash } from "@/lib/deliverables";
 import { screenIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
 import { siteUrl } from "@/lib/site";
+import { paidSession } from "./checkout-fixture";
 
 (globalThis as { React?: unknown }).React = React;
 const jar: { name: string; value: string }[] = [];
@@ -123,7 +124,7 @@ async function event(type: string, object: Record<string, unknown>) {
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": stripe.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
 }
 const checkout = (session: string, kind: string, amount: number, email: string, extra: Record<string, unknown> = {}) =>
-  event("checkout.session.completed", { id: session, object: "checkout_session", customer_email: email, customer: `cus_${session}`, amount_total: amount, currency: "eur", metadata: { kind, company: "Hall Co" }, ...extra });
+  event("checkout.session.completed", paidSession({ id: session, customer_email: email, customer: `cus_${session}`, amount_total: amount, currency: "eur", metadata: { kind, company: "Hall Co" }, ...extra }));
 const ctx = (token: string) => ({ params: Promise.resolve({ token }) });
 const json = (b: unknown, method = "POST") => new Request(siteUrl("/x"), { method, headers: { "content-type": "application/json", ...caller() }, body: JSON.stringify(b) });
 const INTAKE = {

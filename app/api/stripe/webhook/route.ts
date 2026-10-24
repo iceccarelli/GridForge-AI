@@ -76,10 +76,34 @@ function fulfilmentFailed(what: string, sessionId: string) {
   );
 }
 
-/** payment_status paid or no_payment_required (or absent, which Stripe never sends): true. unpaid, or any value we do not know: false. */
+/**
+ * Has this Checkout Session been PAID? Fails closed.
+ *
+ *   "paid" | "no_payment_required"  -> true  (a card payment that settled; a setup-mode or free session that owes nothing)
+ *   "unpaid"                        -> false (a delayed method that has not settled: fulfilled at checkout.session.async_payment_succeeded)
+ *   any other string                -> false (a status we do not know is never read as money received); logged, acknowledged unfulfilled
+ *   absent / null / not a string    -> THROWS
+ *
+ * Stripe puts `payment_status` on every Checkout Session it sends, so an event without one is malformed (a hand-built payload, a
+ * truncated body, an API shape we do not understand). It is neither "paid" nor "unpaid", and the two wrong answers are both bad:
+ * reading it as paid fulfils a sale nobody paid for (what this function used to do), and acknowledging it with a 200 would make
+ * Stripe stop redelivering a REAL payment whose payload we merely could not read, so a paying customer would be left with nothing
+ * and no retry. So it throws: the route answers 500, nothing is fulfilled or recorded, and Stripe redelivers (and shows the failing
+ * endpoint to the operator) until the payload can be read. The error carries only the session id, never buyer data.
+ */
+class MalformedCheckoutSessionError extends Error {
+  constructor(sessionId: unknown) {
+    super(`checkout session ${typeof sessionId === "string" ? sessionId : "(no id)"} has no payment_status; refusing to read it as paid or unpaid`);
+    this.name = "MalformedCheckoutSessionError";
+  }
+}
+
 function checkoutIsPaid(session: Stripe.Checkout.Session): boolean {
-  const ps = session.payment_status as string | undefined | null;
-  if (ps === undefined || ps === null) return true;
+  const ps = session.payment_status as unknown;
+  if (typeof ps !== "string" || ps === "") {
+    console.error(`[GridForge] checkout ${String(session.id)} arrived WITHOUT payment_status; not fulfilled, answering 500 so Stripe redelivers`);
+    throw new MalformedCheckoutSessionError(session.id);
+  }
   return ps === "paid" || ps === "no_payment_required";
 }
 
@@ -105,8 +129,8 @@ export async function POST(req: Request) {
   // transfer) completes with payment_status "unpaid" and settles days later, or fails: fulfilling at completion would hand a key, an
   // intake or a subscription to somebody whose money never arrives. The sale is fulfilled when it is paid: either at completion
   // (payment_status paid, or no_payment_required for a setup or a free checkout) or, for a delayed method, at
-  // checkout.session.async_payment_succeeded. async_payment_failed fulfils nothing. A payload with NO payment_status (never sent by
-  // Stripe, but hand-built in fixtures) is not read as unpaid.
+  // checkout.session.async_payment_succeeded. async_payment_failed fulfils nothing. A payload with NO payment_status (Stripe always
+  // sends one) is malformed: checkoutIsPaid throws and the route answers 500, so nothing is fulfilled and Stripe redelivers.
   if (event.type === "checkout.session.async_payment_failed") {
     const failed = event.data.object as Stripe.Checkout.Session;
     console.error(`[GridForge] checkout payment FAILED after completion; nothing fulfilled: session ${failed.id} (kind ${String(failed.metadata?.kind ?? "-")})`);

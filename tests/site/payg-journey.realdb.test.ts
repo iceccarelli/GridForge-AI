@@ -39,6 +39,7 @@ import { PAYG, paygChargeCents, utcMonth } from "@/lib/payg";
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
 import { siteUrl } from "@/lib/site";
 import { MockStripe } from "./payg-harness";
+import { noPaymentRequiredSession, paidSession } from "./checkout-fixture";
 
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
@@ -246,7 +247,7 @@ async function enablePayg(token: string, capEur: number): Promise<any> {
   const n = uid();
   const customer = `cus_${n}`;
   mock.setupIntentStore.set(`seti_${n}`, { id: `seti_${n}`, status: "succeeded", payment_method: `pm_${n}`, customer, metadata: { kind: "api_payg_enable", account_id: row.account, cap_eur: String(capEur) } });
-  const ok = await stripeEvent("checkout.session.completed", { id: `cs_${n}`, object: "checkout.session", mode: "setup", customer, setup_intent: `seti_${n}`, metadata: { kind: "api_payg_enable", account_id: row.account, cap_eur: String(capEur) } });
+  const ok = await stripeEvent("checkout.session.completed", noPaymentRequiredSession({ id: `cs_${n}`, object: "checkout.session", mode: "setup", customer, setup_intent: `seti_${n}`, metadata: { kind: "api_payg_enable", account_id: row.account, cap_eur: String(capEur) } }));
   expect(ok.status).toBe(200);
   return acct(token);
 }
@@ -604,7 +605,7 @@ describe.skipIf(!enabled)("metered API lifecycle on the real engine and real Pos
     // an api_triage subscription through the checkout webhook, its key minted from the mailed link
     const email = `sub-${uid()}@hall.example`;
     const sub = `sub_${uid()}`;
-    const ck = await stripeEvent("checkout.session.completed", { id: `cs_${uid()}`, object: "checkout.session", mode: "subscription", customer: `cus_${uid()}`, subscription: sub, customer_email: email, amount_total: 90_000, currency: "eur", metadata: { kind: "api_triage", company: "Sub Co" } });
+    const ck = await stripeEvent("checkout.session.completed", paidSession({ id: `cs_${uid()}`, object: "checkout.session", mode: "subscription", customer: `cus_${uid()}`, subscription: sub, customer_email: email, amount_total: 90_000, currency: "eur", metadata: { kind: "api_triage", company: "Sub Co" } }));
     expect(ck.status).toBe(200);
     const token = tokenFromMail(email);
     const m = await mint(token);

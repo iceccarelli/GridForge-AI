@@ -15,6 +15,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 import { bearerFor, installWithAuth, unconfirmedBearerFor } from "./auth-fake";
+import { paidSession } from "./checkout-fixture";
 
 const sessions: Record<string, any>[] = [];
 vi.mock("stripe", async (orig) => {
@@ -60,7 +61,7 @@ afterEach(() => { undo(); vi.restoreAllMocks(); });
 
 const VICTIM = "victim@hall.example";
 async function buy(email: string, customer: string, sub: string, plan: string, type = "checkout.session.completed") {
-  const payload = JSON.stringify({ id: `evt_${sub}`, type, data: { object: { id: `cs_${sub}`, object: "checkout_session", customer_email: email, customer, subscription: sub, amount_total: 1, metadata: { kind: "intelligence_subscription", plan } } } });
+  const payload = JSON.stringify({ id: `evt_${sub}`, type, data: { object: paidSession({ id: `cs_${sub}`, customer_email: email, customer, subscription: sub, amount_total: 1, metadata: { kind: "intelligence_subscription", plan } }) } });
   const { POST } = await import("@/app/api/stripe/webhook/route");
   return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sdk.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
 }
@@ -156,7 +157,7 @@ describe("/api/subscribe never takes the email from the request", () => {
 describe("QA6-8: the webhook still fulfils a generic deposit session created BEFORE the legacy flag existed", () => {
   it("flag off, a completed legacy deposit session is still recorded (only NEW sessions are refused)", async () => {
     delete process.env.GRIDFORGE_LEGACY_DEPOSIT;
-    const payload = JSON.stringify({ id: "evt_old_dep", type: "checkout.session.completed", data: { object: { id: "cs_old_dep", object: "checkout_session", customer_email: "buyer@hall.example", amount_total: 500_000, currency: "eur", metadata: { kind: "engagement_deposit", company: "Old Co" } } } });
+    const payload = JSON.stringify({ id: "evt_old_dep", type: "checkout.session.completed", data: { object: paidSession({ id: "cs_old_dep", customer_email: "buyer@hall.example", amount_total: 500_000, currency: "eur", metadata: { kind: "engagement_deposit", company: "Old Co" } }) } });
     const { POST } = await import("@/app/api/stripe/webhook/route");
     const send = () => POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST", headers: { "stripe-signature": sdk.webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
     expect((await send()).status).toBe(200);

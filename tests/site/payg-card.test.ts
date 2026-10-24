@@ -11,6 +11,7 @@ import { setPaygStripeForTests } from "@/lib/payg-stripe";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
 import { MockStripe, mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
 import type { PostgrestFake } from "./postgrest-fake";
+import { noPaymentRequiredSession } from "./checkout-fixture";
 
 const WH = "whsec_payg_card_test";
 const sdk = new Stripe("sk_test_placeholder");
@@ -49,7 +50,7 @@ async function webhook(object: Record<string, unknown>, type = "checkout.session
 const route = () => import("@/app/api/payg/card/route");
 const acct = () => (db.rows("api_accounts") as any[])[0];
 const meta = { kind: "api_payg_card_update", account_id: "acme-123456" };
-const cardSession = (over: Record<string, unknown> = {}) => ({ id: "cs_card_1", object: "checkout.session", mode: "setup", customer: "cus_acme", setup_intent: "seti_card", metadata: meta, ...over });
+const cardSession = (over: Record<string, unknown> = {}) => noPaymentRequiredSession({ id: "cs_card_1", object: "checkout.session", mode: "setup", customer: "cus_acme", setup_intent: "seti_card", metadata: meta, ...over });
 const intent = (over: Record<string, unknown> = {}) => mock.setupIntentStore.set("seti_card", { id: "seti_card", status: "succeeded", payment_method: "pm_new", customer: "cus_acme", metadata: meta, ...over } as any);
 
 describe("POST /api/payg/card", () => {
