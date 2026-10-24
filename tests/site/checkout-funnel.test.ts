@@ -281,13 +281,18 @@ describe("invalid, unknown or malformed input records nothing (no commercial act
     ["a product with a hostile value", { product: "ops@acme.example" }],
     ["no product at all (the generic deposit is off the catalogue)", {}],
     ["no product and the founding flag", { founding: true }],
+    ["a prototype key as the product (constructor)", { product: "constructor" }],
+    ["a prototype key as the product (__proto__)", undefined, '{"product":"__proto__"}'],
+    ["a prototype key as the product (toString)", { product: "toString" }],
+    ["a prototype key as the product (hasOwnProperty)", { product: "hasOwnProperty" }],
     ["a malformed body", undefined, "{not json"],
     ["an empty body", undefined, ""],
   ];
   for (const [label, body, raw] of cases) {
     it(label, async () => {
       const res = await checkout(body, raw);
-      expect([400, 500]).toContain(res.status);
+      // 400 exactly: a 500 would mean the request reached Stripe (it did, for prototype keys, before isProductId used own keys only).
+      expect(res.status).toBe(400);
       expect(sessions).toHaveLength(0);
       expect(db.rows("funnel_events")).toHaveLength(0);
     });
@@ -445,6 +450,36 @@ describe("API plans: an attempt only when readiness is proven", () => {
     expect(res.status).toBe(503);
     expect(names()).toEqual(["checkout_failed"]);
     expect(events()[0].props).toEqual({ kind: "api_scale", reason: "api_plan_not_ready" });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------- the request limit
+
+describe("POST /api/checkout is rate limited, so the funnel and Stripe cannot be inflated for free", () => {
+  it("refuses the request after the limit with 429, before any session, and records nothing for the refused request", async () => {
+    const { RATE_POLICIES } = await import("@/lib/rate-limit");
+    const limit = RATE_POLICIES.checkout.limit;
+    for (let i = 0; i < limit; i++) expect((await checkout({ product: "density_screen" })).status).toBe(200);
+    const sessionsBefore = sessions.length;
+    const eventsBefore = db.rows("funnel_events").length;
+    const over = await checkout({ product: "density_screen" });
+    expect(over.status).toBe(429);
+    expect(over.headers.get("retry-after")).toBeTruthy();
+    expect(sessions.length).toBe(sessionsBefore);                       // no Stripe session for the refused request
+    expect(db.rows("funnel_events")).toHaveLength(eventsBefore);        // and no funnel row for it
+  });
+
+  it("invalid input does not spend the caller's allowance", async () => {
+    const { RATE_POLICIES } = await import("@/lib/rate-limit");
+    for (let i = 0; i < RATE_POLICIES.checkout.limit + 5; i++) expect((await checkout({ product: "constructor" })).status).toBe(400);
+    expect((await checkout({ product: "density_screen" })).status).toBe(200);
+  });
+
+  it("fails closed (503) when the limiter cannot decide: no session is created", async () => {
+    db.rpcs.delete("gf_rate_limit_hit");
+    const res = await checkout({ product: "density_screen" });
+    expect(res.status).toBe(503);
+    expect(sessions).toHaveLength(0);
   });
 });
 

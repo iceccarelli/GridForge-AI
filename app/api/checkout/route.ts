@@ -8,6 +8,7 @@ import { getProjectByToken, isProjectAttachable } from "@/lib/projects";
 import { projectForShare } from "@/lib/project-share";
 import { qualificationForCheckout } from "@/lib/qualify";
 import { pg, rpc } from "@/lib/payg-store";
+import { guardRequest } from "@/lib/rate-limit";
 import { LEGACY_DEPOSIT_KIND, recordCheckoutEvent, type CheckoutFailureReason } from "@/lib/funnel";
 
 export const runtime = "nodejs";
@@ -117,6 +118,11 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  // A valid request is about to touch the store and Stripe (and the funnel): admitted by the request limit first, which fails closed.
+  // Invalid input was refused above and costs nothing. The limiter's own counters, not the funnel, record a request refused here.
+  const guard = await guardRequest(req, "checkout");
+  if (guard.denied) return guard.denied;
 
   // Commissioning a paid product FOR a project. The project token is the authority and is
   // checked here, before Stripe is touched: a wrong token, a product that cannot attach, or a
