@@ -2,8 +2,8 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-10-23",
-      "hash": "1cd8ad0bec3bcec3f724eeeb7ee77042f0f25a123329359b1aaa2c4af974bc5b"
+      "lastmod": "2026-10-24",
+      "hash": "693f689cab247d9e523e4e57adc9dbc89859942c7c199601c22ce7c96d40b3e5"
     },
     "/constraints": {
       "lastmod": "2026-10-23",
@@ -63,11 +63,11 @@
     },
     "/developers": {
       "lastmod": "2026-10-24",
-      "hash": "e2da82dbea8dfd2650ec419ab4a794395f85042a879a1fa97339c2d5e73f0989"
+      "hash": "946623ee403f8cc95fe0c1955590b7511f8b0416f2f0e9a3709a5e1c374f3a2b"
     },
     "/intelligence": {
-      "lastmod": "2026-10-23",
-      "hash": "40d82c4d1999e054dd63aaee4321268b83088a6bd691a10eaa3cf29b96fcc307"
+      "lastmod": "2026-10-24",
+      "hash": "96ef41d63f44669ba5fe0204625162de9f4d85dccd50b1629c45a5a15b59092d"
     },
     "/legal/privacy": {
       "lastmod": "2026-10-23",
@@ -95,7 +95,7 @@
     },
     "/pricing": {
       "lastmod": "2026-10-24",
-      "hash": "a347b55d903f35b609d7096cc5ec51988ad813288671314f045b4f22eff36a34"
+      "hash": "ab18c5d45265b5f5eb2711ee6a32593ee27c7d85562cd0945bfe3183267c06c5"
     },
     "/qualify": {
       "lastmod": "2026-10-23",
