@@ -301,11 +301,12 @@ def test_deploy_workflow_step_order_and_credential_preflight():
     assert not re.search(r"echo[^\n]*\$\{?FLY_API_TOKEN", code), "the token must never be printed"
 
 
-def test_flyctl_is_installed_by_the_official_action_at_an_exact_version():
+def test_flyctl_is_installed_by_the_official_action_and_its_version_is_recorded():
+    # Not pinned on purpose: neither the action tag nor a flyctl version could be verified when this was written, and a pin that does
+    # not exist fails the first real deploy. The version used is printed so the operator can pin it after a successful run.
     code = "\n".join(code_lines(wf_text("deploy-engine.yml")))
-    m = re.search(r"uses: superfly/flyctl-actions/setup-flyctl@(\S+)\n\s+with:\n\s+version: (\S+)", code)
-    assert m, "setup-flyctl must be pinned with a version"
-    assert m.group(1) != "master" and re.fullmatch(r"\d+\.\d+\.\d+", m.group(2))
+    assert "uses: superfly/flyctl-actions/setup-flyctl@" in code
+    assert code.index("setup-flyctl") < code.index("flyctl version") < code.index("scripts/deploy-engine.sh")
 
 
 def test_the_token_is_only_ever_assigned_to_an_env_var():

@@ -72,10 +72,14 @@ jobs:
           python -m pip install --quiet pytest
           python -m pytest tests -q -p no:cacheprovider
 
-      # Pinned: a floating flyctl can change `fly secrets list` / `fly machines list` output under the deploy script.
-      - uses: superfly/flyctl-actions/setup-flyctl@1.5
-        with:
-          version: 0.3.100
+      # The action's documented form (official superfly repository). Neither a tag nor a flyctl version could be verified from the
+      # environment that wrote this, and a pin that does not exist fails the first real deploy, so this floats. A floating flyctl can
+      # change `fly secrets list` / `fly machines list` output under the deploy script, which is why the version used is printed
+      # below: after the first successful run, pin the action tag and `version:` to what the log shows.
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Record the flyctl version used
+        run: flyctl version
 
       - name: Deploy (never changes a credential; one machine, one volume)
         id: deploy

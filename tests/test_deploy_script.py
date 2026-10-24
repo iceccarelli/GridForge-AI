@@ -468,30 +468,36 @@ class TestAuthFailsEarly:
         proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1", "GRIDFORGE_SKIP_DEPLOY": "0"},
                           args=("--bootstrap",))
         assert proc.returncode == 3, proc.stdout + proc.stderr
-        assert calls == [["auth", "whoami"]], f"anything after the auth check is a mutation or a read it had no right to make: {calls}"
+        assert calls == [["auth", "whoami"], ["status", "--app", "test-engine"]], f"anything after the auth check is a mutation or a read it had no right to make: {calls}"
         assert mutations(calls) == []
         assert "Add repository secret FLY_API_TOKEN (fly tokens create deploy -a test-engine)" in proc.stderr
 
+    def test_an_app_scoped_deploy_token_that_cannot_answer_whoami_is_accepted_when_it_can_read_the_app(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "0", "GRIDFORGE_SKIP_DEPLOY": "1"}, args=("--check",))
+        assert "Not authenticated" not in proc.stdout + proc.stderr, proc.stdout + proc.stderr
+        assert calls[:2] == [["auth", "whoami"], ["status", "--app", "test-engine"]]
+        assert mutations(calls) == []
+
     def test_there_is_no_interactive_login_fallback(self, tmp_path):
-        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1"})
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1"})
         assert not [c for c in calls if c[:2] == ["auth", "login"]], "a script run in CI must not try to sign in"
 
     def test_a_rejected_token_is_named_and_never_printed(self, tmp_path):
         secret = "fo1_SuperSecretTokenValue123"
-        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FLY_API_TOKEN": secret})
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1", "FLY_API_TOKEN": secret})
         assert proc.returncode == 3
         assert "Fly rejected it" in proc.stderr
         assert secret not in proc.stdout + proc.stderr
         assert mutations(calls) == []
 
     def test_an_empty_token_counts_as_no_token(self, tmp_path):
-        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FLY_API_TOKEN": ""})
+        proc, calls = run(tmp_path, secrets_out="[]", env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1", "FLY_API_TOKEN": ""})
         assert proc.returncode == 3
         assert "FLY_API_TOKEN is set but empty" in proc.stdout
         assert "Add repository secret FLY_API_TOKEN" in proc.stderr
 
     def test_check_mode_also_needs_auth(self, tmp_path):
-        proc, calls = run(tmp_path, secrets_out="[]", args=("--check",), env_extra={"FAKE_WHOAMI_RC": "1"})
+        proc, calls = run(tmp_path, secrets_out="[]", args=("--check",), env_extra={"FAKE_WHOAMI_RC": "1", "FAKE_STATUS_RC": "1"})
         assert proc.returncode == 3 and mutations(calls) == []
 
     def test_check_mode_still_stops_before_the_deploy(self, tmp_path):

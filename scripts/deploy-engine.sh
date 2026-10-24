@@ -74,7 +74,9 @@ if [ "${FLY_API_TOKEN+set}" = "set" ] && [ -z "${FLY_API_TOKEN}" ]; then
   unset FLY_API_TOKEN   # an empty token is "no token", not a credential to hand to flyctl
   warn "FLY_API_TOKEN is set but empty."
 fi
-if ! "$FLY" auth whoami >/dev/null 2>&1; then
+# `fly auth whoami` needs a personal token. The deploy token the workflow asks for is scoped to one app and may not answer it, so a
+# credential is also accepted when it can read this app (a read, not a mutation). With neither, nothing below runs.
+if ! "$FLY" auth whoami >/dev/null 2>&1 && ! "$FLY" status --app "$APP" >/dev/null 2>&1; then
   warn "Not authenticated to Fly.io — stopping before anything is created, set or deployed."
   if [ -n "${FLY_API_TOKEN:-}" ]; then
     echo "  FLY_API_TOKEN is set, but Fly rejected it (expired, revoked, or for another app)." >&2
