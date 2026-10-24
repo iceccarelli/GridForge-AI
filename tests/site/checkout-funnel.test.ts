@@ -407,8 +407,13 @@ describe("every refusal and failure path records its category", () => {
 
   it("stripe_session_failed: Stripe answers without a URL (no usable session is not a created session)", async () => {
     stripeMode = "no_url";
-    await checkout({ product: "envelope_study_deposit" });
+    const res = await checkout({ product: "envelope_study_deposit" });
     expect(events()).toEqual([{ name: "checkout_attempted", props: { kind: "envelope_study_deposit" } }, failed("envelope_study_deposit", "stripe_session_failed")]);
+    // ... and the buyer is told the truth too: a session with nowhere to pay is a failure, never `{ ok: true, url: null }`.
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+    expect(body.url).toBeUndefined();
   });
 
   it("stripe_coupon_failed: the Founding coupon fails; the route still throws exactly as before and the slot is given back", async () => {

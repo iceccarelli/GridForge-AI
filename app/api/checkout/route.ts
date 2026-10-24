@@ -334,7 +334,10 @@ export async function POST(req: Request) {
     if (session.url) {
       await recordCheckoutEvent("checkout_session_created", { kind: funnelKind });
     } else {
-      await refused("stripe_session_failed"); // no URL is no usable session, whatever Stripe's object says
+      // No URL is no usable session, whatever Stripe's object says: the buyer has nowhere to pay, so this is a failure, not an ok.
+      await refused("stripe_session_failed");
+      await releaseFoundingReservation(foundingReservation);
+      return NextResponse.json({ ok: false, error: "Could not start checkout" }, { status: 502 });
     }
 
     // Best-effort AI-origin tag: the workspace's CommercialActionCard passes
