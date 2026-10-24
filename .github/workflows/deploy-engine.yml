@@ -1,0 +1,97 @@
+name: deploy-engine
+
+# Manual, owner-triggered deploy of the capacity engine to Fly.io (gridforge-engine).
+#
+# Nothing here runs on push, schedule or pull request. A deploy happens only when someone presses "Run workflow" AND types
+# DEPLOY in the confirm box. Make it a two-person decision by adding required reviewers to the `production-engine`
+# environment (Settings -> Environments -> production-engine -> Required reviewers).
+#
+# What it does, in order:
+#   1. confirm == DEPLOY, and the FLY_API_TOKEN secret exists (fails fast, names the fix, never prints the token)
+#   2. the engine test suite
+#   3. scripts/deploy-engine.sh  (no --bootstrap: a deploy never creates, rotates or overwrites a credential)
+#   4. scripts/check-engine-drift.py against the live engine; the job fails if ANY drift remains
+#
+# Topology rule (see fly.toml): ONE machine, ONE volume. usage, ledger and revocations are local state. The script deploys with
+# --ha=false and fails if it finds anything other than exactly one machine mounting the volume. Never scale to 2.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type the word DEPLOY to deploy the engine to production (gridforge-engine.fly.dev)'
+        required: true
+        type: string
+
+# Two deploys must never overlap, and a running deploy must never be cancelled half way (a cancelled flyctl deploy can
+# leave a machine mid-update).
+concurrency:
+  group: deploy-engine
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production-engine
+    timeout-minutes: 30
+    env:
+      FLY_APP: gridforge-engine
+    steps:
+      - name: Confirm and check credentials (fails before anything is built or changed)
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ "$CONFIRM" != "DEPLOY" ]; then
+            echo "::error title=Not confirmed::The confirm input must be exactly the word DEPLOY. Nothing was deployed."
+            exit 1
+          fi
+          if [ -z "${FLY_API_TOKEN:-}" ]; then
+            echo "::error title=Missing Fly credential::Add repository secret FLY_API_TOKEN (fly tokens create deploy -a gridforge-engine)"
+            {
+              echo "### deploy-engine: stopped, no Fly credential"
+              echo
+              echo "Add repository secret FLY_API_TOKEN (fly tokens create deploy -a gridforge-engine)"
+              echo "(Settings -> Secrets and variables -> Actions -> New repository secret), then run this workflow again."
+              echo "Nothing was deployed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "FLY_API_TOKEN is present (value not shown)."
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Engine tests
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tests -q -p no:cacheprovider
+
+      # Pinned: a floating flyctl can change `fly secrets list` / `fly machines list` output under the deploy script.
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+        with:
+          version: 0.3.100
+
+      - name: Deploy (never changes a credential; one machine, one volume)
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: bash scripts/deploy-engine.sh
+
+      - name: The live engine must match this repository (any remaining drift fails the job)
+        if: ${{ !cancelled() && steps.deploy.conclusion != 'skipped' }}
+        run: python3 scripts/check-engine-drift.py --write-snapshot engine-deployed.json --summary-file "$GITHUB_STEP_SUMMARY"
+
+      # What the engine reported after this deploy; the website's lib/engine-deployed.json is refreshed from it by a normal PR.
+      - name: Keep the deployed-engine snapshot
+        if: ${{ !cancelled() && steps.deploy.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-deployed
+          path: engine-deployed.json
+          if-no-files-found: ignore
