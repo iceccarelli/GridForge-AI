@@ -229,26 +229,46 @@ function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
+/** The day-ahead value as served: the contract's fields plus the window min/max/avg were computed over (types.ts v2 should carry both). */
+export type DayAheadValue = NonNullable<DayAhead> & { windowStart: string; windowEnd: string };
+
+/**
+ * min/max/avg are over EVERY published interval the feed returned (about a day, from some hours back to the end of tomorrow's
+ * auction), not a calendar day. They are computed here from the intervals actually used, and the window they cover is carried
+ * in the value so a reader is told what "min" and "max" are the min and max OF.
+ */
 export function deriveDayAhead(
-  market: { body: MarketOk; intervals: MarketInterval[] } | null,
+  market: { body?: MarketOk; intervals: MarketInterval[] } | null,
   retrievedAtMs: number | null,
   now: Date,
-): Observed<NonNullable<DayAhead>> {
+): Observed<DayAheadValue> {
   const iv = market ? pickInterval(market.intervals, now.getTime()) : null;
-  const hourly = iv !== null && iv.end - iv.start === 3600_000;
+  const lengthSec = iv ? (iv.end - iv.start) / 1000 : null;
+  const hourly = lengthSec === 3600;
   const provenance: Provenance = {
     source: DAY_AHEAD_SOURCE,
     basis: "day_ahead_auction",
     observedAt: iv ? iso(iv.start) : null,
     retrievedAt: iv && retrievedAtMs !== null ? iso(retrievedAtMs) : null,
-    maxAgeSeconds: MAX_AGE_SECONDS.dayAheadPrice,
+    // Fresh only while its own delivery interval lasts: a price is not an observation, and the next interval has a different price.
+    maxAgeSeconds: lengthSec ?? MAX_AGE_SECONDS.dayAheadPrice,
     caveat: iv
       ? `a published auction price for this delivery ${hourly ? "hour" : "period"}, not a live observation`
       : "no published delivery interval covers the current time, so no price is shown",
   };
-  if (!market || !iv) return observed<NonNullable<DayAhead>>({ value: null, provenance, now });
-  return observed({
-    value: { eurPerMWh: iv.eurPerMWh, deliveryStart: iso(iv.start), min: market.body.min, max: market.body.max, avg: market.body.avg },
+  if (!market || !iv) return observed<DayAheadValue>({ value: null, provenance, now });
+  const prices = market.intervals.map((x) => x.eurPerMWh);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return observed<DayAheadValue>({
+    value: {
+      eurPerMWh: iv.eurPerMWh,
+      deliveryStart: iso(iv.start),
+      min: Math.min(...prices),
+      max: Math.max(...prices),
+      avg: r2(prices.reduce((a, b) => a + b, 0) / prices.length),
+      windowStart: iso(Math.min(...market.intervals.map((x) => x.start))),
+      windowEnd: iso(Math.max(...market.intervals.map((x) => x.end))),
+    },
     provenance,
     now,
   });
@@ -327,7 +347,38 @@ export function deriveUsDemand(
 // The live context
 // ---------------------------------------------------------------------------------------------------------------------
 
-export async function getLiveContext(deps: SourceDeps = {}): Promise<LiveContext> {
+export interface LiveContextResult {
+  context: LiveContext;
+  /**
+   * How many whole seconds this exact response stays true if a cache holds it: never more than MAX_RESPONSE_CACHE_SECONDS, and no
+   * longer than the moment the price interval it shows ends or any fresh value passes its age limit. 0 = do not cache.
+   */
+  validForSeconds: number;
+}
+
+/** A shared cache (CDN) may hold a response at most this long, whatever else is true. */
+export const MAX_RESPONSE_CACHE_SECONDS = 300;
+
+/**
+ * Freshness as of `now` for a value that was labelled earlier (a response held by a cache or a browser tab). The single rule is
+ * freshnessOf; this applies it to an Observed that already carries its provenance. A value that was dropped stays unavailable.
+ */
+export function reassessFreshness(o: Observed<unknown>, now: Date): Freshness {
+  return freshnessOf({
+    applicable: o.freshness !== "not_applicable",
+    hasValue: o.value !== null,
+    observedAt: o.provenance.observedAt,
+    retrievedAt: o.provenance.retrievedAt,
+    maxAgeSeconds: o.provenance.maxAgeSeconds,
+    now,
+  });
+}
+
+export function getLiveContext(deps: SourceDeps = {}): Promise<LiveContext> {
+  return getLiveContextWithValidity(deps).then((r) => r.context);
+}
+
+export async function getLiveContextWithValidity(deps: SourceDeps = {}): Promise<LiveContextResult> {
   const now = deps.now ?? (() => new Date());
   const env = deps.env ?? process.env;
   const timeoutMs = deps.timeoutMs ?? FEED_TIMEOUT_MS;
@@ -365,12 +416,27 @@ export async function getLiveContext(deps: SourceDeps = {}): Promise<LiveContext
   const e = settled(eia);
 
   const t = now();
-  return {
+  const marketData = m.data as { body?: MarketOk; intervals: MarketInterval[] } | null;
+  const context: LiveContext = {
     generatedAt: t.toISOString(),
     referenceRegion: REFERENCE_REGION,
-    dayAheadPrice: deriveDayAhead(m.data as { body: MarketOk; intervals: MarketInterval[] } | null, m.at, t),
+    dayAheadPrice: deriveDayAhead(marketData, m.at, t),
     generationMix: deriveGenerationMix(g.data as GridOk | null, g.at, t),
     queue: deriveQueue(t),
     usDemand: deriveUsDemand(key, e.data as { mw: number; period: string; respondent: string | null } | null, e.at, t),
   };
+  return { context, validForSeconds: validForSeconds(context, marketData ? pickInterval(marketData.intervals, t.getTime()) : null, t) };
+}
+
+/** The longest a cache may hold `ctx` without it ever presenting a value as fresh after it has stopped being so. Pure. */
+export function validForSeconds(ctx: LiveContext, priceInterval: MarketInterval | null, now: Date): number {
+  const nowMs = now.getTime();
+  let limitSec = MAX_RESPONSE_CACHE_SECONDS;
+  if (ctx.dayAheadPrice.freshness === "fresh" && priceInterval) limitSec = Math.min(limitSec, (priceInterval.end - nowMs) / 1000);
+  for (const o of [ctx.dayAheadPrice, ctx.generationMix, ctx.queue, ctx.usDemand] as Observed<unknown>[]) {
+    if (o.freshness !== "fresh" || o.provenance.observedAt === null || o.provenance.maxAgeSeconds === null) continue;
+    const staleAt = Date.parse(o.provenance.observedAt) + o.provenance.maxAgeSeconds * 1000;
+    limitSec = Math.min(limitSec, (staleAt - nowMs) / 1000);
+  }
+  return Number.isFinite(limitSec) ? Math.max(0, Math.floor(limitSec)) : 0;
 }

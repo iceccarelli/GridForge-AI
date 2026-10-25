@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -89,6 +90,10 @@ def pinned_engine(date: str):
 
 
 REFERENCE_INTAKE = REPO / "examples" / "intake" / "reference_hall.json"
+
+# Where the invented halls are placed: nowhere. The engine inputs keep a metro and a country because its intake needs them, but
+# they are internal: no city, country or campus name is written to the file.
+REGION = "invented site (no location)"
 
 SYNTHETIC_NOTE = ("SYNTHETIC DATA: invented for the Observatory. Not a customer, a company or a site; "
                   "no figure here is a measurement.")
@@ -171,11 +176,11 @@ def hall_c() -> dict:
 
 
 HALLS = [
-    {"id": "hall-a-frankfurt-rack-feed", "title": "Synthetic Hall A — Frankfurt", "doc": hall_a,
+    {"id": "hall-a-rack-feed", "title": "Synthetic Hall A", "doc": hall_a,
      "headline": "hybrid_dlc", "lesson": "rack_feed"},
-    {"id": "hall-b-dublin-water-temperature", "title": "Synthetic Hall B — Dublin", "doc": hall_b,
+    {"id": "hall-b-water-temperature", "title": "Synthetic Hall B", "doc": hall_b,
      "headline": "full_dlc", "lesson": "water"},
-    {"id": "hall-c-oslo-headroom", "title": "Synthetic Hall C — Oslo", "doc": hall_c,
+    {"id": "hall-c-headroom", "title": "Synthetic Hall C", "doc": hall_c,
      "headline": "hybrid_dlc", "lesson": "headroom"},
 ]
 
@@ -373,6 +378,7 @@ def constraints_out(res) -> list[dict]:
     env = res.envelope
     return [{"key": c.id, "name": c.name, "domain": c.domain,
              "racksAllowed": None if math.isinf(c.racks) else int(c.racks),
+             "passes": math.isinf(c.racks),
              "binds": c.id == env.binding.id, "basis": c.basis, "evidence": c.max_racks.evidence.short}
             for c in env.sorted_constraints()]
 
@@ -386,7 +392,7 @@ def rack_rows(res) -> list[dict]:
     if occupied:
         d = hall.design_density_kW_per_rack
         rows.append({"id": "existing-racks",
-                     "label": f"Existing racks, occupied positions (design density, not measured)",
+                     "label": "Existing racks: occupied positions at the hall's design density (a design value, not a measurement)",
                      "racks": occupied, "kwPerRackAsFound": _fin(d.rounded()), "kwPerRackAfterPlan": _fin(d.rounded())})
     kw = _fin(plat.rack_kW.rounded())
     rows.append({"id": "new-platform-racks",
@@ -403,14 +409,32 @@ def weeks_out(row: dict) -> tuple[dict, bool]:
     if t["status"] == "dated" and t.get("date_basis") == "supported":
         return ({"value": t["weeks"], "low": t["low"], "high": t["high"], "unit": "weeks", "evidence": t["evidence"]}, True)
     if t["status"] == "dated":          # assumed: the engine calls it "assumed lead time, not a date"
-        reason = (f"Not a date: {t['date_label']}. The engine gives no weeks until every lead time behind it is "
-                  "supplied above class E0; a lead time written into an intake is still labelled an assumption.")
+        reason = f"Not a date: {t['date_label']}. Weeks are given only when every lead time behind them is above class E0."
     else:
         reason = t["reason"]
     return (q_missing("weeks", ev, reason), False)
 
 
-def outcome_out(res, row) -> dict:
+def capex_pricing(sc: dict, has_capex: bool) -> str:
+    """What the priced lines behind a capex rest on, from the engine's own output: economics.cost_basis_mix counts the priced
+    library lines by basis ("library_default" is a placeholder, not a price) and a taken ladder step priced from the intake carries
+    cost_basis "client_supplied". Anything else (a benchmark, an estimate, a quotation) is a supplied figure."""
+    if not has_capex:
+        return "none"
+    mix = {b: v["lines"] for b, v in sc["economics"]["cost_basis_mix"].items()}
+    placeholders = mix.get("library_default", 0)
+    supplied = sum(n for b, n in mix.items() if b != "library_default") + sum(
+        1 for st in sc["ladder"] if st["taken"] and st["cost_basis"] == "client_supplied")
+    if placeholders and supplied:
+        return "partly_supplied"
+    if supplied:
+        return "supplied"
+    if placeholders:
+        return "placeholder"
+    raise SystemExit("cannot derive capexPricing: the engine reports no priced line behind a capex figure")
+
+
+def outcome_out(res, row, sc) -> dict:
     econ = row["economics"]
     final = res.ladder.final
     weeks, dated = weeks_out(row)
@@ -431,7 +455,9 @@ def outcome_out(res, row) -> dict:
             "racksAfterPlan": res.unlocked_racks,
             "bindingAfterPlan": final.binding.id if final else None,
             "itLoadKwAfterPlan": q_out(final.it_load_kW), "weeksToCapacity": weeks, "dated": dated,
-            "capexEur": capex, "unpricedComponents": unpriced, "evidence": min(classes).short}
+            "capexEur": capex, "capexComplete": bool(econ["capex_complete"]),
+            "capexPricing": capex_pricing(sc, capex["value"] is not None),
+            "unpricedComponents": unpriced, "evidence": min(classes).short}
 
 
 def summary_of(h, res, outcome) -> str:
@@ -464,7 +490,8 @@ def scenario_out(h, doc: dict, calibration_statement: str) -> dict:
         assert s["as_found"]["racks"] == row["as_found"]["racks"] == r.envelope.max_racks, s["id"]
         assert s["after_ladder"]["racks"] == row["after_ladder"]["racks"] == r.unlocked_racks, s["id"]
     head = by_id[h["headline"]]
-    outcomes = [outcome_out(by_id[sid], rows[sid]) for sid in rows]
+    screen_by_id = {x["id"]: x for x in screen["scenarios"]}
+    outcomes = [outcome_out(by_id[sid], rows[sid], screen_by_id[sid]) for sid in rows]
     head_outcome = next(o for o in outcomes if o["id"] == h["headline"])
     ctx = head.ladder.initial_context
     g = ctx.power.grid
@@ -487,17 +514,16 @@ def scenario_out(h, doc: dict, calibration_statement: str) -> dict:
         add(text)
     for text in intake_warnings(intake):
         add(text)
-    if any(o["unpricedComponents"] for o in outcomes):
-        add("Some outcomes omit components the cost library has no price for (listed on each outcome): their capex is a "
-            "lower bound, not a complete price.")
+    if any(o["unpricedComponents"] or not o["capexComplete"] for o in outcomes if o["capexEur"]["value"] is not None):
+        add("A capex that is not complete, or that lists unpriced components, is a lower bound, not a complete price.")
     add("The power path and the constraints are shown for the headline outcome "
         f"({head.spec.name}); other architectures are compared under outcomes. Stage capacities are as found: the plan's "
         "reliefs raise several of them, so a stage's load after the plan may exceed its as-found capacity.")
     add("Loads: the engine charges the existing site peak to the utility connection and transformers, the existing IT load to the "
         "UPS and the chilled-water plant, and only the new IT load to the busway; it models no switchgear. A null load is a "
         "load the engine does not charge to that stage.")
-    add("A null racks-allowed value means the constraint does not limit the hall in this architecture (the engine reports it "
-        "as unlimited), not that it has not been assessed.")
+    add("A constraint with no racks-allowed figure passes: the engine reports no finite limit for it in this architecture, so it "
+        "does not limit the hall. How well supported that is shows in its evidence class, not in the figure being absent.")
     found_binding = next(c for c in constraints if c["binds"])
     tied = [c["name"] for c in constraints
             if not c["binds"] and c["racksAllowed"] is not None and c["racksAllowed"] == found_binding["racksAllowed"]]
@@ -505,15 +531,34 @@ def scenario_out(h, doc: dict, calibration_statement: str) -> dict:
         add("Tied as found: " + "; ".join(tied) + " also allow" + ("s" if len(tied) == 1 else "") +
             f" {found_binding['racksAllowed']} racks. The engine names the first constraint in its fixed order as binding "
             f"({found_binding['name']}), so relieving that one alone may not unlock racks.")
-    add("Weeks to capacity are given only when every lead time behind them is above class E0. The engine labels every lead time "
-        "an intake supplies as an assumption, so no outcome here is dated.")
+    dated = [o["name"] for o in outcomes if o["dated"]]
+    if dated:
+        add("Weeks to capacity are given only for outcomes whose every lead time is above class E0 (" + "; ".join(dated) +
+            "); every other outcome has no date.")
+    else:
+        add("No outcome here is dated: weeks to capacity are given only when every lead time behind them is above class E0, "
+            "and none is.")
+    rr = rack_rows(head)
+    if any(r["id"] == "existing-racks" for r in rr):
+        add("The existing-racks row is the occupied positions at the hall's design density, a design value. The current IT load "
+            "is a separate invented input: occupied positions multiplied by design density is not claimed to equal it, and the "
+            "engine uses the two independently (the current IT load is charged to the UPS and the chilled-water plant).")
+    pricing: dict[str, list[str]] = {}
+    for o in outcomes:
+        pricing.setdefault(o["capexPricing"], []).append(o["name"])
+    labels = {"placeholder": "rest entirely on library placeholders (not prices)",
+              "partly_supplied": "rest partly on a supplied figure and partly on library placeholders",
+              "supplied": "rest on supplied figures only"}
+    parts = [f"{'; '.join(names)} {labels[k]}" for k, names in sorted(pricing.items()) if k != "none"]
+    if parts:
+        add("Capex pricing: " + ". ".join(parts) + ". An outcome with no racks has no capex figure.")
 
     return {
         "id": h["id"], "title": h["title"], "summary": summary_of(h, head, head_outcome), "synthetic": True,
         "hall": {"name": h["title"], "platform": ctx.cluster.platform.name,
                  "contractedMW": _fin(g.contracted_MW.rounded()), "currentItLoadMW": _fin(ctx.power.current_it_load_MW.rounded()),
                  "positionsAvailable": ctx.hall.positions_available,
-                 "region": f"{site.metro}, {site.country} (informational; it does not select live data)"},
+                 "region": REGION},
         "powerPath": power_path(head),
         "constraints": constraints,
         "rackRows": rack_rows(head),
@@ -523,6 +568,55 @@ def scenario_out(h, doc: dict, calibration_statement: str) -> dict:
 
 def head_row_limitations(row: dict) -> list[str]:
     return list(row["economics"].get("limitations") or [])
+
+
+# --- the content fingerprint -------------------------------------------------------------------------------------------------
+# contentSha256 seals every leaf of the file but itself, so the loader (lib/observatory/scenario-data.ts, contentFingerprint) can
+# refuse a schema-valid hand edit of any figure. The two implementations must agree exactly; a shared test vector in
+# tests/test_observatory_scenarios.py and tests/site/observatory-scenarios.test.ts pins them. One line per leaf, "/path\t<kind><value>":
+# z = null, b = boolean, n = number (integers without a point, others shortest round-trip; exponent notation and magnitudes above
+# 2**53 are refused), s = string (JSON-escaped, not ASCII-escaped). Keys are visited in sorted order, arrays by index; lines are
+# joined with "\n" and hashed as UTF-8.
+def _canonical_number(x, at: str) -> str:
+    if isinstance(x, bool):
+        raise TypeError(at)
+    if isinstance(x, float):
+        if not math.isfinite(x) or abs(x) > 2 ** 53:
+            raise ValueError(f"{at}: number out of range for the content fingerprint")
+        text = str(int(x)) if x == int(x) else repr(x)
+    else:
+        if abs(x) > 2 ** 53:
+            raise ValueError(f"{at}: number out of range for the content fingerprint")
+        text = str(x)
+    if "e" in text.lower():
+        raise ValueError(f"{at}: number in exponent notation cannot be fingerprinted")
+    return "0" if text == "-0" else text
+
+
+def _fingerprint_lines(value, at: str, out: list) -> None:
+    if value is None:
+        out.append(f"{at}\tz")
+    elif isinstance(value, bool):
+        out.append(f"{at}\tb{'true' if value else 'false'}")
+    elif isinstance(value, (int, float)):
+        out.append(f"{at}\tn{_canonical_number(value, at)}")
+    elif isinstance(value, str):
+        out.append(f"{at}\ts{json.dumps(value, ensure_ascii=False)}")
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            _fingerprint_lines(v, f"{at}/{i}", out)
+    elif isinstance(value, dict):
+        for k in sorted(value):
+            _fingerprint_lines(value[k], f"{at}/{k}", out)
+    else:
+        raise TypeError(f"{at}: {type(value).__name__} cannot be fingerprinted")
+
+
+def content_fingerprint(doc: dict) -> str:
+    """SHA-256 (hex) of every leaf of a scenario file other than its own contentSha256."""
+    lines: list = []
+    _fingerprint_lines({k: v for k, v in doc.items() if k != "contentSha256"}, "", lines)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def build(date: str = DEFAULT_DATE) -> dict:
@@ -538,7 +632,7 @@ def _build() -> dict:
     if cal["observations"] != 0:
         raise SystemExit("the calibration ledger is no longer empty: the Observatory's 'empty' state must be revisited")
     scenarios = [scenario_out(h, h["doc"](), cal["statement"]) for h in HALLS]
-    return {
+    doc = {
         "schema": SCHEMA,
         "engine": {"version": VERSION, "codeSha256": code_sha256(), "routes": list(ROUTES_USED)},
         "generatedAt": report_date_iso(),
@@ -546,6 +640,8 @@ def _build() -> dict:
         "calibration": {"state": "empty", "statement": cal["statement"]},
         "scenarios": scenarios,
     }
+    doc["contentSha256"] = content_fingerprint(doc)
+    return doc
 
 
 def dumps(doc: dict) -> str:

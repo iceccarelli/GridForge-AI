@@ -29,7 +29,7 @@ describe("GET /api/observatory/context", () => {
     const { GET } = await import("@/app/api/observatory/context/route");
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=0, s-maxage=300, stale-while-revalidate=60");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=0, s-maxage=300");
     expect(res.headers.get("content-type")).toMatch(/application\/json/);
     const body = await res.json();
     expect(Object.keys(body).sort()).toEqual(["dayAheadPrice", "generatedAt", "generationMix", "queue", "referenceRegion", "usDemand"]);

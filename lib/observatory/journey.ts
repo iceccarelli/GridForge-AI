@@ -5,7 +5,9 @@
 //   overview of the halls -> hall 1 power path -> hall 1 binding stage -> hall 1 constraints ranking -> hall 1 plan and outcomes
 //   -> the context panel (its provenance spoken) -> hall 2 -> hall 3 -> close with the free qualifier as the next step.
 // Every caption is the single source for the on-screen text and the WebVTT track (captions.ts). Captions state the basis where
-// numbers appear, say "not dated" wherever the file says an outcome is not dated, and never sell anything.
+// numbers appear, say "not dated" wherever the file says an outcome is not dated (or that nothing deploys, so there is nothing to
+// date), never name a city for a hall, never call a constraint the engine reports no finite limit for "unlimited", and never
+// sell anything.
 
 import { formatNumber, bindingNodeAfterPlan, bindingNodeAsFound, resolveOutcome } from "@/lib/observatory/scene-model";
 import type {
@@ -13,6 +15,7 @@ import type {
   JourneyFrame,
   JourneyStep,
   ObservatoryScenario,
+  PathNode,
   ScenarioFile,
   ScenarioOutcome,
 } from "@/lib/observatory/types";
@@ -21,7 +24,7 @@ import type {
 export const MAX_HALLS = 3;
 
 /** Reading pace used to make sure a caption stays up long enough to read: words per second, plus a fixed settle time. */
-const WORDS_PER_SECOND = 2.5;
+const WORDS_PER_SECOND = 3; // 180 words a minute, the usual ceiling for on-screen captions
 const SETTLE_SECONDS = 3;
 
 const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
@@ -44,41 +47,158 @@ function sentence(s: string): string {
   return /[.!?]$/.test(t) ? t : t + ".";
 }
 
-function rankedConstraints(sc: ObservatoryScenario): ConstraintResult[] {
-  return [...sc.constraints].sort((a, b) => {
-    const av = a.racksAllowed;
-    const bv = b.racksAllowed;
-    if (av === null && bv === null) return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
-    if (av === null) return 1;
-    if (bv === null) return -1;
-    return av - bv || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-  });
+// ---------------------------------------------------------------------------------------------------------------------
+// Reading the data without guessing. The contract v2 fields (passes, capexComplete, capexPricing) are read defensively so a
+// run over an older file degrades to the v1 meaning instead of inventing one.
+// ---------------------------------------------------------------------------------------------------------------------
+
+type OutcomeV2 = ScenarioOutcome & { capexComplete?: boolean; capexPricing?: "placeholder" | "partly_supplied" | "supplied" | "none" };
+
+/** True when the engine reports NO finite limit for this constraint: it does not limit the hall. */
+export function constraintPasses(c: ConstraintResult): boolean {
+  const p = (c as ConstraintResult & { passes?: unknown }).passes;
+  return typeof p === "boolean" ? p : c.racksAllowed === null;
 }
 
-function constraintName(sc: ObservatoryScenario, key: string | null): string | null {
-  if (key === null) return null;
-  return sc.constraints.find((c) => c.key === key)?.name ?? null;
+/** A hall or scenario name without any "— City" suffix: a caption never names a place for an invented hall. */
+export function placeFreeName(name: string): string {
+  return name.replace(/\s+[—–]\s+.*$/, "").trim();
+}
+
+/** A stage label without its trailing explanatory parenthesis ("Rack feed / tap-off (current per rack)" -> "Rack feed / tap-off"). */
+function plainLabel(label: string): string {
+  return label.replace(/\s*\([^)]*\)\s*$/, "").trim() || label;
+}
+
+/**
+ * The supply constraint is named by the engine "Firm supply (grid import + behind-the-meter)" even in grid-only options. Name it
+ * as the option states it: behind-the-meter is only spoken when the option itself says so.
+ */
+export function shownConstraintName(name: string, outcome?: ScenarioOutcome | null): string {
+  if (!/behind-the-meter/i.test(name)) return name;
+  if (outcome && /behind-the-meter|\bbtm\b/i.test(outcome.name)) return name;
+  return name.replace(/\s*\+\s*behind-the-meter/i, "");
+}
+
+/** Constraints that give a finite limit, tightest first, ties by key. Constraints that pass are not in the ranking. */
+function rankedConstraints(sc: ObservatoryScenario): ConstraintResult[] {
+  return sc.constraints
+    .filter((c) => !constraintPasses(c) && c.racksAllowed !== null)
+    .sort((a, b) => (a.racksAllowed as number) - (b.racksAllowed as number) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+function constraintByKey(sc: ObservatoryScenario, key: string | null): ConstraintResult | null {
+  return key === null ? null : (sc.constraints.find((c) => c.key === key) ?? null);
 }
 
 function timeSentence(o: ScenarioOutcome): string {
   return o.dated && o.weeksToCapacity.value !== null
     ? `Programme time is ${formatNumber(o.weeksToCapacity.value)} weeks, from supplied lead times.`
-    : "Not dated: the lead times are assumed or missing, so no date is given.";
+    : "Not dated: the lead times are assumed or missing.";
 }
 
 function afterPlanSentence(sc: ObservatoryScenario, o: ScenarioOutcome): string {
-  const name = constraintName(sc, o.bindingAfterPlan);
-  if (name) return `${name} binds after the plan.`;
+  const key = o.bindingAfterPlan;
+  const c = constraintByKey(sc, key);
+  if (c && constraintPasses(c)) return `After the plan the engine names ${shownConstraintName(c.name, o)}, though it reports no finite limit for it.`;
+  if (c) return `After the plan the limit is ${shownConstraintName(c.name, o)}.`;
   // A key this scenario has no constraint for is reported as the engine gave it; nothing is invented to explain it.
-  if (o.bindingAfterPlan !== null) return `The engine names "${o.bindingAfterPlan}" as binding after the plan, which this view does not model.`;
-  return "The engine output does not say what binds after the plan.";
+  if (key !== null) return `After the plan the engine names "${key}" as the limit, which this view does not model.`;
+  return "The engine output does not say what limits the hall after the plan.";
+}
+
+/** "6.6 million euros" / "480 thousand euros". With `floor` it rounds DOWN so "at least" stays true. Null when there is nothing to say. */
+function euroWords(v: number, floor: boolean): string | null {
+  if (!Number.isFinite(v) || v <= 0) return null;
+  const r = (x: number, k: number) => (floor ? Math.floor(x * k) / k : Math.round(x * k) / k);
+  if (v >= 1_000_000) return `${r(v / 1_000_000, 10)} million euros`;
+  if (v >= 1000) return `${r(v / 1000, 1)} thousand euros`;
+  return "less than a thousand euros";
+}
+
+const NO_CAPEX = "No capital cost is given, because the inputs carry no prices.";
+
+/** A partial capital cost is "at least", priced lines only, and says what kind of prices stand behind it. */
+export function capexSentence(o: ScenarioOutcome): string {
+  const v2 = o as OutcomeV2;
+  if (v2.capexPricing === "none" || o.capexEur.value === null) return NO_CAPEX;
+  const partial = o.unpricedComponents.length > 0 || v2.capexComplete === false;
+  const amount = euroWords(o.capexEur.value, partial);
+  if (amount === null) return NO_CAPEX;
+  const basis =
+    v2.capexPricing === "placeholder"
+      ? "library placeholder prices"
+      : v2.capexPricing === "partly_supplied"
+        ? "partly supplied prices"
+        : v2.capexPricing === "supplied"
+          ? "supplied prices"
+          : "";
+  return partial
+    ? `Modelled capital cost at least ${amount}, priced lines only${basis ? `, at ${basis}` : ""}.`
+    : `Modelled capital cost ${amount}${basis ? `, at ${basis}` : ""}.`;
 }
 
 function outcomeCaption(sc: ObservatoryScenario, o: ScenarioOutcome, lead: string): string {
+  const platform = sc.hall.platform;
+  const hall = placeFreeName(sc.hall.name);
+  if (o.racksAfterPlan === 0) {
+    // Nothing deploys: there is nothing to date, which is a different statement from "the lead times are assumed".
+    return (
+      `${lead} ${o.name} adds no new ${platform} racks in ${hall} after the plan (${formatNumber(o.racksAsFound)} as found), so nothing deploys and there is nothing to date. ` +
+      `${afterPlanSentence(sc, o)} Engine-modelled, evidence ${o.evidence}.`
+    ).replace(/\s+/g, " ");
+  }
   return (
-    `${lead} ${o.name} takes ${sc.hall.name} from ${formatNumber(o.racksAsFound)} racks to ${formatNumber(o.racksAfterPlan)}; ${afterPlanSentence(sc, o)} ` +
-    `${timeSentence(o)} Engine-modelled, evidence ${o.evidence}.`
+    `${lead} ${o.name}: ${formatNumber(o.racksAfterPlan)} new ${platform} racks after the plan, ${formatNumber(o.racksAsFound)} as found; existing racks are separate. ` +
+    `${afterPlanSentence(sc, o)} ${timeSentence(o)} ${capexSentence(o)} Engine-modelled, evidence ${o.evidence}.`
   ).replace(/\s+/g, " ");
+}
+
+/** The stage count is computed from the nodes and says what the path is: power and cooling stages, some perhaps not modelled. */
+function pathCaption(sc: ObservatoryScenario, n: number): string {
+  const nodes: PathNode[] = sc.powerPath;
+  const cooling = nodes.filter((x) => x.kind === "cooling").length;
+  const unmodelled = nodes.filter((x) => x.constraintKey === null).map((x) => plainLabel(x.label));
+  const count =
+    nodes.length === 0
+      ? "no stages of the power and cooling path are given"
+      : `${nodes.length} stage${nodes.length === 1 ? "" : "s"} of the power and cooling path (${nodes.length - cooling} power, ${cooling} cooling)` +
+        (unmodelled.length ? `; the engine does not model ${listOf(unmodelled)}` : "");
+  return (
+    `Hall ${n}, ${placeFreeName(sc.hall.name)}: ${count}. ` +
+    `${formatNumber(sc.hall.contractedMW)} MW contracted and ${formatNumber(sc.hall.currentItLoadMW)} MW of IT load today. Invented inputs, engine-modelled.`
+  );
+}
+
+function bindingDetail(sc: ObservatoryScenario, node: PathNode): string {
+  const c = constraintByKey(sc, node.constraintKey) ?? sc.constraints.find((x) => x.binds) ?? null;
+  if (c && !constraintPasses(c) && c.racksAllowed !== null) return `On its own it allows ${formatNumber(c.racksAllowed)} new racks (evidence ${c.evidence})`;
+  if (c) return "The engine reports no finite limit for it";
+  return "The engine output gives no rack count for it";
+}
+
+function constraintsCaption(sc: ObservatoryScenario): string {
+  if (sc.constraints.length === 0) return "The engine output lists no constraints for this hall, so there is no ranking to show.";
+  const top = rankedConstraints(sc).slice(0, 3);
+  const limit = sc.constraints.find((c) => c.binds && !constraintPasses(c)) ?? null;
+  const passing = sc.constraints.filter(constraintPasses);
+  const parts: string[] = [];
+  if (top.length) {
+    parts.push(
+      `Ranked by the new racks each allows as found (evidence class in brackets): ${listOf(top.map((c) => `${shownConstraintName(c.name)} ${formatNumber(c.racksAllowed as number)} (${c.evidence})`))}.`,
+    );
+    parts.push(limit ? `The limit is ${shownConstraintName(limit.name)}.` : "The engine output names no single limit.");
+  } else {
+    parts.push("No constraint gives a finite rack limit as found.");
+  }
+  if (passing.length) {
+    parts.push(
+      passing.length <= 2
+        ? `${listOf(passing.map((c) => shownConstraintName(c.name)))} ${passing.length === 1 ? "does" : "do"} not limit the hall (${passing.length === 1 ? "passes" : "pass"}).`
+        : `${passing.length} other constraints do not limit the hall (they pass).`,
+    );
+  }
+  return parts.join(" ");
 }
 
 export function buildJourney(file: ScenarioFile): JourneyStep[] {
@@ -114,7 +234,7 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     focus: null,
     panel: "outcomes",
     caption:
-      `${NUMBER_WORDS[halls.length]} synthetic demonstration hall${halls.length === 1 ? "" : "s"}, modelled by the GridForge engine from invented inputs: ${listOf(halls.map((h) => h.title))}. ` +
+      `${NUMBER_WORDS[halls.length]} synthetic demonstration hall${halls.length === 1 ? "" : "s"}, modelled by the GridForge engine from invented inputs: ${listOf(halls.map((h) => placeFreeName(h.title)))}. ` +
       "None is a customer's hall and nothing here is measured.",
   });
 
@@ -128,9 +248,7 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     outcomeId: outcomeIdOf(first),
     focus: null,
     panel: "path",
-    caption:
-      `Hall 1, ${first.hall.name}: power reaches the racks through ${first.powerPath.length} stage${first.powerPath.length === 1 ? "" : "s"}, from the utility connection to the rack, ` +
-      `with ${formatNumber(first.hall.contractedMW)} MW contracted and ${formatNumber(first.hall.currentItLoadMW)} MW of IT load today. Invented inputs, engine-modelled.`,
+    caption: pathCaption(first, 1),
   });
   push({
     id: "hall-1-binding",
@@ -140,12 +258,10 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     focus: bind1 ? bind1.id : null,
     panel: "path",
     caption: bind1
-      ? `${bind1.label} is the stage that binds as found. ${sentence(constraintBindingDetail(first, bind1.constraintKey))} Engine-modelled, not measured.`
+      ? `${plainLabel(bind1.label)} is the stage that binds as found. ${sentence(bindingDetail(first, bind1))} Engine-modelled, not measured.`
       : "The engine output does not identify which stage binds as found, so none is highlighted. Nothing is guessed.",
   });
 
-  const ranked = rankedConstraints(first);
-  const top = ranked.slice(0, 3);
   const bindingConstraint = first.constraints.find((c) => c.binds) ?? null;
   push({
     id: "hall-1-constraints",
@@ -154,10 +270,7 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     outcomeId: outcomeIdOf(first),
     focus: bindingConstraint ? bindingConstraint.key : null,
     panel: "constraints",
-    caption: top.length
-      ? `Constraints ranked by the racks each allows as found: ${listOf(top.map((c) => `${c.name} ${c.racksAllowed === null ? "not supported by the inputs" : formatNumber(c.racksAllowed)}`))}. ` +
-        `${bindingConstraint ? `${bindingConstraint.name} sets the limit.` : "The engine output names no single limit."} Evidence classes as labelled.`
-      : "The engine output lists no constraints for this hall, so there is no ranking to show.",
+    caption: constraintsCaption(first),
   });
 
   if (o1) {
@@ -194,7 +307,8 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     });
   }
 
-  // 6. Context panel: provenance spoken. The caption describes what KIND of values these are; it carries no figure that could age.
+  // 6. Context panel: provenance spoken. The caption describes what KIND of values these are; it carries no figure that could age,
+  // and it does not say "now" or "this hour": the journey is recorded and replayed, so it cannot claim a moment.
   push({
     id: "context",
     plannedSec: 22,
@@ -203,7 +317,7 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     focus: null,
     panel: "context",
     caption:
-      "Beside the halls: the day-ahead price for this hour in Germany, a published auction result, not a live reading. " +
+      "Beside the halls: a day-ahead auction price for an hour in Germany's market, a published result, not a live reading. " +
       "The grid mix carries its own timestamp, queue figures are current only as of their report dates, and none of it is where these halls are.",
   });
 
@@ -212,7 +326,9 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
     const n = i + 2;
     const bind = bindingNodeAsFound(sc);
     const o = resolveOutcome(sc);
-    const bindingConstraint2 = sc.constraints.find((c) => c.binds) ?? null;
+    const c = bind ? (constraintByKey(sc, bind.constraintKey) ?? sc.constraints.find((x) => x.binds) ?? null) : null;
+    const allowing =
+      c && !constraintPasses(c) && c.racksAllowed !== null ? `, allowing ${formatNumber(c.racksAllowed)} new racks (evidence ${c.evidence})` : "";
     push({
       id: `hall-${n}-path`,
       plannedSec: 16,
@@ -221,8 +337,8 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
       focus: bind ? bind.id : null,
       panel: "path",
       caption: bind
-        ? `Hall ${n}, ${sc.hall.name}: ${bind.label} binds as found${bindingConstraint2 && bindingConstraint2.racksAllowed !== null ? `, allowing ${formatNumber(bindingConstraint2.racksAllowed)} racks` : ""}. Invented inputs, engine-modelled.`
-        : `Hall ${n}, ${sc.hall.name}: the engine output does not identify which stage binds as found, so none is highlighted. Invented inputs, engine-modelled.`,
+        ? `Hall ${n}, ${placeFreeName(sc.hall.name)}: the stage that binds as found is ${plainLabel(bind.label)}${allowing}. Invented inputs, engine-modelled.`
+        : `Hall ${n}, ${placeFreeName(sc.hall.name)}: the engine output does not identify which stage binds as found, so none is highlighted. Invented inputs, engine-modelled.`,
     });
     push({
       id: `hall-${n}-outcome`,
@@ -249,12 +365,6 @@ export function buildJourney(file: ScenarioFile): JourneyStep[] {
   });
 
   return steps;
-}
-
-function constraintBindingDetail(sc: ObservatoryScenario, key: string | null): string {
-  const c = key === null ? sc.constraints.find((x) => x.binds) : sc.constraints.find((x) => x.key === key);
-  if (c && c.racksAllowed !== null) return `On its own it allows ${formatNumber(c.racksAllowed)} racks (evidence ${c.evidence})`;
-  return "The engine output gives no rack count for it";
 }
 
 export function totalDuration(steps: JourneyStep[]): number {

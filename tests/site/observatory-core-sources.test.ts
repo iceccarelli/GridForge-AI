@@ -48,7 +48,15 @@ describe("getLiveContext: day-ahead price honesty", () => {
   it("derives the price and observedAt from the interval that contains now, not from the request time", async () => {
     const { ctx } = await run(GOOD);
     const p = ctx.dayAheadPrice;
-    expect(p.value).toEqual({ eurPerMWh: 52, deliveryStart: "2026-10-25T10:00:00.000Z", min: 50, max: 55, avg: 52.5 });
+    expect(p.value).toEqual({
+      eurPerMWh: 52,
+      deliveryStart: "2026-10-25T10:00:00.000Z",
+      min: 50,
+      max: 55,
+      avg: 52.5,
+      windowStart: "2026-10-25T08:00:00.000Z", // what min/max/avg are over: the whole published window, not a calendar day
+      windowEnd: "2026-10-25T14:00:00.000Z",
+    });
     expect(p.provenance.basis).toBe("day_ahead_auction");
     expect(p.provenance.observedAt).toBe("2026-10-25T10:00:00.000Z");
     expect(p.provenance.observedAt).not.toBe(NOW.toISOString()); // /api/market's asOf is the request time: never used
