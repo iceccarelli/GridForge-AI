@@ -246,6 +246,51 @@ export class MockStripe implements PaygStripe {
 
   /** Stripe forgets idempotency keys after 24 hours: simulate the next day's run. */
   forgetIdempotency() { this.idem.clear(); }
+  /** Every idempotency key a create / finalise was sent with, in order (a create sent WITHOUT one is not listed: assert against it). */
+  idemKeys: string[] = [];
+
+  /**
+   * A call that gets NO ANSWER (the caller's bound is what ends the wait). "before": the request never reaches Stripe, nothing happens.
+   * "after": the request REACHES Stripe and takes effect, and only the answer is lost: the dangerous case, a timed-out create that
+   * actually succeeded. Once per entry (`hang.set("invoices.create", "after")`); `hangWhen` decides per call (name, arguments) and persists.
+   */
+  hang = new Map<string, "before" | "after">();
+  hangWhen: ((name: string, args: unknown[]) => "before" | "after" | null) | null = null;
+  /** Calls that reached Stripe and took effect but whose answer never came back, by name (a test reads what a timeout hid). */
+  hungAfter: string[] = [];
+
+  constructor() { this.installHangs(); }
+
+  /** Wrap every method of every namespace so `hang` / `hangWhen` apply. Idempotent per method (HoldStripe replaces some namespaces and calls it again). */
+  protected installHangs() {
+    const spaces: [string, any][] = [
+      ["checkout.sessions", (this as any).checkout?.sessions], ["setupIntents", (this as any).setupIntents], ["customers", (this as any).customers],
+      ["charges", (this as any).charges], ["disputes", (this as any).disputes], ["billingPortal.sessions", (this as any).billingPortal?.sessions],
+      ["invoices", (this as any).invoices], ["invoiceItems", (this as any).invoiceItems],
+    ];
+    for (const [prefix, ns] of spaces) {
+      if (!ns) continue;
+      for (const m of Object.keys(ns)) {
+        const orig = ns[m];
+        if (typeof orig !== "function" || orig.__hangs) continue;
+        const name = `${prefix}.${m}`;
+        const wrapped = async (...args: unknown[]) => {
+          const once = this.hang.get(name);
+          if (once) this.hang.delete(name);
+          const mode = once ?? this.hangWhen?.(name, args) ?? null;
+          if (mode === "before") return new Promise(() => {});
+          const out = await orig(...args);
+          if (mode === "after") {
+            this.hungAfter.push(name);
+            return new Promise(() => {});
+          }
+          return out;
+        };
+        (wrapped as any).__hangs = true;
+        ns[m] = wrapped;
+      }
+    }
+  }
 
   private maybeFail(name: string) {
     this.calls.push(name);
@@ -253,6 +298,7 @@ export class MockStripe implements PaygStripe {
   }
   private once<T>(key: string | undefined, make: () => T): T {
     if (!key) return make();
+    this.idemKeys.push(key);
     if (this.idem.has(key)) return this.idem.get(key) as T;
     const v = make();
     this.idem.set(key, v);

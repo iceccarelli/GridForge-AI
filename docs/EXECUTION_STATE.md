@@ -109,4 +109,19 @@ Operator steps that remain: apply 0041, 0042 and 0043 through the gated process 
 charge.dispute.created, charge.dispute.updated, charge.dispute.closed on the Stripe endpoint; redeploy the engine (FLY_API_TOKEN + the deploy-engine workflow) so suspensions can revoke keys at the engine;
 set GRIDFORGE_KEY_SECRET (same value on Vercel and Fly) and GRIDFORGE_ADMIN_KEY on Vercel; production Stripe is on TEST keys until the owner switches them.
 Known limits: access changes from the daily job can lag up to ~24 h; Intelligence entitlement does not re-check Stripe on a lost resume event (the daily job clears it); the 8 s Stripe bound does not cover
-the settlement invoice calls in lib/payg-billing.ts.
+the settlement invoice calls in lib/payg-billing.ts. [Both addressed in the 2026-10-25 entry below.]
+
+## Log: 2026-10-25, worktree branch off origin/main 814dce6 (billing resilience: lost resume event, Stripe timeouts on PAYG settlement)
+Built (local/test infrastructure only; nothing pushed, no migration, no live Stripe):
+- Lost or late resume event (`lib/pause-reconcile.ts`, one rule for `lookupEntitlement` + seats, the Hall Watch POST route and `mintChecked`): a pause schedule whose instant has passed and that has no separate hold asks Stripe ONCE
+  (injectable client, bounded). Billing running again -> the stale schedule is cleared by a conditional write (schedule instant + pause/resume clock + no hold + not ended), one `pause_schedule_dropped` audit row, access granted.
+  Still paused/unpaid/canceled, timeout, 5xx, no subscription, no client -> denied, schedule untouched. A hold (refund/dispute/...) or an ended row is denied without a Stripe call. Denials from Stripe are remembered 45 s per process
+  (a customer's own key mint ignores the memory); concurrent checks share one call. `billingStopped`/`isPaused` moved to `lib/billing-pause-due.ts` and `recordBillingAudit` to `lib/billing-audit.ts` (re-exported; no behaviour change).
+- Stripe timeouts on the PAYG paths (`lib/stripe-timeout.ts` `boundStripe`): `paygStripe()` returns a client with EVERY method bounded (8 s, `STRIPE_CALL_TIMEOUT_MS`), `settleClosedMonths`, `handlePaygEnable` and `handlePaygCardUpdate` bound whatever client they
+  get. A timeout carries code `stripe_call_timeout` and is "cannot say": the settlement stays `pending` (never invoiced/paid/failed on a guess), the ledger is untouched, the next run re-reads the invoice/item by its settlement_key metadata
+  (idempotency keys `payg:{account}:{month}`, `:item`, `:finalize` on every create) before creating anything. The replaced-card record now moves only after the invoice was pointed at the card. Counted in the cron JSON
+  (`settle.timedOut`, `settle.deferred`), mailed once per settlement per day. The invoicing pass has a 120 s budget (`PAYG_SETTLE_BUDGET_MS`), skips an account's later months after its timeout, stops after 3 timeouts in a row, and
+  orders rows that already failed behind fresh ones. Webhook handlers answer "retry" on a timeout.
+Tests: `tests/site/pause-reconcile.test.ts` (23), `tests/site/payg-timeouts.test.ts` (35); MockStripe gained `hang`/`hangWhen` ("before": never reaches Stripe, "after": takes effect, answer lost). Revert-checked: without the fixes 12 and 33 of them fail.
+Not covered: the daily pause pass (`applyDuePauses`) has the per-call bound but no run budget; `app/api/checkout`, `app/api/subscribe` and `stripe-health` build their own Stripe client with the SDK's default timeout (not PAYG paths); `invoices.list` reads the
+customer's newest 100 invoices when looking for an earlier attempt.

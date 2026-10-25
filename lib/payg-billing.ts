@@ -22,6 +22,7 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { notifyCustomer } from "@/lib/notifications";
 import { enc, pg } from "@/lib/payg-store";
 import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
+import { boundStripe, isStripeTimeout } from "@/lib/stripe-timeout";
 import type { Settlement } from "@/lib/payg-settle";
 
 export type Applied = { ok: true } | { ok: false; why: string };
@@ -34,7 +35,12 @@ async function accountByName(account: string): Promise<ApiAccount | null | "erro
 
 const idOf = (v: string | { id: string } | null | undefined): string => (typeof v === "string" ? v : v?.id ?? "");
 
-export async function handlePaygEnable(session: Stripe.Checkout.Session, stripe: PaygStripe | null): Promise<Applied> {
+// Every Stripe call in this file is bounded (lib/stripe-timeout.ts), whoever built the client. A call with no answer is "cannot say": the
+// event is answered "retry" (Stripe redelivers) and nothing is recorded as done. Both handlers are absolute-state and replay-safe, so a call
+// that did take effect at Stripe is simply repeated (setting the same default card; paying an invoice Stripe says is already paid).
+
+export async function handlePaygEnable(session: Stripe.Checkout.Session, client: PaygStripe | null): Promise<Applied> {
+  const stripe = client ? boundStripe(client) : null;
   const accountName = String(session.metadata?.account_id ?? "");
   const cap = parseCapEur(session.metadata?.cap_eur);
   if (!accountName || cap === null || session.mode !== "setup") {
@@ -75,7 +81,7 @@ export async function handlePaygEnable(session: Stripe.Checkout.Session, stripe:
     await stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm } });
   } catch (err) {
     console.error(`[GridForge] payg enable: Stripe call failed (${stripeFault(err)}); asking for a redelivery`);
-    return { ok: false, why: "stripe" };
+    return { ok: false, why: isStripeTimeout(err) ? "stripe timeout" : "stripe" };
   }
 
   const first = acct.plan !== "api_payg";
@@ -107,7 +113,8 @@ export async function handlePaygEnable(session: Stripe.Checkout.Session, stripe:
  * back as the usual invoice.paid / invoice.payment_failed event, which is what reinstates the account. Replay-safe: the card write is
  * absolute, and paying an invoice that is already paid is refused by Stripe and ignored.
  */
-export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, stripe: PaygStripe | null): Promise<Applied> {
+export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, client: PaygStripe | null): Promise<Applied> {
+  const stripe = client ? boundStripe(client) : null;
   const accountName = String(session.metadata?.account_id ?? "");
   if (!accountName || session.mode !== "setup") {
     console.error("[GridForge] payg card update with unusable metadata; acknowledged without effect:", session.id);
@@ -140,7 +147,7 @@ export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, str
     await stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm } });
   } catch (err) {
     console.error(`[GridForge] payg card update: Stripe call failed (${stripeFault(err)}); asking for a redelivery`);
-    return { ok: false, why: "stripe" };
+    return { ok: false, why: isStripeTimeout(err) ? "stripe timeout" : "stripe" };
   }
   if (!(await updateApiAccount(acct.token, { stripe_payment_method_id: pm }))) return { ok: false, why: "account write failed" };
 
@@ -152,6 +159,12 @@ export async function handlePaygCardUpdate(session: Stripe.Checkout.Session, str
       await stripe.invoices.update(f.stripe_invoice_id, { default_payment_method: pm });
       await stripe.invoices.pay(f.stripe_invoice_id, { payment_method: pm });
     } catch (err) {
+      // No answer in time: the attempt may or may not have been made, and every further invoice would wait out the same bound inside a webhook.
+      // The card is already saved (absolute), so Stripe is asked to redeliver; the retry repeats the (idempotent) attempts.
+      if (isStripeTimeout(err)) {
+        console.error("[GridForge] payg card update: Stripe did not answer retrying an unpaid invoice; asking for a redelivery");
+        return { ok: false, why: "stripe timeout" };
+      }
       // Declined again, or already paid: either way the invoice events say what happened. Never fails the card replacement itself.
       console.error(`[GridForge] payg card update: retrying an unpaid invoice did not succeed (${stripeFault(err)})`);
     }

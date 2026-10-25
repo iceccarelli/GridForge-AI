@@ -35,7 +35,7 @@
 import { withStripeTimeout } from "@/lib/stripe-timeout";
 import { pg, enc } from "@/lib/payg-store";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
-import { pauseDue, pauseFromMs } from "@/lib/billing-pause-due";
+import { billingStopped, isPaused, pauseDue, pauseFromMs } from "@/lib/billing-pause-due";
 import {
   applyHold,
   endedRow,
@@ -126,18 +126,7 @@ export interface PausedSub {
   latest_invoice?: unknown;
 }
 
-/** Billing is paused: pause_collection is set, or Stripe's own status says so. */
-export function isPaused(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
-  return Boolean(sub.pause_collection) || (sub.status as string | undefined) === "paused";
-}
-
-/**
- * Billing is STOPPED for the purpose of access: paused (above), or Stripe's `unpaid` (dunning ran out and billing stopped). One rule for the
- * daily job (promote) and for the re-check after a lift (reassertPause): an unpaid subscription holds, it is never read as "running again".
- */
-export function billingStopped(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
-  return isPaused(sub) || (sub.status as string | undefined) === "unpaid";
-}
+export { isPaused, billingStopped } from "@/lib/billing-pause-due";
 
 const sec = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
 
