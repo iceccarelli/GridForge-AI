@@ -63,6 +63,8 @@ const PRIVATE_PATHS = [
   "/p/",
   "/commissioned",
   "/workspace",
+  // The presentation mode of the Observatory is a stage tool, not a page for a search result. /observatory itself is indexable.
+  "/observatory/presenter",
 ];
 
 export default function robots(): MetadataRoute.Robots {

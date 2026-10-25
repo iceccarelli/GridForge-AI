@@ -1,0 +1,241 @@
+// Pure formatting for the Observatory: quantities with their evidence, utilisation, and provenance wording.
+// Nothing here invents a number: a missing value stays missing and says why; a date is never produced from weeks.
+import type { Basis, EvidenceClass, Freshness, Observed, Provenance, Quantity } from "@/lib/observatory/types";
+import { weakest } from "@/components/observatory/evidence";
+
+const NF = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 2 });
+export function fmtNumber(n: number): string {
+  return NF.format(n);
+}
+
+const EUR = new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+export function fmtUnitValue(value: number, unit: string): string {
+  if (unit === "EUR" || unit === "€") return EUR.format(value);
+  return unit ? `${fmtNumber(value)} ${unit}` : fmtNumber(value);
+}
+
+export interface QuantityView {
+  /** "2.5 MVA", or "not available" when the engine gave no value. */
+  text: string;
+  known: boolean;
+  /** "range 2.1 to 2.9 MVA" when the engine gave a range that differs from the value. */
+  range: string | null;
+  evidence: EvidenceClass | null;
+  /** Why it is missing, verbatim from the engine, when it is. */
+  missing: string | null;
+}
+
+export function viewQuantity(q: Quantity | null | undefined): QuantityView {
+  if (!q) return { text: "not modelled", known: false, range: null, evidence: null, missing: null };
+  if (q.value === null || !Number.isFinite(q.value)) {
+    return { text: "not available", known: false, range: null, evidence: null, missing: q.missingReason ?? null };
+  }
+  const lo = q.low;
+  const hi = q.high;
+  const range =
+    lo !== null && hi !== null && Number.isFinite(lo) && Number.isFinite(hi) && (lo !== q.value || hi !== q.value)
+      ? `range ${fmtUnitValue(lo, q.unit)} to ${fmtUnitValue(hi, q.unit)}`
+      : null;
+  return { text: fmtUnitValue(q.value, q.unit), known: true, range, evidence: q.evidence, missing: null };
+}
+
+/** SI-prefix normalisation, only within one base unit (W, VA, A). MW vs MVA are NOT converted: they are different things. */
+export function toBase(v: number, unit: string): { value: number; base: string } {
+  const m = /^([kMG]?)(W|VA|A)$/.exec(unit.trim());
+  if (!m) return { value: v, base: unit.trim() };
+  const mult = m[1] === "k" ? 1e3 : m[1] === "M" ? 1e6 : m[1] === "G" ? 1e9 : 1;
+  return { value: v * mult, base: m[2] };
+}
+
+/** load / capacity, or null when either is missing or the units cannot be compared without a conversion we do not have. */
+export function utilisation(capacity: Quantity | null, load: Quantity | null): number | null {
+  if (!capacity || !load || capacity.value === null || load.value === null) return null;
+  const c = toBase(capacity.value, capacity.unit);
+  const l = toBase(load.value, load.unit);
+  if (c.base !== l.base || !(c.value > 0) || !Number.isFinite(l.value)) return null;
+  // A temperature (or a percentage) against its limit is not "how full" something is, so no ratio is drawn for it.
+  if (/deg|°|^K$|^%$/i.test(c.base)) return null;
+  return l.value / c.value;
+}
+
+export function fmtPct(frac: number | null): string {
+  return frac === null ? "not comparable" : `${Math.round(frac * 100)}%`;
+}
+
+/** The weakest evidence class among the quantities that actually have a value (what a derived ratio is worth). */
+export function weakestOf(qs: (Quantity | null)[]): EvidenceClass | null {
+  let out: EvidenceClass | null = null;
+  for (const q of qs) if (q && q.value !== null) out = out ? weakest(out, q.evidence) : q.evidence;
+  return out;
+}
+
+// ---- dates -------------------------------------------------------------------------------------------------------
+
+export function fmtUtc(iso: string | null | undefined): string {
+  if (!iso) return "not stated";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "not stated";
+  return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+}
+export function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "an unstated date";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "an unstated date";
+  return d.toISOString().slice(0, 10);
+}
+export function fmtAge(seconds: number): string {
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 172800) return `${Math.round((seconds / 3600) * 10) / 10} h`;
+  return `${Math.round(seconds / 86400)} days`;
+}
+
+// ---- provenance --------------------------------------------------------------------------------------------------
+
+/** Freshness as it stands at `now`: a "fresh" value past its own limit is stale, and no value is never anything but unavailable. */
+export function effectiveFreshness(obs: Observed<unknown>, now: Date): Freshness {
+  if (obs.value === null || obs.value === undefined || obs.freshness === "unavailable") return "unavailable";
+  if (obs.freshness !== "fresh") return obs.freshness;
+  const p = obs.provenance;
+  const ref = p.observedAt ?? p.retrievedAt;
+  if (p.maxAgeSeconds !== null && ref) {
+    const t = new Date(ref).getTime();
+    if (!Number.isFinite(t)) return "stale";
+    if (now.getTime() - t > p.maxAgeSeconds * 1000) return "stale";
+  }
+  return "fresh";
+}
+
+/** "Live" wording is allowed for exactly one case: an observation that is fresh now. */
+export function isLive(obs: Observed<unknown>, now: Date): boolean {
+  return obs.provenance.basis === "observed" && effectiveFreshness(obs, now) === "fresh";
+}
+
+export const BASIS_WORDS: Record<Basis, string> = {
+  observed: "A reading of the real world for a stated interval.",
+  day_ahead_auction:
+    "A price published by the day-ahead auction for one delivery period. It is a price set in advance, not a measurement of now.",
+  published_report: "A figure from a dated public report. It is current as of that date only.",
+  engine_modelled: "Computed by the GridForge engine from the stated inputs.",
+  synthetic_input: "An invented demonstration input.",
+  assumed: "An assumption or library default (evidence class E0).",
+};
+
+export interface ProvenanceView {
+  live: boolean;
+  headline: string;
+  freshness: Freshness;
+  freshnessText: string;
+  basisText: string;
+  source: string;
+  observedAt: string;
+  retrievedAt: string;
+  caveat: string | null;
+}
+
+function headlineFor(p: Provenance, fresh: Freshness, live: boolean): string {
+  if (fresh === "unavailable") return "Unavailable";
+  if (live) return "Live observation";
+  switch (p.basis) {
+    case "observed":
+      return fresh === "stale" ? "Observed reading, stale" : "Observed reading";
+    case "day_ahead_auction":
+      return "Published auction price for this delivery hour";
+    case "published_report":
+      return `Published report as of ${fmtDate(p.observedAt)}`;
+    case "engine_modelled":
+      return "Computed by the GridForge engine";
+    case "synthetic_input":
+      return "Invented demonstration input";
+    default:
+      return "Assumed value (E0)";
+  }
+}
+
+export function viewProvenance(obs: Observed<unknown>, now: Date): ProvenanceView {
+  const p = obs.provenance;
+  const fresh = effectiveFreshness(obs, now);
+  const live = isLive(obs, now);
+  const limit = p.maxAgeSeconds === null ? null : fmtAge(p.maxAgeSeconds);
+  const freshnessText =
+    fresh === "fresh"
+      ? limit ? `Fresh: within the allowed ${limit}` : "Fresh"
+      : fresh === "stale"
+        ? limit ? `Stale: older than the allowed ${limit}` : "Stale"
+        : fresh === "unavailable"
+          ? "Unavailable"
+          : "Not applicable";
+  return {
+    live,
+    headline: headlineFor(p, fresh, live),
+    freshness: fresh,
+    freshnessText,
+    basisText: BASIS_WORDS[p.basis] ?? "Basis not stated.",
+    source: p.source,
+    observedAt: fmtUtc(p.observedAt),
+    retrievedAt: fmtUtc(p.retrievedAt),
+    caveat: p.caveat ?? null,
+  };
+}
+
+// ---- scenario outcomes -------------------------------------------------------------------------------------------
+
+export interface TimeView {
+  kind: "weeks" | "undated" | "missing";
+  /** The headline: "38 weeks", "Not dated — lead times assumed", or "Not available". Never a calendar date. */
+  text: string;
+  note: string | null;
+  evidence: EvidenceClass | null;
+}
+
+/** Time to capacity. A calendar date is never produced: weeks only, and only as a programme length. */
+export function viewTimeToCapacity(o: { weeksToCapacity: Quantity; dated: boolean }): TimeView {
+  const q = o.weeksToCapacity;
+  const has = q.value !== null && Number.isFinite(q.value);
+  if (!o.dated) {
+    return {
+      kind: "undated",
+      text: "Not dated — lead times assumed",
+      note: has
+        ? `A programme length of ${fmtNumber(q.value as number)} ${q.unit || "weeks"} on assumed lead times. It is not a date.`
+        : (q.missingReason ?? "No lead time was supplied for every step."),
+      evidence: has ? q.evidence : null,
+    };
+  }
+  if (!has) {
+    return { kind: "missing", text: "Not available", note: q.missingReason ?? null, evidence: null };
+  }
+  return {
+    kind: "weeks",
+    text: `${fmtNumber(q.value as number)} ${q.unit || "weeks"}`,
+    note: "Programme length from supplied lead times. It is not a calendar date.",
+    evidence: q.evidence,
+  };
+}
+
+export interface CapexView {
+  kind: "priced" | "partial" | "unpriced";
+  text: string;
+  range: string | null;
+  note: string | null;
+  evidence: EvidenceClass | null;
+}
+
+/** Capital cost. A total that omits components is "partial", never a complete price; no value is "not priced", never zero. */
+export function viewCapex(o: { capexEur: Quantity; unpricedComponents: string[] }): CapexView {
+  const q = viewQuantity(o.capexEur);
+  const unpriced = o.unpricedComponents ?? [];
+  if (!q.known) {
+    return {
+      kind: "unpriced",
+      text: "Not priced",
+      range: null,
+      note: unpriced.length ? `Unpriced: ${unpriced.join(", ")}.` : (q.missing ?? "No cost evidence was supplied."),
+      evidence: null,
+    };
+  }
+  if (unpriced.length) {
+    return { kind: "partial", text: q.text, range: q.range, note: `Partial: excludes ${unpriced.join(", ")}. Not a complete price.`, evidence: q.evidence };
+  }
+  return { kind: "priced", text: q.text, range: q.range, note: null, evidence: q.evidence };
+}
