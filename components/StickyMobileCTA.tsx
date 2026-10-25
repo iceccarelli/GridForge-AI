@@ -20,7 +20,13 @@ const SCREEN = PRODUCTS[DENSITY_SCREEN];
 // Routes with their own dedicated bottom-of-page CTA, checkout flow, or no
 // room for a fixed bar (the client portal, and the full-screen workspace app,
 // whose own conversation input already sits at the bottom of the screen).
-const HIDDEN_ON = ["/dashboard", "/checkout", "/workspace", "/api-access"];
+// /observatory is a demonstration page: it must not push the paid checkout. Its own calm call to action (the free qualifier) is
+// in the page.
+export const HIDDEN_ON = ["/dashboard", "/checkout", "/workspace", "/api-access", "/observatory"];
+
+export function isHiddenOn(pathname: string | null | undefined): boolean {
+  return Boolean(pathname) && HIDDEN_ON.some((p) => pathname!.startsWith(p));
+}
 
 export function StickyMobileCTA() {
   const pathname = usePathname();
@@ -51,7 +57,7 @@ export function StickyMobileCTA() {
     return () => observer.disconnect();
   }, [pathname]);
 
-  if (HIDDEN_ON.some((p) => pathname?.startsWith(p))) return null;
+  if (isHiddenOn(pathname)) return null;
   if (!pastHero) return null;
   if (atFinalCta) return null;
 

@@ -71,6 +71,8 @@ export function OutcomesPanel({
             </Cell>
             <Cell label="Capital cost">
               <span className={cx.kind === "unpriced" ? "text-ghost" : "data text-ghost"}>{cx.text}</span> {cx.evidence ? <EvidenceChip cls={cx.evidence} /> : null}
+              {cx.qualifier ? <span className="block text-xs text-ghost">{cx.qualifier}</span> : null}
+              {cx.pricing ? <span className="block text-xs text-queue">{cx.pricing}</span> : null}
               {cx.range ? <span className="block text-xs text-mute">{cx.range}</span> : null}
               {cx.note ? <span className="block text-xs text-mute">{cx.note}</span> : null}
             </Cell>

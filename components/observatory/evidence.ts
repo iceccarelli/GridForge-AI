@@ -8,9 +8,11 @@ export const EVIDENCE_LEGEND: Record<EvidenceClass, { name: string; meaning: str
   E0: { name: "Assumed", meaning: "No data; engineering judgement or a library default." },
   E1: { name: "Modelled", meaning: "Computed from a documented model on assumed inputs." },
   E2: { name: "Simulated", meaning: "Numerical simulation (hydraulic, thermal network or time series)." },
-  E3: { name: "Estimated", meaning: "Model reviewed by a qualified engineer against practice." },
+  // On THIS page E3 and E5 are overridden, because next to invented inputs the engine's own wording would over-claim:
+  // E3 is an engine estimate with no engineer review here; E5 is a supplied input that is invented here, not measured.
+  E3: { name: "Engine estimate", meaning: "No engineer review in this demonstration." },
   E4: { name: "Test data", meaning: "Compared against lab, rig or vendor test data." },
-  E5: { name: "Customer data", meaning: "The customer's own measured data, as supplied (not measured by us)." },
+  E5: { name: "Supplied input", meaning: "Invented here; not measured." },
   E6: { name: "Field-validated", meaning: "Our model reconciled against measured site performance." },
   E7: { name: "Observed in operation", meaning: "Operating outcome observed after implementation." },
 };

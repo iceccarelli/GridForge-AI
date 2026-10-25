@@ -3,8 +3,8 @@
 // The 3D stage. Loaded with next/dynamic({ ssr: false }) by Stage.tsx, and only after the 2D/3D decision (stage-mode.ts) says
 // "3d", so none of this (or three.js) is downloaded by a 2D-only visitor.
 //
-// It draws the SAME SceneModel as Stage2D: a power-path rail of node blocks (shell = capacity, solid = load as found, ghost =
-// load after the plan, amber ring and light = the stage that binds), a field of rack rows shaded by kW per rack, and a camera
+// It draws the SAME SceneModel as Stage2D: a power-path rail of node blocks (shell = capacity as found, solid = load as found,
+// amber ring and light = the stage that binds as found, cyan ring = after the plan), a field of rack rows shaded by kW per rack, and a camera
 // that dollies between stages. The canvas is aria-hidden: the text alternative and the node table carry the meaning.
 //
 // Resource rules: pixel ratio capped at 2, ~30 fps cap, rendering stops when the tab is hidden or the canvas is off screen,
@@ -164,12 +164,8 @@ function buildContent(model: SceneModel): Content {
       flat.position.set(x, 0.15, 0);
       group.add(flat);
     }
-    if (v.utilAfter !== null) {
-      const ha = Math.max(0.05, Math.min(1.05, v.utilAfter)) * H;
-      const ghost = new Mesh(new BoxGeometry(1.72, ha, 1.72), new MeshBasicMaterial({ color: COLOR.after, transparent: true, opacity: 0.22, depthWrite: false }));
-      ghost.position.set(x, 0.12 + ha / 2, 0);
-      group.add(ghost);
-    }
+    // No after-plan level is drawn: the engine does not state a stage's capacity after the plan, so an after-plan load against
+    // the as-found shell would show a working design as full or overfull. The after-plan binding stage keeps its cyan ring.
 
     if (v.bindsFound || v.bindsAfter) {
       const glow = new MeshBasicMaterial({ color: v.bindsFound ? COLOR.binds : COLOR.after, transparent: true, opacity: 0.7, side: DoubleSide, depthWrite: false });

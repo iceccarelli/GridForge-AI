@@ -24,32 +24,40 @@ export interface NodeVisual {
   capacity: QuantityView;
   found: QuantityView;
   after: QuantityView;
-  /** load / capacity as found and after the plan; null when not comparable (missing value, or different units). */
+  /**
+   * Load as found / capacity as found; null when not comparable (missing value, or different units). There is deliberately NO
+   * after-plan ratio: the plan's reliefs raise capacities and the engine does not state a stage's capacity after the plan, so an
+   * after-plan load divided by the as-found capacity would call a working design "over capacity".
+   */
   utilFound: number | null;
-  utilAfter: number | null;
-  /** Evidence of a utilisation ratio: the weakest of the quantities it came from. */
+  /** Load as found is above capacity as found (true only when both are known and comparable). */
+  overFound: boolean;
+  /** Evidence of the as-found ratio: the weakest of the two quantities it came from. */
   utilEvidence: EvidenceClass | null;
   bindsFound: boolean;
   bindsAfter: boolean;
 }
 
 export function nodeVisuals(model: SceneModel): NodeVisual[] {
-  return model.nodes.map((n, index) => ({
-    id: n.id,
-    kind: n.kind,
-    label: n.label,
-    title: splitLabel(n.label).title,
-    detail: splitLabel(n.label).detail,
-    index,
-    capacity: viewQuantity(n.capacity),
-    found: viewQuantity(n.loadAsFound),
-    after: viewQuantity(n.loadAfterPlan),
-    utilFound: utilisation(n.capacity, n.loadAsFound),
-    utilAfter: utilisation(n.capacity, n.loadAfterPlan),
-    utilEvidence: weakestOf([n.capacity, n.loadAsFound, n.loadAfterPlan]),
-    bindsFound: model.bindingAsFound === n.id,
-    bindsAfter: model.bindingAfterPlan === n.id,
-  }));
+  return model.nodes.map((n, index) => {
+    const utilFound = utilisation(n.capacity, n.loadAsFound);
+    return {
+      id: n.id,
+      kind: n.kind,
+      label: n.label,
+      title: splitLabel(n.label).title,
+      detail: splitLabel(n.label).detail,
+      index,
+      capacity: viewQuantity(n.capacity),
+      found: viewQuantity(n.loadAsFound),
+      after: viewQuantity(n.loadAfterPlan),
+      utilFound,
+      overFound: utilFound !== null && utilFound > 1,
+      utilEvidence: weakestOf([n.capacity, n.loadAsFound]),
+      bindsFound: model.bindingAsFound === n.id,
+      bindsAfter: model.bindingAfterPlan === n.id,
+    };
+  });
 }
 
 export const KIND_LABEL: Record<PathNode["kind"], string> = {
@@ -62,6 +70,9 @@ export const KIND_LABEL: Record<PathNode["kind"], string> = {
   rack: "Racks",
   cooling: "Cooling",
 };
+
+/** Said wherever an after-plan load is shown: the reason there is no after-plan ratio, and why "over capacity" is never said of it. */
+export const AFTER_PLAN_NOTE = "the engine does not state the stage's capacity after the plan";
 
 export function bindingTag(v: Pick<NodeVisual, "bindsFound" | "bindsAfter">): string | null {
   if (v.bindsFound && v.bindsAfter) return "Binds as found and after the plan";
@@ -145,7 +156,8 @@ export function rackSquares(racks: number, maxSquares: number): { squares: numbe
   return { squares: Math.ceil(n / perSquare), perSquare };
 }
 
-const LOW: [number, number, number] = [0x14, 0x35, 0x52];
+// The low end is #2A6C9C (3.2:1 against the card, #0E1524) so even the least dense square is a visible mark, not a hole.
+const LOW: [number, number, number] = [0x2a, 0x6c, 0x9c];
 const HIGH: [number, number, number] = [0x00, 0xe5, 0xff];
 /** One-hue sequential ramp from a dark teal to the site's power cyan. Unknown density is a neutral grey. */
 export function heatRgb(t: number | null): [number, number, number] {

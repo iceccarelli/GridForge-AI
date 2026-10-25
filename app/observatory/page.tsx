@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 const TITLE = "Observatory: what limits a synthetic AI hall";
 const DESCRIPTION =
-  "An invented AI hall followed from the grid connection to the rack: which stage binds, how many racks it allows, and what each way of relieving it does to rack count, time and cost. Engine-modelled, with an evidence class on every figure; nothing is measured at a site.";
+  "An invented AI hall followed from the grid connection to the rack: which stage binds, how many racks it allows, and what each way of relieving it does to rack count, time and cost. Engine-modelled, with an evidence class on every engine figure (hall inputs and rack rows carry basis tags); nothing is measured at a site.";
 
 export const metadata: Metadata = {
   title: TITLE,

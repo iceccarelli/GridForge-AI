@@ -5,7 +5,7 @@ import { BasisTag, EvidenceChip } from "@/components/observatory/EvidenceChip";
 import { Fig } from "@/components/observatory/Fig";
 import { Cell, DataTable, Row, RowHead } from "@/components/observatory/Table";
 import { fmtNumber, fmtPct } from "@/components/observatory/format";
-import { KIND_LABEL, bindingTag, nodeVisuals, type NodeVisual } from "@/components/observatory/scene-visuals";
+import { AFTER_PLAN_NOTE, KIND_LABEL, bindingTag, nodeVisuals, type NodeVisual } from "@/components/observatory/scene-visuals";
 
 export function BindingTag({ v }: { v: Pick<NodeVisual, "bindsFound" | "bindsAfter"> }) {
   const t = bindingTag(v);
@@ -21,17 +21,16 @@ export function BindingTag({ v }: { v: Pick<NodeVisual, "bindsFound" | "bindsAft
   );
 }
 
+/** Utilisation AS FOUND only: load as found over capacity as found. There is no after-plan ratio (see AFTER_PLAN_NOTE). */
 function Util({ v }: { v: NodeVisual }) {
-  if (v.utilFound === null && v.utilAfter === null) {
+  if (v.utilFound === null) {
     return <span className="text-mute">not comparable (a value is missing or the units differ)</span>;
   }
   return (
     <span>
-      <span className="data text-ghost">
-        {fmtPct(v.utilFound)} {"→"} {fmtPct(v.utilAfter)}
-      </span>{" "}
-      {v.utilEvidence ? <EvidenceChip cls={v.utilEvidence} compact /> : null}
-      <span className="block text-xs text-mute">derived: load divided by capacity, weakest input class</span>
+      <span className="data text-ghost">{fmtPct(v.utilFound)}</span> {v.utilEvidence ? <EvidenceChip cls={v.utilEvidence} compact /> : null}
+      {v.overFound ? <span className="ml-1 font-mono text-[10px] font-bold uppercase text-flag">over capacity as found</span> : null}
+      <span className="block text-xs text-mute">derived: load as found divided by capacity as found, weakest input class</span>
     </span>
   );
 }
@@ -40,8 +39,8 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
   const visuals = nodeVisuals(model);
   return (
     <DataTable
-      caption="Power path, stage by stage: what each stage can carry and what it is asked to carry, as found and after the plan."
-      head={["Stage", "Capacity", "Load as found", "Load after the plan", "Utilisation", "Binding"]}
+      caption={`Power path, stage by stage: what each stage can carry as found, the load it is asked to carry as found and after the plan. Utilisation is shown as found only: ${AFTER_PLAN_NOTE}, so no after-plan ratio is drawn.`}
+      head={["Stage", "Capacity as found", "Load as found", "Load after the plan (capacity after the plan not stated)", "Utilisation as found", "Binding"]}
     >
       {visuals.map((v) => (
         <Row key={v.id} emphasis={v.bindsFound}>
@@ -57,7 +56,7 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
             <span className="block font-mono text-[10px] uppercase tracking-wider text-mute">{KIND_LABEL[v.kind]}</span>
             {v.detail ? <span className="mt-0.5 block text-xs font-normal text-mute">{v.detail}</span> : null}
           </RowHead>
-          <Cell label="Capacity">
+          <Cell label="Capacity as found">
             <Fig q={model.nodes[v.index].capacity} />
           </Cell>
           <Cell label="Load as found">
@@ -66,7 +65,7 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
           <Cell label="Load after the plan">
             <Fig q={model.nodes[v.index].loadAfterPlan} />
           </Cell>
-          <Cell label="Utilisation">
+          <Cell label="Utilisation as found">
             <Util v={v} />
           </Cell>
           <Cell label="Binding">{bindingTag(v) ? <BindingTag v={v} /> : <span className="text-mute">no</span>}</Cell>
@@ -79,26 +78,42 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
 export function RackTable({ model }: { model: SceneModel }) {
   const rows = model.rackRows;
   if (rows.length === 0) return null;
-  const kw = (v: number | null) => (v === null ? <span className="text-mute">not supported by the inputs</span> : <span className="data text-ghost">{fmtNumber(v)} kW</span>);
   return (
     <DataTable
-      caption="Rack rows. Counts and densities are inputs to the engine or come from the platform library; none is a measurement."
+      caption="Rack rows. The existing racks and their densities are inputs to the engine; the new-platform row is the engine's own output and a platform library figure. None is a measurement."
       head={["Rack row", "Racks", "kW per rack as found", "kW per rack after the plan"]}
     >
-      {rows.map((r) => (
-        <Row key={r.id}>
-          <RowHead label="Rack row">{r.label}</RowHead>
-          <Cell label="Racks">
-            <span className="data text-ghost">{fmtNumber(r.racks)}</span> <BasisTag>input, not measured</BasisTag>
-          </Cell>
-          <Cell label="kW per rack as found">
-            {kw(r.kwPerRackAsFound)} {r.kwPerRackAsFound !== null ? <BasisTag>input, not measured</BasisTag> : null}
-          </Cell>
-          <Cell label="kW per rack after the plan">
-            {kw(r.kwPerRackAfterPlan)} {r.kwPerRackAfterPlan !== null ? <BasisTag>platform figure, not measured</BasisTag> : null}
-          </Cell>
-        </Row>
-      ))}
+      {rows.map((r) => {
+        // A row with no density as found has no racks as found: its racks are what the plan adds, which is an engine output.
+        const addedByPlan = r.kwPerRackAsFound === null;
+        return (
+          <Row key={r.id}>
+            <RowHead label="Rack row">{r.label}</RowHead>
+            <Cell label="Racks">
+              <span className="data text-ghost">{fmtNumber(r.racks)}</span> <BasisTag>{addedByPlan ? "engine output: deployable after the plan" : "synthetic input"}</BasisTag>
+            </Cell>
+            <Cell label="kW per rack as found">
+              {r.kwPerRackAsFound === null ? (
+                <span className="text-mute">none: no racks of this row deploy as found</span>
+              ) : (
+                <>
+                  <span className="data text-ghost">{fmtNumber(r.kwPerRackAsFound)} kW</span> <BasisTag>synthetic input, not measured</BasisTag>
+                </>
+              )}
+            </Cell>
+            <Cell label="kW per rack after the plan">
+              {r.kwPerRackAfterPlan === null ? (
+                <span className="text-mute">none: no racks of this row deploy after the plan</span>
+              ) : (
+                <>
+                  <span className="data text-ghost">{fmtNumber(r.kwPerRackAfterPlan)} kW</span>{" "}
+                  <BasisTag>{addedByPlan ? "platform library figure" : "synthetic input, unchanged by the plan"}</BasisTag>
+                </>
+              )}
+            </Cell>
+          </Row>
+        );
+      })}
     </DataTable>
   );
 }
@@ -121,7 +136,7 @@ export function NodeDetail({ model, nodeId, constraints }: { model: SceneModel; 
       </div>
       <dl className="mt-3 space-y-2 text-sm">
         <div>
-          <dt className="text-xs text-mute">Capacity</dt>
+          <dt className="text-xs text-mute">Capacity as found</dt>
           <dd><Fig q={node.capacity} /></dd>
         </div>
         <div>
@@ -129,11 +144,11 @@ export function NodeDetail({ model, nodeId, constraints }: { model: SceneModel; 
           <dd><Fig q={node.loadAsFound} /></dd>
         </div>
         <div>
-          <dt className="text-xs text-mute">Load after the plan</dt>
+          <dt className="text-xs text-mute">Load after the plan ({AFTER_PLAN_NOTE})</dt>
           <dd><Fig q={node.loadAfterPlan} /></dd>
         </div>
         <div>
-          <dt className="text-xs text-mute">Utilisation, as found to after the plan</dt>
+          <dt className="text-xs text-mute">Utilisation as found</dt>
           <dd><Util v={v} /></dd>
         </div>
         <div>
@@ -144,7 +159,11 @@ export function NodeDetail({ model, nodeId, constraints }: { model: SceneModel; 
             ) : c ? (
               <>
                 <span className="text-ghost">{c.name}</span>:{" "}
-                {c.racksAllowed === null ? "no racks figure given" : <span className="data text-ghost">{c.racksAllowed} racks allowed</span>}{" "}
+                {c.passes || c.racksAllowed === null ? (
+                  <span className="text-ghost">does not limit the hall (passes)</span>
+                ) : (
+                  <span className="data text-ghost">{fmtNumber(c.racksAllowed)} racks allowed</span>
+                )}{" "}
                 <EvidenceChip cls={c.evidence} />
               </>
             ) : (
