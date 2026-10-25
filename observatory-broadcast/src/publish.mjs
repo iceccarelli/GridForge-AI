@@ -6,6 +6,7 @@ import { generateSlate } from "./slate.mjs";
 import { TOOL_NAME, TOOL_VERSION } from "./version.mjs";
 import { realClock } from "./clock.mjs";
 import { assertAllowedUrl } from "./safety.mjs";
+import { mp4Problem, sha256File } from "./ffmpeg.mjs";
 
 /**
  * Runs one broadcast: claims the supervisor slot, makes sure a slate exists, starts the Supervisor against the adapter,
@@ -25,12 +26,30 @@ export async function probeSceneUrl(url, timeoutMs = 3000) {
 }
 
 /**
+ * Copy an operator-supplied media file into the state dir and check the COPY: it must look like an MP4 and, when a hash was
+ * approved, match it. ffmpeg only ever reads the copy.
+ * @param {string} src @param {string} dest @param {string|null} expectedSha256 @param {string} what
+ */
+export function pinFile(src, dest, expectedSha256, what) {
+  if (!fs.existsSync(src)) throw new ObsError("source_missing", `${what} not found: ${src}`, { exitCode: 2 });
+  try { fs.unlinkSync(dest); } catch { /* none */ }
+  fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+  fs.chmodSync(dest, 0o600);
+  const problem = mp4Problem(dest);
+  if (problem) throw new ObsError("media_invalid", `${what}: ${problem}`, { exitCode: 2, hint: "Only MP4/MOV files are accepted." });
+  if (expectedSha256 && sha256File(dest) !== expectedSha256) {
+    throw new ObsError("file_changed", `${what} ${src} changed after it was approved (sha256 differs)`, { exitCode: 3, hint: "Run `obs prepare` again for the file you intend to publish." });
+  }
+  return dest;
+}
+
+/**
  * @param {{
  *   store: import("./state.mjs").StateStore, adapter: any, redactor: import("./redact.mjs").Redactor, logger: any,
  *   sceneUrl?: string|null, sourceFile?: string|null, allow?: readonly string[], encoding: import("./ffmpeg.mjs").Encoding,
  *   visibility: string, env?: Record<string, string | undefined>, clock?: any, health?: any, backoff?: any, rand?: () => number,
  *   sceneProbe?: () => Promise<boolean>|boolean, signal?: AbortSignal, maxRuntimeSec?: number, installSignalHandlers?: boolean,
- *   slateFile?: string|null,
+ *   slateFile?: string|null, slateSha256?: string|null, sourceSha256?: string|null,
  * }} o
  */
 export async function runPublish(o) {
@@ -41,7 +60,7 @@ export async function runPublish(o) {
 
   await o.store.claimSupervisor();
   const reaped = o.store.reapOrphans();
-  if (reaped.length) o.logger.warn("orphans_reaped", { pids: reaped });
+  if (reaped.length) o.logger.warn("orphans_found", { orphans: reaped });
   const runId = crypto.randomBytes(5).toString("hex");
   const startedAt = clock.now();
   /** @type {Supervisor|null} */ let sup = null;
@@ -64,7 +83,7 @@ export async function runPublish(o) {
     const pid = snap?.encoder?.pid ?? null;
     if (pid !== lastChildPid) {
       lastChildPid = pid;
-      try { o.store.recordChildren(pid ? [pid] : []); } catch { /* best effort */ }
+      try { o.store.recordChildren(pid ? [{ pid, mode: snap.encoder.mode }] : [], runId); } catch { /* best effort */ }
     }
     pending = snap;
     writing = writing.then(async () => {
@@ -77,18 +96,18 @@ export async function runPublish(o) {
 
   let signalHandlers = [];
   try {
-    // --- the slate: generated once per size/fps and reused ---
-    let slate = o.slateFile ?? null;
-    if (!slate) {
-      slate = o.store.file(`slate-${o.encoding.width}x${o.encoding.height}-${o.encoding.fps}.mp4`);
-      if (!fs.existsSync(slate)) {
-        o.logger.info("slate_generate", { file: slate });
-        await generateSlate({ out: slate, encoding: o.encoding, env: o.env });
-      }
-    } else if (!fs.existsSync(slate)) {
-      throw new ObsError("slate_missing", `slate file not found: ${slate}`, { exitCode: 2 });
+    // --- the slate: generated fresh for every run (never trusted from a previous one), or an approved operator file ---
+    // Operator-supplied files are COPIED into the state dir and the copy is hashed against what was approved, so the file
+    // ffmpeg reads is byte-for-byte the one that was approved (no swap between approval and use).
+    let slateFile;
+    if (o.slateFile) {
+      slateFile = pinFile(o.slateFile, o.store.file("slate-supplied.mp4"), o.slateSha256 ?? null, "slate file");
+    } else {
+      slateFile = o.store.file(`slate-${runId}.mp4`);
+      o.logger.info("slate_generate", { file: slateFile });
+      await generateSlate({ out: slateFile, encoding: o.encoding, env: o.env });
     }
-    const slateFile = slate;
+    const sourceFile = o.sourceFile ? pinFile(o.sourceFile, o.store.file("source-supplied.mp4"), o.sourceSha256 ?? null, "source file") : null;
 
     const viewport = { width: o.encoding.width, height: o.encoding.height };
     sup = new Supervisor({
@@ -105,9 +124,9 @@ export async function runPublish(o) {
         encoding: o.encoding,
         source: mode === "slate"
           ? { kind: "file", file: slateFile }
-          : o.sourceFile ? { kind: "file", file: o.sourceFile } : { kind: "scene", url: /** @type {string} */ (o.sceneUrl), allow: o.allow, viewport },
+          : sourceFile ? { kind: "file", file: sourceFile } : { kind: "scene", url: /** @type {string} */ (o.sceneUrl), allow: o.allow, viewport },
       }),
-      sceneProbe: o.sceneProbe ?? (o.sourceFile ? () => fs.existsSync(/** @type {string} */ (o.sourceFile)) : () => probeSceneUrl(/** @type {string} */ (o.sceneUrl))),
+      sceneProbe: o.sceneProbe ?? (sourceFile ? () => fs.existsSync(sourceFile) : () => probeSceneUrl(/** @type {string} */ (o.sceneUrl))),
       onStatus: (s) => { void flush(s); },
       pollControl: () => o.store.readControl(),
     });
@@ -131,11 +150,12 @@ export async function runPublish(o) {
     const reason = await done;
     await writing;
     await flush(sup.snapshot());
-    return { stopReason: reason, snapshot: sup.snapshot(), runId };
+    return { stopReason: reason, snapshot: sup.snapshot(), runId, orphans: reaped };
   } finally {
     for (const [sig, h] of signalHandlers) process.off(sig, h);
     try { await sup?.stop("cleanup"); } catch { /* already stopped */ }
     await writing.catch(() => {});
+    for (const f of [`slate-${runId}.mp4`, "slate-supplied.mp4", "source-supplied.mp4"]) { try { fs.unlinkSync(o.store.file(f)); } catch { /* not created */ } }
     await o.store.releaseSupervisor();
   }
 }

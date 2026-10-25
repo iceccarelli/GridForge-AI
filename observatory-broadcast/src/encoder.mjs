@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { buildAudioArgs, buildVideoArgs, ffmpegPath, ProgressParser, silentAudioInput } from "./ffmpeg.mjs";
+import { buildAudioArgs, buildVideoArgs, ffmpegPath, INPUT_FILE_MP4, INPUT_PIPE, ProgressParser, silentAudioInput } from "./ffmpeg.mjs";
+import { minimalEnv } from "./env.mjs";
 import { startSceneFeed } from "./capture.mjs";
 
 /**
@@ -27,8 +28,8 @@ export function buildLiveArgs(spec) {
   const src = spec.source;
   const input = src.kind === "scene"
     // analyzeduration/probesize are small on purpose: ffmpeg otherwise waits ~5 s of wall-clock input before it writes anything.
-    ? ["-fflags", "nobuffer", "-probesize", "1000000", "-analyzeduration", "1", "-use_wallclock_as_timestamps", "1", "-thread_queue_size", "64", "-f", "image2pipe", "-c:v", "mjpeg", "-i", "pipe:0"]
-    : ["-re", "-stream_loop", "-1", "-i", src.file];
+    ? ["-fflags", "nobuffer", "-probesize", "1000000", "-analyzeduration", "1", "-use_wallclock_as_timestamps", "1", "-thread_queue_size", "64", ...INPUT_PIPE, "-f", "image2pipe", "-c:v", "mjpeg", "-i", "pipe:0"]
+    : ["-re", "-stream_loop", "-1", ...INPUT_FILE_MP4, "-i", src.file];
   // JPEG frames are full-range; say so, or the swscaler guesses (and warns on every frame batch).
   const range = src.kind === "scene" ? ":in_range=full:out_range=limited" : "";
   return [
@@ -74,7 +75,8 @@ export class FfmpegEncoder extends EventEmitter {
     const spawn = this.deps.spawn ?? nodeSpawn;
     const args = buildLiveArgs(this.spec);
     const usesPipe = this.spec.source.kind === "scene";
-    const child = spawn(ffmpegPath(this.deps.env), args, { stdio: [usesPipe ? "pipe" : "ignore", "pipe", "pipe"] });
+    // minimal environment: the ingest URL is on argv (an ffmpeg limit), but no other secret rides along in the environment
+    const child = spawn(ffmpegPath(this.deps.env), args, { stdio: [usesPipe ? "pipe" : "ignore", "pipe", "pipe"], env: minimalEnv(this.deps.env ?? process.env) });
     this.child = child;
     const parser = new ProgressParser(this.deps.now);
     child.stdout?.on("data", (d) => {

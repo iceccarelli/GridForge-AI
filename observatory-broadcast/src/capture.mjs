@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ObsError } from "./errors.mjs";
-import { checkTargetUrl, isAllowedSubrequest } from "./safety.mjs";
+import { isAllowedNavigation, isAllowedSubrequest } from "./safety.mjs";
+import { minimalEnv } from "./env.mjs";
 
 /**
  * STAGE 1: SCENE. A URL rendered in headless Chromium at a fixed viewport.
@@ -40,6 +41,35 @@ export function withFrameParams(url, tSec) {
  */
 
 /**
+ * Chromium flags. `--no-sandbox` only where it is unavoidable: running as root (uid 0, typical in containers) or when the
+ * operator says so with OBS_NO_SANDBOX=1. Everywhere else the sandbox stays on. WebRTC is not allowed to open UDP paths
+ * around a proxy (no peer-to-peer or STUN leakage from a page).
+ * @param {{ uid?: number|null, env?: Record<string, string | undefined> }} [o]
+ */
+export function chromiumArgs({ uid = typeof process.getuid === "function" ? process.getuid() : null, env = process.env } = {}) {
+  const args = ["--mute-audio", "--hide-scrollbars", "--force-device-scale-factor=1", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"];
+  if (uid === 0 || env.OBS_NO_SANDBOX === "1") args.unshift("--no-sandbox");
+  return args;
+}
+
+/**
+ * Playwright launch options: the sandbox policy above, and a MINIMAL environment for the browser (no stream keys, no *_FILE
+ * paths, no unrelated credentials).
+ * @param {{ env: Record<string, string | undefined>, viewport: { width: number, height: number }, recordVideoDir?: string, uid?: number|null }} o
+ */
+export function buildLaunchOptions({ env, viewport, recordVideoDir, uid }) {
+  return {
+    executablePath: env.CHROMIUM || "/opt/pw-browsers/chromium",
+    headless: true,
+    args: chromiumArgs({ env, ...(uid !== undefined ? { uid } : {}) }),
+    env: minimalEnv(env),
+    viewport,
+    deviceScaleFactor: 1,
+    ...(recordVideoDir ? { recordVideo: { dir: recordVideoDir, size: viewport } } : {}),
+  };
+}
+
+/**
  * Open a page in a fresh persistent Chromium profile (its path is unique per run, which is also how orphaned browsers are found).
  * @param {{ url: string, allow?: readonly string[], viewport: { width: number, height: number }, env?: Record<string, string | undefined>, recordVideoDir?: string, workRoot?: string }} o
  * @returns {Promise<Scene>}
@@ -52,14 +82,7 @@ export async function openScene(o) {
   /** @type {string[]} */ const blocked = [];
   let context;
   try {
-    context = await pw.chromium.launchPersistentContext(userDataDir, {
-      executablePath: env.CHROMIUM || "/opt/pw-browsers/chromium",
-      headless: true,
-      args: ["--no-sandbox", "--mute-audio", "--hide-scrollbars", "--force-device-scale-factor=1"],
-      viewport: o.viewport,
-      deviceScaleFactor: 1,
-      ...(o.recordVideoDir ? { recordVideo: { dir: o.recordVideoDir, size: o.viewport } } : {}),
-    });
+    context = await pw.chromium.launchPersistentContext(userDataDir, buildLaunchOptions({ env, viewport: o.viewport, recordVideoDir: o.recordVideoDir }));
   } catch (err) {
     fs.rmSync(userDataDir, { recursive: true, force: true });
     throw new ObsError("browser_launch_failed", `Chromium could not be launched: ${err instanceof Error ? err.message.split("\n")[0] : err}`, {
@@ -67,16 +90,35 @@ export async function openScene(o) {
       hint: "Set CHROMIUM to a Chromium/Chrome binary that can run headless (and --no-sandbox in this environment).",
     });
   }
-  await context.route("**/*", (/** @type {any} */ route) => {
+  await context.route("**/*", async (/** @type {any} */ route) => {
     const req = route.request();
     const u = req.url();
     const nav = req.isNavigationRequest() && req.frame() === page.mainFrame();
-    const ok = nav ? checkTargetUrl(u, { allow: o.allow }).ok : isAllowedSubrequest(u, sceneUrl);
-    if (ok) return route.continue();
-    blocked.push(u);
-    return route.abort("blockedbyclient");
+    // main-frame navigations (including in-page location changes) stay on the scene's own origin AND path prefix
+    const ok = nav ? isAllowedNavigation(u, sceneUrl, o.allow) : isAllowedSubrequest(u, sceneUrl);
+    if (!ok) { blocked.push(u); return route.abort("blockedbyclient"); }
+    if (!/^https?:/i.test(u)) return route.continue(); // data:/blob: never reach the network
+    // REDIRECTS ARE REFUSED. Chromium follows a redirect hop without routing it (verified: the target is contacted before any
+    // route handler could object), so a checked URL could still carry the browser to another port, host or path. The request
+    // is therefore made here with redirects off: a 3xx is never handed to the browser, and nothing is contacted but the
+    // URL that was checked. The scene URL must be the FINAL URL.
+    let resp;
+    try { resp = await route.fetch({ maxRedirects: 0 }); } catch { return route.abort("failed"); }
+    const loc = resp.headers()["location"];
+    if (resp.status() >= 300 && resp.status() < 400 && loc) {
+      blocked.push(`redirect ${u} -> ${loc}`);
+      return route.abort("blockedbyclient");
+    }
+    return route.fulfill({ response: resp });
+  });
+  // A presenter page has no business holding a socket open to anywhere: WebSockets are refused outright, without ever
+  // contacting the server (the HTTP route above does not see them).
+  await context.routeWebSocket(/.*/, (/** @type {any} */ ws) => {
+    blocked.push(`websocket ${ws.url()}`);
+    ws.close({ code: 1008, reason: "blocked by observatory-broadcast" });
   });
   const page = context.pages()[0] ?? (await context.newPage());
+  page.__obsBlocked = blocked;
   const close = async () => {
     try { await context.close(); } catch { /* already closed */ }
     fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -86,15 +128,56 @@ export async function openScene(o) {
 
 /** Navigate and wait until fonts and two animation frames have settled. Throws ObsError if the final URL left the allow-list. */
 export async function gotoStable(page, url, { allow, timeoutMs = 20_000 } = {}) {
-  const resp = await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
+  let resp;
+  try {
+    resp = await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
+  } catch (e) {
+    const redirect = /** @type {string[]} */ (page.__obsBlocked ?? []).filter((b) => b.startsWith("redirect ")).at(-1);
+    if (redirect) throw new ObsError("url_refused", `the scene URL redirects (${redirect.slice("redirect ".length)}); redirects are refused, give the final URL`, { exitCode: 4 });
+    throw e;
+  }
   if (resp && resp.status() >= 400) throw new ObsError("scene_http_error", `scene responded with HTTP ${resp.status()}`);
+  assertOnScene(page, url, allow);
+  try {
+    await page.evaluate(async () => {
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    });
+  } catch (e) {
+    // the page navigated while it was being prepared (a refused navigation leaves Chromium on an error page)
+    if (/Execution context was destroyed|navigation/i.test(String(/** @type {Error} */ (e).message))) {
+      throw new ObsError("scene_navigated_away", "the scene navigated away while it was loading; a presenter scene must stay on its own page (navigations elsewhere are refused)", { exitCode: 4 });
+    }
+    throw e;
+  }
+  assertOnScene(page, url, allow);
+}
+
+/**
+ * A capture step failed. If the cause is the page having been walked off its scene (refused navigation -> error page, or a
+ * navigation still in flight), say so with the right error; otherwise rethrow the original.
+ * @param {any} page @param {string} sceneUrl @param {readonly string[]|undefined} allow @param {unknown} err
+ */
+export async function explainCaptureFailure(page, sceneUrl, allow, err) {
+  for (let i = 0; i < 6; i++) {
+    assertOnScene(page, sceneUrl, allow); // throws scene_navigated_away once the page is off the scene
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw err;
+}
+
+/**
+ * The page must still be on its own scene (origin + path prefix, and allow-listed). A refused navigation leaves Chromium on an
+ * error page (chrome-error://...): that is detected here, so such a page is never captured or broadcast.
+ * @param {any} page @param {string} sceneUrl @param {readonly string[]} [allow]
+ */
+export function assertOnScene(page, sceneUrl, allow) {
   const final = page.url();
-  const chk = checkTargetUrl(final, { allow });
-  if (!chk.ok) throw new ObsError("url_refused", `scene ended on a refused URL after redirects: ${chk.reason}`, { exitCode: 4 });
-  await page.evaluate(async () => {
-    if (document.fonts && document.fonts.ready) await document.fonts.ready;
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  });
+  if (!isAllowedNavigation(final, new URL(sceneUrl), allow)) {
+    let where = "an error page";
+    try { const u = new URL(final); if (/^https?:$/.test(u.protocol)) where = `${u.origin}${u.pathname}`; } catch { /* keep generic */ }
+    throw new ObsError("scene_navigated_away", `the scene is no longer on its own page (now ${where}); navigating away is refused`, { exitCode: 4 });
+  }
 }
 
 /**
@@ -110,11 +193,13 @@ export async function captureStepped(o) {
     const t = i / o.fps;
     if (fast) {
       await o.page.evaluate(async (/** @type {number} */ tt) => { await window.__obsSeek(tt); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); }, t);
+      assertOnScene(o.page, o.url, o.allow);
     } else {
       await gotoStable(o.page, withFrameParams(o.url, t), { allow: o.allow });
       if (i === 0) fast = await o.page.evaluate(() => typeof window.__obsSeek === "function").catch(() => false);
     }
-    const png = await o.page.screenshot({ type: "png" });
+    let png;
+    try { png = await o.page.screenshot({ type: "png" }); } catch (e) { await explainCaptureFailure(o.page, o.url, o.allow, e); }
     await o.onFrame(png, i);
   }
 }
@@ -167,6 +252,7 @@ export async function startSceneFeed(o) {
     while (!stopped) {
       const t0 = Date.now();
       try {
+        assertOnScene(scene.page, o.url, o.allow); // never broadcast a page that was walked off its scene (or an error page)
         const jpg = await scene.page.screenshot({ type: "jpeg", quality: 82 });
         if (stopped) break;
         if (o.write(jpg)) stats.frames++; else stats.dropped++;

@@ -80,6 +80,10 @@ export class BaseAdapter {
     this.deps = deps;
     /** Whether `obs publish` demands an approval code for this adapter (false only where nothing leaves the machine). */
     this.requiresApproval = true;
+    /** Whether this adapter's output puts a secret on the ffmpeg command line. */
+    this.keyOnArgv = false;
+    /** Whether the platform-side visibility is beyond this tool (then --approve-public is required whatever --visibility says). */
+    this.treatAsPublic = false;
     /** @type {string} */ this._state = "not_configured";
     this._verified = false;
     /** @type {string} */ this._detail = "not configured";
