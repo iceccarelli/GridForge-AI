@@ -79,8 +79,13 @@ export interface ConstraintResult {
   key: string;
   name: string;
   domain: "electrical" | "thermal" | "physical" | string;
-  /** Racks this constraint alone allows (as found); null when the inputs do not support a number. */
+  /**
+   * Racks this constraint alone allows (as found). null means the engine reports NO finite limit: the constraint does not limit the
+   * hall (a passing gate, or a ceiling above every other limit). It says nothing about whether inputs were supplied; `evidence` says that.
+   */
   racksAllowed: number | null;
+  /** True iff racksAllowed === null (the constraint passes). Redundant by design: a renderer must not infer "unknown" from a null. */
+  passes: boolean;
   binds: boolean;
   basis: string;
   evidence: EvidenceClass;
@@ -109,7 +114,15 @@ export interface ScenarioOutcome {
   /** True only when every lead time behind weeksToCapacity was supplied; assumed lead times stay labelled E0 and "not a date". */
   dated: boolean;
   capexEur: Quantity;
-  /** Unpriced components the capex omits; a total without them is not a complete price. */
+  /** The engine's capex_complete: false when any component is unpriced, or when nothing is deployable. A capex that is not complete is a LOWER BOUND. */
+  capexComplete: boolean;
+  /**
+   * What the priced lines behind capexEur rest on, from the engine's own cost basis: "placeholder" = every line is a library placeholder
+   * (not a price); "partly_supplied" = some lines are placeholders and some are a supplied figure (an intake figure or a non-placeholder
+   * library line); "supplied" = no line is a placeholder; "none" = there is no capex figure (capexEur.value is null).
+   */
+  capexPricing: "placeholder" | "partly_supplied" | "supplied" | "none";
+  /** Unpriced components the capex omits; a total with any is a LOWER BOUND, not a complete price. */
   unpricedComponents: string[];
   evidence: EvidenceClass;
 }
@@ -147,6 +160,11 @@ export interface ScenarioFile {
   generatedAt: string;
   synthetic: true;
   calibration: { state: "empty"; statement: string };
+  /**
+   * SHA-256 (hex) of every leaf of this file except this field, written by scripts/build-observatory.py and verified by the loader
+   * (lib/observatory/scenario-data.ts, contentFingerprint): a schema-valid hand edit of any figure no longer verifies.
+   */
+  contentSha256: string;
   scenarios: ObservatoryScenario[];
 }
 

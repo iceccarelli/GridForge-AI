@@ -49,11 +49,11 @@ export const FIXTURE_HALL_A: ObservatoryScenario = {
     node("a-rack", "rack", "Rack", 0.12, 0.05, 0.08, false, null),
   ],
   constraints: [
-    { key: "utility", name: "Utility connection", domain: "electrical", racksAllowed: 160, binds: false, basis: "contracted MW / kW per rack", evidence: "E1" },
-    { key: "transformer", name: "Transformer", domain: "electrical", racksAllowed: 100, binds: true, basis: "transformer rating / kW per rack", evidence: "E1" },
-    { key: "cooling", name: "Cooling plant", domain: "thermal", racksAllowed: 128, binds: false, basis: "heat rejection / kW per rack", evidence: "E2" },
-    { key: "ups", name: "UPS", domain: "electrical", racksAllowed: 110, binds: false, basis: "UPS rating / kW per rack", evidence: "E1" },
-    { key: "floor", name: "Floor loading", domain: "physical", racksAllowed: null, binds: false, basis: "no floor data supplied", evidence: "E0" },
+    { key: "utility", name: "Utility connection", domain: "electrical", racksAllowed: 160, passes: false, binds: false, basis: "contracted MW / kW per rack", evidence: "E1" },
+    { key: "transformer", name: "Transformer", domain: "electrical", racksAllowed: 100, passes: false, binds: true, basis: "transformer rating / kW per rack", evidence: "E1" },
+    { key: "cooling", name: "Cooling plant", domain: "thermal", racksAllowed: 128, passes: false, binds: false, basis: "heat rejection / kW per rack", evidence: "E2" },
+    { key: "ups", name: "UPS", domain: "electrical", racksAllowed: 110, passes: false, binds: false, basis: "UPS rating / kW per rack", evidence: "E1" },
+    { key: "floor", name: "Floor loading", domain: "physical", racksAllowed: null, passes: true, binds: false, basis: "no floor data supplied", evidence: "E0" },
   ],
   rackRows: [
     { id: "row-1", label: "Row 1", racks: 60, kwPerRackAsFound: 5, kwPerRackAfterPlan: 8 },
@@ -71,6 +71,8 @@ export const FIXTURE_HALL_A: ObservatoryScenario = {
       dated: true,
       capexEur: q(2_400_000, "EUR", "E1", { low: 2_000_000, high: 3_100_000 }),
       unpricedComponents: ["site works"],
+      capexComplete: false,
+      capexPricing: "placeholder",
       evidence: "E3",
     },
     {
@@ -84,6 +86,8 @@ export const FIXTURE_HALL_A: ObservatoryScenario = {
       dated: false,
       capexEur: q(null, "EUR", "E0", { missingReason: "no supplied cost" }),
       unpricedComponents: ["coolant distribution", "commissioning"],
+      capexComplete: false,
+      capexPricing: "none",
       evidence: "E0",
     },
   ],
@@ -103,8 +107,8 @@ export const FIXTURE_HALL_B: ObservatoryScenario = {
     node("b-busway", "busway", "Busway", null, 2, 20, false, "busway"),
   ],
   constraints: [
-    { key: "utility", name: "Utility connection", domain: "electrical", racksAllowed: 300, binds: false, basis: "contracted MW / kW per rack", evidence: "E1" },
-    { key: "busway", name: "Busway", domain: "electrical", racksAllowed: null, binds: false, basis: "no busway rating supplied", evidence: "E0" },
+    { key: "utility", name: "Utility connection", domain: "electrical", racksAllowed: 300, passes: false, binds: false, basis: "contracted MW / kW per rack", evidence: "E1" },
+    { key: "busway", name: "Busway", domain: "electrical", racksAllowed: null, passes: true, binds: false, basis: "no busway rating supplied", evidence: "E0" },
   ],
   rackRows: [],
   outcomes: [
@@ -119,6 +123,8 @@ export const FIXTURE_HALL_B: ObservatoryScenario = {
       dated: false,
       capexEur: q(null, "EUR", "E0"),
       unpricedComponents: [],
+      capexComplete: false,
+      capexPricing: "none",
       evidence: "E1",
     },
   ],
@@ -132,5 +138,6 @@ export const FIXTURE_FILE: ScenarioFile = {
   generatedAt: "2026-01-01T00:00:00Z",
   synthetic: true,
   calibration: { state: "empty", statement: "TEST FIXTURE: the calibration ledger is empty." },
+  contentSha256: "0".repeat(64),
   scenarios: [FIXTURE_HALL_A, FIXTURE_HALL_B],
 };
