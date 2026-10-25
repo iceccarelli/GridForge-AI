@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchMarket } from "@/lib/observatory/_shared/feeds";
 
 /**
  * Live German day-ahead power price (EPEX Spot via aWATTar, DE-LU zone).
@@ -12,72 +13,12 @@ import { NextResponse } from "next/server";
  * marketprice, unit: "Eur/MWh" }, ...] } — prices from now up to ~24h ahead.
  */
 
-const AWATTAR_DE = "https://api.awattar.de/v1/marketdata";
 export const dynamic = "force-dynamic"; // never fetch awattar at build time
 export const revalidate = 1800; // 30 minutes (request-time cache)
 
-type AwattarEntry = {
-  start_timestamp: number;
-  end_timestamp: number;
-  marketprice: number;
-  unit: string;
-};
-
-const r2 = (n: number) => Math.round(n * 100) / 100;
-
+// The upstream fetch and the arithmetic live in lib/observatory/_shared/feeds.ts (shared with the Observatory's live context);
+// the JSON this route returns is unchanged (tests/site/observatory-core-routes-snapshot.test.ts).
 export async function GET() {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(AWATTAR_DE, {
-      signal: ctrl.signal,
-      headers: { Accept: "application/json" },
-      next: { revalidate: 1800 },
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      return NextResponse.json({ ok: false, reason: `upstream ${res.status}` });
-    }
-
-    const json = (await res.json()) as { data?: AwattarEntry[] };
-    const rows = Array.isArray(json.data) ? json.data : [];
-    const series = rows
-      .filter(
-        (r) =>
-          typeof r.marketprice === "number" &&
-          typeof r.start_timestamp === "number"
-      )
-      .map((r) => ({ t: r.start_timestamp, price: r2(r.marketprice) }));
-
-    if (series.length === 0) {
-      return NextResponse.json({ ok: false, reason: "empty" });
-    }
-
-    const prices = series.map((s) => s.price);
-    const now = Date.now();
-    const currentRow = rows.find(
-      (r) => now >= r.start_timestamp && now < r.end_timestamp
-    );
-    const current = currentRow ? r2(currentRow.marketprice) : series[0].price;
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const avg = r2(prices.reduce((a, b) => a + b, 0) / prices.length);
-
-    return NextResponse.json({
-      ok: true,
-      market: "Germany / Luxembourg (DE-LU)",
-      source: "EPEX Spot day-ahead via aWATTar",
-      unit: "EUR/MWh",
-      asOf: now,
-      current,
-      min,
-      max,
-      avg,
-      spread: r2(max - min),
-      series,
-    });
-  } catch {
-    return NextResponse.json({ ok: false, reason: "fetch-failed" });
-  }
+  const { body } = await fetchMarket({ timeoutMs: 6000, init: { next: { revalidate: 1800 } } });
+  return NextResponse.json(body);
 }

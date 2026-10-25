@@ -10,6 +10,7 @@ import { BackgroundReel } from "@/components/BackgroundReel";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ScopingAgent } from "@/components/ScopingAgent";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
+import { SiteChrome } from "@/components/SiteChrome";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -86,12 +87,25 @@ export default function RootLayout({
     <html lang="en" className={`dark ${inter.variable} ${mono.variable}`}>
       <body className="font-sans antialiased text-ghost">
         <MotionProvider>
-        <Navbar />
-        <BackgroundReel />
-        <main className="relative pb-16 lg:pb-0">{children}</main>
-        <Footer />
-        <StickyMobileCTA />
-        <ScopingAgent />
+        <SiteChrome>
+          {/* First focusable thing on every page with the site shell (the bare presenter route carries no link at all). */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[110] focus:rounded-lg focus:bg-power focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink"
+          >
+            Skip to the main content
+          </a>
+          <Navbar />
+          <BackgroundReel />
+        </SiteChrome>
+        <main id="main-content" tabIndex={-1} className="relative pb-16 outline-none lg:pb-0">
+          {children}
+        </main>
+        <SiteChrome>
+          <Footer />
+          <StickyMobileCTA />
+          <ScopingAgent />
+        </SiteChrome>
         <Toaster position="top-center" theme="dark" richColors closeButton />
         </MotionProvider>
       </body>
