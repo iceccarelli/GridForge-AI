@@ -360,9 +360,10 @@ describe("app/observatory/page.tsx: the server component", () => {
     loadScenarioFile.mockReset();
     getLiveContext.mockReset();
   });
-  it("is regenerated every five minutes so the context follows the feeds without a redeploy", async () => {
+  it("is rendered per request so every retrieval timestamp is the real one, not a statically regenerated page's", async () => {
     const mod = await import("@/app/observatory/page");
-    expect(mod.revalidate).toBe(300);
+    expect(mod.dynamic).toBe("force-dynamic");
+    expect((mod as { revalidate?: number }).revalidate).toBeUndefined();
     expect((mod.metadata.alternates as { canonical: string }).canonical).toBe("/observatory");
   });
   it("loads the scenario file and the live context, and renders both", async () => {

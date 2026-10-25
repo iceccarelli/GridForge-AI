@@ -5,8 +5,10 @@ import { getLiveContext } from "@/lib/observatory/sources";
 import type { ContextState } from "@/components/observatory/ContextPanel";
 import { ObservatoryView, type FileState } from "@/components/observatory/ObservatoryView";
 
-// The live context follows the feeds without a redeploy: the page is regenerated at most every five minutes.
-export const revalidate = 300;
+// Rendered per request, on purpose. Each figure shows when it was actually retrieved, and a statically regenerated page (or a
+// feed response held in Next's data cache) would make that timestamp older than it looks. Feed load is bounded instead by the
+// five-minute in-process cache in lib/observatory/sources.ts.
+export const dynamic = "force-dynamic";
 
 const TITLE = "Observatory: what limits a synthetic AI hall";
 const DESCRIPTION =

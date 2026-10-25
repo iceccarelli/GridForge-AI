@@ -10,6 +10,7 @@ import { BackgroundReel } from "@/components/BackgroundReel";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ScopingAgent } from "@/components/ScopingAgent";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
+import { SiteChrome } from "@/components/SiteChrome";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -86,12 +87,16 @@ export default function RootLayout({
     <html lang="en" className={`dark ${inter.variable} ${mono.variable}`}>
       <body className="font-sans antialiased text-ghost">
         <MotionProvider>
-        <Navbar />
-        <BackgroundReel />
+        <SiteChrome>
+          <Navbar />
+          <BackgroundReel />
+        </SiteChrome>
         <main className="relative pb-16 lg:pb-0">{children}</main>
-        <Footer />
-        <StickyMobileCTA />
-        <ScopingAgent />
+        <SiteChrome>
+          <Footer />
+          <StickyMobileCTA />
+          <ScopingAgent />
+        </SiteChrome>
         <Toaster position="top-center" theme="dark" richColors closeButton />
         </MotionProvider>
       </body>
