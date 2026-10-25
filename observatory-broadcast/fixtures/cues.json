@@ -1,0 +1,6 @@
+[
+  { "startSec": 0.0, "endSec": 2.5, "text": "This is a synthetic hall: every number is illustrative." },
+  { "startSec": 2.5, "endSec": 5.0, "text": "Power path: grid supply -> substation -> transformer." },
+  { "startSec": 5.0, "endSec": 7.5, "text": "The binding stage is highlighted, <not> a commitment & not a quote." },
+  { "startSec": 7.5, "endSec": 10.0, "text": "Calibration ledger: empty.\nNo customer data is shown." }
+]
