@@ -13,6 +13,7 @@ import { vi } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
+import { resetPauseReconcileCache } from "@/lib/pause-reconcile";
 import { MockStripe, mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
 import type { PostgrestFake, Row } from "./postgrest-fake";
 
@@ -76,6 +77,7 @@ export class HoldStripe extends MockStripe {
         return { id, latest_invoice: this.subscriptionLatest.get(id) ?? null, metadata: { kind: this.subscriptionKinds.get(id) }, ...(this.subscriptionState.get(id) ?? {}) };
       },
     };
+    this.installHangs();
   }
   /** An invoice that exists on a subscription, becomes its newest, and has the given facts. */
   addInvoice(invoice: string, sub: string, facts: Facts = { status: "paid", amount_paid: 90_000 }) {
@@ -121,6 +123,7 @@ export function startRig(): Rig {
     STRIPE_SECRET_KEY: "sk_test_placeholder", STRIPE_WEBHOOK_SECRET: WH, CRON_SECRET: "cron-secret-value", RESEND_API_KEY: "re_test",
     LEAD_TO_EMAIL: "ops@example.test", LEAD_FROM_EMAIL: "T <p@timetopower.ai>", GRIDFORGE_API_KEY: "engine-key",
   });
+  resetPauseReconcileCache();
   const logs: unknown[][] = [];
   for (const m of ["error", "log", "warn"] as const) vi.spyOn(console, m).mockImplementation((...a: unknown[]) => { logs.push(a); });
   const T0 = Math.floor(Date.now() / 1000);

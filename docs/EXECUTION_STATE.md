@@ -116,3 +116,28 @@ the settlement invoice calls in lib/payg-billing.ts.
 - /observatory/presenter: noindex, no site shell, no link, no API call; a pure function of `?t=` (`freeze=1` for frame-exact capture). A real stepped recording of the 3:52 journey was made with observatory-broadcast (h264 1280x720 15 fps, silent AAC, mov_text captions, manifest with frame hash); it is not committed (30 MB).
 - observatory-broadcast/: scene -> capture/encode -> publish, supervisor, fallback slate, approval gate, URL guard. NOT connected to any platform: no YouTube/Kick/RTMP verifier exists, none of them can report "live", and no real connection was made. Operator steps and the argv exposure of the ingest URL are in its README.
 - Independent security, honesty and accessibility reviews were run; their findings are fixed with regression tests except those listed in the README (argv exposure, residual lock-break window, all redirects refused).
+
+the settlement invoice calls in lib/payg-billing.ts. [Both addressed in the 2026-10-25 entry below.]
+
+## Log: 2026-10-25, worktree branch off origin/main 814dce6 (billing resilience: lost resume event, Stripe timeouts on PAYG settlement)
+Built (local/test infrastructure only; nothing pushed, no migration, no live Stripe):
+- Lost or late resume event (`lib/pause-reconcile.ts`, one rule for `lookupEntitlement` + seats, the Hall Watch POST route and `mintChecked`): a pause schedule whose instant has passed and that has no separate hold asks Stripe ONCE
+  (injectable client, bounded). Billing running again -> the stale schedule is cleared by a conditional write (schedule instant + pause/resume clock + no hold + not ended), one `pause_schedule_dropped` audit row, access granted.
+  Still paused/unpaid/canceled, timeout, 5xx, no subscription, no client -> denied, schedule untouched. A hold (refund/dispute/...) or an ended row is denied without a Stripe call. Denials from Stripe are remembered 45 s per process
+  (a customer's own key mint ignores the memory); concurrent checks share one call. `billingStopped`/`isPaused` moved to `lib/billing-pause-due.ts` and `recordBillingAudit` to `lib/billing-audit.ts` (re-exported; no behaviour change).
+- Stripe timeouts on the PAYG paths (`lib/stripe-timeout.ts` `boundStripe`): `paygStripe()` returns a client with EVERY method bounded (8 s, `STRIPE_CALL_TIMEOUT_MS`), `settleClosedMonths`, `handlePaygEnable` and `handlePaygCardUpdate` bound whatever client they
+  get. A timeout carries code `stripe_call_timeout` and is "cannot say": the settlement stays `pending` (never invoiced/paid/failed on a guess), the ledger is untouched, the next run re-reads the invoice/item by its settlement_key metadata
+  (idempotency keys `payg:{account}:{month}`, `:item`, `:finalize` on every create) before creating anything. The replaced-card record now moves only after the invoice was pointed at the card. Counted in the cron JSON
+  (`settle.timedOut`, `settle.deferred`), mailed once per settlement per day. The invoicing pass has a 120 s budget (`PAYG_SETTLE_BUDGET_MS`), skips an account's later months after its timeout, stops after 3 timeouts in a row, and
+  orders rows that already failed behind fresh ones. Webhook handlers answer "retry" on a timeout.
+Tests: `tests/site/pause-reconcile.test.ts` (23), `tests/site/payg-timeouts.test.ts` (35); MockStripe gained `hang`/`hangWhen` ("before": never reaches Stripe, "after": takes effect, answer lost). Revert-checked: without the fixes 12 and 33 of them fail.
+Not covered: the daily pause pass (`applyDuePauses`) has the per-call bound but no run budget; `app/api/checkout`, `app/api/subscribe` and `stripe-health` build their own Stripe client with the SDK's default timeout (not PAYG paths); `invoices.list` reads the
+customer's newest 100 invoices when looking for an earlier attempt.
+Review round (same day): reconcile now audits "started" BEFORE the clear and closes after it (keys carry the schedule instant and the pause clock), moves the pause clock in the clearing write (a stale older pause event cannot
+re-create the schedule), treats a lost compare-and-set race against another clear as allowed, never remembers a store fault, grants only for an allowlisted status (active/trialing/past_due) of the same subscription, and
+reads Stripe with a 2.5 s bound on the request path. /api/scenarios and /api/siting-analysis refuse unverified sessions (403) before any entitlement lookup. SDK timeout = bound + 1 s, no SDK retries; the SDK's own timeout error counts as a
+timeout. Settlement: breaker resets only after a Stripe answer, budget (90 s) also checked between Stripe steps, rows ordered by last touch, a void/uncollectible invoice is never marked invoiced (pending + operator mail), a
+StripeIdempotencyError is answered by re-listing by settlement_key (never a second invoice). Daily pause pass: 60 s budget and a 3-failures-in-a-row breaker (`pauses.unreached`).
+OWNER DECISION (documented, not changed): "billing running at Stripe" is treated as entitled, not "current period paid": a subscription paused across a renewal and resumed has access from the resume until its next invoice settles,
+as the daily job already does.
+Third look (independent read-only review of the delta): same-subscription check now requires the answer to name the subscription asked about; finalise-key stability and the card-replaced repoint are pinned by tests; the void/uncollectible operator mail states the real (manual, database-side) resolution. Known and left: no automated path resolves a settlement whose invoice was voided outside the system; the webhook pause writer has no compare-and-set on the pause clock (a lost race fails closed, one wrongly denied request, then the next check clears again).

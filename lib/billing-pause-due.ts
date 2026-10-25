@@ -20,3 +20,25 @@ export function pauseDue(row: PauseScheduled | null | undefined, nowMs: number =
   const t = pauseFromMs(row);
   return t !== null && t <= nowMs;
 }
+
+// ---- Stripe's side of the same question: is billing stopped? (One rule, shared by the daily job, the re-check after a lift and the access checks.)
+
+/** The two fields of a Stripe subscription that say whether billing runs. */
+export interface BillingState {
+  status?: string | null;
+  pause_collection?: unknown;
+}
+
+/** Billing is paused: pause_collection is set, or Stripe's own status says so. */
+export function isPaused(sub: BillingState): boolean {
+  return Boolean(sub.pause_collection) || (sub.status as string | undefined) === "paused";
+}
+
+/**
+ * Billing is STOPPED for the purpose of access: paused (above), or Stripe's `unpaid` (dunning ran out and billing stopped). One rule for the
+ * daily job (promote) and for the re-check after a lift (reassertPause): an unpaid subscription holds, it is never read as "running again".
+ */
+export function billingStopped(sub: BillingState): boolean {
+  return isPaused(sub) || (sub.status as string | undefined) === "unpaid";
+}
+

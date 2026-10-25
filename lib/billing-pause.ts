@@ -35,7 +35,7 @@
 import { withStripeTimeout } from "@/lib/stripe-timeout";
 import { pg, enc } from "@/lib/payg-store";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
-import { pauseDue, pauseFromMs } from "@/lib/billing-pause-due";
+import { billingStopped, isPaused, pauseDue, pauseFromMs } from "@/lib/billing-pause-due";
 import {
   applyHold,
   endedRow,
@@ -126,18 +126,7 @@ export interface PausedSub {
   latest_invoice?: unknown;
 }
 
-/** Billing is paused: pause_collection is set, or Stripe's own status says so. */
-export function isPaused(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
-  return Boolean(sub.pause_collection) || (sub.status as string | undefined) === "paused";
-}
-
-/**
- * Billing is STOPPED for the purpose of access: paused (above), or Stripe's `unpaid` (dunning ran out and billing stopped). One rule for the
- * daily job (promote) and for the re-check after a lift (reassertPause): an unpaid subscription holds, it is never read as "running again".
- */
-export function billingStopped(sub: Pick<PausedSub, "status" | "pause_collection">): boolean {
-  return isPaused(sub) || (sub.status as string | undefined) === "unpaid";
-}
+export { isPaused, billingStopped } from "@/lib/billing-pause-due";
 
 const sec = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
 
@@ -497,8 +486,15 @@ async function promote(t: Target, stripe: ReversalStripe | null, nowMs: number, 
   return "promoted";
 }
 
+/** How long the daily pause pass may spend (the cron has settlement, reversals and the revocation report still to run inside 300 s). */
+export const PAUSE_PASS_BUDGET_MS = 60_000;
+/** This many rows in a row that FAILED (Stripe not answering, a write refused) mean the pass cannot do its job now: it stops instead of waiting out every row. */
+export const PAUSE_FAIL_BREAKER = 3;
+
 export interface PauseReport {
   due: number;
+  /** Due rows NOT looked at because the pass stopped (three failures in a row, or its time budget): untouched, and first in line next run. */
+  unreached: number;
   promoted: number;
   /** A Hall Watch that owes a note due before its pause: left for the Hall Watch cron, which delivers it and then pauses the watch. */
   deferred: number;
@@ -518,9 +514,13 @@ async function stampChecked(t: Target, now: Date): Promise<void> {
  * The daily pass: every scheduled pause whose instant has passed becomes the hold. Idempotent (a second run finds nothing due), never
  * throws, never touches a cancelled row. Run by /api/cron/payg. A store without migration 0043 reports why it did nothing.
  */
-export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe | null }): Promise<PauseReport> {
+export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe | null; clock?: () => number; budgetMs?: number }): Promise<PauseReport> {
   const now = opts.now ?? new Date();
-  const report: PauseReport = { due: 0, promoted: 0, deferred: 0, dropped: 0, skipped: 0, errors: 0 };
+  const report: PauseReport = { due: 0, unreached: 0, promoted: 0, deferred: 0, dropped: 0, skipped: 0, errors: 0 };
+  const clock = opts.clock ?? (() => performance.now());
+  const started = clock();
+  const budget = opts.budgetMs ?? PAUSE_PASS_BUDGET_MS;
+  let failedInARow = 0;
   const tables: { table: TableName; ent: keyof Entitlements; status: string }[] = [
     { table: "api_accounts", ent: "api", status: "status=neq.cancelled" },
     { table: "watches", ent: "watch", status: "status=neq.cancelled" },
@@ -540,8 +540,17 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
     }
     for (const row of r.data ?? []) {
       report.due++;
+      // A pass that cannot get through (Stripe browned out: every row waits out its bound) must not eat the cron's whole time: it stops, says
+      // how many it did not reach, and they are the FIRST rows read next run (only rows that were looked at and left stuck are stamped).
+      if (failedInARow >= PAUSE_FAIL_BREAKER || clock() - started > budget) {
+        report.unreached++;
+        continue;
+      }
       const target: Target = { table: p.table, row, ent: p.ent };
       const out = await promote(target, opts.stripe, now.getTime());
+      // Only a row that actually asked Stripe and got an answer proves it is answering.
+      if (out === "failed") failedInARow++;
+      else if (out === "promoted" || out === "dropped") failedInARow = 0;
       if (out === "promoted") report.promoted++;
       else if (out === "deferred") report.deferred++;
       else if (out === "dropped") report.dropped++;
@@ -559,12 +568,12 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
       `${report.skippedReason}. No scheduled pause can be started until it is fixed (supabase/migrations/0043_billing_pause_and_settlement_reversals.sql). A pause recorded before then keeps the customer's access. This notice is sent once a day.`
     );
   }
-  if (report.errors > 0 || report.skipped > 0) {
+  if (report.errors > 0 || report.skipped > 0 || report.unreached > 0) {
     await notifyOperatorOnce(
       `pause_job:${now.toISOString().slice(0, 10)}`,
-      `Scheduled billing pauses NOT started: ${report.errors} failed, ${report.skipped} skipped`,
+      `Scheduled billing pauses NOT started: ${report.errors} failed, ${report.skipped} skipped, ${report.unreached} not reached`,
       `The daily pass found ${report.due} scheduled pause(s) whose paid period has ended: ${report.promoted} started, ${report.deferred} deferred (a Hall Watch owing a note, or a stronger hold standing), ` +
-        `${report.dropped} dropped (billing was running again at Stripe), ${report.errors} FAILED (Stripe or the store could not be reached; tried again next run) and ${report.skipped} skipped ` +
+        `${report.dropped} dropped (billing was running again at Stripe), ${report.errors} FAILED (Stripe or the store could not be reached; tried again next run), ${report.unreached} not reached (the pass stopped after repeated failures or at its time budget; they are first in line next run) and ${report.skipped} skipped ` +
         "(the subscription is canceled at Stripe but its cancellation event was never applied: check the customer.subscription.deleted deliveries for it). " +
         "Until each starts, that customer keeps paid access they have stopped paying for. This notice is sent once a day while any remains."
     );

@@ -21,6 +21,11 @@ export async function POST(req: Request) {
   // subscriber's address let anyone spend their LLM analyst).
   const who = await identify(req);
   if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  // An unconfirmed session claiming an address must not drive an entitlement lookup for it (it can reconcile and clear a stale pause at
+  // Stripe for that address, and the latency is an oracle): same refusal as /api/team.
+  if (!who.verified) {
+    return NextResponse.json({ ok: false, error: "Confirm your email address by signing in with the emailed link, then try again." }, { status: 403 });
+  }
   const email = who.email;
 
   const key = process.env.ANTHROPIC_API_KEY;

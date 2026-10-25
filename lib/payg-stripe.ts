@@ -7,6 +7,7 @@
 // the real client satisfies it unchanged and tests inject a fake with the same shapes.
 
 import Stripe from "stripe";
+import { boundStripe, isStripeTimeout, stripeCallTimeoutMs } from "@/lib/stripe-timeout";
 
 export interface InvoiceLite {
   id: string;
@@ -60,13 +61,23 @@ export function setPaygStripeForTests(client: PaygStripe | null): void {
   override = client;
 }
 
-/** The client billing talks to, or null when Stripe is not configured on this deployment. */
+/**
+ * The client billing talks to, or null when Stripe is not configured on this deployment. EVERY call on it is bounded
+ * (lib/stripe-timeout.ts): a call with no answer in STRIPE_CALL_TIMEOUT_MS fails as a StripeConnectionError with code stripe_call_timeout,
+ * which means "cannot say" (the call may still have succeeded at Stripe), never an outcome. The SDK is given the same limit so that the
+ * request itself is abandoned rather than left holding a socket.
+ */
 export function paygStripe(): PaygStripe | null {
-  if (override) return override;
+  if (override) return boundStripe(override);
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return null;
-  return new Stripe(key) as unknown as PaygStripe;
+  // The SDK's own timeout is a second above the race (so the race, which carries the stripe_call_timeout code, is the one that ends a wait),
+  // and it never retries on its own: a retry inside the SDK would keep a socket alive after the race gave up and could repeat a create.
+  return boundStripe(new Stripe(key, { timeout: stripeCallTimeoutMs() + 1_000, maxNetworkRetries: 0 }) as unknown as PaygStripe);
 }
+
+/** Did this error come from the bound (no answer in time)? The call's outcome at Stripe is unknown. */
+export const stripeTimedOut = isStripeTimeout;
 
 /** A category for a failed Stripe call: its documented type/code, never its message (which can echo request data). */
 export function stripeFault(err: unknown): string {

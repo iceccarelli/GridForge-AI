@@ -34,6 +34,14 @@ async function whoIs(req: Request) {
       denied: NextResponse.json({ ok: false, error: id.error }, { status: id.status }),
     };
   }
+  // A session that merely claims an address (no emailed link followed) must not drive an entitlement lookup for it: that lookup can ask
+  // Stripe about, and clear a stale pause on, somebody else's subscription, and its latency tells a stranger what state it is in.
+  if (!id.verified) {
+    return {
+      email: "",
+      denied: NextResponse.json({ ok: false, error: "Confirm your email address by signing in with the emailed link, then try again." }, { status: 403 }),
+    };
+  }
   return { email: id.email, denied: null };
 }
 
