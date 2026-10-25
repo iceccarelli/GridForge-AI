@@ -4,6 +4,8 @@
  * it is synthetic, and the site shell (which has account, billing and assistant links) is off for this route.
  */
 import React from "react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { loadScenarioFile } from "@/lib/observatory/scenario-data";
@@ -126,5 +128,16 @@ describe("the site shell is off for the presenter route only", () => {
     const mod = await import("@/app/observatory/presenter/page");
     expect(mod.metadata.robots).toMatchObject({ index: false, follow: false });
     expect(mod.dynamic).toBe("force-dynamic");
+  });
+});
+
+describe("the presenter's error, loading and not-found states carry no link either", () => {
+  const read = (rel: string) => readFileSync(path.resolve(__dirname, "../..", rel), "utf8");
+  it.each(["app/observatory/presenter/error.tsx", "app/observatory/presenter/loading.tsx", "app/observatory/presenter/not-found.tsx"])("%s has no link, anchor or button", (f) => {
+    const src = read(f);
+    expect(src).not.toMatch(/next\/link|<a[\s>]|href=|<button|onClick|reset\(/);
+  });
+  it("an unknown path under the presenter is routed to the presenter's own not-found", () => {
+    expect(read("app/observatory/presenter/[...rest]/page.tsx")).toMatch(/notFound\(\)/);
   });
 });
