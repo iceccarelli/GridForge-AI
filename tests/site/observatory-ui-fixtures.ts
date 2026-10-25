@@ -76,6 +76,7 @@ const CONSTRAINTS_A: ConstraintResult[] = KEYS.map(([key, name, domain, racksAll
   name,
   domain,
   racksAllowed,
+  passes: racksAllowed === null,
   binds,
   basis: racksAllowed === null ? "inputs do not support a figure" : `${name.toLowerCase()} divided by the platform's per-rack draw`,
   evidence,
@@ -99,6 +100,8 @@ export const OUTCOMES_A: ScenarioOutcome[] = [
     dated: false,
     capexEur: q(null, "EUR", "E0", { missingReason: "No cost evidence supplied." }),
     unpricedComponents: ["tap-off units", "installation labour"],
+    capexComplete: false,
+    capexPricing: "none",
     evidence: "E0",
   },
   {
@@ -112,6 +115,8 @@ export const OUTCOMES_A: ScenarioOutcome[] = [
     dated: false,
     capexEur: q(1_800_000, "EUR", "E0", { low: 1_500_000, high: 2_300_000 }),
     unpricedComponents: ["commissioning"],
+    capexComplete: false,
+    capexPricing: "placeholder",
     evidence: "E0",
   },
   {
@@ -125,6 +130,8 @@ export const OUTCOMES_A: ScenarioOutcome[] = [
     dated: true,
     capexEur: q(2_340_000, "EUR", "E3"),
     unpricedComponents: [],
+    capexComplete: true,
+    capexPricing: "placeholder",
     evidence: "E3",
   },
 ];
@@ -155,9 +162,9 @@ export const SCENARIO_B: ObservatoryScenario = {
     node("rack", "rack", "Rack positions", q(60, "positions", "E1"), q(10, "positions", "E1"), q(30, "positions", "E1"), false, "rack_positions"),
   ],
   constraints: [
-    { key: "grid_connection", name: "Grid connection", domain: "electrical", racksAllowed: 18, binds: true, basis: "contracted MW over per-rack draw", evidence: "E1" },
-    { key: "ups_capacity", name: "UPS capacity", domain: "electrical", racksAllowed: 27, binds: false, basis: "UPS MW over per-rack draw", evidence: "E1" },
-    { key: "rack_positions", name: "Free rack positions", domain: "physical", racksAllowed: 60, binds: false, basis: "counted positions", evidence: "E1" },
+    { key: "grid_connection", name: "Grid connection", domain: "electrical", racksAllowed: 18, passes: false, binds: true, basis: "contracted MW over per-rack draw", evidence: "E1" },
+    { key: "ups_capacity", name: "UPS capacity", domain: "electrical", racksAllowed: 27, passes: false, binds: false, basis: "UPS MW over per-rack draw", evidence: "E1" },
+    { key: "rack_positions", name: "Free rack positions", domain: "physical", racksAllowed: 60, passes: false, binds: false, basis: "counted positions", evidence: "E1" },
   ],
   rackRows: [{ id: "row-1", label: "Row 1", racks: 10, kwPerRackAsFound: 15, kwPerRackAfterPlan: 40 }],
   outcomes: [
@@ -172,6 +179,8 @@ export const SCENARIO_B: ObservatoryScenario = {
       dated: false,
       capexEur: q(null, "EUR", "E0"),
       unpricedComponents: ["connection charge"],
+      capexComplete: false,
+      capexPricing: "none",
       evidence: "E0",
     },
   ],
@@ -188,6 +197,7 @@ export const FIXTURE_SCENARIO_FILE: ScenarioFile = {
     state: "empty",
     statement: "FIXTURE calibration statement: the calibration ledger is empty; no figure here has been reconciled against a measured site.",
   },
+  contentSha256: "f".repeat(64),
   scenarios: [SCENARIO_A, SCENARIO_B],
 };
 

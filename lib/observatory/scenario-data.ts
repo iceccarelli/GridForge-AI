@@ -9,12 +9,15 @@
 //   - a quantity has a value but no evidence class, or no value and no reason, or its range is inverted;
 //   - a scenario claims field validation or deployment (E6/E7): the calibration ledger is empty, nothing here is measured;
 //   - an outcome is "dated" without weeks (or has weeks without being dated, or is "dated" on an assumed E0 lead time);
-//   - an outcome that deploys no rack carries a capex figure;
+//   - an outcome that deploys no rack carries a capex figure, or its capex pricing / completeness contradicts its figure;
+//   - a constraint whose `passes` flag disagrees with its racksAllowed (passes === (racksAllowed === null));
+//   - any figure was edited by hand: contentSha256 is a SHA-256 over every leaf of the file and must match;
 //   - a date is not ISO 8601, an id is repeated, the headline outcome or a binding key names nothing that exists;
 //   - any string looks like an email address or a web address (the data is synthetic; it must not point at a real site).
 //
 // Server-only in practice: `loadScenarioFile` reads the file with node:fs (like lib/tool-rates.ts). `parseScenarioFile` is pure.
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -121,11 +124,19 @@ const constraintResult = z
     name: text,
     domain: text,
     racksAllowed: z.number().int().nonnegative().nullable(),
+    passes: z.boolean(),
     binds: z.boolean(),
     basis: text,
     evidence,
   })
-  .strict();
+  .strict()
+  .superRefine((c, ctx) => {
+    // null racksAllowed = the engine reports no finite limit = the constraint does not limit the hall (passes).
+    if (c.passes !== (c.racksAllowed === null)) {
+      ctx.addIssue({ code: "custom", path: ["passes"], message: "passes must be true exactly when racksAllowed is null (the constraint does not limit the hall)" });
+    }
+    if (c.passes && c.binds) ctx.addIssue({ code: "custom", path: ["binds"], message: "a constraint that passes (does not limit the hall) cannot bind" });
+  });
 
 const rackRow = z
   .object({
@@ -148,11 +159,25 @@ const outcome = z
     weeksToCapacity: quantity,
     dated: z.boolean(),
     capexEur: quantity,
+    capexComplete: z.boolean(),
+    capexPricing: z.enum(["placeholder", "partly_supplied", "supplied", "none"]),
     unpricedComponents: z.array(text),
     evidence,
   })
   .strict()
   .superRefine((o, ctx) => {
+    if (o.capexEur.value === null && o.capexPricing !== "none") {
+      ctx.addIssue({ code: "custom", path: ["capexPricing"], message: 'an outcome with no capex figure must have capexPricing "none"' });
+    }
+    if (o.capexEur.value !== null && o.capexPricing === "none") {
+      ctx.addIssue({ code: "custom", path: ["capexPricing"], message: 'an outcome with a capex figure cannot have capexPricing "none"' });
+    }
+    if (o.capexEur.value === null && o.capexComplete) {
+      ctx.addIssue({ code: "custom", path: ["capexComplete"], message: "an outcome with no capex figure cannot have a complete capex" });
+    }
+    if (o.unpricedComponents.length > 0 && o.capexComplete) {
+      ctx.addIssue({ code: "custom", path: ["capexComplete"], message: "a capex that omits unpriced components is not complete (it is a lower bound)" });
+    }
     const weeks = o.weeksToCapacity;
     if (o.dated && weeks.value === null) {
       ctx.addIssue({ code: "custom", path: ["weeksToCapacity", "value"], message: "a dated outcome must have weeksToCapacity" });
@@ -262,6 +287,7 @@ const scenarioFile = z
     generatedAt: isoDate,
     synthetic: z.literal(true),
     calibration: z.object({ state: z.literal("empty"), statement: text }).strict(),
+    contentSha256: z.string().regex(/^[0-9a-f]{64}$/, "must be a 64-character lowercase hex SHA-256"),
     scenarios: z.array(scenario).min(1),
   })
   .strict()
@@ -270,6 +296,41 @@ const scenarioFile = z
       ctx.addIssue({ code: "custom", path: ["scenarios"], message: `duplicate scenario id: ${d}` });
     }
   });
+
+// --- content fingerprint -----------------------------------------------------------------------------------------------------
+// Must match scripts/build-observatory.py `content_fingerprint` exactly (a shared test vector in both test suites pins it).
+// Every leaf of the file except the top-level contentSha256 is written as one line "/path\t<kind><value>":
+//   z = null, b = boolean, n = number (canonical decimal text: integers without a point, others shortest round-trip; exponent
+//   notation and magnitudes above 2^53 are refused), s = string (JSON-escaped, no ASCII escaping). Object keys are visited in
+//   sorted order, arrays by index. The lines are joined with "\n" and hashed as UTF-8.
+function canonicalNumber(x: number, at: string): string {
+  if (!Number.isFinite(x) || Math.abs(x) > 2 ** 53) throw new Error(`${at}: number out of range for the content fingerprint`);
+  const t = Number.isInteger(x) ? String(Math.trunc(x) + 0) : String(x);
+  if (/e/i.test(t)) throw new Error(`${at}: number in exponent notation cannot be fingerprinted`);
+  return t === "-0" ? "0" : t;
+}
+
+function fingerprintLines(value: unknown, at: string, out: string[]): void {
+  if (value === null) out.push(`${at}\tz`);
+  else if (typeof value === "boolean") out.push(`${at}\tb${value ? "true" : "false"}`);
+  else if (typeof value === "number") out.push(`${at}\tn${canonicalNumber(value, at)}`);
+  else if (typeof value === "string") out.push(`${at}\ts${JSON.stringify(value)}`);
+  else if (Array.isArray(value)) value.forEach((v, i) => fingerprintLines(v, `${at}/${i}`, out));
+  else if (typeof value === "object" && value !== undefined) {
+    const o = value as Record<string, unknown>;
+    for (const k of Object.keys(o).sort()) fingerprintLines(o[k], `${at}/${k}`, out);
+  } else throw new Error(`${at}: ${typeof value} cannot be fingerprinted`);
+}
+
+/** SHA-256 (hex) of every leaf of a scenario file other than its own contentSha256. */
+export function contentFingerprint(file: unknown): string {
+  if (!file || typeof file !== "object" || Array.isArray(file)) throw new Error("contentFingerprint: not an object");
+  const { contentSha256: _own, ...rest } = file as Record<string, unknown>;
+  void _own;
+  const lines: string[] = [];
+  fingerprintLines(rest, "", lines);
+  return createHash("sha256").update(lines.join("\n"), "utf8").digest("hex");
+}
 
 // Compile-time proof that what the schema accepts is exactly assignable to the contract (a drift in either fails `tsc`).
 const _schemaMatchesContract = (x: z.infer<typeof scenarioFile>): ScenarioFile => x;
@@ -295,6 +356,14 @@ export function parseScenarioFile(raw: unknown): ScenarioFile {
     for (const { re, what } of LOOKS_LIKE_ADDRESS) {
       if (re.test(s)) throw new Error(`scenarios.json is not a valid Observatory scenario file: ${at}: looks like ${what}; the data is synthetic and must not name a real address`);
     }
+  }
+  // No schema-valid hand edit of a figure: the file must still be the one the generator sealed.
+  const sealed = contentFingerprint(raw);
+  if (sealed !== parsed.data.contentSha256) {
+    throw new Error(
+      "scenarios.json is not a valid Observatory scenario file: contentSha256 does not match the content; the file was edited by hand " +
+        "(regenerate it with scripts/build-observatory.sh)",
+    );
   }
   return parsed.data;
 }
