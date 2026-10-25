@@ -225,9 +225,9 @@ describe("caption honesty (a)-(i)", () => {
   });
 
   it("older data without the v2 fields: partial only when components are unpriced, and no pricing basis is invented", () => {
-    const v1 = clone(A.outcomes[1]) as ScenarioOutcome & { capexComplete?: boolean; capexPricing?: string };
-    delete v1.capexComplete;
-    delete v1.capexPricing;
+    const v1 = clone(A.outcomes[1]) as Partial<ScenarioOutcome> as ScenarioOutcome & { capexComplete?: boolean; capexPricing?: string };
+    delete (v1 as Partial<ScenarioOutcome>).capexComplete;
+    delete (v1 as Partial<ScenarioOutcome>).capexPricing;
     expect(capexSentence(v1)).toBe("Modelled capital cost at least 6.6 million euros, priced lines only.");
     expect(capexSentence({ ...v1, unpricedComponents: [] })).toBe("Modelled capital cost 6.6 million euros.");
   });

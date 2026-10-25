@@ -132,7 +132,10 @@ describe("buildJourney: the tour", () => {
     expect(c).toContain("Floor loading does not limit the hall (passes).");
     expect(c).toContain("The limit is Transformer.");
     const withNull = clone(FIXTURE_FILE);
-    withNull.scenarios[0].constraints.forEach((x) => (x.racksAllowed = x.key === "floor" ? 90 : x.key === "ups" ? null : x.racksAllowed));
+    withNull.scenarios[0].constraints.forEach((x) => {
+      x.racksAllowed = x.key === "floor" ? 90 : x.key === "ups" ? null : x.racksAllowed;
+      x.passes = x.racksAllowed === null; // the contract: passes iff racksAllowed is null
+    });
     expect(buildJourney(withNull).find((s) => s.id === "hall-1-constraints")!.caption).toContain("Floor loading 90 (E0), Transformer 100 (E1) and Cooling plant 128 (E2)");
   });
 });
@@ -371,7 +374,7 @@ describe("honesty lint of every caption", () => {
   it("money appears only as the modelled capital cost of an option, 'at least' when partial, never as a raw EUR figure", () => {
     const all = buildJourney(THREE).map((s) => s.caption).join(" ");
     expect(all).not.toMatch(/\bEUR\b|€|2,400,000|capex/);
-    expect(all).toContain("Modelled capital cost at least 2.4 million euros, priced lines only.");
+    expect(all).toContain("Modelled capital cost at least 2.4 million euros, priced lines only, at library placeholder prices.");
   });
 
   it("the lint would catch a file that smuggled an email or a price into a title", () => {
