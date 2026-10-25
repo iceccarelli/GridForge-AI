@@ -1,0 +1,1727 @@
+{
+  "calibration": {
+    "state": "empty",
+    "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
+  },
+  "engine": {
+    "codeSha256": "7e62aeae10561975023103c8aee1a35086955ce885d30e32fa47f6e99c5f09d9",
+    "routes": [
+      "/v1/compare",
+      "/v1/screen"
+    ],
+    "version": "0.9.0"
+  },
+  "generatedAt": "2026-09-14",
+  "scenarios": [
+    {
+      "constraints": [
+        {
+          "basis": "platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "binds": true,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "racksAllowed": 0
+        },
+        {
+          "basis": "13.5 [10.6–21.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "racksAllowed": 0
+        },
+        {
+          "basis": "1,330 [845–1,810] kW (E3) usable after redundancy and derating",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "transformer_capacity",
+          "name": "Transformer capacity",
+          "racksAllowed": 7
+        },
+        {
+          "basis": "1,100 kW (E0) of protected-load headroom after N+1 redundancy",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "racksAllowed": 8
+        },
+        {
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "busway_ampacity",
+          "name": "Busway ampacity",
+          "racksAllowed": 12
+        },
+        {
+          "basis": "1,900 kW (E3) of plant headroom against 135 [132–142] kW (E0) per rack — full rack load (rack heat rejected into the existing plant)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "plant_capacity",
+          "name": "Chilled-water plant capacity",
+          "racksAllowed": 14
+        },
+        {
+          "basis": "2,700 [2,070–2,970] kW (E0) usable against 122 [112–131] kW (E0) of liquid load per rack; 24 [21–26] degC (E0) approach available",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "racksAllowed": 22
+        },
+        {
+          "basis": "4,600 kW (E3) of firm-supply headroom at PUE 1.3 [1.22–1.4]",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "racksAllowed": 26
+        },
+        {
+          "basis": "9,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "hydraulic_flow",
+          "name": "Hydraulic flow capacity",
+          "racksAllowed": 69
+        },
+        {
+          "basis": "180 of 560 positions available in DH-02",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E3",
+          "key": "floor_space",
+          "name": "Available rack positions",
+          "racksAllowed": 180
+        },
+        {
+          "basis": "972 [894–1,050] kg/m2 (E0) imposed against 1,224 kg/m2 (E5) design capacity",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E0",
+          "key": "floor_loading",
+          "name": "Floor loading",
+          "racksAllowed": null
+        },
+        {
+          "basis": "hybrid_dlc is practically capable of 142 [100–150] kW (E0) per rack; the target platform draws 135 [132–142] kW (E0)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "architecture_capability",
+          "name": "Cooling architecture per-rack capability",
+          "racksAllowed": null
+        },
+        {
+          "basis": "TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); existing chilled-water plant delivers 6 degC (E3)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "tcs_supply_achievable",
+          "name": "Achievable facility water temperature",
+          "racksAllowed": null
+        }
+      ],
+      "hall": {
+        "contractedMW": 12.0,
+        "currentItLoadMW": 4.9,
+        "name": "Synthetic Hall A — Frankfurt",
+        "platform": "NVIDIA GB300 NVL72",
+        "positionsAvailable": 180,
+        "region": "Frankfurt, DE (informational; it does not select live data)"
+      },
+      "headlineOutcome": "hybrid_dlc",
+      "id": "hall-a-frankfurt-rack-feed",
+      "limitations": [
+        "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
+        "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
+        "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
+        "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+        "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+        "the capex total inherits class E0 from its inputs, below E3",
+        "8 of 8 priced lines are library placeholders, not prices",
+        "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
+        "Some outcomes omit components the cost library has no price for (listed on each outcome): their capex is a lower bound, not a complete price.",
+        "The power path and the constraints are shown for the headline outcome (Hybrid DLC on retained plant, grid only); other architectures are compared under outcomes. Stage capacities are as found: the plan's reliefs raise several of them, so a stage's load after the plan may exceed its as-found capacity.",
+        "Loads: the engine charges the existing site peak to the utility connection and transformers, the existing IT load to the UPS and the chilled-water plant, and only the new IT load to the busway; it models no switchgear. A null load is a load the engine does not charge to that stage.",
+        "A null racks-allowed value means the constraint does not limit the hall in this architecture (the engine reports it as unlimited), not that it has not been assessed.",
+        "Tied as found: Residual air load removal per rack also allows 0 racks. The engine names the first constraint in its fixed order as binding (Rack feed / tap-off rating), so relieving that one alone may not unlock racks.",
+        "Weeks to capacity are given only when every lead time behind them is above class E0. The engine labels every lead time an intake supplies as an assumption, so no outcome here is dated."
+      ],
+      "outcomes": [
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "retained_air",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Retained air, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "rdhx",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Rear-door heat exchangers, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 13300000.0,
+            "low": 3310000.0,
+            "unit": "EUR",
+            "value": 6630000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "hybrid_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 3690.0,
+            "low": 3430.0,
+            "unit": "kW",
+            "value": 3510.0
+          },
+          "name": "Hybrid DLC on retained plant, grid only",
+          "racksAfterPlan": 26,
+          "racksAsFound": 0,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 12400000.0,
+            "low": 3110000.0,
+            "unit": "EUR",
+            "value": 6220000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "full_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 3980.0,
+            "low": 3700.0,
+            "unit": "kW",
+            "value": 3780.0
+          },
+          "name": "Full DLC, grid only",
+          "racksAfterPlan": 28,
+          "racksAsFound": 0,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 37700000.0,
+            "low": 9420000.0,
+            "unit": "EUR",
+            "value": 18800000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "full_dlc_btm",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 8800.0,
+            "low": 8180.0,
+            "unit": "kW",
+            "value": 8370.0
+          },
+          "name": "Full DLC plus behind-the-meter supply",
+          "racksAfterPlan": 62,
+          "racksAsFound": 0,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        }
+      ],
+      "powerPath": [
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 12000.0,
+            "low": 12000.0,
+            "unit": "kW",
+            "value": 12000.0
+          },
+          "constraintKey": "grid_firm_capacity",
+          "id": "utility",
+          "kind": "utility",
+          "label": "Utility connection (firm supply)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 12600.0,
+            "low": 11600.0,
+            "unit": "kW",
+            "value": 12000.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 7400.0,
+            "low": 7400.0,
+            "unit": "kW",
+            "value": 7400.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 9210.0,
+            "low": 8240.0,
+            "unit": "kW",
+            "value": 8730.0
+          },
+          "constraintKey": "transformer_capacity",
+          "id": "transformer",
+          "kind": "transformer",
+          "label": "Transformers (usable after redundancy and derating)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 12600.0,
+            "low": 11600.0,
+            "unit": "kW",
+            "value": 12000.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 7400.0,
+            "low": 7400.0,
+            "unit": "kW",
+            "value": 7400.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "The engine has no switchgear constraint, so it states no capacity for this stage.",
+            "unit": "kW",
+            "value": null
+          },
+          "constraintKey": null,
+          "id": "switchgear",
+          "kind": "switchgear",
+          "label": "Main switchgear (not modelled by the engine)",
+          "loadAfterPlan": null,
+          "loadAsFound": null
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 6000.0,
+            "low": 6000.0,
+            "unit": "kW",
+            "value": 6000.0
+          },
+          "constraintKey": "ups_capacity",
+          "id": "ups",
+          "kind": "ups",
+          "label": "UPS (usable after redundancy)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 8590.0,
+            "low": 8330.0,
+            "unit": "kW",
+            "value": 8410.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 4900.0,
+            "low": 4900.0,
+            "unit": "kW",
+            "value": 4900.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 1720.0,
+            "low": 1720.0,
+            "unit": "kW",
+            "value": 1720.0
+          },
+          "constraintKey": "busway_ampacity",
+          "id": "busway",
+          "kind": "busway",
+          "label": "Busway runs (usable capacity against new IT load)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 3690.0,
+            "low": 3430.0,
+            "unit": "kW",
+            "value": 3510.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          }
+        },
+        {
+          "binds": true,
+          "capacity": {
+            "evidence": "E5",
+            "high": 63.0,
+            "low": 63.0,
+            "unit": "A",
+            "value": 63.0
+          },
+          "constraintKey": "rack_feed_tapoff",
+          "id": "rack-feed",
+          "kind": "rack_feed",
+          "label": "Rack feed / tap-off (current per rack)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 180,
+            "low": 180,
+            "unit": "racks",
+            "value": 180
+          },
+          "constraintKey": "floor_space",
+          "id": "rack",
+          "kind": "rack",
+          "label": "Rack positions (new racks against positions available)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 26.0,
+            "low": 26.0,
+            "unit": "racks",
+            "value": 26.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "racks",
+            "value": 0.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E5",
+            "high": 6800.0,
+            "low": 6800.0,
+            "unit": "kW",
+            "value": 6800.0
+          },
+          "constraintKey": "plant_capacity",
+          "id": "cooling-plant",
+          "kind": "cooling",
+          "label": "Chilled-water plant (heat load against capacity)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 8590.0,
+            "low": 8330.0,
+            "unit": "kW",
+            "value": 8410.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 4900.0,
+            "low": 4900.0,
+            "unit": "kW",
+            "value": 4900.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 28,
+            "low": 21,
+            "unit": "degC",
+            "value": 25.0
+          },
+          "constraintKey": "tcs_supply_achievable",
+          "id": "cooling-water",
+          "kind": "cooling",
+          "label": "Facility water temperature (required maximum against achievable)",
+          "loadAfterPlan": {
+            "evidence": "E3",
+            "high": 6.0,
+            "low": 6.0,
+            "unit": "degC",
+            "value": 6.0
+          },
+          "loadAsFound": {
+            "evidence": "E3",
+            "high": 6.0,
+            "low": 6.0,
+            "unit": "degC",
+            "value": 6.0
+          }
+        }
+      ],
+      "rackRows": [
+        {
+          "id": "existing-racks",
+          "kwPerRackAfterPlan": 8.0,
+          "kwPerRackAsFound": 8.0,
+          "label": "Existing racks, occupied positions (design density, not measured)",
+          "racks": 380
+        },
+        {
+          "id": "new-platform-racks",
+          "kwPerRackAfterPlan": 135,
+          "kwPerRackAsFound": null,
+          "label": "New NVIDIA GB300 NVL72 racks after the plan (0 deployable as found)",
+          "racks": 26
+        }
+      ],
+      "summary": "The rack feed binds first: the installed tap-offs cannot carry one rack of the target platform. For NVIDIA GB300 NVL72 racks in the \"Hybrid DLC on retained plant, grid only\" scenario the engine finds 0 deployable as found and 26 after the plan, where the binding constraint is firm supply (grid import + behind-the-meter). The hall is invented and every figure is modelled, not measured.",
+      "synthetic": true,
+      "title": "Synthetic Hall A — Frankfurt"
+    },
+    {
+      "constraints": [
+        {
+          "basis": "TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb delivers 36 [34–38] degC (E0)",
+          "binds": true,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "tcs_supply_achievable",
+          "name": "Achievable facility water temperature",
+          "racksAllowed": 0
+        },
+        {
+          "basis": "1,800 kW (E0) of protected-load headroom after N+1 redundancy",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "racksAllowed": 13
+        },
+        {
+          "basis": "2,630 [2,140–3,110] kW (E3) usable after redundancy and derating",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "transformer_capacity",
+          "name": "Transformer capacity",
+          "racksAllowed": 16
+        },
+        {
+          "basis": "2,700 [2,070–2,970] kW (E0) usable against 122 [112–131] kW (E0) of liquid load per rack; 12 [9–14] degC (E0) approach available",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "racksAllowed": 22
+        },
+        {
+          "basis": "3,900 kW (E3) of firm-supply headroom at PUE 1.2 [1.15–1.28]",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "racksAllowed": 24
+        },
+        {
+          "basis": "10 run(s) at 800 A derated to 0.8 -> 4,300 kW (E0)",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "busway_ampacity",
+          "name": "Busway ampacity",
+          "racksAllowed": 31
+        },
+        {
+          "basis": "14,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "hydraulic_flow",
+          "name": "Hydraulic flow capacity",
+          "racksAllowed": 107
+        },
+        {
+          "basis": "3,400 kW (E3) of plant headroom against 13.5 [10.6–21.3] kW (E0) per rack — residual air load only (liquid rejected to a dedicated high-temperature loop)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "plant_capacity",
+          "name": "Chilled-water plant capacity",
+          "racksAllowed": 251
+        },
+        {
+          "basis": "260 of 420 positions available in SYN-B1",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E3",
+          "key": "floor_space",
+          "name": "Available rack positions",
+          "racksAllowed": 260
+        },
+        {
+          "basis": "platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 250 A (E5)",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "racksAllowed": null
+        },
+        {
+          "basis": "972 [894–1,050] kg/m2 (E0) imposed against 2,039 kg/m2 (E5) design capacity",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E0",
+          "key": "floor_loading",
+          "name": "Floor loading",
+          "racksAllowed": null
+        },
+        {
+          "basis": "full_dlc is practically capable of 150 [120–160] kW (E0) per rack; the target platform draws 135 [132–142] kW (E0)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "architecture_capability",
+          "name": "Cooling architecture per-rack capability",
+          "racksAllowed": null
+        },
+        {
+          "basis": "13.5 [10.6–21.3] kW (E0) of air-side load per rack against 16 kW (E3) the hall can remove per position",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "racksAllowed": null
+        }
+      ],
+      "hall": {
+        "contractedMW": 10.0,
+        "currentItLoadMW": 4.2,
+        "name": "Synthetic Hall B — Dublin",
+        "platform": "NVIDIA GB300 NVL72",
+        "positionsAvailable": 260,
+        "region": "Dublin, IE (informational; it does not select live data)"
+      },
+      "headlineOutcome": "full_dlc",
+      "id": "hall-b-dublin-water-temperature",
+      "limitations": [
+        "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
+        "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
+        "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
+        "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+        "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+        "the capex total inherits class E0 from its inputs, below E3",
+        "5 of 5 priced lines are library placeholders, not prices",
+        "Some outcomes omit components the cost library has no price for (listed on each outcome): their capex is a lower bound, not a complete price.",
+        "The power path and the constraints are shown for the headline outcome (Full DLC, grid only); other architectures are compared under outcomes. Stage capacities are as found: the plan's reliefs raise several of them, so a stage's load after the plan may exceed its as-found capacity.",
+        "Loads: the engine charges the existing site peak to the utility connection and transformers, the existing IT load to the UPS and the chilled-water plant, and only the new IT load to the busway; it models no switchgear. A null load is a load the engine does not charge to that stage.",
+        "A null racks-allowed value means the constraint does not limit the hall in this architecture (the engine reports it as unlimited), not that it has not been assessed.",
+        "Weeks to capacity are given only when every lead time behind them is above class E0. The engine labels every lead time an intake supplies as an assumption, so no outcome here is dated."
+      ],
+      "outcomes": [
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "retained_air",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Retained air, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "rdhx",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Rear-door heat exchangers, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 7440000.0,
+            "low": 1860000.0,
+            "unit": "EUR",
+            "value": 3720000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "hybrid_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 3120.0,
+            "low": 2900.0,
+            "unit": "kW",
+            "value": 2970.0
+          },
+          "name": "Hybrid DLC on retained plant, grid only",
+          "racksAfterPlan": 22,
+          "racksAsFound": 13,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 8720000.0,
+            "low": 2180000.0,
+            "unit": "EUR",
+            "value": 4360000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "full_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 3410.0,
+            "low": 3170.0,
+            "unit": "kW",
+            "value": 3240.0
+          },
+          "name": "Full DLC, grid only",
+          "racksAfterPlan": 24,
+          "racksAsFound": 0,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "grid_firm_capacity",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 38700000.0,
+            "low": 9670000.0,
+            "unit": "EUR",
+            "value": 19300000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "full_dlc_btm",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 9800.0,
+            "low": 9110.0,
+            "unit": "kW",
+            "value": 9320.0
+          },
+          "name": "Full DLC plus behind-the-meter supply",
+          "racksAfterPlan": 69,
+          "racksAsFound": 0,
+          "unpricedComponents": [
+            "CDU hydraulic integration and controls",
+            "CDU commissioning and flushing"
+          ],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        }
+      ],
+      "powerPath": [
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 10000.0,
+            "low": 10000.0,
+            "unit": "kW",
+            "value": 10000.0
+          },
+          "constraintKey": "grid_firm_capacity",
+          "id": "utility",
+          "kind": "utility",
+          "label": "Utility connection (firm supply)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 10500.0,
+            "low": 9740.0,
+            "unit": "kW",
+            "value": 9990.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 6100.0,
+            "low": 6100.0,
+            "unit": "kW",
+            "value": 6100.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 9210.0,
+            "low": 8240.0,
+            "unit": "kW",
+            "value": 8730.0
+          },
+          "constraintKey": "transformer_capacity",
+          "id": "transformer",
+          "kind": "transformer",
+          "label": "Transformers (usable after redundancy and derating)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 10500.0,
+            "low": 9740.0,
+            "unit": "kW",
+            "value": 9990.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 6100.0,
+            "low": 6100.0,
+            "unit": "kW",
+            "value": 6100.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "The engine has no switchgear constraint, so it states no capacity for this stage.",
+            "unit": "kW",
+            "value": null
+          },
+          "constraintKey": null,
+          "id": "switchgear",
+          "kind": "switchgear",
+          "label": "Main switchgear (not modelled by the engine)",
+          "loadAfterPlan": null,
+          "loadAsFound": null
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 6000.0,
+            "low": 6000.0,
+            "unit": "kW",
+            "value": 6000.0
+          },
+          "constraintKey": "ups_capacity",
+          "id": "ups",
+          "kind": "ups",
+          "label": "UPS (usable after redundancy)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 7610.0,
+            "low": 7370.0,
+            "unit": "kW",
+            "value": 7440.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 4200.0,
+            "low": 4200.0,
+            "unit": "kW",
+            "value": 4200.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 4300.0,
+            "low": 4300.0,
+            "unit": "kW",
+            "value": 4300.0
+          },
+          "constraintKey": "busway_ampacity",
+          "id": "busway",
+          "kind": "busway",
+          "label": "Busway runs (usable capacity against new IT load)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 3410.0,
+            "low": 3170.0,
+            "unit": "kW",
+            "value": 3240.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E5",
+            "high": 250.0,
+            "low": 250.0,
+            "unit": "A",
+            "value": 250.0
+          },
+          "constraintKey": "rack_feed_tapoff",
+          "id": "rack-feed",
+          "kind": "rack_feed",
+          "label": "Rack feed / tap-off (current per rack)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 260,
+            "low": 260,
+            "unit": "racks",
+            "value": 260
+          },
+          "constraintKey": "floor_space",
+          "id": "rack",
+          "kind": "rack",
+          "label": "Rack positions (new racks against positions available)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 24.0,
+            "low": 24.0,
+            "unit": "racks",
+            "value": 24.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "racks",
+            "value": 0.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E5",
+            "high": 7600.0,
+            "low": 7600.0,
+            "unit": "kW",
+            "value": 7600.0
+          },
+          "constraintKey": "plant_capacity",
+          "id": "cooling-plant",
+          "kind": "cooling",
+          "label": "Chilled-water plant (heat load against capacity)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 4710.0,
+            "low": 4450.0,
+            "unit": "kW",
+            "value": 4520.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 4200.0,
+            "low": 4200.0,
+            "unit": "kW",
+            "value": 4200.0
+          }
+        },
+        {
+          "binds": true,
+          "capacity": {
+            "evidence": "E0",
+            "high": 28,
+            "low": 21,
+            "unit": "degC",
+            "value": 25.0
+          },
+          "constraintKey": "tcs_supply_achievable",
+          "id": "cooling-water",
+          "kind": "cooling",
+          "label": "Facility water temperature (required maximum against achievable)",
+          "loadAfterPlan": {
+            "evidence": "E3",
+            "high": 18.0,
+            "low": 18.0,
+            "unit": "degC",
+            "value": 18.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 38.0,
+            "low": 34.0,
+            "unit": "degC",
+            "value": 36.0
+          }
+        }
+      ],
+      "rackRows": [
+        {
+          "id": "existing-racks",
+          "kwPerRackAfterPlan": 12.0,
+          "kwPerRackAsFound": 12.0,
+          "label": "Existing racks, occupied positions (design density, not measured)",
+          "racks": 160
+        },
+        {
+          "id": "new-platform-racks",
+          "kwPerRackAfterPlan": 135,
+          "kwPerRackAsFound": null,
+          "label": "New NVIDIA GB300 NVL72 racks after the plan (0 deployable as found)",
+          "racks": 24
+        }
+      ],
+      "summary": "The temperature of the facility water binds first: it is too warm for direct liquid cooling. For NVIDIA GB300 NVL72 racks in the \"Full DLC, grid only\" scenario the engine finds 0 deployable as found and 24 after the plan, where the binding constraint is firm supply (grid import + behind-the-meter). The hall is invented and every figure is modelled, not measured.",
+      "synthetic": true,
+      "title": "Synthetic Hall B — Dublin"
+    },
+    {
+      "constraints": [
+        {
+          "basis": "2,730 [2,240–3,210] kW (E3) usable after redundancy and derating",
+          "binds": true,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "transformer_capacity",
+          "name": "Transformer capacity",
+          "racksAllowed": 15
+        },
+        {
+          "basis": "40 of 300 positions available in SYN-C1",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E3",
+          "key": "floor_space",
+          "name": "Available rack positions",
+          "racksAllowed": 40
+        },
+        {
+          "basis": "14 run(s) at 1,000 A derated to 0.8 -> 7,530 kW (E0)",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "busway_ampacity",
+          "name": "Busway ampacity",
+          "racksAllowed": 55
+        },
+        {
+          "basis": "8,000 kW (E3) of plant headroom against 135 [132–142] kW (E0) per rack — full rack load (rack heat rejected into the existing plant)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "plant_capacity",
+          "name": "Chilled-water plant capacity",
+          "racksAllowed": 59
+        },
+        {
+          "basis": "7,500 [5,740–8,250] kW (E0) usable against 122 [112–131] kW (E0) of liquid load per rack; 10 [7–12] degC (E0) approach available",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "cdu_capacity",
+          "name": "CDU capacity (derated to site water temperature)",
+          "racksAllowed": 61
+        },
+        {
+          "basis": "10,000 kW (E0) of protected-load headroom after N+1 redundancy",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "ups_capacity",
+          "name": "UPS capacity (protected load)",
+          "racksAllowed": 74
+        },
+        {
+          "basis": "20,000 kW (E3) of firm-supply headroom at PUE 1.3 [1.22–1.4]",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "grid_firm_capacity",
+          "name": "Firm supply (grid import + behind-the-meter)",
+          "racksAllowed": 113
+        },
+        {
+          "basis": "22,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (~1.45 l/min/kW at 10 K delta-T)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "hydraulic_flow",
+          "name": "Hydraulic flow capacity",
+          "racksAllowed": 169
+        },
+        {
+          "basis": "platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 400 A (E5)",
+          "binds": false,
+          "domain": "electrical",
+          "evidence": "E0",
+          "key": "rack_feed_tapoff",
+          "name": "Rack feed / tap-off rating",
+          "racksAllowed": null
+        },
+        {
+          "basis": "864 [795–933] kg/m2 (E0) imposed against 2,549 kg/m2 (E5) design capacity",
+          "binds": false,
+          "domain": "physical",
+          "evidence": "E0",
+          "key": "floor_loading",
+          "name": "Floor loading",
+          "racksAllowed": null
+        },
+        {
+          "basis": "hybrid_dlc is practically capable of 142 [100–150] kW (E0) per rack; the target platform draws 135 [132–142] kW (E0)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "architecture_capability",
+          "name": "Cooling architecture per-rack capability",
+          "racksAllowed": null
+        },
+        {
+          "basis": "13.5 [10.6–21.3] kW (E0) of air-side load per rack against 22 kW (E3) the hall can remove per position",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "residual_air_removal",
+          "name": "Residual air load removal per rack",
+          "racksAllowed": null
+        },
+        {
+          "basis": "TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); existing chilled-water plant delivers 20 degC (E3)",
+          "binds": false,
+          "domain": "thermal",
+          "evidence": "E0",
+          "key": "tcs_supply_achievable",
+          "name": "Achievable facility water temperature",
+          "racksAllowed": null
+        }
+      ],
+      "hall": {
+        "contractedMW": 26.0,
+        "currentItLoadMW": 4.0,
+        "name": "Synthetic Hall C — Oslo",
+        "platform": "NVIDIA GB300 NVL72",
+        "positionsAvailable": 40,
+        "region": "Oslo, NO (informational; it does not select live data)"
+      },
+      "headlineOutcome": "hybrid_dlc",
+      "id": "hall-c-oslo-headroom",
+      "limitations": [
+        "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
+        "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
+        "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
+        "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
+        "the capex total inherits class E0 from its inputs, below E3",
+        "2 of 2 priced lines are library placeholders, not prices",
+        "the grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff",
+        "no lifecycle horizon was declared, so no lifecycle value is computed",
+        "No behind-the-meter options declared: where the grid binds, the study can only report that it binds.",
+        "The power path and the constraints are shown for the headline outcome (Hybrid DLC on retained plant, grid only); other architectures are compared under outcomes. Stage capacities are as found: the plan's reliefs raise several of them, so a stage's load after the plan may exceed its as-found capacity.",
+        "Loads: the engine charges the existing site peak to the utility connection and transformers, the existing IT load to the UPS and the chilled-water plant, and only the new IT load to the busway; it models no switchgear. A null load is a load the engine does not charge to that stage.",
+        "A null racks-allowed value means the constraint does not limit the hall in this architecture (the engine reports it as unlimited), not that it has not been assessed.",
+        "Weeks to capacity are given only when every lead time behind them is above class E0. The engine labels every lead time an intake supplies as an assumption, so no outcome here is dated."
+      ],
+      "outcomes": [
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "retained_air",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Retained air, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "architecture_capability",
+          "capexEur": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "n/a: nothing deployable",
+            "unit": "EUR",
+            "value": null
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "rdhx",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 0.0,
+            "low": 0.0,
+            "unit": "kW",
+            "value": 0.0
+          },
+          "name": "Rear-door heat exchangers, grid only",
+          "racksAfterPlan": 0,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "No rack is deployable in this scenario, so there is nothing to date.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "floor_space",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 6800000.0,
+            "low": 1700000.0,
+            "unit": "EUR",
+            "value": 3400000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "hybrid_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 5680.0,
+            "low": 5280.0,
+            "unit": "kW",
+            "value": 5400.0
+          },
+          "name": "Hybrid DLC on retained plant, grid only",
+          "racksAfterPlan": 40,
+          "racksAsFound": 15,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        },
+        {
+          "bindingAfterPlan": "floor_space",
+          "capexEur": {
+            "evidence": "E0",
+            "high": 7500000.0,
+            "low": 1880000.0,
+            "unit": "EUR",
+            "value": 3750000.0
+          },
+          "dated": false,
+          "evidence": "E0",
+          "id": "full_dlc",
+          "itLoadKwAfterPlan": {
+            "evidence": "E0",
+            "high": 5680.0,
+            "low": 5280.0,
+            "unit": "kW",
+            "value": 5400.0
+          },
+          "name": "Full DLC, grid only",
+          "racksAfterPlan": 40,
+          "racksAsFound": 0,
+          "unpricedComponents": [],
+          "weeksToCapacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "Not a date: assumed lead time, not a date (E0; set by transformer capacity). The engine gives no weeks until every lead time behind it is supplied above class E0; a lead time written into an intake is still labelled an assumption.",
+            "unit": "weeks",
+            "value": null
+          }
+        }
+      ],
+      "powerPath": [
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 26000.0,
+            "low": 26000.0,
+            "unit": "kW",
+            "value": 26000.0
+          },
+          "constraintKey": "grid_firm_capacity",
+          "id": "utility",
+          "kind": "utility",
+          "label": "Utility connection (firm supply)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 14000.0,
+            "low": 12400.0,
+            "unit": "kW",
+            "value": 13000.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 8980.0,
+            "low": 8420.0,
+            "unit": "kW",
+            "value": 8630.0
+          }
+        },
+        {
+          "binds": true,
+          "capacity": {
+            "evidence": "E3",
+            "high": 9210.0,
+            "low": 8240.0,
+            "unit": "kW",
+            "value": 8730.0
+          },
+          "constraintKey": "transformer_capacity",
+          "id": "transformer",
+          "kind": "transformer",
+          "label": "Transformers (usable after redundancy and derating)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 14000.0,
+            "low": 12400.0,
+            "unit": "kW",
+            "value": 13000.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 8980.0,
+            "low": 8420.0,
+            "unit": "kW",
+            "value": 8630.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": null,
+            "low": null,
+            "missingReason": "The engine has no switchgear constraint, so it states no capacity for this stage.",
+            "unit": "kW",
+            "value": null
+          },
+          "constraintKey": null,
+          "id": "switchgear",
+          "kind": "switchgear",
+          "label": "Main switchgear (not modelled by the engine)",
+          "loadAfterPlan": null,
+          "loadAsFound": null
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 14000.0,
+            "low": 14000.0,
+            "unit": "kW",
+            "value": 14000.0
+          },
+          "constraintKey": "ups_capacity",
+          "id": "ups",
+          "kind": "ups",
+          "label": "UPS (usable after redundancy)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 9680.0,
+            "low": 9280.0,
+            "unit": "kW",
+            "value": 9400.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 6130.0,
+            "low": 5980.0,
+            "unit": "kW",
+            "value": 6020.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 7530.0,
+            "low": 7530.0,
+            "unit": "kW",
+            "value": 7530.0
+          },
+          "constraintKey": "busway_ampacity",
+          "id": "busway",
+          "kind": "busway",
+          "label": "Busway runs (usable capacity against new IT load)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 5680.0,
+            "low": 5280.0,
+            "unit": "kW",
+            "value": 5400.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 2130.0,
+            "low": 1980.0,
+            "unit": "kW",
+            "value": 2020.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E5",
+            "high": 400.0,
+            "low": 400.0,
+            "unit": "A",
+            "value": 400.0
+          },
+          "constraintKey": "rack_feed_tapoff",
+          "id": "rack-feed",
+          "kind": "rack_feed",
+          "label": "Rack feed / tap-off (current per rack)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 236.0,
+            "low": 174.0,
+            "unit": "A",
+            "value": 205
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E3",
+            "high": 40,
+            "low": 40,
+            "unit": "racks",
+            "value": 40
+          },
+          "constraintKey": "floor_space",
+          "id": "rack",
+          "kind": "rack",
+          "label": "Rack positions (new racks against positions available)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 40.0,
+            "low": 40.0,
+            "unit": "racks",
+            "value": 40.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 15.0,
+            "low": 15.0,
+            "unit": "racks",
+            "value": 15.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E5",
+            "high": 12000.0,
+            "low": 12000.0,
+            "unit": "kW",
+            "value": 12000.0
+          },
+          "constraintKey": "plant_capacity",
+          "id": "cooling-plant",
+          "kind": "cooling",
+          "label": "Chilled-water plant (heat load against capacity)",
+          "loadAfterPlan": {
+            "evidence": "E0",
+            "high": 9680.0,
+            "low": 9280.0,
+            "unit": "kW",
+            "value": 9400.0
+          },
+          "loadAsFound": {
+            "evidence": "E0",
+            "high": 6130.0,
+            "low": 5980.0,
+            "unit": "kW",
+            "value": 6020.0
+          }
+        },
+        {
+          "binds": false,
+          "capacity": {
+            "evidence": "E0",
+            "high": 28,
+            "low": 21,
+            "unit": "degC",
+            "value": 25.0
+          },
+          "constraintKey": "tcs_supply_achievable",
+          "id": "cooling-water",
+          "kind": "cooling",
+          "label": "Facility water temperature (required maximum against achievable)",
+          "loadAfterPlan": {
+            "evidence": "E3",
+            "high": 20.0,
+            "low": 20.0,
+            "unit": "degC",
+            "value": 20.0
+          },
+          "loadAsFound": {
+            "evidence": "E3",
+            "high": 20.0,
+            "low": 20.0,
+            "unit": "degC",
+            "value": 20.0
+          }
+        }
+      ],
+      "rackRows": [
+        {
+          "id": "existing-racks",
+          "kwPerRackAfterPlan": 20.0,
+          "kwPerRackAsFound": 20.0,
+          "label": "Existing racks, occupied positions (design density, not measured)",
+          "racks": 260
+        },
+        {
+          "id": "new-platform-racks",
+          "kwPerRackAfterPlan": 135,
+          "kwPerRackAsFound": 135,
+          "label": "New NVIDIA GB300 NVL72 racks after the plan (15 deployable as found)",
+          "racks": 40
+        }
+      ],
+      "summary": "The hall has real electrical headroom, so one transformer bank binds first and, once relieved, rack positions bind instead. For NVIDIA GB300 NVL72 racks in the \"Hybrid DLC on retained plant, grid only\" scenario the engine finds 15 deployable as found and 40 after the plan, where the binding constraint is available rack positions. The hall is invented and every figure is modelled, not measured.",
+      "synthetic": true,
+      "title": "Synthetic Hall C — Oslo"
+    }
+  ],
+  "schema": "gridforge/observatory-scenarios/1",
+  "synthetic": true
+}
