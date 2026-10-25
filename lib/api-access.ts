@@ -1,9 +1,8 @@
-import { withStripeTimeout } from "@/lib/stripe-timeout";
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
 import { PAYG } from "@/lib/products";
 import { pauseDue } from "@/lib/billing-pause-due";
-import { paygStripe } from "@/lib/payg-stripe";
+import { pauseAllowsAccess } from "@/lib/pause-reconcile";
 
 /**
  * Self-serve API accounts.
@@ -595,18 +594,6 @@ export async function confirmRevoked(token: string, ids: string[]): Promise<bool
   return Boolean(await updateApiAccount(token, { revoked_confirmed_ids: confirmed }));
 }
 
-/** Is billing for this account's subscription still paused at Stripe? True when it is, or when that cannot be established (nothing is lifted on a guess). */
-async function billingStillPaused(row: Pick<ApiAccount, "stripe_subscription_id">): Promise<boolean> {
-  const stripe = paygStripe() as unknown as { subscriptions?: { retrieve(id: string): Promise<{ status?: string | null; pause_collection?: unknown }> } } | null;
-  if (!stripe?.subscriptions || !row.stripe_subscription_id) return true;
-  try {
-    const sub = await withStripeTimeout(stripe.subscriptions.retrieve(row.stripe_subscription_id));
-    return Boolean(sub.pause_collection) || sub.status === "paused" || sub.status === "canceled" || sub.status === "unpaid" || sub.status === "incomplete_expired";
-  } catch {
-    return true;
-  }
-}
-
 /**
  * The compare-and-set mint (see casUpdateKey): a concurrent mint makes this one answer "conflict" and no key is handed out.
  */
@@ -614,14 +601,10 @@ export async function mintChecked(row: ApiAccount, opts: MintOptions = {}): Prom
   // A pause scheduled for the end of the paid period (lib/billing-pause.ts) has started to hold access once that instant has passed, even
   // before the daily job writes the hold: no new key is minted for a period nobody paid for. (Up to the instant, minting is the customer's.)
   if (row.status !== "cancelled" && pauseDue(row)) {
-    // The resume event may have been lost: ask Stripe ONCE whether billing is still paused. Resumed there: the stale schedule is cleared and
-    // the mint goes ahead. Still paused (or Stripe cannot say): refused.
-    if (await billingStillPaused(row)) {
-      return { ok: false, reason: "refused", message: "Billing for this plan is paused and the period you paid for has ended, so a new key cannot be issued. Resume billing in the billing portal to continue." };
-    }
-    const cleared = await updateApiAccountUnlessCancelled(row.token, { billing_pause_from: null, billing_pause_resumes_at: null }, row.billing_pause_from ?? undefined);
-    // No row matched: the pause was scheduled AGAIN between the Stripe read and this write. It keeps its schedule and the mint is refused.
-    if (cleared === "terminal") {
+    // The resume event may have been lost: lib/pause-reconcile.ts asks Stripe ONCE whether billing is still paused (the one rule the
+    // entitlement lookup and the Hall Watch route share). Resumed there: the stale schedule is cleared (compare-and-set, audited) and the
+    // mint goes ahead. Still paused, a hold standing, a re-pause that raced, or Stripe cannot say: refused.
+    if (!(await pauseAllowsAccess("api_accounts", row, { bypassCache: true }))) {
       return { ok: false, reason: "refused", message: "Billing for this plan is paused and the period you paid for has ended, so a new key cannot be issued. Resume billing in the billing portal to continue." };
     }
     row = { ...row, billing_pause_from: null, billing_pause_resumes_at: null };

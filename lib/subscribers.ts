@@ -1,5 +1,6 @@
 import { storeFault } from "@/lib/safe-log";
 import { pauseDue } from "@/lib/billing-pause-due";
+import { pauseAllowsAccess, type PauseRow } from "@/lib/pause-reconcile";
 // Server-only data layer for GridForge Intelligence subscriptions and the
 // scenarios a subscriber saves.
 //
@@ -186,10 +187,16 @@ async function lookupMembership(email: string): Promise<EntitlementLookup> {
   const sub = found.subscription;
   // Belt and braces: whatever the database said, a row that is not an entitling subscription of that owner grants nothing.
   if (
-    !sub || typeof sub.id !== "string" || !ENTITLING_STATUSES.has(sub.status) || pauseDue(sub) ||
+    !sub || typeof sub.id !== "string" || !ENTITLING_STATUSES.has(sub.status) ||
     typeof found.owner_email !== "string" || normaliseEmail(sub.email) !== found.owner_email
   ) {
     return { reachable: true, entitlement: null };
+  }
+  // A seat inherits the owner's decision, including a pause whose paid period is over (one rule: lib/pause-reconcile.ts).
+  if (pauseDue(sub)) {
+    if (!(await pauseAllowsAccess("subscriptions", sub as unknown as PauseRow))) return { reachable: true, entitlement: null };
+    sub.billing_pause_from = null;
+    sub.billing_pause_resumes_at = null;
   }
   return { reachable: true, entitlement: { subscription: sub, role: "member", ownerEmail: found.owner_email } };
 }
@@ -221,8 +228,15 @@ export async function lookupEntitlement(email: string): Promise<EntitlementLooku
   }
   const rows = (await res.json()) as SubscriptionRecord[];
   // A pause scheduled for the end of the paid period (lib/billing-pause.ts) entitles nothing once that instant has passed, even before the
-  // daily job writes the hold: the subscriber has had the period they paid for, and the free view follows it.
-  if (rows[0] && !pauseDue(rows[0])) return { reachable: true, entitlement: { subscription: rows[0], role: "owner", ownerEmail: e } };
+  // daily job writes the hold: the subscriber has had the period they paid for, and the free view follows it. UNLESS Stripe says billing is
+  // running again (a resume event that was lost or is late): lib/pause-reconcile.ts asks once, clears the stale schedule and grants; a Stripe
+  // that is still paused, silent or unconfigured denies.
+  if (rows[0]) {
+    if (!pauseDue(rows[0])) return { reachable: true, entitlement: { subscription: rows[0], role: "owner", ownerEmail: e } };
+    if (await pauseAllowsAccess("subscriptions", rows[0] as unknown as PauseRow)) {
+      return { reachable: true, entitlement: { subscription: { ...rows[0], billing_pause_from: null, billing_pause_resumes_at: null }, role: "owner", ownerEmail: e } };
+    }
+  }
   return lookupMembership(e);
 }
 
