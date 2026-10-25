@@ -52,6 +52,13 @@ export function planFingerprint(code, r) {
   return crypto.createHmac("sha256", normalizeCode(code)).update(canon).digest("hex");
 }
 
+/** An approval lifetime outside (0, MAX_TTL_MS] is refused. Called before any preflight so a bad argument never reads as an environment fault. */
+export function assertTtl(ttlMs) {
+  if (!(ttlMs > 0) || ttlMs > MAX_TTL_MS) {
+    throw new ObsError("bad_ttl", `the approval lifetime must be between 1 second and ${MAX_TTL_MS / 1000} seconds`, { exitCode: 2, hint: "A code is meant to be used within minutes; run `obs prepare` again later instead of keeping one alive." });
+  }
+}
+
 /**
  * @param {{ store: import("./state.mjs").StateStore, plan: ApprovalRequest & { targetDisplay: string, notes?: string[] }, clock?: { now: () => number }, ttlMs?: number, randomInt?: typeof crypto.randomInt }} o
  */
@@ -59,9 +66,7 @@ export async function createApproval({ store, plan, clock = realClock, ttlMs = D
   if (!VISIBILITIES.includes(plan.visibility)) {
     throw new ObsError("bad_visibility", `visibility must be one of ${VISIBILITIES.join(", ")}`, { exitCode: 2 });
   }
-  if (!(ttlMs > 0) || ttlMs > MAX_TTL_MS) {
-    throw new ObsError("bad_ttl", `the approval lifetime must be between 1 second and ${MAX_TTL_MS / 1000} seconds`, { exitCode: 2, hint: "A code is meant to be used within minutes; run `obs prepare` again later instead of keeping one alive." });
-  }
+  assertTtl(ttlMs);
   const code = generateCode(randomInt);
   const salt = crypto.randomBytes(16).toString("hex");
   const now = clock.now();

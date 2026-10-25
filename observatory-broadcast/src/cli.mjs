@@ -12,7 +12,7 @@ import { mp4Problem, parseBitrateKbps, parseSize, requireFfmpeg, resolveEncoding
 import { record } from "./record.mjs";
 import { generateSlate } from "./slate.mjs";
 import { createAdapter, ADAPTER_NAMES } from "./adapters/index.mjs";
-import { VISIBILITIES, createApproval, consumeApproval, DEFAULT_TTL_MS } from "./approval.mjs";
+import { VISIBILITIES, createApproval, consumeApproval, assertTtl, DEFAULT_TTL_MS } from "./approval.mjs";
 import { runPublish } from "./publish.mjs";
 import { realClock } from "./clock.mjs";
 
@@ -221,6 +221,9 @@ const COMMON = { adapter: { type: "string" }, url: { type: "string" }, "source-f
 // ------------------------------------------------------------------------------------------------------ prepare
 async function cmdPrepare(args, c) {
   const { values } = parse(args, { ...COMMON, "ttl-sec": { type: "string" } });
+  // Arguments are validated before anything is probed: a bad lifetime must not read as a missing ffmpeg.
+  const ttlMs = num(values["ttl-sec"], "ttl-sec", DEFAULT_TTL_MS / 1000) * 1000;
+  assertTtl(ttlMs);
   c.stateDir = values["state-dir"] ?? defaultStateDir(c.env);
   const { store, adapter, cfg } = setupAdapter(values.adapter, c);
   if (!cfg.ok) return failConfig(adapter, cfg, c);
@@ -235,7 +238,7 @@ async function cmdPrepare(args, c) {
     return 2;
   }
   const ap = await createApproval({
-    store, clock: c.io.clock ?? realClock, ttlMs: num(values["ttl-sec"], "ttl-sec", DEFAULT_TTL_MS / 1000) * 1000,
+    store, clock: c.io.clock ?? realClock, ttlMs,
     plan: {
       adapter: adapter.name, visibility, sourceUrl: src.sceneUrl ?? "(file)", encoding, target: adapter.planTarget?.() ?? null, targetDisplay: adapter.planDisplay?.() ?? adapter.name,
       sourceFile: src.sourceFile, slateFile: src.slateFile, notes: [...cfg.warnings, ...pre.notes],
