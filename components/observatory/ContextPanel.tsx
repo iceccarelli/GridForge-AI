@@ -7,7 +7,8 @@
 // have no location, so none of this is theirs.
 import type { ReactNode } from "react";
 import type { LiveContext, Observed } from "@/lib/observatory/types";
-import { fmtNumber, fmtUtc, effectiveFreshness, viewProvenance } from "@/components/observatory/format";
+import { fmtNumber, fmtUtc } from "@/components/observatory/format";
+import { effectiveFreshness, viewProvenance } from "@/components/observatory/provenance";
 
 export type ContextState = { ok: true; context: LiveContext } | { ok: false; reason: string };
 
@@ -120,7 +121,13 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
                 <span className="data text-2xl text-ghost">{fmtNumber(price.eurPerMWh)}</span> <span className="text-sm text-mute">EUR per MWh</span>
               </p>
               <p className="mt-1 text-sm text-mute">
-                For the delivery hour starting <span className="data text-ghost">{fmtUtc(price.deliveryStart)}</span>. Over the published window (about the next 24 hours): lowest{" "}
+                For the delivery hour starting <span className="data text-ghost">{fmtUtc(price.deliveryStart)}</span>. Over the published window{" "}
+                {price.windowStart && price.windowEnd ? (
+                  <>
+                    <span className="data text-ghost">{fmtUtc(price.windowStart)}</span> to <span className="data text-ghost">{fmtUtc(price.windowEnd)}</span>{" "}
+                  </>
+                ) : null}
+                (about the next 24 hours): lowest{" "}
                 <span className="data text-ghost">{fmtNumber(price.min)}</span>, average <span className="data text-ghost">{fmtNumber(price.avg)}</span>, highest{" "}
                 <span className="data text-ghost">{fmtNumber(price.max)}</span> EUR per MWh.
               </p>

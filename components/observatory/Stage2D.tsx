@@ -35,9 +35,9 @@ interface Dim {
   /** Presenter: tighter rack block and a one-line legend. */
   compact: boolean;
 }
-const WIDE: Dim = { W: 720, cols: 4, cardW: 165, gapX: 20, cardH: 122, gapY: 26, maxChars: 20, maxSquares: 54, labelMax: 62, compact: false };
-const NARROW: Dim = { W: 300, cols: 2, cardW: 144, gapX: 12, cardH: 122, gapY: 26, maxChars: 16, maxSquares: 22, labelMax: 32, compact: false };
-const PRESENTER: Dim = { W: 760, cols: 5, cardW: 144, gapX: 10, cardH: 122, gapY: 20, maxChars: 17, maxSquares: 64, labelMax: 74, compact: true };
+const WIDE: Dim = { W: 720, cols: 4, cardW: 165, gapX: 20, cardH: 116, gapY: 26, maxChars: 20, maxSquares: 54, labelMax: 62, compact: false };
+const NARROW: Dim = { W: 300, cols: 2, cardW: 144, gapX: 12, cardH: 116, gapY: 26, maxChars: 16, maxSquares: 22, labelMax: 32, compact: false };
+const PRESENTER: Dim = { W: 760, cols: 5, cardW: 144, gapX: 10, cardH: 116, gapY: 18, maxChars: 17, maxSquares: 62, labelMax: 74, compact: true };
 
 const PAD_TOP = 16;
 const COLOR = {
@@ -89,9 +89,9 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
     const lines = wrapLabel(r.label, dim.labelMax, 3);
     const sq = rackSquares(r.racks, dim.maxSquares);
     const stripY = (lines.length - 1) * 14 + 9;
-    const textY = stripY + (dim.compact ? 36 : 38);
+    const textY = stripY + (dim.compact ? 34 : 38);
     const y = ry;
-    ry += textY + (sq.perSquare > 1 && !dim.compact ? 12 : 0) + (dim.compact ? 14 : 20);
+    ry += textY + (sq.perSquare > 1 && !dim.compact ? 12 : 0) + (dim.compact ? 18 : 20);
     return { r, lines, sq, y, stripY, textY };
   });
   const legendTop = ry + (dim.compact ? 2 : 6);
@@ -154,8 +154,8 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
         // Binding is the engine's call and is drawn in amber (as found) or cyan (after the plan). "Selected" is a separate white
         // inner ring, so the two can never be mistaken for each other.
         const stroke = v.bindsFound ? COLOR.queue : v.bindsAfter ? COLOR.power : COLOR.line;
-        const tag = v.bindsFound && v.bindsAfter ? "BINDS: FOUND + AFTER" : v.bindsFound ? "BINDS AS FOUND" : v.bindsAfter ? "BINDS AFTER PLAN" : null;
-        const pillW = tag ? Math.min(w - 4, tag.length * 6.4 + 14) : 0;
+        const tag = v.bindsFound && v.bindsAfter ? "BINDS: BOTH" : v.bindsFound ? "BINDS AS FOUND" : v.bindsAfter ? "BINDS AFTER PLAN" : null;
+        const pillW = tag ? Math.min(w - 4, tag.length * (dim.compact ? 6.9 : 6.4) + 14) : 0;
         const label = wrapLabel(v.title, dim.maxChars, 2);
         const frac = v.utilFound;
         const fw = frac === null ? 0 : Math.min(1, Math.max(0, frac)) * innerW;
@@ -197,7 +197,7 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
             ) : null}
             <rect width={w} height={h} rx={10} fill={selected ? COLOR.cardSelected : COLOR.card} stroke={stroke} strokeWidth={bind ? 2.5 : 1} />
             {selected ? <rect x={4} y={4} width={w - 8} height={h - 8} rx={7} fill="none" stroke="#FFFFFF" strokeWidth={1.5} /> : null}
-            <text x={10} y={19} fontSize={10.5} letterSpacing="0.1em" fontFamily={MONO} fill={COLOR.mute}>
+            <text x={10} y={19} fontSize={dim.compact ? 11 : 10.5} letterSpacing="0.1em" fontFamily={MONO} fill={COLOR.mute}>
               {KIND_LABEL[v.kind].toUpperCase()}
             </text>
             {label.map((l, k) => (
@@ -206,19 +206,19 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
               </text>
             ))}
             {v.overFound ? (
-              <text x={w - 10} y={60} textAnchor="end" fontSize={10} fontWeight={700} fontFamily={MONO} fill={COLOR.flag}>
+              <text x={w - 10} y={60} textAnchor="end" fontSize={dim.compact ? 11 : 10} fontWeight={700} fontFamily={MONO} fill={COLOR.flag}>
                 OVER AS FOUND
               </text>
             ) : null}
-            <rect x={10} y={64} width={innerW} height={8} rx={4} fill={COLOR.ink} stroke={COLOR.line} strokeWidth={0.75} strokeDasharray={frac === null ? "3 2" : undefined} />
-            {frac !== null ? <rect x={10} y={64} width={fw} height={8} rx={4} fill={frac > 1 ? COLOR.flag : COLOR.found} /> : null}
-            {line(88, "Cap", v.capacity)}
-            {line(102, "Found", v.found)}
-            {line(116, "After", v.after)}
+            <rect x={10} y={62} width={innerW} height={8} rx={4} fill={COLOR.ink} stroke={COLOR.line} strokeWidth={0.75} strokeDasharray={frac === null ? "3 2" : undefined} />
+            {frac !== null ? <rect x={10} y={62} width={fw} height={8} rx={4} fill={frac > 1 ? COLOR.flag : COLOR.found} /> : null}
+            {line(84, "Cap", v.capacity)}
+            {line(97, "Found", v.found)}
+            {line(110, "After", v.after)}
             {tag ? (
               <g transform={`translate(${w - pillW - 6} -9)`}>
                 <rect width={pillW} height={17} rx={8.5} fill={v.bindsFound ? COLOR.queue : COLOR.power} />
-                <text x={pillW / 2} y={12} textAnchor="middle" fontSize={10} fontWeight={700} fontFamily={MONO} fill={COLOR.ink}>
+                <text x={pillW / 2} y={12} textAnchor="middle" fontSize={dim.compact ? 11 : 10} fontWeight={700} fontFamily={MONO} fill={COLOR.ink}>
                   {tag}
                 </text>
               </g>
@@ -227,9 +227,14 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
         );
       })}
 
-      <text x={0} y={rackTop} fontSize={10.5} letterSpacing="0.12em" fontFamily={MONO} fill={COLOR.mute}>
+      <text x={0} y={rackTop} fontSize={dim.compact ? 11 : 10.5} letterSpacing="0.12em" fontFamily={MONO} fill={COLOR.mute}>
         RACK ROWS · SYNTHETIC HALL
       </text>
+      {dim.compact ? (
+        <text x={dim.W} y={rackTop} textAnchor="end" fontSize={11} fontFamily={MONO} fill={COLOR.mute}>
+          strips: upper as found, lower after the plan
+        </text>
+      ) : null}
       {rackLayout.map(({ r, lines, sq, y, stripY, textY }) => {
         const s = 9;
         const g = 3;
@@ -260,8 +265,8 @@ function Diagram({ dim, variant, model, selectedId, onSelect, describedBy, class
         );
       })}
       {dim.compact ? (
-        <text x={0} y={legendTop + 10} fontSize={10.5} fontFamily={MONO} fill={COLOR.mute}>
-          Bar: load as found against capacity as found. After: load after the plan (its capacity is not stated). Strips: upper as found, lower after.
+        <text x={0} y={legendTop + 10} fontSize={11} fontFamily={MONO} fill={COLOR.mute}>
+          Bar: load as found / capacity as found. After: load after the plan; its capacity is not stated.
         </text>
       ) : (
         <g transform={`translate(0 ${legendTop})`}>

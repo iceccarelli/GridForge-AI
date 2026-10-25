@@ -57,13 +57,13 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
             {v.detail ? <span className="mt-0.5 block text-xs font-normal text-mute">{v.detail}</span> : null}
           </RowHead>
           <Cell label="Capacity as found">
-            <Fig q={model.nodes[v.index].capacity} />
+            <Fig q={model.nodes[v.index].capacity} compactChip />
           </Cell>
           <Cell label="Load as found">
-            <Fig q={model.nodes[v.index].loadAsFound} />
+            <Fig q={model.nodes[v.index].loadAsFound} compactChip />
           </Cell>
           <Cell label="Load after the plan">
-            <Fig q={model.nodes[v.index].loadAfterPlan} />
+            <Fig q={model.nodes[v.index].loadAfterPlan} compactChip />
           </Cell>
           <Cell label="Utilisation as found">
             <Util v={v} />
@@ -107,7 +107,7 @@ export function RackTable({ model }: { model: SceneModel }) {
               ) : (
                 <>
                   <span className="data text-ghost">{fmtNumber(r.kwPerRackAfterPlan)} kW</span>{" "}
-                  <BasisTag>{addedByPlan ? "platform library figure" : "synthetic input, unchanged by the plan"}</BasisTag>
+                  <BasisTag>{addedByPlan ? "platform library figure" : "synthetic input, not measured"}</BasisTag>
                 </>
               )}
             </Cell>

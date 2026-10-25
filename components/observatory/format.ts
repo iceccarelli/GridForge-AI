@@ -1,6 +1,6 @@
 // Pure formatting for the Observatory: quantities with their evidence, utilisation, and provenance wording.
 // Nothing here invents a number: a missing value stays missing and says why; a date is never produced from weeks.
-import type { Basis, EvidenceClass, Freshness, Observed, Provenance, Quantity } from "@/lib/observatory/types";
+import type { EvidenceClass, Quantity } from "@/lib/observatory/types";
 import { weakest } from "@/components/observatory/evidence";
 
 const NF = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 2 });
@@ -88,130 +88,6 @@ export function fmtAge(seconds: number): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
   if (seconds < 172800) return `${Math.round((seconds / 3600) * 10) / 10} h`;
   return `${Math.round(seconds / 86400)} days`;
-}
-
-// ---- provenance --------------------------------------------------------------------------------------------------
-
-/** Same skew allowance as lib/observatory/sources.ts (CLOCK_SKEW_SECONDS); a test pins the two together. */
-export const CLOCK_SKEW_SECONDS = 120;
-
-/**
- * Freshness at `now`, by the same rules as sources.ts freshnessOf (a test compares them over a table): no value, an unparseable
- * time, a time further in the future than the allowed skew, or no time at all where a limit applies, is "unavailable"; past its
- * limit is "stale". The result is never better than what the data layer said, so a cached page cannot upgrade a value.
- */
-export function effectiveFreshness(obs: Observed<unknown>, now: Date): Freshness {
-  if (obs.value === null || obs.value === undefined) return "unavailable";
-  if (obs.freshness === "unavailable" || obs.freshness === "not_applicable") return obs.freshness;
-  const p = obs.provenance;
-  const nowMs = now.getTime();
-  if (!Number.isFinite(nowMs)) return "unavailable";
-  if (p.maxAgeSeconds !== null && (!Number.isFinite(p.maxAgeSeconds) || p.maxAgeSeconds < 0)) return "unavailable";
-  const parse = (iso: string | null): number | null | "bad" => {
-    if (iso === null) return null;
-    const t = Date.parse(iso);
-    return Number.isFinite(t) ? t : "bad";
-  };
-  const obsT = parse(p.observedAt);
-  const retT = parse(p.retrievedAt);
-  if (obsT === "bad" || retT === "bad") return "unavailable";
-  for (const t of [obsT, retT]) if (t !== null && t - nowMs > CLOCK_SKEW_SECONDS * 1000) return "unavailable";
-  const ref = obsT ?? retT;
-  let computed: Freshness;
-  if (ref === null) computed = p.maxAgeSeconds === null ? "fresh" : "unavailable";
-  else if (p.maxAgeSeconds === null) computed = "fresh";
-  else computed = Math.max(0, nowMs - ref) <= p.maxAgeSeconds * 1000 ? "fresh" : "stale";
-  return computed === "fresh" && obs.freshness === "stale" ? "stale" : computed;
-}
-
-/** A reading younger than this is the only thing that may be called "live". Older readings are "the latest reading". */
-export const LIVE_MAX_AGE_SECONDS = 20 * 60;
-
-/** "Live" wording: an observation, fresh now, AND recent by a tight limit (a reading hours old is not live even when inside its allowance). */
-export function isLive(obs: Observed<unknown>, now: Date): boolean {
-  if (obs.provenance.basis !== "observed" || effectiveFreshness(obs, now) !== "fresh") return false;
-  const ref = obs.provenance.observedAt ?? obs.provenance.retrievedAt;
-  const t = ref ? Date.parse(ref) : NaN;
-  return Number.isFinite(t) && now.getTime() - t <= LIVE_MAX_AGE_SECONDS * 1000;
-}
-
-/** "12 min before this page was generated": the age of a retrieval relative to the page, which does not go stale in a cached page. */
-export function retrievedBefore(iso: string | null | undefined, now: Date): string | null {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return null;
-  const sec = Math.max(0, (now.getTime() - t) / 1000);
-  return sec < 60 ? "less than a minute before this page was generated" : `${fmtAge(sec)} before this page was generated`;
-}
-
-export const BASIS_WORDS: Record<Basis, string> = {
-  observed: "A reading of the real world for a stated interval.",
-  day_ahead_auction:
-    "A price published by the day-ahead auction for one delivery period. It is a price set in advance, not a measurement of now.",
-  published_report: "A figure from a dated public report. It is current as of that date only.",
-  engine_modelled: "Computed by the GridForge engine from the stated inputs.",
-  synthetic_input: "An invented demonstration input.",
-  assumed: "An assumption or library default (evidence class E0).",
-};
-
-export interface ProvenanceView {
-  live: boolean;
-  headline: string;
-  freshness: Freshness;
-  freshnessText: string;
-  basisText: string;
-  source: string;
-  observedAt: string;
-  retrievedAt: string;
-  /** "12 min before this page was generated", or null when there is no retrieval time. */
-  retrievedAgo: string | null;
-  caveat: string | null;
-}
-
-function headlineFor(p: Provenance, fresh: Freshness, live: boolean): string {
-  if (fresh === "unavailable") return "Unavailable";
-  if (live) return "Live reading";
-  switch (p.basis) {
-    case "observed":
-      return fresh === "stale" ? "Latest reading, stale" : "Latest reading";
-    case "day_ahead_auction":
-      return "Published auction price for this delivery hour";
-    case "published_report":
-      return `Published report as of ${fmtDate(p.observedAt)}`;
-    case "engine_modelled":
-      return "Computed by the GridForge engine";
-    case "synthetic_input":
-      return "Invented demonstration input";
-    default:
-      return "Assumed value (E0)";
-  }
-}
-
-export function viewProvenance(obs: Observed<unknown>, now: Date): ProvenanceView {
-  const p = obs.provenance;
-  const fresh = effectiveFreshness(obs, now);
-  const live = isLive(obs, now);
-  const limit = p.maxAgeSeconds === null ? null : fmtAge(p.maxAgeSeconds);
-  const freshnessText =
-    fresh === "fresh"
-      ? limit ? `Fresh: within the allowed ${limit}` : "Fresh"
-      : fresh === "stale"
-        ? limit ? `Stale: older than the allowed ${limit}` : "Stale"
-        : fresh === "unavailable"
-          ? "Unavailable"
-          : "Not applicable";
-  return {
-    live,
-    headline: headlineFor(p, fresh, live),
-    freshness: fresh,
-    freshnessText,
-    basisText: BASIS_WORDS[p.basis] ?? "Basis not stated.",
-    source: p.source,
-    observedAt: fmtUtc(p.observedAt),
-    retrievedAt: fmtUtc(p.retrievedAt),
-    retrievedAgo: retrievedBefore(p.retrievedAt, now),
-    caveat: p.caveat ?? null,
-  };
 }
 
 // ---- scenario outcomes -------------------------------------------------------------------------------------------

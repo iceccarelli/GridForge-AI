@@ -22,7 +22,13 @@ export function clock(sec: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const TAG = "inline-block rounded-full border px-2 py-px font-mono text-[11px] font-bold uppercase leading-4 tracking-wide";
+/** The first sentence of an engine note, so a long explanation is shortened at a sentence end, never cut mid-word. The rest is on /observatory. */
+export function firstSentence(s: string): string {
+  const m = /^.*?[.!?](?=\s|$)/.exec(s.trim());
+  return m ? m[0] : s.trim();
+}
+
+const TAG ="inline-block rounded-full border px-2 py-px font-mono text-[11px] font-bold uppercase leading-4 tracking-wide";
 
 /** The stage the step is about, in full; the binding stages named in words. */
 function PathFocus({ scenario, outcomeId, focus }: { scenario: ObservatoryScenario; outcomeId: string; focus: string | null }) {
@@ -85,7 +91,7 @@ function ConstraintList({ scenario, outcomeId, focus }: { scenario: ObservatoryS
           className={`rounded-lg border px-3 py-1.5 text-sm ${c.binds ? "border-queue bg-queue/10" : focus === c.key ? "border-power bg-power/10" : "border-line bg-panel"}`}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="min-w-0 truncate text-ghost">
+            <span className="min-w-0 text-ghost">
               {c.rank === null ? "" : `${c.rank}. `}
               {c.name}
             </span>
@@ -116,8 +122,8 @@ function OutcomeList({ scenario, outcomeId }: { scenario: ObservatoryScenario; o
   const t = viewTimeToCapacity(selected);
   const cx = viewCapex(selected);
   return (
-    <div className="space-y-2 text-sm" aria-label="Alternatives the engine compared">
-      <div data-selected="1" className="rounded-xl border border-power bg-power/10 px-4 py-3">
+    <div className="space-y-2 text-sm" role="group" aria-label="Alternatives the engine compared">
+      <div data-selected="1" className="rounded-xl border border-power bg-power/10 px-4 py-1.5">
         <div className="flex items-start justify-between gap-3">
           <p className="text-base font-semibold leading-snug text-ghost">{selected.name}</p>
           <EvidenceChip cls={selected.evidence} compact large />
@@ -126,14 +132,14 @@ function OutcomeList({ scenario, outcomeId }: { scenario: ObservatoryScenario; o
           {fmtNumber(selected.racksAsFound)} {"→"} {fmtNumber(selected.racksAfterPlan)} racks
         </p>
         <p className="text-mute">Binds after the plan: {constraintName(selected.bindingAfterPlan, scenario.constraints)}</p>
-        <div className="mt-2">
+        <div className="mt-1.5">
           <p className="text-mute">Time to capacity</p>
           <p className="text-ghost">
             {t.text} {t.evidence ? <EvidenceChip cls={t.evidence} compact large /> : null}
           </p>
-          {t.note ? <p className="line-clamp-2 text-mute">{t.note}</p> : null}
+          {t.note ? <p className="line-clamp-2 text-mute">{firstSentence(t.note)}</p> : null}
         </div>
-        <div className="mt-2">
+        <div className="mt-1.5">
           <p className="text-mute">Capital cost</p>
           <p className="text-ghost">
             <span className={cx.kind === "unpriced" ? "" : "data"}>{cx.text}</span> {cx.qualifier ? <span>{cx.qualifier} </span> : null}
@@ -149,7 +155,7 @@ function OutcomeList({ scenario, outcomeId }: { scenario: ObservatoryScenario; o
             <li key={o.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel px-3 py-1.5">
               <span className="min-w-0 truncate text-ghost">{o.name}</span>
               <span className="data shrink-0 text-mute">
-                {fmtNumber(o.racksAsFound)} {"→"} {fmtNumber(o.racksAfterPlan)} racks
+                {fmtNumber(o.racksAsFound)}→{fmtNumber(o.racksAfterPlan)} racks
               </span>
             </li>
           ))}
@@ -168,7 +174,7 @@ function ContextKinds() {
     ["Interconnection queues (US ISOs)", "Current only as of each report's own date."],
   ];
   return (
-    <div className="space-y-2" aria-label="What kind of value each context source is">
+    <div className="space-y-2" role="group" aria-label="What kind of value each context source is">
       {rows.map(([k, v]) => (
         <div key={k} className="rounded-lg border border-line bg-panel px-3 py-2 text-sm">
           <div className="font-semibold text-ghost">{k}</div>
@@ -219,7 +225,7 @@ export function PresenterFrame({ file, steps, frame, captions = true }: { file: 
           <Stage2DPresenter model={model} focusId={nodeFocus} />
         </div>
         <section className="min-h-0 overflow-hidden" aria-label={PANEL_TITLE[step.panel]}>
-          <h2 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">{PANEL_TITLE[step.panel]}</h2>
+          <h2 className="mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-mute">{PANEL_TITLE[step.panel]}</h2>
           {step.panel === "path" ? <PathFocus scenario={scenario} outcomeId={model.outcomeId} focus={nodeFocus} /> : null}
           {step.panel === "constraints" ? <ConstraintList scenario={scenario} outcomeId={model.outcomeId} focus={step.focus} /> : null}
           {step.panel === "outcomes" ? <OutcomeList scenario={scenario} outcomeId={model.outcomeId} /> : null}
@@ -228,11 +234,11 @@ export function PresenterFrame({ file, steps, frame, captions = true }: { file: 
       </div>
 
       <footer className="border-t border-line px-8 pb-3 pt-2">
-        <p className="mb-2 min-h-[2.6rem] text-sm leading-snug text-mute" data-presenter="banner">
+        <p className="mb-2 min-h-[1.4rem] text-sm leading-snug text-mute" data-presenter="banner">
           {model.basisBanner}
         </p>
         {captions ? (
-          <p className="h-[6.25rem] overflow-hidden rounded-xl bg-panel px-5 py-3 text-lg leading-snug text-ghost" data-presenter="caption">
+          <p className="h-[6rem] overflow-hidden rounded-xl bg-panel px-5 py-2.5 text-lg leading-snug text-ghost" data-presenter="caption">
             {step.caption}
           </p>
         ) : null}

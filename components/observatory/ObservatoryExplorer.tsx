@@ -231,7 +231,7 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
       )}
 
       <section id="context" aria-labelledby="context-h" className="mt-16 scroll-mt-28">
-        <SectionHead id="context-h" eyebrow="Market and grid conditions" title="The grid a real hall would sit on">
+        <SectionHead id="context-h" eyebrow="Market and grid conditions" title="Real markets and grids, for context">
           Published figures from real markets and grids, each labelled with its own region, where it came from, what it describes and how old it is. The invented halls have no location, so none of this is theirs.
         </SectionHead>
         {contextSlot}

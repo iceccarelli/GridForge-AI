@@ -49,9 +49,9 @@ const POWER_PATH_A: PathNode[] = [
   // Capacity in MVA, load in MW: the UI must say "not comparable" rather than divide them.
   node("transformer", "transformer", "Main transformer T1 (usable after derating)", q(15, "MVA", "E1"), q(4.9, "MW", "E1"), q(9.1, "MW", "E1"), false, "transformer_capacity"),
   node("switchgear", "switchgear", "LV switchgear", q(4000, "A", "E0"), q(2100, "A", "E0"), q(3200, "A", "E0"), false, null),
-  node("ups", "ups", "UPS modules", q(8, "MW", "E1"), q(4.4, "MW", "E1"), q(7.2, "MW", "E1"), false, "ups_capacity"),
+  node("ups", "ups", "UPS modules", q(8, "MW", "E1"), q(4.4, "MW", "E1"), q(9.6, "MW", "E1"), false, "ups_capacity"),
   node("busway", "busway", "Busway, hall A", q(400, "A", "E1"), q(388, "A", "E1"), q(392, "A", "E1"), true, "busway_ampacity"),
-  node("rack_feed", "rack_feed", "Tap-off to rack, 63 A", q(63, "A", "E0"), q(58, "A", "E0"), q(40, "A", "E0"), false, "tapoff_rating"),
+  node("rack_feed", "rack_feed", "Tap-off to rack, 63 A", q(63, "A", "E0"), q(205, "A", "E0"), q(205, "A", "E0"), false, "tapoff_rating"),
   node("rack", "rack", "Rack positions", q(180, "positions", "E1"), q(24, "positions", "E1"), q(61, "positions", "E1"), false, "rack_positions"),
   node("cooling", "cooling", "Chilled-water plant", q(6000, "kW", "E1"), q(3800, "kW", "E1"), q(5200, "kW", "E1"), false, "cooling_capacity"),
 ];
@@ -78,7 +78,7 @@ const CONSTRAINTS_A: ConstraintResult[] = KEYS.map(([key, name, domain, racksAll
   racksAllowed,
   passes: racksAllowed === null,
   binds,
-  basis: racksAllowed === null ? "inputs do not support a figure" : `${name.toLowerCase()} divided by the platform's per-rack draw`,
+  basis: racksAllowed === null ? "the engine reports no finite limit" : `${name.toLowerCase()} divided by the platform's per-rack draw`,
   evidence,
 }));
 
@@ -131,8 +131,24 @@ export const OUTCOMES_A: ScenarioOutcome[] = [
     capexEur: q(2_340_000, "EUR", "E3"),
     unpricedComponents: [],
     capexComplete: true,
-    capexPricing: "placeholder",
+    capexPricing: "supplied",
     evidence: "E3",
+  },
+  {
+    // An alternative that deploys nothing: there is no capacity to date and no cost to state.
+    id: "stay",
+    name: "Keep the hall as it is",
+    racksAsFound: 0,
+    racksAfterPlan: 0,
+    bindingAfterPlan: "tapoff_rating",
+    itLoadKwAfterPlan: q(0, "kW", "E1"),
+    weeksToCapacity: q(null, "weeks", "E0", { missingReason: "Nothing deploys." }),
+    dated: false,
+    capexEur: q(null, "EUR", "E0", { missingReason: "Nothing deploys." }),
+    unpricedComponents: [],
+    capexComplete: false,
+    capexPricing: "none",
+    evidence: "E0",
   },
 ];
 
@@ -141,7 +157,7 @@ export const SCENARIO_A: ObservatoryScenario = {
   title: "Colocation hall, 12 MW",
   summary: "FIXTURE: an invented colocation hall that is full on a busway before it is full on power. It shows what the engine says binds and what each fix does; it is not any real site.",
   synthetic: true,
-  hall: { name: "FIXTURE Hall A", platform: "gb300_nvl72", contractedMW: 12, currentItLoadMW: 4.9, positionsAvailable: 180, region: "Ireland (invented)" },
+  hall: { name: "FIXTURE Hall A", platform: "gb300_nvl72", contractedMW: 12, currentItLoadMW: 4.9, positionsAvailable: 180, region: "invented site (no location)" },
   powerPath: POWER_PATH_A,
   constraints: CONSTRAINTS_A,
   rackRows: RACKS_A,
@@ -155,7 +171,7 @@ export const SCENARIO_B: ObservatoryScenario = {
   title: "Enterprise hall, 4 MW",
   summary: "FIXTURE: a second invented hall, to prove the switcher swaps every panel together.",
   synthetic: true,
-  hall: { name: "FIXTURE Hall B", platform: "gb200_nvl72", contractedMW: 4, currentItLoadMW: 2.2, positionsAvailable: 60, region: "Netherlands (invented)" },
+  hall: { name: "FIXTURE Hall B", platform: "gb200_nvl72", contractedMW: 4, currentItLoadMW: 2.2, positionsAvailable: 60, region: "invented site (no location)" },
   powerPath: [
     node("utility", "utility", "Utility connection", q(4, "MW", "E1"), q(2.2, "MW", "E1"), q(3.4, "MW", "E1"), true, "grid_connection"),
     node("ups", "ups", "UPS", q(3, "MW", "E1"), q(2, "MW", "E1"), q(2.8, "MW", "E1"), false, "ups_capacity"),
@@ -246,8 +262,8 @@ export function fixtureContext(over: Partial<LiveContext> = {}): LiveContext {
     generatedAt: "2026-10-25T12:06:00Z",
     referenceRegion: REFERENCE_REGION_SENTENCE,
     dayAheadPrice: obs(
-      { eurPerMWh: 87.4, deliveryStart: "2026-10-25T13:00:00Z", min: 31.2, max: 142.8, avg: 84.1, windowStart: "2026-10-25T12:00:00Z", windowEnd: "2026-10-26T12:00:00Z" },
-      { source: "FIXTURE day-ahead auction", basis: "day_ahead_auction", observedAt: "2026-10-25T13:00:00Z", maxAgeSeconds: 86400 },
+      { eurPerMWh: 87.4, deliveryStart: "2026-10-25T12:00:00Z", min: 31.2, max: 142.8, avg: 84.1, windowStart: "2026-10-25T12:00:00Z", windowEnd: "2026-10-26T12:00:00Z" },
+      { source: "FIXTURE day-ahead auction", basis: "day_ahead_auction", observedAt: "2026-10-25T12:00:00Z", maxAgeSeconds: 86400 },
     ),
     generationMix: obs(
       {
