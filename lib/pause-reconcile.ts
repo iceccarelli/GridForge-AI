@@ -145,15 +145,16 @@ async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | nu
   // then resumed has access from the resume until its next invoice settles, exactly as the daily job (promote) already treats it; this check
   // does not add a stricter test than the job's. If the product wants "paid up" instead, test the latest invoice here AND in promote.
   const status = (sub as { status?: unknown } | null)?.status;
-  const sameSub = typeof sub?.id !== "string" || sub.id === subId;
+  const sameSub = typeof sub?.id === "string" && sub.id === subId; // an answer that does not name the subscription asked about is not an answer
   if (!sub || !sameSub || typeof status !== "string" || !RUNNING_STATUSES.has(status) || billingStopped(sub)) return { allowed: false, remember: true };
 
   // Billing is running again at Stripe: the schedule is stale (its resume event was lost or has not arrived).
   const from = row.billing_pause_from as string;
   const key = `${table}:${row.id}:${from}:${row.billing_pause_event_ts ?? "none"}`;
   const entry = { table, subjectId: row.id, objectId: subId, subscriptionId: subId } as const;
-  // The audit row goes FIRST (idempotent by its key), so a crash between it and the clear cannot lose the record; the next check repeats
-  // both. Its key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is
+  // The audit row goes FIRST (idempotent by its key), so a crash between it and the clear cannot lose the record (the next check repeats
+  // both). A crash AFTER the clear leaves "started" without "dropped": the schedule is gone, so nothing repeats the closing row; that
+  // case, and a failed write of it, is reported to a person below. Its key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is
   // recorded again. It says what was decided; the row after the clear says what happened.
   const started = await recordBillingAudit({ ...entry, dedupeKey: `pause_schedule_drop_started:${key}`, action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" } });
   if (started === "error") return DENY_QUIET; // a store fault, not a verdict about the customer: not remembered

@@ -522,6 +522,7 @@ describe("R3. Stripe's answer must be an allowlisted one for the right subscript
     ["an unknown status", { status: "frozen", pause_collection: null }, false],
     ["active but paused", { status: "active", pause_collection: { behavior: "void" } }, false],
     ["another subscription's object", { id: "sub_other", status: "active", pause_collection: null }, false],
+    ["an object that does not name its subscription", { id: undefined, status: "active", pause_collection: null }, false],
   ];
   for (const [name, state, grant] of cases) {
     it(`${name}: ${grant ? "granted" : "denied, schedule untouched"}`, async () => {

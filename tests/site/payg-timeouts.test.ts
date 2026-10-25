@@ -521,6 +521,41 @@ describe("an invoice that exists is judged by its real status; a remembered idem
     });
   }
 
+  it("the operator mail for a void invoice names the real resolution (a person edits the settlement row); it does not point at the Dashboard alone", async () => {
+    await seed();
+    const inv = await stripe.invoices.create({ customer: "cus_acme", metadata: { kind: "payg_settlement", month: "2026-09", settlement_key: KEY } } as any);
+    stripe.invoicesById.get(inv.id)!.status = "void";
+    await settle();
+    const m = opMail().find((x) => /NOT invoiced/.test(x.subject))!;
+    expect(m.text).toMatch(/no automated resolution/i);
+    expect(m.text).toContain("stripe_invoice_id");
+    expect(m.text).toMatch(/status to void/);
+  });
+
+  it("the finalise call carries the stable per-month key (the same on every attempt, so a replay can never finalise twice)", async () => {
+    await seed();
+    await settle();
+    expect(stripe.idemKeys).toContain(`${KEY}:finalize`);
+    expect(stripe.idemKeys.filter((k) => k.endsWith(":finalize"))).toEqual([`${KEY}:finalize`]);
+  });
+
+  it("an open invoice made before the customer replaced the card is pointed at the new card, once, before the record of the card moves", async () => {
+    const account = await seed();
+    await settle();
+    expect(stripe.allInvoices).toHaveLength(1);
+    const id = stripe.allInvoices[0].id;
+    expect(stripe.allInvoices[0].status).toBe("open");
+    expect(stripe.invoiceUpdates).toHaveLength(0);
+    // the customer replaces the card in the Billing Portal; the row is still pending (e.g. the earlier run died before recording it)
+    stripe.customerDefaults.set("cus_acme", "pm_replaced");
+    (db.rows("usage_settlements") as any[])[0].status = "pending";
+    const r = await settle(NEXT_DAY);
+    expect(r).toMatchObject({ timedOut: 0 });
+    expect(stripe.invoiceUpdates).toEqual([{ id, params: { default_payment_method: "pm_replaced" } }]);
+    expect((db.rows("api_accounts") as any[]).find((a) => a.account === account).stripe_payment_method_id).toBe("pm_replaced");
+    expect(stripe.allInvoices).toHaveLength(1);
+  });
+
   it("the same idempotency key with different parameters is refused by Stripe: the invoice is found again by its metadata and used; no second invoice", async () => {
     await seed();
     stripe.hang.set("invoices.create", "after"); // the first attempt created the draft (with pm_acme); the answer was lost

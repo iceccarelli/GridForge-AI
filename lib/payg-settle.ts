@@ -183,7 +183,7 @@ async function note(s: Settlement, error: string | null, extra: Record<string, u
 function failureAdvice(category: string): string {
   if (category === "no_payment_method") return "The customer has no payment method on file (none saved, or none left on the Stripe customer). Nothing can be charged until they add a card; ask them to use Replace card in the portal.";
   if (category === "record_write_failed") return "Stripe accepted the call but the site could not record it. The next run resumes the same invoice; check the database if this repeats.";
-  if (/^invoice_(void|uncollectible)$/.test(category)) return `The month's Stripe invoice was ${category.slice(8)} outside this system, so nothing is collected on it. The settlement stays pending and NO second invoice is created automatically. Decide in the Stripe Dashboard whether to reissue (create the invoice by hand with the same settlement_key metadata) or to forgive the month.`;
+  if (/^invoice_(void|uncollectible)$/.test(category)) return `The month's Stripe invoice was ${category.slice(8)} outside this system, so nothing is collected on it. The settlement stays pending, is reported again each day, and NO second invoice is created automatically. There is no automated resolution yet and the Stripe Dashboard alone does not settle it: the settlement row has to be handled by a person with database access. To reissue: create the replacement invoice by hand with the same settlement_key metadata, then clear the row's stripe_invoice_id so the next run adopts the newest invoice with that key. To forgive the month: set the row's status to void.`;
   if (/stripe_call_timeout/.test(category)) return "Stripe did not answer in time. The call may or may not have taken effect: the next run re-reads the invoice by its settlement key before it creates anything, so no second invoice is made.";
   if (/StripeCardError|card_declined/.test(category)) return "The card was declined. The customer needs to replace it (Replace card in the portal, or the Stripe Billing Portal; docs/10_PAYG_LAUNCH_CHECKLIST.md says what each reaches).";
   if (/StripeInvalidRequestError/.test(category)) return "Stripe refused the request. A card that was detached from the customer, or a deleted customer, is the usual cause: check the customer's payment methods in the Stripe Dashboard.";
@@ -352,7 +352,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
     gate();
     const live = await stripe.invoices.retrieve(invoiceId);
     // An invoice that was voided or written off is NOT an invoiced month: nothing is collected on it and creating another would bill the
-    // month a second time on nobody's decision. The row stays pending, the operator is told, and a person decides (reissue or forgive).
+    // month a second time on nobody's decision. The row stays pending, the operator is told, and a person decides (see the operator mail: reissue or forgive, both by hand on the settlement row).
     if (live.status === "void" || live.status === "uncollectible") {
       const cat = `invoice_${live.status}`;
       await note(s, cat);
