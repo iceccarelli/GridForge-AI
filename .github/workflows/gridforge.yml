@@ -503,6 +503,8 @@ jobs:
           # `scenarios` shipped with no migration and nobody noticed.
           npm test
       - run: npm run build
+      - name: Every page that reads a file at run time must ship it (the build's own file trace, not the source)
+        run: node scripts/check-runtime-files.mjs
       - name: A token-addressed page may not be indexed or leak
         run: |
           node -e "
