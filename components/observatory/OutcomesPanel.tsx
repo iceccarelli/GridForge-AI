@@ -2,13 +2,16 @@
 
 import type { ConstraintResult, ScenarioOutcome } from "@/lib/observatory/types";
 import { EvidenceChip } from "@/components/observatory/EvidenceChip";
+import { shownConstraintName } from "@/lib/observatory/journey";
 import { Fig } from "@/components/observatory/Fig";
 import { Cell, DataTable, Row, RowHead } from "@/components/observatory/Table";
 import { fmtNumber, viewCapex, viewTimeToCapacity } from "@/components/observatory/format";
 
-export function constraintName(key: string | null, constraints: ConstraintResult[]): string {
+/** The constraint's name as this alternative states it (the engine's supply name says "behind-the-meter" even for grid-only options). */
+export function constraintName(key: string | null, constraints: ConstraintResult[], outcome?: ScenarioOutcome | null): string {
   if (!key) return "nothing identified";
-  return constraints.find((c) => c.key === key)?.name ?? key;
+  const c = constraints.find((x) => x.key === key);
+  return c ? shownConstraintName(c.name, outcome) : key;
 }
 
 export function OutcomesPanel({
@@ -63,7 +66,7 @@ export function OutcomesPanel({
               </span>
             </Cell>
             <Cell label="Binds after the plan">
-              <span className="text-ghost">{constraintName(o.bindingAfterPlan, constraints)}</span>
+              <span className="text-ghost">{constraintName(o.bindingAfterPlan, constraints, o)}</span>
             </Cell>
             <Cell label="Time to capacity">
               <span className={t.kind === "weeks" ? "data text-ghost" : "text-ghost"}>{t.text}</span> {t.evidence ? <EvidenceChip cls={t.evidence} /> : null}

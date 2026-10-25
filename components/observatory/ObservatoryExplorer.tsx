@@ -224,7 +224,7 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
             </SectionHead>
             <OutcomesPanel outcomes={scenario.outcomes} constraints={scenario.constraints} selectedId={outcome.id} onSelect={pickOutcome} />
             <p className="mt-3 text-sm text-mute">
-              Binding stage after the plan for the alternative shown: <span className="text-ghost">{constraintName(outcome.bindingAfterPlan, scenario.constraints)}</span>.
+              Binding stage after the plan for the alternative shown: <span className="text-ghost">{constraintName(outcome.bindingAfterPlan, scenario.constraints, outcome)}</span>.
             </p>
           </section>
         </>

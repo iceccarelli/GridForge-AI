@@ -6,6 +6,7 @@
 // height for up to three lines (no layout shift between steps), body text is at least 14px and chips at least 11px. The panel on
 // the right shows the thing the step is about IN FULL (the selected stage, the ranked constraints, the selected alternative) and
 // everything else as one compact line.
+import { shownConstraintName } from "@/lib/observatory/journey";
 import { buildSceneModel } from "@/lib/observatory/scene-model";
 import { totalDuration } from "@/lib/observatory/journey";
 import type { JourneyFrame, JourneyStep, ObservatoryScenario, ScenarioFile } from "@/lib/observatory/types";
@@ -93,7 +94,7 @@ function ConstraintList({ scenario, outcomeId, focus }: { scenario: ObservatoryS
           <div className="flex items-center justify-between gap-3">
             <span className="min-w-0 text-ghost">
               {c.rank === null ? "" : `${c.rank}. `}
-              {c.name}
+              {shownConstraintName(c.name)}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               <span className="data text-ghost">{limits(c) ? `${fmtNumber(c.racksAllowed as number)} racks` : "passes"}</span>
@@ -131,7 +132,7 @@ function OutcomeList({ scenario, outcomeId }: { scenario: ObservatoryScenario; o
         <p className="mt-1 data text-ghost">
           {fmtNumber(selected.racksAsFound)} {"→"} {fmtNumber(selected.racksAfterPlan)} racks
         </p>
-        <p className="text-mute">Binds after the plan: {constraintName(selected.bindingAfterPlan, scenario.constraints)}</p>
+        <p className="text-mute">Binds after the plan: {constraintName(selected.bindingAfterPlan, scenario.constraints, selected)}</p>
         <div className="mt-1.5">
           <p className="text-mute">Time to capacity</p>
           <p className="text-ghost">

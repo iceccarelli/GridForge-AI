@@ -246,3 +246,34 @@ describe("the broadcast frame is legible and read-only at 720p and 1080p", () =>
     }
   });
 });
+
+describe("an alternative's constraint is named as the alternative states it, in the panel and in the caption alike", () => {
+  it("never says behind-the-meter for an option that is not behind-the-meter, and keeps it for one that is", async () => {
+    const { constraintName } = await import("@/components/observatory/OutcomesPanel");
+    let sawGridOnly = false;
+    let sawBtm = false;
+    for (const sc of file.scenarios) {
+      for (const o of sc.outcomes) {
+        const raw = sc.constraints.find((c) => c.key === o.bindingAfterPlan)?.name ?? "";
+        if (!/behind-the-meter/i.test(raw)) continue;
+        const shown = constraintName(o.bindingAfterPlan, sc.constraints, o);
+        if (/behind-the-meter|\bbtm\b/i.test(o.name)) {
+          sawBtm = true;
+          expect(shown).toMatch(/behind-the-meter/i);
+        } else {
+          sawGridOnly = true;
+          expect(shown).not.toMatch(/behind-the-meter/i);
+        }
+      }
+    }
+    expect(sawGridOnly || sawBtm).toBe(true);
+  });
+  it("the presenter frame for a grid-only plan does not print the behind-the-meter name", () => {
+    for (const { step, t } of midpoints) {
+      const sc = file.scenarios.find((s) => s.id === step.scenarioId)!;
+      const o = sc.outcomes.find((x) => x.id === step.outcomeId);
+      if (!o || /behind-the-meter|\bbtm\b/i.test(o.name)) continue;
+      if (step.panel === "outcomes") expect(text(render(t)), step.id).not.toMatch(/Binds after the plan: (?:(?!Time to capacity).)*behind-the-meter/i);
+    }
+  });
+});

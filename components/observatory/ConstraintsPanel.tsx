@@ -1,5 +1,6 @@
 "use client";
 
+import { shownConstraintName } from "@/lib/observatory/journey";
 import type { ConstraintResult } from "@/lib/observatory/types";
 import { EvidenceChip } from "@/components/observatory/EvidenceChip";
 import { Cell, DataTable, Row, RowHead } from "@/components/observatory/Table";
@@ -59,7 +60,7 @@ export function ConstraintsPanel({ constraints, bindingAfterPlanKey }: { constra
             )}
           </Cell>
           <RowHead label="Constraint">
-            <span>{c.name}</span>
+            <span>{shownConstraintName(c.name)}</span>
             <span className="block font-mono text-[10px] uppercase tracking-wider text-mute">{c.domain}</span>
           </RowHead>
           <Cell label="Racks allowed">
