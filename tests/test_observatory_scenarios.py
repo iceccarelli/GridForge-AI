@@ -109,7 +109,9 @@ def test_nothing_reads_the_clock(built):
         assert banned not in src, banned
     other = obs.build("2031-02-03")
     assert other["generatedAt"] == "2031-02-03"
-    assert {**other, "generatedAt": DATE} == built, "the date is the only thing that may vary with the pin"
+    assert other["contentSha256"] != built["contentSha256"], "the seal covers the date"
+    strip = lambda d: {k: v for k, v in d.items() if k not in ("generatedAt", "contentSha256")}  # noqa: E731
+    assert strip(other) == strip(built), "the date is the only thing that may vary with the pin"
 
 
 def test_a_private_cost_line_or_ledger_cannot_change_the_file(built, tmp_path, monkeypatch):
@@ -158,11 +160,22 @@ def test_the_build_refuses_a_capacity_the_engine_would_not_reproduce(monkeypatch
 # --- three halls that teach three different things ---------------------------------------------------------------------------
 def test_three_synthetic_halls_with_plain_names(committed):
     sc = committed["scenarios"]
-    assert [s["title"] for s in sc] == ["Synthetic Hall A — Frankfurt", "Synthetic Hall B — Dublin",
-                                        "Synthetic Hall C — Oslo"]
+    assert [s["title"] for s in sc] == ["Synthetic Hall A", "Synthetic Hall B", "Synthetic Hall C"]
+    assert [s["id"] for s in sc] == ["hall-a-rack-feed", "hall-b-water-temperature", "hall-c-headroom"]
     for s in sc:
         assert s["synthetic"] is True and s["hall"]["name"] == s["title"]
+        assert s["hall"]["region"] == "invented site (no location)"
         assert "Reference" not in json.dumps(s)          # no borrowed identity from the example intakes
+
+
+def test_no_hall_is_placed_in_a_real_city_or_country(committed):
+    """The engine's intake needs a metro and a country, so the inputs keep them; none of it is written to the file."""
+    text = json.dumps(committed, ensure_ascii=False)
+    for place in ("Frankfurt", "Dublin", "Oslo", "Ireland", "Norway", "Germany"):
+        assert place.lower() not in text.lower(), place
+    for h in obs.HALLS:
+        doc = h["doc"]()
+        assert doc["site"]["metro"], "the engine's intake keeps its own metro internally"
 
 
 def test_each_hall_binds_on_something_different(committed):
@@ -411,3 +424,118 @@ def test_the_halls_do_not_borrow_a_real_identity():
         doc = make()
         assert "SYNTHETIC DATA" in doc["project"]["note"]
         assert "Synthetic" in doc["project"]["client"]
+
+
+# --- contract v2: passes, capex completeness and pricing, the content seal --------------------------------------------------
+def test_a_constraint_passes_exactly_when_the_engine_reports_no_finite_limit(committed):
+    for s in committed["scenarios"]:
+        screen, _ = engine_answers(hall_doc(s["id"]))
+        head = next(x for x in screen["scenarios"] if x["id"] == s["headlineOutcome"])
+        by_id = {c["id"]: c for c in head["constraints"]}
+        assert any(c["passes"] for c in s["constraints"]), "every hall should have at least one passing constraint"
+        for c in s["constraints"]:
+            assert c["passes"] is (c["racksAllowed"] is None)
+            assert c["passes"] is (by_id[c["key"]]["racks_permitted"] is None)
+            if c["passes"]:
+                assert c["binds"] is False
+
+
+def test_the_wording_never_calls_a_passing_constraint_unlimited(committed):
+    text = json.dumps(committed, ensure_ascii=False).lower()
+    assert "unlimited" not in text
+    assert "unlimited" not in SCRIPT.read_text(encoding="utf-8").lower().replace("# ", "")
+    for s in committed["scenarios"]:
+        assert any("does not limit the hall" in x and "passes" in x for x in s["limitations"])
+
+
+def pricing_from_engine_output(sc: dict, has_capex: bool) -> str:
+    """The same rule, written out again from the engine's output for the test."""
+    if not has_capex:
+        return "none"
+    mix = sc["economics"]["cost_basis_mix"]
+    placeholders = mix.get("library_default", {}).get("lines", 0)
+    supplied = sum(v["lines"] for b, v in mix.items() if b != "library_default")
+    supplied += len([st for st in sc["ladder"] if st["taken"] and st["cost_basis"] == "client_supplied"])
+    return "partly_supplied" if placeholders and supplied else "supplied" if supplied else "placeholder"
+
+
+def test_capex_completeness_and_pricing_are_the_engines(committed):
+    seen = set()
+    for s in committed["scenarios"]:
+        screen, compare = engine_answers(hall_doc(s["id"]))
+        by_screen = {x["id"]: x for x in screen["scenarios"]}
+        for o in s["outcomes"]:
+            econ = by_screen[o["id"]]["economics"]
+            assert o["capexComplete"] is econ["capex_complete"]
+            assert o["capexPricing"] == pricing_from_engine_output(by_screen[o["id"]], o["capexEur"]["value"] is not None)
+            assert (o["capexPricing"] == "none") is (o["capexEur"]["value"] is None)
+            if o["unpricedComponents"] or o["capexEur"]["value"] is None:
+                assert o["capexComplete"] is False
+            seen.add(o["capexPricing"])
+    assert seen == {"none", "placeholder", "partly_supplied"}
+
+
+def test_pricing_rule_on_each_case():
+    mk = lambda mix, steps=(): {"economics": {"cost_basis_mix": {b: {"lines": n} for b, n in mix.items()}},  # noqa: E731
+                                "ladder": [{"taken": True, "cost_basis": b} for b in steps]}
+    assert obs.capex_pricing(mk({"library_default": 3}), True) == "placeholder"
+    assert obs.capex_pricing(mk({"library_default": 3, "firm_quote": 1}), True) == "partly_supplied"
+    assert obs.capex_pricing(mk({"library_default": 3}, ["client_supplied"]), True) == "partly_supplied"
+    assert obs.capex_pricing(mk({"firm_quote": 2}), True) == "supplied"
+    assert obs.capex_pricing(mk({"library_default": 3}), False) == "none"
+    assert obs.capex_pricing({"economics": {"cost_basis_mix": {"library_default": {"lines": 3}}},
+                              "ladder": [{"taken": False, "cost_basis": "client_supplied"}]}, True) == "placeholder"
+    with pytest.raises(SystemExit):
+        obs.capex_pricing(mk({}), True)
+
+
+def test_the_dating_statement_follows_the_data(committed):
+    for s in committed["scenarios"]:
+        dated = [o for o in s["outcomes"] if o["dated"]]
+        text = " ".join(s["limitations"])
+        if dated:
+            assert "only for outcomes whose every lead time is above class E0" in text
+        else:
+            assert "No outcome here is dated" in text
+            assert "so no outcome here is dated" not in text
+
+
+def test_the_existing_racks_row_is_labelled_and_the_current_load_is_said_to_be_separate(committed):
+    for s in committed["scenarios"]:
+        row = next(r for r in s["rackRows"] if r["id"] == "existing-racks")
+        assert "design density" in row["label"] and "not a measurement" in row["label"]
+        text = " ".join(s["limitations"])
+        assert "separate invented input" in text and "not claimed to equal it" in text
+
+
+# --- the content seal -------------------------------------------------------------------------------------------------------
+def test_the_file_is_sealed_with_the_fingerprint_of_its_content(committed):
+    assert re.fullmatch(r"[0-9a-f]{64}", committed["contentSha256"])
+    assert committed["contentSha256"] == obs.content_fingerprint(committed)
+    assert obs.content_fingerprint({**committed, "contentSha256": "x"}) == committed["contentSha256"]
+
+
+def test_any_changed_leaf_changes_the_seal(committed):
+    base = obs.content_fingerprint(committed)
+    for edit in (lambda d: d["scenarios"][0]["outcomes"][2].__setitem__("racksAfterPlan", 27),
+                 lambda d: d["scenarios"][0]["powerPath"][0]["capacity"].__setitem__("value", 12001.0),
+                 lambda d: d["scenarios"][1]["constraints"][0].__setitem__("evidence", "E3"),
+                 lambda d: d["scenarios"][2]["limitations"].append("x"),
+                 lambda d: d["scenarios"][2]["outcomes"][0]["capexEur"].__setitem__("value", 0)):
+        d = copy.deepcopy(committed)
+        edit(d)
+        assert obs.content_fingerprint(d) != base
+
+
+def test_the_fingerprint_matches_the_typescript_loader_on_a_shared_vector():
+    vector = json.loads('{"b": [1, 2.5, 12000.0, 0.97, null, true, false, "x\\"\u00e9\\n\u2014", -0.0, 0.1], '
+                        '"a": {"z": "\u2014", "y": 3}, "contentSha256": "ignored"}')
+    assert obs.content_fingerprint(vector) == "867c1bb12efd6ad3c2aaf3c4d364c3f5f613b3c8d9f94e18ed25f74838316f7f"
+
+
+def test_the_fingerprint_refuses_what_it_cannot_canonicalise():
+    for bad in (1e-7, 2.0 ** 60, float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            obs.content_fingerprint({"x": bad})
+    with pytest.raises(TypeError):
+        obs.content_fingerprint({"x": (1, 2)})

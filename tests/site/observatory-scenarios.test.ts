@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  contentFingerprint,
   isIsoDate,
   loadScenarioFile,
   parseScenarioFile,
@@ -43,7 +44,9 @@ describe("the committed scenario file", () => {
   it("holds three synthetic halls with thirteen constraints each and exactly one binding stage", () => {
     for (const s of parseScenarioFile(committed()).scenarios) {
       expect(s.synthetic).toBe(true);
-      expect(s.title).toMatch(/^Synthetic Hall /);
+      expect(s.title).toMatch(/^Synthetic Hall [ABC]$/);
+      expect(s.hall.name).toBe(s.title);
+      expect(s.hall.region).toBe("invented site (no location)");
       expect(s.constraints).toHaveLength(13);
       expect(s.constraints.filter((c) => c.binds)).toHaveLength(1);
       expect(s.powerPath.filter((n) => n.binds)).toHaveLength(1);
@@ -69,6 +72,46 @@ describe("the committed scenario file", () => {
       expect(o.capexEur.value).toBeNull();
       expect(o.capexEur.missingReason).toBeTruthy();
     }
+  });
+
+  it("places no hall in a real city and never says a constraint is unlimited", () => {
+    const text = fs.readFileSync(FILE, "utf8");
+    expect(text).not.toMatch(/Frankfurt|Dublin|Oslo|Ireland|Norway|Germany/i);
+    expect(text).not.toMatch(/unlimited/i);
+  });
+
+  it("marks a constraint as passing exactly when the engine reports no finite limit", () => {
+    for (const s of parseScenarioFile(committed()).scenarios) {
+      expect(s.constraints.some((c) => c.passes)).toBe(true);
+      for (const c of s.constraints) {
+        expect(c.passes).toBe(c.racksAllowed === null);
+        if (c.passes) expect(c.binds).toBe(false);
+      }
+    }
+  });
+
+  it("states whether each capex is complete and what its priced lines rest on", () => {
+    const outcomes = parseScenarioFile(committed()).scenarios.flatMap((s) => s.outcomes);
+    for (const o of outcomes) {
+      expect(o.capexPricing === "none").toBe(o.capexEur.value === null);
+      if (o.unpricedComponents.length > 0) expect(o.capexComplete).toBe(false);
+      if (o.capexEur.value === null) expect(o.capexComplete).toBe(false);
+    }
+    expect(new Set(outcomes.map((o) => o.capexPricing))).toEqual(new Set(["none", "placeholder", "partly_supplied"]));
+  });
+
+  it("carries a content fingerprint that this loader reproduces from the generator's output", () => {
+    const f = committed();
+    expect(f.contentSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(contentFingerprint(f)).toBe(f.contentSha256);
+  });
+
+  it("fingerprints exactly as scripts/build-observatory.py does (shared test vector)", () => {
+    const vector = { b: [1, 2.5, 12000, 0.97, null, true, false, 'x"\u00e9\n\u2014', -0, 0.1], a: { z: "\u2014", y: 3 }, contentSha256: "ignored" };
+    expect(contentFingerprint(vector)).toBe("867c1bb12efd6ad3c2aaf3c4d364c3f5f613b3c8d9f94e18ed25f74838316f7f");
+    expect(contentFingerprint({ ...vector, contentSha256: "something else" })).toBe(contentFingerprint(vector));
+    expect(() => contentFingerprint({ x: 1e-7 })).toThrow(/exponent/);
+    expect(() => contentFingerprint({ x: 2 ** 60 })).toThrow(/out of range/);
   });
 
   it("is loaded, validated and memoised by loadScenarioFile", () => {
@@ -99,8 +142,8 @@ describe("parseScenarioFile refuses", () => {
   });
 
   it("a hall whose title or name does not say it is synthetic", () => {
-    refuses((f) => (hallA(f).title = "Frankfurt campus"), "synthetic");
-    refuses((f) => (hallA(f).hall.name = "Frankfurt campus"), "synthetic");
+    refuses((f) => (hallA(f).title = "Hall A"), "synthetic");
+    refuses((f) => (hallA(f).hall.name = "Hall A"), "synthetic");
   });
 
   it("a quantity with a value but no evidence class", () => {
@@ -146,12 +189,81 @@ describe("parseScenarioFile refuses", () => {
     }, "assumed (E0)");
   });
 
-  it("a dated outcome that is legitimately supported is accepted (the rule is not simply 'never dated')", () => {
+  it("a dated outcome that is legitimately supported is accepted once re-sealed (the rule is not simply 'never dated')", () => {
     const f = committed();
     const o = outcomeOf(hallA(f), "hybrid_dlc");
     o.dated = true;
     o.weeksToCapacity = { value: 40, low: 30, high: 50, unit: "weeks", evidence: "E3" };
+    expect(() => parseScenarioFile(f)).toThrow(/contentSha256/); // schema-valid, but not what the generator wrote
+    f.contentSha256 = contentFingerprint(f);
     expect(() => parseScenarioFile(f)).not.toThrow();
+  });
+
+  it("a constraint whose passes flag disagrees with racksAllowed, or a passing constraint that binds", () => {
+    refuses((f) => {
+      const c = hallA(f).constraints.find((x: any) => x.racksAllowed === null);
+      c.passes = false;
+    }, "passes must be true exactly when racksAllowed is null");
+    refuses((f) => {
+      const c = hallA(f).constraints.find((x: any) => x.racksAllowed !== null);
+      c.passes = true;
+    }, "passes must be true exactly when racksAllowed is null");
+    refuses((f) => delete hallA(f).constraints[0].passes, "passes");
+    refuses((f) => {
+      const c = hallA(f).constraints.find((x: any) => x.racksAllowed === null);
+      c.binds = true;
+    }, /cannot bind|more than one constraint binds/);
+  });
+
+  it("a capex whose pricing or completeness contradicts its figure", () => {
+    refuses((f) => (outcomeOf(hallA(f), "hybrid_dlc").capexPricing = "none"), 'cannot have capexPricing "none"');
+    refuses((f) => (outcomeOf(hallA(f), "retained_air").capexPricing = "placeholder"), 'capexPricing "none"');
+    refuses((f) => (outcomeOf(hallA(f), "retained_air").capexComplete = true), "cannot have a complete capex");
+    refuses((f) => {
+      const o = outcomeOf(hallA(f), "hybrid_dlc");
+      expect(o.unpricedComponents.length).toBeGreaterThan(0);
+      o.capexComplete = true;
+    }, "not complete");
+    refuses((f) => (outcomeOf(hallA(f), "hybrid_dlc").capexPricing = "cheap"), "capexPricing");
+    refuses((f) => delete outcomeOf(hallA(f), "hybrid_dlc").capexComplete, "capexComplete");
+  });
+
+  it("a schema-valid hand edit of an engine figure (the content seal no longer verifies)", () => {
+    const shift = (q: any, d: number) => {
+      for (const k of ["value", "low", "high"]) if (q[k] !== null) q[k] += d;
+    };
+    const edits: [string, (f: any) => void][] = [
+      ["racks after the plan", (f) => (outcomeOf(hallA(f), "hybrid_dlc").racksAfterPlan += 1)],
+      ["racks as found", (f) => (outcomeOf(hallA(f), "hybrid_dlc").racksAsFound += 1)],
+      ["a stage capacity", (f) => shift(hallA(f).powerPath[0].capacity, 1)],
+      ["a stage capacity range", (f) => (hallA(f).powerPath[0].capacity.high += 1)],
+      ["a load after the plan", (f) => shift(hallA(f).powerPath[1].loadAfterPlan, -1)],
+      ["a constraint limit", (f) => (hallA(f).constraints.find((c: any) => c.racksAllowed !== null).racksAllowed += 1)],
+      ["a capex", (f) => shift(outcomeOf(hallA(f), "hybrid_dlc").capexEur, 1)],
+      ["an IT load", (f) => shift(outcomeOf(hallA(f), "hybrid_dlc").itLoadKwAfterPlan, 1)],
+      ["the hall's contracted power", (f) => (hallA(f).hall.contractedMW += 1)],
+      ["a rack row", (f) => (hallA(f).rackRows[0].racks += 1)],
+      ["an evidence class", (f) => (hallA(f).constraints[0].evidence = "E3")],
+      ["the engine hash", (f) => (f.engine.codeSha256 = "1".repeat(64))],
+      ["the date", (f) => (f.generatedAt = "2026-09-15")],
+      ["a limitation sentence", (f) => (hallA(f).limitations[2] += " (edited)")],
+    ];
+    for (const [what, edit] of edits) {
+      const f = committed();
+      edit(f);
+      let message = "";
+      try {
+        parseScenarioFile(f);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, `a hand edit of ${what} was accepted`).toMatch(/contentSha256/);
+    }
+  });
+
+  it("a missing or malformed content seal", () => {
+    refuses((f) => delete f.contentSha256, "contentSha256");
+    refuses((f) => (f.contentSha256 = "abc"), "contentSha256");
   });
 
   it("a capex figure on an outcome that deploys no rack", () => {

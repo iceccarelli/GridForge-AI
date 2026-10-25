@@ -51,7 +51,11 @@ export function toWebVtt(steps: JourneyStep[]): string {
 // ---------------------------------------------------------------------------------------------------------------------
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
-const EUR_PRICE = /(€|\bEUR\b|\beuros?\b)\s?\d|\d\s?(€|\bEUR\b|\beuros?\b)/i;
+// An amount of money next to a currency word, in either order, with or without "million"/"thousand" between.
+const EUR_PRICE = /(€|\bEUR\b|\beuros?\b)\s?\d|\d[\d.,]*\s?(?:million|thousand|bn|m|k)?\s?(€|\bEUR\b|\beuros?\b)/i;
+// The ONE form in which a euro figure may appear in a caption: the engine's modelled capital cost of a synthetic hall option,
+// never a price of anything a visitor can buy. It must say "Modelled capital cost" and, when partial, "at least".
+const MODELLED_CAPEX = /Modelled capital cost (?:at least )?\d+(?:\.\d+)? (?:million|thousand) euros/g;
 const PURCHASE = /\b(buy|purchase|purchased|checkout|subscribe|subscription|order now|add to cart|per month|per year)\b/i;
 /** "live" is allowed only when it is being denied ("not a live reading", "not live"): nothing in a caption is a live value. */
 const LIVE = /\blive\b/gi;
@@ -60,8 +64,10 @@ const LIVE_DENIED = /\bnot (?:a |an )?$/i;
 export function lintCaption(text: string): string[] {
   const problems: string[] = [];
   if (EMAIL.test(text)) problems.push("contains an email address");
-  if (EUR_PRICE.test(text)) problems.push("contains a price in EUR");
+  if (EUR_PRICE.test(text.replace(MODELLED_CAPEX, ""))) problems.push("contains a price in EUR");
   if (PURCHASE.test(text)) problems.push("contains a purchase or pricing word");
+  if (/\bunlimited\b|not supported by the inputs/i.test(text)) problems.push('says "unlimited" or "not supported by the inputs" (a constraint with no finite limit passes)');
+  if (/\bthis hour\b|\bright now\b|\bat the moment\b/i.test(text)) problems.push("claims a moment (a recorded caption cannot say now)");
   for (const m of text.matchAll(LIVE)) {
     if (!LIVE_DENIED.test(text.slice(Math.max(0, m.index - 8), m.index))) {
       problems.push('uses "live" for something that is not a live observation');
