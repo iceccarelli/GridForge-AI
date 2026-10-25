@@ -12,7 +12,7 @@ export function FunnelCta() {
     <section aria-labelledby="next-h" className="rounded-2xl border border-line bg-panel p-6 sm:p-8" data-observatory="next-step">
       <p className="eyebrow">Your own hall</p>
       <h2 id="next-h" className="mt-1 text-2xl font-semibold text-ghost sm:text-3xl">
-        Everything above is invented. The qualifier uses your numbers.
+        The halls above are invented. The qualifier uses your numbers.
       </h2>
       <p className="mt-3 max-w-2xl text-sm text-mute">
         Seven figures you already know go into the same engine, and it names the stage that binds first in your hall and which of your inputs nobody has measured. It is free, needs

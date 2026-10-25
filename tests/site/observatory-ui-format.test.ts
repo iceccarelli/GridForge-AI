@@ -3,18 +3,10 @@
  * divided, a missing value stays missing, and time/cost never turn into a date or a zero.
  */
 import { describe, expect, it } from "vitest";
-import {
-  effectiveFreshness,
-  fmtUtc,
-  isLive,
-  utilisation,
-  viewCapex,
-  viewProvenance,
-  viewQuantity,
-  viewTimeToCapacity,
-  weakestOf,
-} from "@/components/observatory/format";
-import { rankConstraints } from "@/components/observatory/ConstraintsPanel";
+import { fmtUtc, utilisation, viewCapex, viewQuantity, viewTimeToCapacity, weakestOf } from "@/components/observatory/format";
+import { LIVE_MAX_AGE_SECONDS, effectiveFreshness, isLive, retrievedBefore, viewProvenance } from "@/components/observatory/provenance";
+import { freshnessOf, observed } from "@/lib/observatory/sources";
+import { limits, rankConstraints } from "@/components/observatory/ConstraintsPanel";
 import { rackSquares, snakeSlots, splitLabel, wrapLabel, rackRowVisuals } from "@/components/observatory/scene-visuals";
 import type { Basis, Freshness, Observed } from "@/lib/observatory/types";
 import { FIXTURE_NOW, SCENARIO_A, q } from "./observatory-ui-fixtures";
@@ -39,12 +31,47 @@ describe("provenance wording", () => {
     const old = o("observed", "fresh", { observedAt: "2026-10-25T08:00:00Z", maxAgeSeconds: 3600 });
     expect(effectiveFreshness(old, FIXTURE_NOW)).toBe("stale");
     expect(isLive(old, FIXTURE_NOW)).toBe(false);
-    expect(viewProvenance(old, FIXTURE_NOW).headline).toBe("Observed reading, stale");
+    expect(viewProvenance(old, FIXTURE_NOW).headline).toBe("Latest reading, stale");
   });
-  it("falls back to the retrieval time when there is no observation time, and to stale when the time is unreadable", () => {
+  it("a reading hours old is never 'live', even inside its own allowance: it is the latest reading, with how long ago it was retrieved", () => {
+    const hours = o("observed", "fresh", { observedAt: "2026-10-25T10:30:00Z", retrievedAt: "2026-10-25T10:35:00Z", maxAgeSeconds: 6 * 3600 });
+    expect(effectiveFreshness(hours, FIXTURE_NOW)).toBe("fresh");
+    expect(isLive(hours, FIXTURE_NOW)).toBe(false);
+    const v = viewProvenance(hours, FIXTURE_NOW);
+    expect(v.headline).toBe("Latest reading");
+    expect(v.retrievedAgo).toBe("1.8 h before this page was generated");
+    const recent = o("observed", "fresh", { observedAt: new Date(FIXTURE_NOW.getTime() - (LIVE_MAX_AGE_SECONDS - 60) * 1000).toISOString() });
+    expect(isLive(recent, FIXTURE_NOW)).toBe(true);
+    expect(isLive(o("observed", "fresh", { observedAt: new Date(FIXTURE_NOW.getTime() - (LIVE_MAX_AGE_SECONDS + 60) * 1000).toISOString() }), FIXTURE_NOW)).toBe(false);
+    expect(retrievedBefore(null, FIXTURE_NOW)).toBeNull();
+    expect(retrievedBefore("2026-10-25T12:19:40Z", FIXTURE_NOW)).toBe("less than a minute before this page was generated");
+  });
+  it("uses the retrieval time when there is no observation time; an unreadable time, a time in the future, or no time under a limit is unavailable (the data layer's rule)", () => {
     expect(effectiveFreshness(o("observed", "fresh", { observedAt: null, retrievedAt: "2026-10-25T05:00:00Z", maxAgeSeconds: 600 }), FIXTURE_NOW)).toBe("stale");
-    expect(effectiveFreshness(o("observed", "fresh", { observedAt: "not a date" }), FIXTURE_NOW)).toBe("stale");
+    expect(effectiveFreshness(o("observed", "fresh", { observedAt: "not a date" }), FIXTURE_NOW)).toBe("unavailable");
+    expect(effectiveFreshness(o("observed", "fresh", { retrievedAt: "also not a date" }), FIXTURE_NOW)).toBe("unavailable");
+    expect(effectiveFreshness(o("observed", "fresh", { observedAt: "2026-10-25T13:00:00Z" }), FIXTURE_NOW)).toBe("unavailable"); // 40 min ahead
+    expect(effectiveFreshness(o("observed", "fresh", { observedAt: null, retrievedAt: null }), FIXTURE_NOW)).toBe("unavailable");
+    expect(effectiveFreshness(o("observed", "fresh", { observedAt: null, retrievedAt: null, maxAgeSeconds: null }), FIXTURE_NOW)).toBe("fresh");
     expect(effectiveFreshness(o("observed", "fresh", { maxAgeSeconds: null, observedAt: "2020-01-01T00:00:00Z" }), FIXTURE_NOW)).toBe("fresh");
+    // a small skew into the future is tolerated, as in sources.ts
+    expect(effectiveFreshness(o("observed", "fresh", { observedAt: "2026-10-25T12:21:30Z" }), FIXTURE_NOW)).toBe("fresh");
+  });
+  it("agrees with the data layer's freshnessOf on every combination (one rule, not two)", () => {
+    const times = [null, "2026-10-25T12:00:00Z", "2026-10-25T05:00:00Z", "2026-10-25T13:00:00Z", "2026-10-25T12:21:00Z", "nonsense"];
+    const limits = [null, 600, 7200, -1];
+    for (const observedAt of times)
+      for (const retrievedAt of times)
+        for (const maxAgeSeconds of limits) {
+          const provenance = { source: "S", basis: "observed" as Basis, observedAt, retrievedAt, maxAgeSeconds };
+          const expected = freshnessOf({ hasValue: true, observedAt, retrievedAt, maxAgeSeconds, now: FIXTURE_NOW });
+          // as labelled by the data layer at this moment
+          const labelled = observed({ value: 1, provenance, now: FIXTURE_NOW });
+          expect(effectiveFreshness(labelled, FIXTURE_NOW), JSON.stringify(provenance)).toBe(expected);
+        }
+  });
+  it("never upgrades what the data layer said: a value labelled stale stays stale", () => {
+    expect(effectiveFreshness(o("observed", "stale"), FIXTURE_NOW)).toBe("stale");
   });
   it("no value is unavailable, whatever the feed claims", () => {
     expect(effectiveFreshness(o("observed", "fresh", {}, null), FIXTURE_NOW)).toBe("unavailable");
@@ -112,20 +139,35 @@ describe("time and cost never become a date or a zero", () => {
     expect(t.note).toMatch(/not a calendar date/i);
     for (const x of [viewTimeToCapacity(tapoff), viewTimeToCapacity(busway), t]) expect(`${x.text} ${x.note}`).not.toMatch(/\b20\d\d\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i);
   });
-  it("no cost value is 'not priced' with the unpriced components; a partial total is flagged partial; never zero", () => {
+  it("no cost value is 'not priced' with the unpriced components; a partial total is a lower bound with no upper bound; never zero", () => {
     expect(viewCapex(tapoff)).toMatchObject({ kind: "unpriced", text: "Not priced", note: "Unpriced: tap-off units, installation labour." });
-    expect(viewCapex(busway)).toMatchObject({ kind: "partial", text: "€1,800,000" });
-    expect(viewCapex(busway).note).toMatch(/excludes commissioning/);
-    expect(viewCapex(liquid)).toMatchObject({ kind: "priced", text: "€2,340,000", note: null });
+    expect(viewCapex(busway)).toMatchObject({ kind: "lower_bound", text: "at least €1,800,000", qualifier: "(priced lines only)", range: null, pricing: "library placeholder prices", evidence: "E0" });
+    expect(viewCapex(busway).note).toMatch(/Excludes commissioning/);
+    expect(viewCapex(liquid)).toMatchObject({ kind: "complete", text: "€2,340,000", note: null, pricing: null, qualifier: null });
+  });
+  it("the engine's capexComplete=false alone makes it a lower bound, and placeholder wording follows capexPricing", () => {
+    const base = { capexEur: q(1_000_000, "EUR", "E0", { low: 800_000, high: 3_000_000 }), unpricedComponents: [] as string[] };
+    expect(viewCapex({ ...base, capexComplete: false, capexPricing: "placeholder" })).toMatchObject({ kind: "lower_bound", text: "at least €1,000,000", range: null, note: "Not a complete price." });
+    expect(viewCapex({ ...base, capexComplete: true, capexPricing: "partly_supplied" })).toMatchObject({ kind: "complete", pricing: "some lines are library placeholder prices", range: "range €800,000 to €3,000,000" });
+    expect(viewCapex({ ...base, capexComplete: true, capexPricing: "placeholder" }).pricing).toBe("library placeholder prices");
+    expect(viewCapex({ ...base, capexComplete: true, capexPricing: "supplied" }).pricing).toBeNull();
+  });
+  it("an alternative that deploys nothing has nothing to date; but a date-less one that deploys racks stays 'lead times assumed'", () => {
+    const stay = SCENARIO_A.outcomes[3];
+    expect(viewTimeToCapacity(stay)).toMatchObject({ kind: "nothing", text: "Nothing deploys, so there is nothing to date", note: null, evidence: null });
+    expect(viewTimeToCapacity(tapoff).text).toBe("Not dated — lead times assumed");
   });
 });
 
 describe("scene helpers", () => {
-  it("ranks constraints by racks allowed, ties share a rank, unknown last and unranked", () => {
+  it("ranks constraints by racks allowed, ties share a rank, and a constraint that passes (no finite limit) sorts last with no rank", () => {
     const ranked = rankConstraints(SCENARIO_A.constraints);
     expect(ranked).toHaveLength(13);
     expect(ranked[0]).toMatchObject({ key: "busway_ampacity", rank: 1, binds: true });
-    expect(ranked[ranked.length - 1]).toMatchObject({ key: "fault_level", rank: null, racksAllowed: null });
+    expect(ranked[ranked.length - 1]).toMatchObject({ key: "fault_level", rank: null, racksAllowed: null, passes: true });
+    expect(limits(ranked[0])).toBe(true);
+    expect(limits(ranked[12])).toBe(false);
+    expect(limits({ racksAllowed: 5, passes: true })).toBe(false); // `passes` wins: a renderer must not read a number into a passing gate
     const racks = ranked.filter((c) => c.racksAllowed !== null).map((c) => c.racksAllowed as number);
     expect(racks).toEqual([...racks].sort((a, b) => a - b));
     const tie = rankConstraints([

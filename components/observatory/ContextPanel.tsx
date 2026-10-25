@@ -1,17 +1,20 @@
 // Market and grid conditions, with every figure carrying its provenance. A server component: none of this ships as JS.
 //
-// Wording rules (enforced here and by tests): "live" appears ONLY for an observation that is fresh now. A day-ahead price is
-// a published auction price for a delivery hour; the queue is a published report as of a date. An unavailable feed says so and
-// why; there is no placeholder number. The reference-region sentence is shown exactly as the data layer wrote it, so nobody
-// reads the invented hall as sitting on that grid.
+// Wording rules (enforced here and by tests): "live" appears ONLY for an observation that is fresh now AND very recent (a
+// reading hours old is "the latest reading"). A day-ahead price is a published auction price for a delivery hour; the queue is a
+// published report as of a date. An unavailable feed says so and why; there is no placeholder number. Every card names the
+// region its data belongs to, and the reference-region sentence is shown exactly as the data layer wrote it. The invented halls
+// have no location, so none of this is theirs.
 import type { ReactNode } from "react";
 import type { LiveContext, Observed } from "@/lib/observatory/types";
-import { fmtNumber, fmtUtc, effectiveFreshness, viewProvenance } from "@/components/observatory/format";
+import { fmtNumber, fmtUtc } from "@/components/observatory/format";
+import { effectiveFreshness, viewProvenance } from "@/components/observatory/provenance";
 
 export type ContextState = { ok: true; context: LiveContext } | { ok: false; reason: string };
 
+// Never green: green is this site's "verified / operational" signal, and a reading that is merely inside its age limit is neither.
 const FRESH_TONE: Record<string, string> = {
-  fresh: "border-verified/60 text-verified",
+  fresh: "border-power/60 text-power",
   stale: "border-queue/60 text-queue",
   unavailable: "border-flag/60 text-flag",
   not_applicable: "border-line text-mute",
@@ -41,7 +44,10 @@ export function ProvenanceChip({ obs, now, hideCaveat = false }: { obs: Observed
         <dt className="text-mute">Describes</dt>
         <dd className="data text-ghost">{p.observedAt}</dd>
         <dt className="text-mute">Retrieved</dt>
-        <dd className="data text-ghost">{p.retrievedAt}</dd>
+        <dd className="text-ghost">
+          <span className="data">{p.retrievedAt}</span>
+          {p.retrievedAgo ? <span className="block text-mute">{p.retrievedAgo}</span> : null}
+        </dd>
         <dt className="text-mute">Basis</dt>
         <dd className="text-mute">{p.basisText}</dd>
       </dl>
@@ -73,12 +79,20 @@ function usable<T>(obs: Observed<T>, now: Date): T | null {
 }
 const whyMissing = (obs: Observed<unknown>) => (obs.provenance.caveat ? asSentence(obs.provenance.caveat) : "The source returned no reading, so nothing is shown in its place.");
 
+/** Each card names the region its data belongs to. */
+export const TITLES = {
+  price: "Day-ahead electricity price: Germany/Luxembourg market",
+  mix: "Generation mix: Germany grid",
+  queue: "Interconnection queues: US ISOs (ERCOT, PJM, MISO, SPP)",
+  demand: "Demand: US Lower 48",
+} as const;
+
 export function ContextPanel({ state, now }: { state: ContextState; now: Date }) {
   if (!state.ok) {
     const why = `The server could not fetch the market and grid context (${state.reason}). Nothing is shown in its place.`;
     return (
       <div className="grid gap-4 md:grid-cols-2" data-context="unavailable">
-        {["Day-ahead electricity price", "Generation mix", "Interconnection queue", "National demand overlay"].map((t) => (
+        {[TITLES.price, TITLES.mix, TITLES.queue, TITLES.demand].map((t) => (
           <Card key={t} title={t}>
             <Unavailable why={why} />
           </Card>
@@ -100,14 +114,20 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
         Assembled {fmtUtc(c.generatedAt)}. This page re-reads the feeds at most every five minutes, so check each figure&apos;s own times below.
       </p>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <Card title="Day-ahead electricity price">
+        <Card title={TITLES.price}>
           {price ? (
             <>
               <p className="mt-2">
                 <span className="data text-2xl text-ghost">{fmtNumber(price.eurPerMWh)}</span> <span className="text-sm text-mute">EUR per MWh</span>
               </p>
               <p className="mt-1 text-sm text-mute">
-                For the delivery hour starting <span className="data text-ghost">{fmtUtc(price.deliveryStart)}</span>. That day: lowest{" "}
+                For the delivery hour starting <span className="data text-ghost">{fmtUtc(price.deliveryStart)}</span>. Over the published window{" "}
+                {price.windowStart && price.windowEnd ? (
+                  <>
+                    <span className="data text-ghost">{fmtUtc(price.windowStart)}</span> to <span className="data text-ghost">{fmtUtc(price.windowEnd)}</span>{" "}
+                  </>
+                ) : null}
+                (about the next 24 hours): lowest{" "}
                 <span className="data text-ghost">{fmtNumber(price.min)}</span>, average <span className="data text-ghost">{fmtNumber(price.avg)}</span>, highest{" "}
                 <span className="data text-ghost">{fmtNumber(price.max)}</span> EUR per MWh.
               </p>
@@ -118,7 +138,7 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
           <ProvenanceChip obs={c.dayAheadPrice} now={now} hideCaveat={!price} />
         </Card>
 
-        <Card title="Generation mix">
+        <Card title={TITLES.mix}>
           {mix ? (
             <>
               <p className="mt-2">
@@ -130,7 +150,7 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
                   <li key={m.name} className="flex items-center gap-2">
                     <span className="w-28 shrink-0 truncate text-ghost sm:w-36">{m.name}</span>
                     <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink" aria-hidden="true">
-                      <span className={`block h-full rounded-full ${m.renewable ? "bg-verified/70" : "bg-chart-alt"}`} style={{ width: `${mix.totalMW > 0 ? Math.min(100, (m.mw / mix.totalMW) * 100) : 0}%` }} />
+                      <span className={`block h-full rounded-full ${m.renewable ? "bg-chart" : "bg-chart-alt"}`} style={{ width: `${mix.totalMW > 0 ? Math.min(100, (m.mw / mix.totalMW) * 100) : 0}%` }} />
                     </span>
                     <span className="data w-20 shrink-0 text-right text-mute">{fmtNumber(m.mw)} MW</span>
                     <span className="w-16 shrink-0 text-xs text-mute">{m.renewable ? "renewable" : "other"}</span>
@@ -144,7 +164,7 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
           <ProvenanceChip obs={c.generationMix} now={now} hideCaveat={!mix} />
         </Card>
 
-        <Card title="Interconnection queue">
+        <Card title={TITLES.queue}>
           {queue ? (
             <table role="table" className="mt-2 w-full text-left text-sm">
               <caption className="mb-1 text-left text-xs text-mute">Published queue figures per market, as of the report date below.</caption>
@@ -171,7 +191,7 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
           <ProvenanceChip obs={c.queue} now={now} hideCaveat={!queue} />
         </Card>
 
-        <Card title="National demand overlay">
+        <Card title={TITLES.demand}>
           {demand ? (
             <p className="mt-2">
               <span className="data text-2xl text-ghost">{fmtNumber(demand.mw)}</span> <span className="text-sm text-mute">MW, period </span>

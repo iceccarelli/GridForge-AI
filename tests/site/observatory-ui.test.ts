@@ -7,7 +7,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
-import type { ContextState } from "@/components/observatory/ContextPanel";
+import { EVIDENCE_LEGEND, evidenceTitle } from "@/components/observatory/evidence";
+import { TITLES, type ContextState } from "@/components/observatory/ContextPanel";
 import { ObservatoryView, type FileState } from "@/components/observatory/ObservatoryView";
 import { FIXTURE_NOW, FIXTURE_SCENARIO_FILE, REFERENCE_REGION_SENTENCE, fixtureBuildSceneModel, fixtureContext } from "./observatory-ui-fixtures";
 
@@ -19,7 +20,8 @@ vi.mock("@/lib/observatory/scene-model", async () => {
   return { buildSceneModel: (...a: Parameters<typeof f.fixtureBuildSceneModel>) => (override.build ? override.build(...a) : f.fixtureBuildSceneModel(...a)) };
 });
 vi.mock("@/lib/observatory/scenario-data", () => ({ loadScenarioFile: () => loadScenarioFile(), parseScenarioFile: (x: unknown) => x }));
-vi.mock("@/lib/observatory/sources", () => ({ getLiveContext: () => getLiveContext() }));
+// The page's freshness wording uses the data layer's own rule (freshnessOf), so only the network entry point is replaced.
+vi.mock("@/lib/observatory/sources", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/observatory/sources")>()), getLiveContext: () => getLiveContext() }));
 
 const text = (html: string) =>
   html
@@ -50,9 +52,9 @@ describe("the page as a whole", () => {
   const html = render();
   const t = text(html);
 
-  it("has one h1, labelled sections, a skip link, and a caption on every table", () => {
+  it("has one h1, labelled sections, and a caption on every table (the skip link is the site's, in app/layout.tsx)", () => {
     expect((html.match(/<h1[ >]/g) ?? []).length).toBe(1);
-    expect(t).toContain("Skip to the observatory");
+    expect(t).not.toContain("Skip to the observatory");
     for (const id of ["path-h", "constraints-h", "outcomes-h", "context-h", "limitations-h"]) {
       expect(html).toContain(`id="${id}"`);
       expect(html).toContain(`aria-labelledby="${id}"`);
@@ -134,13 +136,52 @@ describe("the 2D stage", () => {
     expect(text(tr)).toContain("usable after derating");
     expect(html).toMatch(/<text[^>]*>Main transformer T1<\/text>/);
   });
-  it("lists the rack rows in a table too, tagged as inputs and not measurements", () => {
-    const start = html.indexOf("Rack rows. Counts and densities");
+  it("rack rows: the existing racks are synthetic inputs, the new-platform count is an engine OUTPUT, and a null density says the real reason", () => {
+    const start = html.indexOf("Rack rows. The existing racks");
     const rs = rows(html.slice(start, html.indexOf("</table>", start)));
     expect(rs).toHaveLength(3);
-    expect(text(rs[1])).toContain("not supported by the inputs");
-    expect(text(rs[0])).toContain("input, not measured");
+    // row A: existing, has a density as found
+    expect(text(rs[0])).toContain("synthetic input");
+    expect(text(rs[0])).not.toContain("engine output");
+    expect(text(rs[0])).not.toContain("platform library figure");
     expect(text(rs[0])).toContain("24");
+    // row B: no density as found, so no racks as found: what the plan adds, an engine output
+    expect(text(rs[1])).toContain("engine output: deployable after the plan");
+    expect(text(rs[1])).toContain("none: no racks of this row deploy as found");
+    expect(text(rs[1])).toContain("platform library figure");
+    expect(text(rs[1])).not.toContain("not supported by the inputs");
+    expect(text(rs[1])).not.toMatch(/synthetic input(?!, not measured)/);
+  });
+});
+
+describe("no after-plan utilisation against as-found capacity, anywhere (the false 'over capacity')", () => {
+  const html = render();
+  const start = html.indexOf("Power path, stage by stage");
+  const table = rows(html.slice(start, html.indexOf("</table>", start)));
+  it("a stage whose after-plan load exceeds its AS-FOUND capacity is not called over capacity (UPS: 4.4 MW found, 9.6 MW after, 8 MW capacity)", () => {
+    const ups = table.find((r) => r.includes("UPS modules"))!;
+    expect(text(ups)).toContain("55%");
+    expect(text(ups)).not.toMatch(/120%|over capacity/i);
+    expect(html).toMatch(/aria-label="UPS: UPS modules\.[^"]*Load after the plan 9\.6 MW[^"]*"/);
+    const label = html.match(/aria-label="UPS: UPS modules\.[^"]*"/)![0];
+    expect(label).not.toMatch(/exceeds/i);
+  });
+  it("the 2D diagram never draws OVER CAPACITY; it marks only a stage whose load AS FOUND exceeds its capacity as found (rack feed: 205 A against 63 A)", () => {
+    expect(html).not.toContain("OVER CAPACITY");
+    expect((html.match(/OVER AS FOUND/g) ?? []).length).toBe(2); // one card, two layouts
+    expect(html).toMatch(/aria-label="Rack feed: Tap-off to rack, 63 A\.[^"]*Load as found exceeds capacity as found\./);
+    const rf = table.find((r) => r.includes("Tap-off to rack"))!;
+    expect(text(rf)).toContain("325%");
+    expect(text(rf)).toContain("over capacity as found");
+  });
+  it("the after-plan load is shown as a plain figure with the reason there is no ratio", () => {
+    expect(text(html)).toContain("the engine does not state the stage's capacity after the plan");
+    expect(html).toContain("Utilisation as found");
+    expect(html).not.toMatch(/→\s*\d+%/);
+  });
+  it("the table row's after-plan load keeps its evidence chip", () => {
+    const ups = table.find((r) => r.includes("UPS modules"))!;
+    expect((ups.match(/data-evidence="E\d"/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -164,6 +205,17 @@ describe("(a) power path: every figure has its evidence class", () => {
     for (const c of ["E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7"]) expect(legend).toContain(`data-evidence="${c}"`);
     expect(text(legend)).toContain("Nothing on this page is measured at a site.");
   });
+  it("E5 and E3 are worded for invented inputs, in the legend, the chip text and the tooltip (never 'measured data' or 'engineer reviewed')", () => {
+    const legend = text(html.slice(html.indexOf("Evidence classes E0 to E7"), html.indexOf("Evidence classes E0 to E7") + 6000));
+    expect(legend).toContain("Supplied input. Invented here; not measured.");
+    expect(legend).toContain("Engine estimate. No engineer review in this demonstration.");
+    expect(legend).not.toMatch(/customer's own|measured data|qualified engineer|reviewed by/i);
+    // chip text and tooltip for an E3 figure that is actually on the page (the liquid-cooling alternative)
+    expect(html).toMatch(/<abbr title="E3: Engine estimate\. No engineer review in this demonstration\."[^>]*data-evidence="E3"[^>]*>E3<span[^>]*>Engine estimate<\/span><\/abbr>/);
+    expect(EVIDENCE_LEGEND.E5).toEqual({ name: "Supplied input", meaning: "Invented here; not measured." });
+    expect(evidenceTitle("E5")).toBe("E5: Supplied input. Invented here; not measured.");
+    expect(html).not.toMatch(/Model reviewed by a qualified engineer/);
+  });
   it("the invented hall's own inputs are tagged as synthetic inputs", () => {
     expect((text(html).match(/synthetic input/gi) ?? []).length).toBeGreaterThanOrEqual(3);
   });
@@ -174,13 +226,17 @@ describe("(b) the constraints", () => {
   const start = html.indexOf("constraints ranked by the racks");
   const tableHtml = html.slice(start, html.indexOf("</table>", start));
   const rs = rows(tableHtml);
-  it("lists all 13, lowest first, with the binding one flagged and unknown last", () => {
+  it("lists all 13, lowest first, with the binding one flagged and the constraint that passes last", () => {
     expect(rs).toHaveLength(13);
     expect(text(rs[0])).toContain("Busway ampacity");
     expect(text(rs[0])).toContain("Binds as found");
     expect(text(rs[12])).toContain("Fault level");
-    expect(text(rs[12])).toContain("no figure given");
-    expect(text(rs[12])).toContain("unranked");
+  });
+  it("a constraint with no finite limit (passes) says it does not limit the hall: never 'no figure given', 'unranked' or 'unlimited'", () => {
+    expect(text(rs[12])).toContain("does not limit the hall (passes)");
+    expect(text(rs[12])).toContain("no rank: does not limit the hall");
+    for (const r of rs) expect(text(r)).not.toMatch(/no figure given|unranked|unlimited|not supported by the inputs/i);
+    expect(text(tableHtml)).not.toMatch(/no figure given|unranked|unlimited/i);
   });
   it("each row has its basis and an evidence chip", () => {
     for (const r of rs) {
@@ -202,7 +258,7 @@ describe("(d) scenario outcomes", () => {
   const outcomesText = text(tableHtml);
 
   it("one row per alternative, each with racks as found and after and an evidence chip", () => {
-    expect(rs).toHaveLength(3);
+    expect(rs).toHaveLength(4);
     expect(text(rs[0])).toContain("24 → 61 racks");
     expect(text(rs[1])).toContain("24 → 96 racks");
     for (const r of rs) expect(r).toMatch(/data-evidence="E\d"/);
@@ -221,13 +277,26 @@ describe("(d) scenario outcomes", () => {
     expect(text(rs[2])).toContain("30 weeks");
     expect(text(rs[2])).toContain("not a calendar date");
   });
-  it("cost is 'not priced' with the unpriced parts named, or partial, or priced; never zero", () => {
+  it("a partial capex is 'at least' with its priced-lines qualifier and NO upper bound; placeholders are named; the chip stays beside it", () => {
     expect(text(rs[0])).toContain("Not priced");
     expect(text(rs[0])).toContain("Unpriced: tap-off units, installation labour.");
-    expect(text(rs[1])).toContain("€1,800,000");
-    expect(text(rs[1])).toContain("Partial: excludes commissioning. Not a complete price.");
+    const busway = text(rs[1]);
+    expect(busway).toContain("at least €1,800,000");
+    expect(busway).toContain("(priced lines only)");
+    expect(busway).toContain("library placeholder prices");
+    expect(busway).toContain("Excludes commissioning. Not a complete price.");
+    expect(busway).not.toMatch(/€2,300,000|€1,500,000|range €/); // the engine's range has an upper bound this total does not have
+    const cell = rs[1].slice(rs[1].indexOf("Capital cost"));
+    expect(cell.slice(0, cell.indexOf("</td>"))).toMatch(/data-evidence="E0"/);
+    // a complete figure resting on supplied prices is shown plainly, with no placeholder wording
     expect(text(rs[2])).toContain("€2,340,000");
+    expect(text(rs[2])).not.toMatch(/at least|placeholder/);
     expect(outcomesText).not.toMatch(/€\s?0\b/);
+  });
+  it("an alternative that deploys nothing says there is nothing to date, not 'lead times assumed'", () => {
+    expect(text(rs[3])).toContain("0 → 0 racks");
+    expect(text(rs[3])).toContain("Nothing deploys, so there is nothing to date");
+    expect(text(rs[3])).not.toMatch(/lead times assumed/i);
   });
   it("names the constraint that binds after the plan in words", () => {
     expect(text(rs[0])).toContain("Busway ampacity");
@@ -248,7 +317,7 @@ describe("(c) market and grid conditions", () => {
     expect((ctx.match(/data-provenance="/g) ?? []).length).toBe(4);
     for (const label of ["Source", "Describes", "Retrieved", "Basis"]) expect((ctxText.match(new RegExp(`\\b${label}\\b`, "g")) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(ctxText).toContain("FIXTURE day-ahead auction");
-    expect(ctxText).toContain("2026-10-25 13:00 UTC");
+    expect(ctxText).toContain("2026-10-25 12:00 UTC");
     expect(ctxText).toContain("2026-10-25 12:05 UTC");
     expect(ctxText).toContain("Fresh: within the allowed 2 h");
     expect(ctxText).toContain("A reading of the real world for a stated interval.");
@@ -263,15 +332,39 @@ describe("(c) market and grid conditions", () => {
   it("the queue is a published report as of its date", () => {
     expect(ctxText).toContain("Published report as of 2026-09-30");
   });
-  it("'live' appears exactly once on the page: the fresh observed generation mix", () => {
+  it("'live' appears exactly once on the page: the observed generation mix read 20 minutes ago or less", () => {
     const all = text(html);
     expect(all.match(/\blive\b/gi) ?? []).toEqual(["Live"]);
-    expect(ctxText).toContain("Live observation");
+    expect(ctxText).toContain("Live reading");
+    expect(ctxText).not.toContain("Live observation");
+  });
+  it("a reading that is inside its allowance but not recent is 'Latest reading', never live, and says how long before the page it was retrieved", () => {
+    const older = text(
+      render(okFile, okCtx({ generationMix: { ...fixtureContext().generationMix, provenance: { ...fixtureContext().generationMix.provenance, observedAt: "2026-10-25T11:00:00Z", retrievedAt: "2026-10-25T11:05:00Z" } } })),
+    );
+    expect(older).not.toMatch(/\blive\b/i);
+    expect(older).toContain("Latest reading");
+    expect(older).toContain("Fresh: within the allowed 2 h");
+    expect(older).toContain("1.3 h before this page was generated");
+    expect(ctxText).toContain("15 min before this page was generated");
+  });
+  it("the freshness pill and the mix bars are never the green 'verified' tone", () => {
+    expect(ctx).not.toMatch(/verified/);
+  });
+  it("every card names its own region, the section says the halls are not there, and no 'reference region' or 'That day' wording remains", () => {
+    for (const t of ["Germany/Luxembourg market", "Generation mix: Germany grid", "US ISOs (ERCOT, PJM, MISO, SPP)", "Demand: US Lower 48"]) expect(ctxText).toContain(t);
+    const all = text(html);
+    expect(all).toContain("The invented halls have no location, so none of this is theirs.");
+    expect(all.split(REFERENCE_REGION_SENTENCE).join("")).not.toMatch(/reference region|That day|national demand overlay/i);
+    expect(all).not.toMatch(/pretend location|real hall would sit on/i);
+  });
+  it("min, average and highest are labelled with the published window, not a calendar day", () => {
+    expect(ctxText).toContain("Over the published window 2026-10-25 12:00 UTC to 2026-10-26 12:00 UTC (about the next 24 hours): lowest");
   });
   it("a stale observation is not called live, and a fresh-marked one past its own limit is demoted to stale", () => {
     const stale = text(render(okFile, okCtx({ generationMix: { ...fixtureContext().generationMix, freshness: "stale" } })));
     expect(stale).not.toMatch(/\blive\b/i);
-    expect(stale).toContain("Observed reading, stale");
+    expect(stale).toContain("Latest reading, stale");
     const old = text(
       render(okFile, okCtx({ generationMix: { ...fixtureContext().generationMix, provenance: { ...fixtureContext().generationMix.provenance, observedAt: "2026-10-25T06:00:00Z" } } })),
     );
@@ -279,7 +372,7 @@ describe("(c) market and grid conditions", () => {
     expect(old).toContain("Stale: older than the allowed 2 h");
   });
   it("an unavailable feed says unavailable and why, and shows no number in its place", () => {
-    const demand = ctx.slice(ctx.indexOf("National demand overlay"));
+    const demand = ctx.slice(ctx.indexOf("Demand: US Lower 48"));
     const card = text(demand.slice(0, demand.indexOf("</section>")));
     expect(card).toContain("Unavailable.");
     expect(card).toContain("FIXTURE: no data key is configured.");
@@ -298,7 +391,7 @@ describe("(c) market and grid conditions", () => {
     expect((ct.match(/the request failed/g) ?? []).length).toBe(4);
     expect(c).not.toContain("data-provenance");
     expect(ct).not.toContain(REFERENCE_REGION_SENTENCE);
-    expect(ct).not.toMatch(/\d/);
+    expect(Object.values(TITLES).reduce((a, t) => a.split(t).join(""), ct)).not.toMatch(/\d/); // the card titles name their regions (a "48" in US Lower 48); nothing else may carry a number
     // the scenario panels are unaffected
     expect(text(html2)).toContain("24 → 61 racks");
   });
@@ -312,6 +405,18 @@ describe("the funnel: calm, free first, no checkout, no login, no admin or billi
     expect(html).toContain('href="/pricing#engagements"');
     const screen = PRODUCTS.density_screen;
     expect(t).toContain(`${screen.name} (${eurFromCents(screen.amountCents)}, ${screen.turnaroundDays} working days)`);
+  });
+  it("says the halls are invented, not that everything is (the context cards are real published data)", () => {
+    expect(t).toContain("The halls above are invented. The qualifier uses your numbers.");
+    expect(t).not.toContain("Everything above is invented");
+  });
+  it("the hall has no location and the page says the market data is not its grid", () => {
+    expect(t).toContain("invented site (no location)");
+    expect(t).toContain("The hall is not in any real place, so the market and grid data below is not its grid.");
+  });
+  it("claims an evidence class only on engine figures", () => {
+    expect(t).toContain("Every engine figure carries its evidence class");
+    expect(t).not.toMatch(/Every figure carries its evidence class/);
   });
   it("links nowhere near checkout, sign-in, account, admin or billing, and has no form", () => {
     const hrefs = [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
@@ -365,6 +470,8 @@ describe("app/observatory/page.tsx: the server component", () => {
     expect(mod.dynamic).toBe("force-dynamic");
     expect((mod as { revalidate?: number }).revalidate).toBeUndefined();
     expect((mod.metadata.alternates as { canonical: string }).canonical).toBe("/observatory");
+    expect(String(mod.metadata.description)).toContain("an evidence class on every engine figure");
+    expect(String(mod.metadata.description)).not.toMatch(/evidence class on every figure/);
   });
   it("loads the scenario file and the live context, and renders both", async () => {
     loadScenarioFile.mockReturnValue(FIXTURE_SCENARIO_FILE);

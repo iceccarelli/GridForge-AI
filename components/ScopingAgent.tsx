@@ -84,6 +84,9 @@ export function ScopingAgent() {
   // workspace's own bottom tab bar (Chat/Canvas/Project).
   if (pathname?.startsWith("/workspace")) return null;
 
+  // The Observatory is a demonstration page: no assistant launcher over it, and nothing on it that leads to a sale.
+  if (pathname?.startsWith("/observatory")) return null;
+
   return (
     <>
       {/* Launcher */}

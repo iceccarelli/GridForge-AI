@@ -9,6 +9,7 @@ import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { loadScenarioFile } from "@/lib/observatory/scenario-data";
+import { buildSceneModel } from "@/lib/observatory/scene-model";
 import { buildJourney, frameAt, totalDuration } from "@/lib/observatory/journey";
 import { parsePresenterParams } from "@/lib/observatory/presenter-params";
 import { PresenterFrame, clock } from "@/components/observatory/presenter/PresenterFrame";
@@ -139,5 +140,109 @@ describe("the presenter's error, loading and not-found states carry no link eith
   });
   it("an unknown path under the presenter is routed to the presenter's own not-found", () => {
     expect(read("app/observatory/presenter/[...rest]/page.tsx")).toMatch(/notFound\(\)/);
+  });
+});
+
+// ---- review fixes: honesty and legibility of the broadcast frame ----------------------------------------------------------
+
+const allFrames = midpoints.map(({ step, t }) => ({ step, html: render(t) }));
+const withoutAsFound = (s: string) => s.replace(/over capacity as found/gi, "");
+
+describe("honesty on every step: no false over-capacity, no 'unlimited', evidence beside capex", () => {
+  it("never calls a stage over capacity because of its after-plan load (only 'over capacity as found' may appear), and shows no after-plan ratio", () => {
+    for (const { step, html } of allFrames) {
+      const t = withoutAsFound(text(html));
+      expect(t, step.id).not.toMatch(/over capacity|exceeds capacity|OVER CAPACITY/i);
+      expect(html, step.id).not.toContain("OVER CAPACITY");
+      expect(text(html), step.id).not.toMatch(/→\s*\d+%/);
+    }
+  });
+  it("the stage detail shows the after-plan load as a plain figure and says the engine does not state the capacity after the plan", () => {
+    const path = allFrames.find((f) => f.step.panel === "path")!;
+    expect(text(path.html)).toContain("The engine does not state this stage's capacity after the plan.");
+    expect(text(path.html)).toContain("Load after the plan");
+    expect(text(path.html)).toContain("Utilisation as found");
+  });
+  it("a constraint that passes says it does not limit the hall; never 'no figure given', 'unranked' or 'unlimited'", () => {
+    for (const { step, html } of allFrames) expect(text(html), step.id).not.toMatch(/no figure given|unranked|unlimited/i);
+  });
+  it("on the outcomes steps the selected alternative's capex carries its evidence chip and, for placeholders, says so; a partial total is 'at least'", () => {
+    const outcomesSteps = allFrames.filter((f) => f.step.panel === "outcomes");
+    expect(outcomesSteps.length).toBeGreaterThan(0);
+    for (const { step, html } of outcomesSteps) {
+      const sel = html.slice(html.indexOf('data-selected="1"'));
+      const card = sel.slice(0, sel.indexOf("</div></div>") > 0 ? sel.indexOf("</div></div>") : undefined);
+      const cap = card.slice(card.indexOf("Capital cost"));
+      const sc = file.scenarios.find((s) => s.id === step.scenarioId)!;
+      const o = sc.outcomes.find((x) => x.id === (step.outcomeId || sc.headlineOutcome))!;
+      expect(text(card), step.id).toContain(o.name);
+      if (o.capexEur.value === null) {
+        expect(text(cap), step.id).toContain("Not priced");
+        continue;
+      }
+      expect(cap, step.id).toMatch(/data-evidence="E\d"/);
+      if (o.capexPricing === "placeholder") expect(text(cap), step.id).toContain("library placeholder prices");
+      if (o.capexPricing === "partly_supplied") expect(text(cap), step.id).toContain("some lines are library placeholder prices");
+      if (!o.capexComplete || o.unpricedComponents.length > 0) {
+        expect(text(cap), step.id).toContain("at least");
+        expect(text(cap), step.id).not.toMatch(/range €/);
+      }
+      expect(text(cap), step.id).not.toMatch(/\bpriced\b(?! lines only)/i);
+    }
+  });
+  it("an alternative that deploys nothing says there is nothing to date", () => {
+    const nothing = file.scenarios.flatMap((s) => s.outcomes).filter((o) => o.racksAfterPlan === 0);
+    expect(nothing.length).toBeGreaterThan(0);
+    const t = (s: string) => text(s);
+    for (const { step, html } of allFrames.filter((f) => f.step.panel === "outcomes")) {
+      const sel = html.slice(html.indexOf('data-selected="1"'));
+      const card = t(sel.slice(0, 2500));
+      const o = nothing.find((x) => card.includes(x.name));
+      if (o && step.outcomeId === o.id) expect(card, step.id).toContain("Nothing deploys, so there is nothing to date");
+    }
+  });
+});
+
+describe("the broadcast frame is legible and read-only at 720p and 1080p", () => {
+  it("the diagram is one plain image with a label: no role=button, tab stop, pressed state, handler or 'Select a stage' text", () => {
+    for (const { step, html } of allFrames) {
+      expect(html, step.id).toContain('data-stage="2d-presenter"');
+      expect(html, step.id).toMatch(/<svg[^>]*role="img"[^>]*aria-label="Power path diagram:/);
+      const svg = html.slice(html.indexOf("<svg"), html.indexOf("</svg>"));
+      expect(svg, step.id).not.toMatch(/role="button"|role="group"|tabindex|aria-pressed|onclick|onkeydown/i);
+      expect(html, step.id).not.toMatch(/tabindex|aria-pressed|role="button"/i);
+      expect(text(html), step.id).not.toMatch(/Select a stage/i);
+      // aria-label on a plain div is ignored by assistive technology: every labelled div has a role
+      for (const tag of html.match(/<div[^>]*\saria-label=[^>]*>/g) ?? []) expect(tag, step.id).toMatch(/\srole="/);
+    }
+  });
+  it("uses a landscape layout (five columns), not the page's 4-column or 2-column layouts", () => {
+    const html = allFrames[0].html;
+    expect(html).toMatch(/data-viewbox-w="760"/);
+    expect(html.split("<svg").length - 1).toBe(1);
+  });
+  it("no text in the diagram is under 10px (SVG units are 1:1 at 720p), no body text is under 14px, and chips are at least 11px", () => {
+    for (const { step, html } of allFrames) {
+      const sizes = [...html.matchAll(/font-size="([\d.]+)"/g)].map((m) => Number(m[1]));
+      expect(sizes.length).toBeGreaterThan(20);
+      for (const s of sizes) expect(s, `${step.id}: ${s}`).toBeGreaterThanOrEqual(10);
+      expect(html, step.id).not.toMatch(/text-xs|text-\[10px\]|text-\[9px\]|text-\[8px\]/);
+      for (const m of html.matchAll(/class="[^"]*text-\[(\d+)px\][^"]*"/g)) expect(Number(m[1]), step.id).toBeGreaterThanOrEqual(11);
+    }
+  });
+  it("the caption has a fixed height (three lines, no layout shift) and no caption is long enough to be cut", () => {
+    for (const { step, html } of allFrames) expect(html, step.id).toMatch(/data-presenter="caption"/);
+    expect(render(midpoints[0].t)).toMatch(/class="h-\[6rem\][^"]*"[^>]*data-presenter="caption"/);
+    for (const s of steps) expect(s.caption.length, s.id).toBeLessThanOrEqual(380);
+    // the basis banner reserves one line at 1280px (about 170 characters at 14px); a longer one would push the frame
+    for (const sc of file.scenarios) for (const o of sc.outcomes) expect(buildSceneModel(sc, o.id).basisBanner.length).toBeLessThanOrEqual(170);
+  });
+  it("the outcomes panel shows the selected alternative in full and every other as one compact line; nothing is dropped", () => {
+    for (const { step, html } of allFrames.filter((f) => f.step.panel === "outcomes")) {
+      const scenario = file.scenarios.find((s) => s.id === step.scenarioId)!;
+      const names = scenario.outcomes.map((o) => o.name);
+      for (const n of names) expect(text(html), `${step.id}: ${n}`).toContain(n.replace(/&/g, "&"));
+      expect((html.match(/data-selected="1"/g) ?? []).length, step.id).toBe(1);
+    }
   });
 });

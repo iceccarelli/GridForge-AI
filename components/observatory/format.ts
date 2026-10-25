@@ -1,6 +1,6 @@
 // Pure formatting for the Observatory: quantities with their evidence, utilisation, and provenance wording.
 // Nothing here invents a number: a missing value stays missing and says why; a date is never produced from weeks.
-import type { Basis, EvidenceClass, Freshness, Observed, Provenance, Quantity } from "@/lib/observatory/types";
+import type { EvidenceClass, Quantity } from "@/lib/observatory/types";
 import { weakest } from "@/components/observatory/evidence";
 
 const NF = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 2 });
@@ -90,98 +90,10 @@ export function fmtAge(seconds: number): string {
   return `${Math.round(seconds / 86400)} days`;
 }
 
-// ---- provenance --------------------------------------------------------------------------------------------------
-
-/** Freshness as it stands at `now`: a "fresh" value past its own limit is stale, and no value is never anything but unavailable. */
-export function effectiveFreshness(obs: Observed<unknown>, now: Date): Freshness {
-  if (obs.value === null || obs.value === undefined || obs.freshness === "unavailable") return "unavailable";
-  if (obs.freshness !== "fresh") return obs.freshness;
-  const p = obs.provenance;
-  const ref = p.observedAt ?? p.retrievedAt;
-  if (p.maxAgeSeconds !== null && ref) {
-    const t = new Date(ref).getTime();
-    if (!Number.isFinite(t)) return "stale";
-    if (now.getTime() - t > p.maxAgeSeconds * 1000) return "stale";
-  }
-  return "fresh";
-}
-
-/** "Live" wording is allowed for exactly one case: an observation that is fresh now. */
-export function isLive(obs: Observed<unknown>, now: Date): boolean {
-  return obs.provenance.basis === "observed" && effectiveFreshness(obs, now) === "fresh";
-}
-
-export const BASIS_WORDS: Record<Basis, string> = {
-  observed: "A reading of the real world for a stated interval.",
-  day_ahead_auction:
-    "A price published by the day-ahead auction for one delivery period. It is a price set in advance, not a measurement of now.",
-  published_report: "A figure from a dated public report. It is current as of that date only.",
-  engine_modelled: "Computed by the GridForge engine from the stated inputs.",
-  synthetic_input: "An invented demonstration input.",
-  assumed: "An assumption or library default (evidence class E0).",
-};
-
-export interface ProvenanceView {
-  live: boolean;
-  headline: string;
-  freshness: Freshness;
-  freshnessText: string;
-  basisText: string;
-  source: string;
-  observedAt: string;
-  retrievedAt: string;
-  caveat: string | null;
-}
-
-function headlineFor(p: Provenance, fresh: Freshness, live: boolean): string {
-  if (fresh === "unavailable") return "Unavailable";
-  if (live) return "Live observation";
-  switch (p.basis) {
-    case "observed":
-      return fresh === "stale" ? "Observed reading, stale" : "Observed reading";
-    case "day_ahead_auction":
-      return "Published auction price for this delivery hour";
-    case "published_report":
-      return `Published report as of ${fmtDate(p.observedAt)}`;
-    case "engine_modelled":
-      return "Computed by the GridForge engine";
-    case "synthetic_input":
-      return "Invented demonstration input";
-    default:
-      return "Assumed value (E0)";
-  }
-}
-
-export function viewProvenance(obs: Observed<unknown>, now: Date): ProvenanceView {
-  const p = obs.provenance;
-  const fresh = effectiveFreshness(obs, now);
-  const live = isLive(obs, now);
-  const limit = p.maxAgeSeconds === null ? null : fmtAge(p.maxAgeSeconds);
-  const freshnessText =
-    fresh === "fresh"
-      ? limit ? `Fresh: within the allowed ${limit}` : "Fresh"
-      : fresh === "stale"
-        ? limit ? `Stale: older than the allowed ${limit}` : "Stale"
-        : fresh === "unavailable"
-          ? "Unavailable"
-          : "Not applicable";
-  return {
-    live,
-    headline: headlineFor(p, fresh, live),
-    freshness: fresh,
-    freshnessText,
-    basisText: BASIS_WORDS[p.basis] ?? "Basis not stated.",
-    source: p.source,
-    observedAt: fmtUtc(p.observedAt),
-    retrievedAt: fmtUtc(p.retrievedAt),
-    caveat: p.caveat ?? null,
-  };
-}
-
 // ---- scenario outcomes -------------------------------------------------------------------------------------------
 
 export interface TimeView {
-  kind: "weeks" | "undated" | "missing";
+  kind: "weeks" | "undated" | "missing" | "nothing";
   /** The headline: "38 weeks", "Not dated — lead times assumed", or "Not available". Never a calendar date. */
   text: string;
   note: string | null;
@@ -189,9 +101,13 @@ export interface TimeView {
 }
 
 /** Time to capacity. A calendar date is never produced: weeks only, and only as a programme length. */
-export function viewTimeToCapacity(o: { weeksToCapacity: Quantity; dated: boolean }): TimeView {
+export function viewTimeToCapacity(o: { weeksToCapacity: Quantity; dated: boolean; racksAfterPlan?: number }): TimeView {
   const q = o.weeksToCapacity;
   const has = q.value !== null && Number.isFinite(q.value);
+  // An alternative that deploys no rack has no capacity to reach: "lead times assumed" would imply a date that merely lacks input.
+  if (o.racksAfterPlan === 0 && !has) {
+    return { kind: "nothing", text: "Nothing deploys, so there is nothing to date", note: null, evidence: null };
+  }
   if (!o.dated) {
     return {
       kind: "undated",
@@ -214,28 +130,57 @@ export function viewTimeToCapacity(o: { weeksToCapacity: Quantity; dated: boolea
 }
 
 export interface CapexView {
-  kind: "priced" | "partial" | "unpriced";
+  kind: "complete" | "lower_bound" | "unpriced";
+  /** "€6,630,000", or "at least €6,630,000" for a lower bound, or "Not priced". */
   text: string;
+  /** "(priced lines only)" beside a lower bound. */
+  qualifier: string | null;
+  /** The engine's range, only for a complete figure: a lower bound has no upper bound to show. */
   range: string | null;
+  /** What the lines rest on, in words: "library placeholder prices". Null when every line is a supplied figure. */
+  pricing: string | null;
   note: string | null;
   evidence: EvidenceClass | null;
 }
 
-/** Capital cost. A total that omits components is "partial", never a complete price; no value is "not priced", never zero. */
-export function viewCapex(o: { capexEur: Quantity; unpricedComponents: string[] }): CapexView {
+type CapexInput = { capexEur: Quantity; unpricedComponents: string[]; capexComplete?: boolean; capexPricing?: "placeholder" | "partly_supplied" | "supplied" | "none" };
+
+/**
+ * Capital cost. No value is "Not priced", never zero. A total that omits components (or that the engine says is not complete) is
+ * a LOWER BOUND: "at least", with no upper bound shown, because the omitted parts have no price. Placeholder lines are named as
+ * library placeholder prices, never as prices.
+ */
+export function viewCapex(o: CapexInput): CapexView {
   const q = viewQuantity(o.capexEur);
   const unpriced = o.unpricedComponents ?? [];
   if (!q.known) {
     return {
       kind: "unpriced",
       text: "Not priced",
+      qualifier: null,
       range: null,
+      pricing: null,
       note: unpriced.length ? `Unpriced: ${unpriced.join(", ")}.` : (q.missing ?? "No cost evidence was supplied."),
       evidence: null,
     };
   }
-  if (unpriced.length) {
-    return { kind: "partial", text: q.text, range: q.range, note: `Partial: excludes ${unpriced.join(", ")}. Not a complete price.`, evidence: q.evidence };
+  const pricing =
+    o.capexPricing === "placeholder"
+      ? "library placeholder prices"
+      : o.capexPricing === "partly_supplied"
+        ? "some lines are library placeholder prices"
+        : null;
+  const lower = unpriced.length > 0 || o.capexComplete === false;
+  if (lower) {
+    return {
+      kind: "lower_bound",
+      text: `at least ${q.text}`,
+      qualifier: "(priced lines only)",
+      range: null,
+      pricing,
+      note: unpriced.length ? `Excludes ${unpriced.join(", ")}. Not a complete price.` : "Not a complete price.",
+      evidence: q.evidence,
+    };
   }
-  return { kind: "priced", text: q.text, range: q.range, note: null, evidence: q.evidence };
+  return { kind: "complete", text: q.text, qualifier: null, range: q.range, pricing, note: null, evidence: q.evidence };
 }

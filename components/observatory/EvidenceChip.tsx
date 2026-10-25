@@ -11,12 +11,12 @@ function tone(c: EvidenceClass): string {
  * The evidence class of a figure, always as text ("E1 Modelled"), never colour alone. The tooltip carries the meaning; the
  * legend at the top of the page carries it for keyboard and touch visitors, who do not get tooltips.
  */
-export function EvidenceChip({ cls, compact = false }: { cls: EvidenceClass; compact?: boolean }) {
+export function EvidenceChip({ cls, compact = false, large = false }: { cls: EvidenceClass; compact?: boolean; large?: boolean }) {
   const legend = EVIDENCE_LEGEND[cls];
   return (
     <abbr
       title={evidenceTitle(cls)}
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-px align-middle font-mono text-[10px] font-semibold uppercase leading-4 tracking-wide no-underline ${tone(cls)}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-px align-middle font-mono ${large ? "text-[11px]" : "text-[10px]"} font-semibold uppercase leading-4 tracking-wide no-underline ${tone(cls)}`}
       data-evidence={cls}
     >
       {cls}

@@ -88,10 +88,19 @@ export default function RootLayout({
       <body className="font-sans antialiased text-ghost">
         <MotionProvider>
         <SiteChrome>
+          {/* First focusable thing on every page with the site shell (the bare presenter route carries no link at all). */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[110] focus:rounded-lg focus:bg-power focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink"
+          >
+            Skip to the main content
+          </a>
           <Navbar />
           <BackgroundReel />
         </SiteChrome>
-        <main className="relative pb-16 lg:pb-0">{children}</main>
+        <main id="main-content" tabIndex={-1} className="relative pb-16 outline-none lg:pb-0">
+          {children}
+        </main>
         <SiteChrome>
           <Footer />
           <StickyMobileCTA />

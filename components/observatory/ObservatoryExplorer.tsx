@@ -8,6 +8,7 @@ import type { ScenarioFile, SceneModel, ObservatoryScenario } from "@/lib/observ
 import { buildSceneModel } from "@/lib/observatory/scene-model";
 import { BasisTag, EvidenceChip } from "@/components/observatory/EvidenceChip";
 import { EVIDENCE_CLASSES, EVIDENCE_LEGEND } from "@/components/observatory/evidence";
+import { splitLabel } from "@/components/observatory/scene-visuals";
 import { Stage } from "@/components/observatory/Stage";
 import { NodeDetail, NodeTable, RackTable } from "@/components/observatory/PathPanel";
 import { ConstraintsPanel } from "@/components/observatory/ConstraintsPanel";
@@ -50,7 +51,7 @@ function Legend() {
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-xs text-mute">A computed figure is never stronger than the weakest input behind it. Nothing on this page is measured at a site.</p>
+      <p className="mt-3 text-xs text-mute">A computed figure is never stronger than the weakest input behind it. Nothing on this page is measured at a site. Here E3 and E5 are worded for invented inputs: an E3 figure has had no engineer review, and an E5 input is supplied but invented, not measured.</p>
     </details>
   );
 }
@@ -96,6 +97,10 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
   const onSelect = (id: string | null) => {
     setFocusId(id);
     if (id) setDetailId(id);
+    // Keyboard and pointer selection of a stage are announced the same way, in the polite live region.
+    const node = id ? model?.nodes.find((n) => n.id === id) : null;
+    if (node) setAnnouncement(`Selected stage ${splitLabel(node.label).title}. Its detail is in the panel beside the stage.`);
+    else if (id === null) setAnnouncement("Overview of the whole power path.");
   };
 
   const hall = scenario.hall;
@@ -189,10 +194,10 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
                     <dd><span className="data text-ghost">{fmtNumber(hall.currentItLoadMW)} MW</span> <BasisTag>synthetic input</BasisTag></dd>
                     <dt className="text-mute">Free positions</dt>
                     <dd><span className="data text-ghost">{fmtNumber(hall.positionsAvailable)}</span> <BasisTag>synthetic input</BasisTag></dd>
-                    <dt className="text-mute">Pretend location</dt>
+                    <dt className="text-mute">Site</dt>
                     <dd className="text-ghost">{hall.region}</dd>
                   </dl>
-                  <p className="mt-2 text-xs text-mute">The location is for the story only. It does not choose the market and grid data below.</p>
+                  <p className="mt-2 text-xs text-mute">The hall is not in any real place, so the market and grid data below is not its grid.</p>
                 </div>
                 <Legend />
               </div>
@@ -226,8 +231,8 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
       )}
 
       <section id="context" aria-labelledby="context-h" className="mt-16 scroll-mt-28">
-        <SectionHead id="context-h" eyebrow="Market and grid conditions" title="The grid a real hall would sit on">
-          These are published figures for a reference region, each with where it came from, what it describes and how old it is.
+        <SectionHead id="context-h" eyebrow="Market and grid conditions" title="Real markets and grids, for context">
+          Published figures from real markets and grids, each labelled with its own region, where it came from, what it describes and how old it is. The invented halls have no location, so none of this is theirs.
         </SectionHead>
         {contextSlot}
       </section>

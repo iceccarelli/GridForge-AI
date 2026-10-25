@@ -4,7 +4,7 @@
 // decides whether the three.js chunk is ever requested. Before the browser has been probed, and for every visitor the rule
 // sends to 2D, only Stage2D is mounted and no 3D code is downloaded.
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage2D } from "@/components/observatory/Stage2D";
 import { INITIAL_DECISION, decideStage, type StageDecision, type StageSignals } from "@/components/observatory/stage-mode";
 import { readSignals, readStoredChoice, storeChoice } from "@/components/observatory/stage-signals";
@@ -36,6 +36,9 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
   const [choice, setChoice] = useState<"2d" | "3d" | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [reduced, setReduced] = useState(false);
+  const cameraGroupRef = useRef<HTMLDivElement | null>(null);
+  const view2dRef = useRef<HTMLButtonElement | null>(null);
+  const [refocus, setRefocus] = useState(false);
 
   useEffect(() => {
     const stored = readStoredChoice();
@@ -63,7 +66,17 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
     setChoice(v);
     storeChoice(v);
   }, []);
-  const onFail = useCallback((reason: string) => setFailure(reason), []);
+  const onFail = useCallback((reason: string) => {
+    // If keyboard focus is on a camera button, that group is about to unmount: remember, and hand focus to the 2D toggle.
+    if (cameraGroupRef.current && cameraGroupRef.current.contains(document.activeElement)) setRefocus(true);
+    setFailure(reason);
+  }, []);
+  useEffect(() => {
+    if (refocus && failure !== null) {
+      view2dRef.current?.focus();
+      setRefocus(false);
+    }
+  }, [refocus, failure]);
 
   return (
     <div>
@@ -75,6 +88,7 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
             return (
               <button
                 key={v}
+                ref={v === "2d" ? view2dRef : undefined}
                 type="button"
                 aria-pressed={pressed}
                 disabled={disabled}
@@ -118,7 +132,7 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
       </div>
 
       {mode === "3d" ? (
-        <div role="group" aria-label="Move the camera to a stage" className="mt-2 flex flex-wrap gap-1.5">
+        <div ref={cameraGroupRef} role="group" aria-label="Move the camera to a stage" className="mt-2 flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => onSelect(null)}
