@@ -20,6 +20,9 @@ export function parseIngestUrl(raw) {
   return { ok: true, scheme: /** @type {"rtmp"|"rtmps"} */ (u.protocol.slice(0, -1)), host: u.hostname, port: u.port, path: u.pathname };
 }
 
+export const ARGV_EXPOSURE_NOTE = "the stream key is passed to ffmpeg on its command line (an ffmpeg limit): any process of the same OS user, and of other users unless /proc is mounted with hidepid>=1, can read it from the process table while the stream runs; run the broadcaster as a dedicated user or container";
+export const VISIBILITY_NOTE = "this tool cannot set or verify the platform-side visibility of the stream, so publishing counts as PUBLIC and needs --approve-public whatever --visibility says";
+
 /** `rtmps://host:443/[REDACTED]` */
 export function displayIngest(scheme, host, port, hasPath = true) {
   return `${scheme}://${host}${port ? ":" + port : ""}${hasPath ? "/[REDACTED]" : ""}`;
@@ -36,11 +39,15 @@ export class RtmpAdapter extends BaseAdapter {
     super(cfg.name ?? "rtmp", deps);
     this.cfg = { urlVar: "OBS_RTMP_URL", keyVar: "OBS_RTMP_KEY", keyRequired: false, defaultUrl: null, label: "RTMP(S)", notes: [], ...cfg };
     /** @type {{ url: string, display: string, host: string, scheme: string } | null} */ this.target = null;
+    /** ffmpeg takes the ingest URL (which carries the stream key) as a command-line argument: publish needs an explicit acknowledgement. */
+    this.keyOnArgv = true;
+    /** This tool cannot set or verify the platform-side visibility, so the stream counts as PUBLIC for approval purposes. */
+    this.treatAsPublic = true;
   }
 
   requiredMuxer() { return "flv"; }
   requiredProtocols() { return this.target?.scheme === "rtmps" ? ["rtmps"] : ["rtmp"]; }
-  platformNotes() { return this.cfg.notes; }
+  platformNotes() { return [ARGV_EXPOSURE_NOTE, VISIBILITY_NOTE, ...this.cfg.notes]; }
 
   validateConfig(/** @type {Record<string, string | undefined>} */ env) {
     /** @type {string[]} */ const errors = [];
@@ -75,10 +82,12 @@ export class RtmpAdapter extends BaseAdapter {
       }
     }
     // The URL itself may carry the key in its path (generic RTMP): treat the path as secret too.
-    if (parsed && !usedDefault) {
+    // With no separate key variable the LAST path segment of the URL is the key, even when it is the only segment
+    // (rtmp://host/KEY): register it as its own redaction value, so it is removed wherever it appears on its own.
+    if (parsed && !usedDefault && !k.value) {
       const segs = parsed.path.split("/").filter(Boolean);
       const last = segs[segs.length - 1];
-      if (segs.length >= 2 && last && last.length >= 8) this.redactor.add(last);
+      if (last && last.length >= 8) this.redactor.add(last); // shorter segments look like app names ("live"); the URL pattern still masks them in URLs
     }
 
     if (errors.length || !parsed || !base) {

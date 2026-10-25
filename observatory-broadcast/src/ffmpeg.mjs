@@ -2,6 +2,30 @@ import { spawn as nodeSpawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { ObsError } from "./errors.mjs";
+import { minimalEnv } from "./env.mjs";
+
+/** Input options that confine an ffmpeg input to one protocol and one demuxer (no concat/http/subfile tricks inside a file). */
+export const INPUT_FILE_MP4 = Object.freeze(["-protocol_whitelist", "file", "-f", "mov"]);
+export const INPUT_FILE_WEBM = Object.freeze(["-protocol_whitelist", "file", "-f", "webm"]);
+export const INPUT_FILE_VTT = Object.freeze(["-protocol_whitelist", "file", "-f", "webvtt"]);
+export const INPUT_PIPE = Object.freeze(["-protocol_whitelist", "pipe"]);
+
+/**
+ * An uploaded or operator-supplied "mp4" must look like one (ISO base media: 'ftyp' box at offset 4) before it is handed to
+ * ffmpeg with a forced mov demuxer. Returns an error message or null.
+ * @param {string} file
+ */
+export function mp4Problem(file) {
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      const b = Buffer.alloc(12);
+      const n = fs.readSync(fd, b, 0, 12, 0);
+      if (n < 12 || b.toString("latin1", 4, 8) !== "ftyp") return `${file} is not an MP4/MOV file (no ftyp box)`;
+    } finally { fs.closeSync(fd); }
+    return null;
+  } catch (e) { return `${file} cannot be read (${/** @type {any} */ (e).code ?? "error"})`; }
+}
 
 /**
  * Thin ffmpeg/ffprobe layer: binary discovery, encoding-config validation, argument builders, progress parsing, probing.
@@ -164,7 +188,7 @@ export class ProgressParser {
 export function probeMedia(file, env = process.env) {
   let raw;
   try {
-    raw = execFileSync(ffprobePath(env), ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", file], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 60_000 });
+    raw = execFileSync(ffprobePath(env), ["-v", "error", "-protocol_whitelist", "file", "-count_frames", "-show_streams", "-show_format", "-of", "json", file], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 60_000 });
   } catch (e) {
     throw new ObsError("probe_failed", `ffprobe could not read ${file}: ${/** @type {Error} */ (e).message.split("\n")[0]}`);
   }
@@ -204,7 +228,7 @@ export function runFfmpeg(args, opts = {}) {
   const spawn = opts.spawn ?? nodeSpawn;
   const full = ["-hide_banner", ...(opts.stdin ? [] : ["-nostdin"]), "-loglevel", "error", "-nostats", "-progress", "pipe:1", ...args];
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath(opts.env), full, { stdio: [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"] });
+    const child = spawn(ffmpegPath(opts.env), full, { stdio: [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"], env: minimalEnv(opts.env ?? process.env) });
     opts.track?.add(child);
     const parser = new ProgressParser();
     let tail = "";

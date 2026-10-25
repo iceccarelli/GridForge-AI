@@ -7,7 +7,11 @@
 export const REDACTED = "[REDACTED]";
 
 const INGEST_URL = /\b(rtmps?|rtsp|srt|rtp):\/\/([^\s/'"]*)(\/[^\s'"]*)?/gi;
-const SECRET_PAIR = /\b(stream[_-]?key|streamkey|secret|token|password|passwd|authorization)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&'"]+)/gi;
+const SECRET_PAIR = /\b(stream[_-]?key|streamkey|secret|token|password|passwd)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&'"]+)/gi;
+// `Authorization: Bearer abc.def` / `Authorization: Basic xyz`: the WHOLE value goes (scheme + credential), to end of line
+const AUTH_HEADER = /\b(authorization|proxy-authorization)(\s*[=:]\s*)((?:(?:bearer|basic|digest|token)[ \t]+)?[^\s,;"'}\]]+)/gi;
+// a bare credential that appears without its header
+const BEARER = /\b(bearer|basic)\s+[A-Za-z0-9._~+\/=-]{8,}/gi;
 
 export class Redactor {
   /** @type {Set<string>} */
@@ -41,6 +45,8 @@ export class Redactor {
       const safeHost = String(host).replace(/^[^@]*@/, `${REDACTED}@`);
       return path && path !== "/" ? `${scheme}://${safeHost}/${REDACTED}` : `${scheme}://${safeHost}`;
     });
+    text = text.replace(AUTH_HEADER, (_m, k, sep) => `${k}${sep}${REDACTED}`);
+    text = text.replace(BEARER, (_m, scheme) => `${scheme} ${REDACTED}`);
     text = text.replace(SECRET_PAIR, (_m, k, sep) => `${k}${sep}${REDACTED}`);
     return text;
   }

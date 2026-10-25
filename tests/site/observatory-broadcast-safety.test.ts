@@ -11,8 +11,13 @@ const ok = (u: string, allow?: string[]) => checkTargetUrl(u, { allow }).ok;
 const why = (u: string, allow?: string[]) => { const r = checkTargetUrl(u, { allow }); return r.ok ? "" : r.reason; };
 
 describe("observatory-broadcast: URL allow-list", () => {
-  it("default allow-list is localhost and the presenter route only", () => {
-    expect([...DEFAULT_ALLOW]).toEqual(["http://localhost", "http://127.0.0.1", "http://[::1]", "https://timetopower.ai/observatory/presenter"]);
+  it("default allow-list is the presenter route (and the fixture stage) on localhost, and the presenter route of the real site - not whole hosts", () => {
+    expect([...DEFAULT_ALLOW]).toEqual([
+      "http://localhost/observatory/presenter", "http://localhost/stage",
+      "http://127.0.0.1/observatory/presenter", "http://127.0.0.1/stage",
+      "http://[::1]/observatory/presenter", "http://[::1]/stage",
+      "https://timetopower.ai/observatory/presenter",
+    ]);
   });
 
   it("allows localhost on any port (http or https) and the production presenter route with its frame parameters", () => {

@@ -3,8 +3,8 @@ import { ObsError } from "./errors.mjs";
 
 /**
  * URL allow-list. The tool drives a real browser at a URL and publishes what it sees, so which URLs it may open is a
- * safety property, not a convenience. Default: localhost (any port, http/https) and the presenter route of the
- * public site. Anything else, and anything on the deny list below, is refused before a browser is launched.
+ * safety property, not a convenience. Default: the presenter route (and the fixture stage) on localhost, any port,
+ * http/https, and the presenter route of the public site. Anything else, and anything on the deny list below, is refused before a browser is launched.
  *
  * Allow-list entries are strings: `http://localhost`, `https://host`, or `https://host/path/prefix`.
  * An entry without a path allows any path on that origin; with a path it allows that path and its children.
@@ -12,17 +12,23 @@ import { ObsError } from "./errors.mjs";
  * operator who widens the allow-list still cannot point the tool at an authenticated or paying surface.
  */
 export const DEFAULT_ALLOW = Object.freeze([
-  "http://localhost",
-  "http://127.0.0.1",
-  "http://[::1]",
+  "http://localhost/observatory/presenter",
+  "http://localhost/stage",
+  "http://127.0.0.1/observatory/presenter",
+  "http://127.0.0.1/stage",
+  "http://[::1]/observatory/presenter",
+  "http://[::1]/stage",
   "https://timetopower.ai/observatory/presenter",
 ]);
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+// Every private path in app/robots.ts PRIVATE_PATHS (a test parses that file and asserts each is denied here), plus the
+// other operator/customer/payment surfaces. A segment is denied wherever it appears in the path.
 export const DENIED_SEGMENTS = Object.freeze([
-  "admin", "account", "api", "checkout", "billing", "login", "logout", "signin", "signup", "auth", "oauth",
+  "admin", "account", "api", "api-access", "checkout", "billing", "login", "logout", "signin", "signup", "auth", "oauth",
   "workspace", "portal", "stripe", "webhook", "webhooks", "cron", "internal",
+  "dashboard", "deliverable", "watch", "intake", "q", "p", "commissioned", "power",
 ]);
 
 const TOKEN_QUERY_KEY = /(token|secret|password|passwd|apikey|api_key|key|signature|sig|auth|session|code|jwt|bearer)/i;
@@ -103,6 +109,22 @@ export function allowListFromEnv(env) {
   const v = env.OBS_ALLOW_URLS;
   if (!v || !v.trim()) return [...DEFAULT_ALLOW];
   return v.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Whether a MAIN-FRAME navigation (including a redirect or an in-page `location` change) may proceed: it must be allowed by
+ * the allow-list AND stay on the scene's own origin and under the scene's own path prefix. A scene on
+ * http://localhost:3000/observatory/presenter cannot be walked to another port or to another path on the same port.
+ * @param {string} reqUrl
+ * @param {URL} sceneUrl
+ * @param {readonly string[]} [allow]
+ */
+export function isAllowedNavigation(reqUrl, sceneUrl, allow) {
+  if (!checkTargetUrl(reqUrl, { allow }).ok) return false;
+  const u = new URL(reqUrl);
+  if (u.origin !== sceneUrl.origin) return false;
+  const prefix = sceneUrl.pathname.replace(/\/+$/, "");
+  return !prefix || u.pathname === prefix || u.pathname.startsWith(prefix + "/");
 }
 
 /**

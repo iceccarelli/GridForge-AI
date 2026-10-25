@@ -208,7 +208,7 @@ describe.skipIf(!REAL)("observatory-broadcast: real obs process (local sink, loo
     expect(prep.out).toContain("rtmp://127.0.0.1:1/[REDACTED]");
     expect(prep.out).toMatch(/NOT contacted/);
     const code = fs.readFileSync(path.join(stateDir, "approval-code.txt"), "utf8").trim();
-    const pub = await run(["publish", "--adapter", "rtmp", "--source-file", source, "--size", "320x180", "--fps", "10", "--max-attempts", "1", "--approve", code]);
+    const pub = await run(["publish", "--adapter", "rtmp", "--source-file", source, "--size", "320x180", "--fps", "10", "--max-attempts", "1", "--approve", code, "--approve-public", "--accept-argv-exposure"]);
     expect(pub.code, pub.out).toBe(1); // nothing could be sent anywhere: output_failed
     expect(pub.out).toMatch(/live status cannot be verified for rtmp in this build/);
     expect(pub.out).toMatch(/"event":"encoder_failure"/);

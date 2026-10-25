@@ -9,6 +9,7 @@ import { DEFAULT_TTL_MS, MAX_ATTEMPTS, consumeApproval, createApproval, generate
 import { withLock } from "../../observatory-broadcast/src/lock.mjs";
 import { fakeEncoderFactory } from "../../observatory-broadcast/testing/fakes.mjs";
 import { resolveEncoding } from "../../observatory-broadcast/src/ffmpeg.mjs";
+import { procStartTime } from "../../observatory-broadcast/src/proc.mjs";
 
 // Publishing is a two-step control: `prepare` writes a plan and a short-lived single-use code to a local file;
 // `publish --approve <code>` is required, and PUBLIC additionally needs --approve-public. Nothing starts before the gate opens.
@@ -154,7 +155,7 @@ describe("observatory-broadcast: lockfile", () => {
 
   it("claimSupervisor refuses a second live supervisor but accepts after the first is gone", async () => {
     const store = new StateStore(stateDir);
-    fs.writeFileSync(store.file("supervisor.json"), JSON.stringify({ pid: 1, startedAt: 0 })); // pid 1 is alive and not us
+    fs.writeFileSync(store.file("supervisor.json"), JSON.stringify({ pid: 1, startTime: procStartTime(1), startedAt: 0 })); // pid 1 is alive and not us
     await expect(store.claimSupervisor()).rejects.toMatchObject({ code: "already_running" });
     fs.writeFileSync(store.file("supervisor.json"), JSON.stringify({ pid: 2 ** 22 + 999, startedAt: 0 }));
     await expect(store.claimSupervisor()).resolves.toBeUndefined();
@@ -165,22 +166,25 @@ describe("observatory-broadcast: lockfile", () => {
 });
 
 describe("observatory-broadcast: publish through the CLI is gated", () => {
-  const slate = () => { const f = path.join(tmp, "slate.mp4"); fs.writeFileSync(f, "x"); return f; };
+  // a minimal ISO-BMFF header ('ftyp'): all the fake encoders need, and all the MP4 sanity check looks at
+  const slate = () => { const f = path.join(tmp, "slate.mp4"); fs.writeFileSync(f, Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypisom"), Buffer.alloc(16)])); return f; };
   const baseEnv = (extra: Record<string, string> = {}) => ({ OBS_STATE_DIR: stateDir, PATH: process.env.PATH ?? "", OBS_YOUTUBE_STREAM_KEY: KEY, ...extra });
   const cap = () => { const l: string[] = []; return { l, stdout: (s: string) => l.push(s), stderr: (s: string) => l.push(s), text: () => l.join("") }; };
 
   async function prepare(extra: string[] = [], env = baseEnv()) {
     const c = cap();
-    const code = await main(["prepare", "--adapter", "youtube", "--url", URL_OK, ...extra], { env, stdout: c.stdout, stderr: c.stderr, adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true } });
+    const code = await main(["prepare", "--adapter", "youtube", "--url", URL_OK, "--slate-file", slate(), ...extra], { env, stdout: c.stdout, stderr: c.stderr, adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true } });
     expect(code).toBe(0);
     return fs.readFileSync(path.join(stateDir, "approval-code.txt"), "utf8").trim();
   }
-  async function publish(argv: string[], env = baseEnv(), opts: { run?: boolean } = {}) {
+  // YouTube/Kick/RTMP count as PUBLIC and put the key on ffmpeg's argv, so a normal publish carries both acknowledgements;
+  // `bare` leaves them off (tests of the gates themselves).
+  async function publish(argv: string[], env = baseEnv(), opts: { run?: boolean; bare?: boolean; procMounts?: string } = {}) {
     const c = cap();
     const factory = fakeEncoderFactory();
     const ctl = new AbortController();
-    const done = main(["publish", "--adapter", "youtube", "--url", URL_OK, "--slate-file", slate(), ...argv], {
-      env, stdout: c.stdout, stderr: c.stderr, signal: ctl.signal, installSignalHandlers: false, sceneProbe: () => true, health: { checkIntervalMs: 20 },
+    const done = main(["publish", "--adapter", "youtube", "--url", URL_OK, "--slate-file", slate(), ...(opts.bare ? [] : ["--approve-public", "--accept-argv-exposure"]), ...argv], {
+      env, stdout: c.stdout, stderr: c.stderr, signal: ctl.signal, installSignalHandlers: false, sceneProbe: () => true, health: { checkIntervalMs: 20 }, procMounts: opts.procMounts ?? "",
       adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true, encoderFactory: factory },
     });
     if (opts.run) {
@@ -232,11 +236,11 @@ describe("observatory-broadcast: publish through the CLI is gated", () => {
   it("an expired code is refused through the CLI (fake clock)", async () => {
     const clock = new FakeClock();
     const c = cap();
-    await main(["prepare", "--adapter", "youtube", "--url", URL_OK, "--ttl-sec", "30"], { env: baseEnv(), stdout: c.stdout, stderr: c.stderr, clock, adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true } });
+    await main(["prepare", "--adapter", "youtube", "--url", URL_OK, "--slate-file", slate(), "--ttl-sec", "30"], { env: baseEnv(), stdout: c.stdout, stderr: c.stderr, clock, adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true } });
     const code = fs.readFileSync(path.join(stateDir, "approval-code.txt"), "utf8").trim();
     await clock.advance(31_000);
     const c2 = cap();
-    const exit = await main(["publish", "--adapter", "youtube", "--url", URL_OK, "--approve", code, "--slate-file", slate()], {
+    const exit = await main(["publish", "--adapter", "youtube", "--url", URL_OK, "--approve", code, "--slate-file", slate(), "--approve-public", "--accept-argv-exposure"], {
       env: baseEnv(), stdout: c2.stdout, stderr: c2.stderr, clock, adapterDeps: { checkFfmpeg: () => "x", hasFfmpegFeature: () => true, encoderFactory: fakeEncoderFactory() },
     });
     expect(exit).toBe(3);
@@ -250,14 +254,14 @@ describe("observatory-broadcast: publish through the CLI is gated", () => {
     expect(JSON.parse(c.text()).plan.visibility).toBe("unlisted");
 
     const code = await prepare(["--visibility", "public"]);
-    const noFlag = await publish(["--approve", code, "--visibility", "public"]);
+    const noFlag = await publish(["--approve", code, "--visibility", "public", "--accept-argv-exposure"], baseEnv(), { bare: true });
     expect(noFlag.code).toBe(3);
     expect(noFlag.text).toMatch(/public_requires_approve_public/);
     expect(noFlag.factory.made).toHaveLength(0);
     const flagOnly = await publish(["--approve-public", "--visibility", "public"]);
     expect(flagOnly.code).toBe(3);
     expect(flagOnly.text).toMatch(/approval_required/);
-    const both = await publish(["--approve", code, "--approve-public", "--visibility", "public"], baseEnv(), { run: true });
+    const both = await publish(["--approve", code, "--visibility", "public"], baseEnv(), { run: true });
     expect(both.code).toBe(0);
     expect(both.factory.made.length).toBeGreaterThan(0);
   });

@@ -7,8 +7,12 @@ import { TOOL_NAME, TOOL_VERSION } from "./version.mjs";
 import { assertAllowedUrl, assertDiskSpace, estimateBytes } from "./safety.mjs";
 import { buildVtt, clipCues, validateVtt } from "./captions.mjs";
 import {
-  buildEncodeArgs, burnFilter, ffmpegHas, probeMedia, requireFfmpeg, resolveEncoding, runFfmpeg, sha256File, silentAudioInput,
+  buildEncodeArgs, burnFilter, ffmpegHas, INPUT_FILE_MP4, INPUT_FILE_VTT, INPUT_FILE_WEBM, INPUT_PIPE, probeMedia, requireFfmpeg, resolveEncoding,
+  runFfmpeg, sha256File, silentAudioInput,
 } from "./ffmpeg.mjs";
+
+/** Present in an HLS output directory this tool created; only such a directory is ever replaced. */
+export const HLS_MARKER = ".observatory-broadcast-hls";
 import { captureRealtime, captureStepped, openScene } from "./capture.mjs";
 import { Redactor } from "./redact.mjs";
 
@@ -53,6 +57,12 @@ export async function record(/** @type {RecordOptions} */ o) {
     vtt = buildVtt(clipCues(o.cues, o.durationSec));
   }
   const out = path.resolve(o.out);
+  if (o.hls) {
+    const planned = out.replace(/\.mp4$/i, "") + "-hls";
+    if (fs.existsSync(planned) && !fs.existsSync(path.join(planned, HLS_MARKER))) {
+      throw new ObsError("hls_dir_exists", `${planned} already exists and was not created by this tool; refusing to delete it`, { exitCode: 2, hint: "Choose another --out, or remove that directory yourself." });
+    }
+  }
   fs.mkdirSync(path.dirname(out), { recursive: true });
   assertDiskSpace(path.dirname(out), estimateBytes(o.durationSec, encoding.videoBitrateKbps, { overhead: mode === "stepped" ? 2 : 6 }));
 
@@ -79,7 +89,7 @@ export async function record(/** @type {RecordOptions} */ o) {
       // The audio source is longer than the video and the OUTPUT is cut at the requested duration (-t): the video, not
       // AAC frame granularity, decides how long the file is (with -shortest the last video frame could be lost).
       ...silentAudioInput(o.durationSec + 1),
-      ...(soft ? ["-f", "webvtt", "-i", vttPath] : []),
+      ...(soft ? [...INPUT_FILE_VTT, "-i", vttPath] : []),
       "-map", "0:v:0", "-map", "1:a:0", ...(soft ? ["-map", "2:0"] : []),
       "-vf", vf.join(","), "-r", String(encoding.fps), ...buildEncodeArgs(encoding),
       ...(soft ? ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-metadata:s:s:0", "title=Captions"] : []),
@@ -88,7 +98,7 @@ export async function record(/** @type {RecordOptions} */ o) {
     ];
 
     if (mode === "stepped") {
-      inputArgs = ["-f", "image2pipe", "-framerate", String(encoding.fps), "-i", "pipe:0"];
+      inputArgs = [...INPUT_PIPE, "-f", "image2pipe", "-framerate", String(encoding.fps), "-i", "pipe:0"];
       const args = [...inputArgs, ...outArgs];
       const hash = crypto.createHash("sha256");
       const scene = await openScene({ url: sceneUrl.toString(), allow: o.allow, viewport: { width: encoding.width, height: encoding.height }, env, workRoot: work });
@@ -113,7 +123,7 @@ export async function record(/** @type {RecordOptions} */ o) {
     } else {
       const rt = await captureRealtime({ url: sceneUrl.toString(), allow: o.allow, viewport: { width: encoding.width, height: encoding.height }, durationSec: o.durationSec + 0.5, workDir: work, env, signal: o.signal });
       capture = { blocked: rt.blocked, leadInSec: rt.leadInSec };
-      inputArgs = ["-ss", rt.leadInSec.toFixed(3), "-t", String(o.durationSec), "-i", rt.webm];
+      inputArgs = ["-ss", rt.leadInSec.toFixed(3), "-t", String(o.durationSec), ...INPUT_FILE_WEBM, "-i", rt.webm];
       await runFfmpeg([...inputArgs, ...outArgs], { env, signal: o.signal, track, onProgress: o.onProgress });
     }
 
@@ -125,9 +135,14 @@ export async function record(/** @type {RecordOptions} */ o) {
     let hls = null;
     if (o.hls) {
       const hlsDir = out.replace(/\.mp4$/i, "") + "-hls";
-      fs.rmSync(hlsDir, { recursive: true, force: true });
+      // only a directory this tool made (it carries the marker) is ever replaced; preflight already refused anything else
+      if (fs.existsSync(hlsDir)) {
+        if (!fs.existsSync(path.join(hlsDir, HLS_MARKER))) throw new ObsError("hls_dir_exists", `${hlsDir} exists and was not created by this tool; refusing to delete it`, { exitCode: 2 });
+        fs.rmSync(hlsDir, { recursive: true, force: true });
+      }
       fs.mkdirSync(hlsDir, { recursive: true });
-      await runFfmpeg(["-i", out, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", "-f", "hls", "-hls_time", "2", "-hls_playlist_type", "vod", "-hls_segment_filename", path.join(hlsDir, "seg_%03d.ts"), path.join(hlsDir, "index.m3u8")], { env, signal: o.signal, track });
+      fs.writeFileSync(path.join(hlsDir, HLS_MARKER), `created by ${TOOL_NAME} ${TOOL_VERSION}\n`);
+      await runFfmpeg([...INPUT_FILE_MP4, "-i", out, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", "-f", "hls", "-hls_time", "2", "-hls_playlist_type", "vod", "-hls_segment_filename", path.join(hlsDir, "seg_%03d.ts"), path.join(hlsDir, "index.m3u8")], { env, signal: o.signal, track });
       const files = fs.readdirSync(hlsDir).sort();
       hls = { dir: hlsDir, playlist: "index.m3u8", segments: files.filter((f) => f.endsWith(".ts")).length, playlistSha256: sha256File(path.join(hlsDir, "index.m3u8")), captions: "not included (HLS carries video+audio only; use the sidecar .vtt)" };
     }
