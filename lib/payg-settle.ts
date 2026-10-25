@@ -32,7 +32,7 @@ import { boundStripe, isStripeTimeout, stripeCallTimeoutMs } from "@/lib/stripe-
 import { recordFunnelEvent } from "@/lib/funnel";
 import { accountRef } from "@/lib/payg";
 import { enc, pg, rpc } from "@/lib/payg-store";
-import { stripeFault, type PaygStripe } from "@/lib/payg-stripe";
+import { stripeFault, type InvoiceLite, type PaygStripe } from "@/lib/payg-stripe";
 import { openQuarantine } from "@/lib/payg-usage";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
 import type { ApiAccount } from "@/lib/api-access";
@@ -72,8 +72,12 @@ export interface SettleReport {
   deferred: number;
 }
 
-/** How long one run may spend invoicing (the daily job has other work to do inside its own limit). PAYG_SETTLE_BUDGET_MS overrides it. */
-export const SETTLE_BUDGET_MS = 120_000;
+/**
+ * How long one run may spend invoicing (the daily job has other work to do inside its own 300 s limit: ingest, alerts, the pause pass, the
+ * reversal pass). Checked between rows AND between the Stripe steps of a row, so the worst case is one bounded call past it.
+ * PAYG_SETTLE_BUDGET_MS overrides it.
+ */
+export const SETTLE_BUDGET_MS = 90_000;
 /** This many timeouts in a row, with no success between them, mean Stripe is not answering: the pass stops instead of waiting out every row. */
 export const SETTLE_TIMEOUT_BREAKER = 3;
 const settleBudgetMs = (): number => {
@@ -179,6 +183,7 @@ async function note(s: Settlement, error: string | null, extra: Record<string, u
 function failureAdvice(category: string): string {
   if (category === "no_payment_method") return "The customer has no payment method on file (none saved, or none left on the Stripe customer). Nothing can be charged until they add a card; ask them to use Replace card in the portal.";
   if (category === "record_write_failed") return "Stripe accepted the call but the site could not record it. The next run resumes the same invoice; check the database if this repeats.";
+  if (/^invoice_(void|uncollectible)$/.test(category)) return `The month's Stripe invoice was ${category.slice(8)} outside this system, so nothing is collected on it. The settlement stays pending and NO second invoice is created automatically. Decide in the Stripe Dashboard whether to reissue (create the invoice by hand with the same settlement_key metadata) or to forgive the month.`;
   if (/stripe_call_timeout/.test(category)) return "Stripe did not answer in time. The call may or may not have taken effect: the next run re-reads the invoice by its settlement key before it creates anything, so no second invoice is made.";
   if (/StripeCardError|card_declined/.test(category)) return "The card was declined. The customer needs to replace it (Replace card in the portal, or the Stripe Billing Portal; docs/10_PAYG_LAUNCH_CHECKLIST.md says what each reaches).";
   if (/StripeInvalidRequestError/.test(category)) return "Stripe refused the request. A card that was detached from the customer, or a deleted customer, is the usual cause: check the customer's payment methods in the Stripe Dashboard.";
@@ -230,21 +235,28 @@ async function currentCard(stripe: PaygStripe, customer: string): Promise<string
   return typeof d === "string" ? d : d?.id ?? "";
 }
 
-/** What one settlement's attempt came to: "timeout" = a Stripe call got no answer (outcome unknown); the row is pending either way unless "invoiced". */
-type Attempt = "invoiced" | "pending" | "timeout";
+/**
+ * What one settlement's attempt came to. "timeout": a Stripe call got no answer (outcome unknown). "refused": Stripe ANSWERED with a failure
+ * (it is reachable). "skipped": nothing was asked of Stripe, or the budget ended the row at a step boundary. The row is pending in every case
+ * but "invoiced". Only "invoiced" and "refused" prove Stripe is answering (they reset the breaker).
+ */
+type Attempt = "invoiced" | "refused" | "skipped" | "timeout";
+
+/** Thrown at a step boundary when the run's time is up: the row is left exactly as it is (pending, resumable) and counted as deferred. */
+class OutOfTime extends Error {}
 
 /** Phase B: carry one pending row through Stripe: invoice (draft) -> item -> finalise. Every step resumes where it stopped. */
-async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleReport, now: Date): Promise<Attempt> {
+async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleReport, now: Date, gate: () => void): Promise<Attempt> {
   const acct = await accountByName(s.account);
   if (acct === "error" || !acct) {
     report.errors.push("account unreadable for a pending settlement");
     report.stillPending++;
-    return "pending";
+    return "skipped";
   }
   if (!(await absorbCarried(s))) {
     report.errors.push("could not mark carried months");
     report.stillPending++;
-    return "pending";
+    return "skipped";
   }
   // The Stripe call in flight, so a timeout can say WHICH call has an unknown outcome.
   let step = "customers.retrieve";
@@ -254,8 +266,14 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
   let current = "";
   if (customer) {
     try {
+      gate();
       current = await currentCard(stripe, customer);
     } catch (err) {
+      if (err instanceof OutOfTime) {
+        report.deferred++;
+        report.stillPending++;
+        return "skipped";
+      }
       const cat = stripeFault(err);
       await note(s, cat);
       report.stillPending++;
@@ -266,7 +284,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
         return "timeout";
       }
       await alertOperator(s, cat, now);
-      return "pending";
+      return "refused";
     }
   }
   const pm = current || stored;
@@ -277,53 +295,84 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
     report.noPaymentMethod++;
     report.stillPending++;
     await alertOperator(s, "no_payment_method", now);
-    return "pending";
+    return "skipped";
   }
   const cardChanged = Boolean(current) && current !== stored;
   const key = settlementKey(s.account, s.month);
+  // Stripe refuses a request whose idempotency key it remembers WITH DIFFERENT PARAMETERS (StripeIdempotencyError): what the earlier
+  // request created is what exists. Never answered by creating something else: the invoice / item is found again by the settlement key
+  // in its metadata and used.
+  const keyClash = (err: unknown): boolean => (err as { type?: unknown } | null)?.type === "StripeIdempotencyError";
+  const findInvoice = async () => (await stripe.invoices.list({ customer, limit: 100 })).data.find((i) => i.metadata?.settlement_key === key);
   try {
     // 1. the draft invoice
     let invoiceId = s.stripe_invoice_id;
     let createdNow = false;
     if (!invoiceId) {
+      // A crashed earlier attempt (or a create whose answer never came back) may have created it without our recording the id, and Stripe's
+      // idempotency key may be older than 24 h: find it by the key we put in its metadata before creating another.
       step = "invoices.list";
-      // A crashed earlier attempt may have created it without our recording the id (and Stripe's idempotency key may be older than
-      // 24 h): find it by the key we put in its metadata before creating another.
-      const existing = (await stripe.invoices.list({ customer, limit: 100 })).data.find((i) => i.metadata?.settlement_key === key);
+      gate();
+      let existing = await findInvoice();
       step = "invoices.create";
-      const inv =
-        existing ??
-        (await stripe.invoices.create(
-          {
-            customer,
-            currency: PAYG.currency,
-            collection_method: "charge_automatically",
-            default_payment_method: pm,
-            // Held as a draft until its item is attached and we finalise it ourselves (below), so a crash in between can never
-            // leave Stripe auto-finalising an EMPTY invoice that our retry then cannot add to.
-            auto_advance: false,
-            pending_invoice_items_behavior: "exclude",
-            description: `GridForge pay-as-you-go usage, ${s.month}`,
-            metadata: { kind: "payg_settlement", account: s.account, month: s.month, settlement_key: key, settlement_id: s.id },
-          },
-          { idempotencyKey: key }
-        ));
+      let inv = existing;
+      if (!inv) {
+        gate();
+        try {
+          inv = await stripe.invoices.create(
+            {
+              customer,
+              currency: PAYG.currency,
+              collection_method: "charge_automatically",
+              default_payment_method: pm,
+              // Held as a draft until its item is attached and we finalise it ourselves (below), so a crash in between can never
+              // leave Stripe auto-finalising an EMPTY invoice that our retry then cannot add to.
+              auto_advance: false,
+              pending_invoice_items_behavior: "exclude",
+              description: `GridForge pay-as-you-go usage, ${s.month}`,
+              metadata: { kind: "payg_settlement", account: s.account, month: s.month, settlement_key: key, settlement_id: s.id },
+            },
+            { idempotencyKey: key }
+          );
+        } catch (err) {
+          if (!keyClash(err)) throw err;
+          step = "invoices.list";
+          existing = await findInvoice();
+          if (!existing) throw err; // the key is remembered but no invoice carries it: stay pending, never create a second
+          inv = existing;
+        }
+      }
       invoiceId = inv.id;
       createdNow = !existing;
       const saved = await pg<Settlement[]>("PATCH", `usage_settlements?id=eq.${enc(s.id)}&stripe_invoice_id=is.null`, { stripe_invoice_id: invoiceId, updated_at: new Date().toISOString() });
       if (!saved.ok) throw new Error("record");
     }
+    // The invoice as Stripe holds it NOW, before anything is added to it.
+    step = "invoices.retrieve";
+    gate();
+    const live = await stripe.invoices.retrieve(invoiceId);
+    // An invoice that was voided or written off is NOT an invoiced month: nothing is collected on it and creating another would bill the
+    // month a second time on nobody's decision. The row stays pending, the operator is told, and a person decides (reissue or forgive).
+    if (live.status === "void" || live.status === "uncollectible") {
+      const cat = `invoice_${live.status}`;
+      await note(s, cat);
+      report.stillPending++;
+      report.errors.push(`settlement ${s.month} failed: ${cat}`);
+      await alertOperator(s, cat, now);
+      return "refused";
+    }
     // 2. the one item, attached to THAT invoice
     let itemId = s.stripe_invoice_item_id;
     if (!itemId) {
+      const findItem = async () => (await stripe.invoiceItems.list({ invoice: invoiceId!, limit: 100 })).data.find((i) => i.metadata?.settlement_key === key);
       step = "invoiceItems.list";
-      const items = (await stripe.invoiceItems.list({ invoice: invoiceId, limit: 100 })).data;
-      const have = items.find((i) => i.metadata?.settlement_key === key);
-      step = "invoiceItems.create";
-      itemId =
-        have?.id ??
-        (
-          await stripe.invoiceItems.create(
+      gate();
+      let have = await findItem();
+      if (!have) {
+        step = "invoiceItems.create";
+        gate();
+        try {
+          have = await stripe.invoiceItems.create(
             {
               customer,
               invoice: invoiceId,
@@ -333,21 +382,38 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
               metadata: { kind: "payg_settlement", account: s.account, month: s.month, settlement_key: key },
             },
             { idempotencyKey: `${key}:item` }
-          )
-        ).id;
+          );
+        } catch (err) {
+          if (!keyClash(err)) throw err;
+          step = "invoiceItems.list";
+          have = await findItem();
+          if (!have) throw err;
+        }
+      }
+      itemId = have.id;
       await pg("PATCH", `usage_settlements?id=eq.${enc(s.id)}`, { stripe_invoice_item_id: itemId, updated_at: new Date().toISOString() }, "return=minimal");
     }
     // 3. finalise (and let Stripe collect on the customer's saved payment method)
-    step = "invoices.retrieve";
-    const live = await stripe.invoices.retrieve(invoiceId);
     // An invoice that already existed (an earlier attempt created it) keeps the card it was created with, whatever the customer has done
     // since: point a draft at the card resolved above, and an open one when the customer's card has changed since we last saw it.
     if (!createdNow && (live.status === "draft" || (live.status === "open" && cardChanged))) {
       step = "invoices.update";
+      gate();
       await stripe.invoices.update(invoiceId, { default_payment_method: pm });
     }
-    step = "invoices.finalizeInvoice";
-    const finalised = live.status === "draft" ? await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true }, { idempotencyKey: `${key}:finalize` }) : live;
+    let finalised: InvoiceLite = live;
+    if (live.status === "draft") {
+      step = "invoices.finalizeInvoice";
+      gate();
+      try {
+        finalised = await stripe.invoices.finalizeInvoice(invoiceId, { auto_advance: true }, { idempotencyKey: `${key}:finalize` });
+      } catch (err) {
+        if (!keyClash(err)) throw err;
+        step = "invoices.retrieve";
+        finalised = await stripe.invoices.retrieve(invoiceId); // the earlier finalise is what happened: read the invoice as it is now
+        if (finalised.status === "draft") throw err;
+      }
+    }
     if (cardChanged) {
       // A card replaced in the Billing Portal: keep our record of the card in step, but only NOW that the invoice has been pointed at it
       // (a failed or timed-out update must leave the difference visible, or the next run would never repeat it). Best effort.
@@ -366,7 +432,14 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
     await recordFunnelEvent("first_charge", { month: s.month, units: s.units, amount_cents: s.amount_cents, account_ref: accountRef(s.account) }, { dedupeKey: `first_charge:${accountRef(s.account)}` });
     return "invoiced";
   } catch (err) {
-    const cat = err instanceof Error && err.message === "record" ? "record_write_failed" : stripeFault(err);
+    if (err instanceof OutOfTime) {
+      // The run's time is up at a step boundary: nothing is written, the row is exactly where it was, the next run resumes it.
+      report.deferred++;
+      report.stillPending++;
+      return "skipped";
+    }
+    const record = err instanceof Error && err.message === "record";
+    const cat = record ? "record_write_failed" : stripeFault(err);
     await note(s, cat);
     report.stillPending++;
     report.errors.push(`settlement ${s.month} failed: ${cat}`);
@@ -378,7 +451,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
       return "timeout";
     }
     await alertOperator(s, cat, now);
-    return "pending";
+    return record ? "skipped" : "refused";
   }
 }
 
@@ -386,7 +459,7 @@ async function invoiceOne(stripe: PaygStripe, s: Settlement, report: SettleRepor
  * Settle every closed month. Safe to run any number of times, concurrently or not. The caller must have ingested the ledger up to
  * the engine's head first (see lib/payg-cron.ts): this function trusts usage_events to be complete for closed months.
  */
-export async function settleClosedMonths(client: PaygStripe, now: Date = new Date()): Promise<SettleReport> {
+export async function settleClosedMonths(client: PaygStripe, now: Date = new Date(), opts: { clock?: () => number; budgetMs?: number } = {}): Promise<SettleReport> {
   // Every Stripe call below is bounded, whoever built the client (paygStripe() already is; a client handed in directly is bounded here).
   const stripe = boundStripe(client);
   const report: SettleReport = { considered: 0, created: { invoiced: 0, carried: 0, void: 0, pending: 0 }, invoiced: 0, stillPending: 0, errors: [], noPaymentMethod: 0, heldByQuarantine: 0, timedOut: 0, deferred: 0 };
@@ -407,15 +480,19 @@ export async function settleClosedMonths(client: PaygStripe, now: Date = new Dat
   // Rows left pending by an earlier run that crashed before absorbing: do it now, before any new month reads the carried rows.
   for (const s of pending.data ?? []) await absorbCarried(s);
   await createRows(now, report, hold);
-  // Rows that failed before (attempts counts failures) go behind the ones that have not, so a stuck row cannot sit at the head of the line
-  // run after run while healthy ones wait; otherwise oldest month first.
-  const toInvoice = await pg<Settlement[]>("GET", "usage_settlements?status=eq.pending&order=attempts.asc,month.asc&limit=200");
+  // Least recently TOUCHED first (a failed attempt stamps updated_at): a row that was just tried and failed goes behind every other, so
+  // rows stuck for a lasting reason (no payment method, a stuck account) rotate and cannot keep a recovered row beyond the batch limit.
+  const toInvoice = await pg<Settlement[]>("GET", "usage_settlements?status=eq.pending&order=updated_at.asc.nullsfirst,month.asc&limit=200");
   if (!toInvoice.ok) {
     report.errors.push("could not list pending settlements");
     return report;
   }
-  const started = performance.now();
-  const budget = settleBudgetMs();
+  const clock = opts.clock ?? (() => performance.now());
+  const started = clock();
+  const budget = opts.budgetMs ?? settleBudgetMs();
+  const gate = () => {
+    if (clock() - started > budget) throw new OutOfTime();
+  };
   const stuck = new Set<string>();
   let inARow = 0;
   for (const s of toInvoice.data ?? []) {
@@ -425,16 +502,16 @@ export async function settleClosedMonths(client: PaygStripe, now: Date = new Dat
     }
     // Not attempted this run: this account already timed out (its later months would only wait out the same bound), Stripe has stopped
     // answering, or the run has used its time. Nothing is written for them; they are still pending and the next run takes them.
-    if (stuck.has(s.account) || inARow >= SETTLE_TIMEOUT_BREAKER || performance.now() - started > budget) {
+    if (stuck.has(s.account) || inARow >= SETTLE_TIMEOUT_BREAKER || clock() - started > budget) {
       report.deferred++;
       report.stillPending++;
       continue;
     }
-    const out = await invoiceOne(stripe, s, report, now);
+    const out = await invoiceOne(stripe, s, report, now, gate);
     if (out === "timeout") {
       stuck.add(s.account);
       inARow++;
-    } else inARow = 0;
+    } else if (out === "invoiced" || out === "refused") inARow = 0; // Stripe answered; a row that never asked it proves nothing
   }
   if (report.deferred > 0) {
     await notifyOperatorOnce(

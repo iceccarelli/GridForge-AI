@@ -245,7 +245,7 @@ export class MockStripe implements PaygStripe {
   private n = 0;
 
   /** Stripe forgets idempotency keys after 24 hours: simulate the next day's run. */
-  forgetIdempotency() { this.idem.clear(); }
+  forgetIdempotency() { this.idem.clear(); this.idemPrints.clear(); }
   /** Every idempotency key a create / finalise was sent with, in order (a create sent WITHOUT one is not listed: assert against it). */
   idemKeys: string[] = [];
 
@@ -296,14 +296,23 @@ export class MockStripe implements PaygStripe {
     this.calls.push(name);
     if (this.failOnce.delete(name)) throw Object.assign(new Error("simulated Stripe outage for customer@example.test"), { type: "StripeConnectionError", statusCode: 503 });
   }
-  private once<T>(key: string | undefined, make: () => T): T {
+  /**
+   * Stripe's idempotency: the same key returns the first response; the same key with DIFFERENT parameters is refused
+   * (StripeIdempotencyError, 400). `fingerprint` stands for the request's parameters.
+   */
+  private once<T>(key: string | undefined, make: () => T, fingerprint = ""): T {
     if (!key) return make();
     this.idemKeys.push(key);
-    if (this.idem.has(key)) return this.idem.get(key) as T;
+    if (this.idem.has(key)) {
+      if (this.idemPrints.get(key) !== fingerprint) throw Object.assign(new Error("Keys for idempotent requests can only be used with the same parameters they were first used with."), { type: "StripeIdempotencyError", statusCode: 400 });
+      return this.idem.get(key) as T;
+    }
     const v = make();
     this.idem.set(key, v);
+    this.idemPrints.set(key, fingerprint);
     return v;
   }
+  private idemPrints = new Map<string, string>();
 
   checkout = {
     sessions: {
@@ -394,7 +403,7 @@ export class MockStripe implements PaygStripe {
         const inv: StoredInvoice = { id, status: "draft", hosted_invoice_url: null, metadata: params.metadata ?? {}, customer: params.customer, amount_due_items: 0, params };
         this.invoicesById.set(id, inv);
         return inv;
-      });
+      }, JSON.stringify(params));
     },
     finalizeInvoice: async (id: string, params?: any, options?: { idempotencyKey?: string }) => {
       this.maybeFail("invoices.finalizeInvoice");
@@ -404,7 +413,7 @@ export class MockStripe implements PaygStripe {
         inv.hosted_invoice_url = `https://invoice.stripe.test/i/${id}`;
         (inv.params as any).finalize = params;
         return inv;
-      });
+      }, JSON.stringify({ id, params }));
     },
     retrieve: async (id: string) => {
       this.maybeFail("invoices.retrieve");
@@ -446,7 +455,7 @@ export class MockStripe implements PaygStripe {
         this.items.push(item);
         inv.amount_due_items += params.amount;
         return item;
-      });
+      }, JSON.stringify(params));
     },
     list: async (params: any) => {
       this.maybeFail("invoiceItems.list");

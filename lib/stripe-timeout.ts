@@ -23,9 +23,19 @@ export function stripeCallTimeoutMs(): number {
   return Number.isFinite(n) && n > 0 ? n : STRIPE_CALL_TIMEOUT_MS;
 }
 
-/** Did this error come from OUR bound (no answer in time), as opposed to Stripe answering with a failure? The call's outcome at Stripe is unknown. */
+/**
+ * Did the call get NO ANSWER in time (our bound, or the SDK's own request timeout), as opposed to Stripe answering with a failure? The
+ * call's outcome at Stripe is unknown. The SDK reports its own timeout as a StripeConnectionError whose message says the request timed out
+ * (its cause is ETIMEDOUT / an abort); a connection refused or reset is also a StripeConnectionError but is NOT a timeout (nothing reached Stripe).
+ */
 export function isStripeTimeout(err: unknown): boolean {
-  return (err as { code?: unknown } | null)?.code === STRIPE_TIMEOUT_CODE;
+  const e = err as { code?: unknown; type?: unknown; message?: unknown; detail?: { code?: unknown; name?: unknown } | null; raw?: { code?: unknown } | null } | null;
+  if (!e) return false;
+  if (e.code === STRIPE_TIMEOUT_CODE) return true;
+  if (e.type !== "StripeConnectionError") return false;
+  const causes = [e.code, e.detail?.code, e.raw?.code, e.detail?.name];
+  if (causes.some((c) => c === "ETIMEDOUT" || c === "ESOCKETTIMEDOUT" || c === "TimeoutError" || c === "ECONNABORTED")) return true;
+  return typeof e.message === "string" && /timed out|timeout being reached|request aborted due to timeout/i.test(e.message);
 }
 
 export function withStripeTimeout<T>(call: Promise<T>, ms: number = stripeCallTimeoutMs()): Promise<T> {

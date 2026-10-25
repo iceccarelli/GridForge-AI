@@ -71,7 +71,9 @@ export function paygStripe(): PaygStripe | null {
   if (override) return boundStripe(override);
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return null;
-  return boundStripe(new Stripe(key, { timeout: stripeCallTimeoutMs() }) as unknown as PaygStripe);
+  // The SDK's own timeout is a second above the race (so the race, which carries the stripe_call_timeout code, is the one that ends a wait),
+  // and it never retries on its own: a retry inside the SDK would keep a socket alive after the race gave up and could repeat a create.
+  return boundStripe(new Stripe(key, { timeout: stripeCallTimeoutMs() + 1_000, maxNetworkRetries: 0 }) as unknown as PaygStripe);
 }
 
 /** Did this error come from the bound (no answer in time)? The call's outcome at Stripe is unknown. */

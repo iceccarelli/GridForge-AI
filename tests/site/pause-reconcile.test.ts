@@ -15,6 +15,7 @@ import { NEGATIVE_CACHE_MS, pauseAllowsAccess } from "@/lib/pause-reconcile";
 import { setPaygStripeForTests } from "@/lib/payg-stripe";
 import { DAY, apiAcct, at, audit, intelRow, post, send, startRig, watchRow, type Rig } from "./billing-holds-harness";
 import { installTeamRpcs } from "./team-rpc-fake";
+import { installAuth, bearerFor, unconfirmedBearerFor } from "./auth-fake";
 
 let rig: Rig;
 beforeEach(() => { rig = startRig(); });
@@ -44,16 +45,14 @@ async function dueIntelligence(over: Record<string, unknown> = {}) {
 }
 
 describe("A1. the resume event was lost: Stripe says billing is running", () => {
-  it("Intelligence is granted, the stale schedule is cleared with one audit row, the clocks are untouched, and the next check needs no Stripe call", async () => {
+  it("Intelligence is granted, the stale schedule is cleared with one audit row, the pause clock moves to the start of the read (never backwards), and the next check needs no Stripe call", async () => {
     const i = await dueIntelligence();
     expect(i.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
-    const clock = i.billing_pause_event_ts;
-    expect(clock).toBe(rig.T0 + 5);
     stripeSays("sub_i", "running");
     const before = retrieves();
     const first = await ents();
     expect(first.reachable && first.entitlement?.role).toBe("owner");
-    expect(i).toMatchObject({ billing_pause_from: null, billing_pause_resumes_at: null, status: "active", billing_hold: null, billing_pause_event_ts: clock });
+    expect(i).toMatchObject({ billing_pause_from: null, billing_pause_resumes_at: null, status: "active", billing_hold: null, billing_pause_event_ts: rig.T0 + PERIOD + 59 });
     expect(retrieves() - before).toBe(1);
     const rows = audit(rig, "pause_schedule_dropped");
     expect(rows).toHaveLength(1);
@@ -65,13 +64,13 @@ describe("A1. the resume event was lost: Stripe says billing is running", () => 
     expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
   });
 
-  it("the resume event that finally arrives is applied as ever (it finds nothing to clear and records its clock)", async () => {
+  it("the resume event that finally arrives (older than the proving read) is stale and changes nothing", async () => {
     const i = await dueIntelligence();
     stripeSays("sub_i", "running");
     await ents();
     expect(i.billing_pause_from).toBeNull();
     expect((await send(rig, "customer.subscription.updated", sub("sub_i"), { created: rig.T0 + 50 })).status).toBe(200);
-    expect(i).toMatchObject({ billing_pause_from: null, billing_hold: null, status: "active", billing_pause_event_ts: rig.T0 + 50 });
+    expect(i).toMatchObject({ billing_pause_from: null, billing_hold: null, status: "active", billing_pause_event_ts: rig.T0 + PERIOD + 59 });
     expect((await ents()).entitlement).not.toBeNull();
   });
 
@@ -214,7 +213,7 @@ describe("A3. a delayed or out-of-order resume must not clear a re-pause", () =>
     at(rig.T0 + PERIOD + 60 + NEGATIVE_CACHE_MS / 1000 + 1);
     stripeSays("sub_i", "running"); // the real resume, whose event is lost
     expect((await ents()).entitlement).not.toBeNull();
-    expect(i).toMatchObject({ billing_pause_from: null, billing_pause_event_ts: rig.T0 + 100 });
+    expect(i).toMatchObject({ billing_pause_from: null, billing_pause_event_ts: rig.T0 + PERIOD + 60 + NEGATIVE_CACHE_MS / 1000 });
   });
 });
 
@@ -376,5 +375,172 @@ describe("A7. a cancelled (or superseded) row is never revived", () => {
     expect((await keys.POST(post("/api/keys", { token: a.token, rotate: true }))).status).not.toBe(200);
     expect(retrieves() - before).toBe(0);
     expect(a.billing_pause_from).not.toBeNull();
+  });
+});
+
+// ============================================================================================================= review round
+
+/** Fail the next PATCH to `subscriptions` with a 500 (a transient store fault), once. */
+function failNextPatch(): { restore: () => void } {
+  const inner = globalThis.fetch;
+  let armed = true;
+  globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+    if (armed && init?.method === "PATCH" && /\/rest\/v1\/subscriptions\?/.test(url)) {
+      armed = false;
+      return new Response(JSON.stringify({ code: "XX000", message: "boom" }), { status: 500 });
+    }
+    return inner(i as RequestInfo, init);
+  }) as typeof fetch;
+  return { restore: () => { globalThis.fetch = inner; } };
+}
+
+describe("R1. only a VERIFIED session can drive an entitlement lookup (and so a Stripe reconcile)", () => {
+  it("/api/scenarios and /api/siting-analysis: an unconfirmed session claiming a subscriber's address gets 403, no Stripe call, nothing cleared, nothing audited", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    const auth = installAuth();
+    try {
+      const before = retrieves();
+      const scen = await import("@/app/api/scenarios/route");
+      const siting = await import("@/app/api/siting-analysis/route");
+      const sitingReq = (h: Record<string, string>) => new Request(siteUrl("/api/siting-analysis"), { method: "POST", headers: { "content-type": "application/json", ...h }, body: JSON.stringify({ brief: "50 MW near Dublin" }) });
+      const r1 = await scen.GET(new Request(siteUrl("/api/scenarios"), { headers: unconfirmedBearerFor(email) }));
+      const r2 = await siting.POST(sitingReq(unconfirmedBearerFor(email)));
+      expect([r1.status, r2.status]).toEqual([403, 403]);
+      expect(retrieves() - before).toBe(0);
+      expect(i.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
+      expect(audit(rig).filter((a) => /^pause_schedule_drop/.test(String(a.action)))).toHaveLength(0);
+      // the same address with a VERIFIED session: the lookup runs (siting: still paused -> 402; scenarios: running again -> 200, stale schedule cleared)
+      stripeSays("sub_i", "paused");
+      expect((await siting.POST(sitingReq(bearerFor(email)))).status).toBe(402);
+      expect(retrieves() - before).toBe(1);
+      at(rig.T0 + PERIOD + 60 + NEGATIVE_CACHE_MS / 1000 + 1);
+      stripeSays("sub_i", "running");
+      expect((await scen.GET(new Request(siteUrl("/api/scenarios"), { headers: bearerFor(email) }))).status).toBe(200);
+      expect(i.billing_pause_from).toBeNull();
+    } finally {
+      auth.restore();
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+});
+
+describe("R2. the reconcile's own failure modes", () => {
+  it("another instance cleared the schedule between our read and our write: the conditional write matches nothing, and the customer is ALLOWED", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    const orig = (rig.stripe as any).subscriptions.retrieve;
+    (rig.stripe as any).subscriptions.retrieve = async (id: string) => {
+      const out = await orig(id);
+      i.billing_pause_from = null; // the other instance's write
+      i.billing_pause_event_ts = rig.T0 + PERIOD + 59;
+      return out;
+    };
+    expect((await ents()).entitlement).not.toBeNull();
+    expect(i.billing_pause_from).toBeNull();
+    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(0); // this instance cleared nothing, so it does not claim to have
+  });
+
+  it("raced by a re-pause, the answer is still a denial", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    const orig = (rig.stripe as any).subscriptions.retrieve;
+    (rig.stripe as any).subscriptions.retrieve = async (id: string) => {
+      const out = await orig(id);
+      i.billing_pause_event_ts = rig.T0 + 300;
+      return out;
+    };
+    expect((await ents()).entitlement).toBeNull();
+  });
+
+  it("a transient store failure on the clear is NOT remembered as a 45 s denial: the very next check succeeds", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    const f = failNextPatch();
+    try {
+      expect((await ents()).entitlement).toBeNull();
+      expect(i.billing_pause_from).toBe(iso(rig.T0 + PERIOD));
+      expect((await ents()).entitlement).not.toBeNull(); // same instant: no cache in the way
+      expect(i.billing_pause_from).toBeNull();
+    } finally {
+      f.restore();
+    }
+  });
+
+  it("the audit row is written BEFORE the clear: a clear that fails leaves 'started' on record, the retry adds the closing row, and nothing is recorded twice", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    const f = failNextPatch();
+    try {
+      await ents();
+      expect(audit(rig, "pause_schedule_drop_started")).toHaveLength(1);
+      expect(audit(rig, "pause_schedule_dropped")).toHaveLength(0);
+      await ents();
+    } finally {
+      f.restore();
+    }
+    expect(audit(rig, "pause_schedule_drop_started")).toHaveLength(1);
+    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
+    expect(i.billing_pause_from).toBeNull();
+  });
+
+  it("a re-pause to the SAME period end followed by a second clear is recorded again (the key carries the pause clock)", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    await ents();
+    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
+    i.billing_pause_from = iso(rig.T0 + PERIOD); // paused again for the same period end, by a newer event
+    i.billing_pause_event_ts = rig.T0 + PERIOD + 400;
+    at(rig.T0 + PERIOD + 500);
+    await ents();
+    expect(i.billing_pause_from).toBeNull();
+    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(2);
+  });
+
+  it("a STALE pause event delivered after the clear cannot re-create the schedule or the hold; a genuinely newer pause still applies", async () => {
+    const i = await dueIntelligence();
+    stripeSays("sub_i", "running");
+    await ents();
+    expect(i.billing_pause_from).toBeNull();
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 10 })).status).toBe(200); // older than the proving read
+    expect(i).toMatchObject({ billing_pause_from: null, billing_hold: null, status: "active" });
+    expect((await ents()).entitlement).not.toBeNull();
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + PERIOD + 100 })).status).toBe(200);
+    expect(i.billing_hold === "paused" || i.billing_pause_from !== null).toBe(true);
+  });
+});
+
+describe("R3. Stripe's answer must be an allowlisted one for the right subscription", () => {
+  const cases: [string, Record<string, unknown>, boolean][] = [
+    ["active", { status: "active", pause_collection: null }, true],
+    ["trialing", { status: "trialing", pause_collection: null }, true],
+    ["past_due", { status: "past_due", pause_collection: null }, true],
+    ["incomplete", { status: "incomplete", pause_collection: null }, false],
+    ["no status at all", { pause_collection: null }, false],
+    ["an unknown status", { status: "frozen", pause_collection: null }, false],
+    ["active but paused", { status: "active", pause_collection: { behavior: "void" } }, false],
+    ["another subscription's object", { id: "sub_other", status: "active", pause_collection: null }, false],
+  ];
+  for (const [name, state, grant] of cases) {
+    it(`${name}: ${grant ? "granted" : "denied, schedule untouched"}`, async () => {
+      const i = await dueIntelligence();
+      rig.stripe.setSubscription("sub_i", state);
+      expect((await ents()).entitlement !== null).toBe(grant);
+      expect(i.billing_pause_from === null).toBe(grant);
+    });
+  }
+});
+
+describe("R4. the request path does not wait the full batch bound on a hanging Stripe", () => {
+  it("a read of Stripe that never answers is cut off at the request bound (2.5 s), not at the 8 s batch bound", async () => {
+    await dueIntelligence();
+    (rig.stripe as any).subscriptions.retrieve = () => new Promise(() => {});
+    const t0 = performance.now();
+    expect((await ents()).entitlement).toBeNull();
+    const ms = performance.now() - t0;
+    expect(ms).toBeGreaterThan(2_000);
+    expect(ms).toBeLessThan(4_500);
   });
 });

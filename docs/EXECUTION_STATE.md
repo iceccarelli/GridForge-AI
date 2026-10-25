@@ -125,3 +125,10 @@ Built (local/test infrastructure only; nothing pushed, no migration, no live Str
 Tests: `tests/site/pause-reconcile.test.ts` (23), `tests/site/payg-timeouts.test.ts` (35); MockStripe gained `hang`/`hangWhen` ("before": never reaches Stripe, "after": takes effect, answer lost). Revert-checked: without the fixes 12 and 33 of them fail.
 Not covered: the daily pause pass (`applyDuePauses`) has the per-call bound but no run budget; `app/api/checkout`, `app/api/subscribe` and `stripe-health` build their own Stripe client with the SDK's default timeout (not PAYG paths); `invoices.list` reads the
 customer's newest 100 invoices when looking for an earlier attempt.
+Review round (same day): reconcile now audits "started" BEFORE the clear and closes after it (keys carry the schedule instant and the pause clock), moves the pause clock in the clearing write (a stale older pause event cannot
+re-create the schedule), treats a lost compare-and-set race against another clear as allowed, never remembers a store fault, grants only for an allowlisted status (active/trialing/past_due) of the same subscription, and
+reads Stripe with a 2.5 s bound on the request path. /api/scenarios and /api/siting-analysis refuse unverified sessions (403) before any entitlement lookup. SDK timeout = bound + 1 s, no SDK retries; the SDK's own timeout error counts as a
+timeout. Settlement: breaker resets only after a Stripe answer, budget (90 s) also checked between Stripe steps, rows ordered by last touch, a void/uncollectible invoice is never marked invoiced (pending + operator mail), a
+StripeIdempotencyError is answered by re-listing by settlement_key (never a second invoice). Daily pause pass: 60 s budget and a 3-failures-in-a-row breaker (`pauses.unreached`).
+OWNER DECISION (documented, not changed): "billing running at Stripe" is treated as entitled, not "current period paid": a subscription paused across a renewal and resumed has access from the resume until its next invoice settles,
+as the daily job already does.

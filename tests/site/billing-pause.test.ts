@@ -974,3 +974,64 @@ describe("23. a mint that finds a due pause", () => {
     }
   });
 });
+
+describe("24. a Stripe brown-out cannot consume the whole cron in the pause pass", () => {
+  const dueRows = (n: number) => Array.from({ length: n }, (_, i) =>
+    apiAcct(rig, { account: `h-${i}`, token: `tok-h-${i}`.padEnd(30, "x"), stripe_subscription_id: `sub_h_${i}`, key_id: null, billing_pause_from: iso(rig.T0 - DAY + i) }));
+
+  it("three failures in a row stop the pass: the rest are counted as not reached, left untouched and first in line next run", async () => {
+    const rows = dueRows(6);
+    process.env.STRIPE_CALL_TIMEOUT_MS = "40";
+    const answering = (rig.stripe as any).subscriptions.retrieve;
+    (rig.stripe as any).subscriptions.retrieve = () => new Promise(() => {});
+    let r1;
+    const t0 = performance.now();
+    try {
+      r1 = await runDue();
+    } finally {
+      delete process.env.STRIPE_CALL_TIMEOUT_MS;
+    }
+    expect(performance.now() - t0).toBeLessThan(3_000);
+    expect(r1).toMatchObject({ due: 6, errors: 3, unreached: 3, promoted: 0 });
+    expect(rows.filter((x) => x.billing_pause_checked_at).length).toBe(3); // only the rows that were looked at are stamped
+    expect(rows.slice(3).every((x) => !x.billing_pause_checked_at && x.billing_pause_from)).toBe(true);
+    expect(operatorMail(rig).some((m) => /3 not reached/.test(m.subject))).toBe(true);
+    // Stripe answers again: the unreached rows are read FIRST (the stamped ones go behind them)
+    for (let i = 0; i < 6; i++) rig.stripe.setSubscription(`sub_h_${i}`, { status: "active", pause_collection: { behavior: "void" } });
+    (rig.stripe as any).subscriptions.retrieve = answering;
+    const r2 = await runDue();
+    expect(r2).toMatchObject({ promoted: 6, unreached: 0 });
+  });
+
+  it("the pass has a time budget (an injected clock moved only by the Stripe reads): rows past it are not reached", async () => {
+    dueRows(5);
+    let t = 0;
+    const orig = (rig.stripe as any).subscriptions.retrieve;
+    (rig.stripe as any).subscriptions.retrieve = async (id: string) => { t += 40; return orig(id); };
+    for (let i = 0; i < 5; i++) rig.stripe.setSubscription(`sub_h_${i}`, { status: "active", pause_collection: { behavior: "void" } });
+    const r = await applyDuePauses({ stripe: rig.stripe as unknown as ReversalStripe, now: new Date(), clock: () => t, budgetMs: 100 });
+    // each row reads Stripe twice (before the hold and again after it): rows run while t <= 100
+    expect(r.promoted).toBeGreaterThanOrEqual(1);
+    expect(r.unreached).toBeGreaterThanOrEqual(1);
+    expect(r.promoted + r.unreached).toBe(5);
+  });
+
+  it("the cron route still reaches the settlement-reversal and revocation-backlog stages, and reports the pause pass's unreached rows, with a Stripe that answers nothing", async () => {
+    dueRows(6);
+    process.env.STRIPE_CALL_TIMEOUT_MS = "40";
+    (rig.stripe as any).subscriptions.retrieve = () => new Promise(() => {});
+    try {
+      const { GET } = await import("@/app/api/cron/payg/route");
+      const t0 = performance.now();
+      const res = await GET(new Request(siteUrl("/api/cron/payg"), { headers: { authorization: "Bearer cron-secret-value" } }));
+      expect(performance.now() - t0).toBeLessThan(4_000);
+      expect(res.status).toBe(200);
+      const j = await res.json();
+      expect(j.pauses).toMatchObject({ due: 6, errors: 3, unreached: 3 });
+      expect(j.settlement_reversals).toBeDefined();
+      expect(j.revocation_backlog).toBeDefined();
+    } finally {
+      delete process.env.STRIPE_CALL_TIMEOUT_MS;
+    }
+  });
+});

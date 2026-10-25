@@ -316,21 +316,41 @@ describe("the cron makes progress across accounts: a stuck account does not star
     expect(stripe.allInvoices).toHaveLength(6);
   });
 
-  it("the run has a time budget: rows it did not reach are deferred untouched, and the next run does them exactly once", async () => {
+  it("the run has a time budget, checked between the Stripe steps of a row too: a row stops at a step boundary untouched, the rest are deferred, the next run does them exactly once", async () => {
     for (const i of [1, 2, 3, 4]) await seed(i);
-    process.env.PAYG_SETTLE_BUDGET_MS = "30";
-    const slow = stripe.customers.retrieve;
-    stripe.customers.retrieve = async (id: string) => { await new Promise((r) => setTimeout(r, 25)); return slow(id); };
-    const r = await settle();
-    expect(r.deferred).toBeGreaterThanOrEqual(1);
-    expect(r.invoiced).toBeGreaterThanOrEqual(1);
-    expect(r.invoiced + r.deferred).toBe(4);
-    expect(r.timedOut).toBe(0);
-    stripe.customers.retrieve = slow;
+    let t = 0; // an injected clock: only the calls below move it, no real sleeping
+    const retrieve = stripe.customers.retrieve;
+    const create = stripe.invoices.create;
+    stripe.customers.retrieve = async (id: string) => { t += 40; return retrieve(id); };
+    stripe.invoices.create = async (p: any, o?: any) => { t += 40; return create(p, o); };
+    const r = await (await settleLib()).settleClosedMonths(stripe, NOW, { clock: () => t, budgetMs: 100 });
+    // row 1 completes (t = 80); row 2 reads the customer (t = 120) and stops at its next step boundary; rows 3 and 4 are not started
+    expect(r).toMatchObject({ invoiced: 1, deferred: 3, timedOut: 0, stillPending: 3 });
+    const second = settlements().find((x) => x.account === "acct-2")!;
+    expect(second).toMatchObject({ status: "pending", stripe_invoice_id: null, last_error: null, attempts: 0 }); // nothing written for it
+    expect(stripe.allInvoices).toHaveLength(1);
+    stripe.customers.retrieve = retrieve;
+    stripe.invoices.create = create;
     const r2 = await settle(NEXT_DAY);
-    expect(r2.invoiced).toBe(r.deferred);
+    expect(r2).toMatchObject({ invoiced: 3, deferred: 0 });
     expect(stripe.allInvoices).toHaveLength(4);
-    expect(settlements().every((s) => s.status === "invoiced")).toBe(true);
+    expect(new Set(stripe.allInvoices.map((i) => i.metadata?.settlement_key)).size).toBe(4);
+    expect(settlements().every((x) => x.status === "invoiced")).toBe(true);
+  });
+
+  it("the breaker counts only rows that asked Stripe: rows that never reached it (no payment method) do not reset it", async () => {
+    // one account per month, so the order is fixed: stuck, no card, stuck, no card, stuck, healthy
+    const specs: [string, string, "stuck" | "nocard" | "ok"][] = [
+      ["a1", "2026-01", "stuck"], ["a2", "2026-02", "nocard"], ["a3", "2026-03", "stuck"], ["a4", "2026-04", "nocard"], ["a5", "2026-05", "stuck"], ["a6", "2026-06", "ok"],
+    ];
+    for (const [account, month, kind] of specs) {
+      paygAccount(db, { account, token: `tok-${account}-0123456789abcdefghijklmn`, stripe_customer_id: kind === "nocard" ? null : `cus_${kind}_${account}`, stripe_payment_method_id: kind === "nocard" ? null : `pm_${account}`, email: `${account}@x.example` });
+      await ingest([ledgerEvent({ account, units: 10, ts: `${month}-10T10:00:00+00:00` })]);
+    }
+    stripe.hangWhen = (n, a) => (n === "customers.retrieve" && String(a[0]).startsWith("cus_stuck_") ? "before" : null);
+    const r = await settle();
+    expect(r).toMatchObject({ timedOut: 3, noPaymentMethod: 2, invoiced: 0, deferred: 1 }); // the healthy account waits: Stripe was not answering
+    expect(settlements().find((x) => x.account === "a6")).toMatchObject({ status: "pending", last_error: null });
   });
 
   it("runPaygCron with a Stripe that answers nothing: it returns within the bound with the count in its JSON, and nothing was written but last_error", async () => {
@@ -474,5 +494,78 @@ describe("routes that call Stripe for a customer who is waiting: no answer in th
     const err = await paygStripe()!.charges.retrieve("ch_1").catch((e) => e);
     expect(performance.now() - t0).toBeLessThan(3_000);
     expect(isStripeTimeout(err)).toBe(true);
+  });
+});
+
+// ============================================================================================ what Stripe holds is not always what we made
+
+describe("an invoice that exists is judged by its real status; a remembered idempotency key with other parameters never makes a second invoice", () => {
+  for (const status of ["void", "uncollectible"] as const) {
+    it(`an invoice for the month that is ${status}: NOT marked invoiced, no second invoice or item, the operator is told once`, async () => {
+      const account = await seed();
+      const inv = await stripe.invoices.create({ customer: "cus_acme", metadata: { kind: "payg_settlement", account, month: "2026-09", settlement_key: KEY } } as any);
+      stripe.invoicesById.get(inv.id)!.status = status;
+      const r = await settle();
+      expect(r).toMatchObject({ invoiced: 0, stillPending: 1, timedOut: 0 });
+      expect(settlements()[0]).toMatchObject({ status: "pending", last_error: `invoice_${status}` });
+      expect(settlements()[0].stripe_invoice_id).toBe(inv.id); // the invoice is recorded; it is simply not collectible
+      expect(stripe.allInvoices).toHaveLength(1);
+      expect(stripe.items).toHaveLength(0);
+      const mails = opMail().filter((m) => /NOT invoiced/.test(m.subject));
+      expect(mails).toHaveLength(1);
+      expect(mails[0].subject).toContain(`invoice_${status}`);
+      expect(mails[0].text).toContain(accountRef(account));
+      await settle(); // the same day again: still one invoice, still one mail
+      expect(stripe.allInvoices).toHaveLength(1);
+      expect(opMail().filter((m) => /NOT invoiced/.test(m.subject))).toHaveLength(1);
+    });
+  }
+
+  it("the same idempotency key with different parameters is refused by Stripe: the invoice is found again by its metadata and used; no second invoice", async () => {
+    await seed();
+    stripe.hang.set("invoices.create", "after"); // the first attempt created the draft (with pm_acme); the answer was lost
+    expect((await settle()).timedOut).toBe(1);
+    expect(stripe.allInvoices).toHaveLength(1);
+    // the customer's card changed since; our create would carry other parameters; the list has not caught up on the first look only
+    stripe.customerDefaults.set("cus_acme", "pm_new");
+    const list = stripe.invoices.list;
+    let looks = 0;
+    stripe.invoices.list = async (p: any) => (++looks === 1 ? { data: [] } : list(p));
+    const r = await settle();
+    expect(r).toMatchObject({ invoiced: 1, timedOut: 0 });
+    expect(stripe.allInvoices).toHaveLength(1);
+    expect(stripe.items).toHaveLength(1);
+    expect(settlements()[0]).toMatchObject({ status: "invoiced", stripe_invoice_id: stripe.allInvoices[0].id });
+  });
+
+  it("and if the invoice cannot be found even then, the month stays pending: Stripe's refusal is never answered by creating something else", async () => {
+    await seed();
+    stripe.hang.set("invoices.create", "after");
+    await settle();
+    stripe.customerDefaults.set("cus_acme", "pm_new");
+    const list = stripe.invoices.list;
+    stripe.invoices.list = async () => ({ data: [] });
+    const r = await settle();
+    expect(r).toMatchObject({ invoiced: 0, stillPending: 1 });
+    expect(stripe.allInvoices).toHaveLength(1);
+    expect(settlements()[0]).toMatchObject({ status: "pending", last_error: "StripeIdempotencyError:400" });
+    stripe.invoices.list = list;
+    expect((await settle(NEXT_DAY)).invoiced).toBe(1);
+    expect(stripe.allInvoices).toHaveLength(1);
+  });
+});
+
+describe("rows are taken in order of last touch, not of failure count", () => {
+  it("a recovered row whose last attempt was long ago goes ahead of rows that failed more recently, however few times they failed", async () => {
+    const rows: [string, number, string][] = [["s1", 2, "2026-10-20T01:00:00.000Z"], ["s2", 2, "2026-10-20T02:00:00.000Z"], ["rec", 10, "2026-10-01T01:00:00.000Z"]];
+    for (const [account, attempts, touched] of rows) {
+      paygAccount(db, { account, token: `tok-${account}-0123456789abcdefghijklmnop`, stripe_customer_id: `cus_${account}`, stripe_payment_method_id: `pm_${account}`, email: `${account}@x.example` });
+      db.insertRow("usage_settlements", { account, month: "2026-09", units: 10, amount_cents: 2000, status: "pending", attempts, updated_at: touched });
+    }
+    const order: string[] = [];
+    const retrieve = stripe.customers.retrieve;
+    stripe.customers.retrieve = async (id: string) => { order.push(id); return retrieve(id); };
+    await (await import("@/lib/payg-settle")).settleClosedMonths(stripe, NOW);
+    expect(order).toEqual(["cus_rec", "cus_s1", "cus_s2"]);
   });
 });

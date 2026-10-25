@@ -10,9 +10,12 @@
 //   row cancelled / superseded                          DENIED (a cancellation is never revived)
 //   a hold stands on the row (refund, dispute, ...)     DENIED, and nothing is written: a resume lifts the PAUSE, never a separate hold. The
 //                                                       schedule stays (lib/billing-pause.ts keeps it under a stronger hold on purpose)
-//   Stripe: billing running again                       the stale schedule is cleared by a conditional write (compare-and-set on the schedule
-//                                                       instant AND on the pause/resume clock, and only while no hold stands), one audit
-//                                                       row says so, and access is ALLOWED
+//   Stripe: billing running again                       (an ALLOWLISTED status for the very subscription asked about, not paused, not unpaid) the
+//                                                       audit row "started" is written, then the stale schedule is cleared by a conditional
+//                                                       write (schedule instant, pause/resume clock, no hold, not ended) that also moves the
+//                                                       pause clock to the start of the read (so an older pause event delivered later is
+//                                                       stale), then the closing audit row; access is ALLOWED. A conditional write that
+//                                                       matches nothing because another instance already cleared the schedule also ALLOWS.
 //   Stripe: still paused / unpaid / cancelled           DENIED
 //   Stripe timed out (STRIPE_CALL_TIMEOUT_MS), errored, has no such subscription, or is not configured
 //                                                       DENIED, schedule untouched: "cannot say" is never read as "resumed"
@@ -21,11 +24,11 @@
 // hanging Stripe) do not become a Stripe call each. Nothing positive is cached: a grant is the database patch itself (the schedule is gone,
 // so the next check is not "due" at all). Concurrent checks of one row share a single Stripe call.
 //
-// The event-order clocks are not moved here (a lost event has no time to record): billing_pause_event_ts is only COMPARED, so a re-pause
-// that lands while Stripe is being read (it moves the clock) makes the conditional write match nothing, and the re-pause keeps its schedule.
-// A resume event that arrives later is applied as ever (it finds no schedule to clear and records its clock).
+// The pause clock (billing_pause_event_ts) is COMPARED by the conditional write, so a re-pause that lands while Stripe is being read (it moves
+// the clock) makes the write match nothing and keeps its schedule; the same write then moves the clock forward to the start of the read, so
+// a pause event created before that read and delivered after it is stale. last_billing_event_ts (payments) is never touched.
 
-import { withStripeTimeout } from "@/lib/stripe-timeout";
+import { stripeCallTimeoutMs, withStripeTimeout } from "@/lib/stripe-timeout";
 import { enc, pg } from "@/lib/payg-store";
 import { paygStripe } from "@/lib/payg-stripe";
 import { pauseDue, billingStopped, type BillingState } from "@/lib/billing-pause-due";
@@ -80,57 +83,96 @@ function guardQuery(table: PauseTable, row: PauseRow): string | null {
   return `${table}?token=eq.${enc(row.token)}&status=neq.cancelled`;
 }
 
-/** Clear the stale schedule iff the row is still exactly as it was read: same schedule instant, same pause clock, no hold, not ended. */
-async function clearSchedule(table: PauseTable, row: PauseRow): Promise<"cleared" | "raced" | "error"> {
+/**
+ * Clear the stale schedule iff the row is still exactly as it was read: same schedule instant, same pause clock, no hold, not ended.
+ * The SAME write advances the pause clock to `clockTo` (the moment the read of Stripe began, minus a second): a pause event that was
+ * created before a read which proved billing running, and is delivered after this clear, is then stale and cannot re-create the schedule
+ * (or the hold). Never moved backwards.
+ */
+async function clearSchedule(table: PauseTable, row: PauseRow, clockTo: number): Promise<"cleared" | "raced" | "error"> {
   const base = guardQuery(table, row);
   if (!base || !row.billing_pause_from) return "error";
   const clock = typeof row.billing_pause_event_ts === "number" ? `billing_pause_event_ts=eq.${row.billing_pause_event_ts}` : "billing_pause_event_ts=is.null";
   const r = await pg<unknown[]>(
     "PATCH",
     `${base}&billing_pause_from=eq.${enc(row.billing_pause_from)}&billing_hold=is.null&${clock}`,
-    { billing_pause_from: null, billing_pause_resumes_at: null, ...(table === "subscriptions" ? { updated_at: new Date().toISOString() } : {}) }
+    {
+      billing_pause_from: null,
+      billing_pause_resumes_at: null,
+      billing_pause_event_ts: Math.max(row.billing_pause_event_ts ?? 0, clockTo),
+      ...(table === "subscriptions" ? { updated_at: new Date().toISOString() } : {}),
+    }
   );
   if (!r.ok) return "error";
   return (r.data?.length ?? 0) > 0 ? "cleared" : "raced";
 }
 
-async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | null): Promise<{ allowed: boolean; remember: boolean }> {
+/** The conditional write matched nothing: has ANOTHER instance (or the daily job, or the resume event) already cleared the schedule, with no hold and no end? Then access is the customer's. */
+async function alreadyClear(table: PauseTable, row: PauseRow): Promise<boolean> {
+  const base = guardQuery(table, row);
+  if (!base) return false;
+  const r = await pg<{ billing_pause_from?: string | null; billing_hold?: string | null }[]>("GET", `${base}&select=billing_pause_from,billing_hold&limit=1`);
+  const now = r.ok ? r.data?.[0] : undefined;
+  return Boolean(now) && !now!.billing_pause_from && !now!.billing_hold;
+}
+
+/** A subscription that Stripe says is collecting payment again. Anything not named here (a missing or unknown status, incomplete, canceled ...) is not "running". */
+const RUNNING_STATUSES: ReadonlySet<string> = new Set(["active", "trialing", "past_due"]);
+
+/** The request path must not make a customer wait the full 8 s in a Stripe brown-out: the read of Stripe is bounded more tightly than the batch jobs'. */
+export const REQUEST_STRIPE_BOUND_MS = 2_500;
+
+type Decision = { allowed: boolean; remember: boolean };
+const DENY_QUIET: Decision = { allowed: false, remember: false };
+
+async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | null): Promise<Decision> {
   const subId = row.stripe_subscription_id ?? "";
-  if (!stripe?.subscriptions || !subId) return { allowed: false, remember: false }; // nothing to ask: fail closed (and nothing to save a call on)
-  let sub: BillingState;
+  if (!stripe?.subscriptions || !subId) return DENY_QUIET; // nothing to ask: fail closed (and nothing to save a call on)
+  const readStartedMs = Date.now();
+  let sub: (BillingState & { id?: unknown }) | null;
   try {
-    sub = (await withStripeTimeout(stripe.subscriptions.retrieve(subId))) as BillingState;
+    sub = (await withStripeTimeout(stripe.subscriptions.retrieve(subId), Math.min(stripeCallTimeoutMs(), REQUEST_STRIPE_BOUND_MS))) as BillingState & { id?: unknown };
   } catch (err) {
     const e = err as { type?: unknown; code?: unknown } | null;
     console.error("[GridForge] due pause: Stripe could not say whether billing is running:", typeof e?.code === "string" ? e.code : typeof e?.type === "string" ? e.type : "stripe_error");
     return { allowed: false, remember: true };
   }
-  // canceled / incomplete_expired: the cancellation events own that (reported there); it is never an entitlement.
+  // ALLOWLIST: grant only for a subscription that is the one asked about, is in a status that collects payment, and is not paused or unpaid
+  // (the single billingStopped rule). A missing or unknown status, `incomplete`, `canceled`, `incomplete_expired` ... deny; the cancellation
+  // events own those.
+  //
+  // OWNER DECISION (not changed here): "billing is running" is not "the current period is paid". A subscription paused across a renewal and
+  // then resumed has access from the resume until its next invoice settles, exactly as the daily job (promote) already treats it; this check
+  // does not add a stricter test than the job's. If the product wants "paid up" instead, test the latest invoice here AND in promote.
   const status = (sub as { status?: unknown } | null)?.status;
-  if (!sub || status === "canceled" || status === "incomplete_expired" || billingStopped(sub)) return { allowed: false, remember: true };
+  const sameSub = typeof sub?.id !== "string" || sub.id === subId;
+  if (!sub || !sameSub || typeof status !== "string" || !RUNNING_STATUSES.has(status) || billingStopped(sub)) return { allowed: false, remember: true };
 
   // Billing is running again at Stripe: the schedule is stale (its resume event was lost or has not arrived).
   const from = row.billing_pause_from as string;
-  const w = await clearSchedule(table, row);
-  if (w === "raced") return { allowed: false, remember: false }; // paused again, held or ended while Stripe was read: that row keeps what it has
-  if (w === "error") return { allowed: false, remember: true };
-  const a = await recordBillingAudit({
-    dedupeKey: `pause_schedule_dropped:${table}:${row.id}:${from}`,
-    table,
-    subjectId: row.id,
-    objectId: subId,
-    subscriptionId: subId,
-    action: "pause_schedule_dropped",
-    detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" },
-  });
+  const key = `${table}:${row.id}:${from}:${row.billing_pause_event_ts ?? "none"}`;
+  const entry = { table, subjectId: row.id, objectId: subId, subscriptionId: subId } as const;
+  // The audit row goes FIRST (idempotent by its key), so a crash between it and the clear cannot lose the record; the next check repeats
+  // both. Its key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is
+  // recorded again. It says what was decided; the row after the clear says what happened.
+  const started = await recordBillingAudit({ ...entry, dedupeKey: `pause_schedule_drop_started:${key}`, action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" } });
+  if (started === "error") return DENY_QUIET; // a store fault, not a verdict about the customer: not remembered
+  const w = await clearSchedule(table, row, Math.floor(readStartedMs / 1000) - 1);
+  if (w === "error") return DENY_QUIET; // transient store failure: the next check tries again at once
+  if (w === "raced") {
+    // Someone else changed the row since it was read. If that was a clear (another instance, the daily job, the resume event), access is the
+    // customer's; a re-pause, a hold or an end keeps its own state.
+    return (await alreadyClear(table, row)) ? { allowed: true, remember: false } : DENY_QUIET;
+  }
+  const a = await recordBillingAudit({ ...entry, dedupeKey: `pause_schedule_dropped:${key}`, action: "pause_schedule_dropped", detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" } });
   if (a === "error") {
-    // The schedule is already gone, so this cannot be retried; say so to a person rather than lose the record silently.
-    console.error("[GridForge] due pause: the schedule was cleared but its audit row could not be written");
+    // The schedule is already gone and the "started" row is on record; say so to a person rather than lose the closing record silently.
+    console.error("[GridForge] due pause: the schedule was cleared but its closing audit row could not be written");
     await notifyOperatorOnce(
-      `pause_reconcile_audit:${table}:${row.id}:${from}`,
-      "A stale billing pause was cleared but NOT audited",
-      `A customer's scheduled pause (${table}, effective ${from}) was cleared because Stripe reports billing running again (the resume event never arrived), but the billing_audit row could not be written. ` +
-        "Access was granted correctly; the audit trail has no record of this clearing. Check the billing_audit table and the store's health."
+      `pause_reconcile_audit:${key}`,
+      "A stale billing pause was cleared but its closing audit row was NOT written",
+      `A customer's scheduled pause (${table}, effective ${from}) was cleared because Stripe reports billing running again (the resume event never arrived). The "started" audit row exists; the closing row could not be written. ` +
+        "Access was granted correctly. Check the billing_audit table and the store's health."
     );
   }
   return { allowed: true, remember: false };
