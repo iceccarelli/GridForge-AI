@@ -1,3 +1,4 @@
+import { SITE_URL } from "@/lib/site";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ALLOW, allowListFromEnv, assertAllowedUrl, assertDiskSpace, checkDiskSpace, checkTargetUrl, estimateBytes, isAllowedSubrequest,
@@ -16,7 +17,7 @@ describe("observatory-broadcast: URL allow-list", () => {
       "http://localhost/observatory/presenter", "http://localhost/stage",
       "http://127.0.0.1/observatory/presenter", "http://127.0.0.1/stage",
       "http://[::1]/observatory/presenter", "http://[::1]/stage",
-      "https://timetopower.ai/observatory/presenter",
+      `${SITE_URL}/observatory/presenter`,
     ]);
   });
 
@@ -27,23 +28,23 @@ describe("observatory-broadcast: URL allow-list", () => {
       "http://127.0.0.1:8080/stage",
       "http://[::1]:3000/observatory/presenter",
       "https://localhost:3443/observatory/presenter",
-      "https://timetopower.ai/observatory/presenter",
-      "https://timetopower.ai/observatory/presenter/",
-      "https://timetopower.ai/observatory/presenter?t=1.000&freeze=1",
-      "https://timetopower.ai/observatory/presenter/hall-a",
+      `${SITE_URL}/observatory/presenter`,
+      `${SITE_URL}/observatory/presenter/`,
+      `${SITE_URL}/observatory/presenter?t=1.000&freeze=1`,
+      `${SITE_URL}/observatory/presenter/hall-a`,
     ]) expect(ok(u), u).toBe(true);
   });
 
   it("refuses everything else: other hosts, look-alike hosts, other paths on the real host, wrong protocol, ports", () => {
     for (const u of [
-      "https://timetopower.ai/",
-      "https://timetopower.ai/observatory",
-      "https://timetopower.ai/observatory/presenterx",
-      "https://timetopower.ai/pricing",
-      "http://timetopower.ai/observatory/presenter",
-      "https://timetopower.ai:8443/observatory/presenter",
+      `${SITE_URL}/`,
+      `${SITE_URL}/observatory`,
+      `${SITE_URL}/observatory/presenterx`,
+      `${SITE_URL}/pricing`,
+      `http://${new URL(SITE_URL).host}/observatory/presenter`,
+      `${SITE_URL}:8443/observatory/presenter`,
       "https://evil.example/observatory/presenter",
-      "https://timetopower.ai.evil.example/observatory/presenter",
+      `${SITE_URL}.evil.example/observatory/presenter`,
       "https://evil.example/timetopower.ai/observatory/presenter",
       "http://localhost.evil.example/stage",
       "http://169.254.169.254/latest/meta-data",
@@ -67,7 +68,7 @@ describe("observatory-broadcast: URL allow-list", () => {
       expect(ok(`http://localhost:3000${p}`), p).toBe(false);
       expect(why(`http://localhost:3000${p}`), p).toMatch(/deny list/);
     }
-    expect(ok("https://timetopower.ai/observatory/presenter/api/x")).toBe(false);
+    expect(ok(`${SITE_URL}/observatory/presenter/api/x`)).toBe(false);
   });
 
   it("sees through encodings and traversal: %2e%2e, encoded slashes and backslashes, double-encoded segment names", () => {
@@ -77,8 +78,8 @@ describe("observatory-broadcast: URL allow-list", () => {
     expect(ok("http://localhost:3000/observatory/%2561dmin")).toBe(false);
     expect(ok("http://localhost:3000/%61dmin")).toBe(false);
     expect(ok("http://localhost:3000/observatory/%E0%A4%A")).toBe(false); // malformed percent-encoding
-    expect(ok("https://timetopower.ai/observatory/presenter/../../admin")).toBe(false);
-    expect(ok("https://timetopower.ai/observatory/presenter/../pricing")).toBe(false);
+    expect(ok(`${SITE_URL}/observatory/presenter/../../admin`)).toBe(false);
+    expect(ok(`${SITE_URL}/observatory/presenter/../pricing`)).toBe(false);
   });
 
   it("refuses URLs with a token-looking path segment, and credential-looking query parameters", () => {
@@ -105,7 +106,7 @@ describe("observatory-broadcast: URL allow-list", () => {
     const allow = allowListFromEnv(env);
     expect(allow).toEqual(["https://staging.example.test/observatory/presenter", "http://localhost"]);
     expect(ok("https://staging.example.test/observatory/presenter", allow)).toBe(true);
-    expect(ok("https://timetopower.ai/observatory/presenter", allow)).toBe(false);
+    expect(ok(`${SITE_URL}/observatory/presenter`, allow)).toBe(false);
     expect(ok("https://staging.example.test/observatory/presenter/admin", allow)).toBe(false);
     expect(ok("https://staging.example.test/admin", ["https://staging.example.test"])).toBe(false);
     expect(allowListFromEnv({})).toEqual([...DEFAULT_ALLOW]);

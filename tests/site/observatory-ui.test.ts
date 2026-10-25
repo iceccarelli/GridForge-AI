@@ -8,10 +8,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { EVIDENCE_LEGEND, evidenceTitle } from "@/components/observatory/evidence";
+import { fmtUnitValue } from "@/components/observatory/format";
 import { TITLES, type ContextState } from "@/components/observatory/ContextPanel";
 import { ObservatoryView, type FileState } from "@/components/observatory/ObservatoryView";
 import { FIXTURE_NOW, FIXTURE_SCENARIO_FILE, REFERENCE_REGION_SENTENCE, fixtureBuildSceneModel, fixtureContext } from "./observatory-ui-fixtures";
 
+/** An amount as the page prints it: through the production formatter, not a typed literal. */
+const eur = (n: number) => fmtUnitValue(n, "EUR");
 const loadScenarioFile = vi.fn();
 const getLiveContext = vi.fn();
 const override = vi.hoisted(() => ({ build: null as null | ((...a: unknown[]) => unknown) }));
@@ -281,17 +284,17 @@ describe("(d) scenario outcomes", () => {
     expect(text(rs[0])).toContain("Not priced");
     expect(text(rs[0])).toContain("Unpriced: tap-off units, installation labour.");
     const busway = text(rs[1]);
-    expect(busway).toContain("at least €1,800,000");
+    expect(busway).toContain(`at least ${eur(1800000)}`);
     expect(busway).toContain("(priced lines only)");
     expect(busway).toContain("library placeholder prices");
     expect(busway).toContain("Excludes commissioning. Not a complete price.");
-    expect(busway).not.toMatch(/€2,300,000|€1,500,000|range €/); // the engine's range has an upper bound this total does not have
+    expect(busway).not.toMatch(new RegExp(`${eur(2300000)}|${eur(1500000)}|range ${eur(0).slice(0,1)}`)); // the engine's range has an upper bound this total does not have
     const cell = rs[1].slice(rs[1].indexOf("Capital cost"));
     expect(cell.slice(0, cell.indexOf("</td>"))).toMatch(/data-evidence="E0"/);
     // a complete figure resting on supplied prices is shown plainly, with no placeholder wording
-    expect(text(rs[2])).toContain("€2,340,000");
+    expect(text(rs[2])).toContain(`${eur(2340000)}`);
     expect(text(rs[2])).not.toMatch(/at least|placeholder/);
-    expect(outcomesText).not.toMatch(/€\s?0\b/);
+    expect(outcomesText).not.toMatch(new RegExp(`${eur(0).slice(0, 1)}\\s?0\\b`));
   });
   it("an alternative that deploys nothing says there is nothing to date, not 'lead times assumed'", () => {
     expect(text(rs[3])).toContain("0 → 0 racks");

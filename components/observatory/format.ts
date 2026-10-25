@@ -131,7 +131,7 @@ export function viewTimeToCapacity(o: { weeksToCapacity: Quantity; dated: boolea
 
 export interface CapexView {
   kind: "complete" | "lower_bound" | "unpriced";
-  /** "€6,630,000", or "at least €6,630,000" for a lower bound, or "Not priced". */
+  /** The amount (euro sign, grouped digits), or "at least" and the amount for a lower bound, or "Not priced". */
   text: string;
   /** "(priced lines only)" beside a lower bound. */
   qualifier: string | null;

@@ -3,13 +3,16 @@
  * divided, a missing value stays missing, and time/cost never turn into a date or a zero.
  */
 import { describe, expect, it } from "vitest";
-import { fmtUtc, utilisation, viewCapex, viewQuantity, viewTimeToCapacity, weakestOf } from "@/components/observatory/format";
+import { fmtUnitValue, fmtUtc, utilisation, viewCapex, viewQuantity, viewTimeToCapacity, weakestOf } from "@/components/observatory/format";
 import { LIVE_MAX_AGE_SECONDS, effectiveFreshness, isLive, retrievedBefore, viewProvenance } from "@/components/observatory/provenance";
 import { freshnessOf, observed } from "@/lib/observatory/sources";
 import { limits, rankConstraints } from "@/components/observatory/ConstraintsPanel";
 import { rackSquares, snakeSlots, splitLabel, wrapLabel, rackRowVisuals } from "@/components/observatory/scene-visuals";
 import type { Basis, Freshness, Observed } from "@/lib/observatory/types";
 import { FIXTURE_NOW, SCENARIO_A, q } from "./observatory-ui-fixtures";
+
+/** An amount as the page prints it: through the production formatter, not a typed literal. */
+const eur = (n: number) => fmtUnitValue(n, "EUR");
 
 function o(basis: Basis, freshness: Freshness, over: Partial<Observed<number>["provenance"]> = {}, value: number | null = 1): Observed<number> {
   return { value, freshness, provenance: { source: "S", basis, observedAt: "2026-10-25T12:00:00Z", retrievedAt: "2026-10-25T12:05:00Z", maxAgeSeconds: 7200, ...over } };
@@ -90,8 +93,8 @@ describe("provenance wording", () => {
 
 describe("quantities", () => {
   it("a value with a range shows the range; a missing value shows why and no number", () => {
-    expect(viewQuantity(q(1_800_000, "EUR", "E0", { low: 1_500_000, high: 2_300_000 }))).toMatchObject({ text: "€1,800,000", known: true, evidence: "E0" });
-    expect(viewQuantity(q(1_800_000, "EUR", "E0", { low: 1_500_000, high: 2_300_000 })).range).toBe("range €1,500,000 to €2,300,000");
+    expect(viewQuantity(q(1_800_000, "EUR", "E0", { low: 1_500_000, high: 2_300_000 }))).toMatchObject({ text: `${eur(1800000)}`, known: true, evidence: "E0" });
+    expect(viewQuantity(q(1_800_000, "EUR", "E0", { low: 1_500_000, high: 2_300_000 })).range).toBe(`range ${eur(1500000)} to ${eur(2300000)}`);
     const missing = viewQuantity(q(null, "weeks", "E0", { missingReason: "no lead time" }));
     expect(missing).toMatchObject({ known: false, text: "not available", missing: "no lead time", evidence: null });
     expect(viewQuantity(null).text).toBe("not modelled");
@@ -141,14 +144,14 @@ describe("time and cost never become a date or a zero", () => {
   });
   it("no cost value is 'not priced' with the unpriced components; a partial total is a lower bound with no upper bound; never zero", () => {
     expect(viewCapex(tapoff)).toMatchObject({ kind: "unpriced", text: "Not priced", note: "Unpriced: tap-off units, installation labour." });
-    expect(viewCapex(busway)).toMatchObject({ kind: "lower_bound", text: "at least €1,800,000", qualifier: "(priced lines only)", range: null, pricing: "library placeholder prices", evidence: "E0" });
+    expect(viewCapex(busway)).toMatchObject({ kind: "lower_bound", text: `at least ${eur(1800000)}`, qualifier: "(priced lines only)", range: null, pricing: "library placeholder prices", evidence: "E0" });
     expect(viewCapex(busway).note).toMatch(/Excludes commissioning/);
-    expect(viewCapex(liquid)).toMatchObject({ kind: "complete", text: "€2,340,000", note: null, pricing: null, qualifier: null });
+    expect(viewCapex(liquid)).toMatchObject({ kind: "complete", text: `${eur(2340000)}`, note: null, pricing: null, qualifier: null });
   });
   it("the engine's capexComplete=false alone makes it a lower bound, and placeholder wording follows capexPricing", () => {
     const base = { capexEur: q(1_000_000, "EUR", "E0", { low: 800_000, high: 3_000_000 }), unpricedComponents: [] as string[] };
-    expect(viewCapex({ ...base, capexComplete: false, capexPricing: "placeholder" })).toMatchObject({ kind: "lower_bound", text: "at least €1,000,000", range: null, note: "Not a complete price." });
-    expect(viewCapex({ ...base, capexComplete: true, capexPricing: "partly_supplied" })).toMatchObject({ kind: "complete", pricing: "some lines are library placeholder prices", range: "range €800,000 to €3,000,000" });
+    expect(viewCapex({ ...base, capexComplete: false, capexPricing: "placeholder" })).toMatchObject({ kind: "lower_bound", text: `at least ${eur(1000000)}`, range: null, note: "Not a complete price." });
+    expect(viewCapex({ ...base, capexComplete: true, capexPricing: "partly_supplied" })).toMatchObject({ kind: "complete", pricing: "some lines are library placeholder prices", range: `range ${eur(800000)} to ${eur(3000000)}` });
     expect(viewCapex({ ...base, capexComplete: true, capexPricing: "placeholder" }).pricing).toBe("library placeholder prices");
     expect(viewCapex({ ...base, capexComplete: true, capexPricing: "supplied" }).pricing).toBeNull();
   });

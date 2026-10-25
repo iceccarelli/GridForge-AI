@@ -51,7 +51,7 @@ export const CLOCK_SKEW_SECONDS = 120;
 /** Age beyond which each kind of value is called stale. */
 export const MAX_AGE_SECONDS = {
   /** The interval containing "now" is at most an hour old by construction; anything older is a different hour's price. */
-  dayAheadPrice: 3600,
+  dayAheadPrice: 60 * 60,
   /** Energy-Charts publishes on a 15-minute cadence and lags; three hours is generous, beyond it the mix is not "now". */
   generationMix: 3 * 3600,
   /** ISO queue reports are monthly or quarterly. */

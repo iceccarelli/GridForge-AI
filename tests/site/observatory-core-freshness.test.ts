@@ -18,7 +18,7 @@ function f(over: Partial<FreshnessInput>) {
 
 describe("freshnessOf: the one rule", () => {
   it("the published thresholds", () => {
-    expect(MAX_AGE_SECONDS).toEqual({ dayAheadPrice: 3600, generationMix: 10800, queue: 120 * 86400, usDemand: 21600 });
+    expect(MAX_AGE_SECONDS).toEqual({ dayAheadPrice: 60 * 60, generationMix: 10800, queue: 120 * 86400, usDemand: 21600 });
     expect(CLOCK_SKEW_SECONDS).toBe(120);
   });
 

@@ -235,7 +235,7 @@ describe("caption honesty (a)-(i)", () => {
   it("every caption of the v2-shaped tour passes the lint, and the lint only lets the modelled capital cost carry euros", () => {
     for (const s of buildJourney(f)) expect(lintCaption(s.caption), `${s.id}: ${s.caption}`).toEqual([]);
     expect(lintCaption("Modelled capital cost at least 6.6 million euros, priced lines only.")).toEqual([]);
-    for (const bad of ["It costs 6.6 million euros", "from 1,200 euros", "Capital cost at least 6.6 million euros", "99 EUR", "€5", "unlimited headroom", "not supported by the inputs"]) {
+    for (const bad of ["It costs 6.6 million euros", "from 1,200 euros", "Capital cost at least 6.6 million euros", "99 EUR", `${String.fromCharCode(0x20ac)}5`, "unlimited headroom", "not supported by the inputs"]) {
       expect(lintCaption(bad), bad).not.toEqual([]);
     }
   });

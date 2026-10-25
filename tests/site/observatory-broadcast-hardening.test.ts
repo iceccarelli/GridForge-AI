@@ -1,3 +1,4 @@
+import { SITE_URL } from "@/lib/site";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
@@ -313,12 +314,12 @@ describe("finding 4: scoped default allow-list, robots private paths denied, mai
         continue;
       }
       expect(checkTargetUrl(url).ok, p).toBe(false);
-      const widened = checkTargetUrl(url, { allow: ["http://localhost", "https://timetopower.ai"] });
+      const widened = checkTargetUrl(url, { allow: ["http://localhost", `${SITE_URL}`] });
       expect(widened.ok, `${p} (widened allow-list)`).toBe(false);
       expect(widened.ok ? "" : widened.reason, p).toMatch(/deny list/);
       // and nested under the presenter route, and on the production host
       expect(checkTargetUrl(`http://localhost:3000/observatory/presenter${p.replace(/\/$/, "")}/x`).ok, `nested ${p}`).toBe(false);
-      expect(checkTargetUrl(`https://timetopower.ai${p}`, { allow: ["https://timetopower.ai"] }).ok, `prod ${p}`).toBe(false);
+      expect(checkTargetUrl(`${SITE_URL}${p}`, { allow: [`${SITE_URL}`] }).ok, `prod ${p}`).toBe(false);
     }
     // the surfaces the review named that robots.ts does not list
     for (const p of ["/power/deploy", "/billing", "/login", "/checkout"]) expect(checkTargetUrl(`http://localhost:3000${p}`, { allow: ["http://localhost"] }).ok, p).toBe(false);

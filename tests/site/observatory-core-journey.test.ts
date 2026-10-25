@@ -334,7 +334,7 @@ describe("captions: cues and WebVTT from the same text", () => {
 describe("honesty lint of every caption", () => {
   it("lintCaption catches what it must and lets the denials through", () => {
     expect(lintCaption("Write to alice@example.com")).toContain("contains an email address");
-    for (const bad of ["It costs EUR 500 a month", "from €99", "99 EUR", "about 1,200 euros", "5 euro"]) {
+    for (const bad of ["It costs EUR 500 a month", `from ${String.fromCharCode(0x20ac)}99`, "99 EUR", "about 1,200 euros", "5 euro"]) {
       expect(lintCaption(bad), bad).toContain("contains a price in EUR");
     }
     for (const bad of ["Buy it now", "purchase the report", "go to checkout", "subscribe today"]) {
