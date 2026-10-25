@@ -98,7 +98,9 @@ describe("buildJourney: the tour", () => {
   it("the context step speaks the provenance of the price", () => {
     const c = steps.find((s) => s.id === "context")!;
     expect(c.panel).toBe("context");
-    expect(c.caption).toContain("the day-ahead price for this hour in Germany, a published auction result, not a live reading");
+    expect(c.caption).toContain("a day-ahead auction price for an hour in Germany's market, a published result, not a live reading");
+    expect(c.caption).not.toMatch(/this hour|\bnow\b|today|right now/i);
+    expect(c.caption).not.toMatch(/\d/); // no figure that could age
     expect(c.caption).toContain("none of it is where these halls are");
   });
 
@@ -111,7 +113,7 @@ describe("buildJourney: the tour", () => {
   });
 
   it("an engine key with no stage in the view is reported as the engine gave it, not explained away", () => {
-    expect(steps.find((s) => s.id === "hall-2-outcome")?.caption).toContain('The engine names "grid-queue-position" as binding after the plan, which this view does not model.');
+    expect(steps.find((s) => s.id === "hall-2-outcome")?.caption).toContain('After the plan the engine names "grid-queue-position" as the limit, which this view does not model.');
   });
 
   it("degenerate data does not throw: no constraints, no outcomes", () => {
@@ -126,10 +128,12 @@ describe("buildJourney: the tour", () => {
 
   it("ranks constraints by racks allowed ascending, unsupported last, ties by key", () => {
     const c = steps.find((s) => s.id === "hall-1-constraints")!.caption;
-    expect(c).toContain("Transformer 100, UPS 110 and Cooling plant 128");
+    expect(c).toContain("Transformer 100 (E1), UPS 110 (E1) and Cooling plant 128 (E2)");
+    expect(c).toContain("Floor loading does not limit the hall (passes).");
+    expect(c).toContain("The limit is Transformer.");
     const withNull = clone(FIXTURE_FILE);
     withNull.scenarios[0].constraints.forEach((x) => (x.racksAllowed = x.key === "floor" ? 90 : x.key === "ups" ? null : x.racksAllowed));
-    expect(buildJourney(withNull).find((s) => s.id === "hall-1-constraints")!.caption).toContain("Floor loading 90, Transformer 100 and Cooling plant 128");
+    expect(buildJourney(withNull).find((s) => s.id === "hall-1-constraints")!.caption).toContain("Floor loading 90 (E0), Transformer 100 (E1) and Cooling plant 128 (E2)");
   });
 });
 
@@ -150,7 +154,7 @@ describe("determinism and the clock", () => {
   it("durationFor is whole seconds and never shorter than reading time", () => {
     expect(durationFor(10, "one two three")).toBe(10);
     const long = Array.from({ length: 50 }, () => "word").join(" ");
-    expect(durationFor(10, long)).toBe(23); // ceil(50 / 2.5) + 3
+    expect(durationFor(10, long)).toBe(20); // ceil(50 / 3) + 3
     expect(Number.isInteger(durationFor(7, "a b c d e f g"))).toBe(true);
   });
 });
@@ -364,9 +368,10 @@ describe("honesty lint of every caption", () => {
     assertClean("none", buildJourney({ ...FIXTURE_FILE, scenarios: [] }));
   });
 
-  it("the money in the data (capex in EUR) never reaches a caption", () => {
+  it("money appears only as the modelled capital cost of an option, 'at least' when partial, never as a raw EUR figure", () => {
     const all = buildJourney(THREE).map((s) => s.caption).join(" ");
-    expect(all).not.toMatch(/EUR|€|2,400,000|capex|capital cost/i);
+    expect(all).not.toMatch(/\bEUR\b|€|2,400,000|capex/);
+    expect(all).toContain("Modelled capital cost at least 2.4 million euros, priced lines only.");
   });
 
   it("the lint would catch a file that smuggled an email or a price into a title", () => {
