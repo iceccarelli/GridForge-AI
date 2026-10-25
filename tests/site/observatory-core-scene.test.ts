@@ -58,7 +58,7 @@ describe("buildSceneModel (hall A: fully specified)", () => {
     expect(t).toContain("Binding stage as found: Transformer.");
     expect(t).toContain("Binding stage after the plan: Cooling plant.");
     expect(t).toContain("Row 1: 60 racks; 5 kW per rack as found, 8 kW per rack after the plan.");
-    expect(t).toContain("Row 2: 40 racks; not supported by the inputs as found, not supported by the inputs after the plan.");
+    expect(t).toContain("Row 2: 40 racks; not stated as found, not stated after the plan.");
     expect(t).toContain("Racks: 100 as found, 128 after the plan");
     expect(t).toContain("Time to full capacity: 52 weeks, from supplied lead times (evidence E3).");
     expect(t).toContain("Unpriced components the capital cost omits: site works.");
@@ -95,8 +95,8 @@ describe("buildSceneModel never guesses (hall B: awkward data)", () => {
     expect(m.textAlternative).toContain("Binding stage after the plan: the engine output does not identify one, so none is named.");
   });
 
-  it("a missing capacity is stated as unsupported, never 0", () => {
-    expect(m.textAlternative).toContain("Busway: capacity not supported by the inputs");
+  it("a missing capacity is stated as not available, never 0", () => {
+    expect(m.textAlternative).toContain("Busway: capacity not available");
     expect(m.textAlternative).not.toMatch(/can carry 0 /);
     expect(m.textAlternative).toContain("Racks: no rack rows are given.");
   });
@@ -151,7 +151,7 @@ describe("formatting is deterministic and locale-free", () => {
   });
   it("formatQuantity", () => {
     expect(formatQuantity(null)).toBe("no figure supplied");
-    expect(formatQuantity({ value: null, low: null, high: null, unit: "MW", evidence: "E0" })).toBe("not supported by the inputs");
+    expect(formatQuantity({ value: null, low: null, high: null, unit: "MW", evidence: "E0" })).toBe("not available");
     expect(formatQuantity({ value: 5, low: 4, high: 6, unit: "MW", evidence: "E2" })).toBe("5 MW (evidence E2, range 4 to 6 MW)");
     expect(formatQuantity({ value: 5, low: 5, high: 5, unit: "MW", evidence: "E2" })).toBe("5 MW (evidence E2)");
   });

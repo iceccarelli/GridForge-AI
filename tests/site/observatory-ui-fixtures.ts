@@ -246,7 +246,7 @@ export function fixtureContext(over: Partial<LiveContext> = {}): LiveContext {
     generatedAt: "2026-10-25T12:06:00Z",
     referenceRegion: REFERENCE_REGION_SENTENCE,
     dayAheadPrice: obs(
-      { eurPerMWh: 87.4, deliveryStart: "2026-10-25T13:00:00Z", min: 31.2, max: 142.8, avg: 84.1 },
+      { eurPerMWh: 87.4, deliveryStart: "2026-10-25T13:00:00Z", min: 31.2, max: 142.8, avg: 84.1, windowStart: "2026-10-25T12:00:00Z", windowEnd: "2026-10-26T12:00:00Z" },
       { source: "FIXTURE day-ahead auction", basis: "day_ahead_auction", observedAt: "2026-10-25T13:00:00Z", maxAgeSeconds: 86400 },
     ),
     generationMix: obs(

@@ -31,7 +31,7 @@ export function formatNumber(n: number): string {
 /** "12 MW", or the reason it is missing. A missing value is never rendered as 0. */
 export function formatQuantity(q: Quantity | null): string {
   if (q === null) return "no figure supplied";
-  if (q.value === null) return q.missingReason ? `not supported by the inputs (${q.missingReason})` : "not supported by the inputs";
+  if (q.value === null) return q.missingReason ? `not available (${q.missingReason})` : "not available";
   const range =
     q.low !== null && q.high !== null && (q.low !== q.value || q.high !== q.value)
       ? `, range ${formatNumber(q.low)} to ${formatNumber(q.high)} ${q.unit}`
@@ -116,7 +116,7 @@ function stageSentence(n: PathNode, index: number, asFound: PathNode | null, aft
 }
 
 function rackRowSentence(r: RackRow): string {
-  const kw = (v: number | null) => (v === null ? "not supported by the inputs" : `${formatNumber(v)} kW per rack`);
+  const kw = (v: number | null) => (v === null ? "not stated" : `${formatNumber(v)} kW per rack`);
   return `${r.label}: ${formatNumber(r.racks)} racks; ${kw(r.kwPerRackAsFound)} as found, ${kw(r.kwPerRackAfterPlan)} after the plan.`;
 }
 

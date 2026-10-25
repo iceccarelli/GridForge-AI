@@ -173,7 +173,8 @@ export interface LiveContext {
   generatedAt: string;
   /** The market/grid shown belongs to the named reference region, NOT to the invented hall. */
   referenceRegion: string;
-  dayAheadPrice: Observed<{ eurPerMWh: number; deliveryStart: string; min: number; max: number; avg: number }>;
+  /** min/max/avg are over the published window windowStart..windowEnd (about the next 24 hours), not a calendar day. */
+  dayAheadPrice: Observed<{ eurPerMWh: number; deliveryStart: string; min: number; max: number; avg: number; windowStart: string; windowEnd: string }>;
   generationMix: Observed<{ totalMW: number; renewablePct: number; mix: { name: string; mw: number; renewable: boolean }[] }>;
   queue: Observed<{ market: string; activeProjectsGW: number; typicalWaitMonths: number }[]>;
   /** The EIA national demand overlay, only when the key is configured and the read succeeded. */
