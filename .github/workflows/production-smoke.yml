@@ -1,0 +1,28 @@
+name: production-smoke
+
+# What the DEPLOYED site shows a visitor. A page can degrade without changing its status code (the Observatory once shipped
+# without its data file and answered 200 with its own "data cannot be shown" panel), so every local run and every status check
+# was green while production showed nothing. This reads the public URLs after each merge to main (a new deployment takes a
+# minute or two to go live, so the suite retries) and once a day. Read-only: public GETs, no secrets, nothing written.
+#
+# Its own workflow, like engine-drift, so a bad deployment is visible (red) without blocking unrelated pull requests.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: The deployed site must show what the repository says it ships
+        run: node scripts/production-smoke.mjs --attempts 14 --interval 30 --summary-file "$GITHUB_STEP_SUMMARY"
