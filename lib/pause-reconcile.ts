@@ -153,9 +153,10 @@ async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | nu
   const key = `${table}:${row.id}:${from}:${row.billing_pause_event_ts ?? "none"}`;
   const entry = { table, subjectId: row.id, objectId: subId, subscriptionId: subId } as const;
   // The audit row goes FIRST (idempotent by its key), so a crash between it and the clear cannot lose the record (the next check repeats
-  // both). A crash AFTER the clear leaves "started" without "dropped": the schedule is gone, so nothing repeats the closing row; that
-  // case, and a failed write of it, is reported to a person below. Its key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is
-  // recorded again. It says what was decided; the row after the clear says what happened.
+  // both). A crash AFTER the clear leaves "started" without "dropped": the schedule is gone, so no access check repeats the closing row;
+  // the daily pass does (closeOrphanedDropAudits, below, under the SAME key), and a failed write of it is reported to a person below. Its
+  // key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is recorded
+  // again. It says what was decided; the row after the clear says what happened.
   const started = await recordBillingAudit({ ...entry, dedupeKey: `pause_schedule_drop_started:${key}`, action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" } });
   if (started === "error") return DENY_QUIET; // a store fault, not a verdict about the customer: not remembered
   const w = await clearSchedule(table, row, Math.floor(readStartedMs / 1000) - 1);
@@ -177,6 +178,56 @@ async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | nu
     );
   }
   return { allowed: true, remember: false };
+}
+
+/** How far back the daily pass looks for a "started" row that never got its closing row, and how long a "started" row is left to its own check first. */
+export const DROP_AUDIT_LOOKBACK_MS = 14 * 86_400_000;
+export const DROP_AUDIT_SETTLE_MS = 10 * 60_000;
+
+/**
+ * A crash after the clear of a stale schedule leaves `pause_schedule_drop_started` with no `pause_schedule_dropped`, and the schedule is gone,
+ * so no access check repeats the closing row. The daily pass calls this: for every "started" row (last 14 days, older than ten minutes so a
+ * check still in flight finishes its own) that has no closing row and whose subject row now has NO schedule, the closing row is written under
+ * the SAME key the access check would have used (the insert is the once-only claim: a race with the live path, or a second pass, records
+ * nothing twice). A schedule still standing is left alone (the check that wrote "started" repeats both rows). The row says it was closed
+ * here and that the schedule was found clear: it does not claim to know who cleared it (the access check, the daily job, or the resume
+ * event, each of which has its own row). Never throws. Returns how many rows it wrote.
+ */
+export async function closeOrphanedDropAudits(nowMs: number = Date.now()): Promise<number> {
+  try {
+    const since = new Date(nowMs - DROP_AUDIT_LOOKBACK_MS).toISOString();
+    const settled = new Date(nowMs - DROP_AUDIT_SETTLE_MS).toISOString();
+    const started = await pg<{ dedupe_key: string; subject_table: string; subject_id: string; stripe_subscription_id?: string | null; detail?: { was_effective_from?: unknown } | null }[]>(
+      "GET",
+      `billing_audit?action=eq.pause_schedule_drop_started&created_at=gte.${enc(since)}&created_at=lte.${enc(settled)}&select=dedupe_key,subject_table,subject_id,stripe_subscription_id,detail&order=created_at.asc&limit=200`
+    );
+    if (!started.ok || !started.data?.length) return 0;
+    const closed = await pg<{ dedupe_key: string }[]>("GET", `billing_audit?action=eq.pause_schedule_dropped&created_at=gte.${enc(since)}&select=dedupe_key&limit=2000`);
+    if (!closed.ok) return 0;
+    const done = new Set((closed.data ?? []).map((r) => r.dedupe_key));
+    let written = 0;
+    for (const r of started.data) {
+      const key = r.dedupe_key.replace(/^pause_schedule_drop_started:/, "");
+      if (key === r.dedupe_key || done.has(`pause_schedule_dropped:${key}`)) continue;
+      const table = r.subject_table;
+      if (table !== "api_accounts" && table !== "watches" && table !== "subscriptions") continue;
+      const now = await pg<{ billing_pause_from?: string | null }[]>("GET", `${table}?id=eq.${enc(r.subject_id)}&select=billing_pause_from&limit=1`);
+      if (!now.ok || !now.data?.[0] || now.data[0].billing_pause_from) continue; // unreadable, gone, or the schedule still stands: not this pass's to close
+      const a = await recordBillingAudit({
+        table,
+        subjectId: r.subject_id,
+        subscriptionId: r.stripe_subscription_id ?? undefined,
+        objectId: r.stripe_subscription_id ?? undefined,
+        dedupeKey: `pause_schedule_dropped:${key}`,
+        action: "pause_schedule_dropped",
+        detail: { why: "billing_running_at_stripe", was_effective_from: typeof r.detail?.was_effective_from === "string" ? r.detail.was_effective_from : null, closed_by: "daily_pass", schedule_found_clear: true },
+      });
+      if (a === "recorded") written++;
+    }
+    return written;
+  } catch {
+    return 0;
+  }
 }
 
 /**

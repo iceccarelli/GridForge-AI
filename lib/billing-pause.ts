@@ -28,6 +28,15 @@
 // that finds its own effects already recorded only re-checks its audit row. A row with no clock yet (migration 0043 not applied, or never
 // paused) accepts any event.
 //
+// Concurrent writers. The webhook READS the row, then asks Stripe (up to two 8 s calls), then writes. Anything that changes the row in that
+// window (the access-check reconcile of lib/pause-reconcile.ts clearing a stale schedule and moving the clock to the start of its read,
+// a newer pause or resume event, a hold, a re-schedule) must not be overwritten by a decision made from the old read. Every write of the
+// schedule and the pause clock in applyToTarget is therefore CONDITIONAL on exactly what was read: the same schedule instant, the same
+// pause clock and the same hold (and, as always, a row that is not ended). A write that matches nothing is "raced": the row is read once
+// more and the event is evaluated again against it (a clock that has moved past the event makes it stale, which is correct); raced a
+// second time the event is answered with the existing retry outcome and Stripe redelivers. Nothing newer is ever overwritten, no hold is
+// lifted or ignored, an ended row stays ended. (The hold writers, applyHold and liftHold in lib/billing-holds.ts, keep their own guards.)
+//
 // Hall Watch. A change note that was already DUE before the instant the pause starts is still delivered, whenever the cron reaches it
 // (the schedule is weekly); none that falls due after it is. The daily job does not pause a watch that owes such a note for up to
 // WATCH_OWED_NOTE_GRACE_MS; the Hall Watch cron delivers it and then writes the hold.
@@ -48,6 +57,7 @@ import {
   type Entitlements,
   type ReversalStripe,
 } from "@/lib/billing-holds";
+import { closeOrphanedDropAudits } from "@/lib/pause-reconcile";
 import type { WatchRecord } from "@/lib/watches";
 
 /** How long after a scheduled pause starts a Hall Watch that owes a note is left active for the Hall Watch cron to deliver it. The cron is weekly. */
@@ -86,22 +96,36 @@ function only(t: Target): Entitlements {
   return { api: null, watch: null, intelligence: null, [t.ent]: t.row } as unknown as Entitlements;
 }
 
-type Written = "ok" | "terminal" | "error" | "nocolumn";
+type Written = "ok" | "terminal" | "error" | "nocolumn" | "raced";
+
+/** The columns a webhook decision is made from: a write that carries them matches only while the row is still as it was read. */
+const casClause = (row: PauseFields): string =>
+  `&billing_pause_from=${row.billing_pause_from ? `eq.${enc(row.billing_pause_from)}` : "is.null"}` +
+  `&billing_pause_event_ts=${typeof row.billing_pause_event_ts === "number" ? `eq.${row.billing_pause_event_ts}` : "is.null"}` +
+  `&billing_hold=${row.billing_hold ? `eq.${enc(row.billing_hold)}` : "is.null"}`;
 
 /**
  * A guarded write: never to a cancelled (or superseded) row. "nocolumn": the store does not know the column (migration 0043 not applied
  * yet); a transient failure is "error" and is retried, never read as "the migration is missing".
+ *
+ * `ifFrom`: write only while billing_pause_from is STILL the value that was read.
+ * `ifRow`: write only while the schedule, the pause clock AND the hold are still what was read (a compare-and-set, as in
+ * lib/pause-reconcile.ts). Matching nothing is "raced" when the row is still there (changed since the read: the caller re-reads and decides
+ * again) and "terminal" when it is not (ended).
  */
-async function patchTarget(t: Target, patch: Record<string, unknown>, opts: { ifFrom?: string } = {}): Promise<Written> {
-  // `ifFrom`: write only while billing_pause_from is STILL the value that was read (a pause that was scheduled again in between keeps its schedule).
-  const cond = opts.ifFrom ? `&billing_pause_from=eq.${enc(opts.ifFrom)}` : "";
-  const q =
+async function patchTarget(t: Target, patch: Record<string, unknown>, opts: { ifFrom?: string; ifRow?: PauseFields } = {}): Promise<Written> {
+  const cond = (opts.ifFrom ? `&billing_pause_from=eq.${enc(opts.ifFrom)}` : "") + (opts.ifRow ? casClause(opts.ifRow) : "");
+  const guard =
     t.table === "subscriptions"
-      ? `subscriptions?id=eq.${enc(t.row.id)}&status=not.in.(cancelled,superseded)${cond}`
-      : `${t.table}?token=eq.${enc(t.row.token ?? "")}&status=neq.cancelled${cond}`;
-  const r = await pg<unknown[]>("PATCH", q, t.table === "subscriptions" ? { ...patch, updated_at: new Date().toISOString() } : patch);
+      ? `subscriptions?id=eq.${enc(t.row.id)}&status=not.in.(cancelled,superseded)`
+      : `${t.table}?token=eq.${enc(t.row.token ?? "")}&status=neq.cancelled`;
+  const r = await pg<unknown[]>("PATCH", `${guard}${cond}`, t.table === "subscriptions" ? { ...patch, updated_at: new Date().toISOString() } : patch);
   if (!r.ok) return r.status === 400 && (r.code === "PGRST204" || r.code === "42703") ? "nocolumn" : "error";
-  return (r.data?.length ?? 0) > 0 ? "ok" : "terminal";
+  if ((r.data?.length ?? 0) > 0) return "ok";
+  if (!opts.ifRow) return "terminal";
+  const still = await pg<unknown[]>("GET", `${guard}&select=id&limit=1`);
+  if (!still.ok) return "error";
+  return (still.data?.length ?? 0) > 0 ? "raced" : "terminal";
 }
 
 async function noteMigrationMissing(): Promise<void> {
@@ -229,6 +253,9 @@ async function audit(e: AuditEntry): Promise<boolean> {
 /**
  * customer.subscription.updated for a subscription that is not ending: apply its pause state to every row it entitles. `ok: false`: a
  * Stripe call, a write or an audit failed and the event is retried (every step is absolute, so the retry is safe).
+ *
+ * The rows were read BEFORE the Stripe calls of planPause, so each write is conditional on what was read (see "Concurrent writers" above). A
+ * row that changed in between is read ONCE more and the event is decided again against it; changed again, the event is retried.
  */
 export async function applyPauseState(found: Entitlements, sub: PausedSub, ev: { id: string; created?: number }, stripe: ReversalStripe | null, nowMs: number = Date.now()): Promise<{ ok: boolean }> {
   const targets = targetsOf(found).filter((t) => !endedRow(t.row));
@@ -236,26 +263,51 @@ export async function applyPauseState(found: Entitlements, sub: PausedSub, ev: {
   const planned = await planPause(sub, stripe, nowMs);
   if (!planned.ok) return { ok: false };
   let ok = true;
-  for (const t of targets) if (!(await applyToTarget(t, planned.plan, sub, ev))) ok = false;
+  for (const t of targets) {
+    let out = await applyToTarget(t, planned.plan, sub, ev);
+    if (out === "raced") {
+      // The row changed since it was read (the reconcile cleared a stale schedule, a newer event, a hold): decide again from the row as it is now.
+      const fresh = await resolveSubscription(sub.id);
+      if (!fresh.ok) {
+        ok = false;
+        continue;
+      }
+      const again = targetsOf(fresh).find((x) => x.ent === t.ent);
+      if (!again || endedRow(again.row)) continue; // ended (or gone) in the meantime: it stays that way, nothing to write
+      out = await applyToTarget(again, planned.plan, sub, ev);
+      if (out === "raced") {
+        console.error(`[GridForge] pause event ${ev.id}: ${t.table} row changed twice while it was being applied; asking Stripe to retry`);
+        out = false;
+      }
+    }
+    if (!out) ok = false;
+  }
   return { ok };
 }
 
-async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { id: string; created?: number }): Promise<boolean> {
+/** `"raced"`: a conditional write matched nothing because the row changed since it was read; nothing newer was overwritten. */
+async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { id: string; created?: number }): Promise<boolean | "raced"> {
   const row = t.row;
   const created = ev.created;
   const ts = row.billing_pause_event_ts;
   const base = { table: t.table, subjectId: row.id, eventId: ev.id, objectId: sub.id, subscriptionId: sub.id } as const;
+  // Every write of the schedule or the pause clock is conditional on the row as it was READ. The one change this function makes to the hold
+  // itself (a lift, a hold begun) is expected by the writes that follow it, so it does not read as someone else's.
+  let expectHold: string | null = row.billing_hold ?? null;
+  const cas = (patch: Record<string, unknown>) => patchTarget(t, patch, { ifRow: { ...row, billing_hold: expectHold } });
 
   // ---- resume --------------------------------------------------------------------------------------------------------------
   if (plan.mode === "none") {
     if (!pauseEventIsCurrent(row, created)) return true; // a newer pause or resume is already on record
     const lift = await liftHold(only(t), { kinds: ["paused"], restore: "prev", cause: "billing_resumed", clock: "pause", subscriptionId: sub.id, eventId: ev.id, created });
     if (!lift.ok) return false;
+    if (lift.lifted[t.ent]) expectHold = null;
     const hadSchedule = Boolean(row.billing_pause_from || row.billing_pause_resumes_at);
     const clockMoves = typeof created === "number" && !(typeof ts === "number" && ts >= created);
     if (!hadSchedule && !clockMoves) return true;
-    const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+    const w = await cas({ billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
     if (w === "error") return false;
+    if (w === "raced") return "raced";
     if (w === "nocolumn") {
       await noteMigrationMissing();
       return true;
@@ -283,8 +335,9 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
       // customer pauses on day 6: the pause starts on day 30, not now), and only a genuinely immediate pause is due now. Never moved later.
       const fromIso = plan.mode === "scheduled" ? iso(existingMin(row, plan.fromSec)) : row.billing_pause_from ?? new Date().toISOString();
       const resumes = plan.mode === "scheduled" && plan.resumesAtSec ? { billing_pause_resumes_at: iso(plan.resumesAtSec) } : {};
-      const w = await patchTarget(t, { billing_pause_from: fromIso, ...resumes, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      const w = await cas({ billing_pause_from: fromIso, ...resumes, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
+      if (w === "raced") return "raced";
       if (w === "nocolumn") await noteMigrationMissing();
       return true;
     }
@@ -292,17 +345,20 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
     // schedule stands. The job (or, for a Hall Watch that owes a note, the Hall Watch cron) begins the hold; an event must not pre-empt that.
     if (plan.mode === "immediate" && plan.why === "paid_period_over" && row.billing_pause_from && !row.billing_hold) {
       if (typeof created === "number" && !(typeof ts === "number" && ts >= created)) {
-        const w = await patchTarget(t, { billing_pause_event_ts: Math.max(created, ts ?? 0) });
+        const w = await cas({ billing_pause_event_ts: Math.max(created, ts ?? 0) });
         if (w === "error") return false;
+        if (w === "raced") return "raced";
       }
       return true;
     }
     // The legacy order clock is used only where there is no pause clock to write (migration 0043 not applied).
     const out = await applyHold(only(t), { kind: "paused", ref: sub.id, invoiceId: null, subscriptionId: sub.id, eventId: ev.id, created, noPaymentClock: true });
     if (!out.ok) return false;
+    if (!expectHold && out.applied > 0) expectHold = "paused";
     if (row.billing_pause_from || row.billing_pause_resumes_at || (typeof created === "number" && !(typeof ts === "number" && ts >= created))) {
-      const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      const w = await cas({ billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
+      if (w === "raced") return "raced";
       if (w === "nocolumn") await noteMigrationMissing();
     }
     // The immediate hold's own audit row ("hold_applied") is written by applyHold; this one says WHY it was not scheduled. A stronger hold
@@ -314,8 +370,9 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
   if (row.billing_hold === "paused") {
     // Already held by an earlier pause that came due: there is nothing for a schedule to wait for.
     if (row.billing_pause_from || (typeof created === "number" && !(typeof ts === "number" && ts >= created))) {
-      const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      const w = await cas({ billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
+      if (w === "raced") return "raced";
     }
     return true;
   }
@@ -324,8 +381,9 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
     const nothingScheduled = !row.billing_pause_from && !row.billing_pause_resumes_at;
     if (sameSecond && !nothingScheduled) return true;
     if (!nothingScheduled || (typeof created === "number" && !(typeof ts === "number" && ts >= created))) {
-      const w = await patchTarget(t, { billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      const w = await cas({ billing_pause_from: null, billing_pause_resumes_at: null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
+      if (w === "raced") return "raced";
       if (w === "nocolumn") {
         await noteMigrationMissing();
         return true;
@@ -345,8 +403,9 @@ async function applyToTarget(t: Target, plan: PausePlan, sub: PausedSub, ev: { i
   if (sameSecond && !same) return true; // a different decision at the same second: the resume's tie
   if (!(same && sameSecond)) {
     if (!(same && typeof created === "number" && typeof ts === "number" && ts >= created)) {
-      const w = await patchTarget(t, { billing_pause_from: iso(p.fromSec), billing_pause_resumes_at: p.resumesAtSec ? iso(p.resumesAtSec) : null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
+      const w = await cas({ billing_pause_from: iso(p.fromSec), billing_pause_resumes_at: p.resumesAtSec ? iso(p.resumesAtSec) : null, ...(typeof created === "number" ? { billing_pause_event_ts: Math.max(created, ts ?? 0) } : {}) });
       if (w === "error") return false;
+      if (w === "raced") return "raced";
       if (w === "terminal") return true;
       if (w === "nocolumn") {
         // No place to keep a schedule (0043 not applied): the previous behaviour, loudly, rather than losing the pause.
@@ -502,6 +561,8 @@ export interface PauseReport {
   dropped: number;
   skipped: number;
   errors: number;
+  /** Closing audit rows written for a stale schedule that an access check cleared and then died before recording it (lib/pause-reconcile.ts). */
+  auditClosed: number;
   skippedReason?: string;
 }
 
@@ -516,7 +577,7 @@ async function stampChecked(t: Target, now: Date): Promise<void> {
  */
 export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe | null; clock?: () => number; budgetMs?: number }): Promise<PauseReport> {
   const now = opts.now ?? new Date();
-  const report: PauseReport = { due: 0, unreached: 0, promoted: 0, deferred: 0, dropped: 0, skipped: 0, errors: 0 };
+  const report: PauseReport = { due: 0, unreached: 0, promoted: 0, deferred: 0, dropped: 0, skipped: 0, errors: 0, auditClosed: 0 };
   const clock = opts.clock ?? (() => performance.now());
   const started = clock();
   const budget = opts.budgetMs ?? PAUSE_PASS_BUDGET_MS;
@@ -559,6 +620,8 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
       if (out !== "promoted" && out !== "dropped") await stampChecked(target, now);
     }
   }
+  // An access check that cleared a stale schedule and died before its closing audit row: the schedule is gone, so only this pass can close it.
+  report.auditClosed = await closeOrphanedDropAudits(now.getTime());
   // A pause that does not start is a customer's paid access held open (or, worse, a hold that never comes): said to a person, once a day
   // while it lasts, not left in the cron's JSON.
   if (report.skippedReason) {
