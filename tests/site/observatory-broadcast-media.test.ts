@@ -34,6 +34,11 @@ const cues = JSON.parse(fs.readFileSync(cuesFile, "utf8"));
 
 const psLines = (needle: string) => { try { return execFileSync("pgrep", ["-f", needle], { encoding: "utf8" }).trim().split("\n").filter(Boolean); } catch { return []; } };
 
+/** Poll until `cond()` holds or `timeoutMs` passes (never throws: the caller asserts the state it wanted). */
+async function eventually(cond: () => boolean, timeoutMs: number, stepMs = 100) {
+  for (const deadline = Date.now() + timeoutMs; Date.now() < deadline && !cond(); ) await new Promise((r) => setTimeout(r, stepMs));
+}
+
 describe("observatory-broadcast: ffmpeg helpers (pure)", () => {
   it("validates encoding settings with specific messages", () => {
     expect(resolveEncoding().errors).toEqual([]);
@@ -214,25 +219,38 @@ describe.skipIf(!BROWSER)("observatory-broadcast: record (real Chromium + ffmpeg
       const out = path.join(tmp, "nope.mp4");
       await expect(record({ url: server.url, out, durationSec: 1, captions: "soft" })).rejects.toMatchObject({ code: "captions_missing" });
       await expect(record({ url: server.url, out, durationSec: 1, cues: [{ startSec: 3, endSec: 1, text: "x" }], captions: "soft" })).rejects.toMatchObject({ code: "captions_invalid" });
+      await expect(record({ url: server.url, out, durationSec: 1, runId: "../x" })).rejects.toMatchObject({ code: "bad_option" }); // a run id becomes part of paths and command lines
       expect(fs.readdirSync(tmp)).toEqual([]);
     } finally { await server.close(); }
   }, 60_000);
 
   it("an aborted recording kills ffmpeg and Chromium, removes its work files and the partial output", async () => {
     const server = await serveFixtures();
+    const ac = new AbortController();
     try {
-      const before = psLines("obs-chromium-").length;
-      const ac = new AbortController();
-      const p = record({ url: server.url, out: path.join(tmp, "abort.mp4"), durationSec: 30, mode: "stepped", encoding: { width: 320, height: 180, fps: 10, videoBitrateKbps: 300 }, signal: ac.signal });
-      await new Promise((r) => setTimeout(r, 2500));
+      // Everything here is scoped to THIS recording by its run id, never to the machine: another recording or broadcast (a
+      // developer's own, or another test file running in parallel) legitimately has its own ffmpeg and Chromium running.
+      // ffmpeg carries the id in its output path, Chromium in its profile path (see record.mjs).
+      const runId = `abort${crypto.randomBytes(4).toString("hex")}`;
+      const ffmpegOf = () => psLines(`.partial-${runId}.mp4`);
+      const chromiumOf = () => psLines(`obs-rec-${runId}-`);
+      const workDirsOf = () => fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith(`obs-rec-${runId}-`));
+      const p = record({ url: server.url, out: path.join(tmp, "abort.mp4"), durationSec: 30, mode: "stepped", encoding: { width: 320, height: 180, fps: 10, videoBitrateKbps: 300 }, signal: ac.signal, runId });
+      p.catch(() => {}); // settled below; keeps an early failure from surfacing as an unhandled rejection
+      // The processes must really be running before the abort, otherwise "none left" would prove nothing.
+      await eventually(() => ffmpegOf().length > 0 && chromiumOf().length > 0 && workDirsOf().length > 0, 30_000);
+      await new Promise((r) => setTimeout(r, 1000)); // let it run mid-capture
+      expect(ffmpegOf().length).toBeGreaterThan(0);
+      expect(chromiumOf().length).toBeGreaterThan(0);
       ac.abort();
       await expect(p).rejects.toBeTruthy();
-      await new Promise((r) => setTimeout(r, 500));
-      expect(psLines("obs-chromium-").length).toBe(before);
-      expect(psLines("obs-rec-")).toEqual([]);
+      // Killed processes take a moment to disappear from the process table; wait for it, up to a generous bound, instead of a fixed pause.
+      await eventually(() => ffmpegOf().length === 0 && chromiumOf().length === 0, 10_000);
+      expect(ffmpegOf()).toEqual([]);
+      expect(chromiumOf()).toEqual([]);
+      expect(workDirsOf()).toEqual([]);
       expect(fs.readdirSync(tmp).filter((f) => f.includes("abort"))).toEqual([]);
-      expect(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith("obs-rec-") && fs.existsSync(path.join(os.tmpdir(), f, "captions.vtt")))).toEqual([]);
-    } finally { await server.close(); }
+    } finally { ac.abort(); await server.close(); } // abort again is a no-op; if an assertion above failed first, this stops the recording
   }, 60_000);
 
   it("the page's own requests are confined to its origin: a scene that calls /api or another host is blocked and reported", async () => {
