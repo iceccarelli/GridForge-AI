@@ -31,7 +31,7 @@ import { Redactor } from "./redact.mjs";
  *   cues?: unknown, captions?: "soft"|"burn"|"both"|"none", hls?: boolean,
  *   encoding?: Partial<import("./ffmpeg.mjs").Encoding>, allow?: readonly string[],
  *   env?: Record<string, string | undefined>, signal?: AbortSignal, now?: () => number, onProgress?: (p: any) => void,
- *   track?: Set<import("node:child_process").ChildProcess>
+ *   track?: Set<import("node:child_process").ChildProcess>, runId?: string
  * }} RecordOptions
  */
 export async function record(/** @type {RecordOptions} */ o) {
@@ -66,7 +66,11 @@ export async function record(/** @type {RecordOptions} */ o) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   assertDiskSpace(path.dirname(out), estimateBytes(o.durationSec, encoding.videoBitrateKbps, { overhead: mode === "stepped" ? 2 : 6 }));
 
-  const runId = crypto.randomBytes(5).toString("hex");
+  // The run id is on this run's ffmpeg command line (partial-<runId>.mp4, comment=... run <runId>) and in its Chromium profile
+  // path (obs-rec-<runId>-*/obs-chromium-*), which is how a caller finds exactly the processes THIS run started. A caller that
+  // must tell its own processes from anyone else's (a test on a busy machine) passes one; the default is random.
+  if (o.runId !== undefined && !/^[A-Za-z0-9]{4,32}$/.test(o.runId)) throw new ObsError("bad_option", "runId must be 4-32 letters or digits", { exitCode: 2 });
+  const runId = o.runId ?? crypto.randomBytes(5).toString("hex");
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `obs-rec-${runId}-`));
   const track = o.track ?? new Set();
   const tmpOut = `${out}.partial-${runId}.mp4`;
