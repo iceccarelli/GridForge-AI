@@ -620,8 +620,6 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
       if (out !== "promoted" && out !== "dropped") await stampChecked(target, now);
     }
   }
-  // An access check that cleared a stale schedule and died before its closing audit row: the schedule is gone, so only this pass can close it.
-  report.auditClosed = await closeOrphanedDropAudits(now.getTime());
   // A pause that does not start is a customer's paid access held open (or, worse, a hold that never comes): said to a person, once a day
   // while it lasts, not left in the cron's JSON.
   if (report.skippedReason) {
@@ -641,7 +639,32 @@ export async function applyDuePauses(opts: { now?: Date; stripe: ReversalStripe 
         "Until each starts, that customer keeps paid access they have stopped paying for. This notice is sent once a day while any remains."
     );
   }
+  // LAST, after every notice, inside what is left of the budget, and cut off at that bound (a store call that never answers must not hold the
+  // cron's remaining stages): an access check that cleared a stale schedule and died before its closing audit row leaves the schedule gone, so
+  // only this pass can leave the trail a truthful end (closeOrphanedDropAudits). It never throws and never touches the counters above.
+  report.auditClosed = await sweepOrphanedDropAudits(now.getTime(), budget - (clock() - started));
   return report;
+}
+
+/** The longest the closing sweep may take, however much of the budget is left. */
+export const DROP_AUDIT_SWEEP_BOUND_MS = 15_000;
+
+async function sweepOrphanedDropAudits(nowMs: number, remainingMs: number): Promise<number> {
+  const bound = Math.min(remainingMs, DROP_AUDIT_SWEEP_BOUND_MS);
+  if (!(bound > 0)) return 0;
+  let abandoned = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cutOff = new Promise<number>((resolve) => {
+    timer = setTimeout(() => {
+      abandoned = true;
+      resolve(0);
+    }, bound);
+  });
+  try {
+    return await Promise.race([closeOrphanedDropAudits(nowMs, { shouldStop: () => abandoned }).catch(() => 0), cutOff]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ------------------------------------------------------------------------------------------ a lift must not forget the pause

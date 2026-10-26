@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyDuePauses } from "@/lib/billing-pause";
 import type { ReversalStripe } from "@/lib/billing-holds";
 import { lookupEntitlement } from "@/lib/subscribers";
-import { DAY, at, audit, intelRow, send, startRig, type Rig } from "./billing-holds-harness";
+import { DAY, at, audit, intelRow, operatorMail, send, startRig, type Rig } from "./billing-holds-harness";
 
 let rig: Rig;
 let restoreFetch: (() => void) | null = null;
@@ -152,7 +152,9 @@ describe("3. a hold that arrives while the webhook is in flight is never overwri
     expect((await ents()).entitlement).toBeNull(); // still denied
   });
 
-  it("a dispute (a stronger hold) lands mid-flight: its hold columns and status are untouched by the event", async () => {
+  // INVARIANT TESTS (3b, 3c): these also pass with the compare-and-set removed, because the writer never touches hold columns and its plain
+  // status guard already refuses an ended row. They pin those properties; the tests that discriminate the CAS are the others in this file.
+  it("[invariant, does not discriminate the CAS] a dispute (a stronger hold) lands mid-flight: its hold columns and status are untouched by the event", async () => {
     const i = await dueIntelligence();
     const g = gateInvoiceRead();
     const inFlight = send(rig, "customer.subscription.updated", renewedPause(), { created: rig.T0 + PERIOD + 120, unmirrored: true });
@@ -165,7 +167,7 @@ describe("3. a hold that arrives while the webhook is in flight is never overwri
     expect(audit(rig, "hold_applied")).toHaveLength(0);
   });
 
-  it("a cancellation that lands mid-flight stays: nothing is written to the ended row, and the event is acknowledged", async () => {
+  it("[invariant, does not discriminate the CAS] a cancellation that lands mid-flight stays: nothing is written to the ended row, and the event is acknowledged", async () => {
     const i = await dueIntelligence();
     const g = gateInvoiceRead();
     const inFlight = send(rig, "customer.subscription.updated", renewedPause(), { created: rig.T0 + PERIOD + 120, unmirrored: true });
@@ -232,10 +234,93 @@ describe("5. the uncontended path is unchanged", () => {
   });
 });
 
-describe("6. the closing audit row of a cleared stale schedule is never lost", () => {
-  const runDue = () => applyDuePauses({ stripe: rig.stripe as unknown as ReversalStripe, now: new Date() });
+/** How many times the webhook (or anything) read the subscription row set by Stripe subscription id: 1 per event when nothing raced, 2 after a lost race. */
+const rowReads = () => (rig.db.calls as { method: string; url: string }[]).filter((c) => c.method === "GET" && c.url.includes("/subscriptions?") && c.url.includes("stripe_subscription_id")).length;
+const isCas = (m: string, u: string) => m === "PATCH" && u.includes("/subscriptions?") && u.includes("billing_pause_event_ts");
+const casPatches = () => (rig.db.calls as { method: string; url: string }[]).filter((c) => c.method === "PATCH" && c.url.includes("/subscriptions?") && c.url.includes("billing_pause_event_ts")).map((c) => decodeURIComponent(c.url));
 
-  it("the closing row could not be written (or the process died after the clear): the daily pass writes it under the same key, once", async () => {
+describe("6. the writes that follow a hold this event itself changed expect that change (and are still guarded)", () => {
+  it("a RESUME that LIFTS the paused hold: its clock write expects hold=null, so it costs no re-read; raced by a newer event it re-evaluates and never moves the clock backwards", async () => {
+    const heldRow = () => intelRow(rig, { status: "suspended", billing_hold: "paused", billing_hold_ref: "sub_i", billing_hold_at: iso(rig.T0 - DAY), billing_hold_prev_status: "active", billing_pause_event_ts: rig.T0 + 5 });
+    // uncontended: lifted, clock forward, ONE read of the row (a wrong expectation of the hold would read as a race and read twice)
+    const a = heldRow();
+    expect((await send(rig, "customer.subscription.updated", sub("sub_i"), { created: rig.T0 + 20, unmirrored: true })).status).toBe(200);
+    expect(pauseState(a)).toEqual({ from: null, resumes: null, clock: rig.T0 + 20, hold: null, status: "active" });
+    expect(rowReads()).toBe(1);
+    expect(casPatches()).toHaveLength(1);
+    expect(casPatches()[0]).toContain("billing_hold=is.null");
+    rig.db.rows("subscriptions").length = 0;
+
+    // raced: a newer pause/resume event lands between the lift and the clock write
+    const b = heldRow();
+    let fired = false;
+    interceptFetch((m, u) => !fired && isCas(m, u), () => { fired = true; b.billing_pause_event_ts = rig.T0 + 30; });
+    expect((await send(rig, "customer.subscription.updated", sub("sub_i"), { created: rig.T0 + 20, unmirrored: true, id: "evt_resume_lift" })).status).toBe(200);
+    expect(fired).toBe(true);
+    expect(pauseState(b)).toEqual({ from: null, resumes: null, clock: rig.T0 + 30, hold: null, status: "active" });
+  });
+
+  it("an IMMEDIATE pause: the hold is begun, then its clock write expects hold=paused (no re-read); raced by a newer event it re-evaluates, the hold stands and the clock never moves backwards", async () => {
+    const over = { current_period_start: rig.T0 - 31 * DAY, current_period_end: rig.T0 - DAY }; // the paid period is over: the hold begins now
+    const a = intelRow(rig);
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i", over), { created: rig.T0 + 5, unmirrored: true })).status).toBe(200);
+    expect(pauseState(a)).toEqual({ from: null, resumes: null, clock: rig.T0 + 5, hold: "paused", status: "suspended" });
+    expect(rowReads()).toBe(1);
+    expect(casPatches()).toHaveLength(1);
+    expect(casPatches()[0]).toContain("billing_hold=eq.paused");
+    rig.db.rows("subscriptions").length = 0;
+
+    const b = intelRow(rig);
+    let fired = false;
+    interceptFetch((m, u) => !fired && isCas(m, u), () => { fired = true; b.billing_pause_event_ts = rig.T0 + 30; });
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i", over), { created: rig.T0 + 5, unmirrored: true, id: "evt_imm" })).status).toBe(200);
+    expect(fired).toBe(true);
+    expect(pauseState(b)).toEqual({ from: null, resumes: null, clock: rig.T0 + 30, hold: "paused", status: "suspended" }); // the hold of the (now stale) event stands: fail closed
+  });
+
+  it("the guarded write finding the row ENDED is terminal, not a race: acknowledged (200) with no second read; the guard's own read failing is an error: 500 (retry)", async () => {
+    const i = intelRow(rig);
+    await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 5 });
+    const reads = rowReads();
+    // ended AND changed in the same instant: nothing matches; the follow-up read finds no live row
+    interceptFetch((m, u) => isCas(m, u), () => { i.status = "cancelled"; i.billing_pause_event_ts = rig.T0 + 99; });
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 50, unmirrored: true })).status).toBe(200);
+    expect(rowReads() - reads).toBe(1);
+    expect(i.status).toBe("cancelled");
+    restoreFetch?.();
+    restoreFetch = null;
+
+    // the same lost write, but the read that tells "raced" from "ended" fails
+    i.status = "active";
+    i.billing_pause_event_ts = rig.T0 + 5;
+    const prev = globalThis.fetch;
+    let bumped = false;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const m = (init?.method ?? "GET").toUpperCase();
+      if (isCas(m, url) && !bumped) { bumped = true; i.billing_pause_event_ts = rig.T0 + 7; }
+      if (m === "GET" && url.includes("/subscriptions?") && url.includes("select=id&limit=1")) return Promise.resolve(new Response(JSON.stringify({ message: "store down" }), { status: 500 }));
+      return prev(input, init);
+    }) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = prev; };
+    const before = pauseState(i);
+    expect((await send(rig, "customer.subscription.updated", paused("sub_i"), { created: rig.T0 + 50, unmirrored: true, id: "evt_guard_read_fails" })).status).toBe(500);
+    expect(pauseState(i)).toEqual({ ...before, clock: rig.T0 + 7 });
+  });
+});
+
+describe("7. the audit trail of a stale schedule that was cleared is never left without an honest end", () => {
+  const runDue = (extra: Record<string, unknown> = {}) => applyDuePauses({ stripe: rig.stripe as unknown as ReversalStripe, now: new Date(), ...extra });
+  const startedKey = (i: Record<string, unknown>, clock: number | string = rig.T0 + 5) => `pause_schedule_drop_started:subscriptions:${i.id}:${iso(rig.T0 + PERIOD)}:${clock}`;
+  async function recordStarted(i: Record<string, unknown>, key = startedKey(i)) {
+    const { recordBillingAudit } = await import("@/lib/billing-audit");
+    await recordBillingAudit({ table: "subscriptions", subjectId: i.id as string, subscriptionId: "sub_i", dedupeKey: key, action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe", was_effective_from: iso(rig.T0 + PERIOD), checked_by: "access_check" } });
+  }
+  const later = () => at(rig.T0 + PERIOD + 60 + 11 * 60);
+  const drops = () => audit(rig, "pause_schedule_dropped");
+  const unconfirmed = () => audit(rig, "pause_schedule_drop_unconfirmed");
+
+  it("the closing row could not be written: the daily pass leaves `pause_schedule_drop_unconfirmed` (it claims no reason and no actor, never `dropped`), once, and not too soon", async () => {
     const i = await dueIntelligence();
     let failing = true;
     const prev = globalThis.fetch;
@@ -247,41 +332,125 @@ describe("6. the closing audit row of a cleared stale schedule is never lost", (
     expect((await ents()).entitlement?.role).toBe("owner"); // access is granted, the schedule is cleared
     failing = false;
     expect(i.billing_pause_from).toBeNull();
-    expect(audit(rig, "pause_schedule_drop_started")).toHaveLength(1);
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(0); // the orphan
     const started = audit(rig, "pause_schedule_drop_started")[0];
+    expect(drops()).toHaveLength(0); // the orphan
 
-    // too soon: the check that wrote "started" may still be finishing
-    expect((await runDue()).auditClosed).toBe(0);
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(0);
+    expect((await runDue()).auditClosed).toBe(0); // too soon: the check that wrote "started" may still be finishing
+    expect(unconfirmed()).toHaveLength(0);
 
-    at(rig.T0 + PERIOD + 60 + 11 * 60);
+    later();
     expect((await runDue()).auditClosed).toBe(1);
-    const closed = audit(rig, "pause_schedule_dropped");
-    expect(closed).toHaveLength(1);
-    expect(closed[0].dedupe_key).toBe((started.dedupe_key as string).replace("pause_schedule_drop_started:", "pause_schedule_dropped:"));
-    expect(closed[0]).toMatchObject({ subject_table: "subscriptions", subject_id: i.id, stripe_subscription_id: "sub_i" });
-    expect(closed[0].detail).toMatchObject({ why: "billing_running_at_stripe", was_effective_from: iso(rig.T0 + PERIOD), closed_by: "daily_pass", schedule_found_clear: true });
-
-    // idempotent
-    expect((await runDue()).auditClosed).toBe(0);
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
+    expect(drops()).toHaveLength(0); // never claims "dropped"
+    const rows = unconfirmed();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dedupe_key).toBe((started.dedupe_key as string).replace("pause_schedule_drop_started:", "pause_schedule_drop_unconfirmed:"));
+    expect(rows[0]).toMatchObject({ subject_table: "subscriptions", subject_id: i.id, stripe_subscription_id: "sub_i" });
+    expect(rows[0].detail).toEqual({ schedule_found_clear: true, closed_by: "daily_pass", started_key: started.dedupe_key, was_effective_from: iso(rig.T0 + PERIOD) });
+    expect((await runDue()).auditClosed).toBe(0); // idempotent
+    expect(unconfirmed()).toHaveLength(1);
   });
 
-  it("a normally closed drop is not closed again, and a 'started' whose schedule still stands is left to its own check", async () => {
+  it("a NORMALLY closed pair is left alone, and a 'started' whose schedule still stands is left to its own check", async () => {
     const i = await dueIntelligence();
     expect((await ents()).entitlement?.role).toBe("owner");
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
-    at(rig.T0 + PERIOD + 60 + 11 * 60);
+    expect(drops()).toHaveLength(1);
+    later();
     expect((await runDue()).auditClosed).toBe(0);
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
-
-    // a crash BEFORE the clear: "started" is on record and the schedule still stands (the next check repeats both rows)
-    const { recordBillingAudit } = await import("@/lib/billing-audit");
-    await recordBillingAudit({ table: "subscriptions", subjectId: i.id as string, subscriptionId: "sub_i", dedupeKey: "pause_schedule_drop_started:subscriptions:x:2099-01-01T00:00:00.000Z:1", action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe" } });
+    await recordStarted(i, "pause_schedule_drop_started:subscriptions:x:2099-01-01T00:00:00.000Z:1");
     i.billing_pause_from = iso(rig.T0 + 99 * DAY);
     at(rig.T0 + PERIOD + 60 + 30 * 60);
     expect((await runDue()).auditClosed).toBe(0);
-    expect(audit(rig, "pause_schedule_dropped")).toHaveLength(1);
+    expect(drops()).toHaveLength(1);
+    expect(unconfirmed()).toHaveLength(0);
+  });
+
+  it("MISLABEL 1: the daily job's promote cleared the schedule as the hold began (hold paused, suspended): nothing is written about it", async () => {
+    const i = intelRow(rig, { status: "suspended", billing_hold: "paused", billing_hold_ref: "sub_i", billing_hold_prev_status: "active", billing_pause_from: null });
+    await recordStarted(i);
+    later();
+    expect((await runDue()).auditClosed).toBe(0);
+    expect(drops()).toHaveLength(0);
+    expect(unconfirmed()).toHaveLength(0);
+  });
+
+  it("MISLABEL 2: the RESUME webhook cleared the schedule: the closing row says only 'found clear' (no reason, no actor), and is never `dropped`", async () => {
+    const i = await dueIntelligence();
+    await recordStarted(i); // the check wrote "started", then died before it cleared anything
+    expect((await send(rig, "customer.subscription.updated", sub("sub_i"), { created: rig.T0 + PERIOD + 30, unmirrored: true })).status).toBe(200);
+    expect(i.billing_pause_from).toBeNull();
+    expect(audit(rig, "pause_schedule_cleared")).toHaveLength(1); // the webhook's own row says what happened
+    later();
+    expect((await runDue()).auditClosed).toBe(1);
+    expect(drops()).toHaveLength(0);
+    expect(unconfirmed()).toHaveLength(1);
+    expect(unconfirmed()[0].detail).not.toHaveProperty("why");
+    expect(unconfirmed()[0].detail).toMatchObject({ schedule_found_clear: true, closed_by: "daily_pass" });
+  });
+
+  it("MISLABEL 3: the access check LOST the conditional clear to another instance and let the customer in (no closing row by design): the pass says only 'found clear'", async () => {
+    const i = await dueIntelligence();
+    let fired = false;
+    interceptFetch((m, u) => !fired && m === "PATCH" && u.includes("/subscriptions?") && u.includes("billing_pause_from=eq."), () => {
+      fired = true;
+      i.billing_pause_from = null; // another instance cleared it first
+      i.billing_pause_event_ts = rig.T0 + PERIOD + 59;
+    });
+    expect((await ents()).entitlement?.role).toBe("owner");
+    expect(fired).toBe(true);
+    expect(audit(rig, "pause_schedule_drop_started")).toHaveLength(1);
+    expect(drops()).toHaveLength(0);
+    later();
+    expect((await runDue()).auditClosed).toBe(1);
+    expect(drops()).toHaveLength(0);
+    expect(unconfirmed()).toHaveLength(1);
+  });
+
+  it("205 closed pairs do not crowd out an orphan: newest orphan, and an orphan older than all of them", async () => {
+    const { recordBillingAudit } = await import("@/lib/billing-audit");
+    const closedPairs = async (from: number) => {
+      for (let n = 0; n < 205; n++) {
+        const key = `subscriptions:gone-${from}-${n}:${iso(rig.T0 + PERIOD)}:1`;
+        await recordBillingAudit({ table: "subscriptions", subjectId: `gone-${n}`, dedupeKey: `pause_schedule_drop_started:${key}`, action: "pause_schedule_drop_started" });
+        await recordBillingAudit({ table: "subscriptions", subjectId: `gone-${n}`, dedupeKey: `pause_schedule_dropped:${key}`, action: "pause_schedule_dropped" });
+      }
+    };
+    for (const orphanFirst of [false, true]) {
+      rig.db.rows("billing_audit").length = 0;
+      rig.db.rows("subscriptions").length = 0;
+      const i = intelRow(rig);
+      at(rig.T0 + 100);
+      if (orphanFirst) await recordStarted(i);
+      at(rig.T0 + 200);
+      await closedPairs(orphanFirst ? 1 : 0);
+      at(rig.T0 + 300);
+      if (!orphanFirst) await recordStarted(i);
+      at(rig.T0 + 300 + 11 * 60);
+      expect((await runDue()).auditClosed, orphanFirst ? "orphan older than every closed pair" : "orphan newer than every closed pair").toBe(1);
+      expect(unconfirmed()).toHaveLength(1);
+      expect(unconfirmed()[0].subject_id).toBe(i.id);
+      at(rig.T0);
+    }
+  });
+
+  it("a store that never answers during the sweep does not delay the operator notices (they go out first) and does not hang the pass", async () => {
+    await dueIntelligence();
+    rig.stripe.failOnce.add("subscriptions.retrieve"); // the due pause cannot be examined: the pass will owe the operator a notice
+    const mailAtSweep: number[] = [];
+    const prev = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = decodeURIComponent(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if ((init?.method ?? "GET").toUpperCase() === "GET" && url.includes("/billing_audit?") && url.includes("action=eq.pause_schedule_dropped")) {
+        mailAtSweep.push(operatorMail(rig).length);
+        return new Promise<Response>(() => {}); // never answers
+      }
+      return prev(input, init);
+    }) as typeof fetch;
+    restoreFetch = () => { globalThis.fetch = prev; };
+    const t0 = Date.now();
+    const out = await applyDuePauses({ stripe: rig.stripe as unknown as ReversalStripe, now: new Date(), budgetMs: 250 });
+    expect(out).toMatchObject({ due: 1, errors: 1, auditClosed: 0 });
+    expect(mailAtSweep).toEqual([1]); // the notice was already sent when the sweep began
+    expect(operatorMail(rig)).toHaveLength(1);
+    expect(Date.now() - t0).toBeLessThan(5_000); // returned at the bound, not at "never"
   });
 });

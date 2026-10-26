@@ -154,7 +154,7 @@ async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | nu
   const entry = { table, subjectId: row.id, objectId: subId, subscriptionId: subId } as const;
   // The audit row goes FIRST (idempotent by its key), so a crash between it and the clear cannot lose the record (the next check repeats
   // both). A crash AFTER the clear leaves "started" without "dropped": the schedule is gone, so no access check repeats the closing row;
-  // the daily pass does (closeOrphanedDropAudits, below, under the SAME key), and a failed write of it is reported to a person below. Its
+  // the daily pass leaves a truthful, differently named row for it (closeOrphanedDropAudits, below: it cannot know who cleared the schedule), and a failed write of it is reported to a person below. Its
   // key carries the schedule instant AND the pause clock, so a re-pause to the same period end followed by a second clear is recorded
   // again. It says what was decided; the row after the clear says what happened.
   const started = await recordBillingAudit({ ...entry, dedupeKey: `pause_schedule_drop_started:${key}`, action: "pause_schedule_drop_started", detail: { why: "billing_running_at_stripe", was_effective_from: from, checked_by: "access_check" } });
@@ -183,44 +183,84 @@ async function decide(table: PauseTable, row: PauseRow, stripe: PauseStripe | nu
 /** How far back the daily pass looks for a "started" row that never got its closing row, and how long a "started" row is left to its own check first. */
 export const DROP_AUDIT_LOOKBACK_MS = 14 * 86_400_000;
 export const DROP_AUDIT_SETTLE_MS = 10 * 60_000;
+/** One pass reads at most DROP_AUDIT_MAX_PAGES pages of DROP_AUDIT_PAGE "started" rows (newest first) and examines at most DROP_AUDIT_MAX_ROWS of the unclosed ones. */
+export const DROP_AUDIT_PAGE = 200;
+export const DROP_AUDIT_MAX_PAGES = 5;
+export const DROP_AUDIT_MAX_ROWS = 50;
+
+const DROP_STARTED = "pause_schedule_drop_started:";
+const DROP_DONE = "pause_schedule_dropped:";
+const DROP_UNCONFIRMED = "pause_schedule_drop_unconfirmed:";
 
 /**
- * A crash after the clear of a stale schedule leaves `pause_schedule_drop_started` with no `pause_schedule_dropped`, and the schedule is gone,
- * so no access check repeats the closing row. The daily pass calls this: for every "started" row (last 14 days, older than ten minutes so a
- * check still in flight finishes its own) that has no closing row and whose subject row now has NO schedule, the closing row is written under
- * the SAME key the access check would have used (the insert is the once-only claim: a race with the live path, or a second pass, records
- * nothing twice). A schedule still standing is left alone (the check that wrote "started" repeats both rows). The row says it was closed
- * here and that the schedule was found clear: it does not claim to know who cleared it (the access check, the daily job, or the resume
- * event, each of which has its own row). Never throws. Returns how many rows it wrote.
+ * A crash after the clear of a stale schedule (or a failed write of the closing row) leaves `pause_schedule_drop_started` with no
+ * `pause_schedule_dropped`, and the schedule is gone, so no access check repeats the closing row. The daily pass calls this to leave a
+ * TRUTHFUL end to the pair, and nothing more than it knows.
+ *
+ * What it knows: a "started" row (last 14 days, older than ten minutes so a check still in flight finishes its own) has no closing row, and its
+ * subject row now has no schedule, no hold and is not ended. It does NOT know who cleared the schedule: the access check that wrote "started",
+ * the resume webhook, or the access check that lost the conditional write and found the schedule already clear (which writes no closing row by
+ * design). The daily job's promote clears the schedule as the hold begins; such a row has a hold and is skipped here. So the row written is a
+ * DIFFERENT action, `pause_schedule_drop_unconfirmed`, whose detail says only that the schedule was found clear, who wrote this row, and which
+ * "started" row it answers. Its key derives from the started key, so a second pass records nothing twice. It never claims
+ * `pause_schedule_dropped` (that row means "Stripe said billing is running and WE cleared it"; the audit trail is append-only, so a wrong label
+ * could never be corrected). A subject with a schedule, a hold, or an end is left alone.
+ *
+ * Bounded: the closing keys are read first (both actions), "started" rows are read newest first in pages and the closed ones skipped, so closed
+ * pairs never crowd an orphan out; at most DROP_AUDIT_MAX_ROWS subjects are examined per pass; `shouldStop` is checked between reads (the daily
+ * pass's budget). Never throws. Returns how many rows it wrote.
  */
-export async function closeOrphanedDropAudits(nowMs: number = Date.now()): Promise<number> {
+export async function closeOrphanedDropAudits(nowMs: number = Date.now(), opts: { shouldStop?: () => boolean } = {}): Promise<number> {
   try {
+    const stop = opts.shouldStop ?? (() => false);
     const since = new Date(nowMs - DROP_AUDIT_LOOKBACK_MS).toISOString();
     const settled = new Date(nowMs - DROP_AUDIT_SETTLE_MS).toISOString();
-    const started = await pg<{ dedupe_key: string; subject_table: string; subject_id: string; stripe_subscription_id?: string | null; detail?: { was_effective_from?: unknown } | null }[]>(
-      "GET",
-      `billing_audit?action=eq.pause_schedule_drop_started&created_at=gte.${enc(since)}&created_at=lte.${enc(settled)}&select=dedupe_key,subject_table,subject_id,stripe_subscription_id,detail&order=created_at.asc&limit=200`
-    );
-    if (!started.ok || !started.data?.length) return 0;
-    const closed = await pg<{ dedupe_key: string }[]>("GET", `billing_audit?action=eq.pause_schedule_dropped&created_at=gte.${enc(since)}&select=dedupe_key&limit=2000`);
-    if (!closed.ok) return 0;
-    const done = new Set((closed.data ?? []).map((r) => r.dedupe_key));
+    const done = new Set<string>();
+    for (const action of ["pause_schedule_dropped", "pause_schedule_drop_unconfirmed"]) {
+      if (stop()) return 0;
+      const closed = await pg<{ dedupe_key: string }[]>("GET", `billing_audit?action=eq.${action}&created_at=gte.${enc(since)}&select=dedupe_key&order=created_at.desc&limit=2000`);
+      if (!closed.ok) return 0;
+      for (const r of closed.data ?? []) done.add(r.dedupe_key);
+    }
+    type Started = { dedupe_key: string; subject_table: string; subject_id: string; stripe_subscription_id?: string | null; detail?: { was_effective_from?: unknown } | null };
+    const open: { row: Started; key: string }[] = [];
+    for (let page = 0; page < DROP_AUDIT_MAX_PAGES && open.length < DROP_AUDIT_MAX_ROWS; page++) {
+      if (stop()) return 0;
+      const started = await pg<Started[]>(
+        "GET",
+        `billing_audit?action=eq.pause_schedule_drop_started&created_at=gte.${enc(since)}&created_at=lte.${enc(settled)}&select=dedupe_key,subject_table,subject_id,stripe_subscription_id,detail&order=created_at.desc,id.desc&limit=${DROP_AUDIT_PAGE}&offset=${page * DROP_AUDIT_PAGE}`
+      );
+      if (!started.ok) return 0;
+      for (const row of started.data ?? []) {
+        if (!row.dedupe_key.startsWith(DROP_STARTED)) continue;
+        const key = row.dedupe_key.slice(DROP_STARTED.length);
+        if (done.has(`${DROP_DONE}${key}`) || done.has(`${DROP_UNCONFIRMED}${key}`)) continue;
+        if (open.length < DROP_AUDIT_MAX_ROWS) open.push({ row, key });
+      }
+      if ((started.data?.length ?? 0) < DROP_AUDIT_PAGE) break;
+    }
     let written = 0;
-    for (const r of started.data) {
-      const key = r.dedupe_key.replace(/^pause_schedule_drop_started:/, "");
-      if (key === r.dedupe_key || done.has(`pause_schedule_dropped:${key}`)) continue;
+    for (const { row: r, key } of open) {
+      if (stop()) break;
       const table = r.subject_table;
       if (table !== "api_accounts" && table !== "watches" && table !== "subscriptions") continue;
-      const now = await pg<{ billing_pause_from?: string | null }[]>("GET", `${table}?id=eq.${enc(r.subject_id)}&select=billing_pause_from&limit=1`);
-      if (!now.ok || !now.data?.[0] || now.data[0].billing_pause_from) continue; // unreadable, gone, or the schedule still stands: not this pass's to close
+      const now = await pg<{ billing_pause_from?: string | null; billing_hold?: string | null; status?: string }[]>("GET", `${table}?id=eq.${enc(r.subject_id)}&select=billing_pause_from,billing_hold,status&limit=1`);
+      const s = now.ok ? now.data?.[0] : undefined;
+      // unreadable, gone, a schedule still standing, a hold (promote clears the schedule as it begins one), or ended: nothing to say about it
+      if (!s || s.billing_pause_from || s.billing_hold || isEnded({ status: String(s.status) })) continue;
       const a = await recordBillingAudit({
         table,
         subjectId: r.subject_id,
         subscriptionId: r.stripe_subscription_id ?? undefined,
         objectId: r.stripe_subscription_id ?? undefined,
-        dedupeKey: `pause_schedule_dropped:${key}`,
-        action: "pause_schedule_dropped",
-        detail: { why: "billing_running_at_stripe", was_effective_from: typeof r.detail?.was_effective_from === "string" ? r.detail.was_effective_from : null, closed_by: "daily_pass", schedule_found_clear: true },
+        dedupeKey: `${DROP_UNCONFIRMED}${key}`,
+        action: "pause_schedule_drop_unconfirmed",
+        detail: {
+          schedule_found_clear: true,
+          closed_by: "daily_pass",
+          started_key: r.dedupe_key,
+          was_effective_from: typeof r.detail?.was_effective_from === "string" ? r.detail.was_effective_from : null,
+        },
       });
       if (a === "recorded") written++;
     }
