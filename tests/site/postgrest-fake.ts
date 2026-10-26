@@ -308,6 +308,8 @@ export class PostgrestFake {
           return 0;
         });
       }
+      const offset = Number(params.get("offset"));
+      if (Number.isFinite(offset) && offset > 0) out = out.slice(offset);
       const limit = Number(params.get("limit"));
       if (Number.isFinite(limit) && limit > 0) out = out.slice(0, limit);
       return json(JSON.stringify(out), 200);
