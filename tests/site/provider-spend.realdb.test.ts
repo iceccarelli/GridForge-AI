@@ -31,6 +31,15 @@ let gatewayMode: "ok" | "no-function" | "down" = "ok";
 let providerCalls: { provider: "engine" | "anthropic"; path: string }[] = [];
 const realFetch = globalThis.fetch;
 const ENGINE = "http://engine.test";
+const HOUR_MS = 3_600_000;
+/** How close to the end of an hour a test may start before it waits for the next window (the slowest test here takes about 4 s on a loaded runner). */
+const WINDOW_GUARD_MS = 30_000;
+/**
+ * The tests that fire hundreds of concurrent calls through the gateway and PostgREST take 1-3 s on an idle machine (the CI run
+ * that failed measured 1.0-1.9 s) and 5 s or more when the machine is busy, against vitest's default 5 s limit. A timeout does not stop the work it interrupts: the abandoned
+ * calls keep running and are counted by (and pollute) the NEXT test, so one slow runner used to fail several tests.
+ */
+const SLOW_TEST_MS = 60_000;
 
 async function startGateway(): Promise<string> {
   gateway = http.createServer(async (req, res) => {
@@ -84,8 +93,26 @@ beforeAll(async () => {
 afterAll(() => { globalThis.fetch = realFetch; gateway?.close(); });
 beforeEach(() => { providerCalls = []; gatewayMode = "ok"; anthropicScript = () => ({ id: "m", type: "message", role: "assistant", model: "x", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }); });
 
-/** A random caller address per test so counters from earlier tests or runs on a shared database never bleed in. */
-const fresh = () => `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
+/**
+ * A caller address that no other call in this process, and no earlier run on the same database, has used. The per-caller
+ * counters are keyed by the pseudonym of the address for the whole hour and the beforeEach below does NOT clear them (only the
+ * shared ceilings), so a repeated address starts with its allowance already spent. The first version drew
+ * 198.51.100.<1..200> at random: two draws landing on the same octet (about 1 in 200 per pair, within one run, and far more
+ * often against the leftovers of earlier runs on a shared database) gave the later caller 0 of its 240, and the "many callers"
+ * test then saw 480 (two callers x 240) instead of 600. Here: an IPv6 address in the documentation prefix 2001:db8::/32 with
+ * a random /64 (the limiter keys IPv6 on its /64), 32 random bits, and an in-process set that makes a repeat impossible.
+ */
+const usedAddresses = new Set<string>();
+function fresh(): string {
+  for (;;) {
+    const group = () => Math.floor(Math.random() * 0x10000).toString(16);
+    const ip = `2001:db8:${group()}:${group()}::1`;
+    if (!usedAddresses.has(ip)) {
+      usedAddresses.add(ip);
+      return ip;
+    }
+  }
+}
 const reqFrom = (ip: string) => new Request(siteUrl("/api/x"), { method: "POST", headers: { "x-forwarded-for": ip } });
 
 async function spend(mod: typeof import("@/lib/rate-limit"), ip: string, n: number, path = "/v1/compare"): Promise<number> {
@@ -103,12 +130,18 @@ describe.skipIf(!enabled)("the provider gate on real PostgreSQL", () => {
   // Shared ceilings are keyed by bucket only, so earlier tests or runs in the same hour would otherwise already have spent them.
   // This is a throwaway database; start every test from empty ceilings so the arithmetic is exact.
   beforeEach(async () => {
+    // The counter's windows are wall-clock aligned (gf_rate_limit_hit floors the DATABASE clock to the hour) and cannot be
+    // injected. A test that starts in the last seconds of an hour would have its attempts split over two windows, and the
+    // second window begins with a fresh allowance, so more than `limit` calls would reach the provider. Start after the
+    // boundary instead: a wait of at most WINDOW_GUARD_MS + 1 s, only in that rare case.
+    const intoHour = Date.now() % HOUR_MS;
+    if (intoHour > HOUR_MS - WINDOW_GUARD_MS) await new Promise((r) => setTimeout(r, HOUR_MS - intoHour + 1000));
     const rl = await import("@/lib/rate-limit");
     for (const b of Object.values(rl.PROVIDER_BUDGETS)) {
       const r = await realFetch(`${PGRST}/rate_limit_windows?bucket=eq.${b.aggregate.bucket}`, { method: "DELETE", headers: { Authorization: `Bearer ${JWT}` } });
       expect(r.status).toBeLessThan(300);
     }
-  });
+  }, WINDOW_GUARD_MS + 30_000);
 
   it("concurrent calls from one caller: exactly the budget reaches the provider, and every attempt is counted once", async () => {
     const rl = await import("@/lib/rate-limit");
@@ -120,7 +153,7 @@ describe.skipIf(!enabled)("the provider gate on real PostgreSQL", () => {
     const who = rl.callerIdentity(reqFrom(ip));
     const mine = await rows(`bucket=eq.${budget.caller.bucket}&subject=eq.${who.ok ? who.subject : "x"}`);
     expect(mine.reduce((n, r) => n + r.hits, 0)).toBe(budget.caller.limit + 60);
-  });
+  }, SLOW_TEST_MS);
 
   it("two independent instances (separate module copies, as separate serverless processes) share one threshold", async () => {
     vi.resetModules();
@@ -134,13 +167,14 @@ describe.skipIf(!enabled)("the provider gate on real PostgreSQL", () => {
     // 300 attempts split across two instances: the database, not either process, decides.
     expect(ra + rb).toBe(limit);
     expect(providerCalls).toHaveLength(limit);
-  });
+  }, SLOW_TEST_MS);
 
   it("many callers inside their own allowances still cannot pass the shared aggregate", async () => {
     const rl = await import("@/lib/rate-limit");
     const agg = rl.PROVIDER_BUDGETS["engine:public:metered"];
     expect(await hitsOf(agg.aggregate.bucket)).toBe(0);
-    const callers = [0, 1, 2].map((i) => `198.51.${100 + i}.${Math.floor(Math.random() * 200) + 1}`);
+    const callers = [fresh(), fresh(), fresh()]; // three distinct callers, none of which has spent anything yet
+    expect(new Set(callers).size).toBe(3);
     const room = agg.aggregate.limit;
     const results = await Promise.all(callers.map((ip) => spend(rl, ip, agg.caller.limit)));
     const total = results.reduce((a, b) => a + b, 0);
@@ -149,13 +183,13 @@ describe.skipIf(!enabled)("the provider gate on real PostgreSQL", () => {
     expect(total).toBe(room);
     expect(providerCalls).toHaveLength(total);
     expect(total).toBeLessThanOrEqual(agg.aggregate.limit);
-  });
+  }, SLOW_TEST_MS);
 
   it("the counter stores only keyed pseudonyms", async () => {
     const all = await rows("limit=200");
     expect(all.length).toBeGreaterThan(0);
     for (const r of all) expect(r.subject).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(all)).not.toMatch(/198\.51\.100/);
+    expect(JSON.stringify(all)).not.toMatch(/198\.51\.100|2001:db8/);
   });
 
   it("a gateway that cannot find the function (migration 0024 not applied) or is down: 503 and no provider call", async () => {
@@ -192,5 +226,5 @@ describe.skipIf(!enabled)("the provider gate on real PostgreSQL", () => {
     expect(await mine("chat")).toBe(1);
     expect(await mine("anthropic_public_caller")).toBe(rl.CHAT_MAX_ANTHROPIC_CALLS);
     expect(await mine("engine_public_free_caller")).toBe(rl.CHAT_MAX_ENGINE_CALLS);
-  });
+  }, SLOW_TEST_MS);
 });
