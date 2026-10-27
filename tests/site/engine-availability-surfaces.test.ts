@@ -2,8 +2,8 @@
  * The machine-readable file (/llms.txt) and the two human pages that quote the engine (/developers, /pricing) never
  * present an operation as callable while the DEPLOYED engine does not serve it, and follow the engine when it does.
  *
- * Three engines are stubbed at the engine's public GET /v1/version (tests/site/engine-stub.ts): the engine as deployed
- * today (the committed snapshot), an engine redeployed from this repository, and an unreachable one. Unit weights come
+ * Three engines are stubbed at the engine's public GET /v1/version (tests/site/engine-stub.ts): a stale engine (the routes
+ * Fly served before its 2026-10-27 redeploy, injected: the engine can fall behind this repository again), an engine redeployed from this repository, and an unreachable one. Unit weights come
  * from public/reference/tools.json in every case; only availability changes.
  */
 import fs from "node:fs";
@@ -45,7 +45,7 @@ const unservedByStale = catalogue.filter((r) => !served(STALE_ENGINE)(r));
 const preBlocks = (html: string) => [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)].map((m) => text(m[1]));
 
 describe("the premise: the stale engine really is missing operations the catalogue lists", () => {
-  it("the catalogue names operations the deployed snapshot does not serve", () => {
+  it("the catalogue names operations the injected stale engine does not serve", () => {
     const names = unservedByStale.map((r) => r.endpoint).sort();
     expect(names).toEqual(
       ["/v1/compare", "/v1/estimate", "/v1/power/assess", "/v1/power/deploy/assess", "/v1/power/deploy/bids", "/v1/power/deploy/spec"].sort()
