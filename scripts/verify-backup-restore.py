@@ -102,7 +102,14 @@ def main():
                 ok &= got == 0
                 continue
             payload = json.dumps(rows, default=str)
-            psql(name, f'insert into public."{table}" select * from jsonb_populate_recordset(null::public."{table}", $gf${payload}$gf$::jsonb)')
+            # Rows are loaded with triggers off: a restore reproduces what production HOLDS, it does not re-judge it. A row that predates a
+            # rule (a released deliverable with no reviewer name, from before migration 0040's release guard) is legitimate data that
+            # the guard, which only governs NEW writes, would refuse on the way in. Constraints (CHECK, NOT NULL, foreign keys by load
+            # order, unique) still apply; only this table's user triggers are skipped (DISABLE TRIGGER USER leaves the internal foreign-key
+            # triggers on), in this scratch database only.
+            psql(name, f'alter table public."{table}" disable trigger user; '
+                       f'insert into public."{table}" select * from jsonb_populate_recordset(null::public."{table}", $gf${payload}$gf$::jsonb); '
+                       f'alter table public."{table}" enable trigger user')
             got = json.loads(psql(name, f'select coalesce(jsonb_agg(to_jsonb(t)), \'[]\'::jsonb) from public."{table}" t'))
             same = len(got) == len(rows) and digest(got) == digest(
                 json.loads(psql(name, f'select coalesce(jsonb_agg(to_jsonb(t)), \'[]\'::jsonb) from (select * from jsonb_populate_recordset(null::public."{table}", $gf${payload}$gf$::jsonb)) t')))
