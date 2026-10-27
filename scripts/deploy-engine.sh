@@ -5,6 +5,12 @@
 #   bash scripts/deploy-engine.sh --bootstrap  # first run: also mint missing secrets
 #   bash scripts/deploy-engine.sh --check      # everything except the deploy itself
 #
+# Deploys ONLY what is on main. `fly deploy` ships whatever is checked out, and the post-deploy drift check below compares the
+# engine against that same checkout, so deploying a stale or unmerged branch would report "no drift" while main is still not
+# deployed. Before anything else the script fetches origin/main and refuses (exit 4) unless every file that goes into the image
+# (gridforge/, examples/intake/, pyproject.toml, Dockerfile, fly.toml, .dockerignore) is identical to main, committed and clean.
+# GRIDFORGE_DEPLOY_ANY_REF=1 overrides it with a loud warning; the workflow never sets it.
+#
 # Needs a Fly credential (FLY_API_TOKEN, or a prior `fly auth login`). Without one the script exits 3 before creating,
 # setting or deploying anything. After a deploy it runs scripts/check-engine-drift.py and exits 1 if the engine now running
 # still differs from this repository. The same steps run from .github/workflows/deploy-engine.yml.
@@ -35,13 +41,54 @@ for arg in "$@"; do
   case "$arg" in
     --bootstrap) BOOTSTRAP=1 ;;
     --check)     SKIP_DEPLOY=1 ;;
-    -h|--help)   sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\n\033[33m%s\033[0m\n' "$*"; }
+
+# --- the code being deployed must be main's ------------------------------------------------------------------------------------
+# Runs before flyctl is even located: a wrong checkout is the cheapest mistake to catch and needs no Fly login. Exit 4.
+# What counts is what the image is built from, so a change to README, tests or the website does not block an engine deploy.
+DEPLOYED_PATHS=(gridforge examples/intake pyproject.toml Dockerfile fly.toml .dockerignore)
+refuse_source() {
+  warn "Refusing to deploy: $1"
+  echo "  The engine on Fly must be built from main. Run:" >&2
+  echo "    git fetch origin && git checkout main && git pull --ff-only origin main" >&2
+  echo "  then run this script again. (Nothing was created, set or deployed.)" >&2
+  exit 4
+}
+check_deploy_source() {
+  if [ "${GRIDFORGE_DEPLOY_ANY_REF:-0}" = "1" ]; then
+    warn "GRIDFORGE_DEPLOY_ANY_REF=1: deploying whatever is checked out, NOT necessarily main."
+    echo "  The post-deploy drift check compares the engine with THIS checkout, so it cannot tell you that main is undeployed." >&2
+    return 0
+  fi
+  local repo base
+  repo="$(cd "$(dirname "$0")/.." && pwd)"
+  base="${GRIDFORGE_BASE_REF:-origin/main}"
+  git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || refuse_source "this is not a git checkout, so it cannot be compared with main."
+  # A stale origin/main would let a stale tree pass, so a failed refresh is a refusal, never a shrug.
+  if [ -z "${GRIDFORGE_BASE_REF:-}" ]; then
+    git -C "$repo" fetch --quiet origin main >/dev/null 2>&1 \
+      || refuse_source "could not fetch origin/main to compare against (offline, or no 'origin' remote)."
+  fi
+  git -C "$repo" rev-parse --verify --quiet "$base^{commit}" >/dev/null \
+    || refuse_source "$base does not exist in this checkout."
+  local dirty differs
+  dirty="$(git -C "$repo" status --porcelain --untracked-files=all -- "${DEPLOYED_PATHS[@]}" 2>/dev/null || true)"
+  differs="$(git -C "$repo" diff --stat "$base" -- "${DEPLOYED_PATHS[@]}" 2>/dev/null || true)"
+  if [ -n "$dirty" ] || [ -n "$differs" ]; then
+    [ -n "$differs" ] && { echo "Files that go into the image and differ from $base:" >&2; printf '%s\n' "$differs" | sed 's/^/    /' >&2; }
+    [ -n "$dirty" ]   && { echo "Uncommitted or untracked files in the image:" >&2; printf '%s\n' "$dirty" | sed 's/^/    /' >&2; }
+    refuse_source "the files this image is built from are not identical to $base ($(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached) @ $(git -C "$repo" rev-parse --short HEAD 2>/dev/null))."
+  fi
+  say "Source is main: the image files match $base ($(git -C "$repo" rev-parse --short "$base"))"
+}
+check_deploy_source
 
 # FLY_BIN means the caller named a binary. Honour it or fail — never reach out and
 # install something. A test or a CI job that silently downloads a real flyctl is

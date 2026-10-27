@@ -86,7 +86,7 @@ TEXT_LIST_INDENTED = (
 
 
 def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
-        args=(), env_extra=None, json_ok=True):
+        args=(), env_extra=None, json_ok=True, script=None, cwd=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fly = bin_dir / "fly"
@@ -117,10 +117,13 @@ def run(tmp_path, *, secrets_out: str | None, secrets_rc: int = 0,
         "GRIDFORGE_ENGINE_URL": "http://127.0.0.1:9",   # nothing listens here: tests that deploy for real override it
         "GRIDFORGE_SKIP_DEPLOY": "1",
         "FLY_APP": "test-engine",
+        # These tests are about what the script does on Fly, not about which branch the repository is on; the source guard has its
+        # own class (TestSourceIsMain) that runs the script inside a throwaway git repository with this override switched off.
+        "GRIDFORGE_DEPLOY_ANY_REF": "1",
         **(env_extra or {}),
     }
     _assert_fake(env, fly)
-    proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, env=env,
+    proc = subprocess.run(["bash", str(script or SCRIPT), *args], cwd=cwd or ROOT, env=env,
                           capture_output=True, text=True)
     assert "personal organization" not in proc.stderr, (
         "the script reached a real Fly account:\n" + proc.stderr)
@@ -596,3 +599,149 @@ class TestDeployNeverWritesSecretsAndVerifies:
         proc, _ = run(tmp_path, secrets_out=JSON_LIST, env_extra={"GRIDFORGE_SKIP_DEPLOY": "0", "GRIDFORGE_HEALTH_TRIES": "1", "FAKE_MACHINES_OUT": machines_file(tmp_path, ONE_MACHINE)})
         assert proc.returncode == 1, proc.stdout
         assert "Post-deploy verification FAILED" in proc.stdout
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# The engine on Fly must be built from main.
+#
+# `fly deploy` ships whatever is checked out, and the post-deploy drift check compares the engine with THAT checkout. Deploying a
+# stale feature branch therefore reports "no drift" while main is still not deployed (the owner's Codespace was on
+# feat/ttp-quotation-backed-comparison-20261017-142725 when the first redeploy was attempted). These tests run the real script
+# inside a throwaway git repository with a real bare "origin", with the override switched off.
+# ---------------------------------------------------------------------------------------------------------------------------------
+
+def _git(cwd, *args):
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test",
+                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"})
+
+
+def make_repo(tmp_path):
+    """A repository shaped like this one (the files the image is built from, plus files it is not), pushed to a bare origin."""
+    origin = tmp_path / "origin.git"
+    origin.mkdir()
+    _git(origin, "init", "--bare", "-b", "main")
+    work = tmp_path / "work"
+    (work / "scripts").mkdir(parents=True)
+    (work / "gridforge").mkdir()
+    (work / "examples" / "intake").mkdir(parents=True)
+    (work / "tests").mkdir()
+    shutil.copy(SCRIPT, work / "scripts" / "deploy-engine.sh")
+    (work / "gridforge" / "__init__.py").write_text("VERSION = '1'\n")
+    (work / "examples" / "intake" / "hall.json").write_text("{}\n")
+    (work / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (work / "Dockerfile").write_text("FROM python:3.13-slim\n")
+    (work / "fly.toml").write_text('app = "t"\n[mounts]\n  source = "d"\n')
+    (work / "README.md").write_text("hello\n")
+    (work / "tests" / "t.py").write_text("x = 1\n")
+    _git(work, "init", "-b", "main")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-m", "main")
+    _git(work, "remote", "add", "origin", str(origin))
+    _git(work, "push", "-u", "origin", "main")
+    return work
+
+
+def guard_run(tmp_path, work, **kw):
+    # `secrets_out` is irrelevant: the guard runs before the script touches Fly at all.
+    kw.setdefault("env_extra", {})
+    kw["env_extra"] = {"GRIDFORGE_DEPLOY_ANY_REF": "0", **kw["env_extra"]}
+    return run(tmp_path, secrets_out=JSON_LIST, script=work / "scripts" / "deploy-engine.sh", cwd=work, **kw)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash and git are required")
+class TestSourceIsMain:
+    def test_a_checkout_identical_to_main_proceeds(self, tmp_path):
+        work = make_repo(tmp_path)
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "Source is main" in proc.stdout
+        assert calls, "after the guard the script goes on to talk to Fly"
+
+    def test_a_feature_branch_with_an_engine_change_is_refused_before_anything_else(self, tmp_path):
+        work = make_repo(tmp_path)
+        _git(work, "checkout", "-b", "feat/something")
+        (work / "gridforge" / "__init__.py").write_text("VERSION = '2'\n")
+        _git(work, "commit", "-am", "engine change not on main")
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 4, proc.stdout + proc.stderr
+        assert "Refusing to deploy" in proc.stdout + proc.stderr
+        assert "gridforge/__init__.py" in proc.stderr
+        assert "git checkout main" in proc.stderr
+        assert calls == [], "the guard runs before the script asks Fly anything"
+
+    def test_a_checkout_that_is_behind_main_is_refused(self, tmp_path):
+        work = make_repo(tmp_path)
+        other = tmp_path / "other"
+        _git(tmp_path, "clone", str(tmp_path / "origin.git"), str(other))
+        (other / "gridforge" / "__init__.py").write_text("VERSION = '3'\n")
+        _git(other, "commit", "-am", "main moved on")
+        _git(other, "push", "origin", "main")
+        proc, calls = guard_run(tmp_path, work)     # `work` has not pulled: the guard fetches and sees main moved
+        assert proc.returncode == 4, proc.stdout + proc.stderr
+        assert "gridforge/__init__.py" in proc.stderr
+        assert calls == []
+
+    def test_an_uncommitted_edit_to_an_image_file_is_refused(self, tmp_path):
+        work = make_repo(tmp_path)
+        (work / "Dockerfile").write_text("FROM python:3.13-slim\nRUN echo local\n")
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 4
+        assert "Dockerfile" in proc.stderr
+        assert calls == []
+
+    def test_an_untracked_file_inside_the_image_is_refused(self, tmp_path):
+        work = make_repo(tmp_path)
+        (work / "gridforge" / "scratch.py").write_text("print('would be copied into the image')\n")
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 4
+        assert "scratch.py" in proc.stderr
+        assert calls == []
+
+    def test_a_branch_that_only_changes_files_outside_the_image_is_fine(self, tmp_path):
+        work = make_repo(tmp_path)
+        _git(work, "checkout", "-b", "docs/readme")
+        (work / "README.md").write_text("changed\n")
+        (work / "tests" / "t.py").write_text("x = 2\n")
+        _git(work, "commit", "-am", "docs and tests only")
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "Source is main" in proc.stdout
+
+    def test_failing_to_refresh_main_is_a_refusal_not_a_shrug(self, tmp_path):
+        work = make_repo(tmp_path)
+        _git(work, "remote", "remove", "origin")
+        proc, calls = guard_run(tmp_path, work)
+        assert proc.returncode == 4
+        assert "could not fetch origin/main" in proc.stdout + proc.stderr
+        assert calls == []
+
+    def test_a_missing_base_ref_is_a_refusal(self, tmp_path):
+        work = make_repo(tmp_path)
+        proc, calls = guard_run(tmp_path, work, env_extra={"GRIDFORGE_BASE_REF": "no-such-ref"})
+        assert proc.returncode == 4
+        assert "does not exist" in proc.stdout + proc.stderr
+        assert calls == []
+
+    def test_a_directory_that_is_not_a_git_checkout_is_refused(self, tmp_path):
+        loose = tmp_path / "loose"
+        (loose / "scripts").mkdir(parents=True)
+        shutil.copy(SCRIPT, loose / "scripts" / "deploy-engine.sh")
+        proc, calls = guard_run(tmp_path, loose)
+        assert proc.returncode == 4
+        assert "not a git checkout" in proc.stdout + proc.stderr
+        assert calls == []
+
+    def test_the_override_deploys_anyway_and_says_what_it_gives_up(self, tmp_path):
+        work = make_repo(tmp_path)
+        _git(work, "checkout", "-b", "feat/hotfix")
+        (work / "gridforge" / "__init__.py").write_text("VERSION = '9'\n")
+        _git(work, "commit", "-am", "hotfix")
+        proc, calls = guard_run(tmp_path, work, env_extra={"GRIDFORGE_DEPLOY_ANY_REF": "1"})
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "NOT necessarily main" in proc.stdout + proc.stderr
+        assert "cannot tell you that main is undeployed" in proc.stderr
+
+    def test_the_workflow_never_sets_the_override(self):
+        wf = (ROOT / ".github" / "workflows" / "deploy-engine.yml").read_text()
+        assert "GRIDFORGE_DEPLOY_ANY_REF" not in wf
