@@ -56,7 +56,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
   and mails the operator, who decides whether access continues), and, recommended,
   `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment method is ever
   enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
-  revocations the engine has not confirmed (`revocations`: the deployed engine answers 404 for `/v1/revoke` until it is redeployed).
+  revocations the engine has not confirmed (`revocations`: an engine older than this repository answers 404 for `/v1/revoke`; the deployed engine has served it since the 2026-10-27 redeploy).
 - Settings: enable Stripe's customer emails for failed payments (the site sends its own as well); decide VAT/Stripe Tax
   for the settlement invoices (the code does not configure tax).
 - Free account: `POST /api/free-account` -> open the emailed link -> mint a trial key -> `GET /v1/usage` shows the allowance.
@@ -99,7 +99,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 - A balance that never reaches the EUR 5 minimum is never invoiced.
 - Caps are counted per (account, month, scope): free-allowance units never count against a pay-as-you-go cap, and the reverse
   (`tests/test_payg_scope_counters.py`; `tests/site/payg-journey.realdb.test.ts` runs a EUR 100 cap to exactly 50 billable units after the 25 free ones).
-  The deployed engine must be v0.9.0+ with this change; until it is redeployed the live engine still counts per account.
+  The deployed engine must be v0.9.0+ with this change (the 2026-10-27 redeploy carries it: `check-engine-drift.py` reports no difference); an older engine counts per account.
 - Ledger loss (volume failure) loses at most the events since the last ingest; there is no replica.
 - A hard kill while a refund is queued after a failed ledger write can leave a charge that support must reverse by hand.
 - The free-account route has no bound on unverified rows beyond a per-IP rate limit.

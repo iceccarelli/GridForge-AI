@@ -280,11 +280,14 @@ describe("nothing reaches a provider around the gate", () => {
 });
 
 describe("the registry says what is true about the guard", () => {
-  it("states that the guard fails closed until migration 0024 is applied, and claims no live status", () => {
+  it("states that the guard fails closed until migration 0024 is applied, and is live only because the deployed engine serves /v1/compare", async () => {
     const c = CAPABILITY_REGISTRY.find((x) => x.capability_id === "ttp_compare")!;
     expect(c.entitlement).toMatch(/guardRequest/);
     expect(c.entitlement).toMatch(/503 until migration 0024 is applied/);
-    expect(c.production_status).toBe("not_deployed");
+    const { default: deployedSnapshot } = await import("@/lib/engine-deployed.json");
+    expect(c.rest_endpoint).toBe("/v1/compare");
+    expect(deployedSnapshot.endpoints).toContain("/v1/compare");
+    expect(c.production_status).toBe("live");
   });
 });
 

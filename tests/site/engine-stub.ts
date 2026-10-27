@@ -2,20 +2,41 @@
  * A fake of the deployed engine's public GET /v1/version, for tests of surfaces that follow what the engine serves
  * (lib/engine-capabilities.ts). Everything else the stub is asked for falls through to the previous fetch.
  *
- *   const stop = stubEngine(STALE_ENGINE)   // the engine as deployed on Fly today
+ *   const stop = stubEngine(STALE_ENGINE)   // an engine older than this repository (Fly before 2026-10-27)
  *   const stop = stubEngine(FULL_ENGINE)    // an engine redeployed from this repository
  *   const stop = stubEngine("down")         // /v1/version unreachable
  *   ... ; stop();
  */
 import { resetEngineCapabilityCache } from "@/lib/engine-capabilities";
-import snapshot from "@/lib/engine-deployed.json";
 
-/** The engine as it is deployed today: exactly the committed snapshot. */
-export const STALE_ENGINE: string[] = [...snapshot.endpoints];
+/**
+ * A STALE engine, injected: the 16 routes the production engine served before its 2026-10-27 redeploy (the committed
+ * snapshot's list at that time). It is deliberately a literal, not read from lib/engine-deployed.json: the production
+ * engine is no longer stale, but it can become so again (this repository moves ahead of Fly), and the surfaces that
+ * handle that case must stay tested whatever the snapshot says today.
+ */
+export const STALE_ENGINE: string[] = [
+  "/v1/bids",
+  "/v1/deck",
+  "/v1/diff",
+  "/v1/portfolio",
+  "/v1/proposal",
+  "/v1/qualify",
+  "/v1/screen",
+  "/v1/spec",
+  "/v1/study",
+  "/health",
+  "/v1/calibration",
+  "/v1/intake/template",
+  "/v1/platforms",
+  "/v1/tools",
+  "/v1/usage",
+  "/v1/version",
+];
 
-/** An engine redeployed from this repository: the snapshot plus every route the site and the tool catalogue name. */
+/** An engine redeployed from this repository: the stale list plus every route the site and the tool catalogue name. */
 export const FULL_ENGINE: string[] = [
-  ...snapshot.endpoints,
+  ...STALE_ENGINE,
   "/v1/compare",
   "/v1/estimate",
   "/v1/power/assess",

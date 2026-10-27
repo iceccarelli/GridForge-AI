@@ -35,8 +35,9 @@ Rule for this file: record what was built and what was actually run. An intentio
 - Not run: anything against live Stripe, Vercel crons, Resend, or the deployed engine. Stripe is a fake client in every test.
 
 ## Known failures and blockers
-- The deployed engine (gridforge-engine.fly.dev) is older than this repository: `python3 scripts/check-engine-drift.py`
-  reported /v1/compare, /v1/power/*, /v1/revoke missing. Needs a redeploy with Fly credentials (not done).
+- Resolved 2026-10-27: the engine was redeployed from main (scripts/deploy-engine.sh); `python3 scripts/check-engine-drift.py` reports no difference
+  and lib/engine-deployed.json lists the 23 endpoints it serves (/v1/compare, /v1/estimate, /v1/power/*, /v1/revoke included). The registry entries ttp_compare,
+  btm_deploy_assess, btm_deploy_spec and btm_rfq_loop are "live". Not verified by this change: the site's own platform key (GRIDFORGE_API_KEY) in Vercel production.
 - Vercel deployment details and Stripe were not reachable from this environment (the Vercel connector needs team access granted by the owner).
 - Stripe: Issue #4 stays open until the owner confirms in test mode that the webhook endpoint delivers the 5 required events
   (`REQUIRED_WEBHOOK_EVENTS` in `lib/stripe-health.ts`; 3 more are recommended) and the Billing Portal allows cancel, payment-method update and
