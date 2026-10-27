@@ -2,7 +2,9 @@
  * The site may call, and the capability registry may call "live", only what the DEPLOYED engine serves.
  *
  * lib/engine-deployed.json is a committed snapshot of the deployed engine's GET /v1/version `endpoints` (and the MCP
- * transport it declares). The repository's engine is ahead of the one on Fly, so "implemented here" is not "deployed".
+ * transport it declares). The repository's engine can be ahead of the one on Fly, so "implemented here" is not "deployed".
+ * As of the 2026-10-27 redeploy the snapshot lists every route the repository serves (scripts/check-engine-drift.py: no
+ * difference), so no concrete registry route is not_deployed; the invariants below are what stays true either way.
  *
  * UPDATING THAT SNAPSHOT IS PART OF AN ENGINE REDEPLOY. After the engine is redeployed:
  *   1. read https://gridforge-engine.fly.dev/v1/version and replace `endpoints` (and `snapshot_date`) in lib/engine-deployed.json;
@@ -17,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { routesFromVersion } from "@/lib/engine-capabilities";
 import snapshot from "@/lib/engine-deployed.json";
+import { STALE_ENGINE } from "./engine-stub";
 
 const ROOT = process.cwd();
 const deployed = routesFromVersion(snapshot)!;
@@ -55,10 +58,28 @@ describe("the capability registry never calls a route live that the deployed eng
     }
   );
 
-  it("marks as not_deployed exactly the registry routes absent from the snapshot today", () => {
-    const absent = concrete.filter((c) => !deployed.has(c.rest_endpoint!)).map((c) => c.capability_id).sort();
+  it("registry not_deployed IFF the route is absent from the snapshot (both directions, for every concrete route)", () => {
+    const wrong = concrete
+      .filter((c) => (c.production_status === "not_deployed") !== !deployed.has(c.rest_endpoint!))
+      .map((c) => `${c.capability_id} ${c.rest_endpoint}: registry ${c.production_status}, snapshot ${deployed.has(c.rest_endpoint!) ? "serves" : "lacks"} it`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("today the snapshot serves every concrete registry route, so none of them is not_deployed", () => {
+    expect(concrete.filter((c) => !deployed.has(c.rest_endpoint!)).map((c) => c.capability_id)).toEqual([]);
+    expect(concrete.filter((c) => c.production_status === "not_deployed").map((c) => c.capability_id)).toEqual([]);
+  });
+
+  it("the invariant bites: against an injected stale engine exactly the four redeploy-added capabilities would be absent", () => {
+    const stale = new Set(STALE_ENGINE);
+    const absent = concrete.filter((c) => !stale.has(c.rest_endpoint!)).map((c) => c.capability_id).sort();
     expect(absent).toEqual(["btm_deploy_assess", "btm_deploy_spec", "btm_rfq_loop", "ttp_compare"]);
-    for (const c of concrete.filter((x) => absent.includes(x.capability_id))) expect(c.production_status).toBe("not_deployed");
+  });
+
+  it("the tool catalogue (public/reference/tools.json) names only routes the deployed engine serves", () => {
+    const tools = JSON.parse(fs.readFileSync(path.join(ROOT, "public/reference/tools.json"), "utf8")).tools as { endpoint: string }[];
+    expect(tools.length).toBeGreaterThan(8);
+    expect(tools.filter((t) => !deployed.has(t.endpoint)).map((t) => t.endpoint)).toEqual([]);
   });
 
   it("Hall Watch names the route it actually calls (lib/watches.ts re-solves through /v1/diff), not /v1/power/assess", () => {
@@ -147,21 +168,37 @@ describe("every engine route the site calls is deployed or handled as 'route mis
     expect(sites.length).toBeGreaterThan(12);
   });
 
+  const routeAwareCaller = (file: string) => {
+    const text = fs.readFileSync(path.join(ROOT, file), "utf8");
+    // callEngine in lib/power-deploy.ts turns the engine's own "not found" for a route into {status: 503, routeMissing: true}.
+    return (
+      file === "lib/power-deploy.ts" ||
+      (/import\s*\{[^}]*\bcallEngine\b[^}]*\}\s*from\s*"@\/lib\/power-deploy"/.test(text) && /routeMissing/.test(text))
+    );
+  };
+
   it("every literal route is in the deployed snapshot, or is not_deployed in the registry AND its caller handles routeMissing", () => {
     const literal = sites.filter((s) => s.route !== null);
     const offenders: string[] = [];
     for (const s of literal) {
       if (deployed.has(s.route!)) continue;
       const cap = CAPABILITY_REGISTRY.find((c) => c.rest_endpoint === s.route);
-      const text = fs.readFileSync(path.join(ROOT, s.file), "utf8");
-      // callEngine in lib/power-deploy.ts turns the engine's own "not found" for a route into {status: 503, routeMissing: true}.
-      const routeAware =
-        s.file === "lib/power-deploy.ts" ||
-        (/import\s*\{[^}]*\bcallEngine\b[^}]*\}\s*from\s*"@\/lib\/power-deploy"/.test(text) && /routeMissing/.test(text));
+      const routeAware = routeAwareCaller(s.file);
       if (!cap || cap.production_status !== "not_deployed" || !routeAware) {
         offenders.push(`${s.file}: ${s.route} (registry: ${cap?.production_status ?? "no entry"}, routeMissing handled: ${routeAware})`);
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it("against an injected stale engine, every route the site calls that it lacks is still handled as 'route missing' by its caller", () => {
+    // The engine can fall behind this repository again; the handling must not rot while the real snapshot is complete.
+    const stale = new Set(STALE_ENGINE);
+    const lacking = sites.filter((s) => s.route !== null && !stale.has(s.route!));
+    expect(lacking.map((s) => s.route)).toEqual(
+      expect.arrayContaining(["/v1/compare", "/v1/power/deploy/assess", "/v1/power/deploy/spec", "/v1/power/deploy/bids"])
+    );
+    const offenders = lacking.filter((s) => !routeAwareCaller(s.file)).map((s) => `${s.file}: ${s.route}`);
     expect(offenders).toEqual([]);
   });
 
