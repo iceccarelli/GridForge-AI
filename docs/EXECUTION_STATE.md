@@ -3,6 +3,11 @@
 Updated: 2026-10-22. Follow-up branch `claude/ci-green-and-integrity-0040`, based on `origin/main` 052166c (PR #68 and #69 merged).
 Rule for this file: record what was built and what was actually run. An intention is not an entry.
 
+## 2026-10-27: migrations 0041, 0042 and 0043 applied to production
+Each went through `export-prod-data.py` -> `verify-backup-restore.py` (RESTORE VERIFIED, the other pending migrations rehearsed on the restored rows, no existing row changed) -> `apply-migration.py` (4 gates, backup 0.1 h old with counts equal to live), run by the owner from a Codespace on `main`. The remote history now ends `gf_0041_billing_holds`, `gf_0042_checkout_funnel`, `gf_0043_billing_pause_and_settlement_reversals` (read back through the Supabase connector); `billing_audit` and `payg_settlement_reversals` exist. Row counts unchanged. Production smoke 6/6 and no Vercel runtime errors afterwards.
+The "Operator steps that remain: apply 0041/0042/0043" lines further down are therefore done; the other steps in those lists (Stripe webhook events, key-secret parity, admin key, Stripe live keys) are not verified here.
+Also: the restore verifier loaded rows with every trigger live and refused a good backup (a released deliverable with no reviewer name, which 0040's guard leaves alone). It now disables the table's user triggers for the scratch load only (PR #84); foreign keys and constraints still apply.
+
 ## What exists now, beyond PR #67
 - Free developer allowance and PAYG on the engine: signed `trial` / `payg` keys whose quota is the cap, an append-only
   JSONL ledger, `/v1/estimate`, operator `/v1/admin/ledger` and `/v1/admin/economics`, idempotency that survives restarts
