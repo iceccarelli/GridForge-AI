@@ -88,3 +88,17 @@ def test_an_export_restores_into_the_schema_it_was_taken_from_and_the_pending_mi
 def test_without_a_migration_list_the_whole_repository_schema_is_used_as_before(tmp_path):
     r = run(tmp_path, {"leads": []})
     assert r.returncode == 0 and "pending" not in r.stdout.split("schema built from", 1)[1].splitlines()[0]
+
+
+def test_a_row_that_predates_the_release_guard_restores_into_a_schema_that_already_has_the_guard(tmp_path):
+    """Production was exported AFTER migration 0040 was applied and still holds the one released deliverable with no reviewer name
+    that 0040 deliberately leaves alone (it only governs new writes). The backup is good; the restore must load it as it is rather
+    than re-run the guard on it, which is how the second real-project backup was wrongly declared unrestorable."""
+    q = "0e9053f6-1c27-4bc0-b629-a0b3ebc1359d"
+    r = run(tmp_path, {
+        "qualifications": [{"id": q, "inputs": {}, "token": "q" * 32}],
+        "deliverables": [{"id": "1b9053f6-1c27-4bc0-b629-a0b3ebc1359d", "token": "t" * 32, "kind": "density_screen",
+                          "status": "released", "released_at": "2026-09-01T00:00:00+00:00", "qualification_id": q}],
+    }, migrations=["gf_0021_customer_notifications", "gf_0040_integrity_hardening"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "deliverables: 1 exported, 1 restored, digest match -> OK" in r.stdout and "RESTORE VERIFIED" in r.stdout
