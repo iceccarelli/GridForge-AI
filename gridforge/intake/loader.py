@@ -160,6 +160,17 @@ def _dig(doc: dict, path: str) -> Any:
     return cur
 
 
+def _refuse_repeated_ids(items, section: str) -> None:
+    """A repeated explicit id is the same equipment listed twice (its capacity would be counted twice) or two different items
+    sharing one name (ambiguous in a ranking and in a diff). Only ids the customer actually wrote count: an omitted id takes a
+    default, and two id-less entries are not a repeat."""
+    ids = [str(i["id"]) for i in items or [] if isinstance(i, dict) and i.get("id") is not None]
+    repeated = sorted({k for k in ids if ids.count(k) > 1})
+    if repeated:
+        raise IntakeError(f"{section} names {', '.join(repeated)} twice: the same equipment listed twice would be counted twice. "
+                          "Give each item its own id, or raise `units` for identical units")
+
+
 @dataclass
 class _Reader:
     doc: dict
@@ -180,6 +191,9 @@ class _Reader:
             src = raw.get("source")
             if raw.get("evidence"):
                 declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
+                if declared is None:
+                    raise IntakeError(f"{path}: declared evidence {raw['evidence']!r} is not an evidence class; "
+                                      f"use one of {', '.join(_EVIDENCE_BY_NAME)}")
                 if declared is not None:
                     # A client can attest to their own data, never to our validation: E6/E7 are
                     # earned by the calibration ledger, not by writing them into an intake.
@@ -400,7 +414,9 @@ def _load_document(doc: dict) -> Intake:
     )
 
     transformers = []
-    for t in r.raw("transformers", []) or []:
+    tx_items = r.raw("transformers", []) or []
+    _refuse_repeated_ids(tx_items, "transformers")
+    for t in tx_items:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
             unit_rating_MVA=V(_pos_max(t["unit_rating_MVA"], "transformers.unit_rating_MVA", "unit_rating_MVA", "MVA"), "MVA", f"{t.get('id','TX')} unit rating",
@@ -418,7 +434,9 @@ def _load_document(doc: dict) -> Intake:
                                           band=(80, 210)),
         ))
     ups = []
-    for u in r.raw("ups", []) or []:
+    ups_items = r.raw("ups", []) or []
+    _refuse_repeated_ids(ups_items, "ups")
+    for u in ups_items:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
             unit_rating_kW=V(_pos_max(u["unit_rating_kW"], "ups.unit_rating_kW", "unit_rating_kW", "kW"), "kW", f"{u.get('id','UPS')} module rating",
@@ -430,7 +448,9 @@ def _load_document(doc: dict) -> Intake:
         ))
 
     options = []
-    for o in r.raw("btm_options", []) or []:
+    btm_items = r.raw("btm_options", []) or []
+    _refuse_repeated_ids(btm_items, "btm_options")
+    for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
             kind=str(o.get("kind", "bess")).strip().lower(),
