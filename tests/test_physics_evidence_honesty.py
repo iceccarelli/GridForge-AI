@@ -266,13 +266,30 @@ def _unbounded_intake():
     return d
 
 
-def test_the_unbounded_intake_really_does_not_converge():
+@pytest.fixture
+def ceilings_lifted(monkeypatch):
+    """The intake loader now refuses the implausible magnitudes in _unbounded_intake() at the door (see the next-but-three test), which is
+    the first line of defence. These tests are about the SECOND line, the engine's own non-convergence guard, so the loader's plausibility
+    ceilings are lifted here to let such a document reach the engine, exactly as a document the loader cannot judge would."""
+    from gridforge.intake import loader
+    monkeypatch.setattr(loader, "PLAUSIBLE_MAX", {})
+
+
+def test_the_unbounded_intake_really_does_not_converge(ceilings_lifted):
     from gridforge.envelope.solver import LadderDidNotConverge
     with pytest.raises(LadderDidNotConverge):
         solve(_unbounded_intake())
 
 
-def test_ladder_non_convergence_is_a_422_and_refunded_over_rest(rig):
+def test_the_unbounded_intake_is_refused_at_the_door_by_name_and_refunded(rig):
+    key = rig.key("payg", quota=50)
+    s, b, h = rig.post("/v1/screen", _unbounded_intake(), key=key)
+    assert s == 422 and "above" in b["error"] and ("hall" in b["error"] or "grid" in b["error"])
+    assert h["X-GridForge-Charge-Cents"] == "0" and rig.meter.current("acme").units == 0
+    assert [e["kind"] for e in rig.events()] == ["charge", "refund"]
+
+
+def test_ladder_non_convergence_is_a_422_and_refunded_over_rest(rig, ceilings_lifted):
     key = rig.key("payg", quota=50)
     s, b, h = rig.post("/v1/screen", _unbounded_intake(), key=key)
     assert s == 422 and b["error"] == "the request could not be processed as given"
@@ -280,7 +297,7 @@ def test_ladder_non_convergence_is_a_422_and_refunded_over_rest(rig):
     assert [e["kind"] for e in rig.events()] == ["charge", "refund"]
 
 
-def test_ladder_non_convergence_is_invalid_arguments_and_refunded_over_mcp(rig):
+def test_ladder_non_convergence_is_invalid_arguments_and_refunded_over_mcp(rig, ceilings_lifted):
     key = rig.key("payg", quota=50)
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "gridforge_screen", "arguments": {"intake": _unbounded_intake()}}}

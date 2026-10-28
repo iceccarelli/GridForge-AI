@@ -312,3 +312,44 @@ def test_the_cli_reproduces_the_request_file_the_site_offers(tmp_path):
     direct = handle_compare(request, Tier.CLIENT)
     assert written["request_digest"] == direct["request_digest"]
     assert [r["id"] for r in written["scenarios"]] == ["hybrid_dlc", "full_dlc"] and written["objective"] == "fastest"
+
+
+# --- magnitudes and contradictions: an implausible intake is a 422 that names the field, never a dated answer -------------
+def _with(doc, path, value):
+    d = copy.deepcopy(doc)
+    cur = d
+    keys = path.split(".")
+    for k in keys[:-1]:
+        cur = cur[int(k)] if k.isdigit() else cur[k]
+    cur[int(keys[-1]) if keys[-1].isdigit() else keys[-1]] = value
+    return d
+
+
+@pytest.mark.parametrize("path,value,fragment", [
+    ("transformers.0.replacement_lead_time_weeks", 1e308, "lead time"),
+    ("transformers.0.units", 10**6, "units"),
+    ("grid.firm_capacity_MVA", 1e9, "firm connection capacity"),
+    ("hall.positions_available", 99999, "positions_available"),
+])
+def test_http_an_implausible_intake_is_a_422_naming_the_field_and_is_not_billed(server, path, value, fragment):
+    before = urllib.request.urlopen(urllib.request.Request(f"{server}/v1/usage", headers={"X-API-Key": KEY}), timeout=30)
+    used_before = json.loads(before.read())
+    status, body = post(server, "/v1/compare", {"intake": _with(DUBLIN, path, value), "objective": "fastest"}, KEY)
+    assert status == 422, body
+    assert fragment in body["error"]
+    assert "scenarios" not in body                      # no dated answer is produced for a hall nobody could have described
+    after = json.loads(urllib.request.urlopen(urllib.request.Request(f"{server}/v1/usage", headers={"X-API-Key": KEY}), timeout=30).read())
+    assert after.get("used") == used_before.get("used")
+
+
+def test_an_implausible_lead_time_is_not_dated_through_the_handler_either():
+    from gridforge.intake.loader import IntakeError
+    with pytest.raises(IntakeError, match="lead time"):
+        compare(_with(DUBLIN, "transformers.0.replacement_lead_time_weeks", 1e6), objective="fastest")
+
+
+@pytest.mark.parametrize("handler", [handle_compare, handle_screen])
+def test_both_routes_refuse_an_intake_that_names_a_scenario_twice(handler):
+    from gridforge.intake.loader import IntakeError
+    with pytest.raises(IntakeError, match="twice"):
+        handler({"intake": _with(DUBLIN, "scenarios", ["hybrid_dlc", "hybrid_dlc"])}, Tier.CLIENT)

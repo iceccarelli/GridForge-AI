@@ -64,7 +64,7 @@ from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, portfolio_rows
 from ..commercial import ENGAGEMENTS, PAYG, engagement
-from ..change import EnvelopeState, diff as envelope_diff, diff_from_state
+from ..change import EnvelopeState, StateError, diff as envelope_diff, diff_from_state
 from ..reporting.change_note import build as build_change_note_report
 from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
@@ -392,9 +392,10 @@ def handle_diff(body: dict, tier: Tier) -> dict:
     prev = body.get("previous_state")
     if isinstance(prev, dict):
         try:
-            d = diff_from_state(EnvelopeState(**prev), after, objective=objective)
-        except TypeError as exc:
+            state = EnvelopeState.from_record(prev)
+        except StateError as exc:
             raise ApiError(422, f"previous_state is not a recorded envelope state: {exc}")
+        d = diff_from_state(state, after, objective=objective)
     else:
         before = body.get("before")
         if not isinstance(before, dict):

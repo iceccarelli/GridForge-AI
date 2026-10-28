@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from gridforge.api.server import Tier, handle_diff, handle_portfolio
+from gridforge.api.server import ApiError, Tier, handle_diff, handle_portfolio
 from gridforge.change import EnvelopeState, diff, diff_from_state
 from gridforge.common import V
 from gridforge.costs import CostEntry, CostLibrary, reload_library
@@ -556,3 +556,48 @@ def test_a_watch_state_records_evidence_so_a_later_upgrade_is_detected(base):
     upgraded["grid"]["contracted_MW"]["evidence"] = "E5"
     d = diff_from_state(state, upgraded)
     assert d.evidence_digest_changed and d.material
+
+
+# --- previous_state is a record this product issued; a record that could not have been issued is refused, by field ----------
+def _recorded(base):
+    return handle_diff({"before": base, "after": moved(base, **{"grid.contracted_MW": 10.5})}, Tier.CLIENT)["after"]
+
+
+@pytest.mark.parametrize("patch,fragment", [
+    ({"racks_after_ladder": -40}, "racks_after_ladder"),
+    ({"racks_after_ladder": 10**9}, "racks_after_ladder"),
+    ({"racks_after_ladder": 1e308}, "racks_after_ladder"),
+    ({"racks_after_ladder": 2.5}, "racks_after_ladder"),
+    ({"racks_after_ladder": True}, "racks_after_ladder"),
+    ({"racks_as_found": None}, "racks_as_found"),
+    ({"weeks_to_full": -5.0}, "weeks_to_full"),
+    ({"weeks_to_full": 1e308}, "weeks_to_full"),
+    ({"weeks_to_full": "soon"}, "weeks_to_full"),
+    ({"weeks_to_full": 50.0, "weeks_lo": 80.0, "weeks_hi": 60.0}, "weeks_lo"),
+    ({"capex_eur": "nan"}, "capex_eur"),
+    ({"capex_eur": -1.0}, "capex_eur"),
+    ({"it_load_kW": float("inf")}, "it_load_kW"),
+    ({"weeks_class": "E9_MAGIC"}, "weeks_class"),
+    ({"schedule_complete": "yes"}, "schedule_complete"),
+    ({"binding_id": 7}, "binding_id"),
+    ({"not_a_field": 1}, "not_a_field"),
+])
+def test_a_previous_state_that_could_not_have_been_issued_is_refused_naming_the_field(base, patch, fragment):
+    prev = {**_recorded(base), **patch}
+    with pytest.raises(ApiError) as exc:
+        handle_diff({"previous_state": prev, "after": base}, Tier.CLIENT)
+    assert exc.value.status == 422
+    assert fragment in exc.value.message
+    assert "__init__" not in exc.value.message and "Traceback" not in exc.value.message     # no Python internals in a customer error
+
+
+def test_a_previous_state_missing_fields_names_them_without_python_internals(base):
+    with pytest.raises(ApiError) as exc:
+        handle_diff({"previous_state": {"racks_as_found": 3}, "after": base}, Tier.CLIENT)
+    assert exc.value.status == 422 and "racks_after_ladder" in exc.value.message
+    assert "__init__" not in exc.value.message
+
+
+def test_a_genuine_recorded_state_still_round_trips(base):
+    out = handle_diff({"previous_state": _recorded(base), "after": base}, Tier.CLIENT)
+    assert out["inputs"] == "changed"
