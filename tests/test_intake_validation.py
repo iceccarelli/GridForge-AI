@@ -192,6 +192,41 @@ def test_a_scenario_named_twice_in_the_intake_is_refused_not_compared_with_itsel
     assert [s.id for s in load_document(d).scenarios] == ["hybrid_dlc", "full_dlc"]
 
 
+@pytest.mark.parametrize("section", ["transformers", "ups", "btm_options"])
+def test_an_equipment_id_listed_twice_is_refused_not_counted_twice(section):
+    """Found by the stress harness: a repeated BESS entry (same id) raised full_dlc_btm from 62 to 69 racks with no caveat. The same
+    equipment listed twice must not create capacity, and two items sharing a name are ambiguous in a ranking and a diff."""
+    d = copy.deepcopy(BASE)
+    d[section].append(copy.deepcopy(d[section][0]))
+    repeated = d[section][0]["id"]
+    with pytest.raises(IntakeError, match=f"{section} names {repeated}.*twice"):
+        load_document(d)
+
+
+@pytest.mark.parametrize("section", ["transformers", "ups", "btm_options"])
+def test_distinct_ids_and_unnamed_entries_are_not_a_repeat(section):
+    d = copy.deepcopy(BASE)
+    second = copy.deepcopy(d[section][0])
+    second["id"] = "SECOND-UNIT"
+    d[section].append(second)
+    load_document(d)  # distinct explicit ids
+    for item in d[section]:
+        item.pop("id")  # two entries that never named themselves take defaults; that is not a repeat
+    load_document(d)
+
+
+def test_a_declared_evidence_class_that_does_not_exist_is_refused_not_silently_dropped():
+    path = "thermal.residual_air_capacity_kW_per_rack"
+    d = copy.deepcopy(BASE)
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = "E9"
+    with pytest.raises(IntakeError, match=f"{path}.*'E9'.*not an evidence class"):
+        load_document(d)
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = "E3 derived from design density"
+    load_document(d)  # a valid class with trailing words is still read as before
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = "E7"
+    assert any("capped at E5" in w for w in load_document(d).report.warnings)  # E6/E7 are capped, not refused
+
+
 def test_a_default_return_temperature_below_a_supplied_supply_warns_instead_of_refusing():
     """Found by the full suite: a customer who states only design_supply_C (18 degC) was refused because the library's default return (13 degC)
     sat below it. Only a contradiction between two figures the customer actually gave is a refusal."""
