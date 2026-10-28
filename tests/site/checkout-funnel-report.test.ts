@@ -35,7 +35,7 @@ beforeEach(() => {
   installCheckoutFunnelRpc(db);
   restore = db.install();
 });
-afterEach(() => { restore(); vi.restoreAllMocks(); });
+afterEach(() => { restore(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 function ev(name: string, props: Record<string, unknown>, at = ago(1)) { db.insertRow("funnel_events", { name, props, dedupe_key: null, created_at: at }); }
 const attempt = (kind: string, n = 1, at?: string) => { for (let i = 0; i < n; i++) ev("checkout_attempted", { kind }, at); };
@@ -174,6 +174,10 @@ describe("the checkout section of the report", () => {
 
   it("the admin route serves it (admin only)", async () => {
     attempt("density_screen", 2); created("density_screen", 1);
+    // The route reads the wall clock (the report functions above are given NOW). The events are seeded relative to NOW, so pin Date to it:
+    // against the real clock this test passed until the seeded events aged out of the 7-day window (it failed for the first time on 2026-10-28).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const { GET } = await import("@/app/api/admin/funnel/route");
     expect((await GET(new Request(siteUrl("/api/admin/funnel")))).status).toBe(401);
     jar.push({ name: "gf_admin", value: adminToken()! });
