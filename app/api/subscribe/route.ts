@@ -1,6 +1,6 @@
 import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
+import { boundedStripeClient } from "@/lib/stripe-client";
 import { PLANS } from "@/lib/subscriptions";
 import { identify } from "@/lib/portal";
 import { activeSubscription } from "@/lib/subscribers";
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (!key) {
     return NextResponse.json({ ok: false, error: "Payments not configured" }, { status: 503 });
   }
-  const stripe = new Stripe(key);
+  const stripe = boundedStripeClient(key);
 
   let body: { plan?: string; email?: string } = {};
   try {

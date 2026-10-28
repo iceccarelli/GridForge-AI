@@ -8,6 +8,7 @@
 // complete and paid and names a kind of ours — never on the strength of the URL alone.
 
 import Stripe from "stripe";
+import { boundedStripeClient } from "@/lib/stripe-client";
 import { findBySubscription } from "@/lib/api-access";
 import { PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
 import { watchBySubscription } from "@/lib/watches";
@@ -24,7 +25,7 @@ export async function accessForSession(sessionId: string): Promise<PurchaseAcces
   if (!key || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return { state: "unknown" };
   let session: Stripe.Checkout.Session;
   try {
-    session = await new Stripe(key).checkout.sessions.retrieve(sessionId);
+    session = await boundedStripeClient(key).checkout.sessions.retrieve(sessionId);
   } catch (err) {
     console.error("[GridForge] could not retrieve checkout session for the landing page:", err);
     return { state: "unknown" };

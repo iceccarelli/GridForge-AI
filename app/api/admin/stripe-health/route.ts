@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import Stripe from "stripe";
+import { boundedStripeClient } from "@/lib/stripe-client";
 import { verifyAdminCookie, ADMIN_COOKIE } from "@/lib/admin";
 import { siteUrl } from "@/lib/site";
 import { checkBillingPortal, checkRevocationBacklog, checkStripeWebhookHealth } from "@/lib/stripe-health";
@@ -20,7 +20,7 @@ export async function GET() {
   }
 
   const key = process.env.STRIPE_SECRET_KEY;
-  const stripe = key ? new Stripe(key) : null;
+  const stripe = key ? boundedStripeClient(key) : null;
   const health = await checkStripeWebhookHealth(stripe, siteUrl("/api/stripe/webhook"));
   const portal = await checkBillingPortal(stripe);
   // Key revocations the engine has not confirmed (a durable obligation; see lib/api-access.ts revokeOnEngineDetailed).
