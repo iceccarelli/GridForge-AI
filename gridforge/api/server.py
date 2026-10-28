@@ -305,6 +305,7 @@ def handle_screen(body: dict, tier: Tier) -> dict:
 def handle_compare(body: dict, tier: Tier) -> dict:
     """Time-to-Power scenario comparison over the scenarios an intake defines. One solve (``_run``), no second model:
     the numbers are the ones /v1/screen reports, laid side by side with only the dates the lead times support."""
+    from ..power.plausibility import plausibility_findings
     from .compare_payload import CompareError, compare_payload, select
     doc = body.get("intake")
     if not isinstance(doc, dict):
@@ -329,6 +330,9 @@ def handle_compare(body: dict, tier: Tier) -> dict:
             notes = ["full_dlc_btm is not compared: the intake declares no behind-the-meter options."]
         else:
             notes = []
+        # /v1/screen reports these findings as warnings; a comparison built on inputs that disagree with each other (a unit slip
+        # between MW, MVA and kW) must say so too, not rank scenarios as if the inputs were sound.
+        notes = [*notes, *plausibility_findings(intake.context)]
         out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
     except CompareError as exc:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})

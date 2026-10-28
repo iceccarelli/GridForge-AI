@@ -348,6 +348,23 @@ def test_an_implausible_lead_time_is_not_dated_through_the_handler_either():
         compare(_with(DUBLIN, "transformers.0.replacement_lead_time_weeks", 1e6), objective="fastest")
 
 
+def test_compare_carries_the_plausibility_findings_that_screen_reports():
+    """Found by the stress harness: for an intake whose figures disagree with each other (here an IT load far above the supply ceiling,
+    most often a MW/MVA/kW slip) /v1/screen warned and /v1/compare ranked the scenarios with no word of it."""
+    odd = _with(DUBLIN, "grid.current_it_load_MW", 99)
+    screen_warnings = handle_screen({"intake": odd}, Tier.CLIENT)["intake"]["warnings"]
+    findings = [w for w in screen_warnings if "firm supply ceiling" in w]
+    assert findings, "precondition: screen reports the finding"
+    caveats = handle_compare({"intake": odd}, Tier.CLIENT)["caveats"]
+    for finding in findings:
+        assert finding in caveats
+
+
+def test_compare_adds_no_plausibility_caveat_to_a_sound_intake():
+    caveats = handle_compare({"intake": DUBLIN}, Tier.CLIENT)["caveats"]
+    assert not [c for c in caveats if "firm supply ceiling" in c or "disagree" in c]
+
+
 @pytest.mark.parametrize("handler", [handle_compare, handle_screen])
 def test_both_routes_refuse_an_intake_that_names_a_scenario_twice(handler):
     from gridforge.intake.loader import IntakeError
