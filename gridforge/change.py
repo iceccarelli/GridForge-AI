@@ -84,6 +84,29 @@ def relief_path_digest(res: ScenarioResult) -> str:
                     for st in res.ladder.steps])
 
 
+class StateError(ValueError):
+    """A recorded envelope state that this product could not have issued."""
+
+
+#: Plausibility bounds for a recorded state, in step with the intake loader's ceilings (gridforge.intake.loader.PLAUSIBLE_MAX).
+_STATE_MAX_RACKS = 50_000
+_STATE_MAX_WEEKS = 2_080          # forty years of the longest lead time; a full-capacity date is never longer than its slowest item
+_STATE_MAX_EUR = 1e12
+_STATE_MAX_KW = 5_000_000
+
+
+def _state_number(name: str, v: object, high: float, *, none_ok: bool) -> float | None:
+    if v is None:
+        if none_ok:
+            return None
+        raise StateError(f"{name} is null; it must be a number")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
+        raise StateError(f"{name} is {v!r}; it must be a finite number")
+    if not 0 <= v <= high:
+        raise StateError(f"{name} is {v!r}; it must be from 0 to {high:g}")
+    return float(v)
+
+
 @dataclass
 class EnvelopeState:
     racks_as_found: int
@@ -123,6 +146,56 @@ class EnvelopeState:
         cls = EvidenceClass[self.weeks_class] if self.weeks_class in EvidenceClass.__members__ \
             else EvidenceClass.E0_ASSUMPTION
         return date_basis_of(cls, self.sets_the_date or None).to_dict()
+
+    @staticmethod
+    def from_record(rec: object) -> "EnvelopeState":
+        """An EnvelopeState from a record a caller sends back (``previous_state``), refused by FIELD when it could not have been issued
+        by this product: an unknown or missing field, a wrong type, a non-finite or negative figure, a rack count that is not a whole
+        number, an implausible magnitude, an unknown evidence class, an interval whose low end is above its high end. Without this a
+        record of -40 racks or -5 weeks produced a confident "+66 racks" against a baseline that never existed, and a wrong type
+        surfaced as a Python error string."""
+        import dataclasses
+        if not isinstance(rec, dict):
+            raise StateError("it must be a JSON object")
+        fields = dataclasses.fields(EnvelopeState)
+        unknown = sorted(set(rec) - {f.name for f in fields})
+        if unknown:
+            raise StateError(f"unknown field(s): {', '.join(unknown)}")
+        required = [f.name for f in fields if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING]
+        missing = [n for n in required if n not in rec]
+        if missing:
+            raise StateError(f"missing field(s): {', '.join(missing)}")
+        from .validation import EvidenceClass
+        out: dict = {}
+        for f in fields:
+            if f.name not in rec:
+                continue
+            v, n = rec[f.name], f.name
+            if n in ("racks_as_found", "racks_after_ladder"):
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")) \
+                        or int(v) != v or not 0 <= v <= _STATE_MAX_RACKS:
+                    raise StateError(f"{n} is {v!r}; it must be a whole number of racks from 0 to {_STATE_MAX_RACKS}")
+                v = int(v)
+            elif n in ("weeks_to_full", "weeks_lo", "weeks_hi"):
+                v = _state_number(n, v, _STATE_MAX_WEEKS, none_ok=True)
+            elif n in ("capex_eur", "capex_lo", "capex_hi"):
+                v = _state_number(n, v, _STATE_MAX_EUR, none_ok=n != "capex_eur")
+            elif n == "it_load_kW":
+                v = _state_number(n, v, _STATE_MAX_KW, none_ok=False)
+            elif n in ("racks_class", "weeks_class", "capex_class"):
+                if not isinstance(v, str) or (v and v not in EvidenceClass.__members__):
+                    raise StateError(f"{n} is {v!r}; it must be empty or one of {', '.join(EvidenceClass.__members__)}")
+            elif n in ("schedule_complete", "capex_complete"):
+                if not isinstance(v, bool):
+                    raise StateError(f"{n} is {v!r}; it must be true or false")
+            elif not isinstance(v, str):
+                raise StateError(f"{n} is {v!r}; it must be text")
+            out[n] = v
+        for lo, hi in (("weeks_lo", "weeks_hi"), ("capex_lo", "capex_hi")):
+            a, b = out.get(lo), out.get(hi)
+            if a is not None and b is not None and a > b:
+                raise StateError(f"{lo} ({a:g}) is above {hi} ({b:g})")
+        return EnvelopeState(**out)
 
     @staticmethod
     def of(res: ScenarioResult, doc: dict | None = None) -> "EnvelopeState":

@@ -41,6 +41,8 @@ def _num(raw: Any, what: str = "value") -> float:
         raise IntakeError(f"{what} is {raw!r}, which is not a number")
     try:
         v = float(raw)
+    except OverflowError:
+        raise IntakeError(f"{what} is too large to be a number this tool can model") from None
     except (TypeError, ValueError):
         raise IntakeError(f"{what} is {raw!r}, which is not a number") from None
     if not math.isfinite(v):
@@ -53,6 +55,47 @@ def _int(raw: Any, what: str = "value") -> int:
     if v != int(v) or v < 0:
         raise IntakeError(f"{what} is {raw!r}; it must be a whole number, zero or more")
     return int(v)
+
+
+#: Plausibility ceilings, by intake path or by list-item key. Input sanity in the manner of RDHX_MAX_CREDIBLE_kW: they catch a typo, a
+#: unit slip or an overflow, they are not a product claim, and each sits far above any single data-centre hall or site (a real asset
+#: above one needs a conversation, not an API call). Without them any positive finite number was an answer: a transformer lead time of
+#: 1e308 weeks came back as a "dated" scenario, and a million transformer units moved a 160-week date to 44.
+PLAUSIBLE_MAX: dict[str, float] = {
+    "hall.net_white_space_m2": 200_000, "hall.floor_loading_kPa": 100, "hall.clear_height_m": 30, "hall.aisle_pitch_m": 10,
+    "hall.design_density_kW_per_rack": 300, "hall.rack_positions": 50_000, "hall.positions_available": 50_000,
+    "site.design_drybulb_C": 60, "site.design_wetbulb_C": 45,
+    "grid.firm_capacity_MVA": 5_000, "grid.contracted_MW": 5_000, "grid.current_site_peak_MW": 5_000, "grid.current_it_load_MW": 5_000,
+    "lv.voltage_V": 36_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
+    "thermal.plant.chilled_water_capacity_kW": 2_000_000, "thermal.plant.pump_flow_capacity_l_per_min": 5_000_000,
+    "thermal.plant.available_head_kPa": 2_000, "thermal.plant.free_cooling_hours_per_year": 8_760,
+    "thermal.plant.design_supply_C": 40, "thermal.plant.design_return_C": 60,
+    "thermal.residual_air_capacity_kW_per_rack": 100,
+    # list items, by key
+    "transformers.units": 50, "transformers.unit_rating_MVA": 1_000, "transformers.replacement_lead_time_weeks": 520,
+    "ups.units": 200, "ups.unit_rating_kW": 20_000,
+    "btm_options.capacity_MW": 5_000, "btm_options.lead_time_weeks": 520, "btm_options.capex_eur_per_kW": 50_000,
+    "btm_options.energy_MWh": 100_000, "btm_options.opex_eur_per_MWh": 5_000,
+    "thermal.cdus.rated_capacity_kW": 20_000, "thermal.cdus.units": 500,
+}
+
+
+def _ceil(num: float, key: str, what: str, unit: str = "") -> float:
+    """Refuse a value above its plausibility ceiling, by name. Returns the value unchanged otherwise."""
+    high = PLAUSIBLE_MAX.get(key)
+    if high is not None and num > high:
+        raise IntakeError(
+            f"{what} is {num:g}{(' ' + unit) if unit else ''}, above {high:g}{(' ' + unit) if unit else ''}, "
+            "the most this tool will model for one hall. Check the unit and for a stray digit.")
+    return num
+
+
+def _int_max(raw: Any, key: str, what: str) -> int:
+    return int(_ceil(float(_int(raw, what)), key, what))
+
+
+def _pos_max(raw: Any, key: str, what: str, unit: str = "") -> float:
+    return _ceil(_pos(raw, what), key, what, unit)
 
 
 #: Physical range per field. Anything outside is an unconditional refusal: a power
@@ -156,6 +199,7 @@ class _Reader:
             raise IntakeError(f"{label} ({path}) is {num:g} {unit}; it cannot be negative")
         if path in _FRACTION_PATHS and not 0 < num <= 1:
             raise IntakeError(f"{label} ({path}) is {num:g}; it must be above 0 and at most 1")
+        _ceil(num, path, f"{label} ({path})", unit)
         return V(num, unit, label, ev, band=band,
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
@@ -277,6 +321,10 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
     if names is not None and not names:
         raise IntakeError("scenarios is an empty list: name at least one, or omit the field for the standard set")
     keys = names or list(catalogue)
+    repeated = sorted({k for k in keys if keys.count(k) > 1})
+    if repeated:
+        raise IntakeError(f"scenarios names {', '.join(repeated)} twice: a scenario compared with itself is not a comparison "
+                          "and would be reported twice")
     missing = [k for k in keys if k not in catalogue]
     if missing:
         raise IntakeError(f"unknown scenario(s): {', '.join(missing)}. "
@@ -329,8 +377,8 @@ def _load_document(doc: dict) -> Intake:
                            V(3.0, "m", "assumed clear height", ASSUMED, band=0.15)),
         aisle_pitch_m=r.q("hall.aisle_pitch_m", "m", "installed aisle pitch",
                           V(2.4, "m", "assumed aisle pitch", ASSUMED, band=0.15)),
-        rack_positions=_int(r.raw("hall.rack_positions", 400)),
-        positions_available=_int(r.raw("hall.positions_available", 100)),
+        rack_positions=_int_max(r.raw("hall.rack_positions", 400), "hall.rack_positions", "hall.rack_positions"),
+        positions_available=_int_max(r.raw("hall.positions_available", 100), "hall.positions_available", "hall.positions_available"),
         design_density_kW_per_rack=r.q(
             "hall.design_density_kW_per_rack", "kW", "hall design density per rack",
             V(8, "kW", "assumed design density (European colo 2010-2020: 8-20 kW/rack)",
@@ -355,16 +403,17 @@ def _load_document(doc: dict) -> Intake:
     for t in r.raw("transformers", []) or []:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
-            unit_rating_MVA=V(_pos(t["unit_rating_MVA"], 'unit_rating_MVA'), "MVA", f"{t.get('id','TX')} unit rating",
+            unit_rating_MVA=V(_pos_max(t["unit_rating_MVA"], "transformers.unit_rating_MVA", "unit_rating_MVA", "MVA"), "MVA", f"{t.get('id','TX')} unit rating",
                               CUSTOMER),
-            units=_int(t.get("units", 2)),
+            units=_int_max(t.get("units", 2), "transformers.units", "transformer units"),
             redundancy=_redundancy(t.get("redundancy", "N+1"), "transformer"),
             # a supplied derating is the client's engineering figure (E3, as before); an absent one is a library
             # default and is an assumption (E0)
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating",
                               ESTIMATED if t.get("derating_factor") is not None else ASSUMED, band=(0.85, 0.95)),
-            replacement_lead_time_weeks=V(_pos(t.get("replacement_lead_time_weeks", 160), 'replacement_lead_time_weeks'),
+            replacement_lead_time_weeks=V(_pos_max(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks",
+                                                   "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
                                           band=(80, 210)),
         ))
@@ -372,9 +421,9 @@ def _load_document(doc: dict) -> Intake:
     for u in r.raw("ups", []) or []:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
-            unit_rating_kW=V(_pos(u["unit_rating_kW"], 'unit_rating_kW'), "kW", f"{u.get('id','UPS')} module rating",
+            unit_rating_kW=V(_pos_max(u["unit_rating_kW"], "ups.unit_rating_kW", "unit_rating_kW", "kW"), "kW", f"{u.get('id','UPS')} module rating",
                              CUSTOMER),
-            units=_int(u.get("units", 2)),
+            units=_int_max(u.get("units", 2), "ups.units", "UPS units"),
             redundancy=_redundancy(u.get("redundancy", "N+1"), "UPS"),
             step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
                                    "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
@@ -385,24 +434,24 @@ def _load_document(doc: dict) -> Intake:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
             kind=str(o.get("kind", "bess")).strip().lower(),
-            capacity_MW=V(_pos(o["capacity_MW"], 'capacity_MW'), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
+            capacity_MW=V(_pos_max(o["capacity_MW"], "btm_options.capacity_MW", "capacity_MW", "MW"), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
             # Absent means absent: no invented 900 EUR/kW and no invented 36 weeks. The option is then unpriced /
             # undated (a visible gap below), never ranked as complete and never the source of a date.
-            capex_eur_per_kW=(V(_pos(o["capex_eur_per_kW"], 'capex_eur_per_kW'), "EUR/kW",
+            capex_eur_per_kW=(V(_pos_max(o["capex_eur_per_kW"], "btm_options.capex_eur_per_kW", "capex_eur_per_kW", "EUR/kW"), "EUR/kW",
                                 f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3)
                               if o.get("capex_eur_per_kW") is not None else None),
-            lead_time_weeks=(V(_pos(o["lead_time_weeks"], 'lead_time_weeks'), "weeks",
+            lead_time_weeks=(V(_pos_max(o["lead_time_weeks"], "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
                                f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35)
                              if o.get("lead_time_weeks") is not None else None),
             firm=bool(o.get("firm", True)),
             firm_capacity_factor=(V(_frac(o["firm_capacity_factor"], "BTM firm_capacity_factor"), "1",
                                     f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
                                   if o.get("firm_capacity_factor") is not None else None),
-            opex_eur_per_MWh=(V(_pos(o["opex_eur_per_MWh"], 'opex_eur_per_MWh'), "EUR/MWh",
+            opex_eur_per_MWh=(V(_pos_max(o["opex_eur_per_MWh"], "btm_options.opex_eur_per_MWh", "opex_eur_per_MWh", "EUR/MWh"), "EUR/MWh",
                                 f"{o.get('id','BTM')} opex", ASSUMED, band=0.4)
                               if o.get("opex_eur_per_MWh") is not None else None),
             permitting_note=str(o.get("permitting_note", "")),
-            energy_MWh=(V(_pos(o["energy_MWh"], 'energy_MWh'), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
+            energy_MWh=(V(_pos_max(o["energy_MWh"], "btm_options.energy_MWh", "energy_MWh", "MWh"), "MWh", f"{o.get('id','BTM')} energy", ASSUMED,
                           band=0.15)
                        if o.get("energy_MWh") is not None else None),
             annual_run_hours=_opt(o, "annual_run_hours", "h", ASSUMED, band=0.15, high=8760.0),
@@ -474,7 +523,7 @@ def _load_document(doc: dict) -> Intake:
             busway_ampacity_A=r.q("lv.busway_ampacity_A", "A", "installed busway ampacity",
                                   V(400, "A", "assumed legacy busway ampacity", ASSUMED,
                                     band=(250, 630))),
-            busway_runs=_int(r.raw("lv.busway_runs", 6)),
+            busway_runs=_int_max(r.raw("lv.busway_runs", 6), "lv.busway_runs", "lv.busway_runs"),
             busway_utilisation_limit=r.q("lv.busway_utilisation_limit", "1",
                                          "continuous-load derating on busway",
                                          V(0.8, "1", "assumed continuous-load derating", ASSUMED)),
@@ -488,13 +537,13 @@ def _load_document(doc: dict) -> Intake:
     for c in r.raw("thermal.cdus", []) or []:
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
-            rated_capacity_kW=V(_pos(c["rated_capacity_kW"], 'rated_capacity_kW'), "kW",
+            rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
                                 f"{c.get('id','CDU')} rated capacity", CUSTOMER, band=0.1),
             rated_approach_K=V(_pos(c.get("rated_approach_K", 5), 'rated_approach_K'), "K",
                                f"{c.get('id','CDU')} rated approach", ASSUMED),
             rated_flow_l_per_min=V(_pos(c.get("rated_flow_l_per_min", 2000), 'rated_flow_l_per_min'), "l/min",
                                    f"{c.get('id','CDU')} rated flow", ASSUMED),
-            units=_int(c.get("units", 1)),
+            units=_int_max(c.get("units", 1), "thermal.cdus.units", "CDU units"),
             redundancy=_redundancy(c.get("redundancy", "N+1"), "CDU"),
         ))
 
@@ -591,6 +640,18 @@ def _load_document(doc: dict) -> Intake:
         if not 0 <= rv < 0.5:
             raise IntakeError("economics.discount_rate must be a fraction from 0 up to (not including) 0.5")
         econ.discount_rate = V(rv, "1", "annual discount rate", CUSTOMER)
+    # Contradictions that cannot be true of one hall: refused by name, not silently solved.
+    if hall.positions_available > hall.rack_positions:
+        raise IntakeError(f"hall.positions_available is {hall.positions_available}, more than hall.rack_positions "
+                          f"({hall.rack_positions}): free positions cannot exceed the positions that exist")
+    if thermal.plant.design_return_C.value <= thermal.plant.design_supply_C.value:
+        msg = (f"thermal.plant.design_return_C ({thermal.plant.design_return_C.value:g} degC) is not above "
+               f"design_supply_C ({thermal.plant.design_supply_C.value:g} degC): a chilled-water return at or below supply carries no heat")
+        if {"thermal.plant.design_supply_C", "thermal.plant.design_return_C"} <= set(report.supplied):
+            raise IntakeError(msg)                 # the customer stated both, and they contradict each other
+        # Only one was stated: the other is a library default that now sits on the wrong side of it. Say so, do not refuse a document for
+        # a figure the customer never gave.
+        report.warnings.append(msg + " (one of the two is a library default: supply the other)")
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 

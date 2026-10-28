@@ -211,8 +211,11 @@ class TestSafety:
         # fly binaries are absent, which is the condition under test.
         empty = tmp_path / "empty"
         empty.mkdir()
+        # The deploy-source guard (exit 4) judges the repository this test happens to run in: any checkout whose engine files differ from
+        # origin/main, which includes every PR that changes the engine, would refuse before reaching the check under test. TestSourceIsMain
+        # covers the guard in throwaway repositories; here it is switched off so this test depends on nothing but the missing binary.
         env = {**os.environ, "FLY_BIN": str(tmp_path / "does-not-exist"),
-               "GRIDFORGE_SKIP_DEPLOY": "1",
+               "GRIDFORGE_SKIP_DEPLOY": "1", "GRIDFORGE_DEPLOY_ANY_REF": "1",
                "PATH": f"{empty}:/usr/bin:/bin"}
         proc = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env,
                               capture_output=True, text=True)
