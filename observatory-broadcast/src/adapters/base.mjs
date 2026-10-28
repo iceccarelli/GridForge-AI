@@ -172,7 +172,12 @@ export class BaseAdapter {
     this._set("configured_unverified", "local checks passed; the platform was NOT contacted, so the ingest is unverified");
     return {
       ok: true, verified: false, state: this._state, checks,
-      notes: ["unverified: this build never contacts the platform, so credentials, channel state and ingest acceptance are untested", ...this.platformNotes()],
+      notes: [
+        this.canVerify
+          ? "unverified until the broadcast is live: preflight is local only; the platform is asked (read-only) after the encoder starts, and \"live\" needs its confirmation"
+          : "unverified: this build never contacts the platform, so credentials, channel state and ingest acceptance are untested",
+        ...this.platformNotes(),
+      ],
     };
   }
 
