@@ -34,14 +34,36 @@ always with `verified:true|false`. `live` is produced only by a verification cal
 local sink's real one checks segment files; a fake in tests). RTMP, YouTube and Kick have none in this build, so they say
 "live status cannot be verified for <platform> in this build" and stay `starting`.
 
-## What is NOT done (YouTube / Kick)
+## YouTube: what is verified, and what is not
 
-No platform API is called anywhere. Not implemented: creating/transitioning a YouTube broadcast, setting its privacy,
-reading stream health, a Kick channel check, any `verify` callback. To go live for real an operator must: create the channel
-and enable live streaming; copy the stream key (and for Kick the per-channel ingest URL) into a secret store exposed as the
-variables above; set the broadcast's privacy in the platform (this tool cannot); run `prepare`, `publish`, then watch the
-platform's own dashboard to confirm the stream arrives; and decide whether the build gets a verifier (platform API with its own
-credentials) before anyone relies on `status`.
+Without YouTube credentials nothing changes: no platform API is called, the state stays `starting` with `verified:false`, and the tool says
+"live status cannot be verified for youtube in this build".
+
+With read-only YouTube credentials the youtube adapter has a **verifier** (`src/youtube-api.mjs`), and "live" becomes reachable, on
+YouTube's own word. It asks the YouTube Data API (scope `youtube.readonly`; it can neither create nor change anything) whether the channel
+has exactly ONE active broadcast, whether that broadcast is `live` (not `testing` / `liveStarting`), whether its bound stream is `active`
+with health `good` or `ok`, and what its privacy is. Anything else fails closed and the reason is the status detail: no credentials, an
+API refusal, more than one active broadcast (it cannot tell which one this encoder feeds), a privacy different from `--visibility`
+(change it in Studio), an inactive or unhealthy stream. Answers are cached for 30 s (120 s after an error), which keeps a round-the-clock
+stream near 5,800 of the default 10,000 daily quota units.
+
+One-time setup (the Google side is yours; this tool never holds a write scope):
+
+1. Google Cloud console: create a project, enable **YouTube Data API v3**, create an OAuth client of type **TVs and Limited Input devices**.
+2. `export OBS_YOUTUBE_OAUTH_CLIENT_ID=... ; read -rs OBS_YOUTUBE_OAUTH_CLIENT_SECRET; export OBS_YOUTUBE_OAUTH_CLIENT_SECRET`
+3. `obs youtube-auth` prints a URL and a code; approve it with the channel's Google account. The refresh token is written to the state
+   directory (0600) and never printed; export the `OBS_YOUTUBE_OAUTH_REFRESH_TOKEN_FILE=...` line it names.
+4. `obs youtube-check [--visibility unlisted]` asks once and exits 0 (CONFIRMED by YouTube, with the evidence) or 1 (NOT confirmed, why).
+   Before anyone has gone live it says "no active YouTube broadcast", which is the correct answer.
+
+A half-set configuration is refused (exit 2) rather than silently downgraded. What the verifier does NOT do: create or transition a
+broadcast, set privacy, read viewer counts or chat, or call any other platform (Kick and generic RTMP still have no verifier).
+
+## What is NOT done
+
+Kick and generic RTMP: no platform API is called and no verifier exists, so they never reach `live`. For every platform the operator
+still creates the channel, enables live streaming, copies the stream key into a secret store exposed as the variables above, sets the
+broadcast's privacy in the platform (this tool cannot), runs `prepare`, `publish`, and watches the platform's own dashboard.
 
 ## Known exposure: the stream key is on ffmpeg's command line (NOT solved)
 

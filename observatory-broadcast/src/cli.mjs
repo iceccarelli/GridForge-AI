@@ -15,6 +15,7 @@ import { createAdapter, ADAPTER_NAMES } from "./adapters/index.mjs";
 import { VISIBILITIES, createApproval, consumeApproval, assertTtl, DEFAULT_TTL_MS } from "./approval.mjs";
 import { runPublish } from "./publish.mjs";
 import { realClock } from "./clock.mjs";
+import { createYouTubeVerifier, readYouTubeApiConfig, deviceAuthorize, YT_ENV } from "./youtube-api.mjs";
 
 const HELP = `${TOOL_NAME} ${TOOL_VERSION} - GridForge Observatory broadcast pipeline (scene -> capture/encode -> publish)
 
@@ -29,10 +30,13 @@ usage: obs <command> [options]            (global: --state-dir DIR, --json)
   stop     graceful stop of the running broadcast
   slate    generate --out FILE | on | off     (cut the running broadcast to the fallback slate, or release it)
   health   exit 0 ok / 1 degraded / 2 down
+  youtube-auth    one-time read-only Google sign-in (device code); stores a refresh token in the state dir (0600), never prints it
+  youtube-check   [--visibility V]   ask YouTube (read-only) whether the channel has ONE live, healthy broadcast; exit 0 yes / 1 no
 
 Ingest URLs and stream keys are NEVER accepted as arguments. Set them in the environment (or *_FILE secret files):
   OBS_RTMP_URL [OBS_RTMP_KEY]   OBS_YOUTUBE_STREAM_KEY [OBS_YOUTUBE_INGEST_URL]   OBS_KICK_INGEST_URL OBS_KICK_STREAM_KEY
   OBS_LOCAL_SINK_DIR            OBS_STATE_DIR   OBS_ALLOW_URLS   PLAYWRIGHT_MODULE   CHROMIUM   OBS_FFMPEG   OBS_FFPROBE
+YouTube verification (optional; without it youtube never reaches "live"): ${YT_ENV.clientId}  ${YT_ENV.clientSecret}[_FILE]  ${YT_ENV.refreshToken}[_FILE]
 `;
 
 const FORBIDDEN_FLAG = /^--(stream-?key|key|rtmp-?url|ingest(-?url)?|secret|token|password)(=|$)/i;
@@ -40,7 +44,7 @@ const INGEST_LIKE = /\b(rtmps?|srt|rtsp):\/\//i;
 
 /**
  * @param {string[]} argv
- * @param {{ env?: Record<string, string | undefined>, stdout?: (s: string) => void, stderr?: (s: string) => void, clock?: any, adapterDeps?: any, installSignalHandlers?: boolean, sceneProbe?: any, health?: any, backoff?: any, signal?: AbortSignal, procMounts?: string }} [io]
+ * @param {{ env?: Record<string, string | undefined>, stdout?: (s: string) => void, stderr?: (s: string) => void, clock?: any, adapterDeps?: any, installSignalHandlers?: boolean, sceneProbe?: any, health?: any, backoff?: any, signal?: AbortSignal, procMounts?: string, fetch?: typeof fetch, sleep?: (ms: number) => Promise<void> }} [io]
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io = {}) {
@@ -68,7 +72,7 @@ export async function main(argv, io = {}) {
     if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") { out(HELP); return cmd ? 0 : 2; }
     if (cmd === "--version") { out(`${TOOL_NAME} ${TOOL_VERSION}`); return 0; }
 
-    const handlers = { record: cmdRecord, prepare: cmdPrepare, publish: cmdPublish, status: cmdStatus, stop: cmdStop, slate: cmdSlate, health: cmdHealth };
+    const handlers = { record: cmdRecord, prepare: cmdPrepare, publish: cmdPublish, status: cmdStatus, stop: cmdStop, slate: cmdSlate, health: cmdHealth, "youtube-auth": cmdYoutubeAuth, "youtube-check": cmdYoutubeCheck };
     const fn = /** @type {Record<string, Function>} */ (handlers)[cmd];
     if (!fn) throw new ObsError("unknown_command", `unknown command "${cmd}"`, { exitCode: 2, hint: "Run `obs help`." });
     return await fn(rest, { env, out, err, emit, json, redactor, logger, io });
@@ -163,7 +167,14 @@ async function cmdRecord(args, c) {
 function setupAdapter(name, c) {
   if (!name) throw new ObsError("bad_option", `--adapter is required (${ADAPTER_NAMES.join(", ")})`, { exitCode: 2 });
   const store = new StateStore(c.stateDir);
-  const adapter = createAdapter(name, { env: c.env, redactor: c.redactor, logger: c.logger, clock: c.io.clock ?? realClock, defaultSinkDir: path.join(store.dir, "sink"), ...(c.io.adapterDeps ?? {}) });
+  /** @type {Record<string, any>} */ const deps = {};
+  if (name === "youtube" && !c.io.adapterDeps?.verifier) {
+    // A half-set OAuth configuration is refused rather than silently downgraded to "never live".
+    const yt = readYouTubeApiConfig(c.env);
+    if (yt.partial) throw new ObsError("youtube_oauth_incomplete", `YouTube verification is half-configured: ${yt.errors.join("; ")}`, { exitCode: 2, hint: "Set all three OBS_YOUTUBE_OAUTH_* variables, or none." });
+    if (yt.configured) deps.verifier = createYouTubeVerifier({ cfg: yt, fetch: c.io.fetch, clock: c.io.clock ?? realClock, redactor: c.redactor });
+  }
+  const adapter = createAdapter(name, { env: c.env, redactor: c.redactor, logger: c.logger, clock: c.io.clock ?? realClock, defaultSinkDir: path.join(store.dir, "sink"), ...deps, ...(c.io.adapterDeps ?? {}) });
   const cfg = adapter.validateConfig(c.env);
   return { store, adapter, cfg };
 }
@@ -430,4 +441,30 @@ async function cmdHealth(args, c) {
   if (c.json) c.emit(doc);
   else { c.out(`${status}: ${reason}`); for (const k of checks) c.out(`  ${k.ok ? "ok  " : "FAIL"} ${k.name}: ${k.detail}`); }
   return code;
+}
+
+// ------------------------------------------------------------------------------------------------ youtube-auth / youtube-check
+async function cmdYoutubeAuth(args, c) {
+  const { values } = parse(args, {});
+  const store = new StateStore(values["state-dir"] ?? defaultStateDir(c.env));
+  const token = await deviceAuthorize({ env: c.env, fetch: c.io.fetch, clock: c.io.clock, sleep: c.io.sleep, say: (m) => c.out(m), redactor: c.redactor });
+  store.writeSecretFile("youtube-refresh-token", token + "\n");
+  const file = store.file("youtube-refresh-token");
+  c.json ? c.emit({ ok: true, refreshTokenFile: file }) : c.out(`Approved. The read-only refresh token is stored in ${file} (mode 0600, not printed).\nNext:  export ${YT_ENV.refreshToken}_FILE=${file}`);
+  return 0;
+}
+
+async function cmdYoutubeCheck(args, c) {
+  const { values } = parse(args, { visibility: { type: "string" } });
+  if (values.visibility && !VISIBILITIES.includes(values.visibility)) throw new ObsError("bad_visibility", `--visibility must be one of ${VISIBILITIES.join(", ")}`, { exitCode: 2 });
+  const yt = readYouTubeApiConfig(c.env);
+  let verifier = c.io.adapterDeps?.verifier;
+  if (!verifier) {
+    if (!yt.configured) throw new ObsError("youtube_oauth_incomplete", `YouTube verification is not configured: ${yt.errors.join("; ") || "no OBS_YOUTUBE_OAUTH_* variables are set"}`, { exitCode: 2, hint: "Run `obs youtube-auth` once, then export the three variables it names." });
+    verifier = createYouTubeVerifier({ cfg: yt, fetch: c.io.fetch, clock: c.io.clock ?? realClock, redactor: c.redactor, cacheMs: 0, errorBackoffMs: 0 });
+  }
+  const r = await verifier({ adapter: "youtube", stream: { visibility: values.visibility } });
+  const ok = r.ok === true && typeof r.evidence === "string" && r.evidence.length > 0;
+  c.json ? c.emit({ ok, evidence: r.evidence }) : c.out(`${ok ? "CONFIRMED by YouTube" : "NOT confirmed"}: ${r.evidence}`);
+  return ok ? 0 : 1;
 }
