@@ -1,0 +1,58 @@
+name: stress-harness
+
+# The independent acceptance harness (iceccarelli/gridforge-stress-test) calls this repository's real request handlers
+# (/v1/compare, /v1/screen, /v1/diff) with hostile and contradictory intakes and checks invariants: undefined fields
+# cannot change an answer, a claim cannot raise a grade, a duplicate cannot create capacity, the public tier discloses no
+# protected assumption. It is NOT a second implementation of the engine and it does not replace this repository's own tests.
+#
+# Read-only and offline: it checks out this pull request, checks out the harness at the ref below, installs the harness's
+# locked dependencies and runs `pytest -m product` against this tree. No secrets, no network calls to the deployed engine,
+# nothing deployed or written. Both repositories are public, so the default token is enough.
+#
+# Its own workflow, like engine-drift and production-smoke, so a regression is visible (red) without blocking unrelated
+# pull requests. A red run means one of two things, and the log says which:
+#   * a behaviour the harness pins has regressed in this change; or
+#   * this change FIXED a gap the harness still marks as an expected failure (a strict xfail turns into XPASS). That is good
+#     news: update the harness to turn the test into a regression test, then re-run.
+on:
+  pull_request:
+    paths:
+      - 'gridforge/**'
+      - 'examples/**'
+      - '.github/workflows/stress-harness.yml'
+  workflow_dispatch:
+    inputs:
+      harness_ref:
+        description: gridforge-stress-test branch, tag or FULL commit SHA (a short SHA does not check out)
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: iceccarelli/gridforge-stress-test
+          ref: ${{ inputs.harness_ref || 'main' }}
+          path: stress-harness
+          persist-credentials: false
+      - name: Show exactly which product and harness commits are under test
+        run: |
+          echo "product: $(git log -1 --format='%H %s')"
+          echo "harness: $(git -C stress-harness log -1 --format='%H %s')"
+      - uses: astral-sh/setup-uv@v7
+      - name: Install the harness's locked dependencies
+        working-directory: stress-harness
+        run: uv sync --locked --all-groups
+      - name: The real handlers must satisfy the pinned invariants
+        working-directory: stress-harness
+        run: uv run --locked pytest -m product -ra
+        env:
+          GRIDFORGE_PRODUCT_DIR: ${{ github.workspace }}
