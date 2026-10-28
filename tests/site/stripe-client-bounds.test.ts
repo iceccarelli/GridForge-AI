@@ -24,7 +24,7 @@ vi.mock("stripe", async (orig) => {
     checkout = {
       sessions: {
         create: () => new Promise(() => {}), // never answers
-        retrieve: async (id: string) => ({ id, object: "checkout.session" }),
+        retrieve: async (id: string) => ({ id }), // not a session fixture: the answer is only passed through
       },
     };
     webhooks = { constructEvent: () => ({ id: "evt_sync", type: "test.event" }) };
