@@ -6,11 +6,14 @@ values it carries (so the data file cannot drift silently), the limits every out
 """
 import copy
 import json
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from gridforge.api.server import ApiError, handle_compare, handle_screen
+from gridforge.api.server import ApiError, handle_compare, handle_screen, handle_study
 from gridforge.api.tiers import Tier
 from gridforge.api.tools import TOOLS_BY_NAME
 from gridforge.context import grid_queue as g
@@ -130,7 +133,7 @@ def test_screen_sets_the_measured_statistic_beside_the_assumed_grid_wait():
     out = handle_screen({"intake": REFERENCE}, Tier.CLIENT)
     ctx = out["grid_queue_context"]
     assert "comparison" in ctx, "the client-tier screen carries the grid lead time, so it is compared"
-    carried = g.assumption_from_scenarios(out["scenarios"])
+    carried = g.assumption_from_scenarios(out["scenarios"], prefer=out["recommended"])
     assert ctx["comparison"]["assumed_weeks"] == carried["weeks"]
     assert ctx["comparison"]["assumed_evidence_class"] == carried["evidence_class"]  # never raised by the comparison
     assert any("evidence class" in s and "unchanged" in s for s in ctx["statements"])
@@ -159,3 +162,112 @@ def test_the_tool_schema_lists_the_region_parameter_with_exactly_the_known_regio
     prop = schema["properties"]["grid_queue_region"]
     assert prop["enum"] == list(g.regions()) and "changes no number" in prop["description"]
     assert schema["additionalProperties"] is False
+
+
+# --- the paid documents --------------------------------------------------------------------------------------------------------
+
+BANNED = re.compile(r"\b(proven|guaranteed|certified|will deliver|measured capacity|verified performance|actual performance)\b", re.I)
+
+
+def screen_md(**kw):
+    return handle_screen({"intake": REFERENCE, "format": "md", **kw}, Tier.CLIENT)["document"]
+
+
+def test_the_density_screen_carries_the_section_before_the_next_step_and_still_passes_every_gate():
+    md = screen_md()  # _rendered runs the report gates: a failure would raise, not return
+    assert "## 5. Grid wait: what has been observed elsewhere (context only)" in md
+    assert md.index("## 5. Grid wait") < md.index("## 6. Recommended next step")
+    assert "Context only: this is not a connection time for a load or a data centre" in md
+    assert "Only 23% of the 5633 requests that entered a queue in 2010-2015 reached operation" in md
+    assert "median of 53 months" in md and "37-70 months" in md
+    section = md[md.index("## 5. Grid wait"):md.index("## 6. ")]
+    assert not BANNED.search(section), "the new section must not use the language the report gate bans"
+
+
+def test_the_document_and_the_json_quote_the_same_assumed_grid_wait():
+    payload = handle_screen({"intake": REFERENCE}, Tier.CLIENT)
+    weeks = payload["grid_queue_context"]["comparison"]["assumed_weeks"]
+    assert f"assumes is {weeks:.0f} weeks" in screen_md()
+
+
+def test_the_region_choice_reaches_the_document():
+    assert "(ERCOT, requests that reached operation 2018-2025)" in screen_md(grid_queue_region="ERCOT")
+    assert "(US, requests that reached operation 2018-2025)" in screen_md()
+
+
+def test_the_study_closes_its_time_to_power_section_with_the_same_context():
+    md = handle_study({"intake": DUBLIN, "format": "md"}, Tier.CLIENT)["document"]
+    start = md.index("## 3. Time to power")
+    section3 = md[start:md.index("## 4. ", start)]
+    assert "Grid wait, observed elsewhere (context only)" in section3
+    assert "not as a correction of the assumption" in section3
+    assert "Only 23% of the 5633 requests" in section3
+    assert not BANNED.search(section3), "the new section must not use the language the report gate bans"
+
+
+def test_the_document_says_the_two_things_it_compares_are_different_processes():
+    md = screen_md()
+    assert "The two measure different processes" in md and "not as a correction of the assumption" in md
+
+
+def test_a_screen_built_without_the_context_is_exactly_what_it_was():
+    from gridforge.intake.loader import load_document
+    from gridforge.reporting.screen import build
+    from gridforge.scenario.run import run_all
+    intake = load_document(REFERENCE)
+    results = run_all(intake.context, intake.scenarios)
+    headings = [sec.heading for sec in build(intake, results).sections]
+    assert headings[-1] == "5. Recommended next step" and not any("Grid wait" in h for h in headings)
+
+
+def test_the_command_line_produces_the_same_section(tmp_path):
+    out = subprocess.run([sys.executable, "-m", "gridforge", "screen", str(EX / "reference_hall.json"), "-o", str(tmp_path)],
+                         capture_output=True, text=True, check=True, env={"GRIDFORGE_REPORT_DATE": "2026-10-27", "PATH": "/usr/bin:/bin"})
+    md = (tmp_path / "density_screen.md").read_text()
+    assert "## 5. Grid wait: what has been observed elsewhere (context only)" in md and "wrote" in out.stdout
+    study = subprocess.run([sys.executable, "-m", "gridforge", "study", str(EX / "dublin_hall.json"), "-o", str(tmp_path)],
+                           capture_output=True, text=True, check=True, env={"GRIDFORGE_REPORT_DATE": "2026-10-27", "PATH": "/usr/bin:/bin"})
+    assert "Grid wait, observed elsewhere (context only)" in (tmp_path / "envelope_study.md").read_text() and study.returncode == 0
+
+
+# --- the free tier carries no schedule figures ------------------------------------------------------------------------------------
+# The product's paywall rule: the public tier of a screen shows no weeks, lead times, bands or relief. The queue history is schedule-like
+# (months and weeks), so it is paid content too. The independent harness found the first version of this change breaking the rule.
+
+def _leaves(node, path=""):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            yield from _leaves(v, f"{path}.{k}")
+    elif isinstance(node, list):
+        for v in node:
+            yield from _leaves(v, f"{path}[]")
+    else:
+        yield path
+
+
+def test_the_public_screen_carries_no_queue_context_and_no_schedule_keys():
+    public = handle_screen({"intake": REFERENCE}, Tier.PUBLIC)
+    assert "grid_queue_context" not in public
+    assert not [p for p in _leaves(public) if re.search(r"relief|lead_time|weeks|band", p, re.I)]
+
+
+def test_the_public_documents_carry_no_queue_section():
+    assert "Grid wait" not in handle_screen({"intake": REFERENCE, "format": "md"}, Tier.PUBLIC)["document"]
+    assert "Grid wait, observed elsewhere" not in handle_study({"intake": DUBLIN, "format": "md"}, Tier.PUBLIC)["document"]
+
+
+def test_the_public_comparison_carries_no_queue_context_or_its_caveat():
+    out = handle_compare({"intake": DUBLIN}, Tier.PUBLIC)
+    assert "grid_queue_context" not in out and not any("grid_queue_context" in c for c in out["caveats"])
+
+
+def test_the_client_tier_still_carries_all_of_it():
+    assert "grid_queue_context" in handle_screen({"intake": REFERENCE}, Tier.CLIENT)
+    assert "grid_queue_context" in handle_compare({"intake": DUBLIN}, Tier.CLIENT)
+    assert "## 5. Grid wait" in handle_screen({"intake": REFERENCE, "format": "md"}, Tier.CLIENT)["document"]
+
+
+def test_the_key_is_declared_paid_so_a_future_payload_cannot_leak_it_by_accident():
+    from gridforge.api.tiers import PUBLIC_REDACTED_KEYS, redact
+    assert "grid_queue_context" in PUBLIC_REDACTED_KEYS
+    assert redact({"x": 1, "grid_queue_context": {"observed": {"median_weeks": 229.3}}}, Tier.PUBLIC) == {"x": 1}

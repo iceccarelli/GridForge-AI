@@ -80,7 +80,7 @@ from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
 from .costs import BUCKET_BOUNDS_MS, timer
 from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
-from .payloads import qualify_payload, screen_payload
+from .payloads import grid_queue_context_for, qualify_payload, screen_payload
 from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
@@ -318,14 +318,19 @@ def handle_screen(body: dict, tier: Tier) -> dict:
     doc = body.get("intake") or body
     intake, results = _run(doc)
     fmt = str(body.get("format") or "json").lower()
-    if fmt in ("html", "md"):
-        report = build_screen_report(intake, results, objective=_objective(body))
-        return _rendered(report, results, fmt)
-    payload = screen_payload(intake, results, _objective(body), tier=tier)
+    objective = _objective(body)
+    payload = screen_payload(intake, results, objective, tier=tier)
     # Context only: the measured queue statistic beside the assumed grid wait (client tier, which is where the assumption is carried).
-    payload["grid_queue_context"] = grid_queue.context(
-        region=region, country=_site_country(doc), assumed=grid_queue.assumption_from_scenarios(payload.get("scenarios")))
-    return payload
+    paid = tier is not Tier.PUBLIC       # schedule figures are paid content: the free tier carries none (tiers.PUBLIC_REDACTED_KEYS)
+    if fmt in ("html", "md"):
+        queue = grid_queue_context_for(results, objective, country=_site_country(doc), region=region) if paid else None
+        report = build_screen_report(intake, results, objective=objective, grid_queue=queue)
+        return _rendered(report, results, fmt)
+    if paid:
+        payload["grid_queue_context"] = grid_queue.context(
+            region=region, country=_site_country(doc),
+            assumed=grid_queue.assumption_from_scenarios(payload.get("scenarios"), prefer=payload.get("recommended")))
+    return redact(payload, tier)
 
 
 def handle_compare(body: dict, tier: Tier) -> dict:
@@ -366,16 +371,19 @@ def handle_compare(body: dict, tier: Tier) -> dict:
     out["project"] = intake.project
     out["intake_completeness"] = round(intake.report.completeness, 3)
     # Grid reinforcement is deliberately not dated above. Set the MEASURED queue history beside that refusal: context only.
-    from ..context import grid_queue
-    out["grid_queue_context"] = grid_queue.context(region=region, country=_site_country(doc))
-    out["caveats"].append("Context only: grid_queue_context shows how long US generation interconnection requests that reached operation "
-                          "took. It is not a connection time for this site and changes no date here.")
+    if tier is not Tier.PUBLIC:
+        from ..context import grid_queue
+        out["grid_queue_context"] = grid_queue.context(region=region, country=_site_country(doc))
+        out["caveats"].append("Context only: grid_queue_context shows how long US generation interconnection requests that reached "
+                              "operation took. It is not a connection time for this site and changes no date here.")
     out["provenance"] = provenance(VERSION)
     return out
 
 
 def handle_study(body: dict, tier: Tier) -> dict:
-    intake, results = _run(body.get("intake") or body)
+    region = _queue_region(body) if "intake" in body else None
+    doc = body.get("intake") or body
+    intake, results = _run(doc)
     fmt = str(body.get("format") or "json").lower()
     bundle = str(body.get("bundle") or "").lower()
     if bundle and bundle != "board":
@@ -398,7 +406,9 @@ def handle_study(body: dict, tier: Tier) -> dict:
             return _rendered(build_board_report(intake, results, sens, objective=objective), results, fmt)
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
-                                    watermark=watermark_for(intake))
+                                    watermark=watermark_for(intake),
+                                    grid_queue=(grid_queue_context_for(results, objective, country=_site_country(doc), region=region)
+                                                if tier is not Tier.PUBLIC else None))
         out = _rendered(report, results, fmt)
         if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the

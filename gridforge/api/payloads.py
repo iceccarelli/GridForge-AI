@@ -97,3 +97,12 @@ def screen_payload(intake: Intake, results: list[ScenarioResult],
         "calibration": calibration_block(results),
     }
     return redact(body, tier)
+
+
+def grid_queue_context_for(results: list[ScenarioResult], objective: Objective = Objective.MAX_COMPUTE, *,
+                           country: object = None, region: str | None = None) -> dict:
+    """The measured US queue statistic beside the RECOMMENDED scenario's assumed grid wait (context only), for a generated document."""
+    from ..context import grid_queue
+    rec = _pick_recommended(results, objective)
+    return grid_queue.context(region=region, country=country,
+                              assumed=grid_queue.assumption_from_scenarios([scenario_dict(rec)]))

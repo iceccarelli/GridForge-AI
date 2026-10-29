@@ -170,16 +170,22 @@ def context(*, region: str | None = None, country: Any = None, assumed: dict[str
         statements.append(
             f"The grid-reinforcement wait assumed here is {a:.0f} weeks (evidence class {assumed['evidence_class']}), "
             f"{comparison['position_of_assumption'].replace('_', ' ')} of that observed distribution "
-            f"({comparison['assumed_over_observed_median']}x the observed median). Its evidence class is unchanged by this comparison."
+            f"({comparison['assumed_over_observed_median']}x the observed median). Its evidence class is unchanged by this comparison. "
+            "The two measure different processes (a generation interconnection request, and the grid reinforcement this hall needs), so "
+            "this is a prompt to ask the network operator, not a correction of the assumption."
         )
     statements.append("This context changes no figure and no evidence class elsewhere in the response.")
     out["statements"] = statements
     return out
 
 
-def assumption_from_scenarios(scenarios: list[dict[str, Any]] | None) -> dict[str, Any] | None:
-    """The grid-reinforcement lead time a screen payload carries (client tier), or None when it carries none (never defaulted)."""
-    for sc in scenarios or []:
+def assumption_from_scenarios(scenarios: list[dict[str, Any]] | None, prefer: str | None = None) -> dict[str, Any] | None:
+    """The grid-reinforcement lead time a screen payload carries (client tier), or None when it carries none (never defaulted).
+
+    `prefer` is a scenario id (the recommended one): its lead time is read first, so a document and the JSON payload quote the same wait.
+    """
+    ordered = sorted(scenarios or [], key=lambda sc: sc.get("id") != prefer)
+    for sc in ordered:
         for con in sc.get("constraints", []) or []:
             if con.get("id") != "grid_firm_capacity":
                 continue
