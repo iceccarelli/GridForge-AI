@@ -159,9 +159,9 @@ describe("getLiveContext: grid mix, queue, EIA", () => {
   });
 
   it("queue: a published report, current only as of the report date, stale after ~120 days, modelled placeholders left out", async () => {
-    const nowCtx = (await run(GOOD)).ctx.queue; // 2026-10-25: far beyond 120 days from January
+    const nowCtx = (await run(GOOD)).ctx.queue; // 2026-10-25: far beyond 120 days from the end-2025 data
     expect(nowCtx.provenance.basis).toBe("published_report");
-    expect(nowCtx.provenance.observedAt).toBe("2026-01-10T00:00:00.000Z");
+    expect(nowCtx.provenance.observedAt).toBe("2025-12-31T00:00:00.000Z");
     expect(nowCtx.provenance.retrievedAt).toBeNull();
     expect(nowCtx.provenance.maxAgeSeconds).toBe(120 * 86400);
     expect(nowCtx.provenance.caveat).toMatch(/current as of that report/);
@@ -171,7 +171,7 @@ describe("getLiveContext: grid mix, queue, EIA", () => {
     const early = (await run(GOOD, {}, Date.parse("2026-02-01T00:00:00Z"))).ctx.queue;
     expect(early.freshness).toBe("fresh");
     // exactly at the limit is fresh, a second later is stale
-    const limit = Date.parse("2026-01-10T00:00:00Z") + 120 * 86400_000;
+    const limit = Date.parse("2025-12-31T00:00:00Z") + 120 * 86400_000;
     expect((await run(GOOD, {}, limit)).ctx.queue.freshness).toBe("fresh");
     expect((await run(GOOD, {}, limit + 1000)).ctx.queue.freshness).toBe("stale");
   });

@@ -167,12 +167,12 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
         <Card title={TITLES.queue}>
           {queue ? (
             <table role="table" className="mt-2 w-full text-left text-sm">
-              <caption className="mb-1 text-left text-xs text-mute">Published queue figures per market, as of the report date below.</caption>
+              <caption className="mb-1 text-left text-xs text-mute">Queue figures per market from the LBNL Queued Up data, as of the date below. Active is requested capacity in a queue, not capacity available to a new load. Median wait is for generation and storage projects that reached operation; most requests never do, and it is not a load-connection time.</caption>
               <thead>
                 <tr>
                   <th scope="col" className="py-1 pr-2 font-mono text-[10px] uppercase tracking-wider text-mute">Market</th>
                   <th scope="col" className="py-1 pr-2 text-right font-mono text-[10px] uppercase tracking-wider text-mute">Active</th>
-                  <th scope="col" className="py-1 text-right font-mono text-[10px] uppercase tracking-wider text-mute">Typical wait</th>
+                  <th scope="col" className="py-1 text-right font-mono text-[10px] uppercase tracking-wider text-mute">Median wait (completed)</th>
                 </tr>
               </thead>
               <tbody>

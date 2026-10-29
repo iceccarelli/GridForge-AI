@@ -1,0 +1,27 @@
+{
+  "schema": "gridforge/queue-active-capacity/1",
+  "source": "Lawrence Berkeley National Laboratory, Queued Up: 2026 Edition (data through 2025), CC BY 4.0",
+  "sheet": "02. Data Sample by Region",
+  "as_of": "2025-12-31",
+  "unit": "GW",
+  "what_it_is": "Capacity of ACTIVE generation and storage interconnection requests in LBNL's data sample, by region, as the publisher prints it for the end of 2025. It is requested capacity in a queue, not available capacity, not a connection probability, and not a data-centre load connection.",
+  "provenance": {
+    "workbook": "lbnl_ix_queue_data_file_thru2025.xlsx",
+    "workbook_sha256": "794582d3281c6a305e9615fcfec3fae9dc85be2165216d33760b677e976a08b6",
+    "transcribed_from": "the sheet's printed table, read by the gridforge-stress probe workflow (GitHub Actions run 40932230568, 2026-10-29); values are the publisher's, rounded as printed",
+    "unit_check": "the workbook's own codebook (sheet '04. Data Codebook') defines mw_1 as 'capacity of type 1 (MW)'",
+    "note_3_as_read": "Capacity (GW) shown in these tables does not include estimates for missing h... (the probe output truncates the note; the rest was not read)",
+    "recomputation": "summing the project-level sheet's mw_1 once per request reproduces ERCOT (407.5 vs 408.0) and ISO-NE (14.6 vs 14.8) but is 8-35 percent lower elsewhere (PJM 130.6, MISO 349.7, SPP 151.2). The likely reason is that the publisher also counts hybrid/co-located storage capacity (mw_2, mw_3), which the recomputation does not. That is a hypothesis, not a finding, so the publisher's own table is used."
+  },
+  "active": {
+    "CAISO": { "requests": 432, "gw": 191.5 },
+    "ERCOT": { "requests": 1527, "gw": 408 },
+    "ISO-NE": { "requests": 72, "gw": 14.8 },
+    "MISO": { "requests": 1646, "gw": 382.2 },
+    "NYISO": { "requests": 190, "gw": 29.2 },
+    "PJM": { "requests": 1134, "gw": 144.3 },
+    "SPP": { "requests": 683, "gw": 171.2 },
+    "Southeast": { "requests": 957, "gw": 152.9 },
+    "West": { "requests": 1603, "gw": 567.4 }
+  }
+}
