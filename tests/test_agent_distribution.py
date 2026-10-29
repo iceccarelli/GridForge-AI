@@ -100,6 +100,22 @@ def test_the_free_tool_still_leaks_nothing_priced(server):
     assert "EUR" not in blob and "capex" not in blob and "lead_time" not in blob
 
 
+def test_the_transformer_lead_time_gap_is_in_the_paid_data_request_and_not_on_the_free_tier(server):
+    """The omitted transformer lead time is disclosed (its placeholder is a weeks figure), but only where weeks are
+    sold: the paid screen names it, the free qualifier does not."""
+    path = "transformers.replacement_lead_time_weeks"
+    _, body = rpc(server, "tools/call", {"name": "gridforge_qualify", "arguments": QUALIFY})
+    assert path not in json.dumps(body)
+
+    from gridforge.api.server import handle_screen
+    from gridforge.api.tiers import Tier
+    dublin = json.loads((Path(__file__).resolve().parent.parent / "examples" / "intake" / "dublin_hall.json").read_text())
+    for t in dublin["transformers"]:
+        t.pop("replacement_lead_time_weeks")
+    gaps = handle_screen({"intake": dublin}, Tier.CLIENT)["intake"]["gaps"]
+    assert path in [g["path"] for g in gaps]
+
+
 def test_every_paid_tool_still_refuses_without_a_key(server):
     paid = [n for n, t in TOOLS_BY_NAME.items() if t["tier"] == Tier.CLIENT.value]
     assert len(paid) >= 5
