@@ -324,6 +324,8 @@ def _bess_from_request(d: dict) -> BatteryEnergyStorageSystem:
 
 def _load_profile_from_request(d: dict) -> LoadProfile:
     from ..power.load_profile import flat, from_csv
+    if not isinstance(d, dict):
+        raise DeploymentRequestError(f"load_profile must be an object with 'csv' or 'flat_kW', not {type(d).__name__}")
     if d.get("csv"):
         return from_csv(str(d["csv"]), source=str(d.get("source") or "uploaded CSV"))
     if d.get("flat_kW") is not None:
