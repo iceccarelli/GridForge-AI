@@ -294,6 +294,7 @@ ROOT_FILES = {
     ".gitignore": "",
     "Dockerfile": "the engine image",
     "Makefile": "",
+    "MANIFEST.in": "keeps the repository-wide tests out of the published source distribution",
     "fly.toml": "engine deployment",
     "next.config.ts": "",
     "package.json": "",

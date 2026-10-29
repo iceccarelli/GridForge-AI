@@ -4,10 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gridforge"
-version = "0.1.0"
+version = "0.9.0"          # the engine's own version (gridforge/api/server.py VERSION); tests/test_packaging.py keeps them equal
 description = "Power and thermal capacity envelope engine for AI data-centre halls"
+readme = "docs/pypi-readme.md"
 requires-python = ">=3.11"
 dependencies = []          # deliberately none: the engine must run in an air-gapped review
+keywords = ["data-centre", "AI infrastructure", "power", "cooling", "capacity planning", "liquid cooling"]
+# No `license` field and no License classifier on purpose: the owner chooses the licence (see .github/workflows/publish-pypi.yml).
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Repository = "https://github.com/iceccarelli/GridForge-AI"
+Issues = "https://github.com/iceccarelli/GridForge-AI/issues"
+
+[project.scripts]
+gridforge = "gridforge.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -16,7 +35,9 @@ dev = ["pytest>=8"]
 include = ["gridforge*"]
 
 [tool.setuptools.package-data]
-gridforge = ["data/*.json"]
+# Every file under gridforge/ is part of the engine's code digest (provenance.code_sha256), so every one of them must ship,
+# or an installed engine would report a different fingerprint from the one deployed. tests/test_packaging.py enforces it.
+gridforge = ["data/*.json", "README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
