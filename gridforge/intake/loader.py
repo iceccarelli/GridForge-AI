@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..clock import report_date
 from ..common import ASSUMED, CUSTOMER, ESTIMATED, V
 from ..compute.library import PLATFORMS, get_platform
 from ..compute.schema import ClusterSpec
@@ -105,6 +106,16 @@ _FRACTION_PATHS = {            # (0, 1]
     "grid.power_factor", "lv.busway_utilisation_limit", "compute.utilisation",
 }
 _TEMPERATURE_UNITS = {"degC"}
+
+
+def _build_year(raw: Any) -> int:
+    """A hall that is being assessed already stands: a build year after the report date is a typo (2099 for 2009),
+    and the age-dependent assumptions downstream must not run on it."""
+    year = _int(raw, "hall.build_year")
+    today = report_date().year
+    if year > today:
+        raise IntakeError(f"hall.build_year is {year}, after the report year {today}; it is the year the hall was built")
+    return year
 
 
 def _frac(raw: Any, what: str) -> float:
@@ -385,7 +396,7 @@ def _load_document(doc: dict) -> Intake:
 
     hall = HallSpec(
         id=str(r.raw("hall.id", "HALL-1")),
-        build_year=_int(r.raw("hall.build_year", 2015)),
+        build_year=_build_year(r.raw("hall.build_year", 2015)),
         floor_type=FloorType(r.raw("hall.floor_type", "raised_floor")),
         net_white_space_m2=r.q("hall.net_white_space_m2", "m2", "hall net white space",
                                V(2000, "m2", "assumed hall net white space", ASSUMED, band=0.3)),
@@ -438,6 +449,12 @@ def _load_document(doc: dict) -> Intake:
                                           "weeks", "power transformer lead time", ASSUMED,
                                           band=(80, 210)),
         ))
+    lead_path = "transformers.replacement_lead_time_weeks"
+    if not tx_items or any(t.get("replacement_lead_time_weeks") is None for t in tx_items):
+        r._gap(lead_path, FIELD_BY_PATH.get(lead_path), None,
+               "library placeholder of 160 weeks (band 80-210), not a manufacturer's quote")
+    else:
+        report.supplied.append(lead_path)
     ups = []
     ups_items = r.raw("ups", []) or []
     _refuse_repeated_ids(ups_items, "ups")
@@ -706,5 +723,8 @@ def blank_intake() -> dict:
         parts = f.path.split(".")
         for p in parts[:-1]:
             cur = cur.setdefault(p, {})
-        cur[parts[-1]] = None if f.path not in ("transformers", "ups") else []
+            if not isinstance(cur, dict):
+                break      # a per-item field of a list section (transformers.*): the data request names it, not the skeleton
+        else:
+            cur[parts[-1]] = None if f.path not in ("transformers", "ups") else []
     return out

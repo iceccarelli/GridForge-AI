@@ -24,13 +24,18 @@ def calibration_block(results: list[ScenarioResult]) -> dict:
     return accuracy_block(keys)
 
 
+_PAID_ONLY_GAP_PREFIXES = ("economics.", "transformers.replacement_lead_time")
+
+
 def _gap_list(intake: Intake, *, public: bool = False) -> list[dict]:
     """The data request. The free qualifier omits economics inputs (tariff, horizon, discount rate): they
-    only matter to the priced deliverable, and their placeholders are euro figures."""
+    only matter to the priced deliverable, and their placeholders are euro figures. It also omits the transformer
+    lead time: the free tier carries no weeks figure, and that gap's placeholder is one."""
     return [{"path": g.path, "input": g.label, "unit": g.unit, "required": g.required,
              "assumed": g.fallback_description, "why_it_binds": g.why_it_binds,
              "how_to_get_it": g.how_to_get_it}
-            for g in intake.report.gaps if not (public and g.path.startswith("economics."))]
+            for g in intake.report.gaps
+            if not (public and g.path.startswith(_PAID_ONLY_GAP_PREFIXES))]
 
 
 def qualify_payload(intake: Intake, results: list[ScenarioResult],

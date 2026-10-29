@@ -365,6 +365,30 @@ def test_compare_adds_no_plausibility_caveat_to_a_sound_intake():
     assert not [c for c in caveats if "firm supply ceiling" in c or "disagree" in c]
 
 
+
+def _without_transformer_lead_time(doc):
+    d = copy.deepcopy(doc)
+    for t in d["transformers"]:
+        t.pop("replacement_lead_time_weeks")
+    return d
+
+
+def test_an_omitted_transformer_lead_time_is_a_data_gap_and_a_compare_caveat():
+    """The date is set by the transformer lead time on every example hall. Omitting it used to be invisible: the same
+    160-week placeholder, labelled like an input, no gap in the data request, no caveat on the compare."""
+    sent = load_document(copy.deepcopy(DUBLIN))
+    assert "transformers.replacement_lead_time_weeks" not in [g.path for g in sent.report.gaps]
+    assert not any("transformer replacement lead time" in c for c in compare(DUBLIN)["caveats"])
+
+    omitted = _without_transformer_lead_time(DUBLIN)
+    gap = [g for g in load_document(omitted).report.gaps if g.path == "transformers.replacement_lead_time_weeks"]
+    assert len(gap) == 1 and not gap[0].required and "not a manufacturer's quote" in gap[0].fallback_description
+    out = compare(omitted)
+    assert any("transformer replacement lead time was not supplied" in c for c in out["caveats"])
+    # nothing about the answer changed: this is disclosure, not a new number
+    assert [r["after_ladder"]["racks"] for r in out["scenarios"]] == [
+        r["after_ladder"]["racks"] for r in compare(DUBLIN)["scenarios"]]
+
 @pytest.mark.parametrize("handler", [handle_compare, handle_screen])
 def test_both_routes_refuse_an_intake_that_names_a_scenario_twice(handler):
     from gridforge.intake.loader import IntakeError

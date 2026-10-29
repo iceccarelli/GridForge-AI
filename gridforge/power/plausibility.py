@@ -32,6 +32,17 @@ def plausibility_findings(ctx) -> list[str]:
     return out
 
 
+def defaulted_date_findings(intake) -> list[str]:
+    """A date that rests on a lead time the client never supplied must say so wherever the date is shown. The engine
+    treats every lead time as an assumption (E0); an omitted transformer lead time is a library placeholder, and the
+    result otherwise looks the same as one the client declared."""
+    if any(g.path == "transformers.replacement_lead_time_weeks" for g in intake.report.gaps):
+        return ["The transformer replacement lead time was not supplied: a library placeholder of 160 weeks "
+                "(band 80-210) is used, and it can set the date. It is not a manufacturer's quote or a delivery "
+                "commitment. Supply a written lead time to replace it."]
+    return []
+
+
 def intake_warnings(intake) -> list[str]:
     """The intake's own warnings followed by the plausibility findings (each once)."""
     out = list(intake.report.warnings)

@@ -83,7 +83,7 @@
     },
     "/observatory": {
       "lastmod": "2026-10-29",
-      "hash": "bf9ac15e042b87060cfd38bddd8f2c0f6d5f4111a4603f3b0b40fcb0c9f102c2"
+      "hash": "a202f5a4cd908804769a5f703b593f762dde27ea0d6cec605e34639029855e5f"
     },
     "/platforms": {
       "lastmod": "2026-10-23",
@@ -106,8 +106,8 @@
       "hash": "776e8b23bf8c9c23bd909657a941db2a87d7e563fe94f201ece63f48ee704916"
     },
     "/reference": {
-      "lastmod": "2026-10-23",
-      "hash": "039d7edb0eb2969eaa19f4f3ed399e3d2c9dbd9a68f1c31da54ac85315733633"
+      "lastmod": "2026-10-29",
+      "hash": "ab3b0e55d06958a9dcc36c275feb19c34818b46c5f9bf9004f431897f06077fb"
     }
   }
 }
