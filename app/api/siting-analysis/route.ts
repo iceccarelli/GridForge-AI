@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { identify } from "@/lib/portal";
 import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 import Anthropic from "@anthropic-ai/sdk";
-import { SITING_REGIONS, sitingScore } from "@/lib/siting";
+import { SITING_REGIONS, sitingScore, queueBasisNote } from "@/lib/siting";
 import { anthropicFetch, guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     .map(
       (r) =>
         `${r.market} / ${r.region}: score ${r.score}, power ~EUR${r.powerCost}/MWh (${r.powerCostProvenance}), ` +
-        `queue ~${r.queueWaitMonths}mo, BTM ~${r.btmMonths}mo, renewables ${r.renewablePct}% (${r.renewableProvenance}), ` +
+        `queue ~${r.queueWaitMonths}mo (${r.queueBasis ?? "modeled"}: ${queueBasisNote(r)}), BTM ~${r.btmMonths}mo (assumed), renewables ${r.renewablePct}% (${r.renewableProvenance}), ` +
         `congestion ${r.congestion}/100. ${r.note}`
     )
     .join("\n");
@@ -88,7 +88,7 @@ ${dataset}
 
 Rules:
 - Give a clear recommendation: rank the top 2-3 regions for THIS specific brief and say why.
-- Always frame BTM as the queue-bypass: compare the modeled interconnection-queue wait vs the BTM time-to-energized.
+- Frame BTM as the queue-bypass: compare the interconnection-queue wait vs the assumed BTM time-to-energized. A queue figure marked "measured" is the median for generation projects that were completed (most requests are withdrawn), not a load-connection time; the BTM months are an assumption, not a delivered result. Say so where it matters.
 - Distinguish LIVE vs MODELED figures explicitly where it matters ("Germany's cost is live EPEX; US figures are modeled estimates").
 - This is DIRECTIONAL, not bankable. End by pointing to the paid Density Screen for hall-specific confirmation.
 - Be concise and technical: ~4-6 short paragraphs. You are an engineer, not a marketer.`;

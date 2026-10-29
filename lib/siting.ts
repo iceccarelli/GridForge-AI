@@ -4,7 +4,10 @@
 // Modeled values are grounded in published interconnection-queue reports and
 // typical industrial tariff ranges as of early 2026 — directional, not bankable.
 
+import { measuredWait, measuredWaitCaption, type MeasuredWait } from "@/lib/queue-evidence";
+
 export type Provenance = "live" | "modeled";
+export type QueueBasis = "measured" | "modeled";
 
 export interface SitingRegion {
   id: string;
@@ -14,9 +17,13 @@ export interface SitingRegion {
   // Typical industrial / large-load power cost, €/MWh-equivalent (modeled band midpoint)
   powerCost: number;
   powerCostProvenance: Provenance;
-  // Estimated interconnection queue wait, months (modeled from ISO queue reports)
+  // Interconnection queue wait, months. Where `queueBasis` is "measured" this is the MEDIAN of completed generation/storage projects
+  // in LBNL's Queued Up data (see lib/queue-evidence.ts), not a load-connection time. Otherwise it is a hand-set estimate.
   queueWaitMonths: number;
-  // Estimated BTM time-to-energized, months (the GridForge alternative)
+  queueBasis?: QueueBasis;
+  queueMeasured?: MeasuredWait;
+  // BTM time-to-energized, months. An ASSUMPTION for the comparison: no GridForge project has been delivered to a date, so it is
+  // never presented as a measurement or a promise.
   btmMonths: number;
   // Renewable share %, live where grid feed exists else modeled
   renewablePct: number;
@@ -28,7 +35,7 @@ export interface SitingRegion {
 
 // NOTE: powerCost/renewablePct for the DE row are overwritten with LIVE values
 // at runtime from useMarket(); the static values here are fallbacks.
-export const SITING_REGIONS: SitingRegion[] = [
+const RAW_SITING_REGIONS: SitingRegion[] = [
   {
     id: "ercot-tx", market: "ERCOT", region: "Texas (West/Permian)", country: "US",
     powerCost: 38, powerCostProvenance: "modeled",
@@ -66,6 +73,22 @@ export const SITING_REGIONS: SitingRegion[] = [
     congestion: 49, note: "Cheap hydro/nuclear, cool climate, but remote. Lowest carbon option.",
   },
 ];
+
+/** A region whose market has a measurement gets the measured median as its queue wait; the rest keep their estimate, labelled modeled. */
+export function withQueueEvidence(r: SitingRegion): SitingRegion {
+  const w = measuredWait(r.market);
+  if (!w) return { ...r, queueBasis: "modeled" };
+  return { ...r, queueWaitMonths: w.medianMonths, queueBasis: "measured", queueMeasured: w };
+}
+
+export const SITING_REGIONS: SitingRegion[] = RAW_SITING_REGIONS.map(withQueueEvidence);
+
+/** What the queue figure for this region rests on, in words (used by the page, the PDF brief and the analyst prompt). */
+export function queueBasisNote(r: SitingRegion): string {
+  return r.queueBasis === "measured" && r.queueMeasured
+    ? measuredWaitCaption(r.queueMeasured)
+    : "Hand-set estimate for this market, not measured here; treat as a rough order of magnitude.";
+}
 
 // Fastest-to-energize score: rewards low BTM time + low cost + low congestion.
 // Higher = better place to put an AI site you need powered fast.

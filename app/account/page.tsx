@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase-client";
 import { useMarket, arbPerDay } from "@/lib/market";
-import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
-import { snapshotFor, asOfLabel } from "@/lib/queue-data";
+import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, queueBasisNote } from "@/lib/siting";
+import { QUEUE_EVIDENCE_SOURCE } from "@/lib/queue-evidence";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS } from "@/lib/products";
@@ -223,8 +223,8 @@ function Intelligence({ email }: { email: string }) {
             </tbody>
           </table>
         </div>
-        <p className="data text-[10px] text-faint mt-2">Score weights speed-to-power (BTM), cost, and queue congestion. Queue = est. interconnection wait; BTM = GridForge time-to-energized. Modeled figures are documented estimates, not bankable.</p>
-        <p className="data text-[10px] text-faint mt-1">Queue figures: latest published ISO reports (ERCOT GIS, PJM, MISO, SPP){q.live ? " · live US grid demand " + q.live.value.toLocaleString() + " MW (" + q.live.source + ")" : ""}.</p>
+        <p className="data text-[10px] text-faint mt-2">Score weights speed-to-power (BTM), cost, and queue congestion. Queue = interconnection wait (US ISOs: the measured median for completed generation projects; other markets: a hand-set estimate); BTM = an assumed time-to-energized, not a delivered result. Modeled figures are estimates, not bankable.</p>
+        <p className="data text-[10px] text-faint mt-1">Queue evidence: {QUEUE_EVIDENCE_SOURCE.attribution}, measured {QUEUE_EVIDENCE_SOURCE.measuredOn} (completed projects only; most requests are withdrawn){q.live ? " · live US grid demand " + q.live.value.toLocaleString() + " MW (" + q.live.source + ")" : ""}.</p>
       </div>
 
       {/* Live EPEX strip */}
@@ -417,10 +417,13 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
         <div className="flex items-center gap-3">
           <div className="data text-[10px] text-faint w-24 shrink-0">BTM PATH</div>
           <div className="h-7 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
-            <span className="data text-[11px] text-power whitespace-nowrap">{region.btmMonths}mo · {eurCompact(d.btmCostEur)}</span>
+            <span className="data text-[11px] text-power whitespace-nowrap">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
           </div>
         </div>
       </div>
+      <p className="data text-[10px] text-faint mt-3" data-testid="queue-basis">
+        Queue path: {queueBasisNote(region)} BTM path: an assumption for this comparison, not a quotation or a delivery date.
+      </p>
       <div className="mt-5 flex flex-wrap gap-3 items-center">
         <button onClick={() => setShowBrief(true)} className="rounded-lg border border-power/40 text-power px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 hover:bg-power/10 transition-all">
           <Download size={14} /> Download board brief (PDF)

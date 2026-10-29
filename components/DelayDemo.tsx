@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact } from "@/lib/siting";
+import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, queueBasisNote } from "@/lib/siting";
 
 // Public cost-of-delay demo for the /intelligence sales page. Same model as the
 // subscriber dashboard, so the number a prospect sees here is the real one.
@@ -47,7 +47,7 @@ export function DelayDemo() {
       <div className="rounded-lg border border-power/30 bg-power/[0.05] p-5">
         <div className="data text-[10px] text-faint">BEHIND-THE-METER UNLOCKS</div>
         <div className="text-4xl md:text-5xl font-semibold text-power tracking-tight mt-1">{eurCompact(d.avoidedEur)}</div>
-        <div className="text-mute text-[13px] mt-1">{d.monthsSaved} months sooner to revenue — {mw} MW in {region.region}.</div>
+        <div className="text-mute text-[13px] mt-1">{d.monthsSaved} months sooner to revenue on the assumptions below — {mw} MW in {region.region}.</div>
       </div>
 
       <div className="mt-5 space-y-2">
@@ -60,10 +60,13 @@ export function DelayDemo() {
         <div className="flex items-center gap-3">
           <div className="data text-[10px] text-faint w-24 shrink-0">BTM PATH</div>
           <div className="h-7 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
-            <span className="data text-[11px] text-power whitespace-nowrap">{region.btmMonths}mo · {eurCompact(d.btmCostEur)}</span>
+            <span className="data text-[11px] text-power whitespace-nowrap">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
           </div>
         </div>
       </div>
+      <p className="data text-[10px] text-faint mt-3" data-testid="queue-basis">
+        Queue path: {queueBasisNote(region)} BTM path: an assumption for this comparison, not a quotation or a delivery date; a Density Screen replaces it with your hall's figures.
+      </p>
       <p className="data text-[10px] text-faint mt-4">
         Subscribe for live + published ISO queue data across all markets, an AI siting analyst,
         saved scenarios, and downloadable board briefs. Directional; a <Link href="/pricing" className="text-power hover:underline">Density Screen</Link> confirms figures for one hall.
