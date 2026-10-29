@@ -141,7 +141,7 @@
         "full_dlc_btm"
       ]
     },
-    "completeness": 0.833,
+    "completeness": 0.839,
     "can_issue": true,
     "supplied": [
       "compute.platform",
@@ -168,6 +168,7 @@
       "thermal.plant.pump_flow_capacity_l_per_min",
       "thermal.residual_air_capacity_kW_per_rack",
       "transformers",
+      "transformers.replacement_lead_time_weeks",
       "ups"
     ],
     "gaps": [

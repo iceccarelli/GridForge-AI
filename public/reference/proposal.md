@@ -38,7 +38,7 @@ You receive: Density Screen document (HTML and Markdown), the first six rungs of
 
 ## 3. What we need from you
 
-Intake is 83% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
+Intake is 84% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
 
 | Input | Status | Assumed if not supplied | Where it comes from |
 | --- | --- | --- | --- |
