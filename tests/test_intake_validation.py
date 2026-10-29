@@ -227,6 +227,38 @@ def test_a_declared_evidence_class_that_does_not_exist_is_refused_not_silently_d
     assert any("capped at E5" in w for w in load_document(d).report.warnings)  # E6/E7 are capped, not refused
 
 
+@pytest.mark.parametrize("what", ["note", "source"])
+@pytest.mark.parametrize("value", [["x"], {"a": 1}, 7, True, [[1]]], ids=["list", "object", "number", "bool", "nested_list"])
+def test_a_note_or_source_that_is_not_text_is_refused_by_field_name(what, value):
+    d = copy.deepcopy(BASE)
+    d["thermal"]["residual_air_capacity_kW_per_rack"][what] = value
+    with pytest.raises(IntakeError, match=rf"residual_air_capacity_kW_per_rack\.{what} must be text"):
+        load_document(d)
+
+
+def test_a_deeply_nested_note_is_a_refusal_not_a_recursion_error():
+    """Found by fuzzing the handlers: a note nested ~500 deep passed the loader and the engine then failed with a RecursionError while copying the
+    context, i.e. a 500 "engine error" with a printed traceback for what is plainly malformed input."""
+    from gridforge.api.server import handle_compare, handle_screen
+    from gridforge.api.tiers import Tier
+
+    deep = 1
+    for _ in range(1500):
+        deep = [deep]
+    d = copy.deepcopy(BASE)
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["note"] = deep
+    for handler in (handle_screen, handle_compare):
+        with pytest.raises(IntakeError, match="must be text"):
+            handler({"intake": d}, Tier.CLIENT)
+
+
+def test_text_notes_and_sources_still_load_and_are_carried():
+    d = copy.deepcopy(BASE)
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["note"] = "measured on the 2026-09 audit"
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["source"] = "site survey"
+    load_document(d)
+
+
 def test_a_default_return_temperature_below_a_supplied_supply_warns_instead_of_refusing():
     """Found by the full suite: a customer who states only design_supply_C (18 degC) was refused because the library's default return (13 degC)
     sat below it. Only a contradiction between two figures the customer actually gave is a refusal."""
