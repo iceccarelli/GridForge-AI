@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # 77 for PEP 639 licence metadata
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,10 @@ readme = "docs/pypi-readme.md"
 requires-python = ">=3.11"
 dependencies = []          # deliberately none: the engine must run in an air-gapped review
 keywords = ["data-centre", "AI infrastructure", "power", "cooling", "capacity planning", "liquid cooling"]
-# No `license` field and no License classifier on purpose: the owner chooses the licence (see .github/workflows/publish-pypi.yml).
+# Licence chosen by the owner on 2026-10-29: Functional Source License 1.1 with the Apache-2.0 future licence (see LICENSE). Do not change
+# it without the owner. PEP 639: a licence expression and a licence file; a License classifier must not be combined with it.
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",

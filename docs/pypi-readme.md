@@ -33,3 +33,8 @@ steps = ladder(intake.context)    # the Headroom Ladder
 - **Lead times are labelled.** A date that rests on an assumed lead time is reported as an assumed lead time, not as a date.
 
 The hosted API, human-reviewed engagements and the source repository are at https://github.com/iceccarelli/GridForge-AI.
+
+## Licence
+
+Functional Source License 1.1, Apache-2.0 future licence (`FSL-1.1-ALv2`). You may use, copy and modify the source for any purpose other than a Competing Use, which the licence defines as making the software available to others in a commercial product or service that substitutes for it or offers substantially similar functionality. Internal use, non-commercial education and research, and professional services delivered to a licensee are permitted. Each release converts to Apache-2.0 on the second anniversary of the date it was made available. This is a summary, not legal advice; the `LICENSE` file is the text that applies. It is source-available, not open source in the OSI sense.
+

@@ -100,11 +100,34 @@ def test_the_pypi_readme_exists_and_states_the_limits():
         assert needle in text, f"the PyPI description no longer says: {needle}"
 
 
-def test_no_licence_is_claimed_that_the_owner_has_not_chosen():
+#: sha256 of the official FSL-1.1-ALv2 template (https://fsl.software/FSL-1.1-ALv2.template.md), with the notice line left as the
+#: template has it. The LICENSE must equal it once the year and licensor are filled in: the legal text is never edited by accident.
+FSL_TEMPLATE_SHA256 = "36b6082235c0a2105174927fc57cc6ae9c41f45a08af2bdcaee18a8dace56177"
+
+
+def test_the_licence_is_the_official_fsl_text_with_only_the_notice_filled_in():
+    import hashlib
+
+    text = (ROOT / "LICENSE").read_text()
+    assert "${" not in text, "an unfilled placeholder in the LICENSE"
+    notice = re.search(r"^Copyright (\d{4}) (\S.*)$", text, re.M)
+    assert notice, "the LICENSE has no 'Copyright <year> <licensor>' notice"
+    template = text.replace(notice.group(0), "Copyright ${year} ${licensor name}", 1)
+    assert hashlib.sha256(template.encode()).hexdigest() == FSL_TEMPLATE_SHA256, "the FSL text differs from the official template"
+
+
+def test_the_package_metadata_declares_the_licence_the_file_contains():
     project = PYPROJECT["project"]
-    claims_licence = "license" in project or any(c.startswith("License ::") for c in project.get("classifiers", []))
-    has_file = any((ROOT / f).exists() for f in ("LICENSE", "LICENSE.txt", "LICENSE.md"))
-    assert not claims_licence or has_file, "pyproject declares a licence but the repository has no LICENSE file"
+    assert project["license"] == "FSL-1.1-ALv2"
+    assert "FSL-1.1-ALv2" in (ROOT / "LICENSE").read_text().split("## Abbreviation")[1].split("##")[0]
+    assert project["license-files"] == ["LICENSE"]
+    assert not any(c.startswith("License ::") for c in project.get("classifiers", [])), "PEP 639: no License classifier with an expression"
+    assert PYPROJECT["build-system"]["requires"] == ["setuptools>=77"] or "setuptools>=77" in PYPROJECT["build-system"]["requires"][0]
+
+
+def test_the_pypi_description_says_what_the_licence_allows_and_that_it_is_not_open_source():
+    text = (ROOT / PYPROJECT["project"]["readme"]).read_text()
+    assert "FSL-1.1-ALv2" in text and "Competing Use" in text and "not open source in the OSI sense" in text
 
 
 def test_publishing_is_manual_tokenless_and_refuses_without_a_licence_file():

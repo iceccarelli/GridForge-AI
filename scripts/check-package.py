@@ -78,9 +78,13 @@ def check_wheel(path: Path, version: str, problems: list[str]) -> None:
         body = meta.get_payload() or ""
         if "gridforge" not in body[:200].lower() or "empty" not in body:
             problems.append("the long description is missing or is not the PyPI readme (expected the evidence limits section)")
-        if meta["License"] or any(c.startswith("License ::") for c in meta.get_all("Classifier") or []):
-            if not any((ROOT / f).exists() for f in ("LICENSE", "LICENSE.txt", "LICENSE.md")):
-                problems.append("metadata declares a licence but the repository has no LICENSE file")
+        expression = meta["License-Expression"]
+        if expression != "FSL-1.1-ALv2":
+            problems.append(f"License-Expression is {expression!r}, expected 'FSL-1.1-ALv2' (the owner's choice)")
+        if not any(n.endswith(".dist-info/licenses/LICENSE") for n in names):
+            problems.append("the wheel does not carry the LICENSE file (dist-info/licenses/LICENSE)")
+        if any(c.startswith("License ::") for c in meta.get_all("Classifier") or []):
+            problems.append("a License classifier is combined with a licence expression (PEP 639 forbids it)")
         eps = next((n for n in names if n.endswith(".dist-info/entry_points.txt")), None)
         if not eps or "gridforge = gridforge.cli:main" not in z.read(eps).decode():
             problems.append("the gridforge console script is missing from entry_points.txt")
@@ -89,7 +93,7 @@ def check_wheel(path: Path, version: str, problems: list[str]) -> None:
 def check_sdist(path: Path, problems: list[str]) -> None:
     with tarfile.open(path) as t:
         names = [m.name.split("/", 1)[1] for m in t.getmembers() if "/" in m.name]
-    for need in ("pyproject.toml", "docs/pypi-readme.md", "gridforge/__init__.py", "gridforge/data/cost_library.json"):
+    for need in ("pyproject.toml", "LICENSE", "docs/pypi-readme.md", "gridforge/__init__.py", "gridforge/data/cost_library.json"):
         if need not in names:
             problems.append(f"sdist lacks {need}")
     for n in names:
