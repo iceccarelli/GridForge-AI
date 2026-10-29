@@ -98,7 +98,7 @@
       "method": "POST",
       "tier": "client",
       "units": 1,
-      "returns": "screen payload, or the rendered screening document.",
+      "returns": "screen payload (with grid_queue_context: the measured US queue statistic beside the assumed grid wait), or the rendered screening document.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -128,6 +128,20 @@
               "html"
             ],
             "default": "json"
+          },
+          "grid_queue_region": {
+            "type": "string",
+            "enum": [
+              "CAISO",
+              "ERCOT",
+              "MISO",
+              "NYISO",
+              "PJM",
+              "SPP",
+              "Southeast",
+              "West"
+            ],
+            "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
           }
         },
         "additionalProperties": false
@@ -140,7 +154,7 @@
       "method": "POST",
       "tier": "client",
       "units": 1,
-      "returns": "gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, request_digest, provenance.",
+      "returns": "gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context only), request_digest, provenance.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -173,6 +187,20 @@
           "baseline": {
             "type": "string",
             "description": "Scenario id the others are compared with. Default: the first."
+          },
+          "grid_queue_region": {
+            "type": "string",
+            "enum": [
+              "CAISO",
+              "ERCOT",
+              "MISO",
+              "NYISO",
+              "PJM",
+              "SPP",
+              "Southeast",
+              "West"
+            ],
+            "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
           }
         },
         "additionalProperties": false
@@ -928,6 +956,20 @@
                 "html"
               ],
               "default": "json"
+            },
+            "grid_queue_region": {
+              "type": "string",
+              "enum": [
+                "CAISO",
+                "ERCOT",
+                "MISO",
+                "NYISO",
+                "PJM",
+                "SPP",
+                "Southeast",
+                "West"
+              ],
+              "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
             }
           },
           "additionalProperties": false
@@ -971,6 +1013,20 @@
             "baseline": {
               "type": "string",
               "description": "Scenario id the others are compared with. Default: the first."
+            },
+            "grid_queue_region": {
+              "type": "string",
+              "enum": [
+                "CAISO",
+                "ERCOT",
+                "MISO",
+                "NYISO",
+                "PJM",
+                "SPP",
+                "Southeast",
+                "West"
+              ],
+              "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
             }
           },
           "additionalProperties": false
@@ -1713,6 +1769,20 @@
                 "html"
               ],
               "default": "json"
+            },
+            "grid_queue_region": {
+              "type": "string",
+              "enum": [
+                "CAISO",
+                "ERCOT",
+                "MISO",
+                "NYISO",
+                "PJM",
+                "SPP",
+                "Southeast",
+                "West"
+              ],
+              "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
             }
           },
           "additionalProperties": false
@@ -1758,6 +1828,20 @@
             "baseline": {
               "type": "string",
               "description": "Scenario id the others are compared with. Default: the first."
+            },
+            "grid_queue_region": {
+              "type": "string",
+              "enum": [
+                "CAISO",
+                "ERCOT",
+                "MISO",
+                "NYISO",
+                "PJM",
+                "SPP",
+                "Southeast",
+                "West"
+              ],
+              "description": "Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit for the pooled US figure. Context only: it changes no number and no date."
             }
           },
           "additionalProperties": false

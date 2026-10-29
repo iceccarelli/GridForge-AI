@@ -293,13 +293,39 @@ def _rendered(report, results, fmt: str) -> dict:
             "document_full": to_html(report, full_document=True)}
 
 
+def _queue_region(body: dict) -> str | None:
+    """The optional `grid_queue_region`: one of the regions the measured queue statistic is available for, or absent for the pooled
+    US figure. Refused before any solving, with the allowed names."""
+    from ..context import grid_queue
+    region = body.get("grid_queue_region")
+    if region is None:
+        return None
+    if not isinstance(region, str) or region not in grid_queue.regions():
+        raise ApiError(422, "grid_queue_region must be one of the regions below, or omitted for the pooled US statistic",
+                       allowed=list(grid_queue.regions()))
+    return region
+
+
+def _site_country(doc) -> object:
+    site = doc.get("site") if isinstance(doc, dict) else None
+    return site.get("country") if isinstance(site, dict) else None
+
+
 def handle_screen(body: dict, tier: Tier) -> dict:
-    intake, results = _run(body.get("intake") or body)
+    from ..context import grid_queue
+    # `grid_queue_region` is read only when the intake is nested: a body that IS the intake carries intake fields, not request options.
+    region = _queue_region(body) if "intake" in body else None
+    doc = body.get("intake") or body
+    intake, results = _run(doc)
     fmt = str(body.get("format") or "json").lower()
     if fmt in ("html", "md"):
         report = build_screen_report(intake, results, objective=_objective(body))
         return _rendered(report, results, fmt)
-    return screen_payload(intake, results, _objective(body), tier=tier)
+    payload = screen_payload(intake, results, _objective(body), tier=tier)
+    # Context only: the measured queue statistic beside the assumed grid wait (client tier, which is where the assumption is carried).
+    payload["grid_queue_context"] = grid_queue.context(
+        region=region, country=_site_country(doc), assumed=grid_queue.assumption_from_scenarios(payload.get("scenarios")))
+    return payload
 
 
 def handle_compare(body: dict, tier: Tier) -> dict:
@@ -319,6 +345,7 @@ def handle_compare(body: dict, tier: Tier) -> dict:
     if baseline is not None and not isinstance(baseline, str):
         raise ApiError(422, "baseline must be a scenario id")
     objective = _objective(body)
+    region = _queue_region(body)
     intake, results = _run(doc)
     try:
         if ids and "full_dlc_btm" in ids and not intake.context.power.options:
@@ -338,6 +365,11 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
     out["project"] = intake.project
     out["intake_completeness"] = round(intake.report.completeness, 3)
+    # Grid reinforcement is deliberately not dated above. Set the MEASURED queue history beside that refusal: context only.
+    from ..context import grid_queue
+    out["grid_queue_context"] = grid_queue.context(region=region, country=_site_country(doc))
+    out["caveats"].append("Context only: grid_queue_context shows how long US generation interconnection requests that reached operation "
+                          "took. It is not a connection time for this site and changes no date here.")
     out["provenance"] = provenance(VERSION)
     return out
 
