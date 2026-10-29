@@ -112,3 +112,38 @@ describe("the public calculator", () => {
     expect(t).toContain("on the assumptions below");
   });
 });
+
+describe("the Observatory queue snapshots", () => {
+  it("the four US rows are the publisher's printed capacity and the measured median wait, not typed numbers", async () => {
+    const { QUEUE_SNAPSHOTS, lbnlSnapshot, QUEUE_ACTIVE_CAPACITY_SOURCE } = await import("@/lib/queue-data");
+    const cap = (await import("@/lib/queue-active-capacity.json")).default;
+    const us = QUEUE_SNAPSHOTS.filter((q) => /LBNL/.test(q.source));
+    expect(us.map((q) => q.market)).toEqual(["ERCOT", "PJM", "MISO", "SPP"]);
+    for (const q of us) {
+      const active = (cap.active as Record<string, { gw: number }>)[q.market];
+      expect(q.activeProjectsGW).toBe(active.gw);
+      expect(q.typicalWaitMonths).toBe(measuredWait(q.market)!.medianMonths);
+      expect(q.asOf).toBe(cap.as_of);
+      expect(q.source).toMatch(/CC BY 4\.0/);
+    }
+    expect(us.find((q) => q.market === "PJM")!.activeProjectsGW).toBe(144.3); // the typed figure was 290
+    expect(QUEUE_ACTIVE_CAPACITY_SOURCE.workbookSha256).toBe(raw.provenance.workbook_sha256);
+    expect(lbnlSnapshot("EPEX (DE-LU)")).toBeUndefined();
+    expect(lbnlSnapshot("__proto__")).toBeUndefined();
+  });
+
+  it("anything that is not measured stays labelled modeled and is never described as a report", async () => {
+    const { QUEUE_SNAPSHOTS } = await import("@/lib/queue-data");
+    const rest = QUEUE_SNAPSHOTS.filter((q) => !/LBNL/.test(q.source));
+    expect(rest.length).toBeGreaterThan(0);
+    for (const q of rest) expect(q.source).toMatch(/modeled/);
+  });
+
+  it("the evidence file records its own limits: the unit check, the recomputation gap and the unread note", async () => {
+    const cap = (await import("@/lib/queue-active-capacity.json")).default;
+    expect(cap.provenance.unit_check).toMatch(/capacity of type 1 \(MW\)/);
+    expect(cap.provenance.recomputation).toMatch(/hypothesis, not a finding/);
+    expect(cap.provenance.note_3_as_read).toMatch(/rest was not read/);
+    expect(cap.what_it_is).toMatch(/not available capacity/);
+  });
+});

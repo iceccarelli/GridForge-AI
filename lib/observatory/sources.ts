@@ -309,7 +309,7 @@ export function deriveQueue(now: Date, all: QueueSnapshot[] = QUEUE_SNAPSHOTS): 
     retrievedAt: null, // bundled with this deployment, not fetched
     maxAgeSeconds: MAX_AGE_SECONDS.queue,
     caveat:
-      "current as of that report (the oldest of the reports shown), not as of today; queues change between reports, and entries the data labels as modelled are left out",
+      "current as of that report (the oldest of the reports shown), not as of today; queues change between reports, and entries the data labels as modelled are left out. Active is requested capacity in a queue; the wait is the median for generation and storage projects that reached operation, not a load-connection time",
   };
   if (oldest === null) return observed<NonNullable<Queue>>({ value: null, provenance, now });
   return observed({
