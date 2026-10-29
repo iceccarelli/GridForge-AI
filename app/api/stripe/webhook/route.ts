@@ -3,6 +3,7 @@ import { storeFault } from "@/lib/safe-log";
 import { notifyOperator } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { boundedStripeClient } from "@/lib/stripe-client";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { abandonPendingNotices, createWatch, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
@@ -115,7 +116,7 @@ export async function POST(req: Request) {
   if (!key || !whSecret) {
     return NextResponse.json({ ok: false, error: "Webhook not configured" }, { status: 503 });
   }
-  const stripe = new Stripe(key);
+  const stripe = boundedStripeClient(key);
 
   const sig = req.headers.get("stripe-signature");
   const raw = await req.text();

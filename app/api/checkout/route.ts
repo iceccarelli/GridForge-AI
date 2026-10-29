@@ -1,6 +1,7 @@
 import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { boundedStripeClient } from "@/lib/stripe-client";
 import { COMMERCE, foundingSlotsRemainingLive } from "@/lib/commerce";
 import { apiSalesReadiness } from "@/lib/api-readiness";
 import { PRODUCTS, isApiProduct, isProductId, type ProductId } from "@/lib/products";
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
       { status: 503 }
     );
   }
-  const stripe = new Stripe(key);
+  const stripe = boundedStripeClient(key);
 
   let body: Record<string, unknown> = {};
   try {
