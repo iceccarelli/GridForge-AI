@@ -190,6 +190,15 @@ class SpecPackage:
         return [r for r in self.requirements if r.obligation == MANDATORY]
 
 
+def _section(d: dict, name: str) -> dict:
+    """A response section: absent or empty means unanswered, anything else must be an object. Without the check a string or a
+    number here was an AttributeError on `.items()`, which the HTTP layer reports as a 500 engine error for the caller's mistake."""
+    raw = d.get(name) or {}
+    if not isinstance(raw, dict):
+        raise ProcurementError(f"response field {name!r} must be an object, not {type(raw).__name__}")
+    return raw
+
+
 def _numeric(raw: dict) -> dict[str, float]:
     out: dict[str, float] = {}
     for k, v in raw.items():
@@ -230,6 +239,9 @@ class SupplierResponse:
 
     @staticmethod
     def from_dict(d: dict) -> "SupplierResponse":
+        if not isinstance(d, dict):
+            raise ProcurementError(
+                f"a response must be an object, not {type(d).__name__}")
         if not d.get("supplier"):
             raise ProcurementError("a response must name the supplier")
         if not d.get("received_on"):
@@ -242,12 +254,12 @@ class SupplierResponse:
             # field, not an error. A value that is present but not a number IS an
             # error, and it is named, because "this response failed to load" is
             # useless to whoever has to go back to the supplier.
-            values=_numeric(d.get("values") or {}),
-            text={str(k): str(v) for k, v in (d.get("text") or {}).items()},
+            values=_numeric(_section(d, "values")),
+            text={str(k): str(v) for k, v in _section(d, "text").items()},
             compliance={str(k): str(v).upper()
-                        for k, v in (d.get("compliance") or {}).items()
+                        for k, v in _section(d, "compliance").items()
                         if str(v).strip()},
             reference=str(d.get("reference") or ""),
             valid_until=str(d.get("valid_until") or ""),
             currency=str(d.get("currency") or "").strip().upper(),
-            specification=dict(d.get("specification") or {}))
+            specification=dict(_section(d, "specification")))
