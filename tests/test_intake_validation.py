@@ -36,6 +36,7 @@ def mutated(path, value):
     ("transformers.0.derating_factor", 5, "at most 1"),
     ("transformers.0.replacement_lead_time_weeks", None, "not a number"),
     ("lv.busway_ampacity_A", True, "not a number"),
+    ("hall.build_year", 2099, "after the report year"),
 ])
 def test_invalid_values_are_refused_with_the_field_named(path, value, fragment):
     with pytest.raises(IntakeError, match=fragment):
