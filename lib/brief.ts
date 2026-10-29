@@ -1,4 +1,4 @@
-import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, type SitingRegion } from "@/lib/siting";
+import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, queueBasisNote, type SitingRegion } from "@/lib/siting";
 
 // One-page board brief. Branded, transparent, and built from the SAME model the
 // dashboard uses, so the figures a developer screenshots match the PDF they
@@ -52,7 +52,12 @@ export async function generateSitingBrief(opts: {
   doc.setFont("helvetica", "bold"); setText(ink);
   doc.text("BTM path:", M, y);
   doc.setFont("helvetica", "normal"); setText(mute);
-  doc.text(region.btmMonths + " months  —  " + eurCompact(d.btmCostEur), M + 90, y); y += 28;
+  doc.text(region.btmMonths + " months (assumed)  —  " + eurCompact(d.btmCostEur), M + 90, y); y += 16;
+  doc.setFontSize(7.5);
+  for (const ln of doc.splitTextToSize("Queue basis: " + queueBasisNote(region) + " BTM path: an assumption for this comparison, not a quotation or a delivery date.", W - M * 2)) {
+    doc.text(ln, M, y); y += 10;
+  }
+  y += 12;
 
   // Ranked table
   doc.setFont("helvetica", "bold"); doc.setFontSize(11); setText(ink);
