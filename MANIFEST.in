@@ -1,0 +1,4 @@
+# The source distribution is the engine, not the website, the tests or the deployment. The tests here are repository-wide (migrations,
+# site chrome, deploy scripts) and mean nothing outside it. setuptools adds tests/test*.py by default, so exclude them explicitly.
+# scripts/check-package.py fails the build if anything from tests/, app/, supabase/ and the like reaches the sdist.
+prune tests

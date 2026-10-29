@@ -117,3 +117,8 @@ def test_publishing_is_manual_tokenless_and_refuses_without_a_licence_file():
         assert forbidden not in wf, f"a PyPI credential reference ({forbidden}) in the publish workflow"
     assert "LICENSE" in wf, "the workflow must refuse to publish without a LICENSE file"
     assert "confirm" in wf, "the operator must type the version to confirm"
+
+
+def test_the_source_distribution_leaves_the_repository_wide_tests_out():
+    manifest = (ROOT / "MANIFEST.in").read_text()
+    assert "prune tests" in manifest, "setuptools adds tests/test*.py to an sdist by default; they are not part of the engine"
