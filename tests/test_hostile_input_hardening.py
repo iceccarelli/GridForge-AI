@@ -125,3 +125,41 @@ def test_a_load_profile_that_is_not_an_object_is_a_request_error_not_an_attribut
 def test_a_valid_deployment_request_still_parses():
     parsed = deployment_request(GOOD_DEPLOY)
     assert parsed["grid_firm_MW"].value == 10 and parsed["target_MW"].value == 35
+
+
+# --- supplier responses --------------------------------------------------------------------------------------------------------
+# Found by the harness fuzz on /v1/bids: SupplierResponse.from_dict called .get() and .items() on whatever it was given, so a response
+# (or its values / text / compliance / specification) that was not an object was an AttributeError, a 500 "engine error".
+
+GOOD_RESPONSE = {"supplier": "Synthetic Supplier", "received_on": "2026-10-01", "values": {"capex_eur": 1}}
+
+
+@pytest.mark.parametrize("value", [None, True, 0, 7, 1.5, "x", ["a"], [[]]], ids=repr)
+def test_a_supplier_response_that_is_not_an_object_is_a_procurement_error(value):
+    from gridforge.procurement import ProcurementError, SupplierResponse
+
+    with pytest.raises(ProcurementError, match="must be an object"):
+        SupplierResponse.from_dict(value)
+
+
+@pytest.mark.parametrize("section", ["values", "text", "compliance", "specification"])
+@pytest.mark.parametrize("value", [True, 7, 1.5, "x", ["a"]], ids=repr)
+def test_a_response_section_that_is_not_an_object_is_named_in_the_refusal(section, value):
+    from gridforge.procurement import ProcurementError, SupplierResponse
+
+    with pytest.raises(ProcurementError, match=f"response field '{section}' must be an object"):
+        SupplierResponse.from_dict({**GOOD_RESPONSE, section: value})
+
+
+def test_an_unanswered_section_is_still_fine():
+    from gridforge.procurement import SupplierResponse
+
+    out = SupplierResponse.from_dict({**GOOD_RESPONSE, "text": None, "compliance": {}, "specification": None})
+    assert out.values == {"capex_eur": 1.0} and out.text == {} and out.specification == {}
+
+
+def test_the_bids_route_refuses_a_malformed_response_with_422():
+    for bad in ({"responses": ["x"]}, {"responses": [{**GOOD_RESPONSE, "values": "x"}]}):
+        with pytest.raises(ApiError) as exc:
+            S._invoke("/v1/bids", S.handle_bids, {"intake": {}, **bad}, Tier.CLIENT)
+        assert exc.value.status == 422
