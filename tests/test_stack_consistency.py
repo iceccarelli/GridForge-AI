@@ -293,6 +293,7 @@ ROOT_FILES = {
     ".eslintrc.json": "lint config",
     ".gitignore": "",
     "Dockerfile": "the engine image",
+    "LICENSE": "the licence the owner chose (FSL-1.1-ALv2); tests/test_packaging.py pins its text",
     "Makefile": "",
     "MANIFEST.in": "keeps the repository-wide tests out of the published source distribution",
     "fly.toml": "engine deployment",
