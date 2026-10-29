@@ -444,6 +444,12 @@ def _load_document(doc: dict) -> Intake:
                                           "weeks", "power transformer lead time", ASSUMED,
                                           band=(80, 210)),
         ))
+    lead_path = "transformers.replacement_lead_time_weeks"
+    if not tx_items or any(t.get("replacement_lead_time_weeks") is None for t in tx_items):
+        r._gap(lead_path, FIELD_BY_PATH.get(lead_path), None,
+               "library placeholder of 160 weeks (band 80-210), not a manufacturer's quote")
+    else:
+        report.supplied.append(lead_path)
     ups = []
     ups_items = r.raw("ups", []) or []
     _refuse_repeated_ids(ups_items, "ups")
@@ -712,5 +718,8 @@ def blank_intake() -> dict:
         parts = f.path.split(".")
         for p in parts[:-1]:
             cur = cur.setdefault(p, {})
-        cur[parts[-1]] = None if f.path not in ("transformers", "ups") else []
+            if not isinstance(cur, dict):
+                break      # a per-item field of a list section (transformers.*): the data request names it, not the skeleton
+        else:
+            cur[parts[-1]] = None if f.path not in ("transformers", "ups") else []
     return out

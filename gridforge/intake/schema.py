@@ -103,6 +103,11 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("hall.aisle_pitch_m", "Installed aisle pitch", "m", False,
               why_it_binds="Sets floor area per rack, and so the floor-loading figure per square metre.",
               how_to_get_it="Floor plan or a site walk."),
+    FieldSpec("transformers.replacement_lead_time_weeks", "Power transformer replacement lead time", "weeks", False,
+              why_it_binds=("Usually sets the date of the whole programme. When absent the engine uses a library "
+                            "placeholder of 160 weeks (band 80-210), which is neither a manufacturer's quote nor a "
+                            "delivery commitment, and it is indistinguishable in the result from a supplied figure."),
+              how_to_get_it="A written lead time from the transformer manufacturer or the utility's equipment supplier."),
     FieldSpec("thermal.tcs_target_supply_C", "TCS target supply temperature", "degC", False,
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
               why_it_binds="Whether the plant can hold the water temperature the chips need.",
