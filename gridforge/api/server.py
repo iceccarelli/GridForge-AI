@@ -981,12 +981,34 @@ EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff
 MAX_EVIDENCE_LINES = 200
 
 
+#: The deepest a request body may nest. The deepest legitimate body (an intake with a supplier response inside a cost-evidence line) is under a
+#: dozen levels; the parser accepts several thousand, and the engine copies documents recursively, so a body nested a few hundred deep failed with
+#: a RecursionError (a 500 "engine error") on routes that copy it before validating it.
+MAX_BODY_DEPTH = 64
+
+
+def _nests_deeper_than(node, limit: int) -> bool:
+    """Does a JSON-like value nest more than `limit` levels? Iterative, so a hostile value cannot make the check itself recurse."""
+    stack = [(node, 1)]
+    while stack:
+        cur, depth = stack.pop()
+        children = cur.values() if isinstance(cur, dict) else cur if isinstance(cur, list) else ()
+        for child in children:
+            if isinstance(child, (dict, list)):
+                if depth + 1 > limit:
+                    return True
+                stack.append((child, depth + 1))
+    return False
+
+
 def _invoke(endpoint: str, handler, body, tier):
     """Call a handler, applying accepted cost evidence from the request when it carries any.
 
     The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
     has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
     returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
+    if _nests_deeper_than(body, MAX_BODY_DEPTH):
+        raise ApiError(422, f"the request nests more than {MAX_BODY_DEPTH} levels deep; no field of any route needs that")
     if not isinstance(body, dict) or "cost_evidence" not in body:
         return handler(body, tier)
     from ..costs import CostEntry, cost_overlay, set_evidence_effect
@@ -1579,6 +1601,10 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b"{}"
         try:
             body = json.loads(raw or b"{}", parse_constant=_reject_constant)
+        except RecursionError:
+            # Python's parser gives up on nesting around ten thousand levels. Uncaught, this ended the request with no HTTP response at all
+            # (the connection was closed) and a traceback in the log, and it is reachable without a key on the free public endpoints.
+            return self._send(400, {"error": "invalid JSON: nested too deeply"})
         except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
             return self._send(400, {"error": f"invalid JSON: {exc}"})
 

@@ -200,6 +200,11 @@ class _Reader:
         if isinstance(raw, dict):
             note = raw.get("note")
             src = raw.get("source")
+            # Both are carried through the whole run as text. Anything else (a list, an object, a number) is not a note or a source, and a
+            # deeply nested one made the engine fail with a RecursionError (a 500 "engine error") instead of a refusal.
+            for what, val in (("note", note), ("source", src)):
+                if val is not None and not isinstance(val, str):
+                    raise IntakeError(f"{path}.{what} must be text, not {type(val).__name__}")
             if raw.get("evidence"):
                 declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
                 if declared is None:
