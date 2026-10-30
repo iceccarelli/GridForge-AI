@@ -117,6 +117,17 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 
 *Time to power across the architectures compared. Where a figure is marked E0 it is an assumed lead time, not a date: the item named in the last column carries an assumed lead time.*
 
+Grid wait, observed elsewhere (context only)
+
+This document does not date grid reinforcement: a connection date needs the network operator's written offer. For scale only, here is what has been observed elsewhere. It is an external statistic, not a model output, and it is not an input to any figure in this document.
+
+- US generation and storage requests that reached commercial operation took a median of 53 months from request to operation (middle half 37-70 months), across 1439 projects (US, requests that reached operation 2018-2025). Source: Lawrence Berkeley National Laboratory, Queued Up 2026 edition, CC BY 4.0.
+- Only 23% of the 5633 requests that entered a queue in 2010-2015 reached operation (4153 were withdrawn, 181 unresolved). The figure above describes only the requests that did.
+- The site is not in the observed data's country, or none is declared, so treat this as a scale reference only.
+- The grid-reinforcement wait this document assumes is 30 weeks (evidence class E0); it sits below p25 of that observed distribution (0.131x the observed median). Its evidence class is unchanged by this comparison. The two measure different processes (a generation interconnection request, and the grid reinforcement this hall needs), so treat this as a prompt to ask the network operator, not as a correction of the assumption.
+
+> ℹ️ Context only: this is not a connection time for a load or a data centre, it says nothing about this site's network operator, tariff or study status, and it changes no figure, date or evidence class in this document.
+
 ## 4. Site and baseline
 
 | Item | Value |

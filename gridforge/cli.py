@@ -262,11 +262,17 @@ def _with_evidence(fn):
     return run
 
 
+def _queue_for(intake, results, objective) -> dict:
+    """The measured queue history beside the recommended scenario's assumed grid wait (context only; the pooled US statistic)."""
+    from .api.payloads import grid_queue_context_for
+    return grid_queue_context_for(results, objective, country=intake.context.site.country)
+
+
 def cmd_screen(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
-    report = build_screen(intake, results, objective=objective)
+    report = build_screen(intake, results, objective=objective, grid_queue=_queue_for(intake, results, objective))
     out = Path(args.out)
     w = _emit(report, out, "density_screen", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results)
@@ -303,7 +309,7 @@ def cmd_study(args) -> int:
     rec = _pick_recommended(results, objective)
     sens = sensitivity(rec, SENSITIVITY_KNOBS)
     report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
-                         watermark=watermark_for(intake))
+                         watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective))
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)

@@ -26,6 +26,8 @@ PUBLIC_REDACTED_KEYS = frozenset({
     "lead_time_weeks", "critical_path_weeks", "weeks_to_full", "weeks_to_first_rack",
     "annual_energy_cost_eur", "energy_cost_per_gpu_hour_eur", "economics",
     "ladder", "curve", "constraints", "sensitivity", "document",
+    # The measured queue history beside the grid wait (weeks and months of schedule): paid content like every other schedule figure here.
+    "grid_queue_context",
 })
 
 PUBLIC_NOTICE = (

@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "2fbb3f0d2a213cf3295bbf5f69a73c5c19911b672ee6773057608e1da6251201",
+  "contentSha256": "c378ddb5528eb634f5941923451b9135a2133000f43d4c0a978862bc0b5814e6",
   "engine": {
-    "codeSha256": "137777ef547ad9bf84d290a0d1002cb578b6add529c40c717077c5fcb7135918",
+    "codeSha256": "4fd2b2bdc02250efb9691b2629dcbf4c9b85e7592f76698e56337ef3ff43e164",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -163,6 +163,7 @@
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
         "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
         "the capex total inherits class E0 from its inputs, below E3",
@@ -772,6 +773,7 @@
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
         "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
         "the capex total inherits class E0 from its inputs, below E3",
@@ -1379,6 +1381,7 @@
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
+        "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
         "the capex total inherits class E0 from its inputs, below E3",
         "2 of 2 priced lines are library placeholders, not prices",

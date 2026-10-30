@@ -16,6 +16,7 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
+from .grid_queue_section import section as grid_queue_section
 from .labels import (date_basis, date_basis_text, economics_limitations, full_capacity_q,
                      racks_q, relief_text)
 
@@ -24,7 +25,9 @@ WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a des
 
 
 def build(intake: Intake, results: list[ScenarioResult],
-          *, objective: Objective = Objective.MAX_COMPUTE) -> Report:
+          *, objective: Objective = Objective.MAX_COMPUTE, grid_queue: dict | None = None) -> Report:
+    """`grid_queue` is a gridforge.context.grid_queue.context(...) result; when given, the measured queue history is set beside the grid
+    wait this document does not date (section 5, context only). Without it the document is exactly what it was."""
     rec = _pick_recommended(results, objective)
     ctx = intake.context
     plat = ctx.cluster.platform
@@ -130,7 +133,10 @@ def build(intake: Intake, results: list[ScenarioResult],
         "support procurement, construction or an investment committee decision."))
     r.sections.append(s)
 
-    s = Section("5. Recommended next step")
+    if grid_queue is not None:
+        r.sections.append(grid_queue_section(grid_queue, "5. Grid wait: what has been observed elsewhere (context only)"))
+
+    s = Section("6. Recommended next step" if grid_queue is not None else "5. Recommended next step")
     s.blocks.append(Para(intake.report.engagement_recommendation))
     s.blocks.append(Bullets([
         f"{ENGAGEMENTS['envelope_study'].name} — full ladder, all architectures, scenario and "

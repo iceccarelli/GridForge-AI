@@ -23,10 +23,11 @@ ALLOWED: dict[str, set[str]] = {
     "serialize": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
                   "intake", "change", "calibration"},
     "cli": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
-            "reporting", "intake", "serialize", "api", "change", "calibration"},
+            "reporting", "intake", "serialize", "api", "change", "calibration", "context"},
     "api": {"site", "power", "compute", "thermal", "scenario", "economics", "envelope",
-            "reporting", "intake", "serialize", "change", "calibration"},
+            "reporting", "intake", "serialize", "change", "calibration", "context"},
     "calibration": set(),
+    "context": set(),           # measured, attributed context data; imports nothing from the domains
     "integrations": set(),
 }
 DOMAINS = set(ALLOWED) - {"integrations"}

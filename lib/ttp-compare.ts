@@ -202,4 +202,34 @@ export interface CompareResult {
   provenance: { digest: string; engine_version: string; code_sha256: string; report_date: string };
   /** Only when accepted quotations were supplied for this request. */
   cost_evidence?: CompareCostEvidence;
+  /** Measured US queue history beside the refusal to date grid reinforcement. Context only; absent from an engine that predates it. */
+  grid_queue_context?: GridQueueContext;
+}
+
+export interface GridQueueContext {
+  kind: "context_only";
+  source: { name: string; licence: string; workbook_sha256: string; measured_on: string };
+  observed: {
+    name: string;
+    n: number;
+    p25_years: number;
+    median_years: number;
+    p75_years: number;
+    p25_weeks: number;
+    median_weeks: number;
+    p75_weeks: number;
+  };
+  survivorship: {
+    entry_years: [number, number];
+    entered: number;
+    operational: number;
+    withdrawn: number;
+    unresolved: number;
+    share_operational_of_entered: number;
+    statement: string;
+  } | null;
+  applicability: { site_country: string | null; context_geography: string; level: "same_country_context" | "scale_reference_only" };
+  statements: string[];
+  must_not_claim: string[];
+  limits: string[];
 }

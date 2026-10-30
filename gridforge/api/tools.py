@@ -35,6 +35,13 @@ _INTAKE_SCHEMA = {
     "additionalProperties": True,
 }
 
+def _queue_region_schema() -> dict:
+    from ..context import grid_queue
+    return {"type": "string", "enum": list(grid_queue.regions()),
+            "description": ("Optional. Which of LBNL's US regions the measured queue statistic in grid_queue_context is drawn from; omit "
+                            "for the pooled US figure. Context only: it changes no number and no date.")}
+
+
 _OBJECTIVE = {
     "type": "string",
     "enum": ["max_compute", "min_cost", "fastest"],
@@ -114,9 +121,11 @@ TOOLS: list[dict] = [
         {"type": "object", "required": ["intake"],
          "properties": {"intake": _INTAKE_SCHEMA, "objective": _OBJECTIVE,
                         "format": {"type": "string", "enum": ["json", "md", "html"],
-                                   "default": "json"}},
+                                   "default": "json"},
+                        "grid_queue_region": _queue_region_schema()},
          "additionalProperties": False},
-        returns="screen payload, or the rendered screening document.",
+        returns="screen payload (with grid_queue_context: the measured US queue statistic beside the assumed grid wait), or the rendered "
+                "screening document.",
     ),
     _tool(
         "gridforge_compare",
@@ -134,9 +143,11 @@ TOOLS: list[dict] = [
                                                      "(retained_air, rdhx, hybrid_dlc, full_dlc, full_dlc_btm). "
                                                      "Default: all the intake defines."},
                         "baseline": {"type": "string",
-                                     "description": "Scenario id the others are compared with. Default: the first."}},
+                                     "description": "Scenario id the others are compared with. Default: the first."},
+                        "grid_queue_region": _queue_region_schema()},
          "additionalProperties": False},
-        returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, request_digest, provenance.",
+        returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context "
+                "only), request_digest, provenance.",
     ),
     _tool(
         "gridforge_study",
