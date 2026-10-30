@@ -398,7 +398,7 @@ class TestPostDeployProof:
             eng.stop()
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "durable usage ledger" in proc.stdout and "machines: 1, mounting gridforge_data: 1" in proc.stdout
-        assert "revocation persistable" in proc.stdout and "serves every route and unit rate" in proc.stdout
+        assert "revocation persistable" in proc.stdout and "no drift. Compared: routes, unit rates, version, usage ledger, tool names and code digest" in proc.stdout
         assert "op-key-for-test" not in proc.stdout + proc.stderr, "the operator key must never be printed"
 
     def test_two_machines_fail_the_deploy(self, tmp_path):
@@ -584,7 +584,7 @@ class TestDeployNeverWritesSecretsAndVerifies:
             srv.shutdown()
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "Post-deploy drift check" in proc.stdout
-        assert "serves every route and unit rate" in proc.stdout
+        assert "no drift. Compared: routes, unit rates, version, usage ledger, tool names and code digest" in proc.stdout
 
     def test_remaining_drift_alone_fails_the_deploy(self, tmp_path):
         """Everything else about the engine is healthy; only the code digest differs. The script must still exit non-zero."""

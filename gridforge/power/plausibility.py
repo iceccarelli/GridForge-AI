@@ -8,6 +8,10 @@ input is changed and no number is invented.
 from __future__ import annotations
 
 
+#: Relative slack before contracted power counts as exceeding the firm connection: float noise, not an engineering allowance.
+_TOLERANCE = 1e-6
+
+
 def plausibility_findings(ctx) -> list[str]:
     """Warnings about the inputs in ``ctx`` (an EnvelopeContext), in the words a report prints. Empty when none."""
     out: list[str] = []
@@ -16,6 +20,15 @@ def plausibility_findings(ctx) -> list[str]:
     ceiling_MW = min(firm_MW, g.contracted_MW.value)
     it_MW = ctx.power.current_it_load_MW.value
     peak_MW = g.current_site_peak_MW.value
+    if g.contracted_MW.value > firm_MW * (1 + _TOLERANCE):
+        # Not an impossibility: a contract can name more than the connection can carry (non-firm or interruptible capacity, a different
+        # metering point, a unit slip). It is an input discrepancy the operator must settle, so it is stated, never silently resolved.
+        out.append(
+            f"The contracted capacity ({g.contracted_MW.value:,.2f} MW) is more than the firm connection can deliver "
+            f"({g.firm_capacity_MVA.value:,.2f} MVA x {g.power_factor.value:.2f} = {firm_MW:,.2f} MW). The model uses the lesser, "
+            f"{ceiling_MW:,.2f} MW, so the extra contracted capacity adds nothing here. One of the two figures may be wrong or in "
+            f"the wrong unit (MW, MVA, kW), or the contract may include capacity that is not firm. Confirm with the network operator "
+            f"which figure is the firm entitlement before relying on this result.")
     if it_MW > ceiling_MW:
         out.append(
             f"The firm supply ceiling ({ceiling_MW:,.2f} MW: the lesser of the firm connection "

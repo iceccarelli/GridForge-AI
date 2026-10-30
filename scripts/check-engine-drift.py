@@ -17,8 +17,15 @@ the exact operator step is printed. Nothing is hidden or softened: every asserti
                          Written even when there is drift (it records what IS deployed);
                          never written when /v1/version could not be read.
   --summary-file PATH    append a Markdown summary (CI: $GITHUB_STEP_SUMMARY)
+  --require-clean-tree   exit 2 unless every file under gridforge/ is committed and unmodified. The code digest hashes the files that are
+                         on disk; CI hashes a clean checkout. On a dirty tree the two can disagree, so this says so instead of guessing.
 
-Exit status: 0 no drift, 1 drift, 2 the engine could not be read.
+The output always names the endpoint, both code digests and whether the working tree is clean, so a local result and a CI result can
+be compared line for line. Local and CI run this same script, the same digest function (gridforge.provenance.code_sha256) and the same
+default endpoint; the only inputs that can differ are the base URL (argument or GRIDFORGE_API_URL, named in the output when it is not
+the default), the state of the working tree (reported), and WHEN the check runs relative to a deploy.
+
+Exit status: 0 no drift, 1 drift, 2 the engine could not be read (or --require-clean-tree was not met).
 """
 from __future__ import annotations
 
@@ -52,6 +59,20 @@ GROUPS = [
 OPERATOR_STEP = ("Run the 'deploy-engine' GitHub Actions workflow (Actions -> deploy-engine -> Run workflow, type DEPLOY), "
                  "or from a machine with Fly credentials: bash scripts/deploy-engine.sh. "
                  "Needs the repository secret FLY_API_TOKEN (fly tokens create deploy -a gridforge-engine).")
+
+
+def tree_state(root: Path = ROOT) -> tuple[str, list[str]]:
+    """("clean" | "dirty" | "unknown", changed paths) for the files the code digest covers (everything under gridforge/).
+
+    "unknown" means this is not a git checkout or git is unavailable; it is reported, never read as clean."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all", "--", "gridforge"],
+                             capture_output=True, text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return "unknown", []
+    changed = [line[3:] for line in out.splitlines() if line.strip()]
+    return ("dirty" if changed else "clean"), changed
 
 
 def repo_tool_names() -> dict[str, str]:
@@ -140,11 +161,29 @@ def write_snapshot(path: str, snap: dict) -> None:
     os.replace(tmp, target)
 
 
-def render_text(base: str, grouped: dict[str, list[str]]) -> str:
+def digest_line(deployed: dict, tree: tuple[str, list[str]] | None) -> str:
+    prov = deployed.get("provenance") if isinstance(deployed.get("provenance"), dict) else {}
+    live = prov.get("code_sha256")
+    repo = code_sha256()
+    state = tree[0] if tree else "not checked"
+    verdict = "same" if live == repo else "DIFFERENT"
+    return (f"code digest: repo {repo[:12]}, deployed {str(live)[:12] if live else 'none published'} ({verdict}); "
+            f"working tree under gridforge/: {state}")
+
+
+def render_text(base: str, grouped: dict[str, list[str]], deployed: dict | None = None,
+                tree: tuple[str, list[str]] | None = None) -> str:
     total = sum(len(v) for v in grouped.values())
+    extra = [digest_line(deployed, tree)] if deployed is not None else []
+    if tree and tree[0] == "dirty":
+        extra.append("note: uncommitted changes under gridforge/ (" + ", ".join(tree[1][:5]) + ("..." if len(tree[1]) > 5 else "")
+                     + "). The digest above is of your working files; CI hashes the committed tree.")
+    if tree and tree[0] == "unknown":
+        extra.append("note: not a git checkout, so whether the working tree matches a commit is unknown.")
     if not total:
-        return f"{base}: serves every route and unit rate in this repository"
-    lines = [f"{base}: DRIFT from this repository ({total}):"]
+        return "\n".join([f"{base}: no drift. Compared: routes, unit rates, version, usage ledger, tool names and code digest "
+                          "against this repository.", *extra])
+    lines = [f"{base}: DRIFT from this repository ({total}):", *extra]
     for key, title in GROUPS:
         if grouped[key]:
             lines.append(f"  {title} ({len(grouped[key])}):")
@@ -175,11 +214,13 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
-def main(argv: list[str] | None = None, fetch=None) -> int:
-    """`fetch(url) -> dict` is injectable so tests need no network."""
+def main(argv: list[str] | None = None, fetch=None, tree=None) -> int:
+    """`fetch(url) -> dict` and `tree() -> (state, changed)` are injectable so tests need no network and no git state."""
     fetch = fetch or fetch_json
+    tree = tree or tree_state
     args = list(sys.argv[1:] if argv is None else argv)
     as_json = False
+    require_clean = False
     snap_path = summary_path = None
     positional: list[str] = []
     i = 0
@@ -187,6 +228,8 @@ def main(argv: list[str] | None = None, fetch=None) -> int:
         a = args[i]
         if a == "--json":
             as_json = True
+        elif a == "--require-clean-tree":
+            require_clean = True
         elif a in ("--write-snapshot", "--summary-file"):
             if i + 1 >= len(args):
                 print(f"{a} needs a path", file=sys.stderr)
@@ -205,7 +248,18 @@ def main(argv: list[str] | None = None, fetch=None) -> int:
         else:
             positional.append(a)
         i += 1
+    from_env = not positional and bool(os.environ.get("GRIDFORGE_API_URL"))
     base = (positional[0] if positional else os.environ.get("GRIDFORGE_API_URL") or DEFAULT_BASE).rstrip("/")
+    if from_env and base != DEFAULT_BASE:
+        # CI runs without GRIDFORGE_API_URL, so a local run that has it set is not checking the same engine as CI. Say so.
+        print(f"note: base URL taken from GRIDFORGE_API_URL ({base}); CI checks {DEFAULT_BASE}", file=sys.stderr)
+    state = tree()
+    if require_clean and state[0] != "clean":
+        msg = (f"--require-clean-tree: working tree under gridforge/ is {state[0]}"
+               + (f" ({', '.join(state[1][:5])})" if state[1] else "") + ". Nothing was verified.")
+        print(json.dumps({"base": base, "ok": False, "error": msg, "tree": state[0], "differences": {}, "count": 0}, indent=2)
+              if as_json else msg)
+        return 2
 
     try:
         deployed = fetch(base + "/v1/version")
@@ -238,11 +292,13 @@ def main(argv: list[str] | None = None, fetch=None) -> int:
 
     total = sum(len(v) for v in grouped.values())
     if as_json:
+        live_prov = deployed.get("provenance") if isinstance(deployed.get("provenance"), dict) else {}
         print(json.dumps({"base": base, "ok": total == 0, "repo_version": VERSION, "deployed_version": deployed.get("version"),
-                          "count": total, "differences": {k: v for k, v in grouped.items() if v},
+                          "repo_code_sha256": code_sha256(), "deployed_code_sha256": live_prov.get("code_sha256"),
+                          "tree": state[0], "count": total, "differences": {k: v for k, v in grouped.items() if v},
                           "operator_step": None if total == 0 else OPERATOR_STEP}, indent=2))
     else:
-        print(render_text(base, grouped))
+        print(render_text(base, grouped, deployed, state))
     if summary_path:
         with open(summary_path, "a") as fh:
             fh.write(render_markdown(base, grouped))

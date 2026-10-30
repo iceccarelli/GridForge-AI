@@ -35,17 +35,21 @@ class IntakeError(ValueError):
 
 
 def _num(raw: Any, what: str = "value") -> float:
-    """float() that refuses what float() lets through: NaN, infinity, null, booleans.
-    A non-finite number does not fail later with a traceback; it silently drops a
-    constraint or ranks a hall first."""
+    """A JSON number, and nothing else: float() lets through NaN, infinity, null, booleans and numeric strings.
+    A non-finite number does not fail later with a traceback; it silently drops a constraint or ranks a hall first.
+    A numeric string is refused for the same reason a boolean is: this is a quantity with a unit, and "14" is text, so
+    accepting it would mean that whatever sent it never checked what it was sending (a unit label, a locale comma, a
+    thousands separator). The website's form converts to numbers before it sends, so nothing legitimate is lost."""
     if isinstance(raw, bool) or raw is None:
         raise IntakeError(f"{what} is {raw!r}, which is not a number")
+    if isinstance(raw, str):
+        raise IntakeError(f"{what} is the text {raw!r}, which is not a number; send a JSON number, not a string")
+    if not isinstance(raw, (int, float)):
+        raise IntakeError(f"{what} is a {type(raw).__name__}, which is not a number")
     try:
         v = float(raw)
     except OverflowError:
         raise IntakeError(f"{what} is too large to be a number this tool can model") from None
-    except (TypeError, ValueError):
-        raise IntakeError(f"{what} is {raw!r}, which is not a number") from None
     if not math.isfinite(v):
         raise IntakeError(f"{what} is {raw!r}; it must be a finite number")
     return v
@@ -171,12 +175,37 @@ def _dig(doc: dict, path: str) -> Any:
     return cur
 
 
+#: The most items one equipment list (transformers, ups, btm_options, thermal.cdus) may carry. This is a bound on the work one request can
+#: demand, NOT an engineering claim about how much plant a hall may have: every item is its own line of plant with its own id (identical
+#: units are one item with `units`), each adds a solve per scenario (about 12 ms per transformer measured), and the 512 KiB body limit alone
+#: would still allow thousands of them. The ceiling sits far above any hall and campus bank this tool has been given; the refusal names it.
+MAX_EQUIPMENT_ITEMS = 100
+
+
+def _equipment_list(items, section: str) -> list:
+    """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, or more
+    items than a request may ask the engine to solve."""
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        raise IntakeError(f"{section} must be a list of objects, not {type(items).__name__}")
+    if len(items) > MAX_EQUIPMENT_ITEMS:
+        raise IntakeError(f"{section} lists {len(items)} items, more than the {MAX_EQUIPMENT_ITEMS} one request may carry. Identical units "
+                          "are one item with `units`; split a campus into one request per hall")
+    for n, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise IntakeError(f"{section}[{n}] must be an object, not {type(item).__name__}")
+    _refuse_repeated_ids(items, section)
+    return items
+
+
 def _refuse_repeated_ids(items, section: str) -> None:
     """A repeated explicit id is the same equipment listed twice (its capacity would be counted twice) or two different items
     sharing one name (ambiguous in a ranking and in a diff). Only ids the customer actually wrote count: an omitted id takes a
     default, and two id-less entries are not a repeat."""
     ids = [str(i["id"]) for i in items or [] if isinstance(i, dict) and i.get("id") is not None]
-    repeated = sorted({k for k in ids if ids.count(k) > 1})
+    seen: set[str] = set()
+    repeated = sorted({k for k in ids if k in seen or seen.add(k)})   # linear: one pass, not a count per id
     if repeated:
         raise IntakeError(f"{section} names {', '.join(repeated)} twice: the same equipment listed twice would be counted twice. "
                           "Give each item its own id, or raise `units` for identical units")
@@ -219,6 +248,9 @@ class _Reader:
                             f"E6 and E7 are earned through the calibration ledger.")
                         declared = EvidenceClass.E5_CUSTOMER_DATA
                     ev = declared
+            if "value" not in raw:
+                raise IntakeError(f"{label} ({path}) is an object without a \"value\"; give a number, or an object with a value "
+                                  f"(and optionally note, source, evidence)")
             raw = raw["value"]
         if ev is None:
             ev = spec.supplied_evidence if spec else CUSTOMER
@@ -430,8 +462,7 @@ def _load_document(doc: dict) -> Intake:
     )
 
     transformers = []
-    tx_items = r.raw("transformers", []) or []
-    _refuse_repeated_ids(tx_items, "transformers")
+    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers")
     for t in tx_items:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
@@ -456,8 +487,7 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = r.raw("ups", []) or []
-    _refuse_repeated_ids(ups_items, "ups")
+    ups_items = _equipment_list(r.raw("ups", []) or [], "ups")
     for u in ups_items:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
@@ -470,8 +500,7 @@ def _load_document(doc: dict) -> Intake:
         ))
 
     options = []
-    btm_items = r.raw("btm_options", []) or []
-    _refuse_repeated_ids(btm_items, "btm_options")
+    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options")
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
@@ -576,7 +605,7 @@ def _load_document(doc: dict) -> Intake:
     )
 
     cdus = []
-    for c in r.raw("thermal.cdus", []) or []:
+    for c in _equipment_list(r.raw("thermal.cdus", []) or [], "thermal.cdus"):
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
             rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
