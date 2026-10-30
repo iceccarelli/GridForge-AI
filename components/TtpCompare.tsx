@@ -21,6 +21,7 @@ import { TtpSaveToProject } from "@/components/TtpSaveToProject";
 import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 import { GridQueuePanel } from "@/components/GridQueuePanel";
+import { RetailPricePanel } from "@/components/RetailPricePanel";
 
 type Fields = Record<string, string>;
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
@@ -334,6 +335,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
       </div>
 
       <GridQueuePanel ctx={r.grid_queue_context} />
+      <RetailPricePanel ctx={r.retail_price_context} />
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">

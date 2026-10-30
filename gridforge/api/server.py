@@ -306,6 +306,30 @@ def _queue_region(body: dict) -> str | None:
     return region
 
 
+def _price_state(body: dict) -> str | None:
+    """The optional `electricity_price_state`: a US state (or DC) as EIA spells it, or absent for the US average. Refused before solving."""
+    from ..context import energy_price
+    state = body.get("electricity_price_state")
+    if state is None:
+        return None
+    if not isinstance(state, str) or state not in energy_price.states():
+        raise ApiError(422, "electricity_price_state must be one of the states below, or omitted for the US average",
+                       allowed=list(energy_price.states()))
+    return state
+
+
+def _retail_price_context(doc, state: str | None) -> dict:
+    """EIA's published average beside the electricity price this run used: the buyer's declared tariff, else the library placeholder."""
+    from ..context import energy_price
+    from ..economics.model import ELECTRICITY_EUR_PER_MWH
+    econ = doc.get("economics") if isinstance(doc, dict) else None
+    declared = econ.get("electricity_eur_per_MWh") if isinstance(econ, dict) else None
+    is_declared = isinstance(declared, (int, float)) and not isinstance(declared, bool) and declared > 0
+    return energy_price.context(state=state, country=_site_country(doc),
+                                assumed_eur_per_mwh=float(declared) if is_declared else float(ELECTRICITY_EUR_PER_MWH.value),
+                                declared=is_declared)
+
+
 def _site_country(doc) -> object:
     site = doc.get("site") if isinstance(doc, dict) else None
     return site.get("country") if isinstance(site, dict) else None
@@ -315,6 +339,7 @@ def handle_screen(body: dict, tier: Tier) -> dict:
     from ..context import grid_queue
     # `grid_queue_region` is read only when the intake is nested: a body that IS the intake carries intake fields, not request options.
     region = _queue_region(body) if "intake" in body else None
+    price_state = _price_state(body) if "intake" in body else None
     doc = body.get("intake") or body
     intake, results = _run(doc)
     fmt = str(body.get("format") or "json").lower()
@@ -330,6 +355,7 @@ def handle_screen(body: dict, tier: Tier) -> dict:
         payload["grid_queue_context"] = grid_queue.context(
             region=region, country=_site_country(doc),
             assumed=grid_queue.assumption_from_scenarios(payload.get("scenarios"), prefer=payload.get("recommended")))
+        payload["retail_price_context"] = _retail_price_context(doc, price_state)
     return redact(payload, tier)
 
 
@@ -351,6 +377,7 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         raise ApiError(422, "baseline must be a scenario id")
     objective = _objective(body)
     region = _queue_region(body)
+    price_state = _price_state(body)
     intake, results = _run(doc)
     try:
         if ids and "full_dlc_btm" in ids and not intake.context.power.options:
@@ -376,6 +403,9 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         out["grid_queue_context"] = grid_queue.context(region=region, country=_site_country(doc))
         out["caveats"].append("Context only: grid_queue_context shows how long US generation interconnection requests that reached "
                               "operation took. It is not a connection time for this site and changes no date here.")
+        out["retail_price_context"] = _retail_price_context(doc, price_state)
+        out["caveats"].append("Context only: retail_price_context shows what US customers in this sector paid on average in one month. It is "
+                              "not this site's tariff and changes no cost here.")
     out["provenance"] = provenance(VERSION)
     return out
 

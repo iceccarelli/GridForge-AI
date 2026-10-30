@@ -42,6 +42,13 @@ def _queue_region_schema() -> dict:
                             "for the pooled US figure. Context only: it changes no number and no date.")}
 
 
+def _price_state_schema() -> dict:
+    from ..context import energy_price
+    return {"type": "string", "enum": list(energy_price.states()),
+            "description": ("Optional. Which US state's published average electricity price retail_price_context is drawn from; omit for "
+                            "the US average. Context only: it changes no price and no cost.")}
+
+
 _OBJECTIVE = {
     "type": "string",
     "enum": ["max_compute", "min_cost", "fastest"],
@@ -122,7 +129,8 @@ TOOLS: list[dict] = [
          "properties": {"intake": _INTAKE_SCHEMA, "objective": _OBJECTIVE,
                         "format": {"type": "string", "enum": ["json", "md", "html"],
                                    "default": "json"},
-                        "grid_queue_region": _queue_region_schema()},
+                        "grid_queue_region": _queue_region_schema(),
+                        "electricity_price_state": _price_state_schema()},
          "additionalProperties": False},
         returns="screen payload (with grid_queue_context: the measured US queue statistic beside the assumed grid wait), or the rendered "
                 "screening document.",
@@ -144,7 +152,8 @@ TOOLS: list[dict] = [
                                                      "Default: all the intake defines."},
                         "baseline": {"type": "string",
                                      "description": "Scenario id the others are compared with. Default: the first."},
-                        "grid_queue_region": _queue_region_schema()},
+                        "grid_queue_region": _queue_region_schema(),
+                        "electricity_price_state": _price_state_schema()},
          "additionalProperties": False},
         returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context "
                 "only), request_digest, provenance.",
