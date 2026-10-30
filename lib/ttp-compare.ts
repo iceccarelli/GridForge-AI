@@ -204,6 +204,23 @@ export interface CompareResult {
   cost_evidence?: CompareCostEvidence;
   /** Measured US queue history beside the refusal to date grid reinforcement. Context only; absent from an engine that predates it. */
   grid_queue_context?: GridQueueContext;
+  /** Published average US electricity price beside the price this comparison used. Context only; absent from an engine that predates it. */
+  retail_price_context?: RetailPriceContext;
+}
+
+export interface RetailPriceContext {
+  kind: "context_only";
+  source: { name: string; release_date: string; page_sha256: string; measured_on: string };
+  observed: {
+    area: string;
+    period: string;
+    unit: string;
+    sectors: Record<"commercial" | "industrial", { usd_per_MWh: number; cents_per_kWh: number } | null>;
+  };
+  applicability: { site_country: string | null; level: "same_country_context" | "scale_reference_only" };
+  assumed?: { eur_per_MWh: number; source: string; evidence_class_unchanged: true };
+  statements: string[];
+  limits: string[];
 }
 
 export interface GridQueueContext {

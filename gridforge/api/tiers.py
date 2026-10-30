@@ -28,6 +28,8 @@ PUBLIC_REDACTED_KEYS = frozenset({
     "ladder", "curve", "constraints", "sensitivity", "document",
     # The measured queue history beside the grid wait (weeks and months of schedule): paid content like every other schedule figure here.
     "grid_queue_context",
+    # Published retail electricity prices beside the engine's price: a paid addition to the response, not part of the free qualifier.
+    "retail_price_context",
 })
 
 PUBLIC_NOTICE = (
