@@ -275,6 +275,17 @@ Power and thermal are not independent budgets. Every kilowatt the cooling archit
 
 > ⚠️ Public retrofit cost benchmarks currently span roughly 2 to 12 MEUR per MW — a four- to sixfold spread. No figure in this section should be treated as a market benchmark; they are screening estimates pending site-specific quotations.
 
+Electricity price, published elsewhere (context only)
+
+This document prices energy at the figure stated in its economics. For scale only, here is what has been published about what customers actually paid. It is an external statistic, not a model output, and it is not an input to any figure in this document.
+
+- U.S. Total, 2026-08: industrial customers paid 96.4 US dollars per MWh on average and commercial customers 144.7 US dollars per MWh. Source: U.S. Energy Information Administration, Electric Power Monthly, Table 5.6.A (Form EIA-861M), released October 23, 2026.
+- These are averages over every customer in the sector for one month, delivery included, and the latest month is preliminary. They are not a data-centre price, not a tariff this site would be offered, and not a forecast.
+- The site is not stated to be in the United States, so a US average is a scale reference at most.
+- This document uses 140 euros per MWh (library placeholder (evidence class E0); no contracted tariff supplied). The two figures are in different currencies and are not converted here; convert at your own rate before comparing. Its evidence class is unchanged by this comparison.
+
+> ℹ️ Context only: this is not the tariff for this site and it changes no figure, cost or evidence class in this document. The contracted tariff, once known, replaces the price used here.
+
 ## 10. Sensitivity
 
 One-at-a-time sensitivity on the recommended architecture, evaluated against the relieved case rather than the hall as found. Inputs are ranked by how far each moves the answer; the ones at the top are the ones worth paying to measure.

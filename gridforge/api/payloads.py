@@ -106,3 +106,16 @@ def grid_queue_context_for(results: list[ScenarioResult], objective: Objective =
     rec = _pick_recommended(results, objective)
     return grid_queue.context(region=region, country=country,
                               assumed=grid_queue.assumption_from_scenarios([scenario_dict(rec)]))
+
+
+def retail_price_context_for(intake, *, state: str | None = None) -> dict:
+    """EIA's published average beside the electricity price a run used, read from the LOADED intake: the price the model actually used,
+    whether it came as a bare number or as {"value", "note"}. One place for the API, the documents and the CLI, so they cannot disagree
+    about which price was used or whether it was declared."""
+    from ..context import energy_price
+    from ..economics.model import ELECTRICITY_EUR_PER_MWH
+    econ = intake.context.economics
+    declared = econ.electricity_eur_per_MWh if econ is not None else None
+    price = declared if declared is not None else ELECTRICITY_EUR_PER_MWH
+    return energy_price.context(state=state, country=intake.context.site.country, assumed_eur_per_mwh=float(price.value),
+                                declared=declared is not None)

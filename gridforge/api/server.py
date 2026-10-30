@@ -80,7 +80,7 @@ from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
 from .costs import BUCKET_BOUNDS_MS, timer
 from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
-from .payloads import grid_queue_context_for, qualify_payload, screen_payload
+from .payloads import grid_queue_context_for, qualify_payload, retail_price_context_for, screen_payload
 from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
@@ -318,16 +318,8 @@ def _price_state(body: dict) -> str | None:
     return state
 
 
-def _retail_price_context(doc, state: str | None) -> dict:
-    """EIA's published average beside the electricity price this run used: the buyer's declared tariff, else the library placeholder."""
-    from ..context import energy_price
-    from ..economics.model import ELECTRICITY_EUR_PER_MWH
-    econ = doc.get("economics") if isinstance(doc, dict) else None
-    declared = econ.get("electricity_eur_per_MWh") if isinstance(econ, dict) else None
-    is_declared = isinstance(declared, (int, float)) and not isinstance(declared, bool) and declared > 0
-    return energy_price.context(state=state, country=_site_country(doc),
-                                assumed_eur_per_mwh=float(declared) if is_declared else float(ELECTRICITY_EUR_PER_MWH.value),
-                                declared=is_declared)
+def _retail_price_context(intake, state: str | None) -> dict:
+    return retail_price_context_for(intake, state=state)
 
 
 def _site_country(doc) -> object:
@@ -349,13 +341,14 @@ def handle_screen(body: dict, tier: Tier) -> dict:
     paid = tier is not Tier.PUBLIC       # schedule figures are paid content: the free tier carries none (tiers.PUBLIC_REDACTED_KEYS)
     if fmt in ("html", "md"):
         queue = grid_queue_context_for(results, objective, country=_site_country(doc), region=region) if paid else None
-        report = build_screen_report(intake, results, objective=objective, grid_queue=queue)
+        report = build_screen_report(intake, results, objective=objective, grid_queue=queue,
+                                     retail_price=_retail_price_context(intake, price_state) if paid else None)
         return _rendered(report, results, fmt)
     if paid:
         payload["grid_queue_context"] = grid_queue.context(
             region=region, country=_site_country(doc),
             assumed=grid_queue.assumption_from_scenarios(payload.get("scenarios"), prefer=payload.get("recommended")))
-        payload["retail_price_context"] = _retail_price_context(doc, price_state)
+        payload["retail_price_context"] = _retail_price_context(intake, price_state)
     return redact(payload, tier)
 
 
@@ -403,7 +396,7 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         out["grid_queue_context"] = grid_queue.context(region=region, country=_site_country(doc))
         out["caveats"].append("Context only: grid_queue_context shows how long US generation interconnection requests that reached "
                               "operation took. It is not a connection time for this site and changes no date here.")
-        out["retail_price_context"] = _retail_price_context(doc, price_state)
+        out["retail_price_context"] = _retail_price_context(intake, price_state)
         out["caveats"].append("Context only: retail_price_context shows what US customers in this sector paid on average in one month. It is "
                               "not this site's tariff and changes no cost here.")
     out["provenance"] = provenance(VERSION)
@@ -412,6 +405,7 @@ def handle_compare(body: dict, tier: Tier) -> dict:
 
 def handle_study(body: dict, tier: Tier) -> dict:
     region = _queue_region(body) if "intake" in body else None
+    price_state = _price_state(body) if "intake" in body else None
     doc = body.get("intake") or body
     intake, results = _run(doc)
     fmt = str(body.get("format") or "json").lower()
@@ -438,7 +432,8 @@ def handle_study(body: dict, tier: Tier) -> dict:
                                     client=intake.client, objective=objective,
                                     watermark=watermark_for(intake),
                                     grid_queue=(grid_queue_context_for(results, objective, country=_site_country(doc), region=region)
-                                                if tier is not Tier.PUBLIC else None))
+                                                if tier is not Tier.PUBLIC else None),
+                                    retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None)
         out = _rendered(report, results, fmt)
         if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
