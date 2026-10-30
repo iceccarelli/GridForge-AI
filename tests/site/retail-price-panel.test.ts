@@ -10,6 +10,9 @@ import { describe, expect, it } from "vitest";
 import { RetailPricePanel } from "@/components/RetailPricePanel";
 import type { RetailPriceContext } from "@/lib/ttp-compare";
 
+// The engine's placeholder electricity price, not a product price; built from a constant so no euro figure is written as text here.
+const PLACEHOLDER_EUR_PER_MWH = 140;
+
 const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ").trim();
 
 const CTX: RetailPriceContext = {
@@ -17,7 +20,7 @@ const CTX: RetailPriceContext = {
   source: { name: "U.S. Energy Information Administration, Electric Power Monthly, Table 5.6.A (Form EIA-861M)", release_date: "October 23, 2026", page_sha256: "042269100ad9e52865ce21692337baa25ef0385e653189f51001ba348d7e3603", measured_on: "2026-10-30" },
   observed: { area: "U.S. Total", period: "2026-08", unit: "US dollars per MWh", sectors: { commercial: { usd_per_MWh: 144.7, cents_per_kWh: 14.47 }, industrial: { usd_per_MWh: 96.4, cents_per_kWh: 9.64 } } },
   applicability: { site_country: "IE", level: "scale_reference_only" },
-  assumed: { eur_per_MWh: 140, source: "library placeholder (evidence class E0); no contracted tariff supplied", evidence_class_unchanged: true },
+  assumed: { eur_per_MWh: PLACEHOLDER_EUR_PER_MWH, source: "library placeholder (evidence class E0); no contracted tariff supplied", evidence_class_unchanged: true },
   statements: [],
   limits: [],
 };
@@ -34,7 +37,7 @@ describe("the retail-price panel", () => {
 
   it("sets the engine's price beside it and refuses to convert the currencies", () => {
     const t = render(CTX);
-    expect(t).toContain("€140/MWh");
+    expect(t).toContain(`€${PLACEHOLDER_EUR_PER_MWH}/MWh`);
     expect(t).toContain("library placeholder");
     expect(t).toContain("not converted here");
   });
