@@ -85,7 +85,8 @@ def test_text_output_groups_and_names_the_operator_step(capsys):
 
 def test_a_clean_engine_prints_the_success_line_and_exits_zero(capsys):
     rc, out = run_main([], current(), capsys)
-    assert rc == 0 and "serves every route and unit rate" in out and "DRIFT" not in out
+    assert rc == 0 and "no drift. Compared: routes, unit rates, version, usage ledger, tool names and code digest" in out
+    assert "DRIFT" not in out and f"repo {code_sha256()[:12]}, deployed {code_sha256()[:12]} (same)" in out
 
 
 # ---- --json --------------------------------------------------------------------------------------------------------
@@ -324,3 +325,105 @@ def test_drift_workflow_fails_on_drift_summarises_and_opens_nothing():
     assert "gh issue" not in code and "issues:" not in code and "gh pr" not in code
     for trigger in ("push:", "schedule:", "workflow_dispatch:"):
         assert trigger in code
+
+
+
+# ---- local and CI must agree: same script, same digest, same endpoint, and a mismatch is never a pass -------------------------------------
+STALE_DIGEST = "137777ef547ad9bf84d290a0d1002cb578b6add529c40c717077c5fcb7135918"   # the pre-#100 engine tree, as the CI run saw it
+
+
+def clean_tree():
+    return ("clean", [])
+
+
+def test_a_deployed_engine_with_an_older_code_digest_is_never_reported_as_no_drift(capsys):
+    """The routes, unit rates, version, ledger and tool names all match; only the code digest differs. Health and a 200 are not provenance."""
+    old = current()
+    old["provenance"] = {"code_sha256": STALE_DIGEST}
+    rc = mod.main(["http://engine.test"], fetch=fetcher(old), tree=clean_tree)
+    out = capsys.readouterr().out
+    assert rc == 1 and "no drift" not in out and "DRIFT" in out
+    assert f"deployed {STALE_DIGEST[:12]}" in out and f"repo {code_sha256()[:12]}" in out and "(DIFFERENT)" in out
+    assert "different tree than this repository" in out
+
+
+def test_the_json_result_carries_both_digests_so_two_runs_can_be_compared(capsys):
+    old = current()
+    old["provenance"] = {"code_sha256": STALE_DIGEST}
+    rc = mod.main(["--json", "http://engine.test"], fetch=fetcher(old), tree=clean_tree)
+    doc = json.loads(capsys.readouterr().out)
+    assert rc == 1 and doc["ok"] is False
+    assert doc["repo_code_sha256"] == code_sha256() and doc["deployed_code_sha256"] == STALE_DIGEST and doc["tree"] == "clean"
+
+
+def test_local_and_ci_run_the_same_script_the_same_digest_and_the_same_default_endpoint():
+    workflow = (ROOT / ".github" / "workflows" / "engine-drift.yml").read_text()
+    assert "python3 scripts/check-engine-drift.py" in workflow
+    assert "GRIDFORGE_API_URL" not in workflow, "CI must not point the check at a different engine than a local run uses by default"
+    assert "--require-clean-tree" not in workflow  # CI checks out a clean tree; the flag exists for local runs
+    assert mod.code_sha256 is code_sha256, "the script must use the product's own digest function, not a copy"
+    assert mod.DEFAULT_BASE == "https://gridforge-engine.fly.dev"
+    # the step that CI runs must not be able to skip the digest comparison
+    live_lines = [ln for ln in workflow.split("jobs:")[1].splitlines() if not ln.lstrip().startswith("#")]
+    assert not [ln for ln in live_lines if "continue-on-error" in ln or "|| true" in ln or "|| :" in ln]
+
+
+def test_a_base_url_from_the_environment_is_named_so_a_local_run_cannot_pass_against_a_different_engine(monkeypatch, capsys):
+    monkeypatch.setenv("GRIDFORGE_API_URL", "http://staging.example")
+    rc = mod.main([], fetch=fetcher(current()), tree=clean_tree)
+    cap = capsys.readouterr()
+    assert rc == 0 and cap.out.startswith("http://staging.example: no drift")
+    assert "base URL taken from GRIDFORGE_API_URL (http://staging.example); CI checks https://gridforge-engine.fly.dev" in cap.err
+
+
+def test_the_default_endpoint_is_used_when_the_environment_is_unset(monkeypatch, capsys):
+    monkeypatch.delenv("GRIDFORGE_API_URL", raising=False)
+    seen = []
+
+    def fetch(url):
+        seen.append(url)
+        return fetcher(current())(url)
+
+    mod.main([], fetch=fetch, tree=clean_tree)
+    assert seen[0] == "https://gridforge-engine.fly.dev/v1/version"
+    assert "note: base URL" not in capsys.readouterr().err
+
+
+def test_a_dirty_tree_is_reported_in_text_and_json_without_changing_the_verdict(capsys):
+    dirty = lambda: ("dirty", ["gridforge/intake/loader.py"])  # noqa: E731
+    rc = mod.main(["http://engine.test"], fetch=fetcher(current()), tree=dirty)
+    out = capsys.readouterr().out
+    assert rc == 0 and "working tree under gridforge/: dirty" in out and "gridforge/intake/loader.py" in out
+    assert "CI hashes the committed tree" in out
+    rc = mod.main(["--json", "http://engine.test"], fetch=fetcher(current()), tree=dirty)
+    assert json.loads(capsys.readouterr().out)["tree"] == "dirty" and rc == 0
+
+
+@pytest.mark.parametrize("state", [("dirty", ["gridforge/x.py"]), ("unknown", [])])
+def test_require_clean_tree_refuses_to_verify_a_tree_that_is_not_a_commit(state, capsys):
+    called = []
+    rc = mod.main(["--require-clean-tree", "http://engine.test"], fetch=lambda u: called.append(u), tree=lambda: state)
+    out = capsys.readouterr().out
+    assert rc == 2 and "Nothing was verified" in out and not called, "it must not even contact the engine"
+
+
+def test_require_clean_tree_passes_through_on_a_clean_tree(capsys):
+    assert mod.main(["--require-clean-tree", "http://engine.test"], fetch=fetcher(current()), tree=clean_tree) == 0
+
+
+def test_tree_state_sees_an_uncommitted_file_under_the_package(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True,
+                       env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                            "PATH": __import__("os").environ["PATH"], "HOME": str(tmp_path)})
+    git("init", "-q")
+    (tmp_path / "gridforge").mkdir()
+    (tmp_path / "gridforge" / "a.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    assert mod.tree_state(tmp_path) == ("clean", [])
+    (tmp_path / "gridforge" / "a.py").write_text("x = 2\n")
+    (tmp_path / "gridforge" / "new.py").write_text("y = 1\n")
+    state, changed = mod.tree_state(tmp_path)
+    assert state == "dirty" and sorted(changed) == ["gridforge/a.py", "gridforge/new.py"]
+    assert mod.tree_state(tmp_path / "does-not-exist")[0] == "unknown"

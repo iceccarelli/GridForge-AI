@@ -923,10 +923,19 @@ def handle_bids(body: dict, tier: Tier) -> dict:
     return payload
 
 
+#: The most halls one /v1/portfolio request may rank. A bound on the work a request can demand (every hall is a full solve, about 0.2 s
+#: each, and the 512 KiB body limit alone admits well over a hundred), not a statement about how large a portfolio may be: the Portfolio
+#: Screen is sold for five to fifteen halls, and a larger estate is several requests.
+MAX_PORTFOLIO_HALLS = 50
+
+
 def handle_portfolio(body: dict, tier: Tier) -> dict:
     docs = body.get("intakes")
     if not isinstance(docs, list) or not docs:
         raise ApiError(422, "expected {\"intakes\": [ ... ]} with at least one intake")
+    if len(docs) > MAX_PORTFOLIO_HALLS:
+        raise ApiError(422, f"intakes lists {len(docs)} halls, more than the {MAX_PORTFOLIO_HALLS} one request may rank; send the rest as "
+                            "further requests", max_halls=MAX_PORTFOLIO_HALLS)
     objective = _objective(body)
     entries = []
     for d in docs:
