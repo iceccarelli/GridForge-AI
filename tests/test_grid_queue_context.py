@@ -176,7 +176,7 @@ def screen_md(**kw):
 def test_the_density_screen_carries_the_section_before_the_next_step_and_still_passes_every_gate():
     md = screen_md()  # _rendered runs the report gates: a failure would raise, not return
     assert "## 5. Grid wait: what has been observed elsewhere (context only)" in md
-    assert md.index("## 5. Grid wait") < md.index("## 6. Recommended next step")
+    assert md.index("## 5. Grid wait") < re.search(r"## \d+\. Recommended next step", md).start()
     assert "Context only: this is not a connection time for a load or a data centre" in md
     assert "Only 23% of the 5633 requests that entered a queue in 2010-2015 reached operation" in md
     assert "median of 53 months" in md and "37-70 months" in md

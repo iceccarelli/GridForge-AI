@@ -268,11 +268,18 @@ def _queue_for(intake, results, objective) -> dict:
     return grid_queue_context_for(results, objective, country=intake.context.site.country)
 
 
+def _price_for(intake) -> dict:
+    """EIA's published average beside the electricity price the documents use (context only; the US average)."""
+    from .api.payloads import retail_price_context_for
+    return retail_price_context_for(intake)
+
+
 def cmd_screen(args) -> int:
     intake = load(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
-    report = build_screen(intake, results, objective=objective, grid_queue=_queue_for(intake, results, objective))
+    report = build_screen(intake, results, objective=objective, grid_queue=_queue_for(intake, results, objective),
+                          retail_price=_price_for(intake))
     out = Path(args.out)
     w = _emit(report, out, "density_screen", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results)
@@ -309,7 +316,8 @@ def cmd_study(args) -> int:
     rec = _pick_recommended(results, objective)
     sens = sensitivity(rec, SENSITIVITY_KNOBS)
     report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
-                         watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective))
+                         watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective),
+                         retail_price=_price_for(intake))
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)

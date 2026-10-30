@@ -21,6 +21,7 @@ from ..validation import EvidenceClass, Quantity
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .grid_queue_section import section as grid_queue_section
+from .retail_price_section import section as retail_price_section
 from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, critical_path_q, date_basis, date_basis_text, date_title, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
                      racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
 
@@ -97,8 +98,11 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
           sensitivities: list[tuple[str, int]] | None = None,
           *, title: str | None = None, watermark: str = WATERMARK,
           client: str = "Reference Project",
-          objective: Objective = Objective.MAX_COMPUTE, grid_queue: dict | None = None) -> Report:
-    """`grid_queue` is a gridforge.context.grid_queue.context(...) result; when given, section 3 closes with the measured queue history
+          objective: Objective = Objective.MAX_COMPUTE, grid_queue: dict | None = None,
+          retail_price: dict | None = None) -> Report:
+    """`retail_price` is a gridforge.context.energy_price.context(...) result; when given, section 9 closes with the published average
+    electricity price beside the price the study used (context only).
+    `grid_queue` is a gridforge.context.grid_queue.context(...) result; when given, section 3 closes with the measured queue history
     beside the grid wait this study does not date (context only). Without it the study is exactly what it was."""
     rec = _pick_recommended(results, objective)
     hall = ctx.hall
@@ -514,6 +518,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         "Public retrofit cost benchmarks currently span roughly 2 to 12 MEUR per MW — a four- to "
         "sixfold spread. No figure in this section should be treated as a market benchmark; they "
         "are screening estimates pending site-specific quotations."))
+    if retail_price is not None:
+        s.blocks.append(Para("Electricity price, published elsewhere (context only)"))
+        s.blocks.extend(retail_price_section(retail_price, "").blocks)
     r.sections.append(s)
 
     # 9 ------------------------------------------------------------- sensitivity
