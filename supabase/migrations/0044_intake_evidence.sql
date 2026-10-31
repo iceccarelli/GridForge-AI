@@ -81,6 +81,21 @@ begin
 end;
 $$;
 
+-- A trigger function is not an API: nothing should be able to call it through PostgREST's /rpc. Revoked from everyone and from the
+-- API roles by name (the convention of 0040), so a role that holds a default grant on new functions does not keep it. A trigger runs
+-- without EXECUTE being checked for the role that fires it, so the application's inserts are unaffected (tested as service_role).
+revoke all on function public.gf_intake_evidence_open() from public;
+do $$
+declare r text;
+begin
+  foreach r in array array['anon', 'authenticated'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('revoke all on function public.gf_intake_evidence_open() from %I', r);
+    end if;
+  end loop;
+end;
+$$;
+
 drop trigger if exists intake_evidence_files_open on public.intake_evidence_files;
 create trigger intake_evidence_files_open
   before insert on public.intake_evidence_files
