@@ -278,6 +278,8 @@ export interface AdminDeliverable {
   document_hash: string | null;
   has_deck: boolean;
   has_working_files: boolean;
+  /** A refunded or disputed purchase (migration 0045, lib/one-time-holds.ts): access is withheld until it is lifted. Absent where 0045 is not applied. */
+  billing_hold?: "refunded" | "disputed" | null;
 }
 
 export async function fetchQualifications(limit = 500): Promise<AdminQualification[]> {
@@ -308,10 +310,10 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
     const cols =
       "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
       "document_html,document_md,deck_html,working_files,intake";
-    const res = await fetch(
-      `${c.url}/rest/v1/deliverables?select=${cols}&order=created_at.desc&limit=${limit}`,
-      { headers: c.headers, cache: "no-store" }
-    );
+    const get = (select: string) => fetch(`${c.url}/rest/v1/deliverables?select=${select}&order=created_at.desc&limit=${limit}`, { headers: c.headers, cache: "no-store" });
+    // billing_hold exists from migration 0045; without it PostgREST answers 400 and the list is the one it always was.
+    let res = await get(cols + ",billing_hold");
+    if (res.status === 400) res = await get(cols);
     if (!res.ok) {
       console.error("[GridForge] fetchDeliverables failed:", await storeFault(res));
       return [];

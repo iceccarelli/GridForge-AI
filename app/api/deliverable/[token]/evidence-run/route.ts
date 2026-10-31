@@ -1,3 +1,4 @@
+import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
 import { getByToken } from "@/lib/deliverables";
 import { currentRunFingerprint, runView, runWithEvidence, runsFor } from "@/lib/cost-evidence";
@@ -20,6 +21,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
+  {
+    const held = paymentHoldAnswer(row);
+    if (held) return NextResponse.json(held.body, { status: held.status });
+  }
   const runs = await runsFor(row.id);
   if (!runs.ok) return fail(runs);
   const current = await currentRunFingerprint(row);
@@ -45,6 +51,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
+  {
+    const held = paymentHoldAnswer(row);
+    if (held) return NextResponse.json(held.body, { status: held.status });
+  }
   // The token (a purchase) has been resolved and the input validated. Admit the request against the CUSTOMER budgets, then
   // every engine call inside `run` is counted individually; anonymous traffic cannot starve this, nor this that.
   const g = await guardRequest(req, "customer_generate", { cls: "customer" });

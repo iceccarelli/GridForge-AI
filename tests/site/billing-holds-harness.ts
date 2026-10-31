@@ -36,6 +36,8 @@ export class HoldStripe extends MockStripe {
   subscriptionKinds = new Map<string, string>();
   /** A subscription as Stripe holds it NOW (status, pause_collection, period). Absent: the subscription exists without those. */
   subscriptionState = new Map<string, Record<string, unknown>>();
+  /** The Checkout Session that took a payment intent (a one-time purchase): lib/one-time-holds.ts finds its row through it. */
+  sessionByPaymentIntent = new Map<string, { id: string; metadata: Record<string, string> }>();
   constructor() {
     super();
     const missing = () => Object.assign(new Error("No such object"), { type: "StripeInvalidRequestError", code: "resource_missing", statusCode: 404 });
@@ -49,6 +51,15 @@ export class HoldStripe extends MockStripe {
         const c = this.chargeInfo.get(id);
         if (!c) throw missing();
         return { id, ...c };
+      },
+    };
+    (this as any).checkout = {
+      sessions: {
+        list: async (p: { payment_intent: string }) => {
+          outage("checkout.sessions.list");
+          const s = this.sessionByPaymentIntent.get(p.payment_intent);
+          return { data: s ? [s] : [] };
+        },
       },
     };
     (this as any).invoicePayments = {
@@ -91,6 +102,11 @@ export class HoldStripe extends MockStripe {
     this.paymentIntentInvoice.set(pi, invoice);
     this.invoiceSubscription.set(invoice, sub);
     this.subscriptionLatest.set(sub, invoice);
+  }
+  /** charge -> payment intent -> the Checkout Session of a ONE-TIME purchase (no invoice, no subscription). */
+  linkOneTime(charge: string, pi: string, sessionId: string, kind: string) {
+    this.chargeInfo.set(charge, { payment_intent: pi });
+    this.sessionByPaymentIntent.set(pi, { id: sessionId, metadata: { kind } });
   }
   /** charge -> payment intent -> a pay-as-you-go SETTLEMENT invoice (metadata, no subscription). */
   linkSettlement(charge: string, pi: string, invoice: string, meta: Record<string, string>) {

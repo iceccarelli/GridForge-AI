@@ -1,3 +1,4 @@
+import { releaseHoldByOperator } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
@@ -189,17 +190,24 @@ export async function PATCH(req: Request) {
     // disputed since is not released without a person saying so (acknowledge_payment_issue), and a payment whose standing
     // Stripe could not report is not guessed at.
     const standing = await paymentStanding(row.stripe_session_id);
-    const overrode = (standing.state === "refunded" || standing.state === "disputed" || standing.state === "unavailable") && body.acknowledge_payment_issue === true;
-    if ((standing.state === "refunded" || standing.state === "disputed" || standing.state === "unavailable") && body.acknowledge_payment_issue !== true) {
+    // A hold the webhook recorded (lib/one-time-holds.ts) is a payment issue even when Stripe, asked now, reports the payment standing
+    // (a dispute that was won but whose event has not been processed): releasing past it is the same deliberate act.
+    const onHold = row.billing_hold ?? null;
+    const issue = standing.state === "refunded" || standing.state === "disputed" || standing.state === "unavailable" || onHold !== null;
+    const overrode = issue && body.acknowledge_payment_issue === true;
+    if (issue && body.acknowledge_payment_issue !== true) {
       const reason =
         standing.state === "unavailable"
           ? "Stripe could not be asked whether this payment still stands, so nothing was released."
-          : `Not released: ${standing.detail}.`;
+          : standing.state === "refunded" || standing.state === "disputed"
+            ? `Not released: ${standing.detail}.`
+            : `Not released: this purchase is on hold (${onHold}).`;
       return NextResponse.json(
         {
           ok: false,
           error: `${reason} Check the payment in Stripe; to release anyway (a goodwill delivery, a dispute you have decided to contest), send acknowledge_payment_issue: true.`,
           payment_standing: standing.state,
+          ...(onHold ? { payment_hold: onHold } : {}),
         },
         { status: standing.state === "unavailable" ? 503 : 409 }
       );
@@ -241,6 +249,10 @@ export async function PATCH(req: Request) {
         { status: 409 }
       );
     }
+    // The operator chose to release past a standing hold: lift it, and put who decided and why on the record. After the release is
+    // durably written, so a failure here leaves the buyer locked out (safe) rather than exposed; it is reported, not hidden.
+    let holdLifted: boolean | undefined;
+    if (onHold) holdLifted = await releaseHoldByOperator(row, "acknowledge_payment_issue on release");
     const link = `${SITE_URL}/deliverable/${token}`;
     // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
     // the link once it is released". Report what actually happened so a failed send is handed to the
@@ -280,6 +292,7 @@ export async function PATCH(req: Request) {
       ...(sent.sent ? {} : { notify_error: sent.reason }),
       ...(queued.state === "unavailable" ? {} : { buyer_email: queued.state }),
       reviewer_recorded: Boolean(reviewer),
+      ...(onHold ? { payment_hold_lifted: holdLifted === true } : {}),
       // Which engine build the document was read against at generation; false = it could not be read and the page says so.
       provenance_recorded: Boolean((priorMeta as { provenance?: unknown }).provenance),
       link,

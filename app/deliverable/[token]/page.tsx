@@ -7,6 +7,7 @@ import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
 import { BidComparison } from "@/components/BidComparison";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { paymentHoldAnswer } from "@/lib/one-time-holds";
 
 export const metadata: Metadata = {
   title: "Your engineering deliverable",
@@ -30,6 +31,16 @@ export default async function DeliverablePage({
           This link does not correspond to an engagement. Check the address, or reply to the email
           it came in.
         </p>
+      </Shell>
+    );
+  }
+
+  // A refunded or disputed purchase is not shown (lib/one-time-holds.ts): the buyer is told why.
+  const held = paymentHoldAnswer(row);
+  if (held) {
+    return (
+      <Shell title={held.body.payment_hold === "refunded" ? "This purchase was refunded" : "Payment in dispute"}>
+        <p className="max-w-2xl text-mute" data-testid="payment-hold">{held.body.error}</p>
       </Shell>
     );
   }

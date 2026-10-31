@@ -9,7 +9,7 @@ import { pg } from "@/lib/payg-store";
 export interface AuditEntry {
   /** Once-only key: a redelivered event records nothing twice. */
   dedupeKey: string;
-  table: "api_accounts" | "watches" | "subscriptions" | "stripe_disputes";
+  table: "api_accounts" | "watches" | "subscriptions" | "stripe_disputes" | "deliverables" | "engagement_deposits";
   subjectId: string;
   action: string;
   eventId?: string;

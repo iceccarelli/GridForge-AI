@@ -40,6 +40,7 @@ import {
   type ReversalStripe,
 } from "@/lib/billing-holds";
 import { reassertPause } from "@/lib/billing-pause";
+import { holdOneTimePurchase, liftOneTimeDispute } from "@/lib/one-time-holds";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
 import { cents, reverseSettlement, settlementRefOf } from "@/lib/payg-refunds";
 
@@ -129,7 +130,13 @@ export async function reconcileDispute(p: { payload: DisputeLike; stripe: Revers
   // A pay-as-you-go settlement invoice has no subscription: its own rules.
   const settlement = settlementRefOf(owner);
   if (settlement !== null) return reverseSettlement({ s: settlement, ev: { kind: "dispute", ref: id, status, state, amountCents: cents(d.amount) }, eventId: p.eventId, created: p.created });
-  if (!owner.subscriptionId) return { ok: true }; // an engagement deposit: nothing of ours to suspend
+  if (!owner.subscriptionId) {
+    // Not a subscription: a one-time purchase (lib/one-time-holds.ts), or somebody else's payment on the account, which changes nothing.
+    // An open or lost dispute holds it; one that was WON lifts exactly the hold it caused; an inquiry already returned above.
+    if (state === "open" || state === "lost") return holdOneTimePurchase({ kind: "disputed", ref: id, paymentIntent: via.paymentIntent, stripe: p.stripe, eventId: p.eventId, lost: state === "lost" });
+    if (LIFTS_DISPUTE_HOLD.includes(state as DisputeState)) return liftOneTimeDispute({ dispute: id, paymentIntent: via.paymentIntent, stripe: p.stripe, eventId: p.eventId });
+    return { ok: true };
+  }
 
   let found: Entitlements | undefined;
   let decision: "hold" | "lift" | "none" = "none";

@@ -57,6 +57,10 @@ export interface DeliverableRecord {
   released_at?: string | null;
   /** Bumped by every UPDATE (migration 0037); absent where that migration is not applied. */
   row_version?: number;
+  /** A refunded or disputed purchase (migration 0045, lib/one-time-holds.ts); absent where that migration is not applied. */
+  billing_hold?: "refunded" | "disputed" | null;
+  billing_hold_ref?: string | null;
+  billing_hold_at?: string | null;
 }
 
 export function newToken(): string {
@@ -217,21 +221,22 @@ export async function creditsToward(
   const c = creds();
   if (!c) return empty;
   const kinds = crediting.map((p) => p.kind);
-  const res = await fetch(
-    // Narrow by address (superset, case-insensitive), then decide identity in code on the exact normalised address below.
-    `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(narrowPattern(e))}` +
-      `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=id,kind,token,amount_cents,email,company,created_at`,
-    { headers: c.headers, cache: "no-store" }
-  );
+  // Narrow by address (superset, case-insensitive), then decide identity in code on the exact normalised address below.
+  const where = `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(narrowPattern(e))}` + `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=`;
+  const cols = "id,kind,token,amount_cents,email,company,created_at";
+  // A purchase that was refunded or is disputed is not a credit: "credits in full" is a promise about money that was kept. Where migration
+  // 0045 is not applied the column does not exist (PostgREST answers 400), nothing can be on hold, and the query is the one it always was.
+  let res = await fetch(where + cols + ",billing_hold", { headers: c.headers, cache: "no-store" });
+  if (res.status === 400) res = await fetch(where + cols, { headers: c.headers, cache: "no-store" });
   if (!res.ok) {
     // Never guess a credit. Reporting none is recoverable by a human reading the
     // pipeline; inventing one is money given away on our own arithmetic.
     console.error("[GridForge] credit lookup failed:", await storeFault(res));
     return { ...empty, ok: false };
   }
-  const rows = (await res.json()) as { id: string; kind: string; token: string; amount_cents: number | null; email: string | null; company: string | null; created_at: string | null }[];
+  const rows = (await res.json()) as { id: string; kind: string; token: string; amount_cents: number | null; email: string | null; company: string | null; created_at: string | null; billing_hold?: string | null }[];
   const from = rows
-    .filter((r) => normalisedEmail(r.email) === e)
+    .filter((r) => normalisedEmail(r.email) === e && !r.billing_hold)
     .map((r) => ({
       id: r.id,
       kind: r.kind,
