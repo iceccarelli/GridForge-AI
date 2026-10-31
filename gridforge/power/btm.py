@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, V
 from ..validation import Quantity
+from .redundancy import DEFAULT_GENERATION_REDUNDANCY, usable_units
 from .schema import GenerationOption, PowerInput
 
 # Default firm-capacity factors by technology. Every one of these is E0 and must
@@ -127,12 +128,33 @@ def bess_firm_factor_for_duration(option: GenerationOption,
              band=(min(lo, factor), max(hi, factor)))
 
 
+#: Technologies whose capacity is made of discrete, dispatchable units that can each be out of service. A battery's firm credit is bounded by
+#: its energy (see `bess_firm_factor_for_duration`), PV and wind are firm for nothing, and a reinforcement is not a unit.
+UNIT_BASED_KINDS = frozenset({"gas_engine", "chp", "fuel_cell"})
+
+
+def unit_usable_fraction(option: GenerationOption) -> Quantity | None:
+    """The share of the option's units that count once the redundancy scheme has taken its spares out, or None when the option declares no
+    unit count (then nothing is assumed about its structure and the caller keeps the nameplate credit it always gave).
+
+    4 units under N+1 is 3/4; 1 unit under N+1 is 0: a lone engine is not N+1 firm, it is the unit that is lost.
+    """
+    if option.units is None:
+        return None
+    scheme = option.redundancy or DEFAULT_GENERATION_REDUNDANCY
+    n = usable_units(option.units, scheme)
+    return V(n / option.units, "1", f"{option.id} usable units ({n} of {option.units}, {scheme})", ASSUMED)
+
+
 def firm_contribution_kW(option: GenerationOption) -> Quantity:
     """Firm capacity this option contributes, in kW."""
     if not option.firm:
         return V(0.0, "kW", f"{option.id} firm contribution (not firm-rated)", ESTIMATED)
-    return (option.capacity_MW * firm_factor(option)).convert(
-        1000.0, "kW", f"{option.id} firm capacity contribution")
+    firm = option.capacity_MW * firm_factor(option)
+    usable = unit_usable_fraction(option)
+    if usable is not None:
+        firm = firm * usable
+    return firm.convert(1000.0, "kW", f"{option.id} firm capacity contribution")
 
 
 def installed_firm_kW(power: PowerInput) -> Quantity:

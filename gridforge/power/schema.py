@@ -73,6 +73,12 @@ class GenerationOption:
     #: lets `btm.bess_firm_factor_for_duration()` replace that flat guess with a
     #: real power-vs-energy calculation against a stated ride-through duration.
     energy_MWh: Quantity | None = None
+    #: How many identical units make up `capacity_MW` (which stays the TOTAL nameplate of the option, so capex and economics are
+    #: unchanged), and the redundancy scheme the plant is held to. Both optional and additive: an option that declares neither is credited as
+    #: it always was, with the missing structure named as a gap. Declared, the firm contribution is `power.redundancy.usable_units` of
+    #: `units`, the arithmetic every transformer, UPS and CDU bank already uses. Only meaningful for dispatchable generation.
+    units: int | None = None
+    redundancy: str | None = None
     # --- operating economics (all optional; a missing one is reported, never invented) ---------------------
     #: Equivalent full-load hours per year at rated output. Energy generated = capacity x this.
     annual_run_hours: Quantity | None = None

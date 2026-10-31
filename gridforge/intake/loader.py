@@ -80,7 +80,7 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "transformers.units": 50, "transformers.unit_rating_MVA": 1_000, "transformers.replacement_lead_time_weeks": 520,
     "ups.units": 200, "ups.unit_rating_kW": 20_000,
     "btm_options.capacity_MW": 5_000, "btm_options.lead_time_weeks": 520, "btm_options.capex_eur_per_kW": 50_000,
-    "btm_options.energy_MWh": 100_000, "btm_options.opex_eur_per_MWh": 5_000,
+    "btm_options.energy_MWh": 100_000, "btm_options.opex_eur_per_MWh": 5_000, "btm_options.units": 100,
     "thermal.cdus.rated_capacity_kW": 20_000, "thermal.cdus.units": 500,
 }
 
@@ -396,6 +396,59 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
     return [catalogue[k] for k in keys]
 
 
+def _generator_structure(opt: GenerationOption, o: dict, report: IntakeReport) -> None:
+    """How many units make up a generation option, and the redundancy the plant is held to.
+
+    `capacity_MW` is the option's TOTAL nameplate (capex and economics are priced on it), so it cannot say whether that is one engine or
+    four. Without a unit count the whole nameplate was credited as firm: a single 5 MW engine counted 4.6 MW although, under N+1, the
+    engine is exactly the unit whose loss the plant must survive. Declared, the credit is `usable_units` of `units` (the arithmetic
+    every transformer, UPS and CDU bank already uses); undeclared, the credit is unchanged and the missing structure is a named gap.
+
+    Refused by name, never ignored: a scheme with no unit count to apply it to, a count that is not a whole number of at least one, and
+    either field on a technology whose capacity is not made of units that can each be out of service.
+    """
+    from ..power.btm import UNIT_BASED_KINDS
+    from ..power.redundancy import DEFAULT_GENERATION_REDUNDANCY, usable_units
+    raw_units, raw_scheme = o.get("units"), o.get("redundancy")
+    if raw_units is None and raw_scheme is None:
+        if opt.firm and opt.kind in UNIT_BASED_KINDS:
+            report.gaps.append(DataGap(
+                path=f"btm_options[{opt.id}].units", label=f"{opt.id} unit count and redundancy", unit="units", required=False,
+                fallback_description="credited at nameplate x firm factor, as if no unit could be out of service",
+                why_it_binds=("firm capacity under N+1 is what is left after the largest unit is lost: the same capacity is none of it as "
+                              "one unit, half as two, three quarters as four. Nameplate alone cannot say which it is"),
+                how_to_get_it=("the generator schedule: how many units make up the option's capacity_MW, and the redundancy scheme "
+                               "your resilience design requires (N, N+1, N+2 or 2N)")))
+        return
+    if opt.kind not in UNIT_BASED_KINDS:
+        raise IntakeError(
+            f"BTM option {opt.id}: units and redundancy describe generating units that can each be out of service, so they apply to "
+            f"{', '.join(sorted(UNIT_BASED_KINDS))}, not to a {opt.kind!r} option. Remove them; a battery's firm credit comes from its "
+            f"energy and ride-through window, not from a unit count.")
+    scheme = _redundancy(raw_scheme, f"BTM option {opt.id}") if raw_scheme is not None else None
+    if raw_units is None:
+        if scheme is not None and scheme.upper().replace(" ", "") not in ("N", "N+0"):
+            raise IntakeError(
+                f"BTM option {opt.id}: redundancy {scheme!r} needs units: how many identical units make up the {opt.capacity_MW.value:g} MW? "
+                f"A scheme cannot be applied to a plant of unknown size, and ignoring it would credit the whole nameplate as firm.")
+        return                                          # "N" with no count asks for nothing more than the nameplate already gives
+    units = _int_max(raw_units, "btm_options.units", f"BTM option {opt.id} units")
+    if units < 1:
+        raise IntakeError(f"BTM option {opt.id}: units is {units}; an option has at least one unit")
+    opt.units = units
+    opt.redundancy = scheme if scheme is not None else DEFAULT_GENERATION_REDUNDANCY
+    if not opt.firm:
+        return
+    if scheme is None:
+        report.warnings.append(
+            f"BTM option {opt.id}: {units} unit(s) declared with no redundancy scheme, so {DEFAULT_GENERATION_REDUNDANCY} is assumed, as for the "
+            f"transformers, UPS and cooling banks. Declare \"redundancy\": \"N\" to count every unit as firm.")
+    if usable_units(units, opt.redundancy) == 0:
+        report.warnings.append(
+            f"BTM option {opt.id}: {units} unit(s) under {opt.redundancy} leave no usable unit, so it adds no firm capacity. "
+            f"The same {opt.capacity_MW.value:g} MW as more, smaller units would.")
+
+
 def _bess_firm_credit(opt: GenerationOption, o: dict, report: IntakeReport) -> None:
     """What a battery is credited as FIRM capacity, and whether that is consistent with what the intake says about it.
 
@@ -652,6 +705,7 @@ def _load_document(doc: dict) -> Intake:
             raise IntakeError(
                 f"BTM option {opt.id}: fuel_price_eur_per_MWh and electrical_efficiency are only meaningful "
                 f"together (fuel cost per MWh generated = price / efficiency).")
+        _generator_structure(opt, o, r.report)
         if opt.kind == "bess" and opt.firm:
             _bess_firm_credit(opt, o, r.report)
         for key, what, unit, why in (
