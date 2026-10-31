@@ -320,8 +320,9 @@ export function HomeClient() {
             <h2 className="section-title">Fixed fee, named artefact, no hourly billing.</h2>
           </div>
           <p className="max-w-sm text-mute">
-            Four engagements, every one priced before it starts. The fee on each card
-            is the fee checkout charges — both are read from the same catalogue.
+            Four engagements, every one priced before it starts. The figure on each card
+            is what checkout charges, read from the same catalogue. The Study is booked
+            with a deposit against a fee agreed with you at scoping, before any work.
           </p>
         </div>
 
@@ -351,6 +352,11 @@ export function HomeClient() {
                     ) : null}
                   </span>
                 </div>
+                {s.band ? (
+                  <p className="-mt-1 mb-3 text-xs text-faint" data-testid="deposit-band">
+                    {s.band}
+                  </p>
+                ) : null}
                 <p className="text-ghost/80 text-[15px] leading-relaxed flex-1">
                   {s.desc}
                 </p>
@@ -375,7 +381,7 @@ export function HomeClient() {
                     productId={s.productId}
                     context={`services-${s.productId}`}
                     tone={s.flagship ? "primary" : "outline"}
-                    label={`${s.recurring ? "Start" : "Commission"} — ${s.price}`}
+                    label={`${s.recurring ? "Start" : "Commission"} — ${s.price}${s.band ? " deposit" : ""}`}
                   />
                 </div>
               </div>

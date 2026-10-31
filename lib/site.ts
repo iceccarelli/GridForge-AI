@@ -210,9 +210,14 @@ export function serviceCards() {
           ? "per quarter"
           : `per ${p.recurring.interval}`
         : null,
+      // The same wording the pricing page uses for a deposit (components/EngagementLadder.tsx), from the same catalogue field: the figure
+      // on the card is the DEPOSIT, and the engagement it opens is priced at scoping, so the card says so beside the figure.
+      band: p.opensBandCents ? `Deposit against ${eurFromCents(p.opensBandCents[0])}–${eurFromCents(p.opensBandCents[1])}` : null,
+      // Where the clock starts, as the pricing page says it: a deposit's days run from the scoping call, not from payment; a fixed-fee
+      // document's run from a complete intake.
       timeline: p.recurring
         ? "Continuous"
-        : `${p.turnaroundDays} working days`,
+        : `${p.turnaroundDays} working days ${p.opensBandCents ? "from the scoping call" : "from a complete intake"}`,
     };
   });
 }
