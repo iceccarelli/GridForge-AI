@@ -116,3 +116,22 @@ def test_unknown_compliance_codes_are_refused_and_deviation_is_visible(pkg):
     by = {a.supplier: a for a in assess(pkg, [dev, full])}
     assert by["Dev"].deviations == [ids[0]]
     assert by["Dev"].scores["C1"] < by["Full"].scores["C1"]
+
+
+def test_a_bid_quoted_in_another_currency_is_not_ranked_against_euros(pkg):
+    """capex_eur is read as euros and the engine holds no exchange rate. A JPY or USD figure used to rank as if it were euros, so
+    800,000 JPY (about EUR 5,000) came out as the cheapest compliant bid against a EUR 1.0M one, and a buyer could award on that."""
+    eur = resp(pkg, "Euro", capex=1_000_000)
+    jpy = resp(pkg, "Yen", capex=800_000, currency="JPY")
+    usd = resp(pkg, "Dollar", capex=900_000, currency="usd")           # case is normalised by the schema
+    ranked = {a.supplier: a for a in rank_bids(pkg, [eur, jpy, usd])}
+    assert not ranked["Euro"].disqualified
+    for name, code in (("Yen", "JPY"), ("Dollar", "USD")):
+        assert ranked[name].disqualified
+        assert any(f"quoted in {code}" in n and "exchange rate" in n for n in ranked[name].notes)
+
+
+def test_explicit_euro_and_unstated_currency_still_rank(pkg):
+    """The field is capex_eur, so an unstated currency is euros by contract; only a contradicting one is refused."""
+    ranked = rank_bids(pkg, [resp(pkg, "Explicit", currency="EUR"), resp(pkg, "Unstated")])
+    assert not any(a.disqualified for a in ranked)
