@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "00d0f20b01ad250d907fb934f545d9e1d494fd07a56e24e04fe61c0231d44da6",
+  "contentSha256": "1bc0c6c29d83dbd0cd2061a748413d434679446867dc8fb78dfcce9284d32eba",
   "engine": {
-    "codeSha256": "30eefb66ee9616a6e17e55f4ae84a13923a08f5b496ae55f31c240eb5682220f",
+    "codeSha256": "02ccb77486367d2e4e7d9afd716d98d4a608c8d9cc15050eee7968d122328363",
     "routes": [
       "/v1/compare",
       "/v1/screen"

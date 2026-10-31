@@ -124,6 +124,16 @@ def build(intake: Intake, results: list[ScenarioResult],
                "lines are library defaults rather than quotations, which is why the accuracy class "
                "below reads as it does." if placeholders else
                " Every priced line rests on a quotation.")))
+    if intake.report.sourced:
+        # A figure the client supplied WITH a source (a document confirmed by the buyer, or their own note) is shown with it: the
+        # reader can tell it from a bare number, and from a library default, and can see exactly where to check it.
+        s.blocks.append(Para(
+            "Figures supplied with a source. These are the client's own data, stated with where they come from. "
+            "GridForge has not independently verified the documents; the evidence class is the most a client's own "
+            "attestation can earn."))
+        s.blocks.append(Table(["Input", "Value", "Evidence", "Source", "Note"], [
+            [x.label, Lit(f"{x.value:g} {x.unit}"), Lit(x.evidence), Lit(x.source or "—"), Lit(x.note or "—")]
+            for x in intake.report.sourced]))
     for w in intake_warnings(intake):
         s.blocks.append(Callout("warning", w))
     below = claims_below_floor(collect_claims(results))

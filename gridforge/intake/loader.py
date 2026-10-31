@@ -25,7 +25,7 @@ from ..thermal.library import (CDU_L2L_APPROACH_K, PUE_BY_ARCHITECTURE,
                                RESIDUAL_AIR_CAPACITY_LEGACY_kW, TCS_SUPPLY_DESIGN_C)
 from ..thermal.schema import Architecture, CDUSpec, PlantSpec, RDHxSpec, ThermalInput
 from ..validation import EvidenceClass, Quantity, Source
-from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport
+from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport, SuppliedSource
 
 _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
 
@@ -262,6 +262,8 @@ class _Reader:
         if path in _FRACTION_PATHS and not 0 < num <= 1:
             raise IntakeError(f"{label} ({path}) is {num:g}; it must be above 0 and at most 1")
         _ceil(num, path, f"{label} ({path})", unit)
+        if src or note:
+            self.report.sourced.append(SuppliedSource(path, label, unit, num, src, note, ev.short))
         return V(num, unit, label, ev, band=band,
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
