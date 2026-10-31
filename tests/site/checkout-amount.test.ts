@@ -47,8 +47,10 @@ describe("oneTimeAmountMismatch", () => {
 
 describe("priceLine (llms.txt must not drop the billing period or the deposit's scoped band)", () => {
   it("states Hall Watch's real billing period", async () => {
-    const { priceLine } = await import("@/lib/products");
-    expect(priceLine(PRODUCTS.hall_watch)).toBe("€6,000 every 3 months");
+    const { priceLine, eurFromCents } = await import("@/lib/products");
+    const { interval, intervalCount } = PRODUCTS.hall_watch.recurring!;
+    expect(intervalCount).toBe(3);                                  // the period this test is about; if the catalogue changes, so must the claim
+    expect(priceLine(PRODUCTS.hall_watch)).toBe(`${eurFromCents(PRODUCTS.hall_watch.amountCents)} every ${intervalCount} ${interval}s`);
   });
   it("states a deposit as a deposit with the engagement it opens", async () => {
     const { priceLine, eurFromCents } = await import("@/lib/products");
@@ -60,7 +62,7 @@ describe("priceLine (llms.txt must not drop the billing period or the deposit's 
     }
   });
   it("leaves a fixed-fee product as its plain price", async () => {
-    const { priceLine } = await import("@/lib/products");
-    expect(priceLine(PRODUCTS.density_screen)).toBe("€4,500");
+    const { priceLine, eurFromCents } = await import("@/lib/products");
+    expect(priceLine(PRODUCTS.density_screen)).toBe(eurFromCents(PRODUCTS.density_screen.amountCents));
   });
 });

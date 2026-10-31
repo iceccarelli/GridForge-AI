@@ -162,9 +162,23 @@ class DataGap:
 
 
 @dataclass
+class SuppliedSource:
+    """A figure the customer supplied together with where it comes from: the document and place a buyer confirmed it from, or a
+    note they wrote. The report prints these beside the assumptions, so a number with provenance reads differently from a bare one."""
+    path: str
+    label: str
+    unit: str
+    value: float
+    source: str | None
+    note: str | None
+    evidence: str
+
+
+@dataclass
 class IntakeReport:
     """What we were given, what we assumed, and what that costs the conclusion."""
     supplied: list[str] = field(default_factory=list)
+    sourced: list[SuppliedSource] = field(default_factory=list)
     gaps: list[DataGap] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
