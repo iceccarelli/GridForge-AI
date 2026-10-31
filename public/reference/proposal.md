@@ -38,10 +38,11 @@ You receive: Density Screen document (HTML and Markdown), the first six rungs of
 
 ## 3. What we need from you
 
-Intake is 84% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
+Intake is 81% complete. Each row below is a number that moves the answer and that nobody has measured. Anything you cannot supply is filled from a library default and named as an assumption in the deliverable — nothing is invented silently.
 
 | Input | Status | Assumed if not supplied | Where it comes from |
 | --- | --- | --- | --- |
+| BESS-2MW-8MWh battery energy rating | optional | your firm factor 0.5 accepted as declared, unchecked against the battery's energy | the battery datasheet or supplier quotation: usable energy in MWh at the discharge rate the duty needs |
 | Installed CDU schedule | optional | [] | CDU nameplates and the mechanical single-line diagram. |
 | TCS target supply temperature | optional | 30 [27–32] degC (E0) | The platform vendor's reference design for the target rack. |
 | Rear-door heat exchanger capacity per rack | optional | 60 [20–80] kW (E0) | The selected rear-door unit's datasheet at the site's water temperature and airflow. |

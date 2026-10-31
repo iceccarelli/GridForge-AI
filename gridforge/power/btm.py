@@ -50,6 +50,38 @@ def firm_factor(option: GenerationOption) -> Quantity:
              assumptions=[FIRM_FACTOR_ASSUMPTION])
 
 
+def _library_bess(option: GenerationOption):
+    """The option as a battery, with the library's SOC window and efficiency (every one E0): the one place an option becomes a
+    `BatteryEnergyStorageSystem`, so the factor and the checks on it cannot disagree about what "usable" means."""
+    from .storage import (DEFAULT_ROUND_TRIP_EFFICIENCY, DEFAULT_SOC_MAX, DEFAULT_SOC_MIN,
+                         BatteryEnergyStorageSystem)
+    return BatteryEnergyStorageSystem(
+        id=option.id,
+        power_MW=option.capacity_MW,
+        energy_MWh=option.energy_MWh,
+        soc_min=V(DEFAULT_SOC_MIN, "1", f"{option.id} minimum SOC (library default)",
+                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+        soc_max=V(DEFAULT_SOC_MAX, "1", f"{option.id} maximum SOC (library default)",
+                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+        round_trip_efficiency=V(DEFAULT_ROUND_TRIP_EFFICIENCY, "1",
+                                f"{option.id} round-trip efficiency (library default)",
+                                ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
+    )
+
+
+def bess_energy_limited_hours(option: GenerationOption, factor: float, *, usable: bool = True) -> float | None:
+    """How many hours the option's DECLARED energy sustains `factor` x nameplate power, or None when that cannot be said (not a battery,
+    no declared energy, or a zero factor or power). `usable=True` takes the library's SOC window (what a battery can really give);
+    `usable=False` takes the full stored energy, the hard physical ceiling: no discharge schedule delivers more than is stored."""
+    if option.kind != "bess" or option.energy_MWh is None:
+        return None
+    draw_MW = factor * option.capacity_MW.value
+    if draw_MW <= 0:
+        return None
+    energy = _library_bess(option).usable_energy_MWh().value if usable else option.energy_MWh.value
+    return energy / draw_MW
+
+
 def bess_firm_factor_for_duration(option: GenerationOption,
                                   ride_through_hours: Quantity) -> Quantity:
     """The duration-aware replacement for `DEFAULT_FIRM_FACTOR["bess"] = 0.50`.
@@ -78,20 +110,7 @@ def bess_firm_factor_for_duration(option: GenerationOption,
         raise ValueError(
             f"{option.id}: no energy_MWh declared — cannot compute a duration-aware firm "
             f"factor without it. Use firm_factor() for the flat technology default instead.")
-    from .storage import (DEFAULT_ROUND_TRIP_EFFICIENCY, DEFAULT_SOC_MAX, DEFAULT_SOC_MIN,
-                         BatteryEnergyStorageSystem)
-    bess = BatteryEnergyStorageSystem(
-        id=option.id,
-        power_MW=option.capacity_MW,
-        energy_MWh=option.energy_MWh,
-        soc_min=V(DEFAULT_SOC_MIN, "1", f"{option.id} minimum SOC (library default)",
-                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
-        soc_max=V(DEFAULT_SOC_MAX, "1", f"{option.id} maximum SOC (library default)",
-                  ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
-        round_trip_efficiency=V(DEFAULT_ROUND_TRIP_EFFICIENCY, "1",
-                                f"{option.id} round-trip efficiency (library default)",
-                                ASSUMED, assumptions=[FIRM_FACTOR_ASSUMPTION]),
-    )
+    bess = _library_bess(option)
     firm_MW = bess.firm_MW_for_duration(ride_through_hours)
     factor = firm_MW.value / option.capacity_MW.value if option.capacity_MW.value else 0.0
     # Carry the interval through: firm MW and nameplate MW each have a band, and the ratio's band is not a point.

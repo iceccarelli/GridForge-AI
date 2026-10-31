@@ -33,9 +33,11 @@ def _cli(*args):
 def test_reference_intake_supplies_every_required_input_and_names_what_it_defaults():
     intake = load(REFERENCE)
     assert intake.report.can_issue and not intake.report.required_gaps
-    # Two optional inputs fall back to library values, and the ledger must say so rather than
+    # Optional inputs fall back to library values, and the ledger must say so rather than
     # report 100%: with no CDU schedule the liquid scenarios assume a free 3 x 1,350 kW N+1 kit.
+    # The reference battery declares a firm factor and no energy rating, so its credit is checked against nothing: named, not hidden.
     assert sorted(g.path for g in intake.report.gaps) == [
+        "btm_options[BESS-2MW-8MWh].energy_MWh",
         "economics.discount_rate", "economics.electricity_eur_per_MWh", "thermal.cdus",
         "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
     assert 0.8 < intake.report.completeness < 1.0

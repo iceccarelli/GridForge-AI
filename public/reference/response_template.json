@@ -145,6 +145,12 @@
     ],
     "assumed_inputs": [
       {
+        "path": "btm_options[BESS-2MW-8MWh].energy_MWh",
+        "label": "BESS-2MW-8MWh battery energy rating",
+        "unit": "MWh",
+        "assumed": "your firm factor 0.5 accepted as declared, unchecked against the battery's energy (E0)"
+      },
+      {
         "path": "thermal.cdus",
         "label": "Installed CDU schedule",
         "unit": "",

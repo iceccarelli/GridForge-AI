@@ -396,6 +396,97 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
     return [catalogue[k] for k in keys]
 
 
+def _bess_firm_credit(opt: GenerationOption, o: dict, report: IntakeReport) -> None:
+    """What a battery is credited as FIRM capacity, and whether that is consistent with what the intake says about it.
+
+    A battery is firm only for what its energy can sustain over the outage window it must ride through. The flat library factor (0.50)
+    knows neither, so a 2 MW / 0.1 MWh battery (about five minutes) was credited exactly as a 2 MW / 8 MWh one. Six cases:
+
+      declared energy and window, no factor      the power-vs-energy calculation (unchanged)
+      declared energy, NO window, no factor      the LESSER of the flat 0.50 and what the energy supports over the library's 2 h undeclared
+                                                 window: never more than the flat default gave, so an assumed window cannot raise a credit
+      no energy, no factor                       the flat 0.50 as before, now with the gap named: the credit is tied to no energy at all
+      the customer's own factor, with energy     kept as declared (it outranks a library figure), but REFUSED if it asks for more energy than
+                                                 the battery stores (physically impossible), and warned about if it asks for more than the
+                                                 usable energy gives over the declared window (or over 2 h, labelled, when none is declared)
+      the customer's own factor, no energy       kept as declared, the gap named: nothing to check it against
+
+    Nothing here invents an energy rating or a window; a missing one stays missing and is listed with how to get it.
+    """
+    from ..power.btm import DEFAULT_FIRM_FACTOR, bess_energy_limited_hours, bess_firm_factor_for_duration
+    from ..power.reliability import UNDECLARED_RIDE_THROUGH_LABEL
+    flat = DEFAULT_FIRM_FACTOR["bess"]
+    customer = opt.firm_capacity_factor
+    declared_window = o.get("ride_through_hours") is not None
+    window_h = _pos(o["ride_through_hours"], "ride_through_hours") if declared_window else None
+    undeclared = V(2.0, "h", UNDECLARED_RIDE_THROUGH_LABEL, ASSUMED)
+    P = opt.capacity_MW.value
+
+    def gap(field: str, what: str, fallback: str, why: str, how: str) -> None:
+        report.gaps.append(DataGap(path=f"btm_options[{opt.id}].{field}", label=f"{opt.id} {what}", unit="MWh" if field == "energy_MWh" else "h",
+                                   required=False, fallback_description=fallback, why_it_binds=why, how_to_get_it=how))
+
+    why_energy = ("a battery is firm only for what its stored energy can sustain: with no energy rating its firm credit is the same "
+                  "whatever its size, so the capacity it adds to the envelope is unchecked")
+    how_energy = "the battery datasheet or supplier quotation: usable energy in MWh at the discharge rate the duty needs"
+    why_window = "the same battery is firm for different capacity over a 15-minute ride-through and over 4 hours"
+    how_window = "the outage or ride-through window your site's resilience policy requires, in hours"
+
+    if customer is not None:
+        f = customer.value
+        if opt.energy_MWh is None:
+            gap("energy_MWh", "battery energy rating", f"your firm factor {f:g} accepted as declared, unchecked against the battery's energy",
+                why_energy, how_energy)
+            return
+        gross_h = bess_energy_limited_hours(opt, f, usable=False)
+        usable_h = bess_energy_limited_hours(opt, f, usable=True)
+        h = window_h if declared_window else undeclared.value
+        # Refuse only on what the customer declared: a window the library assumed can never justify refusing their figures.
+        if declared_window and gross_h is not None and h > gross_h * (1 + 1e-9):
+            raise IntakeError(
+                f"BTM option {opt.id}: firm_capacity_factor {f:g} credits {f * P:g} MW as firm, which over the declared {h:g} h "
+                f"ride-through needs {f * P * h:g} MWh, but the battery stores only {opt.energy_MWh.value:g} MWh. Those figures "
+                f"contradict each other: lower the factor, or raise the energy rating, or shorten the ride-through window.")
+        if declared_window and usable_h is not None and h > usable_h * (1 + 1e-9):
+            report.warnings.append(
+                f"BTM option {opt.id}: firm_capacity_factor {f:g} credits {f * P:g} MW over a {h:g} h window, which needs "
+                f"{f * P * h:g} MWh; the declared {opt.energy_MWh.value:g} MWh stores that much but gives about "
+                f"{usable_h * f * P:g} MWh between the library's usable state-of-charge bounds. Your factor is kept as declared; "
+                f"confirm it against the manufacturer's usable energy.")
+        if not declared_window:
+            if usable_h is not None and usable_h < undeclared.value:
+                report.warnings.append(
+                    f"BTM option {opt.id}: firm_capacity_factor {f:g} credits {f * P:g} MW as firm, and the declared "
+                    f"{opt.energy_MWh.value:g} MWh sustains that for about {usable_h:.2g} h. No ride-through window was declared, so "
+                    f"whether that is enough is unchecked. Your factor is kept as declared.")
+            gap("ride_through_hours", "battery ride-through window", f"your firm factor {f:g} accepted as declared, unchecked against a window",
+                why_window, how_window)
+        return
+
+    # No factor from the customer.
+    if opt.energy_MWh is None:
+        gap("energy_MWh", "battery energy rating", f"the flat library firm factor {flat:g} (E0), the same for any size of battery",
+            why_energy, how_energy)
+        return
+    if declared_window:
+        opt.firm_capacity_factor = bess_firm_factor_for_duration(opt, V(window_h, "h", f"{opt.id} required ride-through", ASSUMED))
+        return
+    energy_aware = bess_firm_factor_for_duration(opt, undeclared)
+    if energy_aware.value < flat:
+        opt.firm_capacity_factor = energy_aware
+        report.warnings.append(
+            f"BTM option {opt.id}: no ride-through window was declared. Over the library's {undeclared.value:g} h default the declared "
+            f"{opt.energy_MWh.value:g} MWh supports only {energy_aware.value:.2g} of its {P:g} MW as firm, less than the flat "
+            f"{flat:g} it was credited before, so the lower figure is used. Declare the window your site requires.")
+        gap("ride_through_hours", "battery ride-through window",
+            f"a {undeclared.value:g} h library window gives a firm factor of {energy_aware.value:.2g}",
+            why_window, how_window)
+    else:
+        gap("ride_through_hours", "battery ride-through window",
+            f"the flat library firm factor {flat:g} (E0); the declared energy supports at least that over a {undeclared.value:g} h window",
+            why_window, how_window)
+
+
 def load(path: str | Path) -> Intake:
     doc = json.loads(Path(path).read_text())
     return load_document(doc)
@@ -561,17 +652,8 @@ def _load_document(doc: dict) -> Intake:
             raise IntakeError(
                 f"BTM option {opt.id}: fuel_price_eur_per_MWh and electrical_efficiency are only meaningful "
                 f"together (fuel cost per MWh generated = price / efficiency).")
-        # A BESS option with both an energy rating and a declared ride-through
-        # requirement gets the real power-vs-energy firm factor computed from
-        # gridforge.power.storage, replacing btm.DEFAULT_FIRM_FACTOR's flat 0.50
-        # guess. An explicit firm_capacity_factor in the intake still wins — a
-        # customer's own site-specific figure outranks either calculation.
-        if (opt.kind == "bess" and opt.energy_MWh is not None
-                and opt.firm_capacity_factor is None and o.get("ride_through_hours") is not None):
-            from ..power.btm import bess_firm_factor_for_duration
-            hours = V(_pos(o["ride_through_hours"], 'ride_through_hours'), "h",
-                     f"{opt.id} required ride-through", ASSUMED)
-            opt.firm_capacity_factor = bess_firm_factor_for_duration(opt, hours)
+        if opt.kind == "bess" and opt.firm:
+            _bess_firm_credit(opt, o, r.report)
         for key, what, unit, why in (
                 ("capex_eur_per_kW", "installed capex", "EUR/kW",
                  "without a price the relief that installs this option is reported as unpriced and the capex "

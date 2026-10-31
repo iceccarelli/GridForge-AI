@@ -141,7 +141,7 @@
         "full_dlc_btm"
       ]
     },
-    "completeness": 0.839,
+    "completeness": 0.806,
     "can_issue": true,
     "supplied": [
       "compute.platform",
@@ -172,6 +172,15 @@
       "ups"
     ],
     "gaps": [
+      {
+        "path": "btm_options[BESS-2MW-8MWh].energy_MWh",
+        "label": "BESS-2MW-8MWh battery energy rating",
+        "unit": "MWh",
+        "required": false,
+        "assumed": "your firm factor 0.5 accepted as declared, unchecked against the battery's energy",
+        "why_it_binds": "a battery is firm only for what its stored energy can sustain: with no energy rating its firm credit is the same whatever its size, so the capacity it adds to the envelope is unchecked",
+        "how_to_get_it": "the battery datasheet or supplier quotation: usable energy in MWh at the discharge rate the duty needs"
+      },
       {
         "path": "thermal.cdus",
         "label": "Installed CDU schedule",
