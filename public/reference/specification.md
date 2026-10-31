@@ -64,6 +64,7 @@ Every duty in section 3 is quoted at these site conditions. Each numeric require
 
 Inputs to the capacity model that were assumed rather than supplied (each is an assumption at evidence class E0 unless it states otherwise):
 
+- BESS-2MW-8MWh battery energy rating (btm_options[BESS-2MW-8MWh].energy_MWh; MWh): not supplied: assumed your firm factor 0.5 accepted as declared, unchecked against the battery's energy (E0)
 - Installed CDU schedule (thermal.cdus): not supplied: assumed nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)
 - TCS target supply temperature (thermal.tcs_target_supply_C; degC): not supplied: assumed 30 [27–32] degC (E0)
 - Rear-door heat exchanger capacity per rack (thermal.rdhx.capacity_kW_per_rack; kW): not supplied: assumed 60 [20–80] kW (E0)
