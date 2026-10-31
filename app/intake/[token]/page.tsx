@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EngagementIntake } from "@/components/EngagementIntake";
 import { getByIntakeToken } from "@/lib/deliverables";
+import { paymentHoldAnswer } from "@/lib/one-time-holds";
 
 export const metadata: Metadata = {
   title: "Engagement intake",
@@ -21,6 +22,16 @@ export default async function IntakePage({ params }: { params: Promise<{ token: 
   const { token } = await params;
   const row = await getByIntakeToken(token);
   if (!row) notFound();
+  // A refunded or disputed purchase takes no intake and runs no engine (lib/one-time-holds.ts): say so instead of showing a form.
+  const held = paymentHoldAnswer(row);
+  if (held) {
+    return (
+      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+        <h1 className="text-2xl font-semibold text-ghost">{held.body.payment_hold === "refunded" ? "This purchase was refunded" : "Payment in dispute"}</h1>
+        <p className="mt-4 text-mute" data-testid="payment-hold">{held.body.error}</p>
+      </main>
+    );
+  }
   return (
     <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <header className="mb-8 max-w-3xl">

@@ -367,7 +367,7 @@ export async function POST(req: Request) {
       });
       if (!recorded.ok) return lifecycleRetry(`settlement refund (${recorded.why})`, ch.id);
     } else if (isFullRefund(ch)) {
-      const held = await reversePayment({ kind: "refunded", ref: ch.id, stripe: stripeClient, eventId: event.id, created: event.created, owner });
+      const held = await reversePayment({ kind: "refunded", ref: ch.id, paymentIntent: ch.payment_intent, stripe: stripeClient, eventId: event.id, created: event.created, owner });
       if (!held.ok) return lifecycleRetry(`refund (${held.why})`, ch.id);
     }
   }

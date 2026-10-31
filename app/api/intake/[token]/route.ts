@@ -1,3 +1,4 @@
+import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
@@ -31,6 +32,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
+  {
+    const held = paymentHoldAnswer(row);
+    if (held) return NextResponse.json(held.body, { status: held.status });
+  }
   const product = PRODUCT_BY_KIND[row.kind];
 
   // The numbers they already gave us follow them into the thing they paid for.
@@ -64,6 +70,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   let row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
+  {
+    const held = paymentHoldAnswer(row);
+    if (held) return NextResponse.json(held.body, { status: held.status });
+  }
   // A row still `generating` long after its request could have lived is one whose invocation died (the platform killed
   // the function mid-generation). It used to answer 409 "already being processed" for ever, with no recovery path. Move
   // it to `engine_unavailable` (nothing was stored; resubmitting loses nothing) and carry on as a fresh submission.

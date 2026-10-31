@@ -65,6 +65,7 @@ import { recordBillingAudit, type AuditEntry } from "@/lib/billing-audit";
 import { enc, pg } from "@/lib/payg-store";
 import { lookupSubscriptionByStripeId, type SubscriptionRecord } from "@/lib/subscribers";
 import { lookupWatchBySubscription, updateWatchUnlessCancelled, abandonPendingNotices, type WatchRecord } from "@/lib/watches";
+import { holdOneTimePurchase } from "@/lib/one-time-holds";
 
 export type HoldKind = "refunded" | "disputed" | "paused";
 
@@ -235,6 +236,8 @@ export interface ReversalStripe {
   invoices: { retrieve(id: string): Promise<unknown> };
   subscriptions?: { retrieve(id: string): Promise<unknown> };
   invoicePayments?: { list(params: Record<string, unknown>): Promise<{ data: { invoice?: unknown }[] }> };
+  /** A one-time purchase is found through the Checkout Session that took its payment (lib/one-time-holds.ts). */
+  checkout?: { sessions: { list(params: Record<string, unknown>): Promise<{ data: { id: string; metadata?: Record<string, string> | null }[] }> } };
 }
 
 export const idOf = (v: unknown): string => (typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string" ? (v as { id: string }).id : "");
@@ -581,7 +584,9 @@ export async function reversePayment(p: {
 }): Promise<Handled> {
   const owner = p.owner ?? (await subscriptionOfPayment(p.stripe, { invoice: p.invoice, paymentIntent: p.paymentIntent }));
   if (!owner.ok) return { ok: false, why: "payment could not be resolved to its subscription" };
-  if (!owner.subscriptionId) return { ok: true };
+  // Not a subscription invoice: a one-time purchase (Density Screen, Procurement Specification, a deposit) is held the same way, through
+  // the Checkout Session that took the payment. Anything that is neither is somebody else's payment on the account and changes nothing.
+  if (!owner.subscriptionId) return holdOneTimePurchase({ kind: p.kind, ref: p.ref, paymentIntent: p.paymentIntent, stripe: p.stripe, eventId: p.eventId });
   const found = await resolveSubscription(owner.subscriptionId);
   if (!found.ok) return { ok: false, why: "subscription lookup failed" };
   const subscription = await readSubscription(p.stripe, owner.subscriptionId);

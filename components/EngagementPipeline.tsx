@@ -349,6 +349,15 @@ export function EngagementPipeline({
                         >
                           {d.status.replace(/_/g, " ")}
                         </span>
+                        {d.billing_hold ? (
+                          <span
+                            data-testid="billing-hold"
+                            title="The payment was reversed. The buyer's access is withheld until the hold is lifted (a dispute won) or you release it on purpose."
+                            className="ml-2 inline-block rounded border border-flag px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-flag"
+                          >
+                            {d.billing_hold}
+                          </span>
+                        ) : null}
                       </Td>
                       <Td>
                         <div className="flex flex-wrap items-center justify-end gap-2">
