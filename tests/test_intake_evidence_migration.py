@@ -165,6 +165,35 @@ def test_the_tables_hold_no_policy_and_anon_and_authenticated_cannot_read_them(d
             assert psql(db, f"select has_table_privilege('{role}', 'public.{t}', 'select')").stdout.strip() == "f"
 
 
+def test_the_trigger_function_is_not_callable_by_the_api_roles_yet_the_application_still_writes(db):
+    """CI's integrity-hardening test found this: the function inherited the default EXECUTE grant, so anon could call it through /rpc.
+    Revoking must not stop the trigger firing for the role the application writes as (service_role)."""
+    psql(db, "do $$ begin "
+             "if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if; "
+             "if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if; "
+             "if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if; end $$")
+    # What Supabase gives new functions by default, then the migration is applied again on top of it.
+    psql(db, "grant execute on function public.gf_intake_evidence_open() to anon, authenticated, service_role")
+    psql(db, file=MIGRATIONS / "0044_intake_evidence.sql")
+    psql(db, "do $$ begin if not exists (select 1 from pg_roles where rolname='gf_nobody') then create role gf_nobody nologin; end if; end $$")
+    # gf_nobody holds nothing of its own, so it can execute the function only through PUBLIC.
+    for role in ("anon", "authenticated", "gf_nobody"):
+        assert psql(db, f"select has_function_privilege('{role}', 'public.gf_intake_evidence_open()', 'execute')").stdout.strip() == "f", role
+    psql(db, "grant usage on schema public to service_role; "
+             "grant select on public.deliverables to service_role; "
+             "grant insert, select on public.intake_evidence_files, public.intake_value_events to service_role")
+    d = engagement(db)
+    sha = uuid.uuid4().hex + uuid.uuid4().hex
+    f = str(uuid.uuid4())
+    psql(db, "set role service_role; insert into intake_evidence_files (id, deliverable_id, filename, media_type, sha256, byte_size, storage_ref) "
+             f"values ('{f}', '{d}', 'a.pdf', 'application/pdf', '{sha}', 1, 'x')")
+    psql(db, f"update deliverables set status = 'draft' where id = '{d}'")
+    r = psql(db, "set role service_role; insert into intake_evidence_files (deliverable_id, filename, media_type, sha256, byte_size, storage_ref) "
+                 f"values ('{d}', 'b.pdf', 'application/pdf', '{uuid.uuid4().hex * 2}', 1, 'x')", check=False)
+    assert r.returncode != 0 and "can no longer change" in r.stderr         # the trigger still fires and still refuses
+    assert psql(db, "set role anon; select public.gf_intake_evidence_open()", check=False).returncode != 0
+
+
 def test_reapplying_the_migration_changes_nothing(db):
     d = engagement(db)
     f = file(db, d)
