@@ -414,8 +414,23 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError(f"the intake is malformed: {exc}") from None
 
 
+def _project_block(doc: dict) -> dict:
+    """``project`` is an object of free-text identifiers (client, reference, objective, ...). Absent means no project block;
+    anything else that is not an object (null, boolean, number, text, list) is refused rather than reaching ``.get()`` later,
+    where it escaped as an AttributeError (a 500 on the deck route). The value is not echoed back: only its type."""
+    if "project" not in doc:
+        return {}
+    project = doc["project"]
+    if not isinstance(project, dict):
+        kind = "null" if project is None else type(project).__name__
+        raise IntakeError(f"project must be an object (for example {{\"client\": ..., \"reference\": ...}}), not {kind}; "
+                          f"omit it to supply no project details")
+    return project
+
+
 def _load_document(doc: dict) -> Intake:
     report = IntakeReport()
+    project = _project_block(doc)
     r = _Reader(doc, report)
 
     platform_id = r.raw("compute.platform", "gb300_nvl72")
@@ -736,7 +751,7 @@ def _load_document(doc: dict) -> Intake:
                                "study can only report that it binds.")
 
     scenarios = _scenario_set(doc.get("scenarios"))
-    return Intake(project=doc.get("project", {}), context=ctx, scenarios=scenarios,
+    return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)
 
 
