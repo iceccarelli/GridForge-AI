@@ -73,7 +73,23 @@ const defaults = Object.fromEntries(DEFAULTED.map((t) => [t, defaultsOf(t)]));
 for (const t of DEFAULTED) {
   if (!defaults[t].status || defaults[t].attempts === undefined) { console.error(`[pgrest] could not read the column defaults of ${t}`); process.exit(1); }
 }
+// `bigint generated always as identity` columns, read out of the migrations: a counter per column, assigned on insert (0044's `seq`
+// orders a buyer's confirmations, so a stand-in without it would order them by accident).
+const identities = new Map();
+for (const t of tables.keys()) {
+  const block = new RegExp(String.raw`create table (?:if not exists )?(?:public\.)?${t}\s*\(([\s\S]*?)\n\);`, "i").exec(sql)?.[1] ?? "";
+  for (const line of block.split("\n")) {
+    const m = /^\s*([a-z_]+)\s+bigint\s+generated always as identity/i.exec(line);
+    if (m) identities.set(t, [...(identities.get(t) ?? []), { col: m[1], next: 1 }]);
+  }
+}
+// The private object store the site writes evidence into (POST/DELETE /storage/v1/object/<bucket>/<path>), in memory.
+const objects = new Map();
+// Columns the migrations default to now() on the tables 0044 adds (the generic column-default reader above covers only DEFAULTED tables).
+const NOW_COLUMNS = { intake_value_events: ["occurred_at"], intake_evidence_files: ["uploaded_at"] };
 const withDefaults = (table, row) => {
+  for (const c of NOW_COLUMNS[table] ?? []) if (row[c] === undefined) row = { ...row, [c]: new Date().toISOString() };
+  for (const id of identities.get(table) ?? []) if (row[id.col] === undefined) row = { ...row, [id.col]: id.next++ };
   const d = defaults[table];
   if (!d) return row;
   const filled = {};
@@ -167,6 +183,13 @@ http.createServer((req, res) => {
       console.log(`[pgrest] 404 rpc ${rpc[1]} — not restated in this stand-in`);
       return send(res, 404, { code: "PGRST202", message: `Could not find the function public.${rpc[1]}` });
     }
+    const obj = u.pathname.match(/^\/storage\/v1\/object\/(.+)$/);
+    if (obj) {
+      if (req.method === "POST") { objects.set(obj[1], body.length); return send(res, 200, { Key: obj[1] }); }
+      if (req.method === "DELETE") { objects.delete(obj[1]); return send(res, 200, {}); }
+      return send(res, 404, { message: "object not found" });
+    }
+    if (u.pathname === "/__objects") return send(res, 200, [...objects.keys()]);
     if (u.pathname === "/__faults") {
       if (req.method === "DELETE") { faults.length = 0; return send(res, 200, { cleared: true }); }
       if (req.method === "POST") { faults.push({ remaining: Infinity, ...JSON.parse(body) }); return send(res, 200, { faults: faults.length }); }

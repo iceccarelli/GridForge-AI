@@ -10,6 +10,7 @@ import {
   toIntakeDocument,
   ASSUMABLE_SOURCE,
 } from "@/lib/engagement-intake";
+import { applyConfirmedValues, confirmedForIntake } from "@/lib/intake-evidence";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 
@@ -120,7 +121,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // What the customer left to us. The engine names every assumption in the
   // document itself; this is so the confirmation they see on submit says the same
   // thing, rather than the first they hear of it being a document footnote.
-  const assumed = assumedFields(parsed.data as Record<string, unknown>);
+  const typedAssumed = assumedFields(parsed.data as Record<string, unknown>);
   // A Procurement Specification quotes duties "at the site conditions stated". The summer design dry bulb is optional in the
   // schema (the engine has a library default), so when it is left blank the buyer is told at submission that the duties
   // rest on a default and not on their site, rather than finding out on the released page.
@@ -134,7 +135,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const g = await guardRequest(req, "customer_generate", { cls: "customer" });
   if (g.denied) return g.denied;
   return g.run(async () => {
-    const doc = toIntakeDocument(parsed.data, row.company ?? undefined);
+    // Values the buyer confirmed from their own documents (lib/intake-evidence.ts) go in with their provenance. Done BEFORE the claim:
+    // a contradiction (a typed figure that differs from a confirmed one) is refused here, so it does not use up the one submission.
+    const evidence = await confirmedForIntake(row);
+    if (!evidence.ok) {
+      return NextResponse.json(
+        { ok: false, error: "We could not read your confirmed documents just now. Nothing was submitted; please try again shortly." },
+        { status: 503 }
+      );
+    }
+    const merged = applyConfirmedValues(toIntakeDocument(parsed.data, row.company ?? undefined), parsed.data as Record<string, unknown>, evidence.confirmed);
+    if (!merged.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "A number you typed differs from the one you confirmed from your document. Remove one of them: the form field, or the confirmation. Nothing was submitted.",
+          conflicts: merged.conflicts,
+        },
+        { status: 422 }
+      );
+    }
+    const doc = merged.doc;
+    // A confirmed figure is not an assumption: it is named in the document with the file it came from.
+    const confirmedFields = new Set<string>(evidence.confirmed.map((c) => c.field));
+    const assumed = typedAssumed.filter((f) => !confirmedFields.has(f));
     // Claim the engagement atomically: only one submission can move it out of an
     // intake-accepting status, so two concurrent POSTs cannot both generate.
     const claimedAt = new Date();

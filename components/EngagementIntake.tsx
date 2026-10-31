@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2, Plus, Trash2 } from "lucide-react";
+import { IntakeEvidence } from "@/components/IntakeEvidence";
 
 /**
  * The intake a client fills in after commissioning an engagement.
@@ -72,7 +73,11 @@ export function EngagementIntake({
    */
   const screen = meta?.kind === "density_screen";
   const assumable = ["firmCapacityMVA", "floorLoadingKPa", "plantCapacityKW"] as const;
-  const willAssume = screen ? assumable.filter((k) => (f[k] ?? "").trim() === "") : [];
+  // Figures the buyer confirmed from one of their own documents (components/IntakeEvidence.tsx): the server uses those, so the form
+  // neither sends nor assumes them. Only a Density Screen offers it (the engagement's own intake, not a Hall Watch).
+  const [confirmed, setConfirmed] = useState<string[]>([]);
+  const offersEvidence = screen && !endpoint;
+  const willAssume = screen ? assumable.filter((k) => (f[k] ?? "").trim() === "" && !confirmed.includes(k)) : [];
   const ASSUMED_SOURCE: Record<string, string> = {
     firmCapacityMVA: "firm connection capacity — your DSO connection agreement",
     floorLoadingKPa: "floor loading — the structural record for the hall",
@@ -204,7 +209,7 @@ export function EngagementIntake({
     setError(null);
     const clean = (v: string) => (v.trim() === "" ? undefined : v);
     const payload = {
-      ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, clean(v)])),
+      ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, confirmed.includes(k) ? undefined : clean(v)])),
       transformers: transformers
         .filter((r) => r.rating !== "" && r.units !== "")
         .map((r) => ({ id: r.id, unit_rating_MVA: r.rating, units: r.units, redundancy: r.redundancy })),
@@ -277,7 +282,7 @@ export function EngagementIntake({
           </select>
         </Field>
         <Field label="Floor loading · kPa" required={!screen} hint="Design value from the structural record.">
-          <input className={inputCls} type="number" step="0.5" value={f.floorLoadingKPa} onChange={set("floorLoadingKPa")} required={!screen} />
+          <input className={inputCls} type="number" step="0.5" value={f.floorLoadingKPa} onChange={set("floorLoadingKPa")} required={!screen} disabled={confirmed.includes("floorLoadingKPa")} />
         </Field>
         <Field label="Rack positions available" required><input className={inputCls} type="number" value={f.positionsAvailable} onChange={set("positionsAvailable")} required /></Field>
         <Field label="Rack positions total"><input className={inputCls} type="number" value={f.rackPositions} onChange={set("rackPositions")} /></Field>
@@ -290,7 +295,7 @@ export function EngagementIntake({
 
       <Section title="Supply" note="The ceiling on everything downstream. Peak from metered data, not a nameplate.">
         <Field label="DSO"><input className={inputCls} value={f.dso} onChange={set("dso")} /></Field>
-        <Field label="Firm connection · MVA" required={!screen}><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required={!screen} /></Field>
+        <Field label="Firm connection · MVA" required={!screen}><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required={!screen} disabled={confirmed.includes("firmCapacityMVA")} /></Field>
         <Field label="Contracted · MW" required><input className={inputCls} type="number" step="0.1" value={f.contractedMW} onChange={set("contractedMW")} required /></Field>
         <Field label="Current site peak · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentPeakMW} onChange={set("currentPeakMW")} required /></Field>
         <Field label="Current IT load · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentItLoadMW} onChange={set("currentItLoadMW")} required /></Field>
@@ -305,7 +310,7 @@ export function EngagementIntake({
       </Section>
 
       <Section title="Cooling" note="Legacy 6–7 °C plant against a 27–32 °C loop requirement governs the scheme.">
-        <Field label="Plant capacity · kW" required={!screen}><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required={!screen} /></Field>
+        <Field label="Plant capacity · kW" required={!screen}><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required={!screen} disabled={confirmed.includes("plantCapacityKW")} /></Field>
         <Field label="Supply temperature · °C" required><input className={inputCls} type="number" step="0.5" value={f.plantSupplyC} onChange={set("plantSupplyC")} required /></Field>
         <Field label="Return temperature · °C"><input className={inputCls} type="number" step="0.5" value={f.plantReturnC} onChange={set("plantReturnC")} /></Field>
         <Field label="Available pumped flow · l/min"><input className={inputCls} type="number" value={f.pumpFlowLPerMin} onChange={set("pumpFlowLPerMin")} /></Field>
@@ -361,6 +366,8 @@ export function EngagementIntake({
           </p>
         </div>
       ) : null}
+
+      {offersEvidence ? <IntakeEvidence token={token} onConfirmedChange={setConfirmed} /> : null}
 
       {willAssume.length > 0 ? (
         <div
