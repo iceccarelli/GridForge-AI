@@ -7,6 +7,7 @@ import { boundedStripeClient } from "@/lib/stripe-client";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { abandonPendingNotices, createWatch, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
+import { oneTimeAmountMismatch } from "@/lib/checkout-amount";
 import { accountRef } from "@/lib/payg";
 import { notifyOperatorOnce, operatorMailExpected } from "@/lib/payg-operator";
 import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
@@ -181,6 +182,18 @@ export async function POST(req: Request) {
       });
     }
     const product = PRODUCT_BY_KIND[kind];
+    // A catalogue product charged at a different amount or currency than the catalogue sells it for: fulfilled as usual (the money is
+    // taken) but a person is told, once per session. Best effort: a mail that cannot go out must not fail a paid sale's fulfilment.
+    const charged = oneTimeAmountMismatch(product, session);
+    if (charged) {
+      console.error(`[GridForge] checkout ${session.id} (${kind}) does not match the catalogue: ${charged}`);
+      await notifyOperatorOnce(
+        `amount_mismatch:${session.id}`,
+        `Stripe checkout does not match the catalogue — ${product?.name ?? kind}`,
+        `Checkout session ${session.id} (kind ${kind}) ${charged}.\n\nIt was fulfilled exactly as a normal sale of ${product?.name ?? kind}: entitlement, intake and records are what they would be at the catalogue price. ` +
+          "Decide deliberately whether that is right (a price changed in the Dashboard, or a payment link made by hand carrying this kind) and refund or adjust by hand if not. This notice is sent once per session."
+      );
+    }
     if (kind === "api_payg_enable") {
       // A card saved for pay-as-you-go (Checkout mode "setup": nothing was charged). Absolute, replay-safe writes; a failed
       // read or write answers 500 so Stripe redelivers (lib/payg-billing.ts).

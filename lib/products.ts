@@ -254,6 +254,23 @@ export function isApiProduct(id: string): boolean {
   return Boolean(PRODUCTS[id as ProductId]?.apiUnits);
 }
 
+/**
+ * How a product's price is stated in plain text (llms.txt and anything else that must not drop a qualifier). A recurring product
+ * says how often it bills, and a deposit says it is a deposit and what scoped engagement it opens, so a machine reader cannot
+ * take "EUR 9,000" for the price of an Envelope Study.
+ */
+export function priceLine(p: Pick<Product, "amountCents" | "recurring" | "opensBandCents">): string {
+  const amount = eurFromCents(p.amountCents);
+  if (p.recurring) {
+    const { interval, intervalCount: n } = p.recurring;
+    return n === 1 ? `${amount} per ${interval}` : `${amount} every ${n} ${interval}s`;
+  }
+  if (p.opensBandCents) {
+    return `${amount} deposit; opens a scoped engagement priced at ${eurFromCents(p.opensBandCents[0])} to ${eurFromCents(p.opensBandCents[1])}`;
+  }
+  return amount;
+}
+
 export function eurFromCents(cents: number): string {
   return new Intl.NumberFormat("en-IE", {
     style: "currency",

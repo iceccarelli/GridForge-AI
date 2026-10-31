@@ -1,5 +1,5 @@
 import { constraintReference, platformLibrary } from "@/lib/constraints";
-import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents } from "@/lib/products";
+import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents, priceLine } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE_URL } from "@/lib/site";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
@@ -91,7 +91,7 @@ ${callableOps || "- none"}
     .join("\n");
 
   const engagements = LADDER_PRODUCTS.map(
-    (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}${p.recurring ? " recurring" : ""}: ${p.deliverable}`
+    (p) => `- ${p.name} — ${priceLine(p)}: ${p.deliverable}`
   ).join("\n");
 
   const api = API_PRODUCTS.map(

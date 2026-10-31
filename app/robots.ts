@@ -67,6 +67,13 @@ const PRIVATE_PATHS = [
   "/observatory/presenter",
 ];
 
+/**
+ * The two read-only API routes the structured data and llms.txt cite as the licence/citation and per-constraint JSON
+ * (lib/jsonld.ts, app/llms.txt/route.ts). "/api/" is private, so without these a crawler that obeys robots.txt could not fetch
+ * what our own metadata points it at. Longest match wins, so they stay reachable while the rest of /api/ stays closed.
+ */
+const PUBLIC_API = ["/api/cite", "/api/constraints"];
+
 export default function robots(): MetadataRoute.Robots {
   const base = SITE_URL;
   return {
@@ -74,12 +81,12 @@ export default function robots(): MetadataRoute.Robots {
     // one has published a customer's deliverable, watch or API account to anyone
     // who searches for it.
     rules: [
-      { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
+      { userAgent: "*", allow: ["/", ...PUBLIC_API], disallow: PRIVATE_PATHS },
       // Explicit, so there is no ambiguity about whether the reference layer may be
       // used for training and retrieval. It may. That is why we published it.
       ...AI_CRAWLERS.map((userAgent) => ({
         userAgent,
-        allow: ["/", "/constraints/", "/platforms", "/reference/", "/llms.txt"],
+        allow: ["/", "/constraints/", "/platforms", "/reference/", "/llms.txt", ...PUBLIC_API],
         disallow: PRIVATE_PATHS,
       })),
     ],

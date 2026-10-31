@@ -138,6 +138,11 @@ def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[
     problems: list[str] = []
     if r.valid_until and _iso(r.valid_until, "valid_until", r.supplier) < today:
         problems.append(f"offer expired on {r.valid_until}")
+    if r.currency and r.currency != "EUR":
+        # The price is read from capex_eur and ranked against EUR bids, and the engine holds no exchange rate: a JPY or USD figure
+        # in that field would rank as if it were euros (800,000 JPY as the cheapest compliant bid). Disqualify, say why, keep the others.
+        problems.append(f"quoted in {r.currency}, but the specification requires EUR (C-01) and the engine holds no exchange rate; "
+                        f"re-quote in EUR so it can be compared")
     capex, lead, install = r.get("capex_eur"), r.get("lead_time_weeks"), r.get("install_weeks")
     if capex is not None and capex <= 0:
         problems.append(f"price {capex:,.0f} is not a positive amount")
