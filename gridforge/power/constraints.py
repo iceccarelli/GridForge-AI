@@ -83,7 +83,8 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
         relief = ReliefOption(
             description=f"Behind-the-meter supply: {opt.id} ({opt.kind}, "
-                        f"{opt.capacity_MW.render(with_class=False)})",
+                        f"{opt.capacity_MW.render(with_class=False)}"
+                        f"{f', {opt.units} units under {opt.redundancy}' if opt.units is not None else ''})",
             capex_eur=option_capex(opt),
             lead_time_weeks=opt.lead_time_weeks,
             basis_note=" ".join(x for x in (

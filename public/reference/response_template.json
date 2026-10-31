@@ -151,6 +151,12 @@
         "assumed": "your firm factor 0.5 accepted as declared, unchecked against the battery's energy (E0)"
       },
       {
+        "path": "btm_options[GEN-5MW].units",
+        "label": "GEN-5MW unit count and redundancy",
+        "unit": "units",
+        "assumed": "credited at nameplate x firm factor, as if no unit could be out of service (E0)"
+      },
+      {
         "path": "thermal.cdus",
         "label": "Installed CDU schedule",
         "unit": "",
