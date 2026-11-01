@@ -50,3 +50,11 @@ describe("per-product pages", () => {
     }
   });
 });
+
+describe("the ladder links to the pages", () => {
+  it("renders a Details link for every rung", () => {
+    const src = readFileSync("components/EngagementLadder.tsx", "utf8");
+    expect(src).toContain("/products/${page.slug}");
+    expect((src.match(/<DetailsLink /g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});

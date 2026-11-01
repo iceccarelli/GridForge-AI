@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { LADDER_PRODUCTS, eurFromCents, type Product, type ProductId } from "@/lib/products";
 
 /**
@@ -23,6 +24,17 @@ const NOTE: Partial<Record<ProductId, string>> = {
   portfolio_screen_deposit: "five to fifteen halls.",
   hall_watch: "Cancel any time; no minimum term.",
 };
+
+/** The page that explains a rung in full (buyer, inputs, limits), when it has one. */
+function DetailsLink({ id }: { id: ProductId }) {
+  const page = PRODUCT_PAGES.find((x) => x.productId === id);
+  if (!page) return null;
+  return (
+    <Link href={`/products/${page.slug}`} className="text-[12px] text-power hover:underline">
+      Details
+    </Link>
+  );
+}
 
 function FeaturedRung({
   product,
@@ -88,7 +100,7 @@ function FeaturedRung({
           Commission the {product.name} <ArrowRight size={16} />
         </button>
         <span className="text-[12px] text-faint">
-          {NOTE[product.id]} Not sure yet? Read the{" "}
+          {NOTE[product.id]} <DetailsLink id={product.id} /> · Not sure yet? Read the{" "}
           <Link href="/reference" className="text-power hover:underline">
             full worked example
           </Link>{" "}
@@ -201,6 +213,7 @@ export function EngagementLadder() {
                     {busy === id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     {p.recurring ? "Start" : "Commission"} <ArrowRight size={15} />
                   </button>
+                  <DetailsLink id={id} />
                   <span className="text-[11px] text-faint">
                     {band}{NOTE[id]}
                     {p.turnaroundDays && !p.recurring
