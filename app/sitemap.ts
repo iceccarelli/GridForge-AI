@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { constraintReference } from "@/lib/constraints";
 import { SITE_URL } from "@/lib/site";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
 import pageDates from "@/lib/page-lastmod.json";
 
 /**
@@ -24,6 +25,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly" as const,
     priority: 0.7,
   }));
+  const productPages: MetadataRoute.Sitemap = PRODUCT_PAGES.map((p) => ({
+    url: `${base}/products/${p.slug}`,
+    ...lm(`/products/${p.slug}`),
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
   return [
     { url: base, ...lm("/"), changeFrequency: "weekly", priority: 1 },
     { url: `${base}/qualify`, ...lm("/qualify"), changeFrequency: "weekly", priority: 0.9 },
@@ -32,6 +39,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/constraints`, ...lm("/constraints"), changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/platforms`, ...lm("/platforms"), changeFrequency: "monthly", priority: 0.8 },
     ...constraintPages,
+    ...productPages,
     { url: `${base}/developers`, ...lm("/developers"), changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/power/compare`, ...lm("/power/compare"), changeFrequency: "monthly", priority: 0.5 },
     { url: `${base}/power/deploy`, ...lm("/power/deploy"), changeFrequency: "monthly", priority: 0.5 },

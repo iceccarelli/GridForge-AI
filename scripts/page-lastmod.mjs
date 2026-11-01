@@ -23,6 +23,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const MANIFEST = path.join(ROOT, "lib", "page-lastmod.json");
 
 /** route -> files (relative to the repository root) whose content the page renders. */
+/** The slugs of lib/product-pages.ts, read from the source so the route list cannot drift from the pages that exist. */
+function productSlugs() {
+  const src = readFileSync(path.join(ROOT, "lib/product-pages.ts"), "utf8");
+  return [...src.matchAll(/^\s+slug: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
+}
+
 export function routeSources() {
   const slugs = existsSync(path.join(ROOT, "public/reference/constraints"))
     ? readdirSync(path.join(ROOT, "public/reference/constraints")).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
@@ -45,6 +51,7 @@ export function routeSources() {
     "/legal/terms": ["app/legal/terms/page.tsx"],
     "/legal/security": ["app/legal/security/page.tsx"],
   };
+  for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   for (const slug of slugs) routes[`/constraints/${slug}`] = ["app/constraints/[slug]/page.tsx", `public/reference/constraints/${slug}.json`];
   return routes;
 }
