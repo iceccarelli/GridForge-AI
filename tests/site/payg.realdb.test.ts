@@ -292,8 +292,12 @@ describe.skipIf(!enabled)("pay-as-you-go — real PostgreSQL via PostgREST", () 
     }
     expect(step(after, "first_engine_use").source).toBe("derived");
     expect(JSON.stringify(after)).not.toMatch(new RegExp(`${a.account}|${ref}|@`));
-    // economics: this month's ledger and a month with nothing in it, through the real month-summary function
+    // economics: this month's ledger and a month with nothing in it, through the real month-summary function.
+    // The two events above sit 10 and 2 days ago, so they fall in THIS month only from the 11th: asserting the month's units from them
+    // made this test fail on the 1st to the 10th of every month (and every real-database CI run with it). The month's own event is dated
+    // inside the month, as the usage-alerts test below does, so the assertion holds on any day.
     const month = new Date().toISOString().slice(0, 7);
+    await rest("POST", "usage_events", { event_id: `ec${uid()}`, seq: ++seqBase, account: a.account, scope: "payg", units: 6, kind: "charge", occurred_at: `${month}-01T00:00:00Z` });
     const econ: any = await economicsReport(month, null);
     expect(econ.ok).toBe(true);
     expect(econ.revenue.payg_units).toBeGreaterThanOrEqual(6);
