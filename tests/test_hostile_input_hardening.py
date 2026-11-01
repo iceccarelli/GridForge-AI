@@ -17,7 +17,7 @@ import threading
 import pytest
 
 from gridforge.api import server as S
-from gridforge.api.server import MAX_BODY_DEPTH, ApiError, Handler, _nests_deeper_than, make_server
+from gridforge.api.server import MAX_BODY_BYTES, MAX_BODY_DEPTH, ApiError, Handler, _nests_deeper_than, make_server
 from gridforge.api.tiers import Tier
 from gridforge.reporting.btm_assessment import DeploymentRequestError, deployment_request
 
@@ -56,13 +56,59 @@ def post_raw(port: int, path: str, raw: bytes):
 # --- the parser's own limit ----------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("depth", [20_000, 200_000])
+def parser_limit_depth() -> int:
+    """The smallest depth in 20,000 x 2^k that THIS interpreter's JSON parser refuses with RecursionError.
+
+    The limit is the interpreter's, not ours: 3.11 gives up below 5,000 levels, 3.13 at about 10,000, 3.14 only past 40,000. A depth typed
+    into the test as 20,000 was beyond the parser on 3.11 to 3.13 and well inside it on 3.14, so on 3.14 the test exercised a different
+    code path and failed on its message, not on anything the server did wrong."""
+    import json as _json
+    depth = 20_000
+    while depth * 2 <= MAX_BODY_BYTES:
+        try:
+            _json.loads("[" * depth + "]" * depth)
+        except RecursionError:
+            return depth
+        depth *= 2
+    raise AssertionError("this interpreter parses every depth that fits in a request body")
+
+
+def deepest_parseable_depth() -> int:
+    import json as _json
+    for depth in (50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500):
+        try:
+            _json.loads("[" * depth + "]" * depth)
+            return depth
+        except RecursionError:
+            continue
+    return 100
+
+
+@pytest.mark.parametrize("depth", [parser_limit_depth(), 200_000])
 @pytest.mark.parametrize("path", ["/v1/qualify", "/v1/estimate", "/mcp"])
 def test_a_body_nested_beyond_the_parser_limit_is_a_400_with_a_response(base_url, path, depth):
     """The public endpoints take no key, so this is reachable by anyone. Before the fix: RemoteDisconnected, no response, a traceback in the log."""
     status, out = post_raw(base_url, path, ("[" * depth + "]" * depth).encode())
     assert status == 400
     assert "nested too deeply" in out["error"]
+
+
+def refused_cleanly(status, out) -> bool:
+    """A refusal a client can act on: a 4xx with an error body, or (a JSON-RPC batch) a 200 whose every entry is an error."""
+    if isinstance(out, list):
+        return status == 200 and bool(out) and all(isinstance(e, dict) and e.get("error") for e in out)
+    return 400 <= status < 500 and isinstance(out, dict) and bool(out.get("error"))
+
+
+@pytest.mark.parametrize("shape", ["list", "object"])
+@pytest.mark.parametrize("path", ["/v1/qualify", "/v1/estimate", "/mcp"])
+def test_a_deeply_nested_body_the_parser_DOES_accept_is_still_refused_cleanly(base_url, path, shape):
+    """Whatever depth this interpreter's parser accepts (it differs by version), the answer is a clean refusal with a response: never a
+    success, never a dropped connection, never a 5xx. Before: on 3.14 a 20,000-deep body to /mcp was answered 202 Accepted."""
+    depth = deepest_parseable_depth()
+    raw = ("[" * depth + "]" * depth) if shape == "list" else ('{"a":' * depth + "1" + "}" * depth)
+    status, out = post_raw(base_url, path, raw.encode())
+    assert refused_cleanly(status, out), (path, shape, depth, status, out)
 
 
 def test_the_server_still_answers_after_a_hostile_body(base_url):
