@@ -1,4 +1,5 @@
 import { constraintReference, platformLibrary } from "@/lib/constraints";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents, priceLine } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE_URL } from "@/lib/site";
@@ -91,7 +92,10 @@ ${callableOps || "- none"}
     .join("\n");
 
   const engagements = LADDER_PRODUCTS.map(
-    (p) => `- ${p.name} — ${priceLine(p)}: ${p.deliverable}`
+    (p) => {
+      const page = PRODUCT_PAGES.find((x) => x.productId === p.id);
+      return `- ${p.name} — ${priceLine(p)}: ${p.deliverable}${page ? ` (${SITE}/products/${page.slug})` : ""}`;
+    }
   ).join("\n");
 
   const api = API_PRODUCTS.map(

@@ -18,6 +18,7 @@
 // native anchor scroll takes over).
 
 import { LADDER_PRODUCTS } from "@/lib/products";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
 
 export interface NavLink {
   href: string;
@@ -62,7 +63,10 @@ export const FOOTER_GROUPS: FooterGroup[] = [
   {
     heading: "Product",
     links: [
-      ...LADDER_PRODUCTS.map((p) => ({ href: "/pricing", label: p.name })),
+      ...LADDER_PRODUCTS.map((p) => {
+        const page = PRODUCT_PAGES.find((x) => x.productId === p.id);
+        return { href: page ? `/products/${page.slug}` : "/pricing", label: p.name };
+      }),
       { href: "/pricing", label: "Pricing" },
     ],
   },
