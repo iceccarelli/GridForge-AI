@@ -716,6 +716,21 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
     }
 
 
+def _mcp_message_is_valid(message) -> bool:
+    """The least JSON-RPC 2.0 asks of a request or notification: an object with a string method. Anything else is an Invalid Request."""
+    return isinstance(message, dict) and isinstance(message.get("method"), str) and bool(message["method"])
+
+
+def _invalid_rpc_request(message) -> dict:
+    """-32600, answered whether or not the message had an id: a malformed message is an error to report, never a notification to ignore.
+    The id is echoed only when it is one JSON-RPC allows (a string or an integer), else null."""
+    rid = message.get("id") if isinstance(message, dict) else None
+    if isinstance(rid, bool) or not isinstance(rid, (str, int)):
+        rid = None
+    return {"jsonrpc": "2.0", "id": rid,
+            "error": {"code": -32600, "message": 'invalid request: expected a JSON-RPC object with a string "method"'}}
+
+
 def handle_revoke(body: dict, tier: Tier) -> dict:
     """Kill a leaked key now, rather than at expiry.
 
@@ -1785,6 +1800,8 @@ class Handler(BaseHTTPRequestHandler):
             -32603 (no exception text), the reservation it holds is refunded, and the rest of a batch is still
             answered. State is reset per message so a refund can only ever touch this message's own charge."""
             self._open_res = None
+            if not _mcp_message_is_valid(message):
+                return _invalid_rpc_request(message)          # before handle_mcp: nothing is charged, nothing is silently dropped
             try:
                 return handle_mcp(message, tier, charge)
             except Exception:
@@ -1807,7 +1824,7 @@ class Handler(BaseHTTPRequestHandler):
             out = []
             for i, m in enumerate(body):
                 position[0] = i
-                r = guarded(m if isinstance(m, dict) else {})
+                r = guarded(m)
                 if r is not None:
                     out.append(r)
             if not out:
@@ -1819,6 +1836,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32600, "message": "expected an object"}})
+        if not _mcp_message_is_valid(body):
+            return self._send(400, _invalid_rpc_request(body))
         result = guarded(body)
         if result is None:
             self.send_response(202)

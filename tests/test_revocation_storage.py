@@ -60,10 +60,43 @@ def test_a_path_that_cannot_exist_is_not_persistable(monkeypatch):
     assert keys.revocation_persistable() is False
 
 
+def _devices(monkeypatch, root_dev, other_dev):
+    """Make `/` report one device id and every other path another, whatever this host's mount layout is.
+
+    The test used to assume pytest's temp dir sits on the root device, which is true in a plain container and false wherever /tmp is its own
+    mount (a GitHub Codespace, many CI runners, a developer laptop with tmpfs): there the "ephemeral directory" was in fact a mounted volume
+    and the test failed for a reason that had nothing to do with the code. Only the device ids are changed; every other field is real."""
+    real = os.stat
+
+    def fake(path, *args, **kwargs):
+        r = real(path, *args, **kwargs)
+        dev = root_dev if os.fspath(path) == "/" else other_dev
+        return os.stat_result((r.st_mode, r.st_ino, dev, r.st_nlink, r.st_uid, r.st_gid, r.st_size, int(r.st_atime), int(r.st_mtime), int(r.st_ctime)))
+    monkeypatch.setattr(keys.os, "stat", fake)
+
+
 def test_on_fly_an_ephemeral_directory_that_is_not_a_mounted_volume_is_not_persistable(store, monkeypatch):
     """A machine added without its own volume has an ephemeral /data that would drop every revocation."""
     monkeypatch.setenv("FLY_MACHINE_ID", "m-test")
-    assert keys.revocation_persistable() is False                # tmp dir is on the root device
+    _devices(monkeypatch, root_dev=7, other_dev=7)               # the directory is on the root device
+    assert keys.revocation_persistable() is False
+
+
+def test_on_fly_a_directory_on_its_own_device_is_a_mounted_volume_and_is_persistable(store, monkeypatch):
+    monkeypatch.setenv("FLY_MACHINE_ID", "m-test")
+    _devices(monkeypatch, root_dev=7, other_dev=8)               # a separate device: a mounted volume
+    assert keys.revocation_persistable() is True
+    assert list(store.parent.iterdir()) == []                    # and the probe still cleaned up after itself
+
+
+def test_the_answer_does_not_depend_on_this_hosts_mount_layout(store, monkeypatch):
+    """Whatever device ids the host really has, the same two inputs give the same two answers."""
+    monkeypatch.setenv("FLY_MACHINE_ID", "m-test")
+    for _ in range(2):
+        _devices(monkeypatch, 3, 3)
+        assert keys.revocation_persistable() is False
+        _devices(monkeypatch, 3, 4)
+        assert keys.revocation_persistable() is True
 
 
 def test_a_revocation_is_on_disk_and_a_fresh_reader_sees_it(store):
