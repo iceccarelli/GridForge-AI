@@ -18,5 +18,10 @@ export default defineConfig({
     // would let one file's stub answer another file's request.
     isolate: true,
     pool: "forks",
+    // The first test in a file imports a real route module (the Next route graph, the catalogue, the engine client) cold; on a loaded CI
+    // runner that took longer than the 5 s default and failed two tests that pass in about a second on a warm import. A generous limit
+    // changes nothing about what is asserted; it only stops a slow import from reading as a defect.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });
