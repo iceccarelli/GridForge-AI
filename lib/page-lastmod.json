@@ -62,8 +62,8 @@
       "hash": "1a1e7b3560efbea97388fb59999614e90734460103636cb8ef4b14cc988167a3"
     },
     "/developers": {
-      "lastmod": "2026-10-31",
-      "hash": "1c33f1f4f0bd4455e7db288e1072ef36207e78e37c5d85cae4f5c070410762b9"
+      "lastmod": "2026-11-02",
+      "hash": "b2e49d1dcc2ea010e3244f73a0ac9da0242d11f902c22a8092e4a84f1573eb5c"
     },
     "/intelligence": {
       "lastmod": "2026-10-31",
@@ -98,32 +98,36 @@
       "hash": "67774548f1c7cfc26c96a1cc95f5491511d3c8eb22eb69c5d86e04aa80688a17"
     },
     "/pricing": {
-      "lastmod": "2026-10-31",
-      "hash": "2e261f5c64332a26ba314a3444a6de82e74e3c2b818cc075453e849dde7ba400"
+      "lastmod": "2026-11-02",
+      "hash": "a2153a1d29a1c599223c1f7a8ca81920b639ed072f8e5b8ec399ff080864ebe4"
+    },
+    "/products": {
+      "lastmod": "2026-11-01",
+      "hash": "962d5e1c7e2b0e146e48926eb34d5b376209456bd046e68f763db18c8affc72d"
     },
     "/products/density-screen": {
-      "lastmod": "2026-10-31",
-      "hash": "3fc05265a7ed1b7a93cfe7748bb510e197231426605d4e28ec68393eb744c212"
+      "lastmod": "2026-11-02",
+      "hash": "ff84338a89470226d01d63cc6afafaf1437b98b215785bb2cf05cee2d09a2f70"
     },
     "/products/envelope-study": {
-      "lastmod": "2026-10-31",
-      "hash": "3fc05265a7ed1b7a93cfe7748bb510e197231426605d4e28ec68393eb744c212"
+      "lastmod": "2026-11-02",
+      "hash": "ff84338a89470226d01d63cc6afafaf1437b98b215785bb2cf05cee2d09a2f70"
     },
     "/products/hall-watch": {
-      "lastmod": "2026-10-31",
-      "hash": "3fc05265a7ed1b7a93cfe7748bb510e197231426605d4e28ec68393eb744c212"
+      "lastmod": "2026-11-02",
+      "hash": "ff84338a89470226d01d63cc6afafaf1437b98b215785bb2cf05cee2d09a2f70"
     },
     "/products/portfolio-screen": {
-      "lastmod": "2026-10-31",
-      "hash": "3fc05265a7ed1b7a93cfe7748bb510e197231426605d4e28ec68393eb744c212"
+      "lastmod": "2026-11-02",
+      "hash": "ff84338a89470226d01d63cc6afafaf1437b98b215785bb2cf05cee2d09a2f70"
     },
     "/products/procurement-specification": {
-      "lastmod": "2026-10-31",
-      "hash": "3fc05265a7ed1b7a93cfe7748bb510e197231426605d4e28ec68393eb744c212"
+      "lastmod": "2026-11-02",
+      "hash": "ff84338a89470226d01d63cc6afafaf1437b98b215785bb2cf05cee2d09a2f70"
     },
     "/qualify": {
-      "lastmod": "2026-10-23",
-      "hash": "776e8b23bf8c9c23bd909657a941db2a87d7e563fe94f201ece63f48ee704916"
+      "lastmod": "2026-11-02",
+      "hash": "281a09d1eaf4de3ead5f2069f1da5e8ecb0d6330ff697418d8db6a38132eea75"
     },
     "/reference": {
       "lastmod": "2026-11-02",

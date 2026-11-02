@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { OG_IMAGES } from "@/lib/site";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, engagementCatalogJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import Link from "next/link";
 import CostEstimator from "@/components/CostEstimator";
 import { EngagementLadder } from "@/components/EngagementLadder";
@@ -36,6 +38,16 @@ export default async function PricingPage() {
   const compareAvailable = await engineServes("/v1/compare");
   return (
     <main className="bg-ink min-h-screen pt-28 pb-24">
+      <PageJsonLd
+        data={[
+          webPageJsonLd("/pricing", "Pricing — free check, metered API, fixed-fee engagements", PRICING_DESCRIPTION),
+          engagementCatalogJsonLd(),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Pricing", path: "/pricing" },
+          ]),
+        ]}
+      />
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
             <div className="eyebrow text-power mb-4">Pricing</div>

@@ -67,6 +67,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
         const page = PRODUCT_PAGES.find((x) => x.productId === p.id);
         return { href: page ? `/products/${page.slug}` : "/pricing", label: p.name };
       }),
+      { href: "/products", label: "All engagements" },
       { href: "/pricing", label: "Pricing" },
     ],
   },

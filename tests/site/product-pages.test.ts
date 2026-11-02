@@ -58,3 +58,34 @@ describe("the ladder links to the pages", () => {
     expect((src.match(/<DetailsLink /g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("the engagements index and breadcrumbs", () => {
+  it("lists /products in the sitemap and footer and builds a valid trail", async () => {
+    const { breadcrumbJsonLd } = await import("@/lib/jsonld");
+    const trail = breadcrumbJsonLd([
+      { name: "Home", path: "/" },
+      { name: "Engagements", path: "/products" },
+    ]);
+    expect(trail.itemListElement.map((i) => i.position)).toEqual([1, 2]);
+    expect(trail.itemListElement[1].item).toMatch(/\/products$/);
+    expect((await sitemap()).some((e) => e.url.endsWith("/products"))).toBe(true);
+    expect(FOOTER_GROUPS.flatMap((g) => g.links.map((l) => l.href))).toContain("/products");
+  });
+});
+
+describe("structured data on the high-intent pages", () => {
+  it("qualifier markup states only what the page states", async () => {
+    const { qualifierJsonLd } = await import("@/lib/jsonld");
+    const q = qualifierJsonLd();
+    expect(q["@type"]).toBe("WebApplication");
+    expect(q.offers.price).toBe("0");
+    const text = JSON.stringify(q).toLowerCase();
+    for (const banned of ["aggregaterating", "review", "ratingvalue", "users"]) expect(text).not.toContain(banned);
+  });
+
+  it("the pages emit it", () => {
+    for (const f of ["app/qualify/page.tsx", "app/pricing/page.tsx", "app/developers/page.tsx"]) {
+      expect(readFileSync(f, "utf8")).toContain("<PageJsonLd");
+    }
+  });
+});
