@@ -44,6 +44,11 @@ class LVDistribution:
     busway_utilisation_limit: Quantity   # e.g. 0.8 continuous-load derating
     tapoff_max_A: Quantity
     rack_feed_limit_kW: Quantity | None = None  # None -> derive from tap-off
+    #: How a rack takes its load from the busway, declared by the customer because only they know:
+    #: "pooled" (a rack's load can be shared across runs, e.g. A and B feeds, so the runs' capacity adds up), or
+    #: "single_run" (each rack is fed from one run, so whole racks are counted run by run). None = not declared; the capacity is pooled and
+    #: the result says so.
+    rack_feed_topology: str | None = None
 
 
 @dataclass

@@ -530,8 +530,8 @@
             },
             "lead_time_weeks": {
               "value": 160.0,
-              "low": 80,
-              "high": 210,
+              "low": 104.0,
+              "high": 216.0,
               "unit": "weeks",
               "evidence": "E0_ASSUMPTION",
               "label": "power transformer lead time",
@@ -579,7 +579,7 @@
           "name": "Busway ampacity",
           "gate": false,
           "racks_permitted": 12,
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
@@ -1075,8 +1075,8 @@
             },
             "lead_time_weeks": {
               "value": 160.0,
-              "low": 80,
-              "high": 210,
+              "low": 104.0,
+              "high": 216.0,
               "unit": "weeks",
               "evidence": "E0_ASSUMPTION",
               "label": "power transformer lead time",
@@ -1124,7 +1124,7 @@
           "name": "Busway ampacity",
           "gate": false,
           "racks_permitted": 12,
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
@@ -1477,8 +1477,8 @@
           },
           "lead_time_weeks": {
             "value": 160.0,
-            "low": 80,
-            "high": 210,
+            "low": 104.0,
+            "high": 216.0,
             "unit": "weeks",
             "evidence": "E0_ASSUMPTION",
             "label": "power transformer lead time",
@@ -2043,8 +2043,8 @@
             },
             "lead_time_weeks": {
               "value": 160.0,
-              "low": 80,
-              "high": 210,
+              "low": 104.0,
+              "high": 216.0,
               "unit": "weeks",
               "evidence": "E0_ASSUMPTION",
               "label": "power transformer lead time",
@@ -2092,7 +2092,7 @@
           "name": "Busway ampacity",
           "gate": false,
           "racks_permitted": 12,
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
@@ -2515,8 +2515,8 @@
           },
           "lead_time_weeks": {
             "value": 160.0,
-            "low": 80,
-            "high": 210,
+            "low": 104.0,
+            "high": 216.0,
             "unit": "weeks",
             "evidence": "E0_ASSUMPTION",
             "label": "power transformer lead time",
@@ -3065,8 +3065,8 @@
             },
             "lead_time_weeks": {
               "value": 160.0,
-              "low": 80,
-              "high": 210,
+              "low": 104.0,
+              "high": 216.0,
               "unit": "weeks",
               "evidence": "E0_ASSUMPTION",
               "label": "power transformer lead time",
@@ -3114,7 +3114,7 @@
           "name": "Busway ampacity",
           "gate": false,
           "racks_permitted": 12,
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {
@@ -3505,8 +3505,8 @@
           },
           "lead_time_weeks": {
             "value": 160.0,
-            "low": 80,
-            "high": 210,
+            "low": 104.0,
+            "high": 216.0,
             "unit": "weeks",
             "evidence": "E0_ASSUMPTION",
             "label": "power transformer lead time",
@@ -3911,8 +3911,8 @@
           },
           "lead_time_weeks": {
             "value": 160.0,
-            "low": 80,
-            "high": 210,
+            "low": 104.0,
+            "high": 216.0,
             "unit": "weeks",
             "evidence": "E0_ASSUMPTION",
             "label": "power transformer lead time",
@@ -4686,8 +4686,8 @@
             },
             "lead_time_weeks": {
               "value": 160.0,
-              "low": 80,
-              "high": 210,
+              "low": 104.0,
+              "high": 216.0,
               "unit": "weeks",
               "evidence": "E0_ASSUMPTION",
               "label": "power transformer lead time",
@@ -4735,7 +4735,7 @@
           "name": "Busway ampacity",
           "gate": false,
           "racks_permitted": 12,
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "relief": {
             "description": "Replace busway with 800-1000 A and new tap-off units",
             "capex_eur": {

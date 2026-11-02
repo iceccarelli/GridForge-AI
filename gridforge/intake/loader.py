@@ -129,6 +129,17 @@ def _frac(raw: Any, what: str) -> float:
     return v
 
 
+def _rack_feed_topology(raw: Any) -> str | None:
+    """lv.rack_feed_topology: how a rack takes its load from the busway. Absent = not declared (None). Anything else that is not one of
+    the two words is refused, never defaulted."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw not in ("pooled", "single_run"):
+        raise IntakeError(f"lv.rack_feed_topology is {raw!r}; use \"pooled\" (a rack's load can be shared across busway runs, e.g. "
+                          "A and B feeds) or \"single_run\" (each rack is fed from one run)")
+    return raw
+
+
 def _phases(raw: Any) -> int:
     n = _int(raw, "lv.phases")
     if n not in (1, 3):
@@ -574,6 +585,16 @@ def _project_block(doc: dict) -> dict:
     return project
 
 
+def _declared_positions(r) -> int:
+    """The free rack positions the document declares, or 0 when it does not (or declares something unusable, which the field's own
+    validation then reports in its own words)."""
+    try:
+        v = _dig(r.doc, "hall.positions_available")   # a read, not r.raw(): reading must not record a gap
+        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 <= v < 1e9 else 0
+    except Exception:
+        return 0
+
+
 def _load_document(doc: dict) -> Intake:
     report = IntakeReport()
     project = _project_block(doc)
@@ -600,7 +621,10 @@ def _load_document(doc: dict) -> Intake:
                            V(3.0, "m", "assumed clear height", ASSUMED, band=0.15)),
         aisle_pitch_m=r.q("hall.aisle_pitch_m", "m", "installed aisle pitch",
                           V(2.4, "m", "assumed aisle pitch", ASSUMED, band=0.15)),
-        rack_positions=_int_max(r.raw("hall.rack_positions", 400), "hall.rack_positions", "hall.rack_positions"),
+        # An undeclared total never contradicts the free positions that WERE declared: the default total is the library's 400, or the
+        # free positions when there are more than that (a hall cannot have more free positions than positions). Without this a hall with
+        # 401+ free positions, run through the qualifier that asks only for the free positions, was refused over a figure nobody gave.
+        rack_positions=_int_max(r.raw("hall.rack_positions", max(400, _declared_positions(r))), "hall.rack_positions", "hall.rack_positions"),
         positions_available=_int_max(r.raw("hall.positions_available", 100), "hall.positions_available", "hall.positions_available"),
         design_density_kW_per_rack=r.q(
             "hall.design_density_kW_per_rack", "kW", "hall design density per rack",
@@ -639,7 +663,10 @@ def _load_document(doc: dict) -> Intake:
             replacement_lead_time_weeks=V(_pos_max(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks",
                                                    "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
-                                          band=(80, 210)),
+                                          # The library placeholder carries the library's band. A value the client supplied carries a band
+                                          # AROUND ITSELF (the same +-35% a supplied battery lead time gets): a fixed 80-210 band beside a
+                                          # supplied 40 or 300 weeks printed a range that did not contain its own date.
+                                          band=(80, 210) if t.get("replacement_lead_time_weeks") is None else 0.35),
         ))
     lead_path = "transformers.replacement_lead_time_weeks"
     if not tx_items or any(t.get("replacement_lead_time_weeks") is None for t in tx_items):
@@ -753,6 +780,7 @@ def _load_document(doc: dict) -> Intake:
                                          V(0.8, "1", "assumed continuous-load derating", ASSUMED)),
             tapoff_max_A=r.q("lv.tapoff_max_A", "A", "installed tap-off rating",
                              V(63, "A", "assumed legacy tap-off rating", ASSUMED, band=(32, 125))),
+            rack_feed_topology=_rack_feed_topology(_dig(r.doc, "lv.rack_feed_topology")),
         ),
         options=options,
     )

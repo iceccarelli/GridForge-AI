@@ -229,7 +229,18 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
                                                        "usable capacity per busway run")
     total = (per_run_kW * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)).relabel(
         "total usable busway capacity in hall", "power.busway_total", step_evidence=ESTIMATED)
-    racks = total / ctx.cluster.platform.rack_kW
+    rack_kW = ctx.cluster.platform.rack_kW
+    topology = lv.rack_feed_topology
+    if topology == "single_run":
+        # Each rack hangs off ONE run, so a run's spare kW cannot be pooled with another's: whole racks are counted run by run.
+        # (A run that carries 1.6 racks carries 1, however many runs there are.)
+        racks = floor_racks(per_run_kW / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+        topo_note = "; each rack is fed from one run, so racks are counted whole, run by run"
+    else:
+        racks = total / rack_kW
+        topo_note = ("; a rack's load is shared across runs, as declared" if topology == "pooled" else
+                     "; this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare "
+                     "lv.rack_feed_topology = single_run and whole racks are counted run by run")
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
@@ -256,7 +267,7 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "busway_ampacity", "electrical", "Busway ampacity",
         floor_racks(racks),
         basis=(f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
-               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}"),
+               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}"),
         relief=ReliefOption(
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else
@@ -273,6 +284,29 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
     )
 
 
+#: The voltage and phase count the compute library states a rack's feed current at ("assumed rack feed current at 400 V 3ph").
+LIBRARY_FEED_VOLTAGE_V = 400.0
+
+
+def rack_feed_current_at(need: Quantity, lv) -> tuple[Quantity, str]:
+    """The rack's feed current at THIS hall's busway voltage and phase count, and the sentence that says so ("" when nothing changed).
+
+    The library states the figure at 400 V three-phase. The same rack draws more current from a lower voltage or a single-phase feed
+    (I = P / (sqrt3 * V * pf) three-phase; I = P / (V * pf) single-phase), and a tap-off is rated for CURRENT, so a 208 V or
+    single-phase hall must not be tested against a 400 V figure: it would pass a tap-off that cannot carry the rack. A higher voltage
+    lowers the current, and that is credited too. One function, because the capacity model and the procurement specification must
+    state the same required rating.
+    """
+    volts = lv.voltage_V.value
+    scale = (LIBRARY_FEED_VOLTAGE_V / volts if volts > 0 else float("inf")) * (math.sqrt(3.0) if lv.phases == 1 else 1.0)
+    if abs(scale - 1.0) <= 1e-9:
+        return need, ""
+    kind = "single" if lv.phases == 1 else "three"
+    scaled = need * V(scale, "1", f"scaling of the rack feed current from {LIBRARY_FEED_VOLTAGE_V:g} V three-phase to the hall's "
+                                  f"{volts:g} V {kind}-phase busway", ESTIMATED)
+    return scaled, f" (library figure at {LIBRARY_FEED_VOLTAGE_V:g} V three-phase, scaled to this hall's {volts:g} V {kind}-phase feed)"
+
+
 @constraint
 def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
     """Hard gate: can a single rack even be fed?"""
@@ -281,6 +315,7 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
     if need is None:
         return _unbounded("rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
                           "platform rack feed current not declared")
+    need, feed_note = rack_feed_current_at(need, lv)
     ok = need.value <= lv.tapoff_max_A.value
     racks = gate_racks(ok, "racks permitted by tap-off rating", need, lv.tapoff_max_A)
 
@@ -292,7 +327,7 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
     return ConstraintResult(
         "rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
         racks, gate=True,
-        basis=(f"platform needs {need.render()} per rack; installed tap-offs rated "
+        basis=(f"platform needs {need.render()} per rack{feed_note}; installed tap-offs rated "
                f"{lv.tapoff_max_A.render()}"),
         relief=ReliefOption(
             description="Higher-rated tap-off units (and busway if ampacity does not allow)",
