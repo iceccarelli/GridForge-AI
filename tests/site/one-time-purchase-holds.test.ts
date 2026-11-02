@@ -284,21 +284,20 @@ describe("deposits and payments that are not ours to hold", () => {
   });
 });
 
-describe("where migration 0045 has not been applied", () => {
+describe("where the hold column cannot be read", () => {
   beforeEach(() => rig.db.dropColumn("deliverables", "billing_hold"));
 
-  it("the refund is acknowledged, the operator is told ONCE (not per redelivery), and nothing else changes", async () => {
+  it("a refund is NOT acknowledged: Stripe is asked to redeliver, and nothing is silently skipped", async () => {
     purchase();
-    for (let i = 0; i < 3; i++) expect((await refund({}, `evt_m${i}`)).status).toBe(200);
-    expect(operatorMail(rig).filter((m) => /Migration 0045/.test(m.subject))).toHaveLength(1);
+    for (let i = 0; i < 3; i++) expect((await refund({}, `evt_m${i}`)).status).toBe(500);
   });
 
-  it("credits and the buyer's document still work exactly as before", async () => {
+  it("credits fail closed: a purchase whose hold state cannot be read is credited to no one", async () => {
     purchase();
     const { creditsToward } = await import("@/lib/deliverables");
-    expect((await creditsToward("buyer@hall.example", "envelope_study")).cents).toBe(450_000);
-    const doc = await import("@/app/api/deliverable/[token]/route");
-    expect((await doc.GET(get("/x"), ctx("doc-token"))).status).toBe(200);
+    const r = await creditsToward("buyer@hall.example", "envelope_study");
+    expect(r.ok).toBe(false);
+    expect(r.cents).toBe(0);
   });
 });
 

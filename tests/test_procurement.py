@@ -32,6 +32,13 @@ from gridforge.reporting.spec import build as build_spec_report
 from gridforge.reporting.study import collect_claims
 from gridforge.scenario.run import run_all
 
+@pytest.fixture(autouse=True)
+def pinned_today(monkeypatch):
+    """Bids carry a validity date, and the engine refuses an expired one against today's date. Pin 'today' so these tests do not
+    start failing on the day their fixture bids expire."""
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-13")
+
+
 ROOT = Path(__file__).resolve().parents[1]
 INTAKE = ROOT / "examples" / "intake" / "reference_hall.json"
 

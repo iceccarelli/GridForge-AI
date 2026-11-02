@@ -224,10 +224,10 @@ export async function creditsToward(
   // Narrow by address (superset, case-insensitive), then decide identity in code on the exact normalised address below.
   const where = `${c.url}/rest/v1/deliverables?email=ilike.${encodeURIComponent(narrowPattern(e))}` + `&kind=in.(${kinds.map(encodeURIComponent).join(",")})&select=`;
   const cols = "id,kind,token,amount_cents,email,company,created_at";
-  // A purchase that was refunded or is disputed is not a credit: "credits in full" is a promise about money that was kept. Where migration
-  // 0045 is not applied the column does not exist (PostgREST answers 400), nothing can be on hold, and the query is the one it always was.
-  let res = await fetch(where + cols + ",billing_hold", { headers: c.headers, cache: "no-store" });
-  if (res.status === 400) res = await fetch(where + cols, { headers: c.headers, cache: "no-store" });
+  // A purchase that was refunded or is disputed is not a credit: "credits in full" is a promise about money that was kept. Migration 0045
+  // is applied, so billing_hold exists; a failure of this query (a 400 included) is a store fault and credits nothing, never a retry that
+  // drops the column and credits a held purchase.
+  const res = await fetch(where + cols + ",billing_hold", { headers: c.headers, cache: "no-store" });
   if (!res.ok) {
     // Never guess a credit. Reporting none is recoverable by a human reading the
     // pipeline; inventing one is money given away on our own arithmetic.

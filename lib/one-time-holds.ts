@@ -36,7 +36,7 @@ const idOf = (v: unknown): string => (typeof v === "string" ? v : v && typeof v 
 const q = encodeURIComponent;
 
 type Subject = { table: "deliverables"; id: string; kind: string; hold: OneTimeHold | null; ref: string | null } | { table: "engagement_deposits"; id: string; kind: string };
-type Found = { ok: true; subject: Subject | null; sessionKind: string | null } | { ok: false } | { ok: true; unmigrated: true };
+type Found = { ok: true; subject: Subject | null; sessionKind: string | null } | { ok: false };
 
 /** Does this Checkout Session kind belong to a one-time purchase of ours? Subscriptions and pay-as-you-go are decided elsewhere. */
 function oneTimeKind(kind: string): "deliverable" | "deposit" | null {
@@ -46,8 +46,6 @@ function oneTimeKind(kind: string): "deliverable" | "deposit" | null {
   if (p.producesDeliverable) return "deliverable";
   return p.opensBandCents ? "deposit" : null;
 }
-
-const missingColumn = (r: { ok: boolean; status: number; code?: string }) => !r.ok && r.status === 400 && (r.code === "42703" || r.code === "PGRST204");
 
 async function sessionOfPayment(stripe: ReversalStripe | null, paymentIntent: unknown): Promise<{ ok: true; id: string; kind: string } | { ok: true; none: true } | { ok: false }> {
   const pi = idOf(paymentIntent);
@@ -79,7 +77,6 @@ async function findSubject(stripe: ReversalStripe | null, paymentIntent: unknown
       "GET",
       `deliverables?stripe_session_id=eq.${q(s.id)}&select=id,kind,billing_hold,billing_hold_ref&limit=1`
     );
-    if (missingColumn(r)) return { ok: true, unmigrated: true };
     if (!r.ok) return { ok: false };
     const row = r.data?.[0];
     return { ok: true, sessionKind: s.kind, subject: row ? { table: "deliverables", id: row.id, kind: row.kind, hold: row.billing_hold ?? null, ref: row.billing_hold_ref ?? null } : null };
@@ -103,16 +100,6 @@ async function told(key: string, subject: string, text: string): Promise<void> {
 export async function holdOneTimePurchase(p: { kind: OneTimeHold; ref: string; paymentIntent: unknown; stripe: ReversalStripe | null; eventId: string; lost?: boolean }): Promise<Handled> {
   const found = await findSubject(p.stripe, p.paymentIntent);
   if (!found.ok) return { ok: false, why: "payment could not be resolved to a purchase" };
-  if ("unmigrated" in found) {
-    await told(
-      "migration_0045_missing",
-      "Migration 0045 (one-time purchase holds) is not applied",
-      `A ${p.kind} charge/dispute (${p.ref}) belongs to a one-time purchase, but deliverables.billing_hold does not exist yet, so access could not be held. ` +
-        "Nothing was changed and the event was acknowledged (a retry cannot add a column). Apply supabase/migrations/0045_one_time_purchase_holds.sql, then hold this purchase by hand " +
-        "(or ask for the event to be redelivered from Stripe). This notice is sent once."
-    );
-    return { ok: true };
-  }
   if (!found.subject) {
     // A deliverable's row is made by its own checkout event, which Stripe may deliver after the refund: retry until it exists. A deposit
     // may legitimately have no row (one attached to a project records an event instead): audit-free, the operator is told.
@@ -172,7 +159,7 @@ export async function holdOneTimePurchase(p: { kind: OneTimeHold; ref: string; p
 export async function liftOneTimeDispute(p: { dispute: string; paymentIntent: unknown; stripe: ReversalStripe | null; eventId: string }): Promise<Handled & { lifted?: boolean }> {
   const found = await findSubject(p.stripe, p.paymentIntent);
   if (!found.ok) return { ok: false, why: "payment could not be resolved to a purchase" };
-  if ("unmigrated" in found || !found.subject || found.subject.table !== "deliverables") return { ok: true, lifted: false };
+  if (!found.subject || found.subject.table !== "deliverables") return { ok: true, lifted: false };
   const s = found.subject;
   if (s.hold !== "disputed" || s.ref !== p.dispute) return { ok: true, lifted: false };
   const r = await pg<{ id: string }[]>("PATCH", `deliverables?id=eq.${q(s.id)}&billing_hold=eq.disputed&billing_hold_ref=eq.${q(p.dispute)}`, { billing_hold: null, billing_hold_ref: null, billing_hold_at: null });

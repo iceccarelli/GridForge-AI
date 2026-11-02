@@ -73,7 +73,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     name: "Density Screen",
     amountCents: 450_000, // €4,500
     description:
-      "A five-day screening opinion on one hall: what binds first, how many racks of your " +
+      "A five-day screening assessment of one hall: what binds first, how many racks of your " +
       "target platform it carries as it stands and after the costed ladder, which item sets " +
       "the date, and the list of inputs nobody has measured.",
     deliverable:

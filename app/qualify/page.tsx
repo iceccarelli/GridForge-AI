@@ -85,7 +85,7 @@ export default function QualifyPage() {
           },
           {
             k: "Where the paid line is",
-            v: "The free qualifier shows the binding constraint and the rack count. The free Time-to-Power comparison also shows scenarios with indicative capital cost and time to full capacity, each with its evidence class, and a time that rests on an assumed lead time is labelled as one, not as a date. What is paid is engineering you can rely on: human-reviewed engagements, and metered engine usage beyond the free allowance.",
+            v: "The free qualifier shows the binding constraint and the rack count. The free Time-to-Power comparison also shows scenarios with indicative capital cost and time to full capacity, each with its evidence class, and a time that rests on an assumed lead time is labelled as one, not as a date. What is paid is human-reviewed engagements, and metered engine usage beyond the free allowance. Engagements are screening-mode assessments, not an issued engineering opinion.",
           },
           {
             k: "Why it is honest",

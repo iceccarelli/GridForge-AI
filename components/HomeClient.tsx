@@ -73,7 +73,7 @@ export function HomeClient() {
               labelled as one, not as a date. No equipment to sell.
             </p>
             <p className="text-mute max-w-xl mb-9">
-              Start with a Density Screen: one hall, five working days, a document
+              Start with a Density Screen: one hall, five working days from a complete intake, a document
               that names what binds it. Fixed fee, and it credits in full against
               the full study.
             </p>
@@ -134,7 +134,7 @@ export function HomeClient() {
               { icon: ShieldAlert, label: "BINDING CONSTRAINT", body: "Thirteen constraint families solved jointly. One sets the ceiling, named and given its evidence class." },
               { icon: Gauge, label: "HEADROOM", body: "The costed ladder of relief: each rung a limit removed, priced, lead-timed, with the racks it unlocks." },
               { icon: Coins, label: "COST", body: "What each rung of relief actually costs, quoted at your site's own conditions, not a vendor's reference case." },
-              { icon: Clock, label: "TIME", body: "The single item that sets your energisation date. Not a typical lead time — yours." },
+              { icon: Clock, label: "TIME", body: "The single item that sets your energisation date. Where its lead time is an assumption it is labelled one, not a date." },
             ].map((s, i) => {
               const Icon = s.icon;
               return (
@@ -224,7 +224,7 @@ export function HomeClient() {
             className="panel panel-hover p-5 flex flex-col gap-1.5 text-left"
           >
             <span className="eyebrow text-[10px]">
-              {eurFromCents(PRODUCTS.density_screen.amountCents).toUpperCase()} · {PRODUCTS.density_screen.turnaroundDays} DAYS
+              {eurFromCents(PRODUCTS.density_screen.amountCents).toUpperCase()} · {PRODUCTS.density_screen.turnaroundDays} DAYS FROM INTAKE
             </span>
             <span className="font-semibold text-ghost">Commission a Density Screen</span>
             <span className="text-sm text-mute leading-relaxed">
@@ -306,7 +306,7 @@ export function HomeClient() {
               <Link href="/developers#rates" className="text-power underline">
                 See what it costs
               </Link>
-              . Screening output only; an engagement is what carries an engineer&apos;s sign-off.
+              . Screening output only; an engagement is produced and reviewed by a senior engineer, in screening mode and not as an issued engineering opinion.
             </p>
           </div>
           <FreeAllowanceForm compact heading="Get the free allowance" />
@@ -320,7 +320,7 @@ export function HomeClient() {
             <h2 className="section-title">Fixed fee, named artefact, no hourly billing.</h2>
           </div>
           <p className="max-w-sm text-mute">
-            Four engagements, every one priced before it starts. The figure on each card
+            Every engagement is priced before it starts. The figure on each card
             is what checkout charges, read from the same catalogue. The Study is booked
             with a deposit against a fee agreed with you at scoping, before any work.
           </p>
@@ -556,7 +556,7 @@ export function HomeClient() {
             Let's pressure-test your<br />time-to-power.
           </h2>
           <p className="text-lg text-mute max-w-md mx-auto">
-            One hall, five working days, a fixed fee. You get the constraint that
+            One hall, five working days from a complete intake, a fixed fee. You get the constraint that
             binds it and the list of inputs nobody has measured.
           </p>
           <div className="mt-9 flex justify-center">

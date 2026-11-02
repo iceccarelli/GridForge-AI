@@ -3,8 +3,17 @@
 #108 fixed the hall comparison (a JPY or USD figure in capex_eur ranked as if it were euros) and left the behind-the-meter route unchecked.
 It shares the ranking, so it inherits the fix; this pins that, so a future second ranking path cannot quietly lose it.
 """
+import pytest
+
 from gridforge.api import server as S
 from gridforge.api.tiers import Tier
+
+@pytest.fixture(autouse=True)
+def pinned_today(monkeypatch):
+    """Bids carry a validity date, and the engine refuses an expired one against today's date. Pin 'today' so these tests do not
+    start failing on the day their fixture bids expire."""
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-13")
+
 
 REQUEST = {
     "load_profile": {"csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n2026-01-01T00:15:00,30000\n2026-01-01T00:30:00,30000\n",

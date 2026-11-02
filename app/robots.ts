@@ -62,6 +62,8 @@ const PRIVATE_PATHS = [
   "/q/",
   "/p/",
   "/commissioned",
+  // /power/deploy/<token> is a customer's case; the trailing slash leaves the public /power/deploy page open.
+  "/power/deploy/",
   "/workspace",
   // The presentation mode of the Observatory is a stage tool, not a page for a search result. /observatory itself is indexable.
   "/observatory/presenter",

@@ -89,3 +89,41 @@ describe("structured data on the high-intent pages", () => {
     }
   });
 });
+
+describe("audit fixes: discovery and metadata", () => {
+  it("every page that sets openGraph also sets its title and description (Next replaces, not merges)", () => {
+    for (const f of ["app/page.tsx", "app/power/compare/page.tsx", "app/power/deploy/page.tsx"]) {
+      const src = readFileSync(f, "utf8");
+      const og = src.slice(src.indexOf("openGraph"));
+      expect(og, f).toMatch(/title:/);
+      expect(og, f).toMatch(/description:/);
+    }
+  });
+
+  it("customer power-deploy cases are closed to crawlers but the public page is not", async () => {
+    const robots = (await import("@/app/robots")).default;
+    const rules = robots().rules as { userAgent: string; allow?: string | string[]; disallow?: string | string[] }[];
+    const star = rules.find((r) => r.userAgent === "*")!;
+    const dis = ([] as string[]).concat(star.disallow ?? []);
+    expect(dis).toContain("/power/deploy/");
+    expect(dis).not.toContain("/power/deploy");
+  });
+
+  it("the observatory and intelligence pages are linked from the footer", () => {
+    const hrefs = FOOTER_GROUPS.flatMap((g) => g.links.map((l) => l.href));
+    expect(hrefs).toContain("/observatory");
+    expect(hrefs).toContain("/intelligence");
+  });
+
+  it("public copy never promises an engineer's sign-off or a name on an opinion", () => {
+    for (const f of ["components/HomeClient.tsx", "app/pricing/page.tsx", "components/ThreePaths.tsx", "app/qualify/page.tsx", "lib/site.ts", "lib/products.ts"]) {
+      const t = readFileSync(f, "utf8").toLowerCase().replace(/&apos;|&rsquo;/g, "'");
+      expect(t, f).not.toMatch(/carries an engineer's sign-off|engineer's name on an opinion|engineering you can rely on/);
+    }
+  });
+
+  it("the Density Screen's turnaround is never stated without its basis on the home page", () => {
+    const t = readFileSync("components/HomeClient.tsx", "utf8");
+    expect(t).not.toMatch(/five working days,\s/);
+  });
+});

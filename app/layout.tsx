@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     template: "%s · Time to Power",
   },
   description:
-    `Give Time to Power the technical information for an existing AI hall, and it will tell you how much useful AI compute the hall can actually support, what blocks it, what fixes it, what the fix costs, and the time to full capacity, with the evidence class behind each figure. Start with a Density Screen: one hall, ${SCREEN_DAYS} working days, ${SCREEN_PRICE}. Powered by GridForge Engine.`,
+    `Give Time to Power the technical information for an existing AI hall, and it will tell you how much useful AI compute the hall can actually support, what blocks it, what fixes it, what the fix costs, and the time to full capacity, with the evidence class behind each figure. Start with a Density Screen: one hall, ${SCREEN_DAYS} working days from a complete intake, ${SCREEN_PRICE}. Powered by GridForge Engine.`,
   keywords: [
     "AI data center power capacity",
     "data hall rack density",
@@ -70,7 +70,7 @@ export const metadata: Metadata = {
     url: siteUrl,
     title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
     description:
-      `The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured. ${SCREEN_PRICE}, ${SCREEN_DAYS} working days.`,
+      `The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured. ${SCREEN_PRICE}, ${SCREEN_DAYS} working days from a complete intake.`,
     siteName: "Time to Power",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "Time to Power" }],
   },

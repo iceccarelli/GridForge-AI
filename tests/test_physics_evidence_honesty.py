@@ -23,6 +23,13 @@ from gridforge.scenario.run import run_all
 from gridforge.validation import EvidenceClass as E
 from payg_rig import rig  # noqa: F401  (fixture)
 
+@pytest.fixture(autouse=True)
+def pinned_today(monkeypatch):
+    """Bids carry a validity date, and the engine refuses an expired one against today's date. Pin 'today' so these tests do not
+    start failing on the day their fixture bids expire."""
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-13")
+
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

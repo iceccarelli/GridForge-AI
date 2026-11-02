@@ -10,7 +10,12 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "BTM Power Deployment Assessment",
   alternates: { canonical: "/power/deploy" },
-  openGraph: { url: "/power/deploy", images: OG_IMAGES },
+  openGraph: {
+    url: "/power/deploy",
+    images: OG_IMAGES,
+    title: "BTM Power Deployment Assessment",
+    description: "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.",
+  },
   description:
     "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.",
 };

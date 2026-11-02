@@ -311,9 +311,8 @@ export async function fetchDeliverables(limit = 200): Promise<AdminDeliverable[]
       "id,created_at,token,kind,status,email,company,amount_cents,title,released_at," +
       "document_html,document_md,deck_html,working_files,intake";
     const get = (select: string) => fetch(`${c.url}/rest/v1/deliverables?select=${select}&order=created_at.desc&limit=${limit}`, { headers: c.headers, cache: "no-store" });
-    // billing_hold exists from migration 0045; without it PostgREST answers 400 and the list is the one it always was.
-    let res = await get(cols + ",billing_hold");
-    if (res.status === 400) res = await get(cols);
+    // billing_hold exists from migration 0045 (applied). A failed read is an error, not a list without the holds.
+    const res = await get(cols + ",billing_hold");
     if (!res.ok) {
       console.error("[GridForge] fetchDeliverables failed:", await storeFault(res));
       return [];
