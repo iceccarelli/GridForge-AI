@@ -18,20 +18,20 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
 
   if (!w) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <h1 className="text-2xl font-semibold text-ghost">Not found</h1>
         <p className="mt-3 text-mute">
           This link does not correspond to a watched hall. Check the address, or reply to the email
           it came in.
         </p>
-      </main>
+      </div>
     );
   }
 
   const notes = w.id === "local" ? [] : await notesFor(w.id);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <header className="mb-8 max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Hall Watch · {w.cadence}
@@ -119,6 +119,6 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
         </section>
       ) : null}
       {w.status !== "cancelled" ? <WatchManage token={token} email={SITE.email} /> : null}
-    </main>
+    </div>
   );
 }

@@ -86,7 +86,7 @@ export function AdminDashboard({
   };
 
   return (
-    <main className="min-h-screen px-4 sm:px-8 py-8 max-w-6xl mx-auto">
+    <div className="min-h-screen px-4 sm:px-8 py-8 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
@@ -236,7 +236,7 @@ export function AdminDashboard({
           );
         })}
       </div>
-    </main>
+    </div>
   );
 }
 

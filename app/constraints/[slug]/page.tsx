@@ -86,7 +86,7 @@ export default async function ConstraintPage({
     .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
       {jsonLd({
         "@context": "https://schema.org",
         "@type": "TechArticle",
@@ -223,7 +223,7 @@ export default async function ConstraintPage({
           {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
-    </main>
+    </div>
   );
 }
 

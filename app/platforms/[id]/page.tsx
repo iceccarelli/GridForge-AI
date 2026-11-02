@@ -61,7 +61,7 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
     variableMeasured: rows.map(([name, value]) => ({ "@type": "PropertyValue", name, value })),
   };
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
         data={[
           dataset,
@@ -159,6 +159,6 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
           Engagements
         </Link>
       </div>
-    </main>
+    </div>
   );
 }

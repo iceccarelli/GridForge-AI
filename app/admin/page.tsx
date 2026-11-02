@@ -28,7 +28,7 @@ export default async function AdminPage() {
   // No password set at all — show setup notice rather than a broken login.
   if (!adminConfigured()) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4">
+      <div className="min-h-screen flex items-center justify-center px-4">
         <div className="panel p-8 max-w-md text-center">
           <div className="eyebrow mb-2">ADMIN — NOT CONFIGURED</div>
           <h1 className="text-xl font-semibold mb-3">Set an admin password</h1>
@@ -42,7 +42,7 @@ export default async function AdminPage() {
             Back to site
           </Link>
         </div>
-      </main>
+      </div>
     );
   }
 

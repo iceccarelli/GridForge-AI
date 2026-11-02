@@ -59,9 +59,9 @@ export default async function ConstraintsPage() {
   const ref = await constraintReference();
   if (!ref) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
         <p className="text-mute">The constraint reference is not built on this deployment.</p>
-      </main>
+      </div>
     );
   }
 
@@ -71,7 +71,7 @@ export default async function ConstraintsPage() {
   }));
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       {jsonLd(constraintCatalogueJsonLd(ref))}
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
@@ -149,6 +149,6 @@ export default async function ConstraintsPage() {
           {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
-    </main>
+    </div>
   );
 }

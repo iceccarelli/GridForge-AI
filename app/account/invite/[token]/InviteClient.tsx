@@ -86,7 +86,7 @@ export default function InviteClient({ token }: { token: string }) {
   }
 
   return (
-    <main className="bg-ink min-h-screen pt-32 pb-24 flex items-start justify-center">
+    <div className="bg-ink min-h-screen pt-32 pb-24 flex items-start justify-center">
       <div className="w-full max-w-lg px-6">
         <div className="eyebrow text-power mb-3">GridForge Intelligence</div>
         <h1 className="text-3xl font-semibold tracking-tight mb-6">Your invitation</h1>
@@ -151,6 +151,6 @@ export default function InviteClient({ token }: { token: string }) {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

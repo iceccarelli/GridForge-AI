@@ -17,6 +17,12 @@ from ..common import ASSUMED, V
 from ..validation import EvidenceClass, Quantity
 
 
+#: How a unit is run. The customer decides, because only they know: a unit that runs continuously carries load all the time, so its
+#: start-up is never on the critical path; a unit held on STANDBY is offline until needed, so until it is up something else (a
+#: battery) has to carry the load it is relied on for. Undeclared means the engine assumes nothing about start-up and says so.
+OPERATING_MODES = ("continuous", "standby")
+
+
 @dataclass
 class GenerationUnit:
     id: str
@@ -36,6 +42,8 @@ class GenerationUnit:
     reactive_power_capability_MVAR: Quantity | None = None
     operating_cost_eur_per_MWh: Quantity | None = None
     black_start: bool = False
+    #: "continuous" | "standby" | None (not declared). See OPERATING_MODES.
+    operating_mode: str | None = None
     #: Commercial fields, optional and additive. None means "not costed yet" —
     #: an architecture comparison that includes this unit reports its CAPEX/lead
     #: time as UNKNOWN rather than silently pricing it at zero.

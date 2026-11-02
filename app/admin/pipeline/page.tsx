@@ -27,7 +27,7 @@ export const metadata = {
 export default async function PipelinePage() {
   if (!adminConfigured()) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-4">
+      <div className="flex min-h-screen items-center justify-center px-4">
         <div className="panel max-w-md p-8 text-center">
           <div className="eyebrow mb-2">ADMIN — NOT CONFIGURED</div>
           <h1 className="mb-3 text-xl font-semibold">Set an admin password</h1>
@@ -39,7 +39,7 @@ export default async function PipelinePage() {
             Back to site
           </Link>
         </div>
-      </main>
+      </div>
     );
   }
 

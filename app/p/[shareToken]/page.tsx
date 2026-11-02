@@ -35,17 +35,17 @@ export default async function SharedProjectPage({ params }: { params: Promise<{ 
   if (!got.ok) {
     if (got.status === 404) notFound();
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <h1 className="text-2xl font-semibold text-ghost">This project cannot be shown right now</h1>
         <p className="mt-3 text-mute">The record could not be read, so nothing is displayed rather than something incomplete. Try again shortly.</p>
-      </main>
+      </div>
     );
   }
   const v = got.view;
   const where = [v.project.company, v.project.site_label].filter(Boolean).join(" · ");
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <header>
         <p className="eyebrow">Shared project · read-only{where ? ` · ${where}` : ""}</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{v.project.project_name}</h1>
@@ -78,7 +78,7 @@ export default async function SharedProjectPage({ params }: { params: Promise<{ 
         </Link>{" "}
         · <Link href="/pricing" className="text-power">Pricing</Link>
       </p>
-    </main>
+    </div>
   );
 }
 

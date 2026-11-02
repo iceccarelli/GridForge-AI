@@ -55,7 +55,7 @@ export default async function ApiAccessPage({
   const isPayg = row.plan === "api_payg";
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-4 pb-24 pt-28 sm:px-8">
       <header>
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           API access · {row.account}
@@ -137,7 +137,7 @@ export default async function ApiAccessPage({
           </p>
         </Box>
       </section>
-    </main>
+    </div>
   );
 }
 

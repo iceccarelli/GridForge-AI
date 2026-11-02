@@ -35,7 +35,7 @@ export default function AdminLogin() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <form onSubmit={submit} className="panel p-8 w-full max-w-sm">
         <div className="flex items-center gap-2 mb-1 text-power">
           <Lock size={16} />
@@ -61,6 +61,6 @@ export default function AdminLogin() {
           {!busy && <ArrowRight size={16} />}
         </button>
       </form>
-    </main>
+    </div>
   );
 }

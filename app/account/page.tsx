@@ -96,11 +96,11 @@ export default function AccountPage() {
   }
 
   if (loading) {
-    return (<main className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></main>);
+    return (<div className="bg-ink min-h-screen pt-32 flex justify-center"><Loader2 className="animate-spin text-power" /></div>);
   }
 
   return (
-    <main className="bg-ink min-h-screen pt-28 pb-24">
+    <div className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -123,7 +123,7 @@ export default function AccountPage() {
           {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : unverified ? <ConfirmEmail /> : <Gate />}
           {active && role === "owner" && <div className="mt-8"><TeamPanel headers={authHeaders} /></div>}
         </div>
-    </main>
+    </div>
   );
 }
 

@@ -34,7 +34,7 @@ export function IntelligenceClient() {
   }
 
   return (
-    <main className="bg-ink min-h-screen pt-28 pb-24">
+    <div className="bg-ink min-h-screen pt-28 pb-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
             <div className="eyebrow text-power mb-4">GridForge Intelligence</div>
@@ -147,6 +147,6 @@ export function IntelligenceClient() {
             <span>Secure payment via Stripe</span>
           </div>
         </div>
-    </main>
+    </div>
   );
 }

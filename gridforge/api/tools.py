@@ -321,6 +321,19 @@ TOOLS: list[dict] = [
                                "nameplate_MW": {"type": "number"},
                                "capex_eur": {"type": "number"},
                                "lead_time_weeks": {"type": "number"},
+                               "operating_mode": {"type": "string", "enum": ["continuous", "standby"],
+                                                  "description": "how you run this unit. 'continuous': it is "
+                                                                 "already running, so its start-up is never on the "
+                                                                 "critical path. 'standby': it is offline until "
+                                                                 "needed, so declared storage must carry the load "
+                                                                 "it is relied on for until it is up, or the "
+                                                                 "result is flagged for engineering study. Omit it "
+                                                                 "and nothing about start-up is assumed or checked "
+                                                                 "(the result says so)."},
+                               "startup_time_min": {"type": "number", "minimum": 0, "maximum": 1440,
+                                                    "description": "start-up time from offline to carrying "
+                                                                   "load, minutes; replaces the library default "
+                                                                   "for the technology"},
                                "fuel_type": {"type": "string",
                                             "description": "e.g. 'natural gas' — feeds the "
                                                            "fuel readiness gate; omitting it "

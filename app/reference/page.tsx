@@ -81,7 +81,7 @@ export default async function ReferencePage() {
   const gridOnly = pack?.scenarios?.find((s) => s.id === "full_dlc");
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Worked example · nothing withheld
@@ -257,7 +257,7 @@ export default async function ReferencePage() {
           {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
-    </main>
+    </div>
   );
 }
 

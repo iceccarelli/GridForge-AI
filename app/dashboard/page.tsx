@@ -140,7 +140,7 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
@@ -323,6 +323,6 @@ export default function Dashboard() {
           </p>
         </>
       ) : null}
-    </main>
+    </div>
   );
 }

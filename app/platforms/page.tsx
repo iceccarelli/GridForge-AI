@@ -33,14 +33,14 @@ export default async function PlatformsPage() {
   const lib = await platformLibrary();
   if (!lib) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
         <p className="text-mute">The platform library is not built on this deployment.</p>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Platform library
@@ -185,7 +185,7 @@ export default async function PlatformsPage() {
           The thirteen constraints
         </Link>
       </section>
-    </main>
+    </div>
   );
 }
 

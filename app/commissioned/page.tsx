@@ -42,7 +42,7 @@ export default async function CommissionedPage({
   const access = !row && sessionId ? await accessForSession(sessionId) : { state: "unknown" as const };
   if (access.state !== "unknown") {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
           {access.name} is {access.state === "ready" ? "open" : "being set up"}.
@@ -71,7 +71,7 @@ export default async function CommissionedPage({
             <p className="text-faint text-sm">Still nothing after a few minutes? Reply to the Stripe receipt and we will resend the link.</p>
           </div>
         )}
-      </main>
+      </div>
     );
   }
 
@@ -89,7 +89,7 @@ export default async function CommissionedPage({
     const terms = depositTerms(deposit.kind);
     const fee = deposit.agreed_fee_cents;
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
           {product?.name ?? "Your deposit"} is recorded. Next, we scope it with you.
@@ -143,12 +143,12 @@ export default async function CommissionedPage({
             No contact from us? Reply to the Stripe receipt and we will pick it up.
           </p>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">Payment received</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">
         The engagement is open. Next we need the hall&apos;s numbers.
@@ -200,6 +200,6 @@ export default async function CommissionedPage({
           </p>
         )}
       </div>
-    </main>
+    </div>
   );
 }

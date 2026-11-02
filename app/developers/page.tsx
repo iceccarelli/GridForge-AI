@@ -104,7 +104,7 @@ export default async function DevelopersPage() {
   const qualifyState = state("/v1/qualify");
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
         data={[
           webPageJsonLd(
@@ -420,7 +420,7 @@ export default async function DevelopersPage() {
           </Link>
         ) : null}
       </section>
-    </main>
+    </div>
   );
 }
 

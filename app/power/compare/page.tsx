@@ -36,7 +36,7 @@ export default async function PowerComparePage() {
   const state = availabilityIn(await deployedEngineRoutes(), "/v1/compare");
   const live = state === "available";
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       {/* A machine reading this page must not be told a tool exists while the engine behind it does not serve it. */}
       {live ? (
         <script
@@ -77,6 +77,6 @@ export default async function PowerComparePage() {
           <TtpCompare />
         </div>
       ) : null}
-    </main>
+    </div>
   );
 }

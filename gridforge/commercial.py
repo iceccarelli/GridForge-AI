@@ -147,9 +147,10 @@ class ApiPlan:
     """Metered access to the engine, sold to software rather than to people.
 
     Deliberately priced well under the engagements, and deliberately not the same
-    product. An engagement is an engineering opinion with a named signatory, an
-    issued status and professional indemnity behind it. The API returns modelled
-    output in screening mode with none of those things — it is for triage, ranking
+    product. An engagement is a document a senior engineer has reviewed and released,
+    in screening mode and not as an issued engineering opinion: the engagement scope
+    excludes any deliverable requiring a professional signature. The API returns
+    modelled output in screening mode with no engineer's review behind it — it is for triage, ranking
     and monitoring at a scale no human deliverable can reach. Anyone who confuses
     the two will find the distinction printed on every response they get back.
     """

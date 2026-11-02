@@ -305,6 +305,19 @@ def _generation_from_request(d: dict) -> GenerationUnit:
                                  f"{unit.id} lead time", ASSUMED, band=0.35)
     if d.get("fuel_type"):
         unit.fuel_type = str(d["fuel_type"])
+    if d.get("operating_mode") is not None:
+        from ..power.generation import OPERATING_MODES
+        mode = d["operating_mode"]
+        if not isinstance(mode, str) or mode not in OPERATING_MODES:
+            raise DeploymentRequestError(
+                f"generation {unit.id}: operating_mode must be one of {', '.join(OPERATING_MODES)}, not {mode!r}")
+        unit.operating_mode = mode
+    if d.get("startup_time_min") is not None:
+        raw = d["startup_time_min"]
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not (0 <= raw <= 1440) or raw != raw:
+            raise DeploymentRequestError(
+                f"generation {unit.id}: startup_time_min must be a number of minutes from 0 to 1440, not {raw!r}")
+        unit.startup_time_min = V(float(raw), "min", f"{unit.id} start-up time (declared)", ASSUMED)
     return unit
 
 

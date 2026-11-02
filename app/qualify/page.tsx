@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function QualifyPage() {
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
         data={[
           qualifierJsonLd(),
@@ -98,6 +98,6 @@ export default function QualifyPage() {
           </div>
         ))}
       </section>
-    </main>
+    </div>
   );
 }

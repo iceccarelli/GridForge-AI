@@ -181,7 +181,7 @@ export function EngagementPipeline({
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 pb-24 pt-24 sm:px-8">
+    <div className="mx-auto w-full max-w-7xl px-5 pb-24 pt-24 sm:px-8">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Pipeline</p>
@@ -713,7 +713,7 @@ export function EngagementPipeline({
           </div>
         )}
       </section>
-    </main>
+    </div>
   );
 }
 
