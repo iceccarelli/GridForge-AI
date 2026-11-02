@@ -74,12 +74,16 @@ def _worked_example(doc: ConstraintDoc) -> dict | None:
                 "answer": f"{residual:.0f} kW per rack, still to air",
                 "consequence": "More than two racks' worth in a hall designed for 8 kW."}
     if doc.id == "cdu_capacity":
-        return {"question": "What approach does a 6 °C loop offer a platform accepting "
-                            f"{plat.max_inlet_liquid_C.value:.0f} °C?",
-                "working": f"{plat.max_inlet_liquid_C.value:.0f} °C − 6 °C",
-                "answer": f"{plat.max_inlet_liquid_C.value - 6:.0f} K approach",
-                "consequence": "A unit selected at a 5 K approach is being asked to work at "
-                               "four to five times that."}
+        from ..thermal.library import TCS_SUPPLY_DESIGN_C as _tcs
+        tcs = _tcs.value
+        narrow = tcs - 28
+        return {"question": f"What approach does a 6 °C facility loop offer a technology loop run at {tcs:.0f} °C, "
+                            "and what does a 28 °C loop offer?",
+                "working": f"{tcs:.0f} °C − 6 °C; {tcs:.0f} °C − 28 °C",
+                "answer": f"{tcs - 6:.0f} K approach, and {narrow:.0f} K",
+                "consequence": f"A unit rated at a 5 K approach is not held back by the first, but delivers about "
+                               f"{min(narrow, 5) / 5:.0%} of its rating at the second (the engine derates linearly and caps at the "
+                               "rating)."}
     if doc.id == "hydraulic_flow":
         flow = plat.flow_l_per_min_per_rack.value
         return {"question": "What flow do 20 racks need?",

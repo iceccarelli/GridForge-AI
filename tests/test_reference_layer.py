@@ -103,8 +103,13 @@ def test_the_worked_examples_are_arithmetically_correct(payload):
     loading = plat.rack_mass_kg.value / plat.rack_footprint_m2.value
     assert f"{loading:,.0f}" in by_id["floor_loading"]["worked_example"]["answer"]
 
-    approach = plat.max_inlet_liquid_C.value - 6
-    assert f"{approach:.0f} K" in by_id["cdu_capacity"]["worked_example"]["answer"]
+    # the approach is the technology loop's design supply minus the facility water (what the engine's CDU derate uses), not the platform's
+    # maximum inlet: a wider approach helps a CDU, a narrower one (warm facility water) is what derates it
+    from gridforge.thermal.library import TCS_SUPPLY_DESIGN_C
+    ex = by_id["cdu_capacity"]["worked_example"]
+    assert f"{TCS_SUPPLY_DESIGN_C.value - 6:.0f} K" in ex["answer"]
+    assert f"{TCS_SUPPLY_DESIGN_C.value - 28:.0f} K" in ex["answer"]
+    assert "NARROWS" in by_id["cdu_capacity"]["relation"] and "widens in your favour" not in by_id["cdu_capacity"]["relief"]
 
 
 def test_a_platform_change_moves_the_published_numbers(monkeypatch, payload):

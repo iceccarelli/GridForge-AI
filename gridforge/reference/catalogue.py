@@ -217,19 +217,19 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
     ConstraintDoc(
         id="cdu_capacity", name="CDU capacity at site conditions", domain=_T,
         slug="cdu-capacity-site-conditions",
-        headline="A CDU rated at a 5 K approach, installed on a site running 24 K, is not the "
-                 "CDU you bought.",
+        headline="A CDU rated at a 5 K approach, on a site whose facility water leaves it 2 K, is not "
+                 "the CDU you bought.",
         limits="Heat rejected from the technology cooling loop to facility water, at the "
                "approach temperature the site actually offers.",
-        relation="Usable duty falls as the approach between facility water and the platform's "
-                 "maximum inlet temperature widens. A unit quoted at a 5 K approach delivers "
-                 "materially less at the 20–25 K approach a legacy 6 °C loop presents.",
-        binds_when="Take your facility water supply temperature and your platform's maximum "
-                   "technology-loop inlet temperature. The difference is your available "
-                   "approach. Ask for the selection output at THAT approach — not the "
-                   "datasheet figure.",
-        relief="Additional CDU capacity, or raising the facility water temperature so the "
-               "approach widens in your favour.",
+        relation="Usable duty falls as the approach NARROWS: the gap between the temperature the "
+                 "technology loop is run at and the facility water that cools it. A unit quoted at "
+                 "a 5 K approach delivers materially less where warm facility water leaves it only "
+                 "2 K; a cold legacy loop (6 °C) offers a wide approach and is not the constraint.",
+        binds_when="Take the temperature you will run the technology loop at and your facility "
+                   "water supply temperature. The difference is your available approach. Ask "
+                   "for the selection output at THAT approach — not the datasheet figure.",
+        relief="Additional CDU capacity, or a colder facility water supply so the approach "
+               "widens.",
         relief_risk="A linear derate against approach is a screening approximation. Confirm "
                     "against the manufacturer's performance curve before committing capital. "
                     "Technology-loop water chemistry is a warranty question before it is a "
