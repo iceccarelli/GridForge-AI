@@ -238,31 +238,9 @@ class _Reader:
             return default
         note, src, ev = None, None, evidence
         if isinstance(raw, dict):
-            note = raw.get("note")
-            src = raw.get("source")
-            # Both are carried through the whole run as text. Anything else (a list, an object, a number) is not a note or a source, and a
-            # deeply nested one made the engine fail with a RecursionError (a 500 "engine error") instead of a refusal.
-            for what, val in (("note", note), ("source", src)):
-                if val is not None and not isinstance(val, str):
-                    raise IntakeError(f"{path}.{what} must be text, not {type(val).__name__}")
-            if raw.get("evidence"):
-                declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
-                if declared is None:
-                    raise IntakeError(f"{path}: declared evidence {raw['evidence']!r} is not an evidence class; "
-                                      f"use one of {', '.join(_EVIDENCE_BY_NAME)}")
-                if declared is not None:
-                    # A client can attest to their own data, never to our validation: E6/E7 are
-                    # earned by the calibration ledger, not by writing them into an intake.
-                    if declared > EvidenceClass.E5_CUSTOMER_DATA:
-                        self.report.warnings.append(
-                            f"{path}: declared evidence {declared.short} capped at E5; "
-                            f"E6 and E7 are earned through the calibration ledger.")
-                        declared = EvidenceClass.E5_CUSTOMER_DATA
-                    ev = declared
-            if "value" not in raw:
-                raise IntakeError(f"{label} ({path}) is an object without a \"value\"; give a number, or an object with a value "
-                                  f"(and optionally note, source, evidence)")
-            raw = raw["value"]
+            raw, note, src, declared = self._annotation(path, label, raw)
+            if declared is not None:
+                ev = declared
         if ev is None:
             ev = spec.supplied_evidence if spec else CUSTOMER
         if spec:
@@ -279,6 +257,43 @@ class _Reader:
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
 
+    def _annotation(self, path: str, label: str, raw: dict):
+        """Read `{value, note, source, evidence}`: the value, the note, the source and the declared evidence class (None when not declared).
+
+        One reading for every field that accepts the object form, so a figure's source cannot be honoured on one field and silently dropped on
+        another."""
+        note = raw.get("note")
+        src = raw.get("source")
+        # Both are carried through the whole run as text. Anything else (a list, an object, a number) is not a note or a source, and a
+        # deeply nested one made the engine fail with a RecursionError (a 500 "engine error") instead of a refusal.
+        for what, val in (("note", note), ("source", src)):
+            if val is not None and not isinstance(val, str):
+                raise IntakeError(f"{path}.{what} must be text, not {type(val).__name__}")
+        declared = None
+        if raw.get("evidence"):
+            declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
+            if declared is None:
+                raise IntakeError(f"{path}: declared evidence {raw['evidence']!r} is not an evidence class; "
+                                  f"use one of {', '.join(_EVIDENCE_BY_NAME)}")
+            # A client can attest to their own data, never to our validation: E6/E7 are
+            # earned by the calibration ledger, not by writing them into an intake.
+            if declared > EvidenceClass.E5_CUSTOMER_DATA:
+                self.report.warnings.append(
+                    f"{path}: declared evidence {declared.short} capped at E5; "
+                    f"E6 and E7 are earned through the calibration ledger.")
+                declared = EvidenceClass.E5_CUSTOMER_DATA
+        if "value" not in raw:
+            raise IntakeError(f"{label} ({path}) is an object without a \"value\"; give a number, or an object with a value "
+                              f"(and optionally note, source, evidence)")
+        return raw["value"], note, src, declared
+
+    def _record_source(self, path: str, inner, note, src, declared) -> None:
+        """Show a number's source and note beside it in the report, as for every other annotated figure."""
+        spec = FIELD_BY_PATH.get(path)
+        if (src or note) and isinstance(inner, (int, float)) and not isinstance(inner, bool) and inner == inner:
+            ev = declared or (spec.supplied_evidence if spec else CUSTOMER)
+            self.report.sourced.append(SuppliedSource(path, spec.label if spec else path, spec.unit if spec else "", float(inner), src, note, ev.short))
+
     def raw(self, path: str, default=None):
         v = _dig(self.doc, path)
         if isinstance(v, list) and not v:
@@ -288,9 +303,14 @@ class _Reader:
             if spec:
                 self._gap(path, spec, None, str(default))
             return default
+        spec = FIELD_BY_PATH.get(path)
         if isinstance(v, dict) and "value" in v:
-            v = v["value"]
-        if FIELD_BY_PATH.get(path):
+            inner, note, src, declared = self._annotation(path, spec.label if spec else path, v)
+            # The object form promises that a source and a note are recorded. The integer-typed fields read through here used to accept it and
+            # drop both (and any declared evidence) without a word; now a number's provenance is shown beside it like every other figure's.
+            self._record_source(path, inner, note, src, declared)
+            v = inner
+        if spec:
             self.report.supplied.append(path)
         return v
 
@@ -870,7 +890,8 @@ def _load_document(doc: dict) -> Intake:
         r._gap(tariff_path, FIELD_BY_PATH.get(tariff_path), None, "library placeholder of 140 EUR/MWh (E0)")
     horizon = _dig(doc, "economics.horizon_years")
     if isinstance(horizon, dict) and "value" in horizon:
-        horizon = horizon["value"]
+        horizon, h_note, h_src, h_declared = r._annotation("economics.horizon_years", "lifecycle horizon", horizon)
+        r._record_source("economics.horizon_years", horizon, h_note, h_src, h_declared)
     if horizon is None:
         r._gap("economics.horizon_years", FIELD_BY_PATH.get("economics.horizon_years"), None,
                "none: no lifecycle value is computed")
@@ -882,7 +903,8 @@ def _load_document(doc: dict) -> Intake:
         econ.horizon_years = n
     rate = _dig(doc, "economics.discount_rate")
     if isinstance(rate, dict) and "value" in rate:
-        rate = rate["value"]
+        rate, r_note, r_src, r_declared = r._annotation("economics.discount_rate", "discount rate", rate)
+        r._record_source("economics.discount_rate", rate, r_note, r_src, r_declared)
     if rate is None:
         r._gap("economics.discount_rate", FIELD_BY_PATH.get("economics.discount_rate"), None,
                "none: the lifecycle value is undiscounted")

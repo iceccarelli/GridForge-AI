@@ -940,6 +940,15 @@ def handle_bids(body: dict, tier: Tier) -> dict:
 MAX_PORTFOLIO_HALLS = 50
 
 
+def _declares_hall_ids(doc) -> bool:
+    """True when the document itself names both its site and its hall (rather than leaving them to the library's default ids)."""
+    if not isinstance(doc, dict):
+        return False
+    site, hall = doc.get("site"), doc.get("hall")
+    ids = (site.get("id") if isinstance(site, dict) else None, hall.get("id") if isinstance(hall, dict) else None)
+    return all(isinstance(v, str) and v.strip() for v in ids)
+
+
 def handle_portfolio(body: dict, tier: Tier) -> dict:
     docs = body.get("intakes")
     if not isinstance(docs, list) or not docs:
@@ -952,8 +961,19 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     if fmt not in ("json", "md", "html"):
         raise ApiError(422, f"unknown format {fmt!r}", allowed=["json", "md", "html"])
     entries = []
-    for d in docs:
+    seen: dict[tuple[str, str], int] = {}
+    for i, d in enumerate(docs):
         intake, results = _run(d)
+        # A hall is a physical thing: listing it twice cannot create capacity. Refuse a repeat by name rather than add it up silently. Two
+        # entries are "the same hall" when they carry the same DECLARED site and hall ids, or are identical documents. Entries whose ids
+        # were left to the library default (every sparse intake is SITE-1 / HALL-1) are not assumed to be one hall.
+        key = (intake.context.site.id, intake.context.hall.id)
+        first = seen.get(key)
+        if first is not None and ((_declares_hall_ids(d) and _declares_hall_ids(docs[first])) or d == docs[first]):
+            raise ApiError(422, f"intakes[{i}] repeats site {key[0]!r} hall {key[1]!r} (already intakes[{first}]): a hall counts once, so its "
+                                "capacity would be added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id",
+                           duplicate_of=first, index=i, site_id=key[0], hall_id=key[1])
+        seen.setdefault(key, i)
         entries.append(SiteEntry(intake=intake, results=results, objective=objective))
     out = {
         "objective": objective.value,
