@@ -63,6 +63,7 @@ from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, portfolio_rows
+from ..reporting.portfolio import build as build_portfolio
 from ..commercial import ENGAGEMENTS, PAYG, engagement
 from ..change import EnvelopeState, StateError, diff as envelope_diff, diff_from_state
 from ..reporting.change_note import build as build_change_note_report
@@ -947,16 +948,36 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         raise ApiError(422, f"intakes lists {len(docs)} halls, more than the {MAX_PORTFOLIO_HALLS} one request may rank; send the rest as "
                             "further requests", max_halls=MAX_PORTFOLIO_HALLS)
     objective = _objective(body)
+    fmt = str(body.get("format") or "json").lower()
+    if fmt not in ("json", "md", "html"):
+        raise ApiError(422, f"unknown format {fmt!r}", allowed=["json", "md", "html"])
     entries = []
     for d in docs:
         intake, results = _run(d)
         entries.append(SiteEntry(intake=intake, results=results, objective=objective))
-    return {
+    out = {
         "objective": objective.value,
         "halls": portfolio_rows(entries, objective),
         "total_racks": sum(e.racks for e in entries),
         "total_racks_evidence": min(e.rack_class for e in entries).name,
     }
+    if fmt != "json":
+        # The Portfolio Screen as it is delivered: the ranking document, rendered and gated like every other document, and one model
+        # pack per hall, all from the SAME solve as the ranking above, so the document and the packs cannot disagree.
+        client = body.get("client", "Portfolio")
+        if not isinstance(client, str) or not client.strip() or len(client) > 120:
+            raise ApiError(422, "client must be a non-empty string of at most 120 characters")
+        report = build_portfolio(entries, client=client.strip(), objective=objective)
+        out["document"] = _rendered(report, [r for e in entries for r in e.results], fmt)
+        packs: dict[str, dict] = {}
+        for e in entries:
+            stem = f"{e.intake.context.site.id}_{e.intake.context.hall.id}".replace("/", "-")
+            key, n = stem, 2
+            while key in packs:                       # two halls with the same ids must not overwrite each other
+                key, n = f"{stem}-{n}", n + 1
+            packs[key] = model_pack(e.intake, e.results)
+        out["model_packs"] = packs
+    return out
 
 
 #: Per-request context for handlers that need to know WHO is asking (only /v1/estimate does). Set by the

@@ -632,6 +632,8 @@ jobs:
         run: python -m pytest tests/test_projects_migration.py -q
       - name: Intake evidence (0044) and one-time purchase holds (0045) against real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_intake_evidence_migration.py tests/test_one_time_purchase_holds_migration.py -q
+      - name: Envelope Study and Portfolio Screen, deposit to delivery - real engine + PostgREST + PostgreSQL, mail intercepted (fails, never skips)
+        run: npx vitest run tests/site/deposit-study.realdb.test.ts
       - name: Real engine + real PostgREST + real PostgreSQL acceptance (fails, never skips)
         run: npx vitest run tests/site/verified-power-record.realdb.test.ts
       - name: Cost-evidence migrations (fresh database and upgrade of legacy runs) against real PostgreSQL (fails, never skips)

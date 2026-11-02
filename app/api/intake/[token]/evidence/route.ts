@@ -1,5 +1,6 @@
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
+import { isPortfolioKind, PORTFOLIO_NO_EVIDENCE } from "@/lib/engagement-intake";
 import { getByIntakeToken } from "@/lib/deliverables";
 import { attachIntakeFile, listIntakeEvidence } from "@/lib/intake-evidence";
 import { checkEvidenceType, EVIDENCE_MAX_BYTES } from "@/lib/projects";
@@ -38,6 +39,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  if (isPortfolioKind(row.kind)) return NextResponse.json({ ok: false, error: PORTFOLIO_NO_EVIDENCE }, { status: 422 });
   // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
   {
     const held = paymentHoldAnswer(row);
@@ -52,6 +54,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const row = await getByIntakeToken(token);
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  if (isPortfolioKind(row.kind)) return NextResponse.json({ ok: false, error: PORTFOLIO_NO_EVIDENCE }, { status: 422 });
   // A refunded or disputed purchase is withheld (lib/one-time-holds.ts): the buyer is told why, not shown a 404, and nothing is generated.
   {
     const held = paymentHoldAnswer(row);

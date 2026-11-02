@@ -179,9 +179,15 @@ TOOLS: list[dict] = [
         "/v1/portfolio",
         {"type": "object", "required": ["intakes"],
          "properties": {"intakes": {"type": "array", "items": _INTAKE_SCHEMA, "minItems": 1},
-                        "objective": _OBJECTIVE},
+                        "objective": _OBJECTIVE,
+                        "format": {"type": "string", "enum": ["json", "md", "html"], "default": "json",
+                                   "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen "
+                                                  "document and one model pack per hall, from the same solve."},
+                        "client": {"type": "string", "maxLength": 120,
+                                   "description": "the name printed on the rendered document (format md or html)"}},
          "additionalProperties": False},
-        returns="halls ranked against the objective, with the total deployable rack count.",
+        returns="halls ranked against the objective, with the total deployable rack count; with format md or html, "
+                "also the rendered document and a model pack per hall.",
     ),
     _tool(
         "gridforge_diff",

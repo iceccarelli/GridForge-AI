@@ -31,10 +31,10 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 /**
- * Open the study intake for a scoped Envelope Study deposit: one engagement, the buyer's private intake link emailed. Repeating it is
+ * Open the intake for a scoped Envelope Study or Portfolio Screen deposit: one engagement, the buyer's private intake link emailed. Repeating it is
  * safe (it never opens a second one). The deposit becomes delivered by itself when the study is released.
  */
-function OpenStudyIntake({ id }: { id: string }) {
+function OpenDepositIntake({ id }: { id: string }) {
   const [state, setState] = useState<{ busy: boolean; note: string | null; error: boolean }>({ busy: false, note: null, error: false });
   async function open() {
     setState({ busy: true, note: null, error: false });
@@ -65,7 +65,7 @@ function OpenStudyIntake({ id }: { id: string }) {
         className="inline-flex items-center gap-1.5 rounded border border-power/50 px-2.5 py-1 text-xs font-semibold text-power hover:bg-power/10 disabled:opacity-60"
       >
         {state.busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-        Open study intake
+        Open intake
       </button>
       {state.note ? <p className={`mt-1 text-[11px] ${state.error ? "text-flag" : "text-verified"}`}>{state.note}</p> : null}
     </div>
@@ -306,9 +306,9 @@ export function EngagementPipeline({
         <h2 className="mb-1 text-sm font-semibold text-ghost">Deposits</h2>
         <p className="mb-3 max-w-3xl text-xs text-faint">
           A named person scopes the work. Move a deposit forward with POST /api/admin/deposits/[id] (contacted needs an owner; scoped
-          needs the scope, the fee inside the published band and a delivery date). Once an Envelope Study deposit is scoped, open its
-          intake here: the buyer gets a private link, the study runs through the same intake, engine, review and release as every
-          other engagement, and the deposit becomes delivered when the study is released.
+          needs the scope, the fee inside the published band and a delivery date). Once an Envelope Study or Portfolio Screen deposit is
+          scoped, open its intake here: the buyer gets a private link, the work runs through the same intake, engine, review and release as
+          every other engagement, and the deposit becomes delivered when it is released.
         </p>
         {deposits === null ? (
           <Empty>{depositsError ?? "The deposit list could not be read."} This is not a statement that there are none.</Empty>
@@ -343,7 +343,7 @@ export function EngagementPipeline({
                     <Td className="font-mono text-mute">{d.balance_due_cents === null ? "—" : eurFromCents(d.balance_due_cents)}</Td>
                     <Td className="font-mono text-faint">{d.due ?? (d.status === "scoped" ? "no date on file" : "—")}</Td>
                     <Td>
-                      {d.status === "scoped" && PRODUCT_BY_KIND[d.kind]?.endpoint === "study" ? <OpenStudyIntake id={d.id} /> : <span className="text-faint">—</span>}
+                      {d.status === "scoped" && (PRODUCT_BY_KIND[d.kind]?.endpoint === "study" || PRODUCT_BY_KIND[d.kind]?.endpoint === "portfolio") ? <OpenDepositIntake id={d.id} /> : <span className="text-faint">—</span>}
                     </Td>
                   </tr>
                 ))}

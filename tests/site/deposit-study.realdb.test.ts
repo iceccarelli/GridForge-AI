@@ -174,16 +174,16 @@ describe.skipIf(!enabled)("Envelope Study: deposit to delivery on real PostgreSQ
     expect(await rows("deliverables", `&stripe_session_id=eq.${session}`)).toHaveLength(0);
   });
 
-  it("is admin-only, and only for the Envelope Study", async () => {
+  it("is admin-only, and only for the two deposit-backed engagements", async () => {
     const email = `auth-${uid()}@hall.example`, { dep } = await scopedDeposit(email);
     jar.length = 0;
     expect((await openIntake(dep.id)).status).toBe(401);
-    // a Portfolio Screen deposit never opens a study
-    const session = `cs_pf_${uid()}`;
-    await checkout(session, "portfolio_screen_deposit", 1_500_000, `pf-${uid()}@hall.example`);
-    const [pf] = await rows("engagement_deposits", `&stripe_session_id=eq.${session}`);
+    // a deposit of a legacy kind (no engagement behind it) never opens an intake
+    const legacy = `cs_legacy_${uid()}`;
+    await checkout(legacy, "engagement_deposit", 900_000, `lg-${uid()}@hall.example`);
+    const [lg] = await rows("engagement_deposits", `&stripe_session_id=eq.${legacy}`);
     jar.push({ name: "gf_admin", value: adminToken()! });
-    expect((await openIntake(pf.id)).status).toBe(422);
+    expect((await openIntake(lg.id)).status).toBe(422);
   });
 
   it("scoped -> one engagement and one email, however many times it is clicked or clicked at once", async () => {
@@ -246,5 +246,111 @@ describe.skipIf(!enabled)("Envelope Study: deposit to delivery on real PostgreSQ
     expect(page.length).toBeGreaterThan(5_000);
     // the open-intake call on a delivered deposit is refused
     expect((await openIntake(dep.id)).status).toBe(409);
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+const HALLS_CSV = [
+  "siteName,hallId,metro,country,contractedMW,currentPeakMW,currentItLoadMW,buswayAmpacityA,tapoffMaxA,positionsAvailable,plantSupplyC,firmCapacityMVA,floorLoadingKPa,plantCapacityKW,platform",
+  "North Hall,H1,Dublin,IE,12,7.4,4.9,400,63,180,6,15,12,6000,gb300_nvl72",
+  "South Hall,H2,Cork,IE,30,18,12,1600,250,400,7,36,15,16000,gb300_nvl72",
+  "East Hall,H3,Galway,IE,6,4.2,2.5,250,63,90,8,,,,gb300_nvl72",
+  "West Hall,H4,Limerick,IE,20,11,7,800,125,260,6,24,12,11000,gb200_nvl72",
+  "Port Hall,H5,Dublin,IE,45,30,20,3200,400,700,6,52,18,30000,gb300_nvl72",
+].join("\n");
+
+async function scopedPortfolio(email: string) {
+  const session = `cs_pf_${uid()}`;
+  expect((await checkout(session, "portfolio_screen_deposit", 1_500_000, email)).status).toBe(200);
+  const [dep] = await rows("engagement_deposits", `&stripe_session_id=eq.${session}`);
+  jar.push({ name: "gf_admin", value: adminToken()! });
+  const { POST: step } = await import("@/app/api/admin/deposits/[id]/route");
+  const go = (b: Record<string, unknown>) => step(json(b), { params: Promise.resolve({ id: dep.id }) });
+  expect((await go({ owner: "A. Rivera" })).status).toBe(200);
+  const scoped = await go({ scope_note: "Five halls, ranked by deployable compute", agreed_fee_cents: 9_000_000, delivery_due_on: "2099-04-30" });
+  expect(scoped.status, await scoped.clone().text()).toBe(200);
+  return { dep, session };
+}
+
+describe.skipIf(!enabled)("Portfolio Screen: deposit to delivery on real PostgreSQL and the real engine", () => {
+  it("the whole journey: scoped -> intake opened -> five halls -> the engine ranks them -> draft with a pack per hall -> release -> delivered", async () => {
+    const { parsePortfolioCsv } = await import("@/lib/portfolio-csv");
+    const email = `pf-${uid()}@fund.example`, { dep, session } = await scopedPortfolio(email);
+    expect((await openIntake(dep.id)).status).toBe(200);
+    const [row] = await rows("deliverables", `&stripe_session_id=eq.${session}`);
+    expect(row).toMatchObject({ kind: "portfolio_screen_deposit", status: "awaiting_intake" });
+    expect(mail.filter((m) => to(m).includes(email) && /numbers we need/.test(m.subject))).toHaveLength(1);
+
+    // the buyer's page is the multi-hall form, not the one-hall form
+    const { default: IntakePage } = await import("@/app/intake/[token]/page");
+    const html = renderToStaticMarkup(await IntakePage({ params: Promise.resolve({ token: row.intake_token }) }));
+    expect(html).toContain("The halls to rank");
+
+    // what the form sends: the CSV, parsed exactly as the form parses it
+    const parsed = parsePortfolioCsv(HALLS_CSV);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.halls).toHaveLength(5);
+    const { POST: intake } = await import("@/app/api/intake/[token]/route");
+
+    // refused, and nothing generated: one hall, a repeated hall, a missing required figure
+    for (const bad of [
+      { halls: [parsed.halls[0]] },
+      { halls: [parsed.halls[0], parsed.halls[0]] },
+      { halls: [parsed.halls[0], { ...parsed.halls[1], contractedMW: undefined }] },
+      { halls: parsed.halls, objective: "cheapest" },
+    ]) {
+      const r = await intake(json(bad), ctx(row.intake_token));
+      expect(r.status, JSON.stringify(bad).slice(0, 80)).toBe(422);
+    }
+    expect((await rows("deliverables", `&id=eq.${row.id}`))[0].status).toBe("awaiting_intake");
+
+    // documents are attached to one hall, so the evidence routes refuse a portfolio
+    const ev = await import("@/app/api/intake/[token]/evidence/route");
+    expect((await ev.GET(new Request(siteUrl("/x")), ctx(row.intake_token))).status).toBe(422);
+
+    const res = await intake(json({ client: "North Estate", objective: "max_compute", halls: parsed.halls }), ctx(row.intake_token));
+    const body: any = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.status).toBe("draft");
+    // East Hall left three figures blank: they are named, hall by hall
+    expect(body.assumed.filter((a: any) => a.hall === "East Hall / H3").map((a: any) => a.field).sort()).toEqual(["firmCapacityMVA", "floorLoadingKPa", "plantCapacityKW"]);
+
+    const [draft] = await rows("deliverables", `&id=eq.${row.id}`);
+    expect(draft.status).toBe("draft");
+    expect(draft.title).toMatch(/Portfolio Screen/i);
+    expect(draft.title).toMatch(/5 halls/);
+    const files = Object.keys(draft.working_files);
+    expect(files.filter((f) => f.startsWith("model_pack_")).length).toBe(5);
+    expect(files).toEqual(expect.arrayContaining(["ranking.json", "bundle.json"]));
+    expect(JSON.parse(draft.working_files["bundle.json"]).expected).toEqual(["study", "hall_model_packs"]);
+    const ranking = JSON.parse(draft.working_files["ranking.json"]);
+    expect(ranking.halls).toHaveLength(5);
+    expect(draft.document_md).toContain("North Estate");
+    for (const h of ["North Hall", "South Hall", "East Hall", "West Hall", "Port Hall"]) expect(draft.document_md).toContain(h);
+    // one solve: the packs are exactly the halls that were ranked
+    expect(files.filter((f) => f.startsWith("model_pack_")).sort()).toEqual(["model_pack_EAST-HALL_H3.json", "model_pack_NORTH-HALL_H1.json", "model_pack_PORT-HALL_H5.json", "model_pack_SOUTH-HALL_H2.json", "model_pack_WEST-HALL_H4.json"]);
+    // not delivered by a draft
+    expect((await rows("engagement_deposits", `&id=eq.${dep.id}`))[0].status).toBe("scoped");
+
+    jar.push({ name: "gf_admin", value: adminToken()! });
+    const { PATCH } = await import("@/app/api/admin/deliverables/route");
+    const rel = await PATCH(json({ token: draft.token, reviewed_hash: reviewHash(draft), reviewed_by: "A. Rivera" }, "PATCH"));
+    const relBody: any = await rel.json();
+    expect(rel.status, JSON.stringify(relBody)).toBe(200);
+    expect(relBody.deposit_delivery).toBe("delivered");
+    expect((await rows("engagement_deposits", `&id=eq.${dep.id}`))[0]).toMatchObject({ status: "delivered", delivery_ref: `engagement:${row.id}` });
+
+    // the buyer's page lists a downloadable pack for every hall, and each downloads as JSON
+    const { default: Page } = await import("@/app/deliverable/[token]/page");
+    const page = renderToStaticMarkup(await Page({ params: Promise.resolve({ token: draft.token }) }));
+    expect(page).toContain("by A. Rivera");
+    expect(page.match(/model_pack_/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
+    const dl = await import("@/app/api/deliverable/[token]/route");
+    const first = files.find((f) => f.startsWith("model_pack_"))!;
+    const got = await dl.GET(new Request(siteUrl(`/api/deliverable/${draft.token}?format=csv&file=${encodeURIComponent(first)}`)), ctx(draft.token));
+    expect(got.status).toBe(200);
+    expect(got.headers.get("content-type")).toContain("application/json");
+    expect(Object.keys(JSON.parse(await got.text())).length).toBeGreaterThan(3);
   });
 });

@@ -54,7 +54,8 @@ export const PRODUCT_PAGES: ProductPage[] = [
     buyer: "The director or head of infrastructure who owns the densification or expansion decision for a hall.",
     decision: "Which architecture to commit to, what each step of extra density costs, and when the capacity can be energised.",
     inputs: [
-      "Agreed with you in the scoping call after the deposit, because the scope depends on the hall and the questions that matter to you.",
+      "The scope, agreed with you in the scoping call after the deposit, because it depends on the hall and the questions that matter to you.",
+      "Then the hall's full numbers through a private intake link we email you: grid, busway and tap-off, floor, plant, and the transformer and UPS schedules. Anything you cannot supply is named as an assumption in the study.",
     ],
     limits: [
       "The deposit is not the price of the study. It opens a scoped engagement in the band shown above, agreed with you before the work starts.",
@@ -62,8 +63,9 @@ export const PRODUCT_PAGES: ProductPage[] = [
     ],
     flow: [
       "Pay the deposit; a person contacts you to scope the work.",
-      "The turnaround is counted from the scoping call, not from payment.",
-      "You receive the study, the machine-readable model pack and a walkthrough with your engineers.",
+      "The turnaround is counted from the scoping call, not from payment. Once the scope and fee are agreed, your private intake link is emailed to you.",
+      "You submit the hall's numbers; the engine produces the study and its one-page board summary; a senior engineer reviews and releases it; you receive a private link to the study, the model pack and the working files.",
+      "A walkthrough with your engineers follows the release.",
     ],
   },
   {
@@ -92,7 +94,8 @@ export const PRODUCT_PAGES: ProductPage[] = [
     buyer: "A fund, operator or lender ranking several halls for investment or upgrade.",
     decision: "Which halls to put capital into first, ranked under one methodology.",
     inputs: [
-      "Agreed in the scoping call after the deposit: the list of halls and the data you can supply for each.",
+      "The list of halls, agreed in the scoping call after the deposit.",
+      "Then a private intake link we email you: one row per hall (site, hall, contracted capacity, current peak and IT load, busway and tap-off, rack positions, plant supply temperature, and optionally firm capacity, floor loading and plant capacity), pasted from a spreadsheet or loaded as a CSV. A figure left blank is named as an assumption for that hall.",
     ],
     limits: [
       "The deposit is not the price of the screen. It opens a scoped engagement in the band shown above.",
@@ -100,8 +103,8 @@ export const PRODUCT_PAGES: ProductPage[] = [
     ],
     flow: [
       "Pay the deposit; a person contacts you to scope the work.",
-      "The turnaround is counted from the scoping call, not from payment.",
-      "You receive the ranking and one model pack per hall.",
+      "The turnaround is counted from the scoping call, not from payment. Once the scope and fee are agreed, your private intake link is emailed to you.",
+      "You submit the hall list; every hall is screened with the identical model; a senior engineer reviews and releases the result; you receive a private link to the ranking document and one model pack per hall.",
     ],
   },
   {

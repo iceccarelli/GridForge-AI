@@ -146,6 +146,9 @@ export async function availableCredits(
   };
 }
 
+/** The deposit-backed engagements that run through an intake once scoped: the study (one hall) and the portfolio (several). */
+const OPENS_INTAKE = new Set<string>(["study", "portfolio"]);
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Move one deposit forward by exactly one step. Called only from an admin-authenticated route. */
@@ -293,7 +296,7 @@ async function scope(
 }
 
 /**
- * Open the study intake for a scoped Envelope Study deposit: ONE engagement (a deliverable of the deposit's kind, linked by the deposit's
+ * Open the intake for a scoped Envelope Study or Portfolio Screen deposit: ONE engagement (a deliverable of the deposit's kind, linked by the deposit's
  * Stripe session), and the private intake link emailed to the buyer.
  *
  * Why this is a separate, deliberate act and not automatic at payment: the deposit buys a scoping call, and what the study covers is agreed
@@ -304,7 +307,7 @@ async function scope(
  * opens a second one: the database's own unique constraint on the checkout session (deliverables_one_per_session) refuses a second
  * engagement for the same payment even when two requests race.
  */
-export async function openStudyIntake(
+export async function openDepositIntake(
   id: unknown
 ): Promise<Result<{ deliverable_id: string; created: boolean; emailed: "queued" | "retry" }>> {
   if (!creds()) return STORE_UNCONFIGURED;
@@ -313,8 +316,8 @@ export async function openStudyIntake(
   if (!cur.ok) return { ok: false, status: 502, error: "The deposit could not be read." };
   const dep = cur.data?.[0];
   if (!dep) return { ok: false, status: 404, error: "Not found." };
-  if (PRODUCT_BY_KIND[dep.kind]?.endpoint !== "study") {
-    return { ok: false, status: 422, error: "Only an Envelope Study deposit opens a study intake. This deposit is for a different engagement." };
+  if (!OPENS_INTAKE.has(PRODUCT_BY_KIND[dep.kind]?.endpoint ?? "")) {
+    return { ok: false, status: 422, error: "Only an Envelope Study or Portfolio Screen deposit opens an intake. This deposit is for a different engagement." };
   }
   if (dep.status !== "scoped") {
     return {
@@ -365,7 +368,7 @@ export async function openStudyIntake(
  * (the return value) and the deposit can still be marked delivered by hand through the ordinary step.
  */
 export async function markDepositDeliveredFor(deliverable: { id: string; kind: string; stripe_session_id?: string | null }): Promise<"delivered" | "not_a_deposit" | "already" | "failed"> {
-  if (PRODUCT_BY_KIND[deliverable.kind]?.endpoint !== "study" || !deliverable.stripe_session_id) return "not_a_deposit";
+  if (!OPENS_INTAKE.has(PRODUCT_BY_KIND[deliverable.kind]?.endpoint ?? "") || !deliverable.stripe_session_id) return "not_a_deposit";
   const c = creds();
   if (!c) return "failed";
   try {
