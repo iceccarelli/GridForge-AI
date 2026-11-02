@@ -162,7 +162,10 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
       subject: "Your GridForge engagement — the numbers we need",
       text:
         "Thank you. The engagement is open.\n\n" +
-        "The next step is the hall's own numbers. Everything you do not supply is filled " +
+        (PRODUCT_BY_KIND[String(row.kind ?? "")]?.endpoint === "portfolio"
+          ? "The next step is the list of halls, one row per hall. "
+          : "The next step is the hall's own numbers. ") +
+        "Everything you do not supply is filled " +
         "from a library default and named as an assumption in the deliverable, so the more " +
         "of it you complete, the fewer of your conclusions rest on our guesses.\n\n" +
         `${SITE_URL}/intake/${intake}` +

@@ -1,4 +1,5 @@
 import { releaseHoldByOperator } from "@/lib/one-time-holds";
+import { markDepositDeliveredFor } from "@/lib/deposits";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
@@ -254,6 +255,9 @@ export async function PATCH(req: Request) {
     let holdLifted: boolean | undefined;
     if (onHold) holdLifted = await releaseHoldByOperator(row, "acknowledge_payment_issue on release");
     const link = `${SITE_URL}/deliverable/${token}`;
+    // A study opened from a deposit: releasing it IS the delivery, so the deposit moves to delivered in the same breath (by reference to
+    // the engagement, never the token). After the release is durably written; a failure is reported, not hidden, and does not undo it.
+    const depositDelivery = await markDepositDeliveredFor(row);
     // Releasing is the moment the buyer is owed their document: the intake page promised "You will get
     // the link once it is released". Report what actually happened so a failed send is handed to the
     // operator instead of being assumed.
@@ -292,6 +296,7 @@ export async function PATCH(req: Request) {
       ...(sent.sent ? {} : { notify_error: sent.reason }),
       ...(queued.state === "unavailable" ? {} : { buyer_email: queued.state }),
       reviewer_recorded: Boolean(reviewer),
+      ...(depositDelivery === "not_a_deposit" ? {} : { deposit_delivery: depositDelivery }),
       ...(onHold ? { payment_hold_lifted: holdLifted === true } : {}),
       // Which engine build the document was read against at generation; false = it could not be read and the page says so.
       provenance_recorded: Boolean((priorMeta as { provenance?: unknown }).provenance),

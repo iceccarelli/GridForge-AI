@@ -15,7 +15,7 @@
 
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
-import { PRODUCTS, PRODUCT_BY_KIND } from "./products";
+import { PRODUCTS, PRODUCT_BY_KIND, type DeliverableEndpoint } from "./products";
 import { engineFetch } from "@/lib/rate-limit";
 import { ENGINE_CALL_TIMEOUT_MS, claimMeta, generatingStampOf, isStaleGenerating } from "@/lib/engagement-state";
 
@@ -536,9 +536,15 @@ export function isPackFile(name: string): boolean {
 /** The response schedule of a Procurement Specification: the template a supplier fills in, and the relief it was written for. */
 export const SPEC_FILES = ["response_template.json", "specification.json"] as const;
 
+/** A Portfolio Screen carries one model pack per hall, as `model_pack_<site>_<hall>.json` in the engagement's working files. */
+export const HALL_PACK_PREFIX = "model_pack_";
+export const PORTFOLIO_RANKING = "ranking.json";
+
 export function packArtifacts(kind: string): string[] {
   const endpoint = PRODUCT_BY_KIND[kind]?.endpoint;
   if (endpoint === "study") return ["study", "board_summary"];
+  // The Portfolio Screen is bought as the ranking document AND a model pack for every hall in it (its catalogue entry).
+  if (endpoint === "portfolio") return ["study", "hall_model_packs"];
   // A Procurement Specification is bought for three things (its catalogue entry): the specification, a machine-readable
   // response schedule, and a bid comparison against the relief it was written for. Without the schedule and the relief
   // there is nothing for suppliers to fill in and nothing to compare against, so a specification generated without them
@@ -577,6 +583,7 @@ export function packState(row: Pick<DeliverableRecord, "kind" | "document_html" 
     study: Boolean(row.document_html),
     board_summary: Boolean(files[BOARD_HTML]) && Boolean(files[BOARD_MD]),
     response_schedule: SPEC_FILES.every((f) => Boolean(files[f])),
+    hall_model_packs: Object.keys(files).some((f) => f.startsWith(HALL_PACK_PREFIX) && Boolean(files[f])),
   };
   const missing = expected.filter((a) => !has[a]);
   return { complete: missing.length === 0, missing, legacy: false };
@@ -647,7 +654,7 @@ export type StoreOutcome =
 export async function generateAndStore(
   row: Pick<DeliverableRecord, "token" | "kind" | "working_files"> & { claim?: string },
   doc: Record<string, unknown>,
-  endpoint: "screen" | "study" | "spec"
+  endpoint: DeliverableEndpoint
 ): Promise<StoreOutcome> {
   // The caller has already claimed the row (`generating`). Every write here is a compare-and-set on that status, so
   // a release or a second claim that slipped in is never overwritten.
@@ -687,10 +694,10 @@ export async function generateAndStore(
     await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], row.claim);
     return { ok: false, stage: "render", error: "The engine returned the study without its markdown form." };
   }
-  if (endpoint === "spec") {
+  if (endpoint === "spec" || endpoint === "portfolio") {
     files[BUNDLE_MANIFEST] = JSON.stringify({ expected: packArtifacts(row.kind), generated: new Date().toISOString() });
   }
-  const state = endpoint === "study" || endpoint === "spec" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
+  const state = endpoint === "study" || endpoint === "spec" || endpoint === "portfolio" ? packState(candidate) : { complete: true, missing: [] as string[], legacy: true };
   // Fingerprint of what was generated (the whole pack); release must name it (see the admin route).
   meta.hash_version = 2;
   meta.document_sha256 = packHashV2(candidate);
@@ -803,9 +810,68 @@ async function engineIdentity(base: string, key: string): Promise<EngineIdentity
   }
 }
 
+type Rendered = Extract<Awaited<ReturnType<typeof renderDeliverable>>, { ok: true }>;
+
+/**
+ * The Portfolio Screen: the ranking document in both formats and a model pack for every hall. The halls are ranked ONCE per format by the
+ * engine (`/v1/portfolio`); the packs and the ranking rows come from the html call, so the delivered pack and the document it sits beside
+ * are one solve. The markdown form is the same inputs rendered a second time, deterministic by construction.
+ */
+async function renderPortfolio(base: string, key: string, doc: Record<string, unknown>): Promise<Rendered | { ok: false; error: string }> {
+  type PortfolioAnswer = {
+    document?: { title?: string; document?: string; document_full?: string };
+    halls?: unknown;
+    total_racks?: unknown;
+    total_racks_evidence?: unknown;
+    objective?: unknown;
+    model_packs?: Record<string, unknown>;
+  };
+  const call = async (format: "html" | "md") => {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/portfolio`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify({ intakes: doc.intakes, objective: doc.objective, client: doc.client, format }),
+      signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : `engine ${res.status}`);
+    return body as PortfolioAnswer;
+  };
+  try {
+    const [identity, html, md] = await Promise.all([engineIdentity(base, key), call("html"), call("md")]);
+    const packs = html.model_packs ?? {};
+    if (!html.document?.document || !md.document?.document || Object.keys(packs).length === 0) {
+      return { ok: false, error: "The engine returned the portfolio without its document or its hall packs." };
+    }
+    const working: Record<string, string> = {
+      [PORTFOLIO_RANKING]: JSON.stringify(
+        { objective: html.objective, halls: html.halls, total_racks: html.total_racks, total_racks_evidence: html.total_racks_evidence },
+        null,
+        2
+      ),
+    };
+    for (const [stem, pack] of Object.entries(packs)) working[`${HALL_PACK_PREFIX}${stem.replace(/[^A-Za-z0-9._-]/g, "_")}.json`] = JSON.stringify(pack, null, 2);
+    return {
+      ok: true,
+      title: html.document.title ?? "Portfolio Screen",
+      html: html.document.document,
+      md: md.document.document,
+      deck: null,
+      working,
+      board: null,
+      binding: null,
+      spec: null,
+      provenance: identity,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "engine unreachable" };
+  }
+}
+
 export async function renderDeliverable(
   intake: Record<string, unknown>,
-  endpoint: "screen" | "study" | "spec"
+  endpoint: DeliverableEndpoint
 ): Promise<
   | {
       ok: true;
@@ -841,6 +907,7 @@ export async function renderDeliverable(
   const key = process.env.GRIDFORGE_API_KEY;
   if (!base) return { ok: false, error: "GRIDFORGE_API_URL is not set" };
   if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
+  if (endpoint === "portfolio") return renderPortfolio(base, key, intake);
 
   const call = async (format: "html" | "md", bundle = false) => {
     const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {

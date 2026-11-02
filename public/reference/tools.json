@@ -370,7 +370,7 @@
       "method": "POST",
       "tier": "client",
       "units": 1,
-      "returns": "halls ranked against the objective, with the total deployable rack count.",
+      "returns": "halls ranked against the objective, with the total deployable rack count; with format md or html, also the rendered document and a model pack per hall.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -395,6 +395,21 @@
             ],
             "default": "max_compute",
             "description": "What the recommendation optimises for."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "md",
+              "html"
+            ],
+            "default": "json",
+            "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen document and one model pack per hall, from the same solve."
+          },
+          "client": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "the name printed on the rendered document (format md or html)"
           }
         },
         "additionalProperties": false
@@ -1345,6 +1360,21 @@
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json",
+              "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen document and one model pack per hall, from the same solve."
+            },
+            "client": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "the name printed on the rendered document (format md or html)"
             }
           },
           "additionalProperties": false
@@ -2292,6 +2322,21 @@
               ],
               "default": "max_compute",
               "description": "What the recommendation optimises for."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "md",
+                "html"
+              ],
+              "default": "json",
+              "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen document and one model pack per hall, from the same solve."
+            },
+            "client": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "the name printed on the rendered document (format md or html)"
             }
           },
           "additionalProperties": false

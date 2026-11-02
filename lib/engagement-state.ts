@@ -107,7 +107,8 @@ export function depositTerms(kind: string): DepositTerms | null {
       `It is not the fee for the work and it does not buy the document.`,
     opens:
       `It opens a scoping conversation with you. The fee is agreed there, in writing, for the scope agreed there, and falls ` +
-      `within ${band}. Nothing is produced until that scope is agreed.`,
+      `within ${band}. Nothing is produced until that scope is agreed. Once it is, your private intake link is emailed to you, you supply ` +
+      `the numbers there, a senior engineer reviews what is produced, and you receive it at a private link.`,
     credit:
       `The deposit is credited in full against the agreed fee; the balance is the agreed fee less the deposit.${alsoCredited}`,
     timing:

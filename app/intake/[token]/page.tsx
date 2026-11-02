@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EngagementIntake } from "@/components/EngagementIntake";
+import { PortfolioIntake } from "@/components/PortfolioIntake";
+import { PORTFOLIO_MAX_HALLS, PORTFOLIO_MIN_HALLS, isPortfolioKind } from "@/lib/engagement-intake";
 import { getByIntakeToken } from "@/lib/deliverables";
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
 
@@ -29,6 +31,22 @@ export default async function IntakePage({ params }: { params: Promise<{ token: 
       <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <h1 className="text-2xl font-semibold text-ghost">{held.body.payment_hold === "refunded" ? "This purchase was refunded" : "Payment in dispute"}</h1>
         <p className="mt-4 text-mute" data-testid="payment-hold">{held.body.error}</p>
+      </div>
+    );
+  }
+  if (isPortfolioKind(row.kind)) {
+    return (
+      <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
+        <header className="mb-8 max-w-3xl">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Commissioned engagement</p>
+          <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">The halls to rank</h1>
+          <p className="mt-4 text-mute">
+            One row per hall. Every hall is screened with the identical model and library, so a difference in the ranking comes from the
+            halls, not the method. A figure you leave blank is filled from a library default and named as an assumption for that hall in the
+            document; the evidence class on every figure says where an order cannot be relied on.
+          </p>
+        </header>
+        <PortfolioIntake token={token} minHalls={PORTFOLIO_MIN_HALLS} maxHalls={PORTFOLIO_MAX_HALLS} />
       </div>
     );
   }

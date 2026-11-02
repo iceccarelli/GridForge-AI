@@ -6,6 +6,9 @@
 // buys the screen has already decided to spend, which is the only qualification
 // signal that has ever meant anything.
 
+/** Which engine endpoint generates a purchased deliverable. */
+export type DeliverableEndpoint = "screen" | "study" | "spec" | "portfolio";
+
 export type ProductId =
   | "density_screen"
   | "envelope_study_deposit"
@@ -63,7 +66,7 @@ export interface Product {
    * branching on the kind, which is how a EUR 18,000 specification purchase
    * once generated a Density Screen.
    */
-  endpoint?: "screen" | "study" | "spec";
+  endpoint?: DeliverableEndpoint;
 }
 
 export const PRODUCTS: Record<ProductId, Product> = {
@@ -138,6 +141,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     producesDeliverable: false,
     surface: "ladder",
     ladderOrder: 40,
+    endpoint: "portfolio",
     opensBandCents: [6_000_000, 14_000_000],
   },
   procurement_spec: {
@@ -244,7 +248,7 @@ export const LADDER_PRODUCTS: Product[] = Object.values(PRODUCTS)
  * Specification purchase silently generated a Density Screen. The client paid
  * EUR 18,000 for the wrong document and nothing in the system objected.
  */
-export function deliverableEndpoint(kind: string): "screen" | "study" | "spec" | null {
+export function deliverableEndpoint(kind: string): DeliverableEndpoint | null {
   const p = PRODUCT_BY_KIND[kind];
   if (!p) return null;
   return p.endpoint ?? null;

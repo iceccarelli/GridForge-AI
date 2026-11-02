@@ -8,7 +8,11 @@ import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
   assumedFields,
   intakeSchemaFor,
+  isPortfolioKind,
+  portfolioAssumed,
+  portfolioIntakeSchema,
   toIntakeDocument,
+  toPortfolioDocument,
   ASSUMABLE_SOURCE,
 } from "@/lib/engagement-intake";
 import { applyConfirmedValues, confirmedForIntake } from "@/lib/intake-evidence";
@@ -121,10 +125,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // The schema is the product's, not one shape for everything. A Density Screen
   // asks for what the free qualifier asks for; a Procurement Specification asks
   // for all of it, because its duties end up on a purchase order.
-  const parsed = intakeSchemaFor(row.kind).safeParse(raw);
-  if (!parsed.success) {
+  // A Portfolio Screen is several halls in one submission; every other product is one hall.
+  const portfolio = isPortfolioKind(row.kind);
+  const parsedPortfolio = portfolio ? portfolioIntakeSchema.safeParse(raw) : null;
+  const parsed = portfolio ? null : intakeSchemaFor(row.kind).safeParse(raw);
+  const failed = parsedPortfolio && !parsedPortfolio.success ? parsedPortfolio.error : parsed && !parsed.success ? parsed.error : null;
+  if (failed) {
     return NextResponse.json(
-      { ok: false, error: "Validation failed", issues: parsed.error.flatten() },
+      { ok: false, error: "Validation failed", issues: failed.flatten(), ...(portfolio ? { hall_issues: failed.issues.map((i) => ({ path: i.path.join("."), message: i.message })) } : {}) },
       { status: 422 }
     );
   }
@@ -132,12 +140,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // What the customer left to us. The engine names every assumption in the
   // document itself; this is so the confirmation they see on submit says the same
   // thing, rather than the first they hear of it being a document footnote.
-  const typedAssumed = assumedFields(parsed.data as Record<string, unknown>);
+  const typedAssumed = parsed?.success ? assumedFields(parsed.data as Record<string, unknown>) : [];
+  const portfolioData = parsedPortfolio?.success ? parsedPortfolio.data : null;
+  const portfolioGaps = portfolioData ? portfolioAssumed(portfolioData) : [];
   // A Procurement Specification quotes duties "at the site conditions stated". The summer design dry bulb is optional in the
   // schema (the engine has a library default), so when it is left blank the buyer is told at submission that the duties
   // rest on a default and not on their site, rather than finding out on the released page.
   const specAssumptions =
-    row.kind === "procurement_spec" && (parsed.data as { designDrybulbC?: unknown }).designDrybulbC === undefined
+    row.kind === "procurement_spec" && parsed?.success && (parsed.data as { designDrybulbC?: unknown }).designDrybulbC === undefined
       ? [{ field: "designDrybulbC", source: "your site's summer design dry-bulb temperature (the climate basis the suppliers must quote at)" }]
       : [];
 
@@ -148,14 +158,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   return g.run(async () => {
     // Values the buyer confirmed from their own documents (lib/intake-evidence.ts) go in with their provenance. Done BEFORE the claim:
     // a contradiction (a typed figure that differs from a confirmed one) is refused here, so it does not use up the one submission.
-    const evidence = await confirmedForIntake(row);
+    // A portfolio has no single hall to attach a document to: the evidence panel is not offered for it, and nothing is read here.
+    const evidence = portfolioData ? ({ ok: true, confirmed: [] as Awaited<ReturnType<typeof confirmedForIntake>> extends infer R ? (R extends { confirmed: infer C } ? C : never) : never } as const) : await confirmedForIntake(row);
     if (!evidence.ok) {
       return NextResponse.json(
         { ok: false, error: "We could not read your confirmed documents just now. Nothing was submitted; please try again shortly." },
         { status: 503 }
       );
     }
-    const merged = applyConfirmedValues(toIntakeDocument(parsed.data, row.company ?? undefined), parsed.data as Record<string, unknown>, evidence.confirmed);
+    const merged = portfolioData
+      ? ({ ok: true, doc: toPortfolioDocument(portfolioData, row.company ?? undefined) } as const)
+      : applyConfirmedValues(toIntakeDocument(parsed!.data as never, row.company ?? undefined), parsed!.data as Record<string, unknown>, evidence.confirmed);
     if (!merged.ok) {
       return NextResponse.json(
         {
@@ -248,7 +261,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         message:
           "Received. Part of your pack is still being produced; we will complete it, have a senior engineer " +
           "review it and come back to you. Nothing has been published.",
-        assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
+        assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions, ...portfolioGaps],
       });
     }
 
@@ -273,7 +286,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       // Said here as well as in the document. A customer who left three numbers
       // blank should hear what we assumed at the moment they submitted, not
       // discover it in a footnote a week later.
-      assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions],
+      assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions, ...portfolioGaps],
     });
   });
 }

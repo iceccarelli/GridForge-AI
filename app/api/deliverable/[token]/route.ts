@@ -55,7 +55,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
       headers: {
         "Content-Type": name.endsWith(".csv")
           ? "text/csv; charset=utf-8"
-          : "text/plain; charset=utf-8",
+          : name.endsWith(".json")
+            ? "application/json; charset=utf-8"
+            : "text/plain; charset=utf-8",
         "Content-Disposition": `attachment; filename="${name}"`,
         "Cache-Control": "no-store",
       },

@@ -35,6 +35,7 @@
 //                         report, it is a number on an order.
 
 import { z } from "zod";
+import { PRODUCT_BY_KIND } from "@/lib/products";
 
 const num = (max: number) => z.coerce.number().nonnegative().max(max);
 
@@ -157,6 +158,62 @@ export const screenIntakeSchema = z.object({
  */
 export function intakeSchemaFor(kind: string) {
   return kind === "density_screen" ? screenIntakeSchema : engagementIntakeSchema;
+}
+
+/**
+ * The Portfolio Screen: several halls ranked under one methodology. Each hall is a Density Screen's intake (what the free qualifier
+ * proves is enough to rank on), so the same three optional figures per hall become named assumptions, hall by hall. Sold for five to
+ * fifteen halls; two is the least a ranking means anything for, and fifteen is the most one engagement is scoped for.
+ */
+export const PORTFOLIO_MIN_HALLS = 2;
+export const PORTFOLIO_MAX_HALLS = 15;
+export const OBJECTIVES = ["max_compute", "min_cost", "fastest"] as const;
+
+export const portfolioIntakeSchema = z
+  .object({
+    client: z.string().trim().min(1).max(120).optional(),
+    objective: z.enum(OBJECTIVES).default("max_compute"),
+    halls: z.array(screenIntakeSchema).min(PORTFOLIO_MIN_HALLS).max(PORTFOLIO_MAX_HALLS),
+  })
+  .superRefine((v, ctx) => {
+    // Two halls with the same site and hall id would be one row in the ranking and one pack name: refuse, naming both.
+    const seen = new Map<string, number>();
+    v.halls.forEach((h, i) => {
+      const k = `${h.siteName.toLowerCase()}/${h.hallId.toLowerCase()}`;
+      const first = seen.get(k);
+      if (first !== undefined) ctx.addIssue({ code: "custom", path: ["halls", i, "hallId"], message: `hall ${i + 1} repeats site "${h.siteName}" hall "${h.hallId}" (hall ${first + 1}); each hall needs its own site and hall id` });
+      else seen.set(k, i);
+    });
+  });
+export type PortfolioIntake = z.infer<typeof portfolioIntakeSchema>;
+
+export const PORTFOLIO_NO_EVIDENCE =
+  "Documents are attached to one hall at a time, so the Portfolio Screen does not take them. Supply each hall's figures in the portfolio form; anything you leave blank is named as an assumption for that hall.";
+
+export function isPortfolioKind(kind: string): boolean {
+  return PRODUCT_BY_KIND[kind]?.endpoint === "portfolio";
+}
+
+/** What the engine's /v1/portfolio takes: one intake document per hall, plus the objective and the name printed on the document. */
+export function toPortfolioDocument(i: PortfolioIntake, company?: string): Record<string, unknown> {
+  return {
+    client: i.client ?? company ?? "Portfolio",
+    objective: i.objective,
+    intakes: i.halls.map((h) => {
+      const doc = toIntakeDocument(h, i.client ?? company) as { site?: Record<string, unknown> };
+      // The engine names a pack after the site and hall ids. Left alone every site is "SITE-1", so two halls both called H1 at different
+      // sites would share a name. The id is derived from the site's own name, only here: a single-hall document is unchanged.
+      const slug = h.siteName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "SITE";
+      return { ...doc, site: { ...(doc.site ?? {}), id: slug } };
+    }),
+  };
+}
+
+/** The figures each hall left to us, hall by hall (the portfolio form's version of assumedFields). */
+export function portfolioAssumed(i: PortfolioIntake): { hall: string; field: AssumableField; source: string }[] {
+  return i.halls.flatMap((h) =>
+    assumedFields(h as unknown as Record<string, unknown>).map((field) => ({ hall: `${h.siteName} / ${h.hallId}`, field, source: ASSUMABLE_SOURCE[field] }))
+  );
 }
 
 /** Which of the assumable fields this submission left to us. */

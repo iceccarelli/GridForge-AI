@@ -75,14 +75,14 @@ export default async function CommissionedPage({
     );
   }
 
-  // A deposit opens no intake: a person scopes the work with the buyer. Say so, from the record.
+  // A deposit opens no intake at payment: a person scopes the work with the buyer first, and the intake is opened after. Say so, from the record.
   const deposit = !row && sessionId ? await depositBySession(sessionId) : null;
   if (deposit) {
     const product = PRODUCT_BY_KIND[deposit.kind];
     const stage: Record<DepositStatus, string> = {
       paid: "Payment received. We have not contacted you yet.",
       contacted: "We have contacted you to scope the engagement.",
-      scoped: "The scope has been agreed. The work is under way.",
+      scoped: "The scope has been agreed. Your private intake link is emailed to you when we open the intake; the work starts from the numbers you supply there.",
       delivered: "Delivered.",
     };
     // What this payment reserves, what it opens and how it is credited: from the catalogue, never typed here.
@@ -98,7 +98,8 @@ export default async function CommissionedPage({
           <p>
             This engagement is scoped with you directly — there is no intake form to fill in first. A
             member of the team will contact you at the email you paid with to agree what is being
-            studied and what we need from you.
+            studied and what we need from you. After that we open your intake and email you a private
+            link to supply the numbers; a senior engineer reviews the result before you receive it.
           </p>
           {product ? (
             <p>

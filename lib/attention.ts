@@ -164,6 +164,8 @@ export async function attentionList(now: number = Date.now()): Promise<Attention
 
 export interface DepositView {
   id: string;
+  /** The Stripe metadata kind of the deposit (what the buyer paid the deposit for). */
+  kind: string;
   what: string;
   buyer: string | null;
   company: string | null;
@@ -194,6 +196,7 @@ export function shapeDeposits(rows: Row[], now: number = Date.now()): DepositVie
       const credit = fee === null ? null : (num(p.credit_applied_cents) ?? 0);
       return {
         id: String(p.id),
+        kind: String(p.kind),
         what: nameOf(String(p.kind)),
         buyer: str(p.email),
         company: str(p.company),
