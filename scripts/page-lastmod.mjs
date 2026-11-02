@@ -52,6 +52,10 @@ export function routeSources() {
     "/legal/security": ["app/legal/security/page.tsx"],
   };
   for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
+  const platforms = existsSync(path.join(ROOT, "public/reference/platforms.json"))
+    ? JSON.parse(readFileSync(path.join(ROOT, "public/reference/platforms.json"), "utf8")).platforms.filter((p) => !p.generic && p.sources?.length)
+    : [];
+  for (const p of platforms) routes[`/platforms/${p.id}`] = ["app/platforms/[id]/page.tsx", "lib/platform-pages.ts", "public/reference/platforms.json"];
   for (const slug of slugs) routes[`/constraints/${slug}`] = ["app/constraints/[slug]/page.tsx", `public/reference/constraints/${slug}.json`];
   return routes;
 }

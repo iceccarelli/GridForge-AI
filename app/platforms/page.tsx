@@ -5,6 +5,7 @@ import { ArrowRight, Ban } from "lucide-react";
 import { platformLibrary } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { pageablePlatforms } from "@/lib/platform-pages";
 
 export const metadata: Metadata = {
   title: "AI rack platforms — power, liquid fraction, flow and floor loading",
@@ -86,7 +87,13 @@ export default async function PlatformsPage() {
             {lib.platforms.map((p) => (
               <tr key={p.id} className="border-t border-line/60 align-top">
                 <td className="p-3">
-                  <span className="font-semibold text-ghost">{p.name}</span>
+                  {pageablePlatforms([p]).length ? (
+                    <Link href={`/platforms/${p.id}`} className="font-semibold text-ghost hover:text-power">
+                      {p.name}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold text-ghost">{p.name}</span>
+                  )}
                   <span className="block text-[11px] text-faint">
                     {p.gpus_per_rack} GPUs · {p.status}
                   </span>
