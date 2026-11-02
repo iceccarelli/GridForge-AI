@@ -203,6 +203,7 @@ there is no separate machine price list.
 Cite the page and its generation date, and carry the evidence class with the
 number. Figures are modelled from published design values; none is a measurement of
 any customer's asset. Citation metadata: ${SITE}/api/cite
+OpenAPI 3.1 description of the engine's HTTP interface (generated from the tool list): ${SITE}/openapi.json
 
 ## Contact
 
