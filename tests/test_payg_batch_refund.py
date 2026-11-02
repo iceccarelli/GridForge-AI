@@ -15,6 +15,18 @@ from payg_rig import INTAKE, rig  # noqa: F401  (fixture)
 
 QUALIFY = {"contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW": 4.9,
            "busway_ampacity_A": 400, "tapoff_max_A": 63, "plant_supply_C": 6, "positions_available": 180}
+def _distinct_halls(doc, n):
+    """n copies of one intake, each its own hall (a portfolio counts a hall once, so a repeat is refused)."""
+    import copy
+    out = []
+    for i in range(n):
+        d = copy.deepcopy(doc)
+        d.setdefault("site", {})["id"] = f"SITE-{i + 1}"
+        d.setdefault("hall", {})["id"] = f"HALL-{i + 1}"
+        out.append(d)
+    return out
+
+
 BAD_INTAKE = {"grid": {"contracted_MW": "abc"}}
 
 
@@ -101,7 +113,7 @@ def test_a_refund_is_never_written_twice_for_one_charge(rig):
 # --- randomized: ledger net == units of the delivered, billable calls ------------------------------
 MENU = {
     "paid_ok_1": (lambda i: tool(i, "gridforge_screen", {"intake": INTAKE}), 1, True),
-    "paid_ok_2": (lambda i: tool(i, "gridforge_portfolio", {"intakes": [INTAKE, INTAKE]}), 2, True),
+    "paid_ok_2": (lambda i: tool(i, "gridforge_portfolio", {"intakes": _distinct_halls(INTAKE, 2)}), 2, True),
     "paid_fail": (lambda i: tool(i, "gridforge_screen", {"intake": BAD_INTAKE}), 0, False),
     "paid_fail_portfolio": (lambda i: tool(i, "gridforge_portfolio", {"intakes": [INTAKE, BAD_INTAKE]}), 0, False),
     "free_ok": (lambda i: tool(i, "gridforge_qualify", QUALIFY), 0, True),

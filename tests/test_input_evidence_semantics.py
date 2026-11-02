@@ -257,5 +257,17 @@ def test_a_portfolio_beyond_the_hall_limit_is_refused_before_any_hall_is_solved(
 def test_a_portfolio_of_the_size_the_product_sells_is_unaffected():
     from gridforge.api.server import handle_portfolio
 
-    out = handle_portfolio({"intakes": [BASE] * 15}, Tier.CLIENT)
+    out = handle_portfolio({"intakes": _distinct_halls(BASE, 15)}, Tier.CLIENT)
     assert len(out["halls"]) == 15
+
+
+def _distinct_halls(doc, n):
+    """n copies of one intake, each its own hall (a portfolio counts a hall once, so a repeat is refused)."""
+    import copy
+    out = []
+    for i in range(n):
+        d = copy.deepcopy(doc)
+        d.setdefault("site", {})["id"] = f"SITE-{i + 1}"
+        d.setdefault("hall", {})["id"] = f"HALL-{i + 1}"
+        out.append(d)
+    return out

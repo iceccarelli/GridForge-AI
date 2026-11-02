@@ -17,6 +17,18 @@ QUALIFY = {"contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW
            "busway_ampacity_A": 400, "tapoff_max_A": 63, "plant_supply_C": 6, "positions_available": 180}
 
 
+def _distinct_halls(doc, n):
+    """n copies of one intake, each its own hall (a portfolio counts a hall once, so a repeat is refused)."""
+    import copy
+    out = []
+    for i in range(n):
+        d = copy.deepcopy(doc)
+        d.setdefault("site", {})["id"] = f"SITE-{i + 1}"
+        d.setdefault("hall", {})["id"] = f"HALL-{i + 1}"
+        out.append(d)
+    return out
+
+
 def econ(rig, month=None):
     q = f"?month={month}" if month else ""
     s, b, _ = rig.get("/v1/admin/economics" + q, key=ADMIN)
@@ -220,7 +232,7 @@ def test_revenue_is_payg_units_from_the_net_ledger_at_the_payg_price(rig):
     rig.post("/v1/screen", BAD, key=payg)                        # charged then refunded: nets to 0
     rig.post("/v1/screen", INTAKE, key=trial)                    # 1 free unit
     rig.post("/v1/study", INTAKE, key=sub)                       # 5 subscription units
-    rig.post("/v1/portfolio", {"intakes": [INTAKE, INTAKE, INTAKE]}, key=payg)   # 3
+    rig.post("/v1/portfolio", {"intakes": _distinct_halls(INTAKE, 3)}, key=payg)   # 3
     e = econ(rig)
     st, sc, pf = e["endpoints"]["/v1/study"], e["endpoints"]["/v1/screen"], e["endpoints"]["/v1/portfolio"]
     assert (st["calls"], st["units"], st["payg_units"], st["subscription_units"], st["free_units"]) == (2, 10, 5, 5, 0)
