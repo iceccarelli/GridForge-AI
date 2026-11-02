@@ -201,3 +201,17 @@ export function engagementCatalogJsonLd() {
     itemListElement: LADDER_PRODUCTS.map(engagementOfferJsonLd),
   };
 }
+
+/** A breadcrumb trail. Each crumb is a real page of this site; the last one is the current page. */
+export function breadcrumbJsonLd(trail: { name: string; path: string }[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((c, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: c.name,
+      item: siteUrl(c.path),
+    })),
+  };
+}

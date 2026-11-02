@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CommissionScreen } from "@/components/CommissionScreen";
-import { engagementOfferJsonLd } from "@/lib/jsonld";
+import { breadcrumbJsonLd, engagementOfferJsonLd } from "@/lib/jsonld";
 import { PRODUCT_PAGES, productForPage, productPageBySlug } from "@/lib/product-pages";
 import { OG_IMAGES, siteUrl } from "@/lib/site";
 import { priceLine } from "@/lib/products";
@@ -47,13 +47,26 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
     ...engagementOfferJsonLd(p),
     url: siteUrl(`/products/${slug}`),
   };
+  const crumbs = breadcrumbJsonLd([
+    { name: "Time to Power", path: "/" },
+    { name: "Engagements", path: "/products" },
+    { name: p.name, path: `/products/${slug}` },
+  ]);
   return (
     <main className="bg-ink min-h-screen pt-28 pb-24">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(crumbs).replace(/</g, "\\u003c") }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <div className="max-w-3xl mx-auto px-6">
+        <nav aria-label="Breadcrumb" className="mb-4 text-[12px] text-faint">
+          <Link href="/" className="hover:text-power">Home</Link> /{" "}
+          <Link href="/products" className="hover:text-power">Engagements</Link> / <span className="text-mute">{p.name}</span>
+        </nav>
         <div className="eyebrow text-power mb-4">Engagement</div>
         <h1 className="text-4xl font-semibold tracking-tight text-ghost">{p.name}</h1>
         <p className="mt-3 font-mono text-xl text-power">{priceLine(p)}</p>

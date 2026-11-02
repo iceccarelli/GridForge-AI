@@ -58,3 +58,17 @@ describe("the ladder links to the pages", () => {
     expect((src.match(/<DetailsLink /g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("the engagements index and breadcrumbs", () => {
+  it("lists /products in the sitemap and footer and builds a valid trail", async () => {
+    const { breadcrumbJsonLd } = await import("@/lib/jsonld");
+    const trail = breadcrumbJsonLd([
+      { name: "Home", path: "/" },
+      { name: "Engagements", path: "/products" },
+    ]);
+    expect(trail.itemListElement.map((i) => i.position)).toEqual([1, 2]);
+    expect(trail.itemListElement[1].item).toMatch(/\/products$/);
+    expect((await sitemap()).some((e) => e.url.endsWith("/products"))).toBe(true);
+    expect(FOOTER_GROUPS.flatMap((g) => g.links.map((l) => l.href))).toContain("/products");
+  });
+});
