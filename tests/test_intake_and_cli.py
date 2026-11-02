@@ -40,10 +40,9 @@ def test_reference_intake_supplies_every_required_input_and_names_what_it_defaul
         "btm_options[BESS-2MW-8MWh].energy_MWh", "btm_options[GEN-5MW].units",
         "economics.discount_rate", "economics.electricity_eur_per_MWh", "thermal.cdus",
         "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
-    # A sanity floor, not a target. The ratio divides by the scalar intake fields but every per-option gap (capex, lead time, battery
-    # energy, generator unit count) is subtracted from it too, so each honest data request the engine adds lowers it a little: 0.839 before
-    # the battery and generator checks, 0.774 after. 0.75 still catches an intake that has lost most of what it supplies.
-    assert 0.75 < intake.report.completeness < 1.0
+    # A sanity floor, not a target. Completeness counts only gaps in the scalar intake fields (the ratio's denominator), so a
+    # per-option data request (battery energy, generator unit count) is listed as a request without lowering it.
+    assert 0.8 < intake.report.completeness < 1.0
 
 
 def test_thin_intake_is_flagged_and_priced_as_a_screen():

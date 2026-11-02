@@ -188,8 +188,12 @@ class IntakeReport:
 
     @property
     def completeness(self) -> float:
+        # The share of the scalar intake fields that were supplied. Per-option gaps (a generator's unit count, a battery's duration)
+        # are listed as data requests but are not among INTAKE_FIELDS, so they must not be subtracted from a ratio whose
+        # denominator does not contain them: each honest request would otherwise lower "completeness" below what was supplied.
         total = len(INTAKE_FIELDS)
-        return (total - len(self.gaps)) / total if total else 1.0
+        missing = len({g.path for g in self.gaps if g.path in FIELD_BY_PATH})
+        return (total - missing) / total if total else 1.0
 
     @property
     def can_issue(self) -> bool:
