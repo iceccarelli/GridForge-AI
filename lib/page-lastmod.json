@@ -63,7 +63,7 @@
     },
     "/developers": {
       "lastmod": "2026-11-02",
-      "hash": "b2e49d1dcc2ea010e3244f73a0ac9da0242d11f902c22a8092e4a84f1573eb5c"
+      "hash": "1c065b2275fda72891716a3d4c5290d95192c428c23443a60f56b37ccd1c82c9"
     },
     "/intelligence": {
       "lastmod": "2026-10-31",
@@ -86,8 +86,16 @@
       "hash": "a28b9ba95939a723dfde75e137f6c78baa499ed0ab7a8b1a3564a615f6be0c51"
     },
     "/platforms": {
-      "lastmod": "2026-10-23",
-      "hash": "446412dbc6e2e74bb319888d121f19afa4ee52f76510753de1821cef6a2aea41"
+      "lastmod": "2026-11-02",
+      "hash": "3d8e18177730ffbb31d3b4b2ba0d3713f499db479cba901c37c9eaa386ce2793"
+    },
+    "/platforms/gb200_nvl72": {
+      "lastmod": "2026-10-13",
+      "hash": "5c397b0970262e838b8b962417fb6f4f8aadf76c5b979872c8b4bd60d13c5918"
+    },
+    "/platforms/gb300_nvl72": {
+      "lastmod": "2026-10-13",
+      "hash": "5c397b0970262e838b8b962417fb6f4f8aadf76c5b979872c8b4bd60d13c5918"
     },
     "/power/compare": {
       "lastmod": "2026-10-30",

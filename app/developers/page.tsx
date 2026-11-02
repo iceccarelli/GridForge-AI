@@ -243,6 +243,13 @@ export default async function DevelopersPage() {
             callable once the release that serves them is live.
           </p>
         ) : null}
+        <p className="mt-3 max-w-3xl text-xs text-faint">
+          The same catalogue as an OpenAPI 3.1 description, generated from it:{" "}
+          <a href="/openapi.json" className="font-mono text-power underline">
+            /openapi.json
+          </a>
+          .
+        </p>
       </section>
 
       <section className="mt-12">

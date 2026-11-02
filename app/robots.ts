@@ -72,7 +72,7 @@ const PRIVATE_PATHS = [
  * (lib/jsonld.ts, app/llms.txt/route.ts). "/api/" is private, so without these a crawler that obeys robots.txt could not fetch
  * what our own metadata points it at. Longest match wins, so they stay reachable while the rest of /api/ stays closed.
  */
-const PUBLIC_API = ["/api/cite", "/api/constraints"];
+const PUBLIC_API = ["/api/cite", "/api/constraints", "/openapi.json"];
 
 export default function robots(): MetadataRoute.Robots {
   const base = SITE_URL;
