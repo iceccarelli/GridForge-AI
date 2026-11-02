@@ -167,7 +167,7 @@ class TestRenderers:
     def test_the_study(self, solved):
         _, intake, results = solved
         md = _gated(study.build(intake.context, results, client=intake.client), results)
-        assert "**Time to full capacity:** 160 [80–210] weeks (E0)" in md
+        assert "**Time to full capacity:** 160 [104–216] weeks (E0)" in md
         assert "*Limited by: assumed lead time, not a date (E0) · set by transformer capacity;" in md
         assert f"| Elapsed ({LABEL}) |" in md
         assert f"| Time to full capacity ({LABEL}) |" in md
@@ -177,7 +177,7 @@ class TestRenderers:
     def test_the_screen(self, solved):
         _, intake, results = solved
         md = _gated(screen_mod.build(intake, results), results)
-        assert "**Time to full capacity:** 160 [80–210] weeks (E0)" in md
+        assert "**Time to full capacity:** 160 [104–216] weeks (E0)" in md
         assert "*Limited by: assumed lead time, not a date (E0) · set by transformer capacity;" in md
 
     def test_the_board_summary(self, solved):
@@ -189,7 +189,7 @@ class TestRenderers:
     def test_the_proposal_is_no_longer_a_flat_e3_with_an_invented_band(self, solved):
         _, intake, results = solved
         md = _gated(proposal.build(intake, results, engagement("density_screen")), results)
-        assert "**Time to full capacity:** 160 [80–210] weeks (E0)" in md       # was E3 with a x0.7 / x1.6 band
+        assert "**Time to full capacity:** 160 [104–216] weeks (E0)" in md       # was E3 with a x0.7 / x1.6 band
         assert "assumed lead time, not a date (E0) · set by transformer capacity" in md
 
     def test_the_deck(self, solved):
@@ -347,9 +347,9 @@ class TestChangeNoteAndDiff:
     def test_the_was_value_names_its_basis(self, solved):
         doc = solved[0]
         d = diff(doc, self._moved(doc), attribute=False)
-        assert change_note._was_weeks(d.before) == "was 160 [80–210] (assumed lead time, not a date)"
+        assert change_note._was_weeks(d.before) == "was 160 [104–216] (assumed lead time, not a date)"
         d.before.weeks_class = "E5_CUSTOMER_DATA"
-        assert change_note._was_weeks(d.before) == "was 160 [80–210]"
+        assert change_note._was_weeks(d.before) == "was 160 [104–216]"
         d.before.weeks_class = ""
         assert change_note._was_weeks(d.before).endswith("(assumed lead time, not a date)")
 

@@ -335,8 +335,14 @@ def test_markdown_html_and_api_agree_on_every_hall(halls):
 
 def test_api_ranking_follows_the_requested_objective(halls):
     payload = handle_portfolio({"intakes": [doc(n) for n in halls], "objective": "min_cost"}, Tier.CLIENT)
-    cpr = [h["capex_per_rack_eur"] for h in payload["halls"]]
+    # Halls that can be ranked come first, in ascending cost per rack ADDED; a hall with a required input missing is placed after them
+    # whatever its figure (its order cannot be relied on), so the figure is only comparable within the first group.
+    unrankable = lambda h: "required inputs not supplied" in (h["rank_note"] or "")
+    ranked = [h for h in payload["halls"] if not unrankable(h)]
+    cpr = [h["capex_per_rack_eur"] for h in ranked]
     assert cpr == sorted(cpr) and payload["objective"] == "min_cost"
+    first_unrankable = next((i for i, h in enumerate(payload["halls"]) if unrankable(h)), len(payload["halls"]))
+    assert all(unrankable(h) for h in payload["halls"][first_unrankable:]), "unrankable halls must all come after the ranked ones"
     assert payload["halls"][0]["racks"] == pick_recommended(
         halls[next(n for n in halls if halls[n].intake.context.hall.id == payload["halls"][0]["hall"])].results,
         Objective.MIN_COST_PER_RACK).unlocked_racks
