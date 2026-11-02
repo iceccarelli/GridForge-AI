@@ -51,6 +51,7 @@ export function routeSources() {
     "/legal/terms": ["app/legal/terms/page.tsx"],
     "/legal/security": ["app/legal/security/page.tsx"],
   };
+  routes["/products"] = ["app/products/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   const platforms = existsSync(path.join(ROOT, "public/reference/platforms.json"))
     ? JSON.parse(readFileSync(path.join(ROOT, "public/reference/platforms.json"), "utf8")).platforms.filter((p) => !p.generic && p.sources?.length)

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { OG_IMAGES } from "@/lib/site";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, qualifierJsonLd } from "@/lib/jsonld";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
 import { TtpPhoto } from "@/components/TtpPhoto";
@@ -21,6 +23,15 @@ export const metadata: Metadata = {
 export default function QualifyPage() {
   return (
     <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          qualifierJsonLd(),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Capacity qualifier", path: "/qualify" },
+          ]),
+        ]}
+      />
       <header className="mb-10 max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Free · directional · no contact details required

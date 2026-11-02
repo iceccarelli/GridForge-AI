@@ -47,6 +47,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/constraints`, ...lm("/constraints"), changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/platforms`, ...lm("/platforms"), changeFrequency: "monthly", priority: 0.8 },
     ...constraintPages,
+    { url: `${base}/products`, ...lm("/products"), changeFrequency: "monthly", priority: 0.8 },
     ...productPages,
     ...platformPages,
     { url: `${base}/developers`, ...lm("/developers"), changeFrequency: "monthly", priority: 0.8 },
