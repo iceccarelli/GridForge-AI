@@ -72,3 +72,20 @@ describe("the engagements index and breadcrumbs", () => {
     expect(FOOTER_GROUPS.flatMap((g) => g.links.map((l) => l.href))).toContain("/products");
   });
 });
+
+describe("structured data on the high-intent pages", () => {
+  it("qualifier markup states only what the page states", async () => {
+    const { qualifierJsonLd } = await import("@/lib/jsonld");
+    const q = qualifierJsonLd();
+    expect(q["@type"]).toBe("WebApplication");
+    expect(q.offers.price).toBe("0");
+    const text = JSON.stringify(q).toLowerCase();
+    for (const banned of ["aggregaterating", "review", "ratingvalue", "users"]) expect(text).not.toContain(banned);
+  });
+
+  it("the pages emit it", () => {
+    for (const f of ["app/qualify/page.tsx", "app/pricing/page.tsx", "app/developers/page.tsx"]) {
+      expect(readFileSync(f, "utf8")).toContain("<PageJsonLd");
+    }
+  });
+});

@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
 import { OG_IMAGES } from "@/lib/site";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import Link from "next/link";
 import { ArrowRight, Boxes, Gauge, ShieldCheck, Terminal } from "lucide-react";
 import ApiPlans from "@/components/ApiPlans";
@@ -103,6 +105,19 @@ export default async function DevelopersPage() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          webPageJsonLd(
+            "/developers",
+            "Machine interface — call the engine",
+            "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number."
+          ),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Developers", path: "/developers" },
+          ]),
+        ]}
+      />
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Machine interface · JSON, MCP, metered

@@ -215,3 +215,35 @@ export function breadcrumbJsonLd(trail: { name: string; path: string }[]) {
     })),
   };
 }
+
+/**
+ * The free capacity qualifier as a web application. What it states is only what /qualify itself says: free, no card, no call, no
+ * contact details required, directional output. No rating, review or usage figure is claimed.
+ */
+export function qualifierJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Time to Power capacity qualifier",
+    url: siteUrl("/qualify"),
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Any (web browser)",
+    description:
+      "Seven numbers about an existing AI data hall in, the constraint that binds first out. Directional output from the same power-and-thermal engine that produces the paid capacity study.",
+    isAccessibleForFree: true,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
+    provider: { "@type": "ProfessionalService", name: SITE.name, url: SITE_URL },
+  };
+}
+
+/** A page whose only structured content is where it sits and what it is about (WebPage + the breadcrumb is added by the caller). */
+export function webPageJsonLd(path: string, name: string, description: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name,
+    description,
+    url: siteUrl(path),
+    isPartOf: { "@type": "WebSite", name: SITE.name, url: SITE_URL },
+  };
+}
