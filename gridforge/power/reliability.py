@@ -87,6 +87,39 @@ def _largest(units: list, key) -> list[str]:
     return [u.id for u in sorted(units, key=key, reverse=True)]
 
 
+def _startup_bridge_notes(case: ContingencyCase, excl_gen: set[str], excl_bess: set[str]) -> list[str]:
+    """A unit the customer declares as held on STANDBY has to start before it carries anything. Until it is online the share of the
+    load that the case relies on it for must be carried by something else; the only thing declared that can do that here is storage.
+
+    Only a unit declared `standby` is examined. `continuous` is never examined (it is already running), and an undeclared unit is not
+    either, so no result that existed before this field changes. This only ADDS a caveat that can turn a PASS into
+    REQUIRES_ENGINEERING_STUDY; it changes no number and never produces a FAIL, because declared storage is only part of what can
+    bridge a start (a UPS in the hall is not modelled here) and saying FAIL would claim more than the inputs support.
+    """
+    standby = [g for g in case.generation
+               if g.operating_mode == "standby" and g.id not in excl_gen and g.firm_MW().value > 0]
+    if not standby:
+        return []
+    bess = [b for b in case.bess if b.id not in excl_bess]
+    others = case.grid_firm_MW.value + sum(b.firm_MW_for_duration(case.ride_through_hours).value for b in bess)
+    gap_MW = case.critical_load_MW.value - others
+    if gap_MW <= 0:
+        return []                                  # the load is carried without the generation; its start is not on the critical path
+    bridge_MW = sum(b.available_power_MW().value for b in bess)
+    bridge_MWh = sum(b.usable_energy_MWh().value for b in bess)
+    notes: list[str] = []
+    for g in standby:
+        t = g.startup_time_min
+        if t is None:
+            notes.append(f"{g.id} is declared standby with no start-up time. This case relies on generation for at least {gap_MW:.2f} MW, "
+                         f"and how long the load must be carried until it is online has not been checked: declare its start-up time.")
+        elif t.value > 0 and not (bridge_MW >= gap_MW and bridge_MWh >= gap_MW * t.value / 60.0):
+            notes.append(f"{g.id} is declared standby and takes {t.value:g} min to start. This case relies on generation for at least "
+                         f"{gap_MW:.2f} MW; the declared storage ({bridge_MW:.2f} MW, {bridge_MWh:.2f} MWh usable) cannot carry that for "
+                         f"{t.value:g} min, so the load would drop until it is online unless something not declared here bridges it.")
+    return notes
+
+
 def evaluate(case: ContingencyCase) -> ContingencyResult:
     """Run the single scenario the declared redundancy policy actually implies.
     N -> no unit is removed, the base case is the test. N+1/N+2 -> remove the
@@ -152,6 +185,8 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
             "rate — the firm figure above assumes 100% availability for that unit, which "
             "overstates the result.")
 
+    blocking.extend(_startup_bridge_notes(case, excl_gen, excl_bess))
+
     if case.bess and case.ride_through_hours.prov.label == UNDECLARED_RIDE_THROUGH_LABEL:
         blocking.append(
             "no ride-through window was declared: the battery figure above uses a 2 h library default. Declare "
@@ -162,8 +197,11 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
     else:
         status = ContingencyStatus.PASS if margin.value >= 0 else ContingencyStatus.FAIL
 
+    undeclared = [g.id for g in case.generation if g.operating_mode is None and g.id not in excl_gen]
+    mode_note = (f" Operating mode not declared for {', '.join(undeclared)}: treated as running, so no start-up is bridged; "
+                 f"declare 'standby' for a unit held offline until needed." if undeclared else "")
     basis = (f"{case.redundancy.value} against {case.critical_load_MW.render()} critical load, "
             f"ride-through {case.ride_through_hours.render()}: {available.render()} available "
-            f"under '{scenario_name}'.")
+            f"under '{scenario_name}'.{mode_note}")
     return ContingencyResult(status, scenario_name, available, case.critical_load_MW,
                              margin, basis, blocking)

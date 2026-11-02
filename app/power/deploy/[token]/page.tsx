@@ -119,7 +119,7 @@ export default async function PowerDeployCasePage({
 
   if (!row) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <p className="text-mute">
           This link does not correspond to a case. Check the address, or start a{" "}
           <Link href="/power/deploy" className="text-power underline">
@@ -127,7 +127,7 @@ export default async function PowerDeployCasePage({
           </Link>
           .
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -135,7 +135,7 @@ export default async function PowerDeployCasePage({
   const { load_profile: lp, capacity: cap, architectures, next_action } = result;
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
         Power deployment case · revision {row.revision}
       </p>
@@ -346,7 +346,7 @@ export default async function PowerDeployCasePage({
         </Link>
       </section>
       ) : null}
-    </main>
+    </div>
   );
 }
 

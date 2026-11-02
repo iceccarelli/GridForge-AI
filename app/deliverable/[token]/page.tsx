@@ -72,7 +72,7 @@ export default async function DeliverablePage({
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-24 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-24 sm:px-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-verified">
           Released{row.released_at ? ` · ${new Date(row.released_at).toLocaleDateString()}` : ""}
@@ -157,7 +157,7 @@ export default async function DeliverablePage({
           <WatchUpsell />
         </>
       )}
-    </main>
+    </div>
   );
 }
 
@@ -319,9 +319,9 @@ function SpecBasis({ intake, files }: { intake: unknown; files?: Record<string, 
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <h1 className="text-2xl font-semibold text-ghost">{title}</h1>
       <div className="mt-4">{children}</div>
-    </main>
+    </div>
   );
 }

@@ -59,7 +59,7 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
     { name: p.name, path: `/products/${slug}` },
   ]);
   return (
-    <main className="bg-ink min-h-screen pt-28 pb-24">
+    <div className="bg-ink min-h-screen pt-28 pb-24">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(crumbs).replace(/</g, "\\u003c") }}
@@ -124,6 +124,6 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

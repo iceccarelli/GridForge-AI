@@ -37,7 +37,7 @@ export default async function PricingPage() {
   const estimateAvailable = await estimateEndpointServed();
   const compareAvailable = await engineServes("/v1/compare");
   return (
-    <main className="bg-ink min-h-screen pt-28 pb-24">
+    <div className="bg-ink min-h-screen pt-28 pb-24">
       <PageJsonLd
         data={[
           webPageJsonLd("/pricing", "Pricing — free check, metered API, fixed-fee engagements", PRICING_DESCRIPTION),
@@ -158,6 +158,6 @@ export default async function PricingPage() {
             </Link>
           </div>
         </div>
-    </main>
+    </div>
   );
 }

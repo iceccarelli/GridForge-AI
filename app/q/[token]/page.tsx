@@ -52,18 +52,18 @@ export default async function QualificationPage({
 
   if (q.status !== "scored" || !q.binding_constraint) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
         <h1 className="text-2xl font-semibold text-ghost">No result was produced</h1>
         <p className="mt-3 text-mute">
           The figures for {where} were saved, but the engine did not return a read. Nothing was
           invented to fill the gap. We will come back with it.
         </p>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
       <header>
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Capacity read · {new Date(q.created_at).toLocaleDateString("en-IE")}
@@ -209,7 +209,7 @@ export default async function QualificationPage({
         </Link>
         .
       </p>
-    </main>
+    </div>
   );
 }
 

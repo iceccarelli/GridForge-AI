@@ -31,7 +31,7 @@ export const metadata: Metadata = {
 export default async function PowerDeployPage() {
   const state = availabilityIn(await deployedEngineRoutes(), "/v1/power/deploy/assess");
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+    <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
         BTM power deployment
       </p>
@@ -55,6 +55,6 @@ export default async function PowerDeployPage() {
           alternative={{ href: "/qualify", label: "Run the free capacity check instead" }}
         />
       )}
-    </main>
+    </div>
   );
 }
