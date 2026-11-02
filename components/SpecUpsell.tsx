@@ -84,7 +84,7 @@ export function SpecUpsell({ constraint }: { constraint?: string | null }) {
               Commission it — {eur(spec.amountCents)}
             </button>
             <span className="text-xs text-faint">
-              {spec.turnaroundDays} working days. One relief per engagement.
+              {spec.turnaroundDays} working days from a complete intake. One relief per engagement.
             </span>
           </div>
           {error ? <p className="mt-3 text-sm text-queue">{error}</p> : null}

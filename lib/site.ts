@@ -163,14 +163,14 @@ export const SERVICES: ServiceCard[] = [
     productId: "density_screen",
     icon: "search",
     desc:
-      "One hall, five working days. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
+      "One hall, five working days from a complete intake. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
     flagship: true,
   },
   {
     productId: "envelope_study_deposit",
     icon: "trending",
     desc:
-      "Five cooling architectures compared under one model, the full headroom ladder with costs and lead times, time to power, sensitivity, economics, and the provenance of every figure.",
+      "Five scenarios across four cooling architectures compared under one model, the full headroom ladder with costs and lead times, time to power, sensitivity, economics, and the provenance of every figure.",
     flagship: false,
   },
   {
@@ -235,7 +235,7 @@ export const TECH = [
   },
   {
     title: "The Headroom Ladder",
-    body: "Each rung relieves one binding constraint, priced and lead-timed, with the racks it unlocks. Time to power names the single item that sets your energisation date — not a vendor's typical lead time, yours.",
+    body: "Each rung relieves one binding constraint, priced and lead-timed, with the racks it unlocks. Time to power names the single item that sets your energisation date; where its lead time is an assumption, it is labelled as one and not presented as a date.",
   },
   {
     title: "A calibration ledger that says so when it's empty",
@@ -250,7 +250,7 @@ export const FAQ = [
   },
   {
     q: "What can I actually buy today?",
-    a: "Fixed-fee engagements, all priced on the pricing page before we start. Most halls begin with the Density Screen: one hall, five working days, what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
+    a: "Fixed-fee engagements, each priced before we start (the Study and the Portfolio Screen are booked with a deposit against a fee agreed at scoping). Most halls begin with the Density Screen: one hall, five working days from a complete intake: what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
   },
   {
     q: "Do you sell or install equipment?",

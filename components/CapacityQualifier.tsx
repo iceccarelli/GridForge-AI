@@ -127,9 +127,9 @@ export function CapacityQualifier() {
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power mb-2">
           Capacity qualifier
         </p>
-        <h3 className="text-xl sm:text-2xl font-semibold text-ghost">
+        <h2 className="text-xl sm:text-2xl font-semibold text-ghost">
           What actually stops your hall?
-        </h3>
+        </h2>
         <p className="text-mute mt-2 max-w-2xl text-sm">
           Seven numbers you already know. The same engine that produces our paid study returns the
           binding constraint, the deployable rack count, and the inputs nobody has measured yet.
@@ -369,9 +369,9 @@ function QualifyReadout({
 function NextSteps({ share }: { share: string | null }) {
   return (
     <section aria-labelledby="next-steps" className="mt-6 rounded border border-line bg-panel-2 p-4 sm:p-5">
-      <h4 id="next-steps" className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
+      <h3 id="next-steps" className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
         Save and continue
-      </h4>
+      </h3>
       <ol className="mt-3 grid gap-4 md:grid-cols-2">
         <li className="min-w-0">
           <p className="text-sm font-semibold text-ghost">1. Keep this read</p>

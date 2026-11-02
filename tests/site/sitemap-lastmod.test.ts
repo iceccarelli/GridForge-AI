@@ -4,13 +4,14 @@ import { computeHashes, readManifest, stale } from "../../scripts/page-lastmod.m
 
 describe("sitemap lastmod", () => {
   it("is not the build time: no URL claims a change that did not happen", async () => {
-    const before = Date.now();
+    // A page's date is a day, held as midnight UTC. It must not be later than the start of today (UTC), which is true at any time of day.
+    const startOfToday = new Date().setUTCHours(0, 0, 0, 0);
     const urls = await sitemap();
     expect(urls.length).toBeGreaterThan(10);
     for (const u of urls) {
       if (!u.lastModified) continue;
       const t = new Date(u.lastModified).getTime();
-      expect(t, u.url).toBeLessThan(before - 60_000);
+      expect(t, u.url).toBeLessThanOrEqual(startOfToday);
       expect(new Date(u.lastModified).toISOString().endsWith("T00:00:00.000Z"), u.url).toBe(true);
     }
   });

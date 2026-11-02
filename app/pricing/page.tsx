@@ -90,8 +90,8 @@ export default async function PricingPage() {
             <h2 id="metered-h" className="text-2xl font-semibold text-ghost">Metered software</h2>
             <p className="mt-2 max-w-3xl text-sm text-mute">
               The same engine, called directly. Start on a free allowance, move to pay-as-you-go under a monthly cap you
-              set, and take a plan when the volume warrants one. API responses are screening output: an engagement is what
-              puts an engineer&apos;s name on an opinion.
+              set, and take a plan when the volume warrants one. API responses are screening output: an engagement is a document a
+              senior engineer reviews and releases, in screening mode and not as an issued engineering opinion.
             </p>
             <div className="mt-6 rounded border border-power/40 bg-panel-2 p-5 sm:p-6">
               <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-power">

@@ -30,7 +30,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
    one machine mounting the volume; to repair by hand, `fly scale count 1`. A second machine would split the ledger.
 3. Set on the engine: `GRIDFORGE_KEY_SECRET` (same value as the site), `GRIDFORGE_ADMIN_KEY`,
    `GRIDFORGE_LEDGER_FILE=/data/ledger.jsonl`, `GRIDFORGE_USAGE_FILE`, `GRIDFORGE_REVOKED_FILE`.
-4. Migrations, in filename order, on a staging database first: 0028, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0039, 0041 (0029 is intentionally unused, and any later number the repository now carries; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
+4. Migrations, in filename order, on a staging database first: 0028, 0030 to 0045 (0029 is intentionally unused; 0044 and 0045 were applied to production on 2026-11-02, and every migration before them earlier; `scripts/apply-migration.py` allows that gap but still refuses applying out of order). Apply them in filename order only: re-applying an older one out of order can narrow a later constraint.
    All are additive and idempotent. Re-applying an older one out of order can narrow a later constraint; apply in order.
    **0041 (billing holds and the audit trail) before, or with, the deploy that carries it.** Without it a refunded, disputed or paused
    subscription payment still cuts access off (as a status change) and the operator is mailed once, but the hold is not individually
@@ -99,7 +99,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 - A balance that never reaches the EUR 5 minimum is never invoiced.
 - Caps are counted per (account, month, scope): free-allowance units never count against a pay-as-you-go cap, and the reverse
   (`tests/test_payg_scope_counters.py`; `tests/site/payg-journey.realdb.test.ts` runs a EUR 100 cap to exactly 50 billable units after the 25 free ones).
-  The deployed engine must be v0.9.0+ with this change (the 2026-10-27 redeploy carries it: `check-engine-drift.py` reports no difference); an older engine counts per account.
+  The deployed engine must be v0.9.0+ with this change (the 2026-10-27 redeploy carries it, last redeployed 2026-11-02: `check-engine-drift.py` reports no difference); an older engine counts per account.
 - Ledger loss (volume failure) loses at most the events since the last ingest; there is no replica.
 - A hard kill while a refund is queued after a failed ledger write can leave a charge that support must reverse by hand.
 - The free-account route has no bound on unverified rows beyond a per-IP rate limit.

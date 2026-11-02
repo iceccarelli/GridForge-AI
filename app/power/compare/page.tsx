@@ -13,7 +13,13 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Time-to-Power scenario comparison",
   alternates: { canonical: "/power/compare" },
-  openGraph: { url: "/power/compare", images: OG_IMAGES },
+  openGraph: {
+    url: "/power/compare",
+    images: OG_IMAGES,
+    title: "Time-to-Power scenario comparison",
+    description:
+      "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",
+  },
   description:
     "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",
 };

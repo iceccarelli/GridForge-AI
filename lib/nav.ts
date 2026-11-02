@@ -79,6 +79,8 @@ export const FOOTER_GROUPS: FooterGroup[] = [
       { href: "/constraints", label: "Constraints" },
       { href: "/platforms", label: "Platforms" },
       { href: "/reference", label: "Reference" },
+      { href: "/observatory", label: "Observatory" },
+      { href: "/intelligence", label: "Intelligence" },
       { href: "/developers", label: "Developers / machine interface" },
     ],
   },

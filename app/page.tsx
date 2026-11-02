@@ -9,7 +9,13 @@ import { HomeClient } from "@/components/HomeClient";
 // layout's default metadata, which already describes the home page.
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
-  openGraph: { url: "/", images: OG_IMAGES },
+  openGraph: {
+    url: "/",
+    images: OG_IMAGES,
+    title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
+    description:
+      "The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured.",
+  },
 };
 
 export default function Page() {

@@ -157,6 +157,17 @@ ${absent}
 - [Model pack](${SITE}/reference/model_pack.json): every scenario, solved
 - [Working files](${SITE}/reference/working_files.zip): the CSVs behind every number, including a provenance chain
 
+## Pages
+
+- ${SITE}/qualify — the free capacity qualifier (seven numbers in, the binding constraint out)
+- ${SITE}/reference — the worked example, with its calibration record
+- ${SITE}/constraints — the thirteen constraints, one page each
+- ${SITE}/platforms — the rack platform library, with a page per manufacturer-published platform
+- ${SITE}/products — the engagements, one page each
+- ${SITE}/pricing — every price in one place
+- ${SITE}/observatory — scenario demonstrations on live public data
+- ${SITE}/developers — the machine interface; OpenAPI at ${SITE}/openapi.json
+
 ## What can be bought
 
 ${engagements}

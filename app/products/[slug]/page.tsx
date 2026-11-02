@@ -42,10 +42,16 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
   const page = productPageBySlug(slug);
   if (!page) notFound();
   const p = productForPage(page);
+  // A Service with its Offer attached: an Offer is not a top-level entity a search engine reads on its own.
+  const { itemOffered, ...offer } = engagementOfferJsonLd(p);
   const jsonLd = {
     "@context": "https://schema.org",
-    ...engagementOfferJsonLd(p),
+    "@type": "Service",
+    name: itemOffered.name,
+    description: p.description,
+    provider: itemOffered.provider,
     url: siteUrl(`/products/${slug}`),
+    offers: offer,
   };
   const crumbs = breadcrumbJsonLd([
     { name: "Time to Power", path: "/" },
