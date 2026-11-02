@@ -301,6 +301,57 @@ describe("where the hold column cannot be read", () => {
   });
 });
 
+describe("a study opened from a deposit follows the deposit's payment", () => {
+  function depositWithStudy() {
+    rig.db.seed("engagement_deposits", [{ id: "dep-9", kind: "envelope_study_deposit", stripe_session_id: "cs_dep", status: "scoped", email: "buyer@hall.example" }]);
+    rig.db.seed("deliverables", [{
+      id: "study-1", token: "study-doc-token", intake_token: "study-intake-token", kind: "envelope_study_deposit", status: "awaiting_intake",
+      email: "buyer@hall.example", company: "North Hall", stripe_session_id: "cs_dep", amount_cents: 900_000, document_html: null, intake: null, working_files: {},
+      billing_hold: null, billing_hold_ref: null, billing_hold_at: null,
+    }]);
+    rig.stripe.linkOneTime("ch_d", "pi_d", "cs_dep", "envelope_study_deposit");
+  }
+  const study = () => rig.db.rows("deliverables").find((r: any) => r.id === "study-1") as any;
+  const depCharge = (over: Record<string, unknown> = {}) => ({ id: "ch_d", object: "charge", amount: 900_000, amount_refunded: 900_000, refunded: true, currency: "eur", payment_intent: "pi_d", ...over });
+
+  it("a refunded deposit holds the study opened from it, and its intake answers 402", async () => {
+    depositWithStudy();
+    expect((await send(rig, "charge.refunded", depCharge(), { id: "evt_dr", created: rig.T0 + 10 })).status).toBe(200);
+    expect(study()).toMatchObject({ billing_hold: "refunded", billing_hold_ref: "ch_d" });
+    const res = await (await import("@/app/api/intake/[token]/route")).GET(get("/x"), ctx("study-intake-token"));
+    expect(res.status).toBe(402);
+    expect(await res.text()).not.toContain("buyer@hall.example");
+    expect(rig.db.rows("engagement_deposits")[0]).toMatchObject({ status: "scoped" });   // the deposit itself is still a person's decision
+  });
+
+  it("is applied once however often Stripe redelivers, and the operator is told once", async () => {
+    depositWithStudy();
+    for (let i = 0; i < 3; i++) expect((await send(rig, "charge.refunded", depCharge(), { id: `evt_x${i}`, created: rig.T0 + 10 })).status).toBe(200);
+    expect(audit(rig, "hold_applied")).toHaveLength(1);
+    expect(operatorMail(rig).filter((m) => /deposit was refunded/.test(m.subject))).toHaveLength(1);
+  });
+
+  it("a deposit with no study opened yet only records the reversal, as before", async () => {
+    rig.db.seed("engagement_deposits", [{ id: "dep-8", kind: "envelope_study_deposit", stripe_session_id: "cs_dep", status: "contacted", email: "buyer@hall.example" }]);
+    rig.stripe.linkOneTime("ch_d", "pi_d", "cs_dep", "envelope_study_deposit");
+    expect((await send(rig, "charge.refunded", depCharge(), { id: "evt_none", created: rig.T0 + 10 })).status).toBe(200);
+    expect(audit(rig, "deposit_refunded")).toHaveLength(1);
+    expect(rig.db.rows("deliverables")).toHaveLength(0);
+  });
+
+  it("a dispute holds the study, and a dispute WON lifts exactly that hold; a refund after it is never lifted by the dispute", async () => {
+    depositWithStudy();
+    rig.stripe.pinDispute("dp_d", { status: "needs_response", charge: "ch_d", amount: 900_000 });
+    await send(rig, "charge.dispute.created", { id: "dp_d", object: "dispute", amount: 900_000, currency: "eur", charge: "ch_d", reason: "fraudulent", status: "needs_response" }, { id: "evt_dc", created: rig.T0 + 20 });
+    expect(study()).toMatchObject({ billing_hold: "disputed", billing_hold_ref: "dp_d" });
+    rig.stripe.pinDispute("dp_d", { status: "won", charge: "ch_d", amount: 900_000 });
+    await send(rig, "charge.dispute.closed", { id: "dp_d", object: "dispute", amount: 900_000, currency: "eur", charge: "ch_d", reason: "fraudulent", status: "won" }, { id: "evt_dw", created: rig.T0 + 30 });
+    expect(study()).toMatchObject({ billing_hold: null, billing_hold_ref: null });
+    await send(rig, "charge.refunded", depCharge(), { id: "evt_rf", created: rig.T0 + 40 });
+    expect(study()).toMatchObject({ billing_hold: "refunded", billing_hold_ref: "ch_d" });
+  });
+});
+
 describe("paymentHoldAnswer", () => {
   it("answers only for the two holds and says nothing that identifies the payment", async () => {
     const { paymentHoldAnswer } = await import("@/lib/one-time-holds");

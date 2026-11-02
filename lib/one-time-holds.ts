@@ -35,7 +35,8 @@ export interface HoldFields {
 const idOf = (v: unknown): string => (typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string" ? (v as { id: string }).id : "");
 const q = encodeURIComponent;
 
-type Subject = { table: "deliverables"; id: string; kind: string; hold: OneTimeHold | null; ref: string | null } | { table: "engagement_deposits"; id: string; kind: string };
+type DeliverableSubject = { table: "deliverables"; id: string; kind: string; hold: OneTimeHold | null; ref: string | null };
+type Subject = DeliverableSubject | { table: "engagement_deposits"; id: string; kind: string; session: string };
 type Found = { ok: true; subject: Subject | null; sessionKind: string | null } | { ok: false };
 
 /** Does this Checkout Session kind belong to a one-time purchase of ours? Subscriptions and pay-as-you-go are decided elsewhere. */
@@ -84,7 +85,22 @@ async function findSubject(stripe: ReversalStripe | null, paymentIntent: unknown
   const r = await pg<{ id: string; kind: string }[]>("GET", `engagement_deposits?stripe_session_id=eq.${q(s.id)}&select=id,kind&limit=1`);
   if (!r.ok) return { ok: false };
   const row = r.data?.[0];
-  return { ok: true, sessionKind: s.kind, subject: row ? { table: "engagement_deposits", id: row.id, kind: row.kind } : null };
+  return { ok: true, sessionKind: s.kind, subject: row ? { table: "engagement_deposits", id: row.id, kind: row.kind, session: s.id } : null };
+}
+
+/**
+ * The engagement opened FROM a deposit (an Envelope Study opened for its scoped deposit, lib/deposits.ts openStudyIntake), if there is one.
+ * It is bought with the deposit's own payment, so a reversal of that payment must reach it: otherwise a refunded deposit would still read
+ * the study it opened. Found by the deposit's Stripe session and kind; `null` when none was opened (the usual case for a young deposit).
+ */
+async function linkedEngagement(deposit: { session: string; kind: string }): Promise<{ ok: true; subject: DeliverableSubject | null } | { ok: false }> {
+  const r = await pg<{ id: string; kind: string; billing_hold: OneTimeHold | null; billing_hold_ref: string | null }[]>(
+    "GET",
+    `deliverables?stripe_session_id=eq.${q(deposit.session)}&kind=eq.${q(deposit.kind)}&select=id,kind,billing_hold,billing_hold_ref&limit=1`
+  );
+  if (!r.ok) return { ok: false };
+  const row = r.data?.[0];
+  return { ok: true, subject: row ? { table: "deliverables", id: row.id, kind: row.kind, hold: row.billing_hold ?? null, ref: row.billing_hold_ref ?? null } : null };
 }
 
 const now = () => new Date().toISOString();
@@ -110,15 +126,22 @@ export async function holdOneTimePurchase(p: { kind: OneTimeHold; ref: string; p
     return { ok: true };
   }
 
-  const s = found.subject;
-  if (s.table === "engagement_deposits") {
-    // A deposit entitles nothing that can be suspended: scoped work is a person's decision. Audit it and tell the person.
-    const a = await recordBillingAudit({ dedupeKey: `onetime_deposit:${p.kind}:${p.ref}:${s.id}`, table: "engagement_deposits", subjectId: s.id, action: `deposit_${p.kind}`, eventId: p.eventId, objectId: p.ref, detail: { kind: s.kind } });
+  let s: DeliverableSubject;
+  if (found.subject.table === "engagement_deposits") {
+    const dep = found.subject;
+    // The deposit itself entitles nothing that can be suspended: scoped work is a person's decision. Audit it and tell the person.
+    const a = await recordBillingAudit({ dedupeKey: `onetime_deposit:${p.kind}:${p.ref}:${dep.id}`, table: "engagement_deposits", subjectId: dep.id, action: `deposit_${p.kind}`, eventId: p.eventId, objectId: p.ref, detail: { kind: dep.kind } });
     if (a === "error") return { ok: false, why: "deposit reversal could not be recorded" };
     if (a === "recorded") {
-      await told(`deposit_reversal:${p.kind}:${p.ref}`, `A ${s.kind} deposit was ${p.kind}`, `Deposit ${s.id} (${s.kind}): Stripe ${p.kind === "refunded" ? "charge" : "dispute"} ${p.ref} reverses its payment. Scoped work is not stopped automatically: decide whether to continue, and do not apply it as a credit.`);
+      await told(`deposit_reversal:${p.kind}:${p.ref}`, `A ${dep.kind} deposit was ${p.kind}`, `Deposit ${dep.id} (${dep.kind}): Stripe ${p.kind === "refunded" ? "charge" : "dispute"} ${p.ref} reverses its payment. Scoped work is not stopped automatically: decide whether to continue, and do not apply it as a credit. If a study was opened from this deposit, access to it is held now.`);
     }
-    return { ok: true };
+    // The engagement opened from this deposit is held with the same precedence as any other one-time purchase.
+    const linked = await linkedEngagement(dep);
+    if (!linked.ok) return { ok: false, why: "the engagement opened from the deposit could not be read" };
+    if (!linked.subject) return { ok: true };
+    s = linked.subject;
+  } else {
+    s = found.subject;
   }
 
   // Precedence. A refund is terminal; a dispute never replaces a hold that stands.
@@ -159,8 +182,17 @@ export async function holdOneTimePurchase(p: { kind: OneTimeHold; ref: string; p
 export async function liftOneTimeDispute(p: { dispute: string; paymentIntent: unknown; stripe: ReversalStripe | null; eventId: string }): Promise<Handled & { lifted?: boolean }> {
   const found = await findSubject(p.stripe, p.paymentIntent);
   if (!found.ok) return { ok: false, why: "payment could not be resolved to a purchase" };
-  if (!found.subject || found.subject.table !== "deliverables") return { ok: true, lifted: false };
-  const s = found.subject;
+  if (!found.subject) return { ok: true, lifted: false };
+  let s: DeliverableSubject;
+  if (found.subject.table === "engagement_deposits") {
+    // A study opened from the deposit carries the hold the deposit's dispute caused, and lifts with it.
+    const linked = await linkedEngagement(found.subject);
+    if (!linked.ok) return { ok: false, why: "the engagement opened from the deposit could not be read" };
+    if (!linked.subject) return { ok: true, lifted: false };
+    s = linked.subject;
+  } else {
+    s = found.subject;
+  }
   if (s.hold !== "disputed" || s.ref !== p.dispute) return { ok: true, lifted: false };
   const r = await pg<{ id: string }[]>("PATCH", `deliverables?id=eq.${q(s.id)}&billing_hold=eq.disputed&billing_hold_ref=eq.${q(p.dispute)}`, { billing_hold: null, billing_hold_ref: null, billing_hold_at: null });
   if (!r.ok) return { ok: false, why: "dispute hold could not be lifted" };

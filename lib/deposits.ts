@@ -14,7 +14,8 @@
 // transaction as the scoping step (gf_scope_deposit).
 
 import { creds, rest, rpc, STORE_UNCONFIGURED, type Result } from "@/lib/projects";
-import { creditsToward } from "@/lib/deliverables";
+import { createDeliverable, creditsToward } from "@/lib/deliverables";
+import { notifyCustomer } from "@/lib/notifications";
 import { storeFault } from "@/lib/safe-log";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { balanceDueCents } from "@/lib/engagement-state";
@@ -289,4 +290,95 @@ async function scope(
     credits: credits.map((c) => ({ source_deliverable_id: c.source_deliverable_id, amount_cents: c.amount_cents })),
     credits_unapplied: unapplied.map((c) => ({ source_deliverable_id: c.source_deliverable_id, amount_cents: c.amount_cents })),
   };
+}
+
+/**
+ * Open the study intake for a scoped Envelope Study deposit: ONE engagement (a deliverable of the deposit's kind, linked by the deposit's
+ * Stripe session), and the private intake link emailed to the buyer.
+ *
+ * Why this is a separate, deliberate act and not automatic at payment: the deposit buys a scoping call, and what the study covers is agreed
+ * there. The operator opens the intake once the scope, the fee and the delivery date are recorded (the deposit is `scoped`); from then on
+ * the engagement is the same rails every other product runs on: intake -> engine -> draft -> a named engineer's review -> release.
+ *
+ * Safe to repeat: a second call finds the engagement already open and re-ensures the email obligation (which is idempotent), it never
+ * opens a second one: the database's own unique constraint on the checkout session (deliverables_one_per_session) refuses a second
+ * engagement for the same payment even when two requests race.
+ */
+export async function openStudyIntake(
+  id: unknown
+): Promise<Result<{ deliverable_id: string; created: boolean; emailed: "queued" | "retry" }>> {
+  if (!creds()) return STORE_UNCONFIGURED;
+  if (typeof id !== "string" || !UUID.test(id)) return { ok: false, status: 404, error: "Not found." };
+  const cur = await rest<DepositRow[]>("GET", `engagement_deposits?id=eq.${q(id)}&select=*&limit=1`);
+  if (!cur.ok) return { ok: false, status: 502, error: "The deposit could not be read." };
+  const dep = cur.data?.[0];
+  if (!dep) return { ok: false, status: 404, error: "Not found." };
+  if (PRODUCT_BY_KIND[dep.kind]?.endpoint !== "study") {
+    return { ok: false, status: 422, error: "Only an Envelope Study deposit opens a study intake. This deposit is for a different engagement." };
+  }
+  if (dep.status !== "scoped") {
+    return {
+      ok: false,
+      status: 409,
+      error: dep.status === "delivered"
+        ? "This deposit is already delivered."
+        : `Scope it first: the intake opens once the scope, the agreed fee and the delivery date are recorded (this deposit is '${dep.status}').`,
+    };
+  }
+  if (!dep.email) return { ok: false, status: 422, error: "This deposit has no buyer email, so the intake link cannot be sent. Add the address to the record first." };
+
+  const existing = await rest<{ id: string }[]>(
+    "GET",
+    `deliverables?stripe_session_id=eq.${q(dep.stripe_session_id)}&kind=eq.${q(dep.kind)}&select=id&order=created_at.asc&limit=1`
+  );
+  if (!existing.ok) return { ok: false, status: 502, error: "The deposit's engagement could not be looked up. Nothing was opened." };
+  let deliverableId: string | null = existing.data?.[0]?.id ?? null;
+  let created = false;
+  if (!deliverableId) {
+    const row = await createDeliverable({
+      kind: dep.kind,
+      email: dep.email,
+      company: dep.company,
+      amount_cents: dep.amount_cents,
+      stripe_session_id: dep.stripe_session_id,
+      status: "awaiting_intake",
+    });
+    if (!row) {
+      // Another request may have won the race (deliverables_one_per_session refused the second insert): use theirs if it exists.
+      const again = await rest<{ id: string }[]>("GET", `deliverables?stripe_session_id=eq.${q(dep.stripe_session_id)}&kind=eq.${q(dep.kind)}&select=id&limit=1`);
+      deliverableId = again.ok ? (again.data?.[0]?.id ?? null) : null;
+      if (!deliverableId) return { ok: false, status: 502, error: "The engagement could not be opened. Nothing was recorded." };
+    } else {
+      deliverableId = row.id;
+      created = true;
+    }
+  }
+  const sent = await notifyCustomer("intake_link", deliverableId, "", { replay: !created });
+  return { ok: true, deliverable_id: deliverableId, created, emailed: sent === "ok" ? "queued" : "retry" };
+}
+
+/**
+ * The study opened from a deposit was released: the deposit is delivered, and its reference is the engagement (by id, never by token: a
+ * delivery reference is read by operators and must not carry the credential that reads the document).
+ *
+ * Idempotent and never throws into the release path: the buyer already has the document, so a failure here is reported to the operator
+ * (the return value) and the deposit can still be marked delivered by hand through the ordinary step.
+ */
+export async function markDepositDeliveredFor(deliverable: { id: string; kind: string; stripe_session_id?: string | null }): Promise<"delivered" | "not_a_deposit" | "already" | "failed"> {
+  if (PRODUCT_BY_KIND[deliverable.kind]?.endpoint !== "study" || !deliverable.stripe_session_id) return "not_a_deposit";
+  const c = creds();
+  if (!c) return "failed";
+  try {
+    const res = await fetch(`${c.url}/rest/v1/engagement_deposits?stripe_session_id=eq.${q(deliverable.stripe_session_id)}&status=eq.scoped`, {
+      method: "PATCH",
+      headers: { ...c.headers, Prefer: "return=representation" },
+      body: JSON.stringify({ status: "delivered", delivery_ref: `engagement:${deliverable.id}`, delivered_at: new Date().toISOString() }),
+      cache: "no-store",
+    });
+    if (!res.ok) return "failed";
+    const out = (await res.json().catch(() => [])) as unknown[];
+    return out.length ? "delivered" : "already";
+  } catch {
+    return "failed";
+  }
 }
