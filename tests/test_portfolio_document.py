@@ -18,7 +18,9 @@ BASE = json.loads((ROOT / "examples" / "intake" / "reference_hall.json").read_te
 
 def hall(n, scale=1.0):
     d = copy.deepcopy(BASE)
-    d["project"] = dict(d.get("project", {}), site=f"SITE-{n}", hall=f"H{n}", client=d.get("project", {}).get("client", "Reference"))
+    d["project"] = dict(d.get("project", {}), client=d.get("project", {}).get("client", "Reference"))
+    d["site"] = dict(d["site"], id=f"SITE-{n}")
+    d["hall"] = dict(d["hall"], id=f"H{n}")
     return d
 
 
@@ -49,9 +51,17 @@ def test_a_rendered_form_adds_the_document_and_one_pack_per_hall(three, fmt):
         assert isinstance(pack, dict) and pack
 
 
-def test_pack_names_are_unique_even_when_two_halls_share_their_ids():
-    out = post({"intakes": [hall(1), hall(1), hall(1)], "format": "md"})
-    assert len(out["model_packs"]) == 3
+def test_pack_names_are_unique_when_halls_at_different_sites_share_a_hall_id():
+    a, b, c = hall(1), hall(2), hall(3)
+    for d in (a, b, c):
+        d["hall"]["id"] = "H1"                       # three halls, all called H1, at three sites
+    out = post({"intakes": [a, b, c], "format": "md"})
+    assert sorted(out["model_packs"]) == ["SITE-1_H1", "SITE-2_H1", "SITE-3_H1"]
+
+
+def test_the_same_hall_listed_three_times_is_refused():
+    with pytest.raises(ApiError):
+        post({"intakes": [hall(1), hall(1), hall(1)], "format": "md"})
 
 
 def test_an_unknown_format_or_a_hostile_client_is_refused(three):

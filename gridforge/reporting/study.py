@@ -380,7 +380,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         rows.append([res.spec.name,
                      racks_q(res.unlocked_racks, f"{res.spec.id}: racks unlocked", res),
                      e.capex_total_eur if e.capex_complete else Lit("≥ " + e.capex_total_eur.render()),
-                     capex_per_rack_q(res, f"{res.spec.id}: capex per rack enabled"),
+                     capex_per_rack_q(res, f"{res.spec.id}: capex per rack added"),
                      e.annual_energy_cost_eur, e.energy_cost_per_gpu_hour_eur,
                      critical_path_q(res.ladder, f"{res.spec.id}: critical path"),
                      Lit("decision-grade" if e.decision_grade else "NOT decision-grade")]

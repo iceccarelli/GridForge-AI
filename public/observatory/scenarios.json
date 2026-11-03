@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "7756f4c004f5b1f6055cde7c036650009b2d98b00968bf10e9e73c253905392e",
+  "contentSha256": "567fa7e2f7001fb548b258710e25d6a7ae4b80d3bfb6f37907a1a038571d2c64",
   "engine": {
-    "codeSha256": "7a3d1bb90681acfec3a607f5d84546f81990e4435c41624edcbb48bf171c1029",
+    "codeSha256": "7406c4e99713192d6ddbf1f0a7e24b121f8662b7385aa2149c6518c019881c3e",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -57,7 +57,7 @@
           "racksAllowed": 8
         },
         {
-          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0)",
+          "basis": "8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "binds": false,
           "domain": "electrical",
           "evidence": "E0",
@@ -678,7 +678,7 @@
           "racksAllowed": 24
         },
         {
-          "basis": "10 run(s) at 800 A derated to 0.8 -> 4,300 kW (E0)",
+          "basis": "10 run(s) at 800 A derated to 0.8 -> 4,300 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "binds": false,
           "domain": "electrical",
           "evidence": "E0",
@@ -1257,7 +1257,7 @@
           "racksAllowed": 40
         },
         {
-          "basis": "14 run(s) at 1,000 A derated to 0.8 -> 7,530 kW (E0)",
+          "basis": "14 run(s) at 1,000 A derated to 0.8 -> 7,530 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run",
           "binds": false,
           "domain": "electrical",
           "evidence": "E0",

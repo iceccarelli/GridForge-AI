@@ -104,13 +104,26 @@ def critical_path_q(ladder: HeadroomLadder, label: str) -> Quantity:
     return weeks_q(top.value, lo, hi, min(q.evidence for q in leads), label)
 
 
+def racks_added(result: ScenarioResult) -> int:
+    """Racks the ladder's works add: the racks deployable after the ladder less those already deployable as found (same architecture)."""
+    return result.unlocked_racks - int(result.envelope.max_racks)
+
+
 def capex_per_rack_q(result: ScenarioResult, label: str) -> Quantity | None:
-    """Total capex over the racks it enables, banded by the division (None when no rack is deployable: the
-    figure is undefined, not capex divided by a made-up single rack)."""
+    """Total capex over the racks it ADDS, banded by the division. Racks that were deployable before any spend are not bought by the
+    capex, so dividing by all deployable racks would flatter a hall that starts with capacity and would rank halls on different bases.
+    None when the works add no rack: the figure is undefined, not capex divided by a made-up single rack."""
     capex = result.economics.capex_total_eur
-    if result.unlocked_racks <= 0 or not math.isfinite(capex.value):
+    added = racks_added(result)
+    if not math.isfinite(capex.value):
         return None
-    n = V(float(result.unlocked_racks), "racks", f"{label}: racks enabled", rack_class(result))
+    if added <= 0:
+        # Racks already deployable as found and nothing to buy: no spend per rack is the cheapest answer, not an undefined one. Money spent
+        # with no rack added, or no deployable rack at all, stays undefined.
+        if result.unlocked_racks > 0 and capex.value <= 0:
+            return V(0.0, capex.unit, label, capex.evidence)
+        return None
+    n = V(float(added), "racks", f"{label}: racks added by the works", rack_class(result))
     return (capex / n).relabel(label, "economics.capex_per_rack", step_evidence=capex.evidence)
 
 

@@ -59,6 +59,10 @@ def _tapoff(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     plat = ctx.cluster.platform
     lv = ctx.power.lv
     need_A = plat.rack_feed_current_A
+    if need_A is not None:
+        # the rating a supplier must meet is the current at THIS hall's busway voltage, the same figure the capacity model tested
+        from ..power.constraints import rack_feed_current_at
+        need_A, _ = rack_feed_current_at(need_A, lv)
     reqs = [
         Requirement(
             id="E-01", clause="Tap-off continuous rating",

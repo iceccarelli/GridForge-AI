@@ -20,7 +20,7 @@ The binding constraint as found is rack feed / tap-off rating (electrical). plat
 
 *Limited by: at the recommended architecture*
 
-**Time to full capacity:** 160 [80–210] weeks (E0)
+**Time to full capacity:** 160 [104–216] weeks (E0)
 
 *Limited by: assumed lead time, not a date (E0) · set by transformer capacity; reliefs assumed to run in parallel; the range is that item's own lead-time range*
 
@@ -47,7 +47,7 @@ Each row is the constraint that binds at that point, what it costs to move it, a
 | 1 | Rack feed / tap-off rating | electrical | 0 racks (E0) | 0 racks (E0) | Higher-rated tap-off units (and busway if ampacity does not allow)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 372,000 [186,000–744,000] EUR (E0) | unit price x racks fitted out · library placeholder (not a price) | 24 [12–40] weeks (E0) | — |
 | 2 | Residual air load removal per rack | thermal | 0 racks (E0) | 0 racks (E0) | Add in-row cooling or rear-door heat exchangers for the residual air load  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 558,000 [279,000–1,120,000] EUR (E0) | unit price x racks fitted out · library placeholder (not a price) | 20 [12–32] weeks (E0) | — |
 | 3 | Achievable facility water temperature | thermal | 0 racks (E0) | 8 racks (E0) | Adiabatic assist plus trim chiller on the high-temperature loop | 350,000 [175,000–700,000] EUR (E0) | fixed lump, not scaled to size · library placeholder (not a price) · One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size. | 32 [20–48] weeks (E0) | 324 EUR/kW (E0) |
-| 4 | Transformer capacity | electrical | 8 racks (E0) | 8 racks (E0) | Replace / add transformer capacity (uprate ~60%)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 1,200,000 [600,000–2,400,000] EUR (E0) | 9 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [80–210] weeks (E0) | — |
+| 4 | Transformer capacity | electrical | 8 racks (E0) | 8 racks (E0) | Replace / add transformer capacity (uprate ~60%)  — adds no racks on its own: another constraint limits the hall to the same figure, so this relieves one of several tied constraints | 1,200,000 [600,000–2,400,000] EUR (E0) | 9 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [104–216] weeks (E0) | — |
 | 5 | UPS capacity (protected load) | electrical | 8 racks (E0) | 12 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 1,420 EUR/kW (E0) |
 | 6 | Busway ampacity | electrical | 12 racks (E0) | 22 racks (E0) | Replace busway with 800-1000 A and new tap-off units | 450,000 [225,000–900,000] EUR (E0) | 8 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 333 EUR/kW (E0) |
 | 7 | CDU capacity (derated to site water temperature) | thermal | 22 racks (E0) | 25 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
@@ -57,7 +57,7 @@ Each row is the constraint that binds at that point, what it costs to move it, a
 | 11 | CDU capacity (derated to site water temperature) | thermal | 33 racks (E0) | 34 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 1,330 EUR/kW (E0) |
 | 12 | Firm supply (grid import + behind-the-meter) | electrical | 34 racks (E0) | 39 racks (E0) | Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW) | 4,000,000 [2,800,000–5,200,000] EUR (E0) | the client's own declared figure | 44 [28.6–59.4] weeks (E0) | 5,930 EUR/kW (E0) |
 | 13 | Busway ampacity | electrical | 39 racks (E0) | 40 racks (E0) | Add two further busway runs (needs riser and routing space) | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 833 EUR/kW (E0) |
-| 14 | Transformer capacity | electrical | 40 racks (E0) | 43 racks (E0) | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 14.4 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [80–210] weeks (E0) | 4,740 EUR/kW (E0) |
+| 14 | Transformer capacity | electrical | 40 racks (E0) | 43 racks (E0) | Replace / add transformer capacity (uprate ~60%) | 1,920,000 [960,000–3,840,000] EUR (E0) | 14.4 MVA added · unit price x quantity added · library placeholder (not a price) | 160 [104–216] weeks (E0) | 4,740 EUR/kW (E0) |
 | 15 | UPS capacity (protected load) | electrical | 43 racks (E0) | 44 racks (E0) | Add UPS modules / new UPS block | 768,000 [384,000–1,540,000] EUR (E0) | 2,400 kW added · unit price x quantity added · library placeholder (not a price) | 30 [20–52] weeks (E0) | 5,690 EUR/kW (E0) |
 | 16 | CDU capacity (derated to site water temperature) | thermal | 44 racks (E0) | 47 racks (E0) | Add CDU capacity (one further unit per bank) | 180,000 [90,000–360,000] EUR (E0) | 1 CDU unit(s) added · unit price x quantity added · library placeholder (not a price) · NOT PRICED: CDU hydraulic integration and controls; CDU commissioning and flushing | 26 [16–40] weeks (E0) | 444 EUR/kW (E0) |
 | 17 | Busway ampacity | electrical | 47 racks (E0) | 55 racks (E0) | Add two further busway runs (needs riser and routing space) | 112,000 [56,200–225,000] EUR (E0) | 2 busway run(s) added · unit price x quantity added · library placeholder (not a price) | 36 [24–52] weeks (E0) | 104 EUR/kW (E0) |
@@ -76,7 +76,7 @@ Rungs 1, 2, 4, 18 are charged but add no racks on their own. Each relieves one o
 
 *Limited by: Class 5 (order of magnitude): -50% / +100%*
 
-**Critical-path lead time:** 160 [80–210] weeks (E0)
+**Critical-path lead time:** 160 [104–216] weeks (E0)
 
 *Limited by: Lead time, not construction, is usually the schedule driver.*
 
@@ -87,21 +87,21 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 | Elapsed (assumed lead time, not a date) | Racks energised | Unlocked by | Domain |
 | --- | --- | --- | --- |
 | 32 [20–48] weeks (E0) | 8 racks (E0) | Achievable facility water temperature | thermal |
-| 160 [80–210] weeks (E0) | 12 racks (E0) | UPS capacity (protected load) | electrical |
-| 160 [80–210] weeks (E0) | 22 racks (E0) | Busway ampacity | electrical |
-| 160 [80–210] weeks (E0) | 25 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
-| 160 [80–210] weeks (E0) | 28 racks (E0) | UPS capacity (protected load) | electrical |
-| 160 [80–210] weeks (E0) | 31 racks (E0) | Firm supply (grid import + behind-the-meter) | electrical |
-| 160 [80–210] weeks (E0) | 33 racks (E0) | Busway ampacity | electrical |
-| 160 [80–210] weeks (E0) | 34 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
-| 160 [80–210] weeks (E0) | 39 racks (E0) | Firm supply (grid import + behind-the-meter) | electrical |
-| 160 [80–210] weeks (E0) | 40 racks (E0) | Busway ampacity | electrical |
-| 160 [80–210] weeks (E0) | 43 racks (E0) | Transformer capacity | electrical |
-| 160 [80–210] weeks (E0) | 44 racks (E0) | UPS capacity (protected load) | electrical |
-| 160 [80–210] weeks (E0) | 47 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
-| 160 [80–210] weeks (E0) | 55 racks (E0) | Busway ampacity | electrical |
-| 160 [80–210] weeks (E0) | 61 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
-| 160 [80–210] weeks (E0) | 62 racks (E0) | UPS capacity (protected load) | electrical |
+| 160 [104–216] weeks (E0) | 12 racks (E0) | UPS capacity (protected load) | electrical |
+| 160 [104–216] weeks (E0) | 22 racks (E0) | Busway ampacity | electrical |
+| 160 [104–216] weeks (E0) | 25 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
+| 160 [104–216] weeks (E0) | 28 racks (E0) | UPS capacity (protected load) | electrical |
+| 160 [104–216] weeks (E0) | 31 racks (E0) | Firm supply (grid import + behind-the-meter) | electrical |
+| 160 [104–216] weeks (E0) | 33 racks (E0) | Busway ampacity | electrical |
+| 160 [104–216] weeks (E0) | 34 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
+| 160 [104–216] weeks (E0) | 39 racks (E0) | Firm supply (grid import + behind-the-meter) | electrical |
+| 160 [104–216] weeks (E0) | 40 racks (E0) | Busway ampacity | electrical |
+| 160 [104–216] weeks (E0) | 43 racks (E0) | Transformer capacity | electrical |
+| 160 [104–216] weeks (E0) | 44 racks (E0) | UPS capacity (protected load) | electrical |
+| 160 [104–216] weeks (E0) | 47 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
+| 160 [104–216] weeks (E0) | 55 racks (E0) | Busway ampacity | electrical |
+| 160 [104–216] weeks (E0) | 61 racks (E0) | CDU capacity (derated to site water temperature) | thermal |
+| 160 [104–216] weeks (E0) | 62 racks (E0) | UPS capacity (protected load) | electrical |
 
 *Energisation curve for the recommended architecture. Every elapsed figure is an assumed lead time, not a date (E0), not a committed energisation date.*
 
@@ -111,9 +111,9 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 | --- | --- | --- | --- |
 | Retained air, grid only | 0 racks (E0) | — | — |
 | Rear-door heat exchangers, grid only | 0 racks (E0) | — | — |
-| Hybrid DLC on retained plant, grid only | 26 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
-| Full DLC, grid only | 28 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
-| Full DLC plus behind-the-meter supply | 62 racks (E0) | 160 [80–210] weeks (E0) | Transformer capacity |
+| Hybrid DLC on retained plant, grid only | 26 racks (E0) | 160 [104–216] weeks (E0) | Transformer capacity |
+| Full DLC, grid only | 28 racks (E0) | 160 [104–216] weeks (E0) | Transformer capacity |
+| Full DLC plus behind-the-meter supply | 62 racks (E0) | 160 [104–216] weeks (E0) | Transformer capacity |
 
 *Time to power across the architectures compared. Where a figure is marked E0 it is an assumed lead time, not a date: the item named in the last column carries an assumed lead time.*
 
@@ -167,7 +167,7 @@ This document does not date grid reinforcement: a connection date needs the netw
 | Rack feed / tap-off rating | gate | 0 racks (E0) | platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5) | Higher-rated tap-off units (and busway if ampacity does not allow) |
 | Transformer capacity | capacity | 8 [4–11] racks (E0) | 1,330 [845–1,810] kW (E3) usable after redundancy and derating | Replace / add transformer capacity (uprate ~60%) |
 | UPS capacity (protected load) | capacity | 8 [7–8] racks (E0) | 1,100 kW (E0) of protected-load headroom after N+1 redundancy | Add UPS modules / new UPS block |
-| Busway ampacity | capacity | 12 [12–13] racks (E0) | 8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0) | Replace busway with 800-1000 A and new tap-off units |
+| Busway ampacity | capacity | 12 [12–13] racks (E0) | 8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run | Replace busway with 800-1000 A and new tap-off units |
 | Firm supply (grid import + behind-the-meter) | capacity | 28 [25–30] racks (E0) | 4,600 kW (E3) of firm-supply headroom at PUE 1.2 [1.15–1.28] | Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW) |
 
 *A gate either passes (it does not limit the hall) or fails (it permits no racks until relieved). Rack counts carry the weakest evidence class among the constraints evaluated.*
@@ -226,9 +226,9 @@ Power and thermal are not independent budgets. Every kilowatt the cooling archit
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Retained air, grid only | 0 racks (E0) | — | — | — | — | — | — | — |
 | Rear-door heat exchangers, grid only | 0 racks (E0) | — | — | — | — | — | — | — |
-| Hybrid DLC on retained plant, grid only | 26 racks (E0) | ≥ 6,630,000 [3,310,000–13,300,000] EUR (E0) | 255,000 [127,000–510,000] EUR/rack (E0) | 4,200,000 [2,480,000–7,470,000] EUR (E0) | 0.256 [0.151–0.456] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 48,600,000 [28,100,000–88,000,000] EUR (E0) |
-| Full DLC, grid only | 28 racks (E0) | ≥ 6,220,000 [3,110,000–12,400,000] EUR (E0) | 222,000 [111,000–444,000] EUR/rack (E0) | 4,170,000 [2,510,000–7,360,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 47,900,000 [28,200,000–86,000,000] EUR (E0) |
-| Full DLC plus behind-the-meter supply | 62 racks (E0) | ≥ 18,800,000 [9,420,000–37,700,000] EUR (E0) | 304,000 [152,000–608,000] EUR/rack (E0) | 9,240,000 [5,570,000–16,300,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [80–210] weeks (E0) | NOT decision-grade | 111,000,000 [65,100,000–201,000,000] EUR (E0) |
+| Hybrid DLC on retained plant, grid only | 26 racks (E0) | ≥ 6,630,000 [3,310,000–13,300,000] EUR (E0) | 255,000 [127,000–510,000] EUR/rack (E0) | 4,200,000 [2,480,000–7,470,000] EUR (E0) | 0.256 [0.151–0.456] EUR/gpu*h (E0) | 160 [104–216] weeks (E0) | NOT decision-grade | 48,600,000 [28,100,000–88,000,000] EUR (E0) |
+| Full DLC, grid only | 28 racks (E0) | ≥ 6,220,000 [3,110,000–12,400,000] EUR (E0) | 222,000 [111,000–444,000] EUR/rack (E0) | 4,170,000 [2,510,000–7,360,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [104–216] weeks (E0) | NOT decision-grade | 47,900,000 [28,200,000–86,000,000] EUR (E0) |
+| Full DLC plus behind-the-meter supply | 62 racks (E0) | ≥ 18,800,000 [9,420,000–37,700,000] EUR (E0) | 304,000 [152,000–608,000] EUR/rack (E0) | 9,240,000 [5,570,000–16,300,000] EUR (E0) | 0.236 [0.142–0.417] EUR/gpu*h (E0) | 160 [104–216] weeks (E0) | NOT decision-grade | 111,000,000 [65,100,000–201,000,000] EUR (E0) |
 
 *Cost basis: Class 5 (order of magnitude): -50% / +100%. Excludes IT hardware, migration and lost tenancy revenue. A total marked with ≥ is a lower bound: a cost it needs has no price. A dash means no rack can be deployed in that architecture and no relief exists, so the figure is undefined rather than zero.*
 
@@ -305,7 +305,7 @@ One-at-a-time sensitivity on the recommended architecture, evaluated against the
 | Risk | Description | Lead time exposure |
 | --- | --- | --- |
 | Achievable facility water temperature | Adiabatic assist reintroduces water consumption; check permits and WUE targets. | 32 [20–48] weeks (E0) |
-| Transformer capacity | Lead time, not construction, is usually the schedule driver. Applies to 2 rungs of the ladder. | 160 [80–210] weeks (E0) |
+| Transformer capacity | Lead time, not construction, is usually the schedule driver. Applies to 2 rungs of the ladder. | 160 [104–216] weeks (E0) |
 | Busway ampacity | Requires hall outage or phased de-tenanting. Applies to 5 rungs of the ladder. | 36 [24–52] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | No combustion consent required; grid-code compliance and fire separation govern the programme. | 30 [19.5–40.5] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | Emissions consent and fuel supply are the schedule risk, not the equipment. | 44 [28.6–59.4] weeks (E0) |
@@ -597,19 +597,19 @@ Every number in this report carries an evidence class. The class of a computed n
 | retained_air: racks unlocked | E0 | input@0.1 | `2e4138fcac55` |
 | rdhx: racks unlocked | E0 | input@0.1 | `e9952b43b4be` |
 | hybrid_dlc: racks unlocked | E0 | input@0.1 | `8eba1a207998` |
-| hybrid_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `c231de706945` |
+| hybrid_dlc: capex per rack added | E0 | economics.capex_per_rack@0.1 | `23c1d925b5ad` |
 | annual energy cost | E0 | economics.energy_cost@0.1 | `83ceb2eba697` |
 | energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `55da6a68d11a` |
 | hybrid_dlc: critical path | E0 | input@0.1 | `fd4bb27c96c2` |
 | lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `0590aba4b7e0` |
 | full_dlc: racks unlocked | E0 | input@0.1 | `8887e6b75586` |
-| full_dlc: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `b1117dd9e458` |
+| full_dlc: capex per rack added | E0 | economics.capex_per_rack@0.1 | `dd6de2b1ac4f` |
 | annual energy cost | E0 | economics.energy_cost@0.1 | `4243b5b63dd0` |
 | energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `640cd8206ed8` |
 | full_dlc: critical path | E0 | input@0.1 | `e150e1d1a44b` |
 | lifecycle cost over 10 years | E0 | economics.lifecycle_cost@0.1 | `a8d29bc15951` |
 | full_dlc_btm: racks unlocked | E0 | input@0.1 | `7d7b81a69f10` |
-| full_dlc_btm: capex per rack enabled | E0 | economics.capex_per_rack@0.1 | `9b9420d1d44f` |
+| full_dlc_btm: capex per rack added | E0 | economics.capex_per_rack@0.1 | `042d5c005996` |
 | annual energy cost | E0 | economics.energy_cost@0.1 | `4243b5b63dd0` |
 | energy cost per GPU-hour | E0 | economics.energy_per_gpu_hour@0.1 | `640cd8206ed8` |
 | full_dlc_btm: critical path | E0 | input@0.1 | `1bfd8e2425a5` |

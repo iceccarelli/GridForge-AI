@@ -16,7 +16,7 @@ We ran your hall through the capacity engine before writing this. The following 
 
 *Limited by: Full DLC plus behind-the-meter supply*
 
-**Time to full capacity:** 160 [80–210] weeks (E0)
+**Time to full capacity:** 160 [104–216] weeks (E0)
 
 *Limited by: assumed lead time, not a date (E0) · set by transformer capacity*
 
