@@ -8,12 +8,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Nothing in this workflow writes to the repository or to a package registry; the default token would allow it.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11', '3.13']
+        python-version: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -491,6 +495,15 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
+      - name: Dependency advisories in what ships (NON-BLOCKING, on purpose)
+        # `npm audit --omit=dev --audit-level=high` currently fails on exactly one thing: PostCSS <= 8.5.22 (GHSA-qx2v-qp2m-jg93 and three
+        # sourceMappingURL advisories) vendored INSIDE next 15.5.x as node_modules/next/node_modules/postcss. It runs only at build time,
+        # on this repository's own CSS, never on request input, and the only offered fix is `npm audit fix --force` -> next 16, a major
+        # version change that is a decision, not a CI side effect. So this step reports but cannot fail the job. REMOVE continue-on-error
+        # when next ships a release that bundles a patched PostCSS (then any new high advisory must block). Anything OTHER than that
+        # PostCSS entry in this output is new and needs a look.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
       - name: Sitemap dates must follow page content, not the build clock
         run: node scripts/page-lastmod.mjs --check
       - name: The route handlers must be executed, not described
@@ -641,35 +654,35 @@ jobs:
       - name: Intake evidence (0044) and one-time purchase holds (0045) against real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_intake_evidence_migration.py tests/test_one_time_purchase_holds_migration.py -q
       - name: Envelope Study and Portfolio Screen, deposit to delivery - real engine + PostgREST + PostgreSQL, mail intercepted (fails, never skips)
-        run: npx vitest run tests/site/deposit-study.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/deposit-study.realdb.test.ts
       - name: Real engine + real PostgREST + real PostgreSQL acceptance (fails, never skips)
-        run: npx vitest run tests/site/verified-power-record.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/verified-power-record.realdb.test.ts
       - name: Cost-evidence migrations (fresh database and upgrade of legacy runs) against real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_cost_evidence_migration.py -q
       - name: Durable, versioned cost-evidence runs - real engines + real PostgREST + real PostgreSQL, stubbed Storage (fails, never skips)
-        run: npx vitest run tests/site/cost-evidence.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/cost-evidence.realdb.test.ts
       - name: Rate-limit counter, saved comparisons and buyer links against real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_buyer_page_migration.py -q
       - name: Saved comparison to buyer page to checkout to webhook - real engine + PostgREST + PostgreSQL (fails, never skips)
-        run: npx vitest run tests/site/buyer-page.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/buyer-page.realdb.test.ts
       - name: Comparison quotation evidence - the save guard, upgrade and lock ordering against real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_comparison_evidence_migration.py -q
       - name: Accepted quotations to comparison to buyer page - real engine + PostgREST + PostgreSQL (fails, never skips)
-        run: npx vitest run tests/site/ttp-quotation-backed.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/ttp-quotation-backed.realdb.test.ts
       - name: Provider-spend gate - concurrency, separate instances, shared ceilings and chat fan-out on real PostgreSQL (fails, never skips)
-        run: npx vitest run tests/site/provider-spend.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/provider-spend.realdb.test.ts
       - name: Intelligence seats - constraints, grants, catalogue parity and racing connections on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_team_seats_migration.py -q
       - name: Intelligence seats - invitation, acceptance and removal through the routes, real PostgREST + PostgreSQL (fails, never skips)
-        run: npx vitest run tests/site/team-seats.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/team-seats.realdb.test.ts
       - name: Pay-as-you-go ledger, settlements, free allowance, founding slots and revoked ids - constraints, grants and racing connections on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_payg_migration.py -q
       - name: Pay-as-you-go ingest, settlement, webhook, compare-and-set mint, free allowance and alerts - real PostgREST + PostgreSQL, Stripe mocked (fails, never skips)
-        run: npx vitest run tests/site/payg.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/payg.realdb.test.ts
       - name: Delivery hand-off - deposit credit ledger, scoping guard, release notice and row version on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_delivery_handoff_migration.py tests/test_leads_rls_migration.py -q
       - name: Paid journeys - Procurement Specification, stuck generation, Hall Watch, deposit - real engine + PostgREST + PostgreSQL, mail and Stripe events local (fails, never skips)
-        run: npx vitest run tests/site/delivery-journeys.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/delivery-journeys.realdb.test.ts
       - name: Calibration capture - truncate guards, submitter/evidence separation, E5-only, measurement kind, site_ref and provenance, ledger-eligible export view, privileges on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_calibration_capture_migration.py -q
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)
@@ -681,7 +694,9 @@ jobs:
       - name: Scheduled pauses and append-only settlement reversals (migration 0043) on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_billing_pause_reversals_migration.py -q
       - name: Metered API lifecycle - free allowance, pay-as-you-go, settlement, failure, recovery, cancellation, concurrency - REAL engine process + real PostgREST + PostgreSQL, Stripe and mail mocked (fails, never skips)
-        run: npx vitest run tests/site/payg-journey.realdb.test.ts
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/payg-journey.realdb.test.ts
+      - name: Billing lifecycle - once-only operator ledger, cancellation compare-and-set, revocation sweep order and billing event clocks (migration 0039) through the real webhook route on real PostgREST + PostgreSQL (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/billing-lifecycle.realdb.test.ts
       - name: PostgREST log, for diagnosis
         if: failure()
         run: tail -50 /tmp/gf-realdb/pgrst.log || true
