@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
+import { marketFigure } from "@/lib/market-evidence";
 
 /**
  * The site's own address, in one place.
@@ -86,29 +87,33 @@ export const SITE = {
   baseLocation: "Frankfurt, DE · Toronto, CA",
 };
 
-// Market facts — each is publicly sourced (see docs/04_MARKET_EVIDENCE.md).
-// Shown as the market reality the buyer already lives in, never as our own
-// results.
+// Market facts. Each is a claim about the MARKET, never about this practice's results, and each is a record in lib/market-evidence.ts
+// that says what was read, when, and how strongly it was checked. A figure with no source found is not shown (see
+// tests/site/market-evidence.test.ts). Wording here is the register's wording, not a paraphrase of it.
 export const MARKET_STATS = [
   {
-    value: "82%",
-    label: "Operators whose highest-density rack still runs below 30 kW",
-    source: "Uptime Institute, 2025",
+    value: marketFigure("uptime-density-2025").tile!,
+    label: "of surveyed operators say their densest rack is below 30 kW",
+    source: "Uptime Institute survey, 2025 (self-reported)",
+    figure: "uptime-density-2025",
   },
   {
-    value: "420 MW",
-    label: "European AI-focused colo signings, H1 2026 (vs 89 MW H1 2025)",
+    value: marketFigure("cbre-europe-ai-colo-2026").tile!,
+    label: "European AI-focused colocation signings in H1 2026, up from 89 MW a year earlier",
     source: "CBRE, 2026",
+    figure: "cbre-europe-ai-colo-2026",
   },
   {
-    value: "160+ wks",
-    label: "Transformer lead time, up from 120 weeks in 2024",
-    source: "Data Center Knowledge, 2026",
-  },
-  {
-    value: "6.4%",
-    label: "FLAP-D colocation vacancy — supply is not the constraint",
+    value: marketFigure("jll-flapd-vacancy-q2-2026").tile!,
+    label: "FLAP-D colocation vacancy in Q2 2026: space is not the scarce thing, power is",
     source: "JLL EMEA Data Centre Report, 2026",
+    figure: "jll-flapd-vacancy-q2-2026",
+  },
+  {
+    value: marketFigure("mainova-frankfurt-connections").tile!,
+    label: "when Frankfurt's utility expects new high-power connections to be available again",
+    source: "Mainova, as reported 2026 (a utility forecast)",
+    figure: "mainova-frankfurt-connections",
   },
 ];
 
@@ -116,20 +121,20 @@ export const PROBLEM_CARDS = [
   {
     kind: "queue" as const,
     label: "The grid is the asset",
-    body: "In core European metros, new grid connections are blocked for years — Frankfurt has essentially no chance of a new large connection before 2030, Amsterdam's queue runs ~10 years. The only fast way to add AI capacity is to get more useful compute out of power a site already has.",
-    source: "Mainova / TNW, 2026",
+    body: "In Frankfurt the utility itself expects new high-power connections to be unavailable until about the mid-2030s. Where a new connection is that far away, the fast way to add AI capacity is to get more useful compute out of power a site already has.",
+    source: "Mainova, as reported 2026 (a utility forecast)",
   },
   {
     kind: "power" as const,
     label: "The density gap",
-    body: "82% of operators' densest rack still runs below 30 kW, and fewer than 4% of facilities can host 100 kW+ racks. Nobody in the building can say, in writing, the highest kW/rack they will commit to today — or what stops them at that number.",
-    source: "Uptime Institute, 2025",
+    body: "More than 80% of surveyed operators say their densest rack is below 30 kW. Nobody in the building can usually say, in writing, the highest kW per rack they will commit to today, or what stops them at that number.",
+    source: "Uptime Institute survey, 2025 (self-reported)",
   },
   {
     kind: "power" as const,
     label: "The binding constraint is usually electrical",
     body: "At high density, power distribution creates more problems than cooling: busway, tap-off units, transformer lead time, floor loading. A thermal-only or power-only answer is wrong by construction — the envelope has to be solved together.",
-    source: "Uptime Institute (Bizo), 2026",
+    source: "Uptime Intelligence commentary, as cited by the engine's constraint reference (original not re-read in the 2026-11-03 check)",
   },
 ];
 

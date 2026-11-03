@@ -9,12 +9,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+from home_source import read_text  # noqa: E402  (the homepage is several files; see tests/home_source.py)
+
 FILES_WITH_FREE_CTA_LINKS = [
     "components/HomeClient.tsx",
     "components/Navbar.tsx",
     "components/Footer.tsx",
     "components/StickyMobileCTA.tsx",
-    "components/ScopingAgent.tsx",
+    "components/ScopingAgentPanel.tsx",
     "app/developers/page.tsx",
     "app/platforms/page.tsx",
     "app/constraints/page.tsx",
@@ -38,7 +40,7 @@ DRIFTED_FREE_CTA_PHRASES = [
 
 
 def read(rel: str) -> str:
-    return (ROOT / rel).read_text()
+    return read_text(rel)
 
 
 def test_no_drifted_free_cta_phrases_remain():

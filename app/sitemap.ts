@@ -3,6 +3,7 @@ import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { pageablePlatforms } from "@/lib/platform-pages";
 import { SITE_URL } from "@/lib/site";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
+import { AUDIENCES } from "@/lib/audiences";
 import pageDates from "@/lib/page-lastmod.json";
 
 /**
@@ -32,6 +33,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly" as const,
     priority: 0.8,
   }));
+  const audiencePages: MetadataRoute.Sitemap = AUDIENCES.map((a) => ({
+    url: `${base}/for/${a.slug}`,
+    ...lm(`/for/${a.slug}`),
+    changeFrequency: "monthly" as const,
+    priority: 0.7,
+  }));
   const lib = await platformLibrary();
   const platformPages: MetadataRoute.Sitemap = pageablePlatforms(lib?.platforms ?? []).map((p) => ({
     url: `${base}/platforms/${p.id}`,
@@ -49,6 +56,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...constraintPages,
     { url: `${base}/products`, ...lm("/products"), changeFrequency: "monthly", priority: 0.8 },
     ...productPages,
+    { url: `${base}/for`, ...lm("/for"), changeFrequency: "monthly", priority: 0.8 },
+    ...audiencePages,
     ...platformPages,
     { url: `${base}/about`, ...lm("/about"), changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/evidence`, ...lm("/evidence"), changeFrequency: "monthly", priority: 0.8 },

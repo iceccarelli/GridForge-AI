@@ -29,12 +29,24 @@ function productSlugs() {
   return [...src.matchAll(/^\s+slug: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
 }
 
+/** The slugs of lib/audiences.ts, read from the source so the route list cannot drift from the pages that exist. */
+function audienceSlugs() {
+  const src = readFileSync(path.join(ROOT, "lib/audiences.ts"), "utf8");
+  return [...src.matchAll(/^    slug: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
+}
+
+/** The homepage is assembled from components/home/*.tsx; their content is the page's content. */
+function homeComponents() {
+  const dir = path.join(ROOT, "components/home");
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".tsx")).sort().map((f) => `components/home/${f}`) : [];
+}
+
 export function routeSources() {
   const slugs = existsSync(path.join(ROOT, "public/reference/constraints"))
     ? readdirSync(path.join(ROOT, "public/reference/constraints")).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
     : [];
   const routes = {
-    "/": ["app/page.tsx", "lib/products.ts", "lib/site.ts"],
+    "/": ["app/page.tsx", ...homeComponents(), "lib/products.ts", "lib/site.ts", "lib/market-evidence.ts", "lib/audiences.ts", "lib/rack-math.ts"],
     "/qualify": ["app/qualify/page.tsx"],
     "/reference": ["app/reference/page.tsx", "public/reference/model_pack.json", "public/reference/calibration.json"],
     "/constraints": ["app/constraints/page.tsx", "public/reference/constraints.json", "lib/constraints.ts"],
@@ -56,6 +68,9 @@ export function routeSources() {
   };
   routes["/products"] = ["app/products/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
+  routes["/for"] = ["app/for/page.tsx", "lib/audiences.ts"];
+  for (const slug of audienceSlugs()) routes[`/for/${slug}`] = ["app/for/[slug]/page.tsx", "lib/audiences.ts", "lib/products.ts", "public/reference/constraints.json"];
+  routes["/evidence"] = [...routes["/evidence"], "lib/market-evidence.ts", "lib/evidence-bands.ts"];
   const platforms = existsSync(path.join(ROOT, "public/reference/platforms.json"))
     ? JSON.parse(readFileSync(path.join(ROOT, "public/reference/platforms.json"), "utf8")).platforms.filter((p) => !p.generic && p.sources?.length)
     : [];

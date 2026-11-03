@@ -32,7 +32,7 @@ steps = ladder(intake.context)    # the Headroom Ladder
 - **A missing cost, lead time or availability is never treated as zero** and never produces a date.
 - **Lead times are labelled.** A date that rests on an assumed lead time is reported as an assumed lead time, not as a date.
 
-The hosted API, human-reviewed engagements and the source repository are at https://github.com/iceccarelli/GridForge-AI.
+Time to Power (https://timetopower.ai) is the founder-led practice that runs this engine as a hosted API and as human-reviewed engineering assessments for existing AI data halls. It sells no equipment. The source repository is https://github.com/iceccarelli/GridForge-AI.
 
 ## Licence
 

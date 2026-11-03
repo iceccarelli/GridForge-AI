@@ -1,3 +1,4 @@
+import { homeSource } from "./_home";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LADDER_PRODUCTS, priceLine } from "@/lib/products";
@@ -116,14 +117,14 @@ describe("audit fixes: discovery and metadata", () => {
   });
 
   it("public copy never promises an engineer's sign-off or a name on an opinion", () => {
-    for (const f of ["components/HomeClient.tsx", "app/pricing/page.tsx", "components/ThreePaths.tsx", "app/qualify/page.tsx", "lib/site.ts", "lib/products.ts"]) {
-      const t = readFileSync(f, "utf8").toLowerCase().replace(/&apos;|&rsquo;/g, "'");
+    for (const f of ["__HOME__", "app/pricing/page.tsx", "components/ThreePaths.tsx", "app/qualify/page.tsx", "lib/site.ts", "lib/products.ts"]) {
+      const t = (f === "__HOME__" ? homeSource() : readFileSync(f, "utf8")).toLowerCase().replace(/&apos;|&rsquo;/g, "'");
       expect(t, f).not.toMatch(/carries an engineer's sign-off|engineer's name on an opinion|engineering you can rely on/);
     }
   });
 
   it("the Density Screen's turnaround is never stated without its basis on the home page", () => {
-    const t = readFileSync("components/HomeClient.tsx", "utf8");
+    const t = homeSource();
     expect(t).not.toMatch(/five working days,\s/);
   });
 });

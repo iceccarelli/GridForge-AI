@@ -2,6 +2,7 @@
  * Third-pass copy findings: what is free and what is paid, no promised reply time, a hero that matches what the engine
  * models, a privacy page written from the code, no stray "1" unit, and the subscription management control.
  */
+import { homeSource } from "./_home";
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
@@ -27,8 +28,8 @@ describe("what is free and what is paid is said truthfully", () => {
     expect(t).not.toMatch(/Those are the paid engagement/);
   });
   it("no free surface still says capital cost or programme duration are withheld or paid-only", () => {
-    for (const f of ["app/qualify/page.tsx", "components/CapacityQualifier.tsx", "components/HomeClient.tsx", "app/q/[token]/page.tsx"]) {
-      const src = read(f);
+    for (const f of ["app/qualify/page.tsx", "components/CapacityQualifier.tsx", "__HOME__", "app/q/[token]/page.tsx"]) {
+      const src = f === "__HOME__" ? homeSource() : read(f);
       expect(src, f).not.toMatch(/capital cost and programme duration are (part of the engagement|the paid engagement)/i);
       expect(src, f).not.toMatch(/withholds them server-side|engine withholds/i);
       expect(src, f).not.toMatch(/Capital cost, programme duration,? (in weeks, )?the full constraint/i);
@@ -53,14 +54,15 @@ describe("no promise about when we will reply", () => {
 
 describe("the hero describes what the engine models", () => {
   it("existing halls, a time-to-power estimate and its evidence class; no 'proposed site' and no 'go live'", () => {
-    for (const f of ["components/HomeClient.tsx", "components/Footer.tsx"]) {
-      const t = read(f).replace(/\s+/g, " ");
+    for (const f of ["__HOME__", "components/Footer.tsx"]) {
+      const t = (f === "__HOME__" ? homeSource() : read(f)).replace(/\s+/g, " ");
       expect(t, f).not.toMatch(/existing or proposed AI/i);
       expect(t, f).not.toMatch(/when the compute can go live/i);
     }
-    const home = read("components/HomeClient.tsx").replace(/\s+/g, " ");
-    expect(home).toContain("Give us the technical information for an existing AI hall");
-    expect(home).toContain("the time to full capacity, with the evidence class behind each figure");
+    const home = homeSource().replace(/\s+/g, " ").replace(/&apos;|&rsquo;/g, "'");
+    expect(home).toContain("Time to Power evaluates how much useful AI compute an existing data-centre hall can support");
+    expect(home).toContain("identifies the binding electrical or thermal constraint");
+    expect(home).toContain("with cost, lead time and the evidence behind every number");
     expect(home).toContain("labelled as one, not as a date");
     expect(read("components/Footer.tsx").replace(/\s+/g, " ")).toContain("the owner of an existing AI hall");
   });

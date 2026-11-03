@@ -331,7 +331,7 @@ export function EngagementIntake({
       <div>
         <h3 className="text-sm font-semibold text-ghost">Transformer schedule</h3>
         <p className="mb-3 mt-1 text-xs text-faint">
-          Usually the schedule driver — power transformers ran 160+ weeks in 2026.
+          Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one; otherwise the engine uses a labelled assumption.
         </p>
         {rows(transformers, setTransformers, "MVA", "TX")}
       </div>

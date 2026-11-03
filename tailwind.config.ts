@@ -27,7 +27,7 @@ const config: Config = {
         // Text
         ghost: "#F5F7FA",
         mute: "#8A94A6",
-        faint: "#5A6478",
+        faint: "#7C879B",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],

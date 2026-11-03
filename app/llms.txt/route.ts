@@ -164,7 +164,8 @@ ${absent}
 - ${SITE}/reference — the worked example, with its calibration record
 - ${SITE}/constraints — the thirteen constraints, one page each
 - ${SITE}/platforms — the rack platform library, with a page per manufacturer-published platform
-- ${SITE}/evidence — the evidence classes E0 to E7 and the calibration status
+- ${SITE}/evidence — the evidence classes E0 to E7, the calibration status, and the register of market figures with how each was checked (#market-figures)
+- ${SITE}/for — seven buyers (owners, colocation and AI operators, developers, investors, engineers, advisors), each starting from its own decision
 - ${SITE}/lead-times — indicative relief lead-time ranges for the thirteen constraints
 - ${SITE}/products — the engagements, one page each
 - ${SITE}/pricing — every price in one place

@@ -3,11 +3,11 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-03",
-      "hash": "90c52a301400062817ef839e9c198db4e5b8c3687cd3cd4dd2ec3548f04e11aa"
+      "hash": "1595123be4880baed332ed6672ff9b8e01116b84cbb8f5da4eae904b741665ff"
     },
     "/about": {
       "lastmod": "2026-11-03",
-      "hash": "88e0b015fa1980eea1564b05d7b82ff6b6033858468da99f777b0e2f6b116865"
+      "hash": "673fa3ec1c39c43f177f85c86420bdf2b7adf01f2413fa9d52eabf755199936e"
     },
     "/constraints": {
       "lastmod": "2026-11-03",
@@ -71,7 +71,39 @@
     },
     "/evidence": {
       "lastmod": "2026-11-03",
-      "hash": "08b3dd9c3437904fd77f3987d23ef5f8711bc05c3d3a783e03d70e75892807ba"
+      "hash": "d4300124a0f0e0b9e3eff7b61a3e70114e5415e48722a8adf2f74e1d795f0424"
+    },
+    "/for": {
+      "lastmod": "2026-11-03",
+      "hash": "38354697fc14c705c9267a96a06671ab5bcd060fc821e9308374b7bcc7373e7f"
+    },
+    "/for/advisors": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/ai-operators": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/colocation": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/developers": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/engineering-teams": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/existing-owners": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
+    },
+    "/for/investors": {
+      "lastmod": "2026-11-03",
+      "hash": "22cfb4960b7cb954f0f81a21c3533304caa1fd4678e4a21e6a25ed9c42e3ec1e"
     },
     "/intelligence": {
       "lastmod": "2026-11-03",
@@ -119,7 +151,7 @@
     },
     "/pricing": {
       "lastmod": "2026-11-03",
-      "hash": "e9d8c23cc6b766d05aac1c681e0404153239be56001b498e46434690f2511bb9"
+      "hash": "66bc260e45dfcc26c11ce2b4b9ea89d6275a1104a7aa356824d17ebd107e6bcd"
     },
     "/products": {
       "lastmod": "2026-11-03",

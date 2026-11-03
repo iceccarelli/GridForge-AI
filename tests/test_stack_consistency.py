@@ -294,6 +294,7 @@ ROOT_FILES = {
     ".gitignore": "",
     "Dockerfile": "the engine image",
     "LICENSE": "the licence the owner chose (FSL-1.1-ALv2); tests/test_packaging.py pins its text",
+    "README.md": "the first page a GitHub reader or an AI system sees; tests/test_readme_identity.py holds it to the catalogue",
     "Makefile": "",
     "MANIFEST.in": "keeps the repository-wide tests out of the published source distribution",
     "fly.toml": "engine deployment",
