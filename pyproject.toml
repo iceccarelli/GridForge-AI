@@ -9,7 +9,7 @@ description = "Power and thermal capacity envelope engine for AI data-centre hal
 readme = "docs/pypi-readme.md"
 requires-python = ">=3.11"
 dependencies = []          # deliberately none: the engine must run in an air-gapped review
-keywords = ["data-centre", "AI infrastructure", "power", "cooling", "capacity planning", "liquid cooling"]
+keywords = ["data-centre", "AI infrastructure", "power", "cooling", "capacity planning", "liquid cooling", "time to power", "rack density", "headroom ladder"]
 # Licence chosen by the owner on 2026-10-29: Functional Source License 1.1 with the Apache-2.0 future licence (see LICENSE). Do not change
 # it without the owner. PEP 639: a licence expression and a licence file; a License classifier must not be combined with it.
 license = "FSL-1.1-ALv2"
