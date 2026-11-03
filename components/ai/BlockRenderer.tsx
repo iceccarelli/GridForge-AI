@@ -1,14 +1,29 @@
+import dynamic from "next/dynamic";
 import { AnswerCard } from "./AnswerCard";
 import { displayUnit } from "@/lib/quantity-text";
 import { BindingConstraintCard } from "./BindingConstraintCard";
 import { CapacityCard } from "./CapacityCard";
 import { CommercialActionCard } from "./CommercialActionCard";
 import { EvidenceCard } from "./EvidenceCard";
-import { HeadroomLadderCard } from "./HeadroomLadderCard";
 import { MissingInputCard } from "./MissingInputCard";
 import { NextActionCard } from "./NextActionCard";
-import { TimeToPowerCard } from "./TimeToPowerCard";
 import type { ResponseBlock } from "./types";
+
+// The two charted cards pull in the charting library (about 100 kB transferred). A workspace visitor sees no chart until an answer
+// contains one, so the library is its own chunk, requested only when such a block is first rendered.
+const ChartPlaceholder = () => (
+  <div className="panel p-5 data text-[11px] text-faint" role="status">
+    Loading chart…
+  </div>
+);
+const HeadroomLadderCard = dynamic(() => import("./HeadroomLadderCard").then((m) => m.HeadroomLadderCard), {
+  ssr: false,
+  loading: ChartPlaceholder,
+});
+const TimeToPowerCard = dynamic(() => import("./TimeToPowerCard").then((m) => m.TimeToPowerCard), {
+  ssr: false,
+  loading: ChartPlaceholder,
+});
 
 /**
  * The single place that maps a response block to its card. Every block in the

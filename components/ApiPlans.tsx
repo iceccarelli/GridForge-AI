@@ -120,7 +120,7 @@ export default function ApiPlans({ rates = [] }: { rates?: ToolRate[] }) {
                 type="button"
                 onClick={() => buy(p.id)}
                 disabled={busy !== null}
-                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded bg-power px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
+                className="mt-5 inline-flex max-w-full min-h-11 items-center justify-center gap-2 rounded bg-power px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
               >
                 {busy === p.id ? "Opening checkout" : `Start ${p.name}`} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
               </button>

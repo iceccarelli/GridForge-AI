@@ -92,7 +92,7 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
 
       <dl className="mt-8 divide-y divide-line/60 rounded border border-line">
         {rows.map(([k, v]) => (
-          <div key={k} className="grid grid-cols-[12rem_1fr] gap-4 p-3 text-sm">
+          <div key={k} className="grid gap-1 p-3 text-sm sm:grid-cols-[12rem_1fr] sm:gap-4">
             <dt className="font-mono text-[11px] uppercase tracking-[0.12em] text-faint">{k}</dt>
             <dd className="text-ghost">{v}</dd>
           </div>

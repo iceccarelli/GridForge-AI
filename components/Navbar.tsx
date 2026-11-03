@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Menu, X, ArrowRight } from "lucide-react";
-import { m, AnimatePresence } from "framer-motion";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { NAV_LINKS, QUALIFY_LINK, CLIENT_PORTAL_LINK } from "@/lib/nav";
 
@@ -12,6 +11,7 @@ export function Navbar() {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -23,7 +23,11 @@ export function Navbar() {
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
+      if (e.key === "Escape") {
+        setIsOpen(false);
+        // Closing with the keyboard returns the reader to the control that opened the menu, not to the top of the page.
+        toggleRef.current?.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -50,6 +54,7 @@ export function Navbar() {
   return (
     <>
       <nav
+        aria-label="Primary"
         className={`fixed top-0 inset-x-0 z-50 transition-shadow ${
           scrolled ? "nav-glass shadow-[0_8px_30px_-20px_rgba(0,0,0,0.9)]" : "nav-glass"
         }`}
@@ -114,64 +119,71 @@ export function Navbar() {
           </div>
 
           <button
+            ref={toggleRef}
+            type="button"
             onClick={() => setIsOpen(!isOpen)}
-            className="xl:hidden p-2 text-mute hover:text-white"
-            aria-label="Toggle menu"
+            className="xl:hidden inline-flex min-h-11 min-w-11 items-center justify-center p-2 text-mute hover:text-white"
+            aria-label="Main menu"
             aria-controls="mobile-nav"
             aria-expanded={isOpen}
           >
-            {isOpen ? <X size={22} /> : <Menu size={22} />}
+            {isOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}
           </button>
         </div>
 
-        <AnimatePresence>
-          {isOpen && (
-            <m.div
-              id="mobile-nav"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="xl:hidden border-t border-line bg-ink overflow-hidden"
-            >
-              <div className="px-6 py-7 flex flex-col gap-5 text-lg">
-                {NAV_LINKS.map((link) => (
+        {isOpen && (
+          <div id="mobile-nav" className="mobile-nav-drop xl:hidden border-t border-line bg-ink overflow-hidden">
+            <div className="px-6 py-7 flex flex-col gap-5 text-lg">
+              {NAV_LINKS.map((link) =>
+                link.hash ? (
                   <button
                     key={link.href}
+                    type="button"
                     onClick={() => scrollTo(link.href)}
-                    className="text-left text-ghost/90 hover:text-white py-1"
+                    className="text-left text-ghost/90 hover:text-white py-1 min-h-11"
                   >
                     {link.label}
                   </button>
-                ))}
-                <div className="pt-4 border-t border-line flex flex-col gap-3">
-                  <button
-                    onClick={() => {
-                      setIsOpen(false);
-                      commissionDensityScreen({ context: "mobile-nav" });
-                    }}
-                    className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
-                  >
-                    {DENSITY_SCREEN_CTA}
-                  </button>
+                ) : (
                   <Link
-                    href={QUALIFY_LINK.href}
+                    key={link.href}
+                    href={link.href}
                     onClick={() => setIsOpen(false)}
-                    className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
+                    className="block text-left text-ghost/90 hover:text-white py-2 min-h-11"
                   >
-                    {QUALIFY_LINK.label}
+                    {link.label}
                   </Link>
-                  <Link
-                    href={CLIENT_PORTAL_LINK.href}
-                    onClick={() => setIsOpen(false)}
-                    className="text-center text-xs text-mute hover:text-white transition-colors py-1"
-                  >
-                    {CLIENT_PORTAL_LINK.label}
-                  </Link>
-                </div>
+                )
+              )}
+              <div className="pt-4 border-t border-line flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    commissionDensityScreen({ context: "mobile-nav" });
+                  }}
+                  className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
+                >
+                  {DENSITY_SCREEN_CTA}
+                </button>
+                <Link
+                  href={QUALIFY_LINK.href}
+                  onClick={() => setIsOpen(false)}
+                  className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
+                >
+                  {QUALIFY_LINK.label}
+                </Link>
+                <Link
+                  href={CLIENT_PORTAL_LINK.href}
+                  onClick={() => setIsOpen(false)}
+                  className="text-center text-xs text-mute hover:text-white transition-colors py-3"
+                >
+                  {CLIENT_PORTAL_LINK.label}
+                </Link>
               </div>
-            </m.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        )}
       </nav>
 
     </>

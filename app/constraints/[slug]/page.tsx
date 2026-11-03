@@ -213,7 +213,7 @@ export default async function ConstraintPage({
       <QuestionList id="questions-h" items={constraintQuestions(c)} />
 
       <section className="mt-12 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">
-        <div className="min-w-64 flex-1">
+        <div className="min-w-[min(16rem,100%)] flex-1">
           <h2 className="text-lg font-semibold text-ghost">
             Does this one bind in your hall?
           </h2>

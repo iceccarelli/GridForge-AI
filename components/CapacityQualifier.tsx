@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
 import { PRODUCTS } from "@/lib/products";
@@ -31,6 +31,12 @@ interface FieldDef {
   unit: string;
   hint: string;
   step?: string;
+  /** Bounds the engine enforces (lib/qualify.ts). Checked here only so the error is next to the field; the server stays the authority. */
+  min: number;
+  max: number;
+  /** The engine rejects zero as well as negatives. */
+  positive?: boolean;
+  integer?: boolean;
 }
 
 const DEFAULTS = {
@@ -44,19 +50,19 @@ const DEFAULTS = {
 };
 
 const FIELDS: FieldDef[] = [
-  { key: "contractedMW", label: "Contracted capacity", unit: "MW", step: "0.1",
+  { key: "contractedMW", label: "Contracted capacity", unit: "MW", step: "0.1", min: 0, max: 2000, positive: true,
     hint: "From the supply contract, not the connection nameplate." },
-  { key: "currentPeakMW", label: "Current site peak", unit: "MW", step: "0.1",
+  { key: "currentPeakMW", label: "Current site peak", unit: "MW", step: "0.1", min: 0, max: 2000,
     hint: "Half-hourly metered peak over 12 months." },
-  { key: "currentItLoadMW", label: "Current IT load", unit: "MW", step: "0.1",
+  { key: "currentItLoadMW", label: "Current IT load", unit: "MW", step: "0.1", min: 0, max: 2000,
     hint: "Protected load at the UPS output." },
-  { key: "buswayAmpacityA", label: "Busway ampacity", unit: "A",
+  { key: "buswayAmpacityA", label: "Busway ampacity", unit: "A", min: 0, max: 6300, positive: true,
     hint: "400 A legacy or 800–1000 A modern. The most common hard stop." },
-  { key: "tapoffMaxA", label: "Tap-off rating", unit: "A",
+  { key: "tapoffMaxA", label: "Tap-off rating", unit: "A", min: 0, max: 1600, positive: true,
     hint: "A rack that cannot be fed cannot be placed." },
-  { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5",
+  { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5", min: -5, max: 45,
     hint: "Chilled water flow setpoint. Legacy plant runs 6–7 °C." },
-  { key: "positionsAvailable", label: "Rack positions available", unit: "",
+  { key: "positionsAvailable", label: "Rack positions available", unit: "", min: 0, max: 20000, positive: true, integer: true,
     hint: "Positions you could actually release from tenancy." },
 ];
 
@@ -67,9 +73,24 @@ const PLATFORMS = [
 ];
 
 type Values = typeof DEFAULTS;
+type Raw = Record<keyof Values, string>;
+type FieldErrors = Partial<Record<keyof Values, string>>;
+
+/** The first problem with one field's text, or null. Mirrors the engine's bounds so the message sits beside the field. */
+function fieldProblem(f: FieldDef, raw: string): string | null {
+  if (raw.trim() === "") return "Enter a value.";
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return "Enter a number.";
+  if (f.integer && !Number.isInteger(n)) return "Enter a whole number.";
+  if (f.positive ? n <= 0 : n < f.min) return f.positive ? "Enter a number greater than zero." : `Enter ${f.min} or more.`;
+  if (n > f.max) return `Enter ${f.max.toLocaleString("en-GB")} or less.`;
+  return null;
+}
 
 export function CapacityQualifier() {
-  const [values, setValues] = useState<Values>(DEFAULTS);
+  const [raw, setRaw] = useState<Raw>(() => Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const alertRef = useRef<HTMLDivElement>(null);
   const [platform, setPlatform] = useState<string>("gb300_nvl72");
   const [siteName, setSiteName] = useState("");
   const [metro, setMetro] = useState("");
@@ -89,11 +110,41 @@ export function CapacityQualifier() {
   const [qualificationId, setQualificationId] = useState<string | null>(null);
   const [qualificationToken, setQualificationToken] = useState<string | null>(null);
 
-  const set = (key: keyof Values, raw: string) =>
-    setValues((v) => ({ ...v, [key]: raw === "" ? 0 : Number(raw) }));
+  const set = (key: keyof Values, text: string) => {
+    setRaw((v) => ({ ...v, [key]: text }));
+    // Correcting a field clears its own message at once; the rest stay until the next submit.
+    setFieldErrors((e) => (e[key] ? { ...e, [key]: undefined } : e));
+  };
+
+  // A message that appears after submit must be announced (role="alert") and reachable: when the failure is not tied to one field,
+  // focus moves to the message itself, so a keyboard or screen-reader user is not left on a button that now means something else.
+  const [alertTick, setAlertTick] = useState(0);
+  useEffect(() => {
+    if (alertTick > 0) alertRef.current?.focus();
+  }, [alertTick]);
+
+  function focusField(key: string) {
+    document.getElementById(`qualify-${key}`)?.focus();
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const problems: FieldErrors = {};
+    for (const f of FIELDS) {
+      const p = fieldProblem(f, raw[f.key]);
+      if (p) problems[f.key] = p;
+    }
+    const bad = FIELDS.filter((f) => problems[f.key]);
+    if (bad.length > 0) {
+      setFieldErrors(problems);
+      setResult(null);
+      setShare(null);
+      setError(`${bad.length === 1 ? "One value needs" : `${bad.length} values need`} attention: ${bad.map((f) => f.label).join(", ")}.`);
+      focusField(bad[0].key);
+      return;
+    }
+    setFieldErrors({});
+    const values = Object.fromEntries(FIELDS.map((f) => [f.key, Number(raw[f.key])])) as Values;
     setBusy(true);
     setError(null);
     setResult(null);
@@ -106,7 +157,18 @@ export function CapacityQualifier() {
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
+        // The server names the fields it rejected: put each message beside its field and move focus to the first.
+        const named = (body?.issues?.fieldErrors ?? {}) as Record<string, unknown>;
+        const serverProblems: FieldErrors = {};
+        for (const f of FIELDS) if (Array.isArray(named[f.key])) serverProblems[f.key] = "The engine rejected this value. Check it and try again.";
+        const first = FIELDS.find((f) => serverProblems[f.key]);
         setError(body?.error ?? "The engine did not return a result.");
+        if (first) {
+          setFieldErrors(serverProblems);
+          focusField(first.key);
+        } else {
+          setAlertTick((t) => t + 1);
+        }
         return;
       }
       setResult(body.result as QualifyResult);
@@ -116,6 +178,7 @@ export function CapacityQualifier() {
       setQualificationToken(typeof body.qualificationToken === "string" ? body.qualificationToken : null);
     } catch {
       setError("Could not reach the server. Your figures were not saved — please check your connection and try again.");
+      setAlertTick((t) => t + 1);
     } finally {
       setBusy(false);
     }
@@ -138,36 +201,50 @@ export function CapacityQualifier() {
         </p>
       </div>
 
-      <form onSubmit={submit} className="grid gap-5">
+      <form onSubmit={submit} noValidate className="grid gap-5">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FIELDS.map((f) => (
-            <label key={f.key} className="block">
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
-                {f.label}
-                {f.unit ? ` · ${f.unit}` : ""}
-              </span>
-              <input
-                id={`qualify-${f.key}`}
-                type="number"
-                inputMode="decimal"
-                step={f.step ?? "1"}
-                min={0}
-                value={values[f.key]}
-                onChange={(e) => set(f.key, e.target.value)}
-                className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
-                           focus:outline-none focus:ring-2 focus:ring-power/60 focus:border-power/60"
-                required
-              />
-              <span className="block mt-1 text-[11px] leading-snug text-faint">{f.hint}</span>
-            </label>
-          ))}
+          {FIELDS.map((f) => {
+            const err = fieldErrors[f.key];
+            return (
+              <div key={f.key} className="block">
+                <label htmlFor={`qualify-${f.key}`} className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+                  {f.label}
+                  {f.unit ? ` · ${f.unit}` : ""}
+                </label>
+                <input
+                  id={`qualify-${f.key}`}
+                  type="number"
+                  inputMode="decimal"
+                  step={f.step ?? "1"}
+                  min={f.min}
+                  max={f.max}
+                  value={raw[f.key]}
+                  onChange={(e) => set(f.key, e.target.value)}
+                  aria-required="true"
+                  aria-invalid={err ? true : undefined}
+                  aria-describedby={err ? `qualify-${f.key}-error qualify-${f.key}-hint` : `qualify-${f.key}-hint`}
+                  className={`mt-1 w-full bg-panel-2 border rounded px-3 py-2 font-mono text-ghost
+                           focus:outline-none focus:ring-2 focus:ring-power/60 focus:border-power/60 ${err ? "border-flag" : "border-line"}`}
+                />
+                {err ? (
+                  <span id={`qualify-${f.key}-error`} className="block mt-1 text-xs font-medium text-flag">
+                    {err}
+                  </span>
+                ) : null}
+                <span id={`qualify-${f.key}-hint`} className="block mt-1 text-[11px] leading-snug text-faint">
+                  {f.hint}
+                </span>
+              </div>
+            );
+          })}
 
-          <label className="block">
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+          <div className="block">
+            <label htmlFor="qualify-platform" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
               Target platform
-            </span>
+            </label>
             <select
               id="qualify-platform"
+              aria-describedby="qualify-platform-hint"
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
               className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
@@ -179,40 +256,38 @@ export function CapacityQualifier() {
                 </option>
               ))}
             </select>
-            <span className="block mt-1 text-[11px] leading-snug text-faint">
+            <span id="qualify-platform-hint" className="block mt-1 text-[11px] leading-snug text-faint">
               Platforms whose rack power the manufacturer has not published are absent by design.
             </span>
-          </label>
+          </div>
 
-          <label className="block">
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
-              Site / hall
-            </span>
+          <div className="block">
+            <label htmlFor="qualify-site" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Site / hall (optional)
+            </label>
             <input
               id="qualify-site"
               type="text"
               value={siteName}
               onChange={(e) => setSiteName(e.target.value)}
-              placeholder="optional"
               className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
                          focus:outline-none focus:ring-2 focus:ring-power/60"
             />
-          </label>
+          </div>
 
-          <label className="block">
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
-              Metro
-            </span>
+          <div className="block">
+            <label htmlFor="qualify-metro" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              Metro (optional)
+            </label>
             <input
               id="qualify-metro"
               type="text"
               value={metro}
               onChange={(e) => setMetro(e.target.value)}
-              placeholder="optional"
               className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
                          focus:outline-none focus:ring-2 focus:ring-power/60"
             />
-          </label>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -222,7 +297,7 @@ export function CapacityQualifier() {
             className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink
                        disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
             {busy ? "Solving" : "Find the binding constraint"}
           </button>
           <span className="text-[11px] text-faint font-mono">
@@ -232,8 +307,13 @@ export function CapacityQualifier() {
       </form>
 
       {error ? (
-        <div role="alert" className="mt-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
-          <CircleAlert className="h-4 w-4 shrink-0 text-flag mt-0.5" />
+        <div
+          ref={alertRef}
+          role="alert"
+          tabIndex={-1}
+          className="mt-6 flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost outline-none focus-visible:ring-2 focus-visible:ring-power/60"
+        >
+          <CircleAlert className="h-4 w-4 shrink-0 text-flag mt-0.5" aria-hidden="true" />
           <p>{error}</p>
         </div>
       ) : null}

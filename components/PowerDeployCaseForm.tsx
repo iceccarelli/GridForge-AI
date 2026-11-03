@@ -131,7 +131,7 @@ export function PowerDeployCaseForm() {
       <button
         type="submit"
         disabled={state === "busy"}
-        className="inline-flex w-fit items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex w-fit max-w-full items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
       >
         {state === "busy" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
         Run the assessment

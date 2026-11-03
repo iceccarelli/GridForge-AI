@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, FileText, Loader2, LogOut, Radar } from "lucide-react";
-import { getSupabase } from "@/lib/supabase-client";
+import { mayHaveSession } from "@/components/supabase-lazy";
 import { eurFromCents } from "@/lib/products";
 import { CommissionScreen } from "@/components/CommissionScreen";
 import { QUALIFY_LINK } from "@/lib/nav";
@@ -87,7 +87,13 @@ export default function Dashboard() {
 
   const load = useCallback(async () => {
     let token: string | undefined;
+    // No stored session and no sign-in redirect in the URL: the visitor is signed out, and the Supabase client need not be downloaded to say so.
+    if (!mayHaveSession()) {
+      setState({ phase: "anonymous" });
+      return;
+    }
     try {
+      const { getSupabase } = await import("@/lib/supabase-client");
       const { data } = await getSupabase().auth.getSession();
       token = data.session?.access_token;
     } catch {
@@ -132,6 +138,7 @@ export default function Dashboard() {
 
   async function signOut() {
     try {
+      const { getSupabase } = await import("@/lib/supabase-client");
       await getSupabase().auth.signOut();
     } catch {
       /* signing out of a session we cannot reach is still signing out */

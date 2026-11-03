@@ -77,11 +77,11 @@ export function ConstraintsPanel({ constraints, bindingAfterPlanKey }: { constra
           </Cell>
           <Cell label="Binds">
             {c.binds ? (
-              <span className="inline-block whitespace-nowrap rounded-full border border-queue bg-queue/15 px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-queue">
+              <span className="inline-block max-w-full rounded-full border border-queue bg-queue/15 px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-queue">
                 Binds as found
               </span>
             ) : bindingAfterPlanKey === c.key ? (
-              <span className="inline-block whitespace-nowrap rounded-full border border-power bg-power/10 px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-power">
+              <span className="inline-block max-w-full rounded-full border border-power bg-power/10 px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-power">
                 Binds after the plan
               </span>
             ) : (

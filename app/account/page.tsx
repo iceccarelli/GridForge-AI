@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getSupabase } from "@/lib/supabase-client";
+import { loadSupabase, mayHaveSession } from "@/components/supabase-lazy";
 import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, queueBasisNote } from "@/lib/siting";
 import { QUEUE_EVIDENCE_SOURCE } from "@/lib/queue-evidence";
@@ -33,7 +33,7 @@ function useQueue() {
 /** The verified identity the paid routes now require. The email is no longer sent: the server reads it
  *  from the token, so a request cannot name someone else's account. */
 async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await getSupabase().auth.getSession();
+  const { data } = await (await loadSupabase()).auth.getSession();
   const token = data.session?.access_token;
   return token ? { Authorization: "Bearer " + token } : {};
 }
@@ -55,7 +55,9 @@ export default function AccountPage() {
   const [unverified, setUnverified] = useState(false);
 
   useEffect(() => {
-    getSupabase().auth.getSession().then(async ({ data }) => {
+    // Signed out and not returning from a sign-in link: go straight to the sign-in page without downloading the Supabase client.
+    if (!mayHaveSession()) { router.replace("/account/login"); return; }
+    loadSupabase().then((sb) => sb.auth.getSession()).then(async ({ data }) => {
       const userEmail = data.session?.user?.email ?? null;
       if (!userEmail) { router.replace("/account/login"); return; }
       setEmail(userEmail);
@@ -91,7 +93,7 @@ export default function AccountPage() {
   }, [router]);
 
   async function signOut() {
-    await getSupabase().auth.signOut();
+    await (await loadSupabase()).auth.signOut();
     router.replace("/account/login");
   }
 

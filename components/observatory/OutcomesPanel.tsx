@@ -42,7 +42,7 @@ export function OutcomesPanel({
                 type="button"
                 onClick={() => onSelect(o.id)}
                 aria-pressed={sel}
-                className={`rounded-lg border px-3 py-1.5 text-left text-sm font-semibold transition-colors ${
+                className={`max-w-full rounded-lg border px-3 py-1.5 text-left text-sm font-semibold [overflow-wrap:anywhere] transition-colors ${
                   sel ? "border-power bg-power/10 text-power" : "border-line text-ghost hover:border-power/60"
                 }`}
               >
