@@ -80,7 +80,7 @@ export default async function AudiencePage({ params }: { params: Promise<{ slug:
             {named.map((c) => (
               <li key={c.slug} className="panel p-5">
                 {c.doc ? (
-                  <Link href={`/constraints/${c.slug}`} className="font-semibold text-ghost underline-offset-4 hover:text-power hover:underline">
+                  <Link href={`/constraints/${c.slug}`} className="font-semibold text-ghost underline-offset-4 hover:text-power underline">
                     {c.doc.name}
                   </Link>
                 ) : (

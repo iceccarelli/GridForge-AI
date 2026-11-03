@@ -197,7 +197,7 @@ export default async function DevelopersPage() {
           {cat?.auth.note ??
             "gridforge_qualify is free and needs no key. Everything else meters."}
         </p>
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-5 overflow-x-auto" role="region" aria-label="Endpoints and unit costs" tabIndex={0}>
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
@@ -271,7 +271,7 @@ export default async function DevelopersPage() {
               {unavailableLabel({ availability: qualifyState })}
             </p>
           ) : (
-          <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
+          <pre tabIndex={0} aria-label="Code example" className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/v1/qualify \\
   -H 'content-type: application/json' \\
   -d '{"contracted_MW":12,
@@ -300,7 +300,7 @@ export default async function DevelopersPage() {
               {unavailableLabel({ availability: mcpState })}
             </p>
           ) : (
-          <pre className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
+          <pre tabIndex={0} aria-label="Code example" className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/mcp \\
   -H 'x-api-key: YOUR_KEY' \\
   -H 'content-type: application/json' \\

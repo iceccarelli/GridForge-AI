@@ -42,7 +42,7 @@ export default function PaygRateCard({ rates, heading = "What one operation cost
           in its place.
         </p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" role="region" aria-label="Unit rates" tabIndex={0}>
           <table className="w-full min-w-[560px] border-collapse text-sm">
             <caption className="sr-only">Units and pay-as-you-go cost per operation, from the engine tool catalogue</caption>
             <thead>

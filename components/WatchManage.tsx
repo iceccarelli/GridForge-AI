@@ -77,7 +77,7 @@ export function WatchManage({ token, email }: { token: string; email: string }) 
             <>
               {" "}
               To cancel or change it now, email{" "}
-              <a href={`mailto:${email}?subject=Hall%20Watch%20subscription`} className="text-power hover:underline">
+              <a href={`mailto:${email}?subject=Hall%20Watch%20subscription`} className="text-power underline">
                 {email}
               </a>{" "}
               from the address you paid with.

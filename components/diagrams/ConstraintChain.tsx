@@ -40,7 +40,7 @@ export function ConstraintChain() {
             </div>
             <div className="mt-2 font-semibold text-ghost">
               {s.slug ? (
-                <Link href={`/constraints/${s.slug}`} className="underline-offset-4 hover:text-power hover:underline">{s.label}</Link>
+                <Link href={`/constraints/${s.slug}`} className="underline-offset-4 hover:text-power underline">{s.label}</Link>
               ) : (
                 s.label
               )}

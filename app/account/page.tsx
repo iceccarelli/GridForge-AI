@@ -433,7 +433,7 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
         </button>
         {savedMsg && <span className="data text-[11px] text-power">{savedMsg}</span>}
       </div>
-      <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a <Link href="/pricing" className="text-power hover:underline">Density Screen</Link> confirms site-specific figures for one hall.</p>
+      <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms site-specific figures for one hall.</p>
       {showBrief && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6" onClick={() => setShowBrief(false)}>
           <div className="w-full max-w-md rounded-[var(--radius)] border border-line bg-panel p-6" onClick={(e) => e.stopPropagation()}>
@@ -479,7 +479,7 @@ function SitingAnalyst({ email }: { email: string }) {
     <div className="rounded-[var(--radius)] border border-power/30 bg-power/[0.03] p-6">
       <div className="eyebrow text-power mb-2">AI siting analyst</div>
       <h2 className="text-lg font-semibold tracking-tight">Get a recommendation for your site</h2>
-      <p className="text-mute text-[13px] mt-1 mb-4">Describe your site — MW, region preference, timeline, workload — and the analyst ranks the best markets and queue-bypass path. Directional; a <Link href="/pricing" className="text-power hover:underline">Density Screen</Link> confirms figures for one hall.</p>
+      <p className="text-mute text-[13px] mt-1 mb-4">Describe your site — MW, region preference, timeline, workload — and the analyst ranks the best markets and queue-bypass path. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms figures for one hall.</p>
       <textarea aria-label="Project brief" value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} placeholder="e.g. 80 MW for AI training, flexible on US region, need power by Q3 next year, prioritize low cost and fast energization." className="w-full resize-none bg-ink border border-line rounded-lg px-3.5 py-3 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
       <button onClick={analyze} disabled={loading || !brief.trim()} className="mt-3 rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 hover:bg-power/90 transition-all">
         {loading ? <Loader2 size={15} className="animate-spin" /> : <><Send size={14} /> Analyze my site</>}

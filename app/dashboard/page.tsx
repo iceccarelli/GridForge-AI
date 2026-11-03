@@ -226,7 +226,7 @@ export default function Dashboard() {
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-4">
                 <CommissionScreen productId="density_screen" context="portal-empty" />
-                <Link href={QUALIFY_LINK.href} className="text-sm text-power hover:underline">
+                <Link href={QUALIFY_LINK.href} className="text-sm text-power underline">
                   Or {QUALIFY_LINK.label.toLowerCase()} →
                 </Link>
               </div>

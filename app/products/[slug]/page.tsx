@@ -120,7 +120,7 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
 
         <div className="mt-12 flex flex-wrap items-center gap-6 border-t border-line pt-8">
           <CommissionScreen productId={p.id} label={`Commission the ${p.name}`} context={`product-page:${slug}`} />
-          <Link href="/pricing#engagements" className="text-sm text-power hover:underline">
+          <Link href="/pricing#engagements" className="text-sm text-power underline">
             Compare all engagements
           </Link>
         </div>
