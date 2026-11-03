@@ -125,7 +125,7 @@ export async function checkStripeWebhookHealth(
     id: string;
     url: string;
     status: string;
-    enabled_events: string[];
+    enabled_events?: unknown;
   } => {
     const rec = e as { url?: unknown };
     return typeof rec.url === "string" && rec.url.replace(/\/$/, "") === expectedUrl.replace(/\/$/, "");
@@ -143,12 +143,17 @@ export async function checkStripeWebhookHealth(
 
   // Prefer an enabled endpoint over a disabled one if both exist for the URL.
   const endpoint = matches.find((e) => e.status === "enabled") ?? matches[0];
-  const enabledEvents = endpoint.enabled_events.includes("*")
-    ? [...REQUIRED_WEBHOOK_EVENTS]
-    : endpoint.enabled_events;
+  // Stripe delivers an event to EVERY enabled endpoint registered for the URL, so the events actually delivered are the union across the enabled
+  // ones (an operator who split the subscription over two endpoints is not unhealthy). A payload with no `enabled_events` list subscribes to
+  // nothing: it reads as every event missing instead of throwing and taking the whole health check down.
+  const eventsOf = (e: { enabled_events?: unknown }): string[] =>
+    Array.isArray(e.enabled_events) ? e.enabled_events.filter((x): x is string => typeof x === "string") : [];
+  const enabledSet = matches.filter((e) => e.status === "enabled");
+  const subscribed = [...new Set((enabledSet.length > 0 ? enabledSet : [endpoint]).flatMap(eventsOf))];
+  const wildcard = subscribed.includes("*");
+  const enabledEvents = wildcard ? [...REQUIRED_WEBHOOK_EVENTS] : subscribed;
   const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter((e) => !enabledEvents.includes(e));
-  const wildcard = endpoint.enabled_events.includes("*");
-  const missingRecommended = wildcard ? [] : RECOMMENDED_WEBHOOK_EVENTS.filter((e) => !endpoint.enabled_events.includes(e));
+  const missingRecommended = wildcard ? [] : RECOMMENDED_WEBHOOK_EVENTS.filter((e) => !subscribed.includes(e));
 
   const healthy = endpoint.status === "enabled" && missingEvents.length === 0;
 
@@ -300,5 +305,38 @@ export async function checkBillingPortal(
     missing: [...missing],
     warnings,
     error: missing.length === 0 ? null : `The default Billing Portal configuration does not enable: ${missing.join(", ")}.`,
+  };
+}
+
+/**
+ * The operator notice for a webhook endpoint that Stripe CAN be asked about and that is not wired up: an event missing from the subscription (or
+ * the endpoint absent or disabled) means cancellations, renewals, refunds and disputes never reach the site, and nothing in the repository can say
+ * so, because the handlers are correct. Returns null whenever nothing can be claimed (no Stripe client, a client that cannot list endpoints,
+ * Stripe unreachable, or a healthy endpoint): an unreadable account is never reported as a fault here, and never as fine either (the admin
+ * health check says "cannot verify"). Enabling the events is the account owner's action in the Stripe Dashboard; this only makes the gap loud.
+ */
+export async function webhookHealthAlert(
+  stripeClient: unknown,
+  expectedUrl: string
+): Promise<{ subject: string; text: string; health: StripeWebhookHealth } | null> {
+  const client = stripeClient as { webhookEndpoints?: { list?: unknown } } | null;
+  if (!client || typeof client.webhookEndpoints?.list !== "function") return null;
+  const health = await checkStripeWebhookHealth(client as Parameters<typeof checkStripeWebhookHealth>[0], expectedUrl);
+  if (!health.reachable || health.healthy) return null;
+  const what = !health.endpoint
+    ? "no endpoint is registered for this site"
+    : health.endpoint.status !== "enabled"
+      ? "the endpoint is disabled"
+      : `${health.missingEvents.length} required event(s) are not subscribed`;
+  return {
+    health,
+    subject: `Stripe webhook is NOT wired up: ${what}`,
+    text:
+      `${health.error ?? "The webhook endpoint is unhealthy."}\n\n` +
+      "The handlers for these events exist and are tested; Stripe only sends what the endpoint is subscribed to. Until it is fixed, paid access " +
+      "is not ended when a subscription is cancelled, not restored when a payment clears, and a refund or a chargeback does not suspend it.\n\n" +
+      "Fix (Stripe Dashboard: Developers, Webhooks, the endpoint, Select events; or POST /v1/webhook_endpoints/{id} with enabled_events): " +
+      `subscribe it to ${REQUIRED_WEBHOOK_EVENTS.join(", ")}. This is an account-owner action the site cannot take. GET /api/admin/stripe-health shows the same result. ` +
+      "This notice is sent once a day while the gap stands.",
   };
 }

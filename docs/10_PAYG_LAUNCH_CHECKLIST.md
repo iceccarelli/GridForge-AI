@@ -55,7 +55,7 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
   invoice** is recorded against that settlement, suspends further pay-as-you-go use when the refund is in full or the dispute stands,
   and mails the operator, who decides whether access continues), and, recommended,
   `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (only if a delayed payment method is ever
-  enabled on Checkout; today it is card only). `/api/admin/stripe-health` reports what is missing, and the key
+  enabled on Checkout; today it is card only). Only the account owner can subscribe the endpoint to these in the Stripe Dashboard (Developers, Webhooks); nothing in this repository can. `/api/admin/stripe-health` reports what is missing, the daily `/api/cron/payg` mails the operator once a day while a required event is not subscribed (GitHub issue #4 was exactly this: an endpoint subscribed to `checkout.session.completed` only), and it also reports the key
   revocations the engine has not confirmed (`revocations`: an engine older than this repository answers 404 for `/v1/revoke`; the deployed engine has served it since the 2026-10-27 redeploy).
 - Settings: enable Stripe's customer emails for failed payments (the site sends its own as well); decide VAT/Stripe Tax
   for the settlement invoices (the code does not configure tax).
