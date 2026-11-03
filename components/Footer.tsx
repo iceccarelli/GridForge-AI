@@ -85,7 +85,7 @@ export function Footer() {
         </div>
 
         <div className="mt-14 pt-10 border-t border-line flex flex-col lg:flex-row lg:items-center lg:justify-between gap-y-6">
-          <div className="text-sm">
+          <div className="min-w-0 break-words text-sm">
             <a href={`mailto:${SITE.email}`} className="text-power underline">
               {SITE.email}
             </a>
@@ -96,7 +96,7 @@ export function Footer() {
             <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label} →</FooterLink>
             <button
               onClick={() => commissionDensityScreen({ context: "footer" })}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm whitespace-nowrap"
+              className="btn-primary px-5 py-2.5 rounded-full text-sm text-left sm:whitespace-nowrap"
               title={DENSITY_SCREEN_CTA}
             >
               {DENSITY_SCREEN_CTA}
@@ -109,7 +109,7 @@ export function Footer() {
             © {new Date().getFullYear()} Time to Power. Powered by GridForge
             Engine. Engineering by {SITE.founder}.
           </div>
-          <div className="flex gap-x-6">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link>
             <Link href="/legal/terms" className="hover:text-white transition-colors">Terms</Link>
             <Link href="/legal/security" className="hover:text-white transition-colors">Security</Link>

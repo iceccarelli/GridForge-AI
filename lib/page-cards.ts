@@ -100,6 +100,18 @@ export const PAGE_CARDS: Record<string, CardContent> = {
   security: { kicker: "Legal", title: "Security", subtitle: "How customer data, API keys and deliverables are protected, and what is not claimed to be certified.", facts: [SITE.name] },
 };
 
+PAGE_CARDS["guide-nameplate"] = {
+  kicker: "Guide",
+  title: "Nameplate megawatts are not useful AI compute",
+  subtitle: "The rack count of an existing hall is the smallest of a chain of limits. Method and a worked example from a synthetic hall.",
+  facts: ["Synthetic worked example", "Evidence class on every figure"],
+};
+PAGE_CARDS.contact = {
+  kicker: "Contact",
+  title: "Talk to the engineer who will do the work",
+  subtitle: "Founder-led and pilot-stage, with no equipment to sell. What to include so the first reply can be useful.",
+  facts: [SITE.email, "NDA on request"],
+};
 PAGE_CARDS.for = {
   kicker: "Who it is for",
   title: "One engine, seven different decisions",

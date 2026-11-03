@@ -52,10 +52,10 @@ export function Navbar() {
           scrolled ? "nav-glass shadow-[0_8px_30px_-20px_rgba(0,0,0,0.9)]" : "nav-glass"
         }`}
       >
-        <div className="max-w-7xl mx-auto px-5 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group shrink-0">
+        <div className="max-w-7xl mx-auto px-5 sm:px-6 min-h-16 sm:min-h-20 flex items-center justify-between gap-3">
+          <Link href="/" className="flex min-w-0 items-center gap-3 group">
             <Logo />
-            <div className="leading-none whitespace-nowrap">
+            <div className="min-w-0 leading-tight sm:leading-none sm:whitespace-nowrap">
               <div className="font-semibold text-lg sm:text-xl tracking-tight">
                 Time<span className="text-power"> to Power</span>
               </div>

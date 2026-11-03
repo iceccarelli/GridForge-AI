@@ -87,7 +87,7 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
                 {n.document_html ? (
                   <a
                     href={`/api/watch/${token}/note/${n.id}`}
-                    className="mt-2 inline-block text-sm text-power hover:underline"
+                    className="mt-2 inline-block text-sm text-power underline"
                   >
                     Read the note
                   </a>

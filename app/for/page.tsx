@@ -30,7 +30,7 @@ export default function ForIndex() {
       ))}
       <div className="mx-auto max-w-5xl px-6">
         <div className="eyebrow mb-4 text-power">WHO IT IS FOR</div>
-        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-ghost">One engine, seven different decisions.</h1>
+        <h1 className="[overflow-wrap:anywhere] max-w-3xl text-3xl font-semibold tracking-tight text-ghost sm:text-4xl">One engine, seven different decisions.</h1>
         <p className="mt-5 max-w-2xl text-[17px] leading-relaxed text-mute">
           An owner deciding whether a hall is worth a study, an investor underwriting an asset and an advisor comparing bids are asking for
           different things. Each page below starts from that buyer&rsquo;s decision, names the constraints most likely to decide it, and

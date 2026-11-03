@@ -113,7 +113,7 @@ export default function McpInstall({ engine, availability = "available" }: { eng
       </div>
 
       <div className="relative mt-3">
-        <pre className="overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
+        <pre tabIndex={0} aria-label="Install command" className="overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
           {snippet}
         </pre>
         <button

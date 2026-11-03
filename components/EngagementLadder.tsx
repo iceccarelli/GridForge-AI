@@ -30,7 +30,7 @@ function DetailsLink({ id }: { id: ProductId }) {
   const page = PRODUCT_PAGES.find((x) => x.productId === id);
   if (!page) return null;
   return (
-    <Link href={`/products/${page.slug}`} className="text-[12px] text-power hover:underline">
+    <Link href={`/products/${page.slug}`} className="text-[12px] text-power underline">
       Details
     </Link>
   );
@@ -101,7 +101,7 @@ function FeaturedRung({
         </button>
         <span className="text-[12px] text-faint">
           {NOTE[product.id]} <DetailsLink id={product.id} /> · Not sure yet? Read the{" "}
-          <Link href="/reference" className="text-power hover:underline">
+          <Link href="/reference" className="text-power underline">
             full worked example
           </Link>{" "}
           first.
@@ -233,7 +233,7 @@ export function EngagementLadder() {
 
       <p className="mt-6 max-w-3xl text-[13px] leading-relaxed text-faint">
         Not sure which? Run the{" "}
-        <Link href="/qualify" className="text-power hover:underline">
+        <Link href="/qualify" className="text-power underline">
           free qualifier
         </Link>{" "}
         first. It names the constraint that binds your hall and the inputs nobody has measured, and

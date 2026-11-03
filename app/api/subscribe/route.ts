@@ -4,6 +4,7 @@ import { boundedStripeClient } from "@/lib/stripe-client";
 import { PLANS } from "@/lib/subscriptions";
 import { identify } from "@/lib/portal";
 import { activeSubscription } from "@/lib/subscribers";
+import { guardRequest } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,12 @@ export async function POST(req: Request) {
   if (!plan) {
     return NextResponse.json({ ok: false, error: "Unknown plan" }, { status: 400 });
   }
+
+  // A valid plan is about to create a Stripe Checkout Session: admitted by the same request limit as the engagement checkout, which fails
+  // closed. Invalid input was refused above and costs nothing. This route had no limit, so an unauthenticated caller could create sessions
+  // without bound against the merchant's Stripe API quota.
+  const guard = await guardRequest(req, "checkout");
+  if (guard.denied) return guard.denied;
 
   const origin = checkoutOrigin(req.headers.get("origin"));
 

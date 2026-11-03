@@ -138,7 +138,7 @@ export default function InviteClient({ token }: { token: string }) {
             {view.reason === "invalid" && (
               <p className="text-mute text-[13px] mt-2">
                 You are signed in as {me}. An invitation works only for the address it was sent to.{" "}
-                <button onClick={switchAccount} className="text-power hover:underline">Sign in with a different address</button>
+                <button onClick={switchAccount} className="text-power underline">Sign in with a different address</button>
               </p>
             )}
           </div>

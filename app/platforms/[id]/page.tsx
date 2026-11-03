@@ -162,7 +162,7 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
         <Link href="/qualify" className="rounded bg-power px-5 py-2.5 font-semibold text-ink">
           {QUALIFY_LINK.label}
         </Link>
-        <Link href="/products" className="text-sm text-power hover:underline">
+        <Link href="/products" className="text-sm text-power underline">
           Engagements
         </Link>
       </div>

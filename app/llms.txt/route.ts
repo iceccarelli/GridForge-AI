@@ -165,6 +165,8 @@ ${absent}
 - ${SITE}/constraints — the thirteen constraints, one page each
 - ${SITE}/platforms — the rack platform library, with a page per manufacturer-published platform
 - ${SITE}/evidence — the evidence classes E0 to E7, the calibration status, and the register of market figures with how each was checked (#market-figures)
+- ${SITE}/guides/nameplate-vs-useful-compute — how the usable rack count of an existing hall is decided, with a worked example from the synthetic reference hall
+- ${SITE}/contact — how to reach the founder and what to include
 - ${SITE}/for — seven buyers (owners, colocation and AI operators, developers, investors, engineers, advisors), each starting from its own decision
 - ${SITE}/lead-times — indicative relief lead-time ranges for the thirteen constraints
 - ${SITE}/products — the engagements, one page each

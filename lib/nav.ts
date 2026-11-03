@@ -98,6 +98,9 @@ export const FOOTER_GROUPS: FooterGroup[] = [
     heading: "Company",
     links: [
       { href: "/about", label: "About" },
+      { href: "/contact", label: "Contact" },
+      { href: "/for", label: "Who it is for" },
+      { href: "/guides/nameplate-vs-useful-compute", label: "Guide: nameplate vs useful compute" },
       { href: "#faq", label: "FAQ", hash: true },
       { href: "/legal/security", label: "Security" },
     ],

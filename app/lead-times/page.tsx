@@ -117,10 +117,10 @@ export default async function LeadTimesPage() {
         <Link href="/qualify" className="rounded bg-power px-5 py-2.5 font-semibold text-ink">
           {QUALIFY_LINK.label}
         </Link>
-        <Link href="/constraints" className="text-sm text-power hover:underline">
+        <Link href="/constraints" className="text-sm text-power underline">
           The thirteen constraints
         </Link>
-        <Link href="/products/density-screen" className="text-sm text-power hover:underline">
+        <Link href="/products/density-screen" className="text-sm text-power underline">
           Density Screen
         </Link>
       </div>

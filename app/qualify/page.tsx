@@ -56,7 +56,7 @@ export default function QualifyPage() {
 
           <p className="mt-6 text-sm text-mute">
             Want to see what the paid study looks like before you ask?{" "}
-            <a href="/reference" className="text-power hover:underline">
+            <a href="/reference" className="text-power underline">
               Read one in full
             </a>{" "}
             — the whole document, the deck, and the tables behind every number.
