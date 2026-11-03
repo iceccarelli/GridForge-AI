@@ -64,6 +64,9 @@ def test_the_public_surfaces_all_read_the_registry():
     for rel in ["app/layout.tsx", "components/JsonLd.tsx", "app/robots.ts",
                 "app/sitemap.ts", "app/llms.txt/route.ts", "app/api/cite/route.ts"]:
         src = (ROOT / rel).read_text()
+        if rel == "components/JsonLd.tsx":  # the entity lives in lib/entity.ts, which reads the registry
+            assert "entityGraph" in src, "JsonLd.tsx no longer emits the shared entity"
+            src = (ROOT / "lib" / "entity.ts").read_text()
         assert "SITE_URL" in src or "siteUrl" in src, f"{rel} does not read the registry"
 
 
