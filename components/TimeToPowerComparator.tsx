@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { m } from "framer-motion";
 import { COMPARATOR } from "@/lib/site";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 
@@ -144,17 +143,16 @@ function Bar({
         <span className={`eyebrow ${tone === "queue" ? "eyebrow-queue" : ""} text-[10px]`}>{sub}</span>
       </div>
       <div className="relative h-9 rounded-lg bg-[#070b14] border border-line overflow-hidden">
-        <m.div
-          className="absolute inset-y-0 left-0 rounded-lg"
+        <div
+          className="absolute inset-y-0 left-0 rounded-lg transition-[width] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
           style={{
             background:
               tone === "power"
                 ? "linear-gradient(90deg, rgba(0,229,255,0.25), rgba(0,229,255,0.6))"
                 : "linear-gradient(90deg, rgba(255,176,32,0.18), rgba(255,176,32,0.42))",
             borderRight: `2px solid ${color}`,
+            width: `${Math.min(frac, 1) * 100}%`,
           }}
-          animate={{ width: `${Math.min(frac, 1) * 100}%` }}
-          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
         />
         <div
           className="absolute inset-y-0 flex items-center pointer-events-none"

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
-import { LiveScenario } from "@/components/LiveScenario";
+import { LazyIsland } from "@/components/home/LazyIsland";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
 
@@ -80,7 +80,7 @@ export function IntelligenceClient() {
               </p>
             </div>
             <div className="mt-6">
-              <LiveScenario />
+              <LazyIsland which="liveScenario" minHeight={640} label="The live scenario loads as you scroll to it." />
             </div>
           </div>
 

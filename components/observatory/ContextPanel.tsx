@@ -147,9 +147,9 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
               </p>
               <ul className="mt-2 space-y-1 text-sm" aria-label="Generation by source">
                 {[...mix.mix].sort((a, b) => b.mw - a.mw).slice(0, 8).map((m) => (
-                  <li key={m.name} className="flex items-center gap-2">
+                  <li key={m.name} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
                     <span className="w-28 shrink-0 truncate text-ghost sm:w-36">{m.name}</span>
-                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink" aria-hidden="true">
+                    <span className="h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-ink" aria-hidden="true">
                       <span className={`block h-full rounded-full ${m.renewable ? "bg-chart" : "bg-chart-alt"}`} style={{ width: `${mix.totalMW > 0 ? Math.min(100, (m.mw / mix.totalMW) * 100) : 0}%` }} />
                     </span>
                     <span className="data w-20 shrink-0 text-right text-mute">{fmtNumber(m.mw)} MW</span>
@@ -166,7 +166,8 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
 
         <Card title={TITLES.queue}>
           {queue ? (
-            <table role="table" className="mt-2 w-full text-left text-sm">
+            <div className="mt-2 overflow-x-auto" role="region" aria-label="Interconnection queue by market" tabIndex={0}>
+            <table role="table" className="w-full text-left text-sm">
               <caption className="mb-1 text-left text-xs text-mute">Queue figures per market from the LBNL Queued Up data, as of the date below. Active is requested capacity in a queue, not capacity available to a new load. Median wait is for generation and storage projects that reached operation; most requests never do, and it is not a load-connection time.</caption>
               <thead>
                 <tr>
@@ -185,6 +186,7 @@ export function ContextPanel({ state, now }: { state: ContextState; now: Date })
                 ))}
               </tbody>
             </table>
+            </div>
           ) : (
             <Unavailable why={whyMissing(c.queue)} />
           )}

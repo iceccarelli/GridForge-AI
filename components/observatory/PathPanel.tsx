@@ -12,7 +12,7 @@ export function BindingTag({ v }: { v: Pick<NodeVisual, "bindsFound" | "bindsAft
   if (!t) return null;
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded-full border px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide ${
+      className={`inline-block max-w-full rounded-full border px-2 py-px font-mono text-[10px] font-bold uppercase tracking-wide ${
         v.bindsFound ? "border-queue bg-queue/15 text-queue" : "border-power bg-power/10 text-power"
       }`}
     >
@@ -49,7 +49,7 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
               type="button"
               onClick={() => onSelect(v.id)}
               aria-pressed={selectedId === v.id}
-              className="rounded text-left text-ghost underline decoration-line underline-offset-4 hover:decoration-power aria-pressed:decoration-power"
+              className="max-w-full rounded text-left text-ghost [overflow-wrap:anywhere] underline decoration-line underline-offset-4 hover:decoration-power aria-pressed:decoration-power"
             >
               {v.title}
             </button>

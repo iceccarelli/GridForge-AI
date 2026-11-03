@@ -1,0 +1,25 @@
+{
+  "_comment": "Max first-load JavaScript per route, transferred kB (gzip over the wire), 375 px mobile viewport, cold cache, production build (npm run build && npx next start -p 3140; node scripts/measure-bundles.mjs). Each value is the measured figure at the time of writing plus 10%. Lab bytes, not Core Web Vitals. Enforced by tests/site/perf-budget.test.ts when PERF_BASE_URL is set.",
+  "measured_on": "2026-11-03",
+  "viewport": "375x800 mobile",
+  "routes": {
+    "/": 179.1,
+    "/workspace": 222.2,
+    "/intelligence": 182.4,
+    "/dashboard": 176.7,
+    "/pricing": 187.5,
+    "/qualify": 178.1,
+    "/developers": 178.4,
+    "/account": 189.6,
+    "/account/login": 171,
+    "/power/compare": 221.6,
+    "/power/deploy": 171.4,
+    "/products": 184.4,
+    "/for": 169.7,
+    "/about": 168.7,
+    "/contact": 168.7,
+    "/reference": 168.7,
+    "/constraints": 168.7,
+    "/evidence": 168.7
+  }
+}
