@@ -290,7 +290,7 @@ def test_every_engine_commercial_offer_is_visible_on_the_site_catalogue(cat):
 ROOT_FILES = {
     ".dockerignore": "docker build context",
     ".env.example": "the environment, documented",
-    ".eslintrc.json": "lint config",
+    "eslint.config.mjs": "lint config (ESLint flat config; `next lint` is removed in Next.js 16)",
     ".gitignore": "",
     "Dockerfile": "the engine image",
     "LICENSE": "the licence the owner chose (FSL-1.1-ALv2); tests/test_packaging.py pins its text",

@@ -1,3 +1,4 @@
+import QUALIFY_EXAMPLE from "@/public/reference/examples/qualify-request.json";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
@@ -274,13 +275,7 @@ export default async function DevelopersPage() {
           <pre tabIndex={0} aria-label="Code example" className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
 {`curl -s -X POST ${API}/v1/qualify \\
   -H 'content-type: application/json' \\
-  -d '{"contracted_MW":12,
-       "current_site_peak_MW":7.4,
-       "current_it_load_MW":4.9,
-       "busway_ampacity_A":400,
-       "tapoff_max_A":63,
-       "plant_supply_C":6,
-       "positions_available":180}'`}
+  -d '${JSON.stringify(QUALIFY_EXAMPLE)}'`}
           </pre>
           )}
         </div>
