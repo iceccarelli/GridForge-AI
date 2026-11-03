@@ -21,6 +21,9 @@ def hall(n, scale=1.0):
     d["project"] = dict(d.get("project", {}), client=d.get("project", {}).get("client", "Reference"))
     d["site"] = dict(d["site"], id=f"SITE-{n}")
     d["hall"] = dict(d["hall"], id=f"H{n}")
+    # Distinct halls differ in their figures. Three copies of one document under three names are, on the face of it, one hall listed three
+    # times, and the portfolio route now says so; the fixture must describe three halls to test a portfolio of three.
+    d["grid"] = dict(d["grid"], contracted_MW=d["grid"]["contracted_MW"] - 0.5 * (n - 1))
     return d
 
 
