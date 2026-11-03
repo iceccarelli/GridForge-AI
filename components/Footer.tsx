@@ -86,7 +86,7 @@ export function Footer() {
 
         <div className="mt-14 pt-10 border-t border-line flex flex-col lg:flex-row lg:items-center lg:justify-between gap-y-6">
           <div className="text-sm">
-            <a href={`mailto:${SITE.email}`} className="text-power hover:underline">
+            <a href={`mailto:${SITE.email}`} className="text-power underline">
               {SITE.email}
             </a>
             <span className="text-faint mx-2">·</span>
