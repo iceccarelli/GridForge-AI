@@ -34,7 +34,13 @@ def raw(rig, path: str, data: bytes | None, headers: dict | None = None, key: st
     if key:
         h["X-API-Key"] = key
     try:
-        conn.request(method, path, body=data, headers=h)
+        try:
+            conn.request(method, path, body=data, headers=h)
+        except (BrokenPipeError, ConnectionResetError):
+            # The server refused on the headers alone (an oversize Content-Length) and closed without reading the body it was never going to
+            # use. Whether the client's last send notices that before or after the 413 is a race that differs by interpreter and machine
+            # (it surfaced on Python 3.12 in CI); the refusal is still sitting in the socket, so read it.
+            pass
         resp = conn.getresponse()
         payload = resp.read()
         try:
