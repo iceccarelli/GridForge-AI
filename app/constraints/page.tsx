@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import Link from "next/link";
 import { ArrowRight, Cable, Snowflake, Weight } from "lucide-react";
 import { DOMAIN_LABEL, constraintReference } from "@/lib/constraints";
@@ -19,8 +20,10 @@ export const metadata: Metadata = {
   description:
     "The complete, quantified list of what physically limits AI rack density in an existing data hall: electrical, thermal and physical. Each with the governing relation, a worked example you can check by hand, what relieves it and how long that takes.",
   alternates: { canonical: "/constraints" },
+  twitter: { card: "summary_large_image", images: pageImages("constraints") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("constraints"),
     title: "The thirteen constraints that stop a hall taking AI racks",
     description:
       "Quantified, vendor-neutral, and generated from a working capacity engine. Not a reference design with a bill of materials at the end.",

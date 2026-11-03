@@ -2,7 +2,7 @@ import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents, priceLine } from "@/lib/products";
 import { projectLadder } from "@/lib/buyer-path";
-import { SITE_URL } from "@/lib/site";
+import { SITE as COMPANY, SITE_URL } from "@/lib/site";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
 import { NOT_YET_AVAILABLE, isPerHall } from "@/lib/payg-pricing";
 import { readToolRates } from "@/lib/tool-rates";
@@ -159,6 +159,7 @@ ${absent}
 
 ## Pages
 
+- ${SITE}/about — who is behind it, what is and is not sold, how to reach us
 - ${SITE}/qualify — the free capacity qualifier (seven numbers in, the binding constraint out)
 - ${SITE}/reference — the worked example, with its calibration record
 - ${SITE}/constraints — the thirteen constraints, one page each
@@ -221,6 +222,7 @@ OpenAPI 3.1 description of the engine's HTTP interface (generated from the tool 
 ## Contact
 
 ${SITE}/qualify — the free qualifier, seven numbers, no account.
+Email: ${COMPANY.email}. Who we are, where we are and the contact card: ${SITE}/about (vCard: ${SITE}/contact.vcf; security: ${SITE}/.well-known/security.txt).
 `;
 
   return new Response(body, {

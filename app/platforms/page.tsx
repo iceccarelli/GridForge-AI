@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import Link from "next/link";
 import { ArrowRight, Ban } from "lucide-react";
 import { platformLibrary } from "@/lib/constraints";
@@ -12,8 +13,10 @@ export const metadata: Metadata = {
   description:
     "Published rack power, liquid capture fraction, residual air load, technology-loop flow and floor loading for the AI platforms a retrofit has to carry — and the platforms we deliberately do not list, because the manufacturer has not published a rack power.",
   alternates: { canonical: "/platforms" },
+  twitter: { card: "summary_large_image", images: pageImages("platforms") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("platforms"),
     title: "AI rack platforms — what an existing hall has to carry",
     description:
       "Rack power, liquid fraction, residual air, flow and floor loading. Plus what is deliberately absent and why.",

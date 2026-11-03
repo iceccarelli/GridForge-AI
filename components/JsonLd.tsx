@@ -1,5 +1,6 @@
-import { SITE, SITE_URL, FAQ } from "@/lib/site";
+import { FAQ } from "@/lib/site";
 import { engagementCatalogJsonLd } from "@/lib/jsonld";
+import { entityGraph } from "@/lib/entity";
 
 /**
  * JSON-LD structured data. Sourced from the same SITE / SERVICES / FAQ content
@@ -16,28 +17,8 @@ function jsonLdScript(obj: unknown) {
 }
 
 export function JsonLd() {
-  const organization = {
-    "@context": "https://schema.org",
-    "@type": "ProfessionalService",
-    name: SITE.name,
-    url: SITE_URL,
-    description:
-      "Independent power and thermal engineering for AI data centers. We tell the owner of an existing data hall how much AI compute it can carry, which of thirteen electrical, thermal and physical constraints binds first, and what each step of extra density costs. We quote no equipment and take no margin on hardware.",
-    founder: { "@type": "Person", name: SITE.founder, url: SITE.founderUrl },
-    areaServed: "Global",
-    knowsAbout: [
-      "AI data center rack density",
-      "Data hall capacity constraints",
-      "Busway ampacity and tap-off ratings",
-      "Direct liquid cooling retrofit",
-      "Coolant distribution unit capacity at site conditions",
-      "Transformer and UPS capacity for AI loads",
-      "Grid interconnection queues",
-      "Contracted grid capacity utilisation",
-      "Data center floor loading",
-    ],
-    sameAs: [SITE.repo, SITE.founderUrl],
-  };
+  // The entity itself (organisation, founder, website) comes from lib/entity.ts, the one definition every page references by @id.
+  const entity = entityGraph();
 
   // ONE priced catalogue, derived from the product table that drives checkout (lib/jsonld.ts). It used to be two
   // overlapping OfferCatalogs describing the same four or five engagements, one unpriced and one priced; a machine
@@ -56,7 +37,7 @@ export function JsonLd() {
 
   return (
     <>
-      {jsonLdScript(organization)}
+      {jsonLdScript(entity)}
       {jsonLdScript(offers)}
       {jsonLdScript(faqPage)}
     </>

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TtpCompare } from "@/components/TtpCompare";
 import { comparisonToolJsonLd } from "@/lib/jsonld";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
 import { NotYetAvailable } from "@/app/power/NotYetAvailable";
@@ -13,9 +14,11 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Time-to-Power scenario comparison",
   alternates: { canonical: "/power/compare" },
+  twitter: { card: "summary_large_image", images: pageImages("compare") },
   openGraph: {
+    ...OG_BASE,
+    images: pageImages("compare"),
     url: "/power/compare",
-    images: OG_IMAGES,
     title: "Time-to-Power scenario comparison",
     description:
       "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",

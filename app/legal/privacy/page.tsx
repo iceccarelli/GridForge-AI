@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { LegalShell, Note } from "@/components/LegalShell";
-import { SITE, OG_IMAGES } from "@/lib/site";
+import { SITE, OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 
 export const metadata: Metadata = {
   title: "Privacy",
   description:
     "What this site does with what you give it: what is collected, where it is stored, who processes it, and how long it is kept.",
   alternates: { canonical: "/legal/privacy" },
-  openGraph: { url: "/legal/privacy", title: "Privacy", description: "What this site does with what you give it: what is collected, where it is stored, who processes it, and how long it is kept.", images: OG_IMAGES },
+  twitter: { card: "summary_large_image", images: pageImages("privacy") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("privacy"), url: "/legal/privacy", title: "Privacy — what this site collects", description: "What this site does with what you give it: what is collected, where it is stored, who processes it, and how long it is kept.", },
 };
 
 /**

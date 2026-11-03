@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import Link from "next/link";
 import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
@@ -13,8 +14,10 @@ export const metadata: Metadata = {
   description:
     "Read the exact document a Capacity & Density Envelope Study produces, on a synthetic European colocation hall. The headroom ladder, time to power, the economics, and the working files behind every number.",
   alternates: { canonical: "/reference" },
+  twitter: { card: "summary_large_image", images: pageImages("reference") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("reference"),
     title: "The deliverable, in full — worked example",
     description:
       "The actual document a paid engagement produces, on a synthetic hall — headroom ladder, time to power, economics and the working files behind every number.",

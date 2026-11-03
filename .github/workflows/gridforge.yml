@@ -502,9 +502,17 @@ jobs:
           # can be told a table does not exist — which is how `subscriptions` and
           # `scenarios` shipped with no migration and nobody noticed.
           npm test
-      - run: npm run build
+      - name: Build (card URLs are made absolute from NEXT_PUBLIC_SITE_URL, so the origin the check below serves from is set here)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3941
       - name: Every page that reads a file at run time must ship it (the build's own file trace, not the source)
         run: node scripts/check-runtime-files.mjs
+      - name: Link cards, icons and the shared organisation, read from the built site the way a platform's crawler reads them
+        run: |
+          NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3941 SITE_URL=http://127.0.0.1:3941 npx next start -p 3941 > /tmp/next-start.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3941/ && break; sleep 1; done
+          node scripts/check-share-cards.mjs http://127.0.0.1:3941 || { tail -30 /tmp/next-start.log; exit 1; }
       - name: A token-addressed page may not be indexed or leak
         run: |
           node -e "

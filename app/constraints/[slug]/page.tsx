@@ -1,5 +1,8 @@
+import { orgRef } from "@/lib/entity";
+import { QuestionList } from "@/components/QuestionList";
+import { constraintQuestions } from "@/lib/qa";
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, Calculator } from "lucide-react";
@@ -52,7 +55,7 @@ export async function generateMetadata({
     description: `${c.headline} ${c.limits}`.slice(0, 300),
     alternates: { canonical: `/constraints/${c.slug}` },
     openGraph: {
-      images: OG_IMAGES,
+    ...OG_BASE,
       title: `${c.name} — AI rack density in an existing hall`,
       description: c.headline,
       url: `/constraints/${c.slug}`,
@@ -95,7 +98,8 @@ export default async function ConstraintPage({
         about: c.name,
         articleSection: DOMAIN_LABEL[c.domain] ?? c.domain,
         isAccessibleForFree: true,
-        publisher: { "@type": "Organization", name: "Time to Power" },
+        publisher: orgRef(),
+        author: orgRef(),
       })}
       {jsonLd(constraintRecordJsonLd(c, ref))}
 
@@ -205,6 +209,8 @@ export default async function ConstraintPage({
           </div>
         </section>
       ) : null}
+
+      <QuestionList id="questions-h" items={constraintQuestions(c)} />
 
       <section className="mt-12 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">
         <div className="min-w-64 flex-1">

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, qualifierJsonLd } from "@/lib/jsonld";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
@@ -11,8 +12,10 @@ export const metadata: Metadata = {
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
   alternates: { canonical: "/qualify" },
+  twitter: { card: "summary_large_image", images: pageImages("qualify") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("qualify"),
     title: "Free capacity qualifier — what stops your hall taking AI racks",
     description:
       "Seven numbers in, the binding constraint out. No card, no call, no contact details required.",

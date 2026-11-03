@@ -325,5 +325,10 @@ export const COMPARATOR = {
 // The catalogue in lib/products.ts, parity-tested against gridforge/commercial.py,
 // is the only price list. Prices do not live in this file.
 
-/** Next replaces (does not merge) a page's `openGraph` object, so any page that sets its own must name the image itself. */
-export const OG_IMAGES = [{ url: "/og.png", width: 1200, height: 630, alt: "Time to Power" }];
+/**
+ * What every page's `openGraph` needs besides its own title, description and url. Next REPLACES (does not merge) a page's `openGraph`
+ * object, so a page that sets its own would otherwise lose the site name, the type and the locale it inherited. The IMAGE is deliberately
+ * not here: it comes from the opengraph-image file convention (app/opengraph-image.tsx and the per-page ones), which Next adds to the
+ * page's tags itself; naming an image here as well would emit two.
+ */
+export const OG_BASE = { type: "website" as const, siteName: "Time to Power", locale: "en_US" };

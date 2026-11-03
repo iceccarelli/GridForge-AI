@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { LegalShell, Note } from "@/components/LegalShell";
-import { SITE, OG_IMAGES } from "@/lib/site";
+import { SITE, OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 
 export const metadata: Metadata = {
   title: "Security",
   description:
     "How Time to Power protects customer data, API keys and deliverables, and what it does not claim to have certified.",
   alternates: { canonical: "/legal/security" },
-  openGraph: { url: "/legal/security", title: "Security", description: "How Time to Power protects customer data, API keys and deliverables, and what it does not claim to have certified.", images: OG_IMAGES },
+  twitter: { card: "summary_large_image", images: pageImages("security") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("security"), url: "/legal/security", title: "Security", description: "How Time to Power protects customer data, API keys and deliverables, and what it does not claim to have certified.", },
 };
 
 export default function Security() {
