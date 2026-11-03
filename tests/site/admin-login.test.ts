@@ -152,16 +152,16 @@ describe("a guess must cost something", () => {
       requestKey(new Request(siteUrl("/api/admin/login"), { method: "POST", headers: { "x-forwarded-for": xff } }));
     expect(asSeenBy("203.0.113.10, 10.0.0.1, 10.0.0.2")).toBe(asSeenBy("198.51.100.1, 10.0.0.2"));
     expect(asSeenBy("203.0.113.10, 10.0.0.1, 10.0.0.2")).not.toBe(asSeenBy("10.0.0.1"));
-    expect(throttleLogin(asSeenBy("203.0.113.10, 10.0.0.2"))).toBe(0);
+    expect(await throttleLogin(asSeenBy("203.0.113.10, 10.0.0.2"))).toBe(0);
   });
 
   it("lets the window pass", async () => {
     const { throttleLogin, resetLoginThrottle } = await admin();
     resetLoginThrottle();
     const t0 = 1_000_000;
-    for (let i = 0; i < 8; i++) expect(throttleLogin("k", t0)).toBe(0);
-    expect(throttleLogin("k", t0)).toBeGreaterThan(0);
+    for (let i = 0; i < 8; i++) expect(await throttleLogin("k", t0)).toBe(0);
+    expect(await throttleLogin("k", t0)).toBeGreaterThan(0);
     // Eleven minutes later the window has rolled off.
-    expect(throttleLogin("k", t0 + 11 * 60 * 1000)).toBe(0);
+    expect(await throttleLogin("k", t0 + 11 * 60 * 1000)).toBe(0);
   });
 });

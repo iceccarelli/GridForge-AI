@@ -100,6 +100,12 @@ export const RATE_POLICIES = {
   checkout: { bucket: "checkout", limit: 60, windowSeconds: HOUR },
   /** POST /api/keys: each one mints (and may rotate) a signed key and, for a free account, takes a place in the monthly ceiling. */
   key_mint: { bucket: "key_mint", limit: 30, windowSeconds: HOUR },
+  /**
+   * POST /api/admin/login: password attempts per caller address (lib/admin.ts `throttleLogin`). Counted on EVERY attempt,
+   * right or wrong, before the password is compared. In the shared Postgres counter so every serverless instance sees
+   * the same count; fails closed (503) when that counter cannot be read.
+   */
+  admin_login: { bucket: "admin_login", limit: 8, windowSeconds: 600 },
   /** GET /api/usage: token-addressed reads of the account's own usage; polled by the portal. */
   usage_read: { bucket: "usage_read", limit: 240, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;
@@ -367,6 +373,17 @@ async function hit(policy: RatePolicy, subject: string): Promise<Hit | null> {
   }
   const retry = typeof d.retry_after_seconds === "number" && d.retry_after_seconds >= 1 ? Math.ceil(d.retry_after_seconds) : policy.windowSeconds;
   return { allowed: d.allowed, retryAfter: retry };
+}
+
+/**
+ * One counted hit for a named policy and an already-pseudonymised subject, for callers outside this file that have their
+ * own response to give (the admin login). `null` means the counter could not be read: refuse, do not proceed. `now` only
+ * moves the development/test in-memory window; the Postgres counter uses the database clock.
+ */
+export async function countHit(name: RatePolicyName, subject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number } | null> {
+  const policy = RATE_POLICIES[name];
+  if (!creds() && !isProduction()) return memoryHit(policy, subject, now);
+  return hit(policy, subject);
 }
 
 /** Count one hit against `policy` for `subject`, translating the outcome into the denial the caller must return. */

@@ -244,9 +244,29 @@ def _auth_configured() -> bool:
     return bool(key_plans()) or bool(os.environ.get("GRIDFORGE_KEY_SECRET"))
 
 
+# Browser origins allowed to call the whole API when GRIDFORGE_ALLOWED_ORIGINS is unset: the site itself.
+DEFAULT_ALLOWED_ORIGINS = ("https://timetopower.ai", "https://www.timetopower.ai")
+
+# The free, keyless routes. A browser on ANY origin may read these (CORS "*"): they take no credential, set no cookie
+# and cost compute only (per-IP rate limited). Non-browser clients (MCP, curl, the site's own server-side calls) are not
+# subject to CORS at all. Everything else (keyed, metered, operator) is answered cross-origin only to
+# GRIDFORGE_ALLOWED_ORIGINS. Set GRIDFORGE_PUBLIC_CORS=0 to close even these.
+PUBLIC_CORS_PATHS = frozenset({"/health", "/v1/version", "/v1/qualify", "/v1/estimate"})
+
+
 def _allowed_origins() -> list[str]:
-    raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS", "*")
+    """Origins allowed on the credentialed API. Unset -> the site. A comma-separated override is for preview hosts
+    (e.g. https://my-branch.vercel.app); "*" is still honoured if an operator writes it, but is no longer the default.
+    Credentials here are headers (X-API-Key / Authorization), never cookies, so CORS is not what protects a key: it
+    only decides which pages may read responses in a visitor's browser."""
+    raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS")
+    if raw is None or not raw.strip():
+        return list(DEFAULT_ALLOWED_ORIGINS)
     return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _public_cors_enabled() -> bool:
+    return os.environ.get("GRIDFORGE_PUBLIC_CORS", "1").strip() != "0"
 
 
 def _run(doc: dict):
@@ -1370,11 +1390,14 @@ class Handler(BaseHTTPRequestHandler):
         origins = _allowed_origins()
         origin = self.headers.get("Origin")
         allow = "*" if "*" in origins else (origin if origin in origins else "")
+        allow_headers = "Content-Type, X-API-Key, Authorization, Idempotency-Key, X-GridForge-Project"
+        if not allow and _public_cors_enabled() and urlparse(self.path).path.rstrip("/") in PUBLIC_CORS_PATHS:
+            # A foreign origin on a keyless free route: readable, but it may not send a key from there.
+            allow, allow_headers = "*", "Content-Type"
         if allow:
             self.send_header("Access-Control-Allow-Origin", allow)
-            self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Headers",
-                         "Content-Type, X-API-Key, Authorization, Idempotency-Key, X-GridForge-Project")
+        self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", allow_headers)
         self.send_header("Access-Control-Expose-Headers",
                          "X-GridForge-Units, X-GridForge-Units-Month, X-GridForge-Units-Remaining, "
                          "X-GridForge-Charge-Cents, X-GridForge-Idempotent-Replay, Idempotent-Replay")

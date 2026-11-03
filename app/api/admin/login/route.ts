@@ -4,25 +4,44 @@ import {
   checkPassword,
   adminToken,
   adminConfigured,
+  adminSessionReady,
   requestKey,
   throttleLogin,
   ADMIN_COOKIE,
   ADMIN_SESSION_SECONDS,
+  refuseCrossSiteWrite,
 } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
 // POST { password } -> sets the admin session cookie on success.
 export async function POST(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   if (!adminConfigured()) {
     return NextResponse.json(
       { ok: false, error: "Admin is not configured. Set ADMIN_PASSWORD." },
       { status: 503 }
     );
   }
+  // Production refuses to sign sessions without a distinct strong ADMIN_SESSION_SECRET (lib/admin.ts); say so rather
+  // than letting the operator think the password is wrong. The reason is in the server log, never in the response.
+  if (!adminSessionReady()) {
+    return NextResponse.json(
+      { ok: false, error: "Admin sessions are disabled: ADMIN_SESSION_SECRET is missing or too weak. Set a separate random value of 32+ characters." },
+      { status: 503 }
+    );
+  }
   // Before reading the body, and before comparing anything: a guess must cost
-  // something. This gate fronts the whole lead pipeline and the release button.
-  const wait = throttleLogin(requestKey(req));
+  // something. This gate fronts the whole lead pipeline and the release button. The count is the shared Postgres
+  // counter, so it holds across every instance; if it cannot be read the login is refused, not waved through.
+  const wait = await throttleLogin(requestKey(req));
+  if (wait === "unavailable") {
+    return NextResponse.json(
+      { ok: false, error: "Login is temporarily unavailable. Try again shortly." },
+      { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } }
+    );
+  }
   if (wait > 0) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Try again shortly." },
@@ -62,7 +81,9 @@ export async function POST(req: Request) {
 }
 
 // DELETE -> log out.
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   store.delete(ADMIN_COOKIE);
   return NextResponse.json({ ok: true });

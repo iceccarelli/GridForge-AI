@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { reviewEvidence } from "@/lib/cost-evidence";
 import { fail, readJson } from "@/lib/project-http";
 
@@ -9,6 +9,8 @@ export const runtime = "nodejs";
 // A person accepts or rejects one validated quotation line, stating what kind of quotation it is. Immutable, once.
 // Accepting a newer line for the same cost key retires the older accepted one in the same transaction.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
