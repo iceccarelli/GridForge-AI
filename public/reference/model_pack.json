@@ -319,6 +319,19 @@
         "date_evidence_class": null,
         "date_binding_item": null,
         "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_record": {
+          "status": "no_deployable_racks",
+          "controlling_component": null,
+          "tied_components": null,
+          "lead_time_source": null,
+          "lead_time_source_label": null,
+          "evidence_class": null,
+          "date_interval_weeks": null,
+          "missing_inputs": [],
+          "dependency_model": "all_parallel",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval.",
+          "calculation_version": "gridforge.time_to_power/1"
+        },
         "curve": []
       },
       "economics": {
@@ -864,6 +877,19 @@
         "date_evidence_class": null,
         "date_binding_item": null,
         "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_record": {
+          "status": "no_deployable_racks",
+          "controlling_component": null,
+          "tied_components": null,
+          "lead_time_source": null,
+          "lead_time_source_label": null,
+          "evidence_class": null,
+          "date_interval_weeks": null,
+          "missing_inputs": [],
+          "dependency_model": "all_parallel",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval.",
+          "calculation_version": "gridforge.time_to_power/1"
+        },
         "curve": []
       },
       "economics": {
@@ -1749,6 +1775,22 @@
         "date_evidence_class": "E0",
         "date_binding_item": "Transformer capacity",
         "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
+        "date_record": {
+          "status": "dated",
+          "controlling_component": "Transformer capacity",
+          "tied_components": [],
+          "lead_time_source": "customer_supplied_unverified",
+          "lead_time_source_label": "customer-supplied (unverified)",
+          "evidence_class": "E0",
+          "date_interval_weeks": {
+            "low": 104.0,
+            "high": 216.0
+          },
+          "missing_inputs": [],
+          "dependency_model": "all_parallel",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "calculation_version": "gridforge.time_to_power/1"
+        },
         "curve": [
           {
             "weeks": 24,
@@ -2749,6 +2791,22 @@
         "date_evidence_class": "E0",
         "date_binding_item": "Transformer capacity",
         "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
+        "date_record": {
+          "status": "dated",
+          "controlling_component": "Transformer capacity",
+          "tied_components": [],
+          "lead_time_source": "customer_supplied_unverified",
+          "lead_time_source_label": "customer-supplied (unverified)",
+          "evidence_class": "E0",
+          "date_interval_weeks": {
+            "low": 104.0,
+            "high": 216.0
+          },
+          "missing_inputs": [],
+          "dependency_model": "all_parallel",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "calculation_version": "gridforge.time_to_power/1"
+        },
         "curve": [
           {
             "weeks": 32,
@@ -4234,6 +4292,22 @@
         "date_evidence_class": "E0",
         "date_binding_item": "Transformer capacity",
         "date_label": "assumed lead time, not a date (E0; set by transformer capacity)",
+        "date_record": {
+          "status": "dated",
+          "controlling_component": "Transformer capacity",
+          "tied_components": [],
+          "lead_time_source": "customer_supplied_unverified",
+          "lead_time_source_label": "customer-supplied (unverified)",
+          "evidence_class": "E0",
+          "date_interval_weeks": {
+            "low": 104.0,
+            "high": 216.0
+          },
+          "missing_inputs": [],
+          "dependency_model": "all_parallel",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "calculation_version": "gridforge.time_to_power/1"
+        },
         "curve": [
           {
             "weeks": 32,

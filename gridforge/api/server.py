@@ -71,6 +71,7 @@ from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
+from ..envelope.time_to_power import date_record as _date_record
 from ..reporting.study import build as build_study_report, watermark_for
 from ..reporting.study import collect_claims
 from ..reporting.study import Objective
@@ -437,7 +438,9 @@ def handle_study(body: dict, tier: Tier) -> dict:
                                     watermark=watermark_for(intake),
                                     grid_queue=(grid_queue_context_for(results, objective, country=_site_country(doc), region=region)
                                                 if tier is not Tier.PUBLIC else None),
-                                    retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None)
+                                    retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None,
+                                    date_record=(_date_record(rec.ladder, document=intake.document)
+                                                 if tier is not Tier.PUBLIC else None))
         out = _rendered(report, results, fmt)
         if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the

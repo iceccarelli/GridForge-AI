@@ -15,7 +15,7 @@ from typing import Any
 from .clock import report_date_iso
 from .costs import active_evidence
 
-from .envelope.time_to_power import date_basis, schedule
+from .envelope.time_to_power import date_basis, date_record, schedule
 from .intake.loader import Intake
 from .scenario.run import ScenarioResult
 from .validation import Quantity
@@ -97,7 +97,9 @@ def economics_dict(res: ScenarioResult) -> dict:
     }
 
 
-def scenario_dict(res: ScenarioResult) -> dict:
+def scenario_dict(res: ScenarioResult, document: dict | None = None) -> dict:
+    """``document`` is the intake document: with it the date record can say whether the lead time that sets the date was
+    supplied or is a library placeholder; without it the source is reported as not determined, never guessed."""
     t = schedule(res.ladder)
     return {
         "id": res.spec.id,
@@ -129,6 +131,7 @@ def scenario_dict(res: ScenarioResult) -> dict:
                           "schedule_complete": t.complete,
                           "sets_the_date": t.critical_item,
                           **date_basis(res.ladder, t).to_dict(),
+                          "date_record": date_record(res.ladder, t, document),
                           "curve": [{"weeks": p.weeks, "racks": p.racks,
                                      "unlocked_by": p.unlocked_by} for p in t.points]},
         "economics": economics_dict(res),
@@ -153,7 +156,7 @@ def model_pack(intake: Intake, results: list[ScenarioResult],
             "warnings": intake.report.warnings,
             "engagement_recommendation": intake.report.engagement_recommendation,
         },
-        "scenarios": [scenario_dict(r) for r in results],
+        "scenarios": [scenario_dict(r, intake.document) for r in results],
         # Which accepted supplier evidence this run used (and which it refused to use), and what it changed. Explicit
         # when empty: a model pack that is silent about evidence has not said there was none.
         "cost_evidence": active_evidence() or {"used": [], "ignored": [], "effect": None},

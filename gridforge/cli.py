@@ -29,6 +29,7 @@ from .reporting.portfolio import build as build_portfolio
 from .reporting.screen import build as build_screen
 from .commercial import ENGAGEMENTS, engagement
 from .change import diff as envelope_diff
+from .envelope.time_to_power import date_record
 from .reporting.change_note import build as build_change_note
 from .reporting.deck import build as build_deck
 from .reporting.deck import to_html as deck_to_html
@@ -317,7 +318,8 @@ def cmd_study(args) -> int:
     sens = sensitivity(rec, SENSITIVITY_KNOBS)
     report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
                          watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective),
-                         retail_price=_price_for(intake))
+                         retail_price=_price_for(intake),
+                         date_record=date_record(rec.ladder, document=intake.document))
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)

@@ -107,6 +107,8 @@ Capacity without a date is not a decision. Each relief on the ladder carries a l
 
 > ℹ️ The assumed lead time, not a date, is set by transformer capacity. Every week of that lead time is a week of the site's contracted power earning nothing, so it is the first thing to attack — before any further engineering optimisation.
 
+> ℹ️ Lead time that sets the date: customer-supplied (unverified), evidence class E0 (the class is not raised by who supplied the figure). Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation. [gridforge.time_to_power/1]
+
 | Scenario | Racks | Time to full capacity (assumed lead time, not a date) | Item that sets the date |
 | --- | --- | --- | --- |
 | Retained air, grid only | 0 racks (E0) | — | — |
