@@ -120,8 +120,21 @@ def check_claim_floor(report: Report, claims: dict[str, list],
         )
 
 
+def check_required_sections(report: Report) -> None:
+    """A deliverable that states a modelled number must also carry the sections a reader needs to read it: what the answer is, what binds,
+    what was compared and what to do next (a proposal: its fee and scope). The gates stand between a model and a customer, and a document
+    that lost one of those sections is not a smaller deliverable, it is an incomplete one."""
+    import re
+    have = {re.sub(r"^\d+\.\s*", "", s.heading).strip().lower() for s in report.sections}
+    lost = [t for t in report.required_sections if not any(h.startswith(t.lower()) for h in have)]
+    if lost:
+        raise GateFailure(f"the report lacks its required section(s): {', '.join(lost)}. A deliverable that has lost them is incomplete "
+                          f"and is not released.")
+
+
 def run_all_gates(report: Report, rendered_text: str, claims: dict | None = None,
                   mode: ReportMode = ReportMode.SCREENING) -> None:
+    check_required_sections(report)
     check_provenance(report)
     check_evidence_monotonicity(report)
     check_language(rendered_text, report)

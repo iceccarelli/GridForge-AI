@@ -169,6 +169,27 @@ def _opt(o: dict, key: str, unit: str, evidence, *, band: float, high: float | N
     return V(v, unit, f"{o.get('id', 'BTM')} {key}", evidence, band=band)
 
 
+def _band_containing(raw: Any, library_band: tuple[float, float], half_width: float) -> tuple[float, float]:
+    """The library's band for a fraction, unless the value the client supplied lies outside it. A range that does not contain its own value
+    is wrong on its face (a derating of 0.99 printed inside [0.85, 0.95]): then the band is drawn around the supplied value instead, clamped
+    to a fraction. A value inside the library band keeps the library band, so the reference results do not move."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return library_band
+    lo, hi = library_band
+    if lo <= v <= hi:
+        return library_band
+    return (max(v - half_width, 0.0), min(v + half_width, 1.0))
+
+
+def _strict_bool(raw: Any, what: str) -> bool:
+    """true or false, nothing else. bool("false") is True in Python, so the text "false" used to switch a firm-rated option ON."""
+    if isinstance(raw, bool):
+        return raw
+    raise IntakeError(f"{what} must be true or false, not {type(raw).__name__}")
+
+
 def _supplied_lead_time(raw: Any, what: str) -> Any:
     """A lead time the customer wrote must be greater than zero. Zero would date a long-lead item as instantly available (a band of
     zero around zero) and let another relief set the whole schedule. A missing value is not zero: it is absent and takes the library
@@ -207,6 +228,21 @@ def _dig(doc: dict, path: str) -> Any:
 #: units are one item with `units`), each adds a solve per scenario (about 12 ms per transformer measured), and the 512 KiB body limit alone
 #: would still allow thousands of them. The ceiling sits far above any hall and campus bank this tool has been given; the refusal names it.
 MAX_EQUIPMENT_ITEMS = 100
+
+
+def _reference_vs_ids(doc: dict, ctx, report: "IntakeReport") -> None:
+    """Every shipped example writes project.reference as "<site.id>/<hall.id>". When it uses that form and names a different site or hall
+    than the document does, the deliverable would carry a reference to another hall: say so, naming both."""
+    proj = doc.get("project")
+    ref = proj.get("reference") if isinstance(proj, dict) else None
+    if not isinstance(ref, str) or "/" not in ref:
+        return
+    ref_site, _, ref_hall = (part.strip() for part in ref.partition("/"))
+    site_id, hall_id = str(ctx.site.id).strip(), str(ctx.hall.id).strip()
+    if ref_site.casefold() != site_id.casefold() or ref_hall.casefold() != hall_id.casefold():
+        report.warnings.append(
+            f"project.reference names {ref_site!r}/{ref_hall!r}, but the document's site.id and hall.id are {site_id!r}/{hall_id!r}. The "
+            f"deliverable carries both, so check which hall this intake describes.")
 
 
 def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
@@ -634,6 +670,7 @@ def load_document(doc: dict) -> Intake:
     never a KeyError or a traceback."""
     if not isinstance(doc, dict):
         raise IntakeError("an intake must be a JSON object")
+    _refuse_non_object_blocks(doc)
     try:
         return _load_document(doc)
     except IntakeError:
@@ -642,6 +679,18 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError(f"the intake is missing a required field: {exc.args[0]}") from None
     except (ValueError, TypeError, AttributeError) as exc:
         raise IntakeError(f"the intake is malformed: {exc}") from None
+
+
+#: The intake sections that are objects of fields. Present but not an object, the section used to be replaced by library defaults without a
+#: word, so an intake whose `grid` was the text "oops" was answered as if the client had supplied no grid data at all.
+_OBJECT_SECTIONS = ("site", "hall", "grid", "lv", "thermal", "compute", "economics")
+
+
+def _refuse_non_object_blocks(doc: dict) -> None:
+    for name in _OBJECT_SECTIONS:
+        if name in doc and doc[name] is not None and not isinstance(doc[name], dict):
+            raise IntakeError(f"{name} must be an object of fields, not {type(doc[name]).__name__}; omit it to use the library defaults, "
+                              f"which are then listed as assumptions")
 
 
 def _project_block(doc: dict) -> dict:
@@ -732,7 +781,8 @@ def _load_document(doc: dict) -> Intake:
             # default and is an assumption (E0)
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating",
-                              ESTIMATED if t.get("derating_factor") is not None else ASSUMED, band=(0.85, 0.95)),
+                              ESTIMATED if t.get("derating_factor") is not None else ASSUMED,
+                              band=_band_containing(t.get("derating_factor", 0.9), (0.85, 0.95), 0.05)),
             replacement_lead_time_weeks=V(_pos_max(_supplied_lead_time(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks"), "transformers.replacement_lead_time_weeks",
                                                    "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
@@ -757,7 +807,8 @@ def _load_document(doc: dict) -> Intake:
             units=_int_max(u.get("units", 2), "ups.units", "UPS units"),
             redundancy=_redundancy(u.get("redundancy", "N+1"), "UPS"),
             step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
-                                   "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
+                                   "accepted instantaneous step load", ASSUMED,
+                                   band=_band_containing(u.get("step_load_capability", 0.5), (0.3, 0.7), 0.1)),
         ))
 
     options = []
@@ -775,7 +826,7 @@ def _load_document(doc: dict) -> Intake:
             lead_time_weeks=(V(_pos_max(_supplied_lead_time(o["lead_time_weeks"], "btm_options.lead_time_weeks"), "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
                                f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35)
                              if o.get("lead_time_weeks") is not None else None),
-            firm=bool(o.get("firm", True)),
+            firm=_strict_bool(o.get("firm", True), f"btm_options[{o.get('id', o.get('kind', 'BTM'))}].firm"),
             firm_capacity_factor=(V(_frac(o["firm_capacity_factor"], "BTM firm_capacity_factor"), "1",
                                     f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
                                   if o.get("firm_capacity_factor") is not None else None),
@@ -1003,6 +1054,7 @@ def _load_document(doc: dict) -> Intake:
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
     _busway_vs_existing_load(ctx, report)
+    _reference_vs_ids(doc, ctx, report)
     if not transformers:
         report.warnings.append("No transformer schedule supplied: transformer capacity is not "
                                "evaluated and may be the true binding constraint.")

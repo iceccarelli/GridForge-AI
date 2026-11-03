@@ -42,6 +42,12 @@ def plausibility_findings(ctx) -> list[str]:
             f"({peak_MW:,.2f} MW). The connection is already overdrawn on the inputs given, so the zero "
             f"headroom below says the inputs disagree with each other. Check the units (MW, MVA, kW) before "
             f"relying on this result.")
+    if peak_MW < it_MW:
+        out.append(
+            f"The current site peak ({peak_MW:,.2f} MW) is below the current IT load ({it_MW:,.2f} MW), but the IT load is part of the "
+            f"site peak, so one of the two figures is wrong or in the wrong unit (MW, MVA, kW), or one is a design value and the other a "
+            f"metered one. Supply headroom is taken from the peak, so a peak that is too low frees supply that does not exist and "
+            f"overstates the racks the grid can carry. Confirm both figures from the same metering period before relying on this result.")
     return out
 
 

@@ -44,6 +44,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         watermark=("The findings below are a screening read produced before this engagement "
                    "begins. They are modelled from the inputs supplied, not measured at the site."),
         status="Proposal",
+        required_sections=("Fee, timing and terms", "What is outside scope"),
         meta=[("Client", intake.client), ("Site", ctx.site.name), ("Hall", ctx.hall.id),
               ("Engagement", eng.name), ("Fee", f"EUR {eng.price_eur:,}"),
               ("Turnaround", f"{eng.turnaround_days} working days")],

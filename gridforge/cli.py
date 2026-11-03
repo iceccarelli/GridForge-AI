@@ -997,17 +997,24 @@ def cmd_compare(args) -> int:
 def cmd_portfolio(args) -> int:
     objective = OBJECTIVES[args.objective]
     entries = []
-    from .reporting.portfolio_guard import is_repeat
+    from .reporting.portfolio_guard import hall_key, identical_physics_warning, is_repeat, physics_fingerprint
     seen: dict[tuple[str, str], tuple[str, dict]] = {}
+    prints: dict[str, int] = {}
     for p in args.intakes:
         intake = load(p)
         raw = json.loads(Path(p).read_text(encoding="utf-8"))
-        key = (intake.context.site.id, intake.context.hall.id)
+        key = hall_key(intake.context.site.id, intake.context.hall.id)
         if key in seen and is_repeat(raw, seen[key][1]):
             print(f"error: {p} repeats site {key[0]!r} hall {key[1]!r} (already {seen[key][0]}): a hall counts once, so its capacity would be "
                   "added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id.", file=sys.stderr)
             return 2
         seen.setdefault(key, (p, raw))
+        fp = physics_fingerprint(raw)
+        if fp is not None:
+            if fp in prints:
+                print("warning: " + identical_physics_warning(len(entries), prints[fp]).replace("intakes[", "input #["), file=sys.stderr)
+            else:
+                prints[fp] = len(entries)
         entries.append(SiteEntry(intake=intake, results=_run(intake), objective=objective))
     report = build_portfolio(entries, client=args.client, objective=objective)
     out = Path(args.out)

@@ -157,9 +157,6 @@ def test_a_non_object_top_level_is_a_400(rig, key, top):
     assert status == 400 and "object" in out["error"]
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: duplicate JSON object keys are accepted and the LAST one wins silently (json.loads default), so a "
-                   "proxy/WAF/validator that keeps the first sees a different request than the engine solves - gridforge/api/server.py:1707-1712 "
-                   "(json.loads without object_pairs_hook)")
 def test_duplicate_json_keys_are_refused(rig, key):
     """REFUSE (400 naming the duplicate key). Reproducer: POST /v1/screen with
         {"intake": {"grid": {"contracted_MW": 1}}, "intake": <reference hall>}  ->  200, solved on the second 'intake'."""
@@ -346,9 +343,6 @@ def test_a_revoked_key_is_refused_on_the_next_request_and_a_replay_is_not_served
     assert net_units(rig) == SCREEN_UNITS, "nothing was billed after the revocation"
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect (TOCTOU): the key is resolved separately for the tier decision and again for billing, so a key revoked "
-                   "(or expired) between the two is treated as 'no plan' by _charge and the PAID route runs and answers 200 with NO ledger charge - "
-                   "gridforge/api/server.py:1583-1585 (_charge: `plan = self._plan(); if plan is None: return None`)")
 def test_a_key_revoked_between_the_tier_check_and_the_charge_is_refused_not_served_free(rig, tmp_path, monkeypatch):
     """REFUSE (401) or QUALIFY (answer AND charge). The revocation lands at the worst instant: after the request was authorised as a client
     and before it is billed (injected by wrapping Handler._tier, so every other line is the real server). Reproducer under load: revoke a key

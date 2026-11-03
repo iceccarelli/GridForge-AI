@@ -296,6 +296,17 @@ def build(intake: Intake, results: list[ScenarioResult], *,
             "before phase two. That is what moves these numbers from estimated to field-validated.",
         ]))
 
+    # Everything the intake could not evaluate or could not check, before the boundary slide. A deck ranks architectures by racks, so it
+    # must say where those racks rest on a missing schedule, an unchecked credit or an input the client has not yet given.
+    open_inputs = list(intake.report.warnings)
+    if open_inputs:
+        d.slides.append(Slide(
+            kicker="Open inputs",
+            title="What was not evaluated or could not be checked",
+            lead="These racks are as good as the inputs behind them. Each line below is an input the model could not use as stated.",
+            bullets=open_inputs[:12] + ([f"and {len(open_inputs) - 12} more in the full study"] if len(open_inputs) > 12 else []),
+            note="Disclosed by the intake loader; nothing here has been resolved by assumption unless the line says so."))
+
     d.slides.append(Slide(
         kicker="Boundary",
         title="What this is, and what it is not",

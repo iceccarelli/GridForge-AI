@@ -87,6 +87,9 @@ class Report:
     footer: str = ""
     meta: list[tuple[str, str]] = field(default_factory=list)   # title-block fields
     status: str = "Screening study"
+    #: Section titles (without their number) the deliverable must carry to leave the building. A builder that sets this lets the gates
+    #: refuse a release that lost the section stating the answer, the binding constraint or the terms.
+    required_sections: tuple[str, ...] = ()
 
     def quantities(self) -> list[Quantity]:
         out: list[Quantity] = []

@@ -115,8 +115,6 @@ def test_wrong_typed_scalar_blocks_do_not_crash(route, block, shape):
     assert status in ("ok", "refused")
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a non-object site/hall/grid/lv/thermal/compute/economics block is silently replaced "
-                   "by library defaults with no refusal and no warning - gridforge/intake/loader.py:180-186 (_dig treats a non-dict parent as 'absent')")
 @pytest.mark.parametrize("block", ["site", "hall", "grid", "lv", "thermal", "compute", "economics"])
 def test_a_block_sent_as_the_wrong_type_is_refused_or_named_in_a_warning(block):
     """REFUSE or DEGRADE WITH DISCLOSURE. ``"grid": "oops"`` throws away every grid figure the client typed and solves on library defaults
@@ -204,8 +202,6 @@ def test_total_racks_is_the_sum_of_the_ranked_halls():
     assert status == "ok" and out["total_racks"] == sum(h["racks"] for h in out["halls"])
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the same hall resubmitted with only site.id/hall.id renamed (identical physics, same grid "
-                   "connection) is added up again, total_racks doubles, and nothing says so - gridforge/api/server.py:963-975 (duplicate rule is ids-only)")
 def test_an_identical_hall_under_renamed_ids_is_refused_or_flagged():
     """REFUSE or DEGRADE WITH DISCLOSURE. Two entries that are identical in every figure and differ only in site.id/hall.id share one grid
     connection, one transformer bank and one set of peak figures: far more likely one hall listed twice than two halls. Today total_racks is
@@ -216,8 +212,6 @@ def test_an_identical_hall_under_renamed_ids_is_refused_or_flagged():
     assert status == "refused" or "identical" in text_of(out).lower() or "duplicate" in text_of(out).lower()
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: ids are compared raw, so 'DH-02' and ' DH-02 ' (or a different case) are 'different' halls and "
-                   "the duplicate is added up (124 racks for one 62-rack hall) - gridforge/intake/loader.py:632,656 and gridforge/api/server.py:970")
 @pytest.mark.parametrize("variant", [" DH-02 ", "dh-02", "DH-02\t"], ids=["padded", "lowercase", "tab"])
 def test_a_cosmetic_variant_of_a_declared_hall_id_is_still_the_same_hall(variant):
     """REFUSE. The same declared site and a hall id that differs only by whitespace or case names the same hall; it must not evade the
@@ -231,9 +225,6 @@ def test_a_cosmetic_variant_of_a_declared_hall_id_is_still_the_same_hall(variant
 # ===================================================================================================================================
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: project.reference 'REF-EU-01/DH-02' (the site/hall convention every example uses) that names a "
-                   "different site or hall than site.id/hall.id is accepted with no warning, so the deliverable carries a reference to another hall "
-                   "- gridforge/intake/loader.py:594-605 (_project_block checks only the type)")
 @pytest.mark.parametrize("edit", [{"project.reference": "REF-EU-09/XX-99"}, {"hall.id": "DH-77"}, {"site.id": "REF-EU-77"}],
                          ids=["reference-names-another-hall", "hall-id-disagrees", "site-id-disagrees"])
 def test_hall_id_project_reference_and_site_id_that_disagree_are_refused_or_qualified(edit):
@@ -266,9 +257,6 @@ def test_screen_discloses_that_transformer_capacity_was_not_evaluated():
     assert status == "ok" and any("transformer capacity is not evaluated" in w for w in out["intake"]["warnings"])
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: /v1/compare and /v1/deck rank scenarios with no transformer schedule without saying transformer "
-                   "capacity was not evaluated (they carry only the lead-time placeholder note); /v1/screen, /v1/proposal and the model pack do say it "
-                   "- gridforge/api/server.py:388 (compare notes omit intake.report.warnings); gridforge/reporting/deck.py")
 @pytest.mark.parametrize("route", ["/v1/compare", "/v1/deck"])
 def test_every_ranking_surface_discloses_a_missing_transformer_schedule(route):
     """DEGRADE WITH DISCLOSURE on every surface that ranks racks, not only the screen. Reproducer:
@@ -310,8 +298,6 @@ def test_impossible_transformer_figures_are_refused(edit):
     assert status == "refused"
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a SUPPLIED transformer derating_factor keeps the library band (0.85, 0.95), so 0.3, 0.99 or 1.0 "
-                   "sit outside their own stated range (the #107 defect, on the derating) - gridforge/intake/loader.py:680-682")
 @pytest.mark.parametrize("value", [0.3, 0.99, 1.0])
 def test_a_supplied_derating_lies_inside_its_own_band(value):
     """QUALIFY: a figure the client supplied must lie within the band printed with it (the invariant #107 asked for on the lead time).
@@ -320,8 +306,6 @@ def test_a_supplied_derating_lies_inside_its_own_band(value):
     assert t.band[0] <= t.value <= t.band[1], (t.value, t.band)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a SUPPLIED UPS step_load_capability keeps the library band (0.3, 0.7), so 0.9 sits outside its "
-                   "own range and is still labelled ASSUMED - gridforge/intake/loader.py:706-707")
 def test_a_supplied_ups_step_load_lies_inside_its_own_band():
     """QUALIFY: same invariant as the transformer derating, on the UPS step-load capability."""
     u = load_document(doc(**{"ups.0.step_load_capability": 0.9})).context.power.ups[0].step_load_capability
@@ -364,9 +348,6 @@ def test_a_figure_over_the_plausibility_ceiling_is_refused_naming_the_unit(edit)
     assert status == "refused" and "unit" in str(exc)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a site peak below the IT load already on the site (physically impossible, the IT load is part "
-                   "of the peak) is accepted silently and INFLATES the answer (peak 0 -> 68 hybrid_dlc racks vs 26) - gridforge/power/plausibility.py:15-48 "
-                   "has no peak-vs-IT check")
 @pytest.mark.parametrize("peak", [0, 1.0, 4.0])
 def test_a_site_peak_below_the_it_load_is_refused_or_named(peak):
     """REFUSE or DEGRADE WITH DISCLOSURE. current_site_peak_MW 0 with current_it_load_MW 4.9 means the existing load is subtracted from
@@ -378,8 +359,6 @@ def test_a_site_peak_below_the_it_load_is_refused_or_named(peak):
     assert any("peak" in c.lower() and "it load" in c.lower() for c in out["caveats"]), out["caveats"]
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: an IT load above the site peak (9 MW IT inside a 7.4 MW peak) is accepted and answered as 0 racks "
-                   "'binding: ups_capacity' with no statement that the two figures contradict - gridforge/power/plausibility.py:36-55 (only ceiling-based checks)")
 def test_an_it_load_above_the_site_peak_is_named_as_a_contradiction():
     """DEGRADE WITH DISCLOSURE: zero racks here is the inputs disagreeing, not a full hall; the caveats must say so."""
     status, out = call("/v1/compare", {"intake": doc(**{"grid.current_it_load_MW": 9.0})})
@@ -430,8 +409,6 @@ def test_a_power_far_above_its_energy_is_named_in_the_screen():
     assert status == "ok" and any("sustains that for" in w for w in out["intake"]["warnings"])
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the battery energy/firm-credit warning reaches /v1/screen but NOT /v1/compare or /v1/deck, which "
-                   "still print the 62-180 rack answer built on it - gridforge/api/server.py:388 (compare drops intake.report.warnings)")
 @pytest.mark.parametrize("route", ["/v1/compare", "/v1/deck"])
 def test_the_battery_warning_travels_with_every_rack_count_it_affects(route):
     """DEGRADE WITH DISCLOSURE. Reproducer: POST /v1/compare with btm_options[0] = {capacity_MW: 2000, energy_MWh: 8, firm_capacity_factor: 0.5}
@@ -470,8 +447,6 @@ def test_n_plus_one_on_a_single_unit_credits_nothing_and_says_so_in_the_screen(s
     assert racks(c_one) < racks(c_two)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the generator 'N+1 on one unit adds no firm capacity' warning reaches /v1/screen only; /v1/compare "
-                   "and /v1/deck rank on it without saying so - gridforge/api/server.py:388")
 @pytest.mark.parametrize("route", ["/v1/compare", "/v1/deck"])
 def test_the_generator_redundancy_warning_travels_with_every_surface(route):
     """DEGRADE WITH DISCLOSURE. Reproducer: btm_options[1] units=1 redundancy='N+1' -> /v1/compare 200 with no mention."""
@@ -479,8 +454,6 @@ def test_the_generator_redundancy_warning_travels_with_every_surface(route):
     assert status == "ok" and "no usable unit" in text_of(out)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: btm_options[].firm is read with bool(), so the text 'false' / 'no' / '0' / a non-empty list counts "
-                   "as firm=True and the generator is credited as firm capacity the client said it is not - gridforge/intake/loader.py:725")
 @pytest.mark.parametrize("value", ["false", "no", "0", "False", [0]], ids=repr)
 def test_a_non_boolean_firm_flag_is_refused_not_read_as_true(value):
     """REFUSE (or read as declared). ``"firm": "false"`` must not become firm=True. Reproducer:
@@ -584,7 +557,22 @@ def test_no_rack_count_in_a_comparison_exceeds_E5_when_every_grid_input_claims_E
         d["grid"][k] = {"value": REF["grid"][k], "evidence": "E7"}
     status, out = call("/v1/compare", {"intake": d})
     assert status == "ok"
-    classes = set(re.findall(r"\bE[0-7]\b", text_of(out)))
+    # The evidence classes the answer CARRIES: structured values only. The notes may quote "E6 and E7 are earned through the calibration
+    # ledger" while disclosing the cap, and that sentence is the honest behaviour, not a claim of E6/E7.
+    classes: set[str] = set()
+
+    def walk(node, key=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, str(k))
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, str) and ("evidence" in key.lower() or "class" in key.lower()):
+            classes.update(re.findall(r"^E[0-7]", node))
+
+    walk(out)
+    assert classes, "the comparison must carry evidence classes for this test to mean anything"
     assert not classes & {"E6", "E7"}, classes
 
 
@@ -679,9 +667,6 @@ def test_a_screen_stripped_of_every_section_is_not_released():
     assert not _gate_verdict(report, claims)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the report gates never check completeness. A screen with its 'The answer', 'What stops this hall', "
-                   "'Architectures screened' or 'Recommended next step' section removed is RELEASED; only the assumptions section is protected (by the claim "
-                   "floor's disclosure callout) - gridforge/reporting/gates.py:123-131 (run_all_gates has no required-sections gate)")
 @pytest.mark.parametrize("heading", ["1. The answer", "2. What stops this hall, in order", "3. Architectures screened", "5. Recommended next step"])
 def test_a_screen_missing_a_required_section_is_not_released(heading):
     """REFUSE: the gates stand between a modelled number and a customer; a release that lacks the section that states the answer, the binding
@@ -695,8 +680,6 @@ def test_a_screen_missing_a_required_section_is_not_released(heading):
     assert not _gate_verdict(report, claims)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a priced proposal released without its 'Fee, timing and terms' section (or any of sections 1-6) "
-                   "passes every gate - gridforge/reporting/gates.py:123-131")
 @pytest.mark.parametrize("heading", ["4. Fee, timing and terms", "5. What is outside scope"])
 def test_a_proposal_missing_its_commercial_sections_is_not_released(heading):
     """REFUSE: a proposal that omits the fee and terms, or what is out of scope, is an incomplete deliverable."""
@@ -776,9 +759,6 @@ def test_the_free_qualifier_refuses_hostile_numbers_with_a_4xx(field, value):
     assert status == "refused", (field, value)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the free /v1/qualify coerces with float(): true is read as 1, the text '12' as 12 and Arabic-Indic "
-                   "or full-width digits as numbers, although the intake loader refuses all of these as 'not a JSON number' - gridforge/api/server.py:130 "
-                   "(float(body[key]) in qualify_to_intake)")
 @pytest.mark.parametrize("value", [True, "12", "١٢", "１２"], ids=["bool", "numeric-string", "arabic-digits", "fullwidth-digits"])
 @pytest.mark.parametrize("field", ["contracted_MW", "positions_available"])
 def test_the_free_qualifier_refuses_booleans_and_text_as_numbers(field, value):

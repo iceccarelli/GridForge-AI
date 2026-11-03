@@ -127,14 +127,22 @@ def qualify_to_intake(body: dict) -> dict:
         parts = path.split(".")
         for p in parts[:-1]:
             cur = cur.setdefault(p, {})
-        cur[parts[-1]] = float(body[key])
+        cur[parts[-1]] = _qualify_number(key, body[key])
     if body.get("firm_capacity_MVA") is not None:
-        doc["grid"]["firm_capacity_MVA"] = float(body["firm_capacity_MVA"])
+        doc["grid"]["firm_capacity_MVA"] = _qualify_number("firm_capacity_MVA", body["firm_capacity_MVA"])
     elif doc.get("grid", {}).get("contracted_MW") is not None:
         # A connection is normally sized at or above the contracted figure; assume
         # parity rather than inventing headroom the site may not have.
         doc["grid"]["firm_capacity_MVA"] = float(doc["grid"]["contracted_MW"]) / 0.97
     return doc
+
+
+def _qualify_number(name: str, raw) -> float:
+    """A figure on the free route is a JSON number. float() would also accept `true` (as 1), the text "12" and digits from other scripts,
+    so a form that sent the wrong type was answered as if it had sent a figure."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ApiError(422, f"{name} must be a number, not {type(raw).__name__}")
+    return float(raw)
 
 
 class ApiError(Exception):
@@ -205,6 +213,17 @@ IDEMPOTENCY = _IdempotencyCache()
 def _reject_constant(name: str):
     """json.loads accepts NaN/Infinity, which are not JSON and poison every comparison downstream."""
     raise ValueError(f"{name} is not a valid JSON number")
+
+
+def _refuse_duplicate_keys(pairs):
+    """json.loads keeps the LAST of two equal keys silently, so {"grid": a, "grid": b} meant whatever the second said and the first
+    vanished without a word. A request that says one thing twice is ambiguous: refuse it by naming the key."""
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError(f"the object repeats the key {key[:60]!r}; each key may appear once")
+        seen.add(key)
+    return dict(pairs)
 
 
 class _RateLimiter:
@@ -408,8 +427,8 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         # between MW, MVA and kW) must say so too, not rank scenarios as if the inputs were sound.
         # A comparison of halls whose transformer or UPS schedule is missing leaves those constraints unevaluated (not limiting), which
         # overstates every scenario's racks. The intake already says so; the comparison must too, not rank as if the inputs were complete.
-        schedule_gaps = [w for w in intake.report.warnings if w.startswith(("No transformer schedule", "No UPS schedule"))]
-        notes = [*notes, *schedule_gaps, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
+        intake_warnings = list(dict.fromkeys(intake.report.warnings))
+        notes = [*notes, *intake_warnings, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
         out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
     except CompareError as exc:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
@@ -966,7 +985,9 @@ def handle_bids(body: dict, tier: Tier) -> dict:
 MAX_PORTFOLIO_HALLS = 50
 
 
-from ..reporting.portfolio_guard import declares_hall_ids as _declares_hall_ids, is_repeat as _is_repeat_hall  # noqa: E402
+from ..reporting.portfolio_guard import (declares_hall_ids as _declares_hall_ids, hall_key as _hall_key,  # noqa: E402
+                                         identical_physics_warning as _identical_warning, is_repeat as _is_repeat_hall,
+                                         physics_fingerprint as _fingerprint)
 
 
 def handle_portfolio(body: dict, tier: Tier) -> dict:
@@ -982,18 +1003,26 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         raise ApiError(422, f"unknown format {fmt!r}", allowed=["json", "md", "html"])
     entries = []
     seen: dict[tuple[str, str], int] = {}
+    prints: dict[str, int] = {}
+    portfolio_warnings: list[str] = []
     for i, d in enumerate(docs):
         intake, results = _run(d)
         # A hall is a physical thing: listing it twice cannot create capacity. Refuse a repeat by name rather than add it up silently. Two
         # entries are "the same hall" when they carry the same DECLARED site and hall ids, or are identical documents. Entries whose ids
         # were left to the library default (every sparse intake is SITE-1 / HALL-1) are not assumed to be one hall.
-        key = (intake.context.site.id, intake.context.hall.id)
+        key = _hall_key(intake.context.site.id, intake.context.hall.id)
         first = seen.get(key)
         if first is not None and _is_repeat_hall(d, docs[first]):
             raise ApiError(422, f"intakes[{i}] repeats site {key[0]!r} hall {key[1]!r} (already intakes[{first}]): a hall counts once, so its "
                                 "capacity would be added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id",
                            duplicate_of=first, index=i, site_id=key[0], hall_id=key[1])
         seen.setdefault(key, i)
+        fp = _fingerprint(d)
+        if fp is not None:
+            if fp in prints:
+                portfolio_warnings.append(_identical_warning(i, prints[fp]))
+            else:
+                prints[fp] = i
         entries.append(SiteEntry(intake=intake, results=results, objective=objective))
     out = {
         "objective": objective.value,
@@ -1001,6 +1030,8 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         "total_racks": sum(e.racks for e in entries),
         "total_racks_evidence": min(e.rack_class for e in entries).name,
     }
+    if portfolio_warnings:      # additive: present only when there is something to say, so a clean portfolio's shape is unchanged
+        out["warnings"] = portfolio_warnings
     if fmt != "json":
         # The Portfolio Screen as it is delivered: the ranking document, rendered and gated like every other document, and one model
         # pack per hall, all from the SAME solve as the ranking above, so the document and the packs cannot disagree.
@@ -1607,6 +1638,10 @@ class Handler(BaseHTTPRequestHandler):
         self._open_res = None
         plan = self._plan()
         if plan is None:
+            # A paid route reached with no plan: the key was valid when the tier was decided and is not any more (revoked in between).
+            # Serving it would be a free paid run, so refuse. The operator is the only caller with no plan that may use a paid route.
+            if not self._is_operator() and ROUTES.get(endpoint, (None, Tier.PUBLIC))[1] is Tier.CLIENT:
+                return {"status": 401, "error": "this key has been revoked or is no longer valid; nothing was run and nothing was charged"}
             return None
         units = units_for(endpoint, body)
         if units <= 0:
@@ -1755,7 +1790,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "max_bytes": MAX_BODY_BYTES})
         raw = self.rfile.read(length) if length else b"{}"
         try:
-            body = json.loads(raw or b"{}", parse_constant=_reject_constant)
+            body = json.loads(raw or b"{}", parse_constant=_reject_constant, object_pairs_hook=_refuse_duplicate_keys)
         except RecursionError:
             # Python's parser gives up on nesting around ten thousand levels. Uncaught, this ended the request with no HTTP response at all
             # (the connection was closed) and a traceback in the log, and it is reachable without a key on the free public endpoints.
