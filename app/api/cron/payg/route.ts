@@ -5,7 +5,8 @@ import { applyDuePauses } from "@/lib/billing-pause";
 import { runSettlementReversalPass } from "@/lib/payg-refunds";
 import { runPaygCron } from "@/lib/payg-cron";
 import { notifyOperatorOnce } from "@/lib/payg-operator";
-import { checkRevocationBacklog } from "@/lib/stripe-health";
+import { checkRevocationBacklog, webhookHealthAlert } from "@/lib/stripe-health";
+import { siteUrl } from "@/lib/site";
 import { paygStripe } from "@/lib/payg-stripe";
 import { engineLedgerFetcher } from "@/lib/payg-usage";
 
@@ -56,5 +57,17 @@ export async function GET(req: Request) {
         "GET /api/admin/stripe-health lists the same numbers. This notice is sent once a day while the backlog stands."
     );
   }
-  return NextResponse.json({ ok: true, ...report, grace, pauses, settlement_reversals: settlementReversals, revocation_backlog: backlog });
+  // The webhook endpoint's event subscription is configuration inside Stripe that no deploy can prove: asked of Stripe once a day, and a gap is
+  // mailed (once a day while it stands) rather than waiting for somebody to open /admin. Never throws; says nothing when Stripe cannot be asked.
+  let webhook: { alerted: boolean; missing: string[] } = { alerted: false, missing: [] };
+  try {
+    const alert = await webhookHealthAlert(paygStripe(), siteUrl("/api/stripe/webhook"));
+    if (alert) {
+      webhook = { alerted: true, missing: alert.health.missingEvents };
+      await notifyOperatorOnce(`webhook_health:${new Date().toISOString().slice(0, 10)}`, alert.subject, alert.text);
+    }
+  } catch (err) {
+    console.error("[GridForge] webhook health check failed:", err instanceof Error ? err.message : err);
+  }
+  return NextResponse.json({ ok: true, ...report, grace, pauses, settlement_reversals: settlementReversals, revocation_backlog: backlog, webhook });
 }

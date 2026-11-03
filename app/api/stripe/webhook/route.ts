@@ -128,6 +128,13 @@ export async function POST(req: Request) {
     console.error("[GridForge] Stripe signature verify failed:", err);
     return NextResponse.json({ ok: false, error: "Bad signature" }, { status: 400 });
   }
+  // A body that verifies but is not an event envelope (JSON `null`, no string `type`, no `data` object) is refused as malformed. Stripe never
+  // sends one (so this is only reachable by whoever holds the signing secret), but without this it threw on `event.type` and answered an
+  // unhandled 500, which Stripe would redeliver for ever.
+  if (!event || typeof event !== "object" || typeof event.type !== "string" || !event.data || typeof event.data !== "object") {
+    console.error("[GridForge] Stripe event envelope is malformed (no type or data); refused");
+    return NextResponse.json({ ok: false, error: "Malformed event" }, { status: 400 });
+  }
 
   // A checkout that has not been PAID is not a sale. Card checkout completes only once paid, but a delayed method (a bank debit or
   // transfer) completes with payment_status "unpaid" and settles days later, or fails: fulfilling at completion would hand a key, an
