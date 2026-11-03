@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
 
 const config = [
-  { ignores: [".next/**", "node_modules/**", "public/**", "coverage/**", "observatory-broadcast/**", "scripts/**", "tests/**"] },
+  { ignores: [".claude/**", ".next/**", "node_modules/**", "public/**", "coverage/**", "observatory-broadcast/**", "scripts/**", "tests/**"] },
   ...compat.extends("next/core-web-vitals"),
   { rules: { "react/no-unescaped-entities": "off" } },
 ];
