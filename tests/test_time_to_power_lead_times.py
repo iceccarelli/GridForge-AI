@@ -92,9 +92,6 @@ def test_a_value_that_is_not_a_positive_finite_number_never_becomes_a_date(bad):
         load_document(doc)
 
 
-@pytest.mark.xfail(strict=True, reason="CONFIRMED DEFECT (intake/loader.py _pos accepts 0): a supplied transformer lead time of 0 is "
-                   "taken as 0 weeks with a band of (0, 0), so a power transformer is dated as instantly available and another "
-                   "relief sets the date. Owned by the intake agent; remove this xfail when the loader refuses a non-positive lead time.")
 def test_a_zero_lead_time_is_refused_not_dated_as_instant():
     doc = hall(0)
     with pytest.raises(IntakeError):

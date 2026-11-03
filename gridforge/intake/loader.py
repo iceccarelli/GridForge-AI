@@ -169,6 +169,22 @@ def _opt(o: dict, key: str, unit: str, evidence, *, band: float, high: float | N
     return V(v, unit, f"{o.get('id', 'BTM')} {key}", evidence, band=band)
 
 
+def _supplied_lead_time(raw: Any, what: str) -> Any:
+    """A lead time the customer wrote must be greater than zero. Zero would date a long-lead item as instantly available (a band of
+    zero around zero) and let another relief set the whole schedule. A missing value is not zero: it is absent and takes the library
+    placeholder, labelled as one. Non-numbers are refused by the number parser that follows."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return raw
+    try:
+        v = float(raw)
+    except OverflowError:
+        return raw          # too large for a float: the number parser that follows refuses it by name
+    if v == v and -1e300 < v <= 0:
+        raise IntakeError(f"{what} is {str(raw)[:24]}; a lead time must be greater than zero weeks. Leave it out to use the library placeholder "
+                          f"(which is labelled as one), or give the quoted figure")
+    return raw
+
+
 def _pos(raw: Any, what: str) -> float:
     v = _num(raw, what)
     if v < 0:
@@ -717,7 +733,7 @@ def _load_document(doc: dict) -> Intake:
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating",
                               ESTIMATED if t.get("derating_factor") is not None else ASSUMED, band=(0.85, 0.95)),
-            replacement_lead_time_weeks=V(_pos_max(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks",
+            replacement_lead_time_weeks=V(_pos_max(_supplied_lead_time(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks"), "transformers.replacement_lead_time_weeks",
                                                    "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
                                           # The library placeholder carries the library's band. A value the client supplied carries a band
@@ -756,7 +772,7 @@ def _load_document(doc: dict) -> Intake:
             capex_eur_per_kW=(V(_pos_max(o["capex_eur_per_kW"], "btm_options.capex_eur_per_kW", "capex_eur_per_kW", "EUR/kW"), "EUR/kW",
                                 f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3)
                               if o.get("capex_eur_per_kW") is not None else None),
-            lead_time_weeks=(V(_pos_max(o["lead_time_weeks"], "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
+            lead_time_weeks=(V(_pos_max(_supplied_lead_time(o["lead_time_weeks"], "btm_options.lead_time_weeks"), "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
                                f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35)
                              if o.get("lead_time_weeks") is not None else None),
             firm=bool(o.get("firm", True)),
