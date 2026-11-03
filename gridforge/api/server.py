@@ -385,7 +385,10 @@ def handle_compare(body: dict, tier: Tier) -> dict:
             notes = []
         # /v1/screen reports these findings as warnings; a comparison built on inputs that disagree with each other (a unit slip
         # between MW, MVA and kW) must say so too, not rank scenarios as if the inputs were sound.
-        notes = [*notes, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
+        # A comparison of halls whose transformer or UPS schedule is missing leaves those constraints unevaluated (not limiting), which
+        # overstates every scenario's racks. The intake already says so; the comparison must too, not rank as if the inputs were complete.
+        schedule_gaps = [w for w in intake.report.warnings if w.startswith(("No transformer schedule", "No UPS schedule"))]
+        notes = [*notes, *schedule_gaps, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
         out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
     except CompareError as exc:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
@@ -940,13 +943,7 @@ def handle_bids(body: dict, tier: Tier) -> dict:
 MAX_PORTFOLIO_HALLS = 50
 
 
-def _declares_hall_ids(doc) -> bool:
-    """True when the document itself names both its site and its hall (rather than leaving them to the library's default ids)."""
-    if not isinstance(doc, dict):
-        return False
-    site, hall = doc.get("site"), doc.get("hall")
-    ids = (site.get("id") if isinstance(site, dict) else None, hall.get("id") if isinstance(hall, dict) else None)
-    return all(isinstance(v, str) and v.strip() for v in ids)
+from ..reporting.portfolio_guard import declares_hall_ids as _declares_hall_ids, is_repeat as _is_repeat_hall  # noqa: E402
 
 
 def handle_portfolio(body: dict, tier: Tier) -> dict:
@@ -969,7 +966,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         # were left to the library default (every sparse intake is SITE-1 / HALL-1) are not assumed to be one hall.
         key = (intake.context.site.id, intake.context.hall.id)
         first = seen.get(key)
-        if first is not None and ((_declares_hall_ids(d) and _declares_hall_ids(docs[first])) or d == docs[first]):
+        if first is not None and _is_repeat_hall(d, docs[first]):
             raise ApiError(422, f"intakes[{i}] repeats site {key[0]!r} hall {key[1]!r} (already intakes[{first}]): a hall counts once, so its "
                                 "capacity would be added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id",
                            duplicate_of=first, index=i, site_id=key[0], hall_id=key[1])

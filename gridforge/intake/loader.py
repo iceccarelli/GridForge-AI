@@ -193,7 +193,25 @@ def _dig(doc: dict, path: str) -> Any:
 MAX_EQUIPMENT_ITEMS = 100
 
 
-def _equipment_list(items, section: str) -> list:
+def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
+    """The busway constraint reads `busway_ampacity_A` as the INSTALLED total and does not subtract what is already on it. If the racks
+    already in the hall would draw more than that total at their design density, the figure is more likely a spare or per-run value than
+    the whole hall's busway: say so rather than let the constraint look more precise than the input."""
+    import math
+    lv, hall = ctx.power.lv, ctx.hall
+    occupied = max(hall.rack_positions - hall.positions_available, 0)
+    existing_kW = occupied * hall.design_density_kW_per_rack.value
+    phase = math.sqrt(3) if lv.phases == 3 else 1.0
+    total_kW = (phase * lv.voltage_V.value * lv.busway_ampacity_A.value * lv.busway_utilisation_limit.value
+                * ctx.power.grid.power_factor.value * lv.busway_runs) / 1000.0
+    if existing_kW > total_kW > 0:
+        report.warnings.append(
+            f"Busway: the {occupied} occupied positions at their {hall.design_density_kW_per_rack.value:g} kW design density would draw "
+            f"{existing_kW:,.0f} kW, more than the {total_kW:,.0f} kW the declared busway can carry. busway_ampacity_A is read as the "
+            f"installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.")
+
+
+def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
     """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, or more
     items than a request may ask the engine to solve."""
     if items is None:
@@ -207,7 +225,26 @@ def _equipment_list(items, section: str) -> list:
         if not isinstance(item, dict):
             raise IntakeError(f"{section}[{n}] must be an object, not {type(item).__name__}")
     _refuse_repeated_ids(items, section)
+    if report is not None:
+        _warn_content_duplicates(items, section, report)
     return items
+
+
+def _warn_content_duplicates(items, section: str, report: "IntakeReport") -> None:
+    """Two entries that differ only in their id may be one machine listed twice under two names, which would count its capacity twice.
+    They may also be two genuinely identical machines, which the engine cannot tell apart from a duplicate: so this WARNS and never
+    refuses, and says what to do (declare identical units once, with `units`)."""
+    seen: dict[str, str] = {}
+    for n, item in enumerate(items):
+        body = {k: v for k, v in item.items() if k != "id"}
+        key = repr(sorted(body.items(), key=lambda kv: kv[0]))
+        ident = str(item.get("id", f"{section}[{n}]"))
+        if key in seen:
+            report.warnings.append(
+                f"{section}: {ident} is identical to {seen[key]} apart from its id. If they are one machine listed twice, its capacity "
+                f"is counted twice; if they are two identical machines, declare them once with `units`.")
+        else:
+            seen[key] = ident
 
 
 def _refuse_repeated_ids(items, section: str) -> None:
@@ -667,7 +704,7 @@ def _load_document(doc: dict) -> Intake:
     )
 
     transformers = []
-    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers")
+    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers", r.report)
     for t in tx_items:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
@@ -695,7 +732,7 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = _equipment_list(r.raw("ups", []) or [], "ups")
+    ups_items = _equipment_list(r.raw("ups", []) or [], "ups", r.report)
     for u in ups_items:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
@@ -708,7 +745,7 @@ def _load_document(doc: dict) -> Intake:
         ))
 
     options = []
-    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options")
+    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options", r.report)
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
@@ -753,8 +790,28 @@ def _load_document(doc: dict) -> Intake:
                 f"BTM option {opt.id}: fuel_price_eur_per_MWh and electrical_efficiency are only meaningful "
                 f"together (fuel cost per MWh generated = price / efficiency).")
         _generator_structure(opt, o, r.report)
+        from ..power.btm import DEFAULT_FIRM_FACTOR, INTERMITTENT_KINDS
+        if opt.kind not in DEFAULT_FIRM_FACTOR:
+            raise IntakeError(
+                f"BTM option {opt.id}: kind {opt.kind!r} is not one the engine models. Use one of: "
+                f"{', '.join(sorted(DEFAULT_FIRM_FACTOR))}. A kind the library does not know would be credited as firm capacity on "
+                f"the customer's factor alone, with nothing to check it against.")
+        if opt.kind in INTERMITTENT_KINDS and o.get("firm_capacity_factor") not in (None, 0, 0.0):
+            r.report.warnings.append(
+                f"BTM option {opt.id}: a {opt.kind} array carries no continuous firm capacity, so the declared firm_capacity_factor "
+                f"{o.get('firm_capacity_factor')!r} is not applied: it is credited 0 MW as firm. Declare storage with a ride-through window "
+                f"for the part of its output that must be relied on.")
         if opt.kind == "bess" and opt.firm:
             _bess_firm_credit(opt, o, r.report)
+            if opt.energy_MWh is None:
+                r.report.warnings.append(
+                    f"BTM option {opt.id}: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what "
+                    f"its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.")
+        from ..power.btm import UNIT_BASED_KINDS as _UBK
+        if opt.firm and opt.kind in _UBK and o.get("units") is None:
+            r.report.warnings.append(
+                f"BTM option {opt.id}: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out "
+                f"of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.")
         for key, what, unit, why in (
                 ("capex_eur_per_kW", "installed capex", "EUR/kW",
                  "without a price the relief that installs this option is reported as unpriced and the capex "
@@ -929,6 +986,7 @@ def _load_document(doc: dict) -> Intake:
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
+    _busway_vs_existing_load(ctx, report)
     if not transformers:
         report.warnings.append("No transformer schedule supplied: transformer capacity is not "
                                "evaluated and may be the true binding constraint.")

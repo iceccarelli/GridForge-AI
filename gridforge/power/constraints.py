@@ -109,8 +109,8 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             cost_key="grid.reinforcement",
             basis_note="One lump placeholder; the MVA a DSO would actually offer is not modelled, so it is not scaled.",
             lead_time_weeks=V(260, "weeks", "grid reinforcement lead time", ASSUMED, band=(150, 520),
-                              assumptions=["Frankfurt: no new large connections before 2030; "
-                                           "Amsterdam queue ~10 years"]),
+                              assumptions=["Frankfurt: the utility (Mainova) has said new high-power connections are not expected until about the "
+                                           "mid-2030s (press-reported forecast, 2026); other metros are not assessed here"]),
             apply=lambda c: c,   # deliberately a no-op: we do not model capacity we cannot obtain
             risk="In most target metros this relief does not exist inside the decision horizon. "
                  "Behind-the-meter supply is the only lever that moves this constraint.",
@@ -167,14 +167,15 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         cost_key="transformer.replacement",
         lead_time_weeks=lead if lead is not None else V(160, "weeks", "power transformer lead time", ASSUMED,
                                                         band=(80, 210),
-                                                        assumptions=["120 weeks in 2024, 160+ weeks in 2026"]),
+                                                        assumptions=["Transformer lead times of roughly 130 to 160+ weeks have been reported for the US market and vary by type; "
+                                                       "a library range, not a quotation"]),
         apply=_apply,
         risk="Lead time, not construction, is usually the schedule driver.",
     )
     return ConstraintResult(
         "transformer_capacity", "electrical", "Transformer capacity",
         floor_racks(racks),
-        basis=f"{headroom.render()} usable after redundancy and derating",
+        basis=f"{headroom.render()} usable after redundancy and derating (sustained rack power; peak rack power is not applied)",
         relief=relief,
     )
 
@@ -206,7 +207,8 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     return ConstraintResult(
         "ups_capacity", "electrical", "UPS capacity (protected load)",
         floor_racks(racks),
-        basis=f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy",
+        basis=(f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy "
+               f"(sustained rack power; peak rack power is not applied)"),
         relief=ReliefOption(
             description="Add UPS modules / new UPS block",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
@@ -267,7 +269,8 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "busway_ampacity", "electrical", "Busway ampacity",
         floor_racks(racks),
         basis=(f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
-               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}"),
+               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}. Modelling limit: the "
+               f"figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted"),
         relief=ReliefOption(
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else

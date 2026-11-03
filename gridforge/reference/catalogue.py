@@ -131,7 +131,7 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
                    "service. If the margin is thin, check lead time before you check price.",
         relief="Additional or replacement transformer capacity, and the switchgear that comes "
                "with it.",
-        relief_risk="Lead times of 120–160+ weeks have been reported for power transformers. "
+        relief_risk="Lead times of roughly 130 to 160+ weeks have been reported for power transformers (mainly the US market, varying by type). "
                     "This is the item most likely to set the energisation date for the whole "
                     "retrofit, and every week of it is a week of contracted power earning "
                     "nothing.",
@@ -325,9 +325,9 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
         relief_risk="Each step up is a larger programme and a different skill set in the hall. "
                     "The decision is rarely reversible within a tenancy.",
         misconception="Believing a hall can be pushed to 100 kW+ a rack with better airflow. "
-                      "Fewer than 4% of facilities can host 100 kW racks today.",
-        sources=("Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is "
-                 "below 30 kW; practical retrofit ceiling 20–40 kW.",),
+                      "Racks above 100 kW are rare in existing facilities: in one 2025 operator survey, as reported in the press, only about 9% of respondents had racks above 50 kW.",
+        sources=("Uptime Institute Global Data Center Survey 2025 (press-reported; the report itself was not read): more than 80% of "
+                 "surveyed operators say their densest rack is below 30 kW, self-reported. Practical retrofit ceiling 20–40 kW.",),
         see_also=("residual_air_removal", "cdu_capacity"),
     ),
     ConstraintDoc(

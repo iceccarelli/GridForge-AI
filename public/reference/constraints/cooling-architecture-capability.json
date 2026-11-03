@@ -9,9 +9,9 @@
   "binds_when": "If your target rack power is above roughly 40 kW and the hall is air cooled with containment, this gate closes before any capacity constraint is reached. The honest answer at that point is an architecture change, not more plant.",
   "relief": "Change the architecture: rear-door, hybrid direct liquid cooling, or full DLC with a high-temperature loop.",
   "relief_risk": "Each step up is a larger programme and a different skill set in the hall. The decision is rarely reversible within a tenancy.",
-  "misconception": "Believing a hall can be pushed to 100 kW+ a rack with better airflow. Fewer than 4% of facilities can host 100 kW racks today.",
+  "misconception": "Believing a hall can be pushed to 100 kW+ a rack with better airflow. Racks above 100 kW are rare in existing facilities: in one 2025 operator survey, as reported in the press, only about 9% of respondents had racks above 50 kW.",
   "sources": [
-    "Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is below 30 kW; practical retrofit ceiling 20\u201340 kW."
+    "Uptime Institute Global Data Center Survey 2025 (press-reported; the report itself was not read): more than 80% of surveyed operators say their densest rack is below 30 kW, self-reported. Practical retrofit ceiling 20\u201340 kW."
   ],
   "see_also": [
     "residual_air_removal",

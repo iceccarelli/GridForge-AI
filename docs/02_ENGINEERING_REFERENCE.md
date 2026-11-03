@@ -78,7 +78,7 @@
 | Constraint | Number | Class |
 |---|---|---|
 | European colo design density, 2010–2020 builds | **8–20 kW/rack**; ~30 only in HPC/hyperscale 2015–20 | [M] |
-| Installed reality, 2025 survey n≈1,000 | modal 4–5 kW (30% of operators); mean ~9 kW; **82% below 30 kW**; only 9% >50 kW; **<4% of facilities can host 100 kW+** | [M] |
+| Installed reality, 2025 survey (Uptime Institute, press-reported; self-reported by respondents) | more than 80% of operators say their densest rack is below 30 kW; only about 9% report racks above 50 kW. The earlier "<4% of facilities can host 100 kW+" had no source and is withdrawn | [M] |
 | Floor loading design standard | TIA-942 Rated-3: **12 kPa ≈ 1,223 kg/m²** superimposed live load | standard |
 | GB200 NVL72 rack mass | ~1,360 kg | [M] |
 | Implied loading, ~130 kW rack | ~1,890 kg/m² over 0.6×1.2 m; ~945 kg/m² over a 0.6×2.4 m aisle pitch | [C] — **arithmetic only; requires structural engineer** |
@@ -100,7 +100,7 @@
 | PUE reference | global weighted avg **1.54** (2025); ≤5 yr sites 1.48; ≥20 MW sites 1.44 | [M] |
 | DLC hall PUE claims | 1.05–1.15 | [V] — **unproven; use 1.15–1.25 for design** |
 | Cooling share of site energy | hyperscale ~7%, enterprise >30% | IEA [M] |
-| Transformer lead time | 120 weeks (2024) → **160+ weeks (2026)**, range 80–210 | [M] |
+| Transformer lead time | roughly 130 to 160+ weeks reported (mainly US, varies by type; not a quotation); engine library range 80–210 weeks, E0 | [M] |
 
 ## 8. Water
 

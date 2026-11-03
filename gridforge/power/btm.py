@@ -43,6 +43,9 @@ FIRM_FACTOR_ASSUMPTION = (
 
 
 def firm_factor(option: GenerationOption) -> Quantity:
+    if option.kind in INTERMITTENT_KINDS:
+        return V(0.0, "1", f"{option.kind} firm-capacity factor (intermittent: no continuous firm output)", ASSUMED,
+                 assumptions=[FIRM_FACTOR_ASSUMPTION])
     if option.firm_capacity_factor is not None:
         return option.firm_capacity_factor
     f = DEFAULT_FIRM_FACTOR.get(option.kind, 0.0)
@@ -131,6 +134,8 @@ def bess_firm_factor_for_duration(option: GenerationOption,
 #: Technologies whose capacity is made of discrete, dispatchable units that can each be out of service. A battery's firm credit is bounded by
 #: its energy (see `bess_firm_factor_for_duration`), PV and wind are firm for nothing, and a reinforcement is not a unit.
 UNIT_BASED_KINDS = frozenset({"gas_engine", "chp", "fuel_cell"})
+#: Sources with no continuous firm output of their own: a customer-declared firm factor is not applied to them.
+INTERMITTENT_KINDS = frozenset({"pv", "wind"})
 
 
 def unit_usable_fraction(option: GenerationOption) -> Quantity | None:

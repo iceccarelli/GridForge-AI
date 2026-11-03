@@ -165,7 +165,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     return ConstraintResult(
         "plant_capacity", "thermal", "Chilled-water plant capacity",
         floor_racks(racks),
-        basis=f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}",
+        basis=(f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}. Modelling limit: the headroom is "
+               f"plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled"),
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
@@ -208,7 +209,8 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         floor_racks(racks),
         basis=(f"{t.plant.pump_flow_capacity_l_per_min.render()} available against "
                f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
-               f"(~1.45 l/min/kW at 10 K delta-T)"),
+               f"(the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new "
+               f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total"),
         relief=ReliefOption(
             description="Uprate pumps and secondary pipework",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
@@ -267,9 +269,11 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
         "facility water supply temperature required", "thermal.required_fws", step_evidence=ESTIMATED)
     if t.trim_chiller_installed:
         achievable = t.plant.design_supply_C.relabel(
-            "facility water temperature achievable with trim chiller on the high-temperature loop",
-            "thermal.trim_chiller_fws", step_evidence=ESTIMATED)
-        mech = "trim chiller on the high-temperature loop"
+            "facility water temperature assumed achievable with a proposed trim chiller on the high-temperature loop",
+            "thermal.trim_chiller_fws", step_evidence=ASSUMED)
+        # A trim chiller exists in this context only because the relief proposed it. Its capacity, power draw and cost scaling are not
+        # modelled, so the temperature is an ASSUMPTION about an asset that is not installed, never a delivered figure.
+        mech = "a proposed trim chiller (capacity not assessed)"
     elif ctx.architecture == Architecture.FULL_DLC and t.plant.dry_cooler_approach_K is not None:
         achievable = (ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K).relabel(
             "facility water temperature achievable by dry coolers at design dry bulb",
@@ -294,7 +298,7 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
         "tcs_supply_achievable", "thermal", "Achievable facility water temperature",
         racks, gate=True,
         basis=(f"TCS target {t.tcs_target_supply_C.render()} needs facility water at or below "
-               f"{required_fws.render()}; {mech} delivers {achievable.render()}"),
+               f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'delivers'} {achievable.render()}"),
         relief=ReliefOption(
             description="Adiabatic assist plus trim chiller on the high-temperature loop",
             capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
