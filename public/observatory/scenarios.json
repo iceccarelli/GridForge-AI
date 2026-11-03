@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "567fa7e2f7001fb548b258710e25d6a7ae4b80d3bfb6f37907a1a038571d2c64",
+  "contentSha256": "5894ca6b342dd5ce2c16b1ef45880d8ce7453c93cd5ce50b7e7c5ad222827deb",
   "engine": {
-    "codeSha256": "7406c4e99713192d6ddbf1f0a7e24b121f8662b7385aa2149c6518c019881c3e",
+    "codeSha256": "ad780aff464c62c8ee77aef92da77178684e4ee4afea4bbf679547be779c364e",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -161,6 +161,7 @@
         "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
         "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption). It is not checked against a written manufacturer quotation or a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
@@ -772,6 +773,7 @@
         "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
         "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption). It is not checked against a written manufacturer quotation or a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
@@ -1381,6 +1383,7 @@
         "Synthetic hall: every input is invented for demonstration. It is not a customer, a company or a site, and nothing in it has been measured.",
         "The calibration ledger is empty: nothing in this scenario is measured or calibrated. Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.",
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
+        "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption). It is not checked against a written manufacturer quotation or a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",

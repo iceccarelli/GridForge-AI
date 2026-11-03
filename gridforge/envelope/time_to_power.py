@@ -218,3 +218,129 @@ def compare(baseline_label: str, baseline: HeadroomLadder,
             option_label: str, option: HeadroomLadder) -> TimeToPowerComparison:
     return TimeToPowerComparison(baseline_label, option_label,
                                  schedule(baseline), schedule(option))
+
+
+# --- the record behind a projected date -----------------------------------------------------------------------------------
+#
+# A date that cannot say what sets it, where its lead time came from, how sure it is, what is missing and what the model
+# leaves out is a number, not a finding. ``date_record`` is the one place that says all of it; the model pack and the
+# comparison both carry it, so no renderer has to rebuild the answer from scattered keys.
+
+#: Bumped whenever the way a date is derived (not merely worded) changes. Version 1: every relief taken starts together
+#: (all parallel); elapsed time is the longest lead time; the interval is the longest low and longest high.
+CALCULATION_VERSION = "gridforge.time_to_power/1"
+DEPENDENCY_MODEL = "all_parallel"
+
+LEAD_SOURCE_SUPPLIED = "customer_supplied_unverified"
+LEAD_SOURCE_LIBRARY = "library_placeholder"
+LEAD_SOURCE_MISSING = "missing"
+LEAD_SOURCE_UNKNOWN = "not_determined"   # no intake document was given, so supplied cannot be told from library
+
+LEAD_SOURCE_LABELS = {
+    LEAD_SOURCE_SUPPLIED: "customer-supplied (unverified)",
+    LEAD_SOURCE_LIBRARY: "library placeholder",
+    LEAD_SOURCE_MISSING: "missing",
+    LEAD_SOURCE_UNKNOWN: "source not determined",
+}
+
+#: The dependency limitation, verbatim wherever a date is recorded. The intake has no field that says one relief must wait
+#: for another, so the model cannot do otherwise; it says so instead of implying a sequence it does not know.
+SCHEDULE_LIMITATION = (
+    "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency "
+    "between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take "
+    "longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer "
+    "supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest "
+    "high among the lead times taken, a generic tolerance, not a statistical confidence interval.")
+
+#: Library default for a transformer lead time (the loader's placeholder; also the fallback in power/constraints.py).
+_TRANSFORMER_PLACEHOLDER_WEEKS = 160.0
+
+
+def _doc_list(document, key):
+    items = document.get(key) if isinstance(document, dict) else None
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+
+def step_lead_source(step, document: dict | None) -> str:
+    """Where a taken step's lead time came from, read from the intake document: ``customer_supplied_unverified`` when the
+    customer typed the figure, ``library_placeholder`` when the engine's own default stands in, ``missing`` when there is
+    none, ``not_determined`` when no document was given (never guessed).
+
+    The engine classes both of the first two E0 (intake/loader.py builds a supplied transformer lead time with ASSUMED; the
+    library values in power/, thermal/ and site/ constraints are ASSUMED too). This reads the source; it does not raise
+    the class. Only the transformer bank (the slowest bank sets the date) and behind-the-meter options accept a supplied
+    lead time; every other relief lead time is a library figure."""
+    lt = step.lead_time_weeks
+    if lt is None:
+        return LEAD_SOURCE_MISSING
+    if document is None:
+        return LEAD_SOURCE_UNKNOWN
+    if step.binding_id == "transformer_capacity":
+        vals = []
+        for bank in _doc_list(document, "transformers"):
+            raw = bank.get("replacement_lead_time_weeks")
+            ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+            vals.append((float(raw) if ok else _TRANSFORMER_PLACEHOLDER_WEEKS, ok))
+        if not vals:
+            return LEAD_SOURCE_LIBRARY
+        top_val, top_supplied = vals[0]
+        for val, supplied in vals[1:]:
+            if val > top_val:                       # the first bank among equals, as the constraint picks it
+                top_val, top_supplied = val, supplied
+        if abs(top_val - lt.value) > 1e-9:
+            return LEAD_SOURCE_UNKNOWN              # the document and the solved value disagree: say so, do not guess
+        return LEAD_SOURCE_SUPPLIED if top_supplied else LEAD_SOURCE_LIBRARY
+    for opt in _doc_list(document, "btm_options"):
+        oid = str(opt.get("id", opt.get("kind", "BTM")))
+        if lt.prov.label == f"{oid} lead time" and opt.get("lead_time_weeks") is not None:
+            return LEAD_SOURCE_SUPPLIED
+    return LEAD_SOURCE_LIBRARY
+
+
+def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document: dict | None = None) -> dict:
+    """Everything that stands behind a projected date, as plain data.
+
+    Keys: ``status`` (dated | no_deployable_racks | lead_time_missing | no_date), ``controlling_component`` (the item
+    whose lead time sets the date, None when undated), ``tied_components`` (other items with the same lead time: the date
+    does not depend on which is named), ``lead_time_source`` and ``lead_time_source_label`` of that item,
+    ``evidence_class`` (the weakest behind the date, unchanged by the source), ``date_interval_weeks`` ({low, high} or
+    None), ``missing_inputs``, ``dependency_model``, ``limitation`` and ``calculation_version``."""
+    ttp = ttp if ttp is not None else schedule(ladder)
+    taken = ladder.taken_steps
+    missing = [f"lead time: {s.binding_name}" for s in taken if s.lead_time_weeks is None]
+    got = full_capacity_band(ladder, ttp)
+    if not ttp.max_racks:
+        status = "no_deployable_racks"
+    elif missing:
+        status = "lead_time_missing"
+    elif got is None:
+        status = "no_date"
+    else:
+        status = "dated"
+    controlling = tied = src = None
+    if status == "dated":
+        controlling = ttp.critical_item
+        ctrl = next((s for s in taken if s.binding_name == controlling and s.lead_time_weeks is not None
+                     and s.lead_time_weeks.value == ttp.critical_weeks), None)
+        src = step_lead_source(ctrl, document) if ctrl is not None else LEAD_SOURCE_UNKNOWN
+        tied = sorted({s.binding_name for s in taken if s.lead_time_weeks is not None
+                       and s.lead_time_weeks.value == ttp.critical_weeks and s.binding_name != controlling})
+    limitation = SCHEDULE_LIMITATION
+    if src == LEAD_SOURCE_SUPPLIED:
+        limitation += (f" The lead time that sets the date is {LEAD_SOURCE_LABELS[src]}: typed by the customer, not checked "
+                       "against a written quotation.")
+    elif src == LEAD_SOURCE_LIBRARY:
+        limitation += f" The lead time that sets the date is a {LEAD_SOURCE_LABELS[src]}, not the customer's figure."
+    return {
+        "status": status,
+        "controlling_component": controlling,
+        "tied_components": tied,
+        "lead_time_source": src,
+        "lead_time_source_label": LEAD_SOURCE_LABELS.get(src) if src else None,
+        "evidence_class": got[3].short if got is not None else None,
+        "date_interval_weeks": {"low": got[1], "high": got[2]} if got is not None else None,
+        "missing_inputs": missing,
+        "dependency_model": DEPENDENCY_MODEL,
+        "limitation": limitation,
+        "calculation_version": CALCULATION_VERSION,
+    }

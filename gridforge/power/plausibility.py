@@ -53,6 +53,10 @@ def defaulted_date_findings(intake) -> list[str]:
         return ["The transformer replacement lead time was not supplied: a library placeholder of 160 weeks "
                 "(band 80-210) is used, and it can set the date. It is not a manufacturer's quote or a delivery "
                 "commitment. Supply a written lead time to replace it."]
+    if intake.report.supplied and "transformers.replacement_lead_time_weeks" in intake.report.supplied:
+        return ["The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic "
+                "+-35% band around it, and the engine still classes it E0 (an assumption). It is not checked against a "
+                "written manufacturer quotation or a delivery commitment."]
     return []
 
 

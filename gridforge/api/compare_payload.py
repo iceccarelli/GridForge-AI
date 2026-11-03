@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from ..envelope.time_to_power import date_basis, full_capacity_band, schedule, schedule_complete
+from ..envelope.time_to_power import date_basis, date_record, full_capacity_band, schedule, schedule_complete
 from ..serialize import _q, economics_dict
 from ..scenario.objective import Objective
 from ..scenario.run import ScenarioResult
@@ -112,7 +112,7 @@ def _grade(status: str, weakest, has_missing_lead_time: bool) -> str:
     return "indicative" if weakest is None or weakest <= EvidenceClass.E0_ASSUMPTION else "screening"
 
 
-def _scenario(res: ScenarioResult) -> dict:
+def _scenario(res: ScenarioResult, document: dict | None = None) -> dict:
     date = _date(res)
     taken = res.ladder.taken_steps
     lead_times = [{"constraint": s.binding_id, "name": s.binding_name, "domain": s.domain,
@@ -137,7 +137,8 @@ def _scenario(res: ScenarioResult) -> dict:
                          "binding": final.binding.id if final else None,
                          "binding_name": final.binding.name if final else None,
                          "it_load_kW": _q(final.it_load_kW if final else res.envelope.it_load_kW)},
-        "time_to_power": {**date, "lead_times": lead_times},
+        "time_to_power": {**date, "lead_times": lead_times,
+                          "date_record": date_record(res.ladder, None, document)},
         "economics": {"capex_total_eur": None if res.economics.nothing_deployable else econ["capex_total_eur"],
                       "capex_na_reason": "n/a: nothing deployable" if res.economics.nothing_deployable else None,
                       "capex_complete": econ["capex_complete"],
@@ -250,7 +251,7 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
     base_id = baseline or ids[0]
     if base_id not in ids:
         raise CompareError(f"baseline {base_id!r} is not one of the compared scenarios", available=ids)
-    rows = [_scenario(r) for r in results]
+    rows = [_scenario(r, document) for r in results]
     base = next(r for r in rows if r["id"] == base_id)
     for r in rows:
         r["vs_baseline"] = None if r["id"] == base_id else _vs(base, r)
