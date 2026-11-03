@@ -10,11 +10,13 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+from home_source import read_text  # noqa: E402  (the homepage is several files; see tests/home_source.py)
 NAV_TS = (ROOT / "lib" / "nav.ts").read_text()
 
 
 def read(rel: str) -> str:
-    return (ROOT / rel).read_text()
+    return read_text(rel)
 
 
 def _extract_hrefs(source: str) -> list[str]:

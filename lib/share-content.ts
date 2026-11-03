@@ -1,3 +1,4 @@
+import type { Audience } from "@/lib/audiences";
 // What each dynamic page's link card says. Pure functions of the page's own data (the constraint reference, the platform library, the
 // catalogue), kept apart from the drawing so tests can read every card without rendering an image.
 
@@ -22,6 +23,10 @@ export function platformCard(p: PlatformEntry): CardContent {
     subtitle: "What one rack asks of an existing hall: power, liquid share, flow and floor loading, with the manufacturer's sources.",
     facts: [`${p.rack_kW} kW per rack`, `${Math.round(p.liquid_fraction * 100)}% liquid`, `${p.flow_l_per_min_per_rack} l/min`, `${Math.round(p.floor_loading_kg_per_m2).toLocaleString("en-IE")} kg/m²`],
   };
+}
+
+export function audienceCard(a: Audience): CardContent {
+  return { kicker: "Who it is for", title: a.name, subtitle: a.summary, facts: ["Free first step", "Evidence class on every figure"] };
 }
 
 export function productCard(page: ProductPage, p: Product): CardContent {

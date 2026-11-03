@@ -100,6 +100,13 @@ export const PAGE_CARDS: Record<string, CardContent> = {
   security: { kicker: "Legal", title: "Security", subtitle: "How customer data, API keys and deliverables are protected, and what is not claimed to be certified.", facts: [SITE.name] },
 };
 
+PAGE_CARDS.for = {
+  kicker: "Who it is for",
+  title: "One engine, seven different decisions",
+  subtitle: "Owners, colocation and AI operators, developers, investors, engineers and advisors: each starts from its own decision.",
+  facts: ["Seven buyers", "Free first step"],
+};
+
 export function pageImages(id: string) {
   const c = PAGE_CARDS[id] ?? DEFAULT_CARD;
   return [{ url: `/cards/${id}.png`, width: CARD_SIZE.width, height: CARD_SIZE.height, alt: cardAlt(c), type: "image/png" }];

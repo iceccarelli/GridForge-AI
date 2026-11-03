@@ -8,6 +8,8 @@ import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { EvidenceBoundary } from "@/components/diagrams/EvidenceBoundary";
+import { MARKET_EVIDENCE, isPublishable, verificationLabel } from "@/lib/market-evidence";
 
 const TITLE = "Evidence classes E0 to E7 — how much the world has tested a number";
 const DESCRIPTION =
@@ -84,7 +86,7 @@ export default async function EvidencePage() {
         evidence class and a provenance digest, and a computed value is never stronger than the weakest input it came from.
       </p>
 
-      <div className="mt-8 overflow-x-auto rounded border border-line">
+      <div className="mt-8 overflow-x-auto rounded border border-line" role="region" aria-label="Evidence classes" tabIndex={0}>
         <table className="w-full min-w-[560px] text-sm">
           <thead>
             <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
@@ -145,6 +147,39 @@ export default async function EvidencePage() {
           This page reads the same file the deliverables do (<span className="font-mono">/reference/calibration.json</span>). When the
           number of reconciled observations changes, this page changes with it.
         </p>
+      </section>
+
+      <div className="mt-10">
+        <EvidenceBoundary />
+      </div>
+
+      <section className="mt-12" aria-labelledby="market-figures-h" id="market-figures">
+        <h2 id="market-figures-h" className="text-xl font-semibold text-ghost">Market figures used on this site, and how each was checked</h2>
+        <p className="mt-2 text-sm text-mute">
+          These describe the market, not Time to Power&rsquo;s results. Each record gives the publisher, date, period, geography and definition, and says
+          plainly whether the publisher&rsquo;s own page was read or only press coverage that quotes it. A figure we could not trace is listed as withdrawn
+          and is not shown anywhere else. Checked on 3 November 2026; market figures go stale, so treat the date as part of the figure.
+        </p>
+        <ul className="mt-5 space-y-4">
+          {MARKET_EVIDENCE.map((f) => (
+            <li key={f.id} className="rounded border border-line bg-panel-2 p-4">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+                {isPublishable(f) ? verificationLabel(f.verification) : "Withdrawn: no source found"} · {f.kind}
+              </p>
+              <p className="mt-1 text-[15px] text-ghost">{isPublishable(f) ? f.statement : `Wording previously used: ${f.statement}`}</p>
+              <dl className="mt-3 grid gap-x-6 gap-y-1 text-[13px] text-mute sm:grid-cols-2">
+                {f.publisher ? <div><dt className="inline text-faint">Publisher: </dt><dd className="inline">{f.publisher}{f.published ? `, ${f.published}` : ""}</dd></div> : null}
+                {f.period ? <div><dt className="inline text-faint">Period: </dt><dd className="inline">{f.period}</dd></div> : null}
+                {f.geography ? <div><dt className="inline text-faint">Geography: </dt><dd className="inline">{f.geography}</dd></div> : null}
+                {f.definition ? <div className="sm:col-span-2"><dt className="inline text-faint">Definition: </dt><dd className="inline">{f.definition}</dd></div> : null}
+              </dl>
+              <p className="mt-2 text-[13px] leading-relaxed text-mute"><span className="text-faint">Limits of the check: </span>{f.caveat}</p>
+              {f.url ? (
+                <p className="mt-2 text-[13px]"><a href={f.url} target="_blank" rel="noopener noreferrer" className="break-all text-power underline">Source</a></p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="mt-10" aria-labelledby="faq-h">

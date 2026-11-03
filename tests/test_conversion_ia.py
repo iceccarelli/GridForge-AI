@@ -7,9 +7,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+from home_source import read_text  # noqa: E402  (the homepage is several files; see tests/home_source.py)
+
 
 def read(rel: str) -> str:
-    return (ROOT / rel).read_text()
+    return read_text(rel)
 
 
 def test_navbar_and_footer_import_the_same_nav_config():
@@ -43,7 +45,7 @@ def test_workspace_stays_noindex_but_reachable():
     # not mean unlinked — it stays reachable from ScopingAgent's "open full
     # workspace" affordance, present on every page.
     assert 'href="/workspace"' in read(
-        "components/ScopingAgent.tsx"
+        "components/ScopingAgentPanel.tsx"
     ), "Workspace must still be linked from somewhere a real visitor reaches"
 
 
@@ -76,7 +78,7 @@ def test_home_and_intelligence_are_server_components_so_metadata_can_attach():
     # now thin server wrappers (app/workspace/page.tsx's pattern) around a
     # client component that holds the actual page content.
     for page, client_import in [
-        ("app/page.tsx", "HomeClient"),
+        ("app/page.tsx", "Hero"),
         ("app/intelligence/page.tsx", "IntelligenceClient"),
     ]:
         src = read(page)

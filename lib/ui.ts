@@ -20,7 +20,7 @@
 // repository has already paid for that once.
 
 import { toast } from "sonner";
-import { PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
+import { PRODUCTS, type ProductId } from "@/lib/products";
 
 const SCREEN = PRODUCTS.density_screen;
 
@@ -35,9 +35,7 @@ export const DENSITY_SCREEN: ProductId = SCREEN.id;
  * a euro figure typed into a comment here drifts exactly like one typed into code,
  * which is why the architecture guard refuses both.
  */
-export const DENSITY_SCREEN_CTA = `${SCREEN.name} — ${eurFromCents(
-  SCREEN.amountCents
-)} · ${SCREEN.turnaroundDays} days`;
+export { DENSITY_SCREEN_CTA } from "@/lib/cta";
 
 /** What the buyer gets, for the line of copy under a CTA. */
 export const DENSITY_SCREEN_PROMISE =
