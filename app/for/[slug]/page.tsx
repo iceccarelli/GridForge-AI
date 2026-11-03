@@ -51,7 +51,7 @@ export default async function AudiencePage({ params }: { params: Promise<{ slug:
           <Link href="/for" className="hover:text-power">Who it is for</Link> / <span className="text-mute">{a.name}</span>
         </nav>
         <div className="eyebrow mb-4 text-power">FOR {a.name.toUpperCase()}</div>
-        <h1 className="text-4xl font-semibold leading-tight tracking-tight text-ghost">{a.headline}</h1>
+        <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight tracking-tight text-ghost sm:text-4xl">{a.headline}</h1>
 
         <section className="mt-8" aria-labelledby="situation-h">
           <h2 id="situation-h" className="text-xl font-semibold text-ghost">Your situation</h2>

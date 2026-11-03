@@ -31,9 +31,9 @@ export function ConstraintChain() {
     <section aria-labelledby="cc-h" className="panel p-5 sm:p-7">
       <div className="eyebrow mb-2">FROM THE GRID TO USEFUL COMPUTE</div>
       <h3 id="cc-h" className="max-w-2xl text-lg font-semibold text-ghost">Capacity is the smallest of a series, not the first number on the contract.</h3>
-      <ol className="mt-5 grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+      <ol className="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
         {CHAIN.map((s, i) => (
-          <li key={s.label} className="bg-ink p-4">
+          <li key={s.label} className="min-w-0 bg-ink p-4 [overflow-wrap:anywhere]">
             <div className="flex items-baseline justify-between gap-3">
               <span className="data text-[11px] text-faint">{String(i + 1).padStart(2, "0")}</span>
               <span className={`data text-[10px] uppercase tracking-[0.12em] ${DOMAIN_TONE[s.domain]}`}>{s.domain}</span>

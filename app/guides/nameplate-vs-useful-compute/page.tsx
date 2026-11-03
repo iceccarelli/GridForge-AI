@@ -56,7 +56,7 @@ export default async function Guide() {
         <Link href="/" className="hover:text-power">Home</Link> / <span className="text-mute">Nameplate against useful compute</span>
       </nav>
       <p className="eyebrow mb-3 text-power">GUIDE · EXISTING AI HALLS</p>
-      <h1 className="text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{TITLE}</h1>
+      <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{TITLE}</h1>
       <p className="mt-2 text-[13px] text-faint">Vincenzo Grimaldi · <time dateTime={PUBLISHED}>3 November 2026</time> · founder-led, pilot-stage practice</p>
 
       <section aria-labelledby="answer-h" className="mt-8 rounded-lg border border-line bg-panel p-5">
