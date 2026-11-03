@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { openDepositIntake } from "@/lib/deposits";
 import { fail } from "@/lib/project-http";
 
@@ -9,7 +9,9 @@ export const runtime = "nodejs";
 // Open the intake for a SCOPED Envelope Study or Portfolio Screen deposit: one engagement, linked to the deposit, and the buyer's private
 // intake link emailed. Repeating the call never opens a second one; it re-ensures the email. The deposit becomes `delivered` by itself when the
 // study is released (app/api/admin/deliverables), with the engagement as its delivery reference.
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

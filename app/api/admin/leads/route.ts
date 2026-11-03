@@ -6,12 +6,15 @@ import {
   LEAD_STATUSES,
   ADMIN_COOKIE,
   type LeadStatus,
+  refuseCrossSiteWrite,
 } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
 // PATCH { id, status } -> update a lead's pipeline status. Auth-gated.
 export async function PATCH(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

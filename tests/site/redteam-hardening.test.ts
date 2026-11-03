@@ -100,10 +100,10 @@ describe("F11: admin login throttle identity and session key", () => {
   it("a client-written first x-forwarded-for hop buys no fresh identity: the throttle keys on the proxy-appended last entry", async () => {
     const { requestKey, throttleLogin } = await admin();
     const REAL = "203.0.113.10";
-    const waits: number[] = [];
-    for (let i = 0; i < 9; i++) waits.push(throttleLogin(requestKey(reqFrom(`198.51.100.${i + 1}, ${REAL}`))));
+    const waits: (number | "unavailable")[] = [];
+    for (let i = 0; i < 9; i++) waits.push(await throttleLogin(requestKey(reqFrom(`198.51.100.${i + 1}, ${REAL}`))));
     expect(waits.slice(0, 8).every((w) => w === 0)).toBe(true);
-    expect(waits[8]).toBeGreaterThan(0); // the 9th guess from the same real address, whatever it claimed to be, is throttled
+    expect(waits[8]).toBeGreaterThan(0 as number); // the 9th guess from the same real address, whatever it claimed to be, is throttled
     expect(requestKey(reqFrom(`198.51.100.99, ${REAL}`))).toBe(requestKey(reqFrom(REAL)));
     expect(requestKey(reqFrom(REAL))).toBe(subjectFor(REAL)); // the rate limiter's own identity, not an address
   });
@@ -122,8 +122,8 @@ describe("F11: admin login throttle identity and session key", () => {
 
   it("IPv6 attempts from one /64 share one throttle", async () => {
     const { requestKey, throttleLogin } = await admin();
-    for (let i = 0; i < 8; i++) expect(throttleLogin(requestKey(reqFrom(`2001:db8:aa:bb::${i + 1}`)))).toBe(0);
-    expect(throttleLogin(requestKey(reqFrom("2001:db8:aa:bb:1:2:3:4")))).toBeGreaterThan(0);
+    for (let i = 0; i < 8; i++) expect(await throttleLogin(requestKey(reqFrom(`2001:db8:aa:bb::${i + 1}`)))).toBe(0);
+    expect(await throttleLogin(requestKey(reqFrom("2001:db8:aa:bb:1:2:3:4")))).toBeGreaterThan(0);
   });
 
   const forge = (secret: string | Buffer) => {

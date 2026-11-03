@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { withdrawEvidence } from "@/lib/cost-evidence";
 import { fail, readJson } from "@/lib/project-http";
 
@@ -9,6 +9,8 @@ export const runtime = "nodejs";
 // Withdraw an ACCEPTED quotation (the supplier retracted it, or it was found wrong). It stops influencing any
 // new run at once; runs already recorded keep naming it, because they were true when they ran.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

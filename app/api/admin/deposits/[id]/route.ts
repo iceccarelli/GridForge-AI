@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { advanceDeposit } from "@/lib/deposits";
 import { fail, readJson } from "@/lib/project-http";
 
@@ -11,6 +11,8 @@ export const runtime = "nodejs";
 // earlier paid Density Screen as a credit, once; scoped -> delivered needs `delivery_ref`. Steps are never skipped or
 // reversed.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

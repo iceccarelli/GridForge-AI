@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { enqueueSelected, inventoryUnnotified } from "@/lib/notifications";
 
 export const runtime = "nodejs";
@@ -31,6 +31,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   if (!(await authed())) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   let body: { selection?: unknown } = {};
   try { body = await req.json(); } catch { /* handled below */ }

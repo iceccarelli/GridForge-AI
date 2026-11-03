@@ -13,6 +13,9 @@
 # for the paid endpoints, and GRIDFORGE_KEY_SECRET set to the SAME value as here —
 # the site signs self-serve API keys with it and the engine verifies them offline.
 #
+# The container starts as root only to hand the /data volume (mounted root-owned) to the unprivileged `gridforge` user, then
+# drops to it before the engine starts (see the Dockerfile): the engine never runs as root.
+#
 # The engine has no database and no dependencies, so it scales to zero and starts
 # in well under a second. Running it costs single-digit euros a month. The one
 # piece of state it keeps is the usage meter, which is why there is a volume.
@@ -24,8 +27,12 @@ primary_region = "ams"
 
 [env]
   GRIDFORGE_RATE_LIMIT = "60"
-  # Comma-separated origins, or "*" while you are still wiring it up.
-  GRIDFORGE_ALLOWED_ORIGINS = "*"
+  # Browser origins allowed to call the KEYED API cross-origin (credentials are X-API-Key / Authorization headers, never
+  # cookies, so this decides only which pages may read responses). Unset, the engine defaults to the site (these two).
+  # For a preview deployment add its origin: "https://timetopower.ai,https://www.timetopower.ai,https://<preview>.vercel.app".
+  # The free keyless routes (/v1/qualify, /v1/estimate, /health, /v1/version) stay readable from any origin without
+  # this list (GRIDFORGE_PUBLIC_CORS=0 closes that too); MCP and every other non-browser client ignore CORS entirely.
+  GRIDFORGE_ALLOWED_ORIGINS = "https://timetopower.ai,https://www.timetopower.ai"
   # Metered usage. This path must be on the mounted volume below, or every usage
   # record is discarded on restart — and with min_machines_running = 0 that is
   # every few minutes. The engine probes the path at startup and reports the truth
