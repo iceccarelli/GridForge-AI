@@ -2,6 +2,7 @@ import type { ConstraintDoc, ConstraintReference } from "@/lib/constraints";
 import { capabilityById } from "@/lib/capability-registry";
 import { LADDER_PRODUCTS, eurFromCents, type Product } from "@/lib/products";
 import { SITE, SITE_URL, siteUrl } from "@/lib/site";
+import { WEBSITE_ID, orgRef } from "@/lib/entity";
 
 /**
  * Dataset-shaped structured data for the constraint reference.
@@ -17,7 +18,7 @@ import { SITE, SITE_URL, siteUrl } from "@/lib/site";
  * structured data exactly as it applies to prose.
  */
 
-const ORG = { "@type": "Organization", name: "Time to Power", url: siteUrl() };
+const ORG = orgRef();
 
 export function constraintCatalogueJsonLd(ref: ConstraintReference) {
   return {
@@ -154,7 +155,7 @@ export function engagementOfferJsonLd(p: Product) {
     "@type": "Service",
     name,
     description: p.deliverable,
-    provider: { "@type": "ProfessionalService", name: SITE.name, url: SITE_URL },
+    provider: orgRef(),
   };
 
   if (p.recurring) {
@@ -232,7 +233,7 @@ export function qualifierJsonLd() {
       "Seven numbers about an existing AI data hall in, the constraint that binds first out. Directional output from the same power-and-thermal engine that produces the paid capacity study.",
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
-    provider: { "@type": "ProfessionalService", name: SITE.name, url: SITE_URL },
+    provider: orgRef(),
   };
 }
 
@@ -244,6 +245,6 @@ export function webPageJsonLd(path: string, name: string, description: string) {
     name,
     description,
     url: siteUrl(path),
-    isPartOf: { "@type": "WebSite", name: SITE.name, url: SITE_URL },
+    isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: SITE.name, url: SITE_URL },
   };
 }

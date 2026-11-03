@@ -2,18 +2,24 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { breadcrumbJsonLd } from "@/lib/jsonld";
 import { PRODUCT_PAGES, productForPage } from "@/lib/product-pages";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { eurFromCents, priceLine, PRODUCTS } from "@/lib/products";
 
 const DESCRIPTION = `Fixed-fee engineering engagements for the owner of an existing AI data hall, from the ${eurFromCents(
   PRODUCTS.density_screen.amountCents
 )} Density Screen to the Capacity & Density Envelope Study, a tender-ready Procurement Specification, a multi-hall Portfolio Screen and quarterly Hall Watch. Each page states what you receive, what we need from you and what it is not.`;
 
+const OG_DESCRIPTION = "Fixed-fee engineering engagements for the owner of an existing AI data hall. Each page states what you receive, what we need from you and what it is not.";
+
 export const metadata: Metadata = {
   title: "Engagements — fixed-fee capacity and density engineering",
   description: DESCRIPTION,
   alternates: { canonical: "/products" },
-  openGraph: { images: OG_IMAGES, title: "Engagements — fixed-fee capacity and density engineering", description: DESCRIPTION, url: "/products" },
+  twitter: { card: "summary_large_image", images: pageImages("products") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("products"), title: "Engagements — fixed-fee capacity and density engineering", description: OG_DESCRIPTION, url: "/products" },
 };
 
 export default function ProductsIndex() {

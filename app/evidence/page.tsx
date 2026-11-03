@@ -5,7 +5,8 @@ import Link from "next/link";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { CLAIM_FLOORS, EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { QUALIFY_LINK } from "@/lib/nav";
 
 const TITLE = "Evidence classes E0 to E7 — how much the world has tested a number";
@@ -16,7 +17,10 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/evidence" },
-  openGraph: { images: OG_IMAGES, title: TITLE, description: DESCRIPTION, url: "/evidence" },
+  twitter: { card: "summary_large_image", images: pageImages("evidence") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("evidence"), title: TITLE, description: DESCRIPTION, url: "/evidence" },
 };
 
 interface Calibration {

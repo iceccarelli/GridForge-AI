@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { constraintReference } from "@/lib/constraints";
+import { orgRef } from "@/lib/entity";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
-import { OG_IMAGES, SITE, SITE_URL, siteUrl } from "@/lib/site";
+import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { QUALIFY_LINK } from "@/lib/nav";
 
 const TITLE = "How long does it take to relieve each constraint in an AI data hall?";
@@ -14,7 +16,10 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/lead-times" },
-  openGraph: { images: OG_IMAGES, title: TITLE, description: DESCRIPTION, url: "/lead-times" },
+  twitter: { card: "summary_large_image", images: pageImages("lead-times") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("lead-times"), title: TITLE, description: DESCRIPTION, url: "/lead-times" },
 };
 
 export default async function LeadTimesPage() {
@@ -33,7 +38,8 @@ export default async function LeadTimesPage() {
             name: "Indicative relief lead times by constraint",
             description: DESCRIPTION,
             url: siteUrl("/lead-times"),
-            creator: { "@type": "Organization", name: SITE.name, url: SITE_URL },
+            creator: orgRef(),
+            publisher: orgRef(),
             isBasedOn: siteUrl("/reference/constraints.json"),
             variableMeasured: rows.map((c) => ({
               "@type": "PropertyValue",

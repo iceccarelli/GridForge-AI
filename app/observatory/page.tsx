@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { loadScenarioFile } from "@/lib/observatory/scenario-data";
 import { getLiveContext } from "@/lib/observatory/sources";
 import type { ContextState } from "@/components/observatory/ContextPanel";
@@ -18,7 +19,10 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/observatory" },
-  openGraph: { images: OG_IMAGES, title: TITLE, description: DESCRIPTION, url: "/observatory" },
+  twitter: { card: "summary_large_image", images: pageImages("observatory") },
+  openGraph: {
+    ...OG_BASE,
+    images: pageImages("observatory"), title: TITLE, description: DESCRIPTION, url: "/observatory" },
 };
 
 const CONTEXT_TIMEOUT_MS = 10_000;

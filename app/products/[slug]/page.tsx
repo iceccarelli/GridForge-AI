@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { CommissionScreen } from "@/components/CommissionScreen";
 import { breadcrumbJsonLd, engagementOfferJsonLd } from "@/lib/jsonld";
 import { PRODUCT_PAGES, productForPage, productPageBySlug } from "@/lib/product-pages";
-import { OG_IMAGES, siteUrl } from "@/lib/site";
+import { OG_BASE, siteUrl } from "@/lib/site";
 import { priceLine } from "@/lib/products";
 
 export const dynamicParams = false;
@@ -23,7 +23,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     title,
     description: p.description,
     alternates: { canonical: `/products/${slug}` },
-    openGraph: { images: OG_IMAGES, title, description: p.description, url: `/products/${slug}` },
+    openGraph: {
+    ...OG_BASE, title: p.name, description: p.description, url: `/products/${slug}` },
   };
 }
 

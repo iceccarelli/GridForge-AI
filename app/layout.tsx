@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { SITE_URL } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import localFont from "next/font/local";
@@ -43,6 +43,8 @@ const SCREEN = PRODUCTS.density_screen;
 const SCREEN_PRICE = eurFromCents(SCREEN.amountCents);
 const SCREEN_DAYS = SCREEN.turnaroundDays === 5 ? "five" : String(SCREEN.turnaroundDays);
 
+export const viewport: Viewport = { themeColor: "#070B14", colorScheme: "dark" };
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
@@ -64,19 +66,29 @@ export const metadata: Metadata = {
     "GB300 NVL72 retrofit",
   ],
   authors: [{ name: "Vincenzo Grimaldi" }],
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  // SVG for browsers that take it, PNG and ICO for the crawlers and apps that do not (Google fetches /favicon.ico; iOS ignores an SVG touch icon).
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: {
     type: "website",
+    locale: "en_US",
     url: siteUrl,
     title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
     description:
       `The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured. ${SCREEN_PRICE}, ${SCREEN_DAYS} working days from a complete intake.`,
     siteName: "Time to Power",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Time to Power" }],
   },
-  // Only the card type and image: a page that sets its own openGraph title and description would otherwise inherit THIS
-  // twitter title, so a shared link would show the homepage text for any page. Without twitter:title the platform uses og:title.
-  twitter: { card: "summary_large_image", images: ["/og.png"] },
+  // Only the card type: a page that sets its own openGraph title and description would otherwise inherit THIS twitter title, so a shared
+  // link would show the homepage text for any page. Without twitter:title the platform uses og:title. The images are the
+  // opengraph-image / twitter-image files (app/), generated from each page's own data. No twitter:site or creator: there is no account
+  // (SITE.social.x is empty) and one is never invented.
+  twitter: { card: "summary_large_image" },
   robots: { index: true, follow: true },
 };
 

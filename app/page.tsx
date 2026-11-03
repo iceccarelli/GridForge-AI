@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
 import { HomeClient } from "@/components/HomeClient";
 
 // A canonical tag can only be set from a Server Component's metadata export,
@@ -10,8 +10,8 @@ import { HomeClient } from "@/components/HomeClient";
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
   openGraph: {
+    ...OG_BASE,
     url: "/",
-    images: OG_IMAGES,
     title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
     description:
       "The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured.",

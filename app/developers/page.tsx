@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import Link from "next/link";
@@ -28,8 +29,10 @@ export const metadata: Metadata = {
   description:
     "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
   alternates: { canonical: "/developers" },
+  twitter: { card: "summary_large_image", images: pageImages("developers") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("developers"),
     title: "Machine interface — call the GridForge engine",
     description:
       "JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number the engine returns.",

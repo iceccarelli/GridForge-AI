@@ -97,7 +97,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
   {
     heading: "Company",
     links: [
-      { href: "#about", label: "About", hash: true },
+      { href: "/about", label: "About" },
       { href: "#faq", label: "FAQ", hash: true },
       { href: "/legal/security", label: "Security" },
     ],

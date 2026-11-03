@@ -258,7 +258,10 @@ def test_the_sitemap_is_generated_from_the_reference():
 
 
 def test_the_structured_data_does_not_describe_a_different_company():
-    src = (ROOT / "components" / "JsonLd.tsx").read_text().lower()
+    # The organisation is defined once in lib/entity.ts; JsonLd.tsx must emit that, not its own copy.
+    assert "entityGraph" in (ROOT / "components" / "JsonLd.tsx").read_text()
+    src = ((ROOT / "components" / "JsonLd.tsx").read_text()
+           + (ROOT / "lib" / "entity.ts").read_text()).lower()
     for stale in ["dc distribution architecture", "physics-informed ems",
                   "dc microgrids"]:
         assert stale not in src, f"JSON-LD still tells search engines we do {stale!r}"

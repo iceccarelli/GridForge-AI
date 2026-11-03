@@ -1,7 +1,15 @@
 # Execution state (factual handoff)
 
-Updated: 2026-11-02 (see the first entry below; the rest is dated where it was written).
+Updated: 2026-11-03 (see the first entry below; the rest is dated where it was written).
 Rule for this file: record what was built and what was actually run. An intention is not an entry.
+
+## 2026-11-03: share cards, one business entity, question-and-answer markup, portfolio browser journey
+- **Share images**: every indexable page now carries exactly one `og:image` and `twitter:image` (1200x630 PNG). Constraint, platform and product pages render their own card from their page data (`lib/share-content.ts`, file-convention `opengraph-image`/`twitter-image`); the static pages use a registry (`lib/page-cards.ts`, served by `app/cards/[file]` which answers only registered names). Cause of the earlier gap: a page's `openGraph` replaces the root layout's, so five pages had no image; `OG_BASE` now carries only type, site name and locale.
+- **One entity**: a single Organization node with a stable `@id` (full on `/` and `/about`, a reference everywhere else), WebSite, logo and founder nodes (`lib/entity.ts`); `/about`, `/contact.vcf` (name, URL, email only), `/.well-known/security.txt`, web manifest, PNG icons, `favicon.ico`, apple-touch icon, theme colour. No address, phone, social account or rating is stated because none is recorded; `SITE.social` stays empty.
+- **Question-and-answer markup**: constraint and platform pages show the questions on the page and emit FAQPage JSON-LD from the same array (`lib/qa.ts`); answers use only reference fields, lead times are called indicative.
+- **Checks**: `scripts/check-share-cards.mjs` runs against the built site in the site CI job (144 tag checks across 16 pages, run here). Unit tests cover cards, entity and Q&A; the full `tests/site` run passed (2916).
+- **Portfolio hall-list form** has a browser journey (`tests/e2e/portfolio-journey.mjs`; 375 and 1280 px, template, local refusals, duplicate hall refused by the server, five-hall CSV, per-hall packs, 409 on resubmit). It passed here. It is manual: Playwright is not a project dependency, so CI does not run it.
+- Not proven: how any third-party scraper or preview (Google, Facebook, WhatsApp, LinkedIn) renders these cards; that needs the live URL after deploy.
 
 ## 2026-11-02 (review): independent recomputation of the engine; five defects fixed, five questions left open
 Three read-only reviewers recomputed the electrical, thermal and schedule/economics logic from first principles on the reference hall and variants, and a seeded metamorphic sweep (80 halls, 14 properties, `tests/test_metamorphic_properties.py`) checked how answers must move. Fixed, each with a test that fails when the fix is reverted (`tests/test_engine_review_fixes.py`, 35 tests):

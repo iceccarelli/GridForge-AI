@@ -1,11 +1,14 @@
+import { QuestionList } from "@/components/QuestionList";
+import { platformQuestions } from "@/lib/qa";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { platformLibrary } from "@/lib/constraints";
+import { orgRef } from "@/lib/entity";
 import { breadcrumbJsonLd } from "@/lib/jsonld";
 import { PLATFORM_CONSTRAINT_SLUGS, derive, pageablePlatforms } from "@/lib/platform-pages";
-import { OG_IMAGES, SITE, SITE_URL, siteUrl } from "@/lib/site";
+import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { QUALIFY_LINK } from "@/lib/nav";
 
 export const dynamicParams = false;
@@ -29,7 +32,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     title,
     description,
     alternates: { canonical: `/platforms/${id}` },
-    openGraph: { images: OG_IMAGES, title, description, url: `/platforms/${id}` },
+    openGraph: {
+    ...OG_BASE, title, description, url: `/platforms/${id}` },
   };
 }
 
@@ -56,7 +60,8 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
     name: `${p.name} — published rack figures`,
     description: `Manufacturer-published rack power, liquid capture, flow, mass and floor loading for the ${p.name}, as used by the Time to Power capacity engine.`,
     url: siteUrl(`/platforms/${p.id}`),
-    creator: { "@type": "Organization", name: SITE.name, url: SITE_URL },
+    creator: orgRef(),
+    publisher: orgRef(),
     citation: p.sources,
     variableMeasured: rows.map(([name, value]) => ({ "@type": "PropertyValue", name, value })),
   };
@@ -136,6 +141,8 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
           Which one binds first in a particular hall depends on that hall&rsquo;s numbers. The free qualifier finds out.
         </p>
       </section>
+
+      <QuestionList id="questions-h" items={platformQuestions(p)} />
 
       <section className="mt-10" aria-labelledby="src-h">
         <h2 id="src-h" className="text-xl font-semibold text-ghost">Sources</h2>

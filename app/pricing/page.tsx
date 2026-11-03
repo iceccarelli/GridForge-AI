@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, engagementCatalogJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import Link from "next/link";
@@ -20,8 +21,10 @@ export const metadata: Metadata = {
   title: "Pricing — free check, metered API, fixed-fee engagements",
   description: PRICING_DESCRIPTION,
   alternates: { canonical: "/pricing" },
+  twitter: { card: "summary_large_image", images: pageImages("pricing") },
   openGraph: {
-    images: OG_IMAGES,
+    ...OG_BASE,
+    images: pageImages("pricing"),
     title: "Pricing — free check, metered API, fixed-fee engagements",
     description: PRICING_DESCRIPTION,
     url: "/pricing",

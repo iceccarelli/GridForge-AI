@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { OG_IMAGES } from "@/lib/site";
+import { OG_BASE } from "@/lib/site";
+import { pageImages } from "@/lib/page-cards";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
 import { NotYetAvailable } from "@/app/power/NotYetAvailable";
@@ -10,9 +11,11 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "BTM Power Deployment Assessment",
   alternates: { canonical: "/power/deploy" },
+  twitter: { card: "summary_large_image", images: pageImages("deploy") },
   openGraph: {
+    ...OG_BASE,
+    images: pageImages("deploy"),
     url: "/power/deploy",
-    images: OG_IMAGES,
     title: "BTM Power Deployment Assessment",
     description: "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.",
   },
