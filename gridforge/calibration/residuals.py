@@ -144,8 +144,22 @@ def interval_coverage(recs: list[ObservationRecord]) -> dict:
     }
 
 
+def _distinct_measurements(recs: list[ObservationRecord]) -> list[ObservationRecord]:
+    """One record per physical measurement. Records that carry the same variable, instant, predicted and measured values are the same
+    measurement entered more than once (under different ids or site references), and counting them separately would let replication
+    stand in for evidence."""
+    seen: set[tuple] = set()
+    out: list[ObservationRecord] = []
+    for r in recs:
+        key = (r.variable, r.measured_at, r.predicted, r.measured)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
+
+
 def variable_state(recs: list[ObservationRecord]) -> str:
-    eligible = [r for r in recs if r.quality != "low"]
+    eligible = [r for r in _distinct_measurements(recs) if r.quality != "low"]
     if (len(eligible) >= MIN_APPROVED_OBSERVATIONS
             and len({r.site_id for r in eligible}) >= MIN_DISTINCT_SITES):
         return CALIBRATED
@@ -154,7 +168,7 @@ def variable_state(recs: list[ObservationRecord]) -> str:
 
 def _variable_block(variable: str, recs: list[ObservationRecord]) -> dict:
     state = variable_state(recs)
-    eligible = [r for r in recs if r.quality != "low"]
+    eligible = [r for r in _distinct_measurements(recs) if r.quality != "low"]
     block: dict = {
         "unit": VARIABLES[variable][1],
         "state": state,

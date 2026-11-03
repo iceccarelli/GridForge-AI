@@ -61,8 +61,8 @@ def defaulted_date_findings(intake) -> list[str]:
                 "commitment. Supply a written lead time to replace it."]
     if intake.report.supplied and "transformers.replacement_lead_time_weeks" in intake.report.supplied:
         return ["The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic "
-                "+-35% band around it, and the engine still classes it E0 (an assumption). It is not checked against a "
-                "written manufacturer quotation or a delivery commitment."]
+                "+-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a "
+                "written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment."]
     return []
 
 

@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SITE_URL } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 
 const jar: { name: string; value: string }[] = [];
@@ -34,7 +35,7 @@ async function freshLogin() {
   return await import("@/app/api/admin/login/route");
 }
 function login(password: string, headers: Record<string, string> = {}) {
-  return new Request("https://timetopower.ai/api/admin/login", {
+  return new Request(`${SITE_URL}/api/admin/login`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.10", ...headers },
     body: JSON.stringify({ password }),
@@ -134,7 +135,7 @@ describe("finding 2: the login throttle is the shared Postgres counter and fails
     const db = new PostgrestFake(["rate_limit_windows"]);
     return { db, restore: db.install() };
   }
-  const req = (ip: string) => new Request("https://timetopower.ai/api/admin/login", { method: "POST", headers: { "x-forwarded-for": ip } });
+  const req = (ip: string) => new Request(`${SITE_URL}/api/admin/login`, { method: "POST", headers: { "x-forwarded-for": ip } });
 
   it("two separately loaded instances (separate module state) count against ONE counter: 5 + 3 passes, the 9th is throttled", async () => {
     const { db, restore } = useStore();
@@ -234,13 +235,13 @@ describe("finding 5: a cross-site write cannot ride the admin cookie", () => {
 
   it("refuses a cross-site Origin or Sec-Fetch-Site, accepts same-origin, the configured site, and no-header (non-browser) requests", async () => {
     const { refuseCrossSiteWrite } = await freshAdmin();
-    const r = (h: Record<string, string>) => new Request("https://timetopower.ai/api/admin/leads", { method: "PATCH", headers: h });
+    const r = (h: Record<string, string>) => new Request(`${SITE_URL}/api/admin/leads`, { method: "PATCH", headers: h });
     expect(refuseCrossSiteWrite(r({ origin: "https://evil.example" }))?.status).toBe(403);
     expect(refuseCrossSiteWrite(r({ origin: "null" }))?.status).toBe(403);
     expect(refuseCrossSiteWrite(r({ origin: "not a url" }))?.status).toBe(403);
     expect(refuseCrossSiteWrite(r({ "sec-fetch-site": "cross-site" }))?.status).toBe(403);
-    expect(refuseCrossSiteWrite(r({ origin: "https://timetopower.evil.example", host: "timetopower.ai" }))?.status).toBe(403);
-    expect(refuseCrossSiteWrite(r({ origin: "https://timetopower.ai" }))).toBeNull();
+    expect(refuseCrossSiteWrite(r({ origin: "https://timetopower.evil.example", host: new URL(SITE_URL).host }))?.status).toBe(403);
+    expect(refuseCrossSiteWrite(r({ origin: SITE_URL }))).toBeNull();
     expect(refuseCrossSiteWrite(r({ origin: "https://preview.example", host: "preview.example" }))).toBeNull();
     expect(refuseCrossSiteWrite(r({ origin: "https://preview.example", "x-forwarded-host": "preview.example" }))).toBeNull();
     expect(refuseCrossSiteWrite(r({ "sec-fetch-site": "same-origin" }))).toBeNull();
@@ -253,12 +254,12 @@ describe("finding 5: a cross-site write cannot ride the admin cookie", () => {
     const res = await POST(login(PASSWORD, { origin: "https://evil.example" }));
     expect(res.status).toBe(403);
     expect(jar).toHaveLength(0);
-    expect((await DELETE(new Request("https://timetopower.ai/api/admin/login", { method: "DELETE", headers: { origin: "https://evil.example" } }))).status).toBe(403);
+    expect((await DELETE(new Request(`${SITE_URL}/api/admin/login`, { method: "DELETE", headers: { origin: "https://evil.example" } }))).status).toBe(403);
     const { adminToken } = await import("@/lib/admin");
     jar.push({ name: "gf_admin", value: adminToken()! });
     const { PATCH } = await import("@/app/api/admin/leads/route");
     const patch = await PATCH(
-      new Request("https://timetopower.ai/api/admin/leads", {
+      new Request(`${SITE_URL}/api/admin/leads`, {
         method: "PATCH",
         headers: { "content-type": "application/json", origin: "https://evil.example" },
         body: JSON.stringify({ id: "x", status: "won" }),

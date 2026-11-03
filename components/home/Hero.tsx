@@ -56,7 +56,7 @@ export function Hero() {
 
           <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
             <div className="panel flex flex-col p-5">
-              <span className="eyebrow-queue data text-[10px]">A · FREE · ABOUT 90 SECONDS</span>
+              <span className="eyebrow-queue data text-[10px]">A · FREE · SEVEN NUMBERS</span>
               <span className="mt-1.5 font-semibold text-ghost">Run the free capacity check</span>
               <p className="mt-1.5 flex-1 text-sm leading-relaxed text-mute">
                 Seven numbers, no card, no call. A directional answer naming the constraint likely to bind first, the inputs it is missing,

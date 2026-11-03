@@ -166,7 +166,7 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         "plant_capacity", "thermal", "Chilled-water plant capacity",
         floor_racks(racks),
         basis=(f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}. Modelling limit: the headroom is "
-               f"plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled"),
+               f"plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share"),
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
@@ -298,7 +298,7 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
         "tcs_supply_achievable", "thermal", "Achievable facility water temperature",
         racks, gate=True,
         basis=(f"TCS target {t.tcs_target_supply_C.render()} needs facility water at or below "
-               f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'delivers'} {achievable.render()}"),
+               f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'is estimated to supply'} {achievable.render()}"),
         relief=ReliefOption(
             description="Adiabatic assist plus trim chiller on the high-temperature loop",
             capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",

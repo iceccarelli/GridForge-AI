@@ -40,7 +40,8 @@ def rec(*a, **kw):
 
 
 def many(n, sites=3, **kw):
-    return [rec(i, site=f"S{i % sites}", **kw) for i in range(n)]
+    # Distinct measurements: identical readings entered repeatedly are one measurement, not n (see the replication test below).
+    return [rec(i, site=f"S{i % sites}", **({"measured": 95.0 + 0.01 * i} | kw)) for i in range(n)]
 
 
 # --- record validation ------------------------------------------------------
@@ -204,7 +205,7 @@ def all_variables_of(sub, n=R.MIN_APPROVED_OBSERVATIONS):
     for v, spec in VARIABLES.items():
         if spec[0] == sub:
             for k in range(n):
-                out.append(rec(i, site=f"S{k % 3}", variable=v, predicted=max(2.0, 100.0), measured=max(2.0, 98.0)))
+                out.append(rec(i, site=f"S{k % 3}", variable=v, predicted=max(2.0, 100.0), measured=max(2.0, 98.0) + 0.01 * k))
                 i += 1
     return out
 
@@ -291,3 +292,20 @@ def test_empty_ledger_output_is_byte_identical_to_the_committed_reference():
 def test_the_shipped_ledger_holds_no_observations():
     from gridforge.calibration.ledger import BUNDLED_PATH
     assert json.loads(BUNDLED_PATH.read_text()).get("observations") == []
+
+
+def test_a_few_seconds_of_clock_skew_is_tolerated_but_a_wrong_date_is_not():
+    """A reviewer's finding: an instrument clock running seconds ahead must not discard a real reading; a timestamp a day ahead is a wrong date."""
+    from datetime import timedelta
+    ahead = lambda delta: (NOW + delta).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    assert ObservationRecord.from_dict(row(1, measured_at=ahead(timedelta(seconds=30))), now=NOW)
+    with pytest.raises(RecordError, match="future"):
+        ObservationRecord.from_dict(row(2, measured_at=ahead(timedelta(hours=24))), now=NOW)
+
+
+def test_the_same_measurement_entered_thirty_times_is_not_thirty_pieces_of_evidence():
+    """A reviewer's finding: replication under different ids and site references must not stand in for independent measurements."""
+    recs = [rec(i, site=f"S{i % 3}") for i in range(30)]          # identical instant, predicted and measured; only the ids and sites differ
+    assert R.variable_state(recs) != R.CALIBRATED
+    distinct = [rec(i, site=f"S{i % 3}", measured=95.0 + i) for i in range(30)]
+    assert R.variable_state(distinct) == R.CALIBRATED               # the same count of genuinely different measurements does calibrate

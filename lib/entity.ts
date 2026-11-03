@@ -53,7 +53,7 @@ export function organizationNode() {
     email: SITE.email,
     description: ORG_DESCRIPTION,
     logo: { "@type": "ImageObject", "@id": LOGO_ID, url: siteUrl("/logo.png"), width: 512, height: 512 },
-    contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: SITE.email, availableLanguage: "en" },
+    contactPoint: { "@type": "ContactPoint", contactType: "enquiries", email: SITE.email, availableLanguage: "en" },
     founder: { "@id": FOUNDER_ID },
     location: locations(),
     areaServed: { "@type": "Place", name: "Worldwide" },

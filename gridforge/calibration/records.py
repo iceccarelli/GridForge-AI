@@ -15,7 +15,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, fields
-from datetime import datetime, timezone
+from datetime import timedelta, datetime, timezone
 from typing import Any, Iterable
 
 from ..validation.evidence import EvidenceClass
@@ -55,6 +55,10 @@ _SITE_RE = re.compile(r"^site_[0-9a-f]{12}$")
 _HALL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+#: How far ahead of the reading clock a measurement timestamp may be before it is treated as a wrong date and not as clock skew.
+CLOCK_SKEW = timedelta(minutes=5)
 
 
 class RecordError(ValueError):
@@ -214,7 +218,9 @@ class ObservationRecord:
         meas = _number("measured", self.measured, lo=vmin)
         at = _utc("measured_at", self.measured_at)
         assert at is not None and pred is not None and meas is not None
-        if at > clock.astimezone(timezone.utc):
+        # Five minutes of tolerance for the clock of an instrument or edge device that runs slightly ahead; anything beyond that is a wrong
+        # date, not skew, and is refused.
+        if at > clock.astimezone(timezone.utc) + CLOCK_SKEW:
             raise RecordError("measured_at: lies in the future")
         issued = _utc("forecast_issued_at", self.forecast_issued_at, optional=True)
         if issued is not None and issued > at:

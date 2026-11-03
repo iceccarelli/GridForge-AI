@@ -100,7 +100,7 @@
 | PUE reference | global weighted avg **1.54** (2025); ≤5 yr sites 1.48; ≥20 MW sites 1.44 | [M] |
 | DLC hall PUE claims | 1.05–1.15 | [V] — **unproven; use 1.15–1.25 for design** |
 | Cooling share of site energy | hyperscale ~7%, enterprise >30% | IEA [M] |
-| Transformer lead time | roughly 130 to 160+ weeks reported (mainly US, varies by type; not a quotation); engine library range 80–210 weeks, E0 | [M] |
+| Transformer lead time | varies widely by type and market; engine library range 80–210 weeks, E0 (an assumption, not a quotation) | [M] |
 
 ## 8. Water
 

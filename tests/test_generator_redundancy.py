@@ -302,3 +302,24 @@ def test_a_valid_payload_that_never_mentions_the_fields_is_untouched_by_all_of_t
         assert load_document(doc).context.power is not None
         for o in doc.get("btm_options", []) or []:
             assert "units" not in o and "redundancy" not in o
+
+
+# --- an option of a kind the library does not model: kept, but never credited on the customer's factor alone ---------------------------
+
+
+@pytest.mark.parametrize("kind", ["diesel", "gas_turbine", "solar", "Diesel Genset", "gas-turbine"])
+def test_an_unmodelled_generator_kind_is_kept_with_a_warning_and_credited_nothing_as_firm(kind):
+    d = copy.deepcopy(BASE)
+    d["btm_options"].append({"id": "Y", "kind": kind, "capacity_MW": 4.0, "firm_capacity_factor": 0.95})
+    intake_ = load_document(d)                                  # accepted: the rest of the analysis is not lost
+    o = next(x for x in intake_.context.power.options if x.id == "Y")
+    assert firm_contribution_kW(o).value == 0.0                 # not credited on the customer's factor alone
+    assert any("Y" in w and "not one the engine models" in w for w in intake_.report.warnings)
+
+
+@pytest.mark.parametrize("spelling", ["Gas Engine", "gas-engine", " GAS_ENGINE "])
+def test_spelling_variants_of_a_modelled_kind_are_normalised_not_dropped(spelling):
+    d = copy.deepcopy(BASE)
+    d["btm_options"].append({"id": "Z", "kind": spelling, "capacity_MW": 4.0, "units": 4, "redundancy": "N+1"})
+    o = next(x for x in load_document(d).context.power.options if x.id == "Z")
+    assert o.kind == "gas_engine" and firm_contribution_kW(o).value > 0

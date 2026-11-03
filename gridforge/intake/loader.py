@@ -202,7 +202,8 @@ def _supplied_lead_time(raw: Any, what: str) -> Any:
         return raw          # too large for a float: the number parser that follows refuses it by name
     if v == v and -1e300 < v <= 0:
         raise IntakeError(f"{what} is {str(raw)[:24]}; a lead time must be greater than zero weeks. Leave it out to use the library placeholder "
-                          f"(which is labelled as one), or give the quoted figure")
+                          f"(which is labelled as one), or give the quoted delivery time. For a unit already on site or in stock, enter the weeks to "
+                          f"install and commission it (at least 1): zero would date a long-lead item as instantly available")
     return raw
 
 
@@ -816,7 +817,7 @@ def _load_document(doc: dict) -> Intake:
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
-            kind=str(o.get("kind", "bess")).strip().lower(),
+            kind=" ".join(str(o.get("kind", "bess")).replace("-", " ").split()).replace(" ", "_").lower(),
             capacity_MW=V(_pos_max(o["capacity_MW"], "btm_options.capacity_MW", "capacity_MW", "MW"), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
             # Absent means absent: no invented 900 EUR/kW and no invented 36 weeks. The option is then unpriced /
             # undated (a visible gap below), never ranked as complete and never the source of a date.
@@ -859,10 +860,13 @@ def _load_document(doc: dict) -> Intake:
         _generator_structure(opt, o, r.report)
         from ..power.btm import DEFAULT_FIRM_FACTOR, INTERMITTENT_KINDS
         if opt.kind not in DEFAULT_FIRM_FACTOR:
-            raise IntakeError(
-                f"BTM option {opt.id}: kind {opt.kind!r} is not one the engine models. Use one of: "
-                f"{', '.join(sorted(DEFAULT_FIRM_FACTOR))}. A kind the library does not know would be credited as firm capacity on "
-                f"the customer's factor alone, with nothing to check it against.")
+            # Not refused: a real generator (a diesel set, a gas turbine) is a legitimate thing to declare, and rejecting the whole intake for it
+            # would cost the customer the rest of the analysis. It is simply not credited: with no library basis for its firm capacity and no way to
+            # check the customer's factor, the option contributes 0 MW as firm, and the warning says how to get it counted.
+            r.report.warnings.append(
+                f"BTM option {opt.id}: kind {opt.kind!r} is not one the engine models ({', '.join(sorted(DEFAULT_FIRM_FACTOR))}), so it is "
+                f"credited 0 MW as firm capacity rather than on your factor alone. Declare it as the nearest modelled kind with its unit count "
+                f"and redundancy if that is what it is, or tell us which technology to add.")
         if opt.kind in INTERMITTENT_KINDS and o.get("firm_capacity_factor") not in (None, 0, 0.0):
             r.report.warnings.append(
                 f"BTM option {opt.id}: a {opt.kind} array carries no continuous firm capacity, so the declared firm_capacity_factor "

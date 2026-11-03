@@ -160,21 +160,21 @@ This document does not date grid reinforcement: a connection date needs the netw
 
 *Baseline as supplied. E5 means supplied by the client — a declared rating, contract term or design value as given to us, not measured or surveyed by us. E3 marks a figure that is estimate-grade by nature; E0 marks a library default.*
 
-> ℹ️ No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.
+> ℹ️ Assumed for this synthetic hall: no increase in connection capacity is available inside the study horizon. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.
 
 ## 5. Electrical capacity analysis
 
 | Constraint | Type | Racks permitted | Basis | Relief |
 | --- | --- | --- | --- | --- |
 | Rack feed / tap-off rating | gate | 0 racks (E0) | platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5) | Higher-rated tap-off units (and busway if ampacity does not allow) |
-| Transformer capacity | capacity | 8 [4–11] racks (E0) | 1,330 [845–1,810] kW (E3) usable after redundancy and derating (sustained rack power; peak rack power is not applied) | Replace / add transformer capacity (uprate ~60%) |
-| UPS capacity (protected load) | capacity | 8 [7–8] racks (E0) | 1,100 kW (E0) of protected-load headroom after N+1 redundancy (sustained rack power; peak rack power is not applied) | Add UPS modules / new UPS block |
-| Busway ampacity | capacity | 12 [12–13] racks (E0) | 8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run. Modelling limit: the figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted | Replace busway with 800-1000 A and new tap-off units |
+| Transformer capacity | capacity | 8 [4–11] racks (E0) | 1,330 [845–1,810] kW (E3) usable after redundancy and derating (sized on sustained rack power; transients above it are not added, so headroom may be overstated) | Replace / add transformer capacity (uprate ~60%) |
+| UPS capacity (protected load) | capacity | 8 [7–8] racks (E0) | 1,100 kW (E0) of protected-load headroom after N+1 redundancy (sized on sustained rack power; transients above it are not added, so headroom may be overstated) | Add UPS modules / new UPS block |
+| Busway ampacity | capacity | 12 [12–13] racks (E0) | 8 run(s) at 400 A derated to 0.8 -> 1,720 kW (E0); this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare lv.rack_feed_topology = single_run and whole racks are counted run by run. Modelling limit: the figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted, so the rack count is overstated if the figure is not the hall's spare capacity | Replace busway with 800-1000 A and new tap-off units |
 | Firm supply (grid import + behind-the-meter) | capacity | 28 [25–30] racks (E0) | 4,600 kW (E3) of firm-supply headroom at PUE 1.2 [1.15–1.28] | Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW) |
 
 *A gate either passes (it does not limit the hall) or fails (it permits no racks until relieved). Rack counts carry the weakest evidence class among the constraints evaluated.*
 
-- No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.
+- Assumed for this synthetic hall: no increase in connection capacity is available inside the study horizon. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.
 - GPU racks present step loads; confirm the UPS block accepts the step, not just the steady load.
 
 ## 6. Thermal and cooling analysis
@@ -182,10 +182,10 @@ This document does not date grid reinforcement: a connection date needs the netw
 | Constraint | Type | Racks permitted | Basis | Relief |
 | --- | --- | --- | --- | --- |
 | Residual air load removal per rack | gate | 0 racks (E0) | 13.5 [10.6–21.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position | Add in-row cooling or rear-door heat exchangers for the residual air load |
-| Achievable facility water temperature | gate | 0 racks (E0) | TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb delivers 44 [42–46] degC (E0) | Adiabatic assist plus trim chiller on the high-temperature loop |
+| Achievable facility water temperature | gate | 0 racks (E0) | TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb is estimated to supply 44 [42–46] degC (E0) | Adiabatic assist plus trim chiller on the high-temperature loop |
 | CDU capacity (derated to site water temperature) | capacity | 22 [15–26] racks (E0) | 2,700 [2,070–2,970] kW (E0) usable against 122 [112–131] kW (E0) of liquid load per rack; 24 [21–26] degC (E0) approach available | Add CDU capacity (one further unit per bank) |
 | Hydraulic flow capacity | capacity | 69 [64–75] racks (E0) | 9,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total | Uprate pumps and secondary pipework |
-| Chilled-water plant capacity | capacity | 140 [89–179] racks (E0) | 1,900 kW (E3) of plant headroom against 13.5 [10.6–21.3] kW (E0) per rack — residual air load only (liquid rejected to a dedicated high-temperature loop). Modelling limit: the headroom is plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled | Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop |
+| Chilled-water plant capacity | capacity | 140 [89–179] racks (E0) | 1,900 kW (E3) of plant headroom against 13.5 [10.6–21.3] kW (E0) per rack — residual air load only (liquid rejected to a dedicated high-temperature loop). Modelling limit: the headroom is plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share | Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop |
 | Cooling architecture per-rack capability | gate | passes — not limiting | full_dlc is practically capable of 150 [120–160] kW (E0) per rack; the target platform draws 135 [132–142] kW (E0) | — |
 
 *A gate either passes (it does not limit the hall) or fails (it permits no racks until relieved). Rack counts carry the weakest evidence class among the constraints evaluated.*
@@ -311,7 +311,7 @@ One-at-a-time sensitivity on the recommended architecture, evaluated against the
 | Busway ampacity | Requires hall outage or phased de-tenanting. Applies to 5 rungs of the ladder. | 36 [24–52] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | No combustion consent required; grid-code compliance and fire separation govern the programme. | 30 [19.5–40.5] weeks (E0) |
 | Firm supply (grid import + behind-the-meter) | Emissions consent and fuel supply are the schedule risk, not the equipment. | 44 [28.6–59.4] weeks (E0) |
-| Firm supply (grid import + behind-the-meter) | In most target metros this relief does not exist inside the decision horizon. Behind-the-meter supply is the only lever that moves this constraint. | 260 [150–520] weeks (E0) |
+| Firm supply (grid import + behind-the-meter) | Where the DSO cannot offer new capacity inside the decision horizon this relief does not exist, and behind-the-meter supply is then the only lever that moves this constraint. Obtain a connection offer. | 260 [150–520] weeks (E0) |
 | Evidence base | The dominant inputs in this study are assumed rather than measured. Twelve months of hall trend data would move the headline from an estimate to a reconciled figure. | — |
 | Structural | Floor loading is screened, not assessed. A structural engineer must sign off before any deployment. | — |
 | Hydraulics | Pressure drop and pipe sizing are not modelled at screening level; a hydraulic model is required before design. | — |
@@ -386,7 +386,7 @@ Every number in this report carries an evidence class. The class of a computed n
 - Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. Not a market price.
 - Placeholder covering the unit supplied and mechanically installed only. Hydraulic integration, controls and commissioning are separate components.
 - Tap-off units are a reported shortage item
-- Frankfurt: the utility (Mainova) has said new high-power connections are not expected until about the mid-2030s (press-reported forecast, 2026); other metros are not assessed here
+- A library placeholder, not a forecast for any metro: a DSO connection offer replaces it. One published utility statement (Mainova, Frankfurt: new high-power connections not expected until about the mid-2030s, press-reported 2026) is the kind of evidence that would.
 - Design value from the building record, not a survey
 - 12 months of half-hourly metered data
 - Legacy 400 A busway; modern AI halls use 800-1000 A
