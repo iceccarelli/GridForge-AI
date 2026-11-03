@@ -2,12 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { m, AnimatePresence } from "framer-motion";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { NAV_LINKS, QUALIFY_LINK, CLIENT_PORTAL_LINK } from "@/lib/nav";
 
 export function Navbar() {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -41,7 +43,7 @@ export function Navbar() {
         return;
       }
       // not on this page — go home with hash
-      window.location.href = "/" + href;
+      router.push("/" + href);
     }
   };
 

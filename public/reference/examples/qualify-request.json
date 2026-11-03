@@ -1,0 +1,9 @@
+{
+  "contracted_MW": 12,
+  "current_site_peak_MW": 7.4,
+  "current_it_load_MW": 4.9,
+  "busway_ampacity_A": 400,
+  "tapoff_max_A": 63,
+  "plant_supply_C": 6,
+  "positions_available": 180
+}
