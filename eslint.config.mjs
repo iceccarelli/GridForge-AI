@@ -1,5 +1,6 @@
-// ESLint 9 flat config. `next lint` is removed in Next.js 16, so linting runs through the ESLint CLI (`npm run lint`), and this file works
-// with both eslint-config-next 15 (legacy shareable config, loaded through FlatCompat) and the Next 16 upgrade path.
+// ESLint 9 flat config. `next lint` is removed in Next.js 16, so linting runs through the ESLint CLI (`npm run lint`).
+// eslint-config-next 15 is a legacy shareable config, loaded through FlatCompat. After a move to Next 16 this becomes
+// `import coreWebVitals from "eslint-config-next/core-web-vitals"`; that move also surfaces 23 React Compiler-era findings in existing code.
 import { FlatCompat } from "@eslint/eslintrc";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
