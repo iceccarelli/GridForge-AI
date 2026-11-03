@@ -105,3 +105,36 @@ Stripe **test mode** and a **preview** deployment first. Do not charge a real ca
 - The free-account route has no bound on unverified rows beyond a per-IP rate limit.
 - Hall Watch runs weekly; a quarterly note can follow its due date by up to a week.
 - Calibration ledger is empty: every figure is modelled (E0 to E3). Nothing in this checklist changes that.
+
+## 4. Operations: backup and restore, environment, health, advisories
+Run locally on 2026-11-03 against an isolated PostgreSQL 16 (nothing production was contacted). Re-run these before trusting a backup.
+- **What cannot run locally, and why.** `scripts/export-prod-data.py` calls only the hosted Supabase Management API with
+  `SUPABASE_ACCESS_TOKEN` and a hard-coded production project ref; `scripts/apply-migration.py` is the same, behind its four gates. Neither
+  has a local mode and neither may be pointed at a local database. `scripts/verify-backup-restore.py` is the local half: it restores an
+  export into a scratch database and compares counts and digests.
+- **Local drill (synthetic rows only):** `PGHOST=/tmp PGPORT=5433 PGUSER=postgres python3 scripts/local-backup-drill.py`. It builds a fresh
+  database from every migration, seeds synthetic rows, writes an export in the production export's file format (mode 0600, temp dir),
+  restores it with `verify-backup-restore.py`, then takes `pg_dump -Fc`, `pg_restore`s into a third database and compares per-table row
+  counts and md5 hashes, and drops everything. It exits 2 without touching anything if any environment variable looks like production
+  (a Supabase host, the production ref, `SUPABASE_ACCESS_TOKEN`, a service-role key) or PGHOST is not local. Unset a token you keep in
+  your shell for the run: `env -u SUPABASE_ACCESS_TOKEN python3 scripts/local-backup-drill.py`.
+- **Production backup, in order:** `python3 scripts/export-prod-data.py` (read-only; token entered with `read -rsp`), then
+  `PGHOST=<scratch socket> python3 scripts/verify-backup-restore.py ~/gf-backups/<file>.json` must print `RESTORE VERIFIED`; only then
+  `apply-migration.py NNNN` (its gate 3 requires that export to be under 2 hours old with counts equal to the live counts). A Supabase
+  project's own dashboard backups are a second, separate copy: this drill does not prove them.
+- **Plain pg_dump procedure** (any PostgreSQL you own): `pg_dump -Fc --no-owner -d <db> -f x.dump`; `createdb scratch`; create roles `anon`,
+  `authenticated`, `service_role` and `pgcrypto` there; `pg_restore --no-owner --exit-on-error -d scratch x.dump`; compare
+  `select count(*), md5(string_agg(to_jsonb(t)::text, '~' order by to_jsonb(t)::text)) from <table> t` on both sides, per table.
+- **Environment check:** `node scripts/check-env.mjs [--json] [env-file]` (process environment if no file). It names missing or weak
+  required variables and never prints a value; exit 1 on any failure. It checks `ADMIN_SESSION_SECRET` (32+, distinct from
+  `ADMIN_PASSWORD` and `GRIDFORGE_KEY_SECRET`), `CRON_SECRET`, `STRIPE_WEBHOOK_SECRET` (`whsec_`), `STRIPE_SECRET_KEY`, `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY`, `GRIDFORGE_API_URL`, `NEXT_PUBLIC_SITE_URL` (public https, no trailing slash), `GRIDFORGE_KEY_SECRET`,
+  `FUNNEL_REF_KEY`. It is a floor, not proof a credential is live.
+- **Health:** the engine answers `GET /health` (200, `{"ok":true,"service":"gridforge","version":...}`, also at `/`; Fly, Render and the
+  Dockerfile HEALTHCHECK use it). The site has NO unauthenticated health route: the only one is the admin-gated
+  `/api/admin/stripe-health`, so an uptime monitor can only watch `/` or the engine. A public `/api/health` is an app change, not made here.
+- **CI.** Each `*.realdb.test.ts` runs once on a database rebuilt from the migrations (`bash scripts/realdb-run.sh <command>`);
+  `billing-lifecycle.realdb.test.ts` had been wired into no job and now runs. `npm audit --omit=dev --audit-level=high` runs
+  NON-BLOCKING: it fails today only on PostCSS <= 8.5.22 vendored inside next 15.5.x (build time, the sole fix is next 16, a major
+  upgrade). Make it blocking when a next release bundles a patched PostCSS. `tests/test_ops_ci_workflow.py` fails if a realdb file or a
+  migration test is left out of CI.
