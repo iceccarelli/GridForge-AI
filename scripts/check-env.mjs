@@ -36,7 +36,7 @@ const isHttps = (v) => { try { const u = new URL(v); return u.protocol === "http
  * `env` is the whole environment so a rule can compare two variables.
  */
 const RULES = [
-  ["ADMIN_SESSION_SECRET", (v, env) => (v.length < 32 ? "shorter than 32 characters" : env.ADMIN_PASSWORD && v === env.ADMIN_PASSWORD ? "identical to ADMIN_PASSWORD (must be a separate value)" : null)],
+  ["ADMIN_SESSION_SECRET", (v, env) => (v.length < 32 ? "shorter than 32 characters" : env.ADMIN_PASSWORD && v.includes(env.ADMIN_PASSWORD) ? "equal to or containing ADMIN_PASSWORD (must be a separate value; the site refuses admin sessions otherwise)" : null)],
   ["CRON_SECRET", (v) => (v.length < 16 ? "shorter than 16 characters" : null)],
   ["STRIPE_WEBHOOK_SECRET", (v) => (!v.startsWith("whsec_") ? "does not start with whsec_" : v.length < 20 ? "too short to be a signing secret" : null)],
   ["STRIPE_SECRET_KEY", (v) => (!/^(sk|rk)_(live|test)_/.test(v) ? "not an sk_/rk_ Stripe key" : null)],

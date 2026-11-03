@@ -32,6 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROD_MARKERS = ("supabase.co", "supabase.com", "pooler.supabase", "qdfghkfcyndxrhtbnzag", "timetopower.ai")
 PROD_VARS = ("SUPABASE_ACCESS_TOKEN", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_KEY")
+#: libpq settings that can send a connection somewhere other than the local socket the drill intends, whatever PGHOST says: hostaddr overrides
+#: host, a service file can name any server, a URL names one outright. The drill's psql and pg_dump children inherit the environment.
+REDIRECTING_VARS = ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "DATABASE_URL", "PGDATABASE_URL")
 
 
 def looks_like_production(env: dict[str, str]) -> list[str]:
@@ -42,6 +45,7 @@ def looks_like_production(env: dict[str, str]) -> list[str]:
             continue
         if any(m in v.lower() for m in PROD_MARKERS):
             bad.append(k)
+    bad += [k for k in REDIRECTING_VARS if env.get(k)]
     host = env.get("PGHOST", "")
     if host and not (host.startswith("/") or host in ("localhost", "127.0.0.1", "::1")):
         if "PGHOST" not in bad:

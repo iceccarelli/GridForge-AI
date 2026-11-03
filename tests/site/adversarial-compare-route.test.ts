@@ -181,7 +181,7 @@ describe.runIf(hasPython)("hostile numbers in the hall form", () => {
 });
 
 describe.runIf(hasPython)("contradictory inputs reach the site unchallenged", () => {
-  it.fails("confirmed defect: a site peak below the IT load already on it is accepted and INFLATES the answer (peak 0 -> 68 hybrid racks vs 26) with no caveat - gridforge/power/plausibility.py:15 (engine), no cross-field check in lib/ttp-compare.ts", async () => {
+  it("FIXED (engine plausibility finding): a site peak below the IT load already on it is named in the caveats instead of silently inflating the answer", async () => {
     // REFUSE (422) or DEGRADE WITH DISCLOSURE (a caveat naming the peak and the IT load).
     const r = await send({ hall: { ...HALL, currentPeakMW: 0 } });
     if (r.status === 200) {

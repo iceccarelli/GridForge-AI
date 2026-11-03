@@ -53,11 +53,14 @@ def test_each_missing_required_variable_fails_by_name(tmp_path, name):
 
 
 def test_a_session_secret_equal_to_the_password_or_too_short_fails(tmp_path):
-    same = dict(GOOD, ADMIN_SESSION_SECRET=GOOD["ADMIN_PASSWORD"] + "x" * 20)
-    assert run(same, tmp=tmp_path).returncode == 0  # long and distinct: fine
+    same = dict(GOOD, ADMIN_SESSION_SECRET="q" * 40)
+    assert run(same, tmp=tmp_path).returncode == 0  # long and unrelated to the password: fine
+    containing = dict(GOOD, ADMIN_SESSION_SECRET=GOOD["ADMIN_PASSWORD"] + "x" * 20)
+    r = run(containing, tmp=tmp_path)
+    assert r.returncode == 1 and "equal to or containing ADMIN_PASSWORD" in r.stdout   # lib/admin.ts refuses a secret that contains the password
     same["ADMIN_PASSWORD"] = same["ADMIN_SESSION_SECRET"]
     r = run(same, tmp=tmp_path)
-    assert r.returncode == 1 and "identical to ADMIN_PASSWORD" in r.stdout
+    assert r.returncode == 1 and "equal to or containing ADMIN_PASSWORD" in r.stdout
     short = run(dict(GOOD, ADMIN_SESSION_SECRET="short"), tmp=tmp_path)
     assert short.returncode == 1 and "ADMIN_SESSION_SECRET: shorter than 32" in short.stdout
 

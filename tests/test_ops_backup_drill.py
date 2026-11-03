@@ -74,3 +74,13 @@ def test_the_drill_round_trips_on_a_local_postgres():
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "local-backup-drill.py")], capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-500:]
     assert "RESTORE VERIFIED" in r.stdout and "DRILL PASSED" in r.stdout and "DIFFERENT" not in r.stdout
+
+
+@pytest.mark.parametrize("name", ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "DATABASE_URL"])
+def test_variables_that_redirect_libpq_away_from_the_local_socket_are_refused_even_with_a_local_pghost(name):
+    """The security review's finding: PGHOSTADDR overrides PGHOST, so a local-looking PGHOST did not make the drill local. Names only are reported."""
+    from importlib import util
+    spec = util.spec_from_file_location("gf_local_backup_drill", Path(__file__).resolve().parent.parent / "scripts" / "local-backup-drill.py")
+    mod = util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.looks_like_production({"PGHOST": "/tmp", name: "203.0.113.5"}) == [name]
