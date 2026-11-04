@@ -99,13 +99,15 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
           *, title: str | None = None, watermark: str = WATERMARK,
           client: str = "Reference Project",
           objective: Objective = Objective.MAX_COMPUTE, grid_queue: dict | None = None,
-          retail_price: dict | None = None, date_record: dict | None = None) -> Report:
+          retail_price: dict | None = None, date_record: dict | None = None,
+          sourced: list | None = None) -> Report:
     """`retail_price` is a gridforge.context.energy_price.context(...) result; when given, section 9 closes with the published average
     electricity price beside the price the study used (context only).
     `grid_queue` is a gridforge.context.grid_queue.context(...) result; when given, section 3 closes with the measured queue history
     beside the grid wait this study does not date (context only). Without it the study is exactly what it was.
     `date_record` is gridforge.envelope.time_to_power.date_record(...) for the recommended scenario, given the intake document;
-    when given, section 3 states where the lead time that sets the date came from and what the schedule leaves out."""
+    when given, section 3 states where the lead time that sets the date came from and what the schedule leaves out.
+    `sourced` is `intake.report.sourced`: the figures the client supplied with a source and note, printed with them in section 4."""
     rec = _pick_recommended(results, objective)
     hall = ctx.hall
     plat = ctx.cluster.platform
@@ -320,6 +322,14 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
                 "estimate-grade by nature; E0 marks a library default."))
     if ctx.power.grid.queue_note:
         s.blocks.append(Callout("note", ctx.power.grid.queue_note))
+    if sourced:
+        # A figure the client supplied WITH a source prints with it, as in the Density Screen: a document that shows the number must show
+        # where the client said it came from, and that GridForge has not verified it.
+        s.blocks.append(Para("Figures supplied with a source. These are the client's own data, stated with where they come from; GridForge "
+                             "has not independently verified the documents."))
+        s.blocks.append(Table(["Input", "Value", "Evidence", "Source", "Note"], [
+            [x.label, Lit(f"{x.value:g} {x.unit}"), Lit(x.evidence), Lit(x.source or "—"), Lit(x.note or "—")]
+            for x in sourced]))
     r.sections.append(s)
 
     # 4/5 ------------------------------------------------------- constraint detail

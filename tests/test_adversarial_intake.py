@@ -504,9 +504,6 @@ def test_110_a_declared_evidence_class_is_kept_and_an_overstated_one_is_stated_a
     assert status == "ok" and f"{section}.{key}: declared evidence E7 capped at E5" in text_of(out)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: the Envelope Study document prints 'Built | 2012' for an annotated hall.build_year but drops the "
-                   "client's source and note that /v1/screen and the model pack keep - gridforge/reporting/study.py:288 (Lit(str(hall.build_year)) carries "
-                   "no provenance)")
 def test_110_the_study_document_that_prints_an_annotated_figure_prints_its_source():
     """QUALIFY: whatever figure a document prints it must print with the source the client declared for it."""
     status, out = call("/v1/study", {"intake": annotated("hall", "build_year", 2012), "format": "md"})

@@ -474,7 +474,7 @@ def handle_study(body: dict, tier: Tier) -> dict:
             return _rendered(build_board_report(intake, results, sens, objective=objective), results, fmt)
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
-                                    watermark=watermark_for(intake),
+                                    watermark=watermark_for(intake), sourced=intake.report.sourced,
                                     grid_queue=(grid_queue_context_for(results, objective, country=_site_country(doc), region=region)
                                                 if tier is not Tier.PUBLIC else None),
                                     retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None,

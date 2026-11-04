@@ -672,6 +672,7 @@ def load_document(doc: dict) -> Intake:
     if not isinstance(doc, dict):
         raise IntakeError("an intake must be a JSON object")
     _refuse_non_object_blocks(doc)
+    _refuse_control_characters(doc)
     try:
         return _load_document(doc)
     except IntakeError:
@@ -680,6 +681,24 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError(f"the intake is missing a required field: {exc.args[0]}") from None
     except (ValueError, TypeError, AttributeError) as exc:
         raise IntakeError(f"the intake is malformed: {exc}") from None
+
+
+def _refuse_control_characters(node: Any, path: str = "", _depth: int = 0) -> None:
+    """A control character (NUL and the rest of C0, DEL; tab, newline and carriage return are ordinary text) inside any text of the intake is
+    refused by path. It would be printed into the deliverable, where a C consumer, a CSV importer or a log line truncates at it."""
+    if _depth > 64:
+        return
+    if isinstance(node, str):
+        if any((ord(c) < 32 and c not in "\t\n\r") or ord(c) == 127 for c in node):
+            raise IntakeError(f"{path or 'the intake'} contains a control character (such as NUL), which cannot be printed into a document; "
+                              f"remove it")
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            _refuse_control_characters(k, f"{path}.<key>" if path else "<key>", _depth + 1)
+            _refuse_control_characters(v, f"{path}.{k}" if path else str(k), _depth + 1)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            _refuse_control_characters(v, f"{path}[{i}]", _depth + 1)
 
 
 #: The intake sections that are objects of fields. Present but not an object, the section used to be replaced by library defaults without a

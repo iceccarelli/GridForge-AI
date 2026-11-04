@@ -162,6 +162,16 @@ This document does not date grid reinforcement: a connection date needs the netw
 
 > ℹ️ Assumed for this synthetic hall: no increase in connection capacity is available inside the study horizon. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.
 
+Figures supplied with a source. These are the client's own data, stated with where they come from; GridForge has not independently verified the documents.
+
+| Input | Value | Evidence | Source | Note |
+| --- | --- | --- | --- | --- |
+| hall design floor loading | 12 kPa | E5 | — | Design value from the building record, not a survey |
+| current site peak demand | 7.4 MW | E5 | — | 12 months of half-hourly metered data |
+| installed busway ampacity | 400 A | E5 | — | Legacy 400 A busway; modern AI halls use 800-1000 A |
+| plant chilled-water supply temperature | 6 degC | E5 | — | Legacy low-temperature plant |
+| air removal capacity per position | 9 kW | E3 | — | Derived from hall design density and containment; confirm by measurement |
+
 ## 5. Electrical capacity analysis
 
 | Constraint | Type | Racks permitted | Basis | Relief |

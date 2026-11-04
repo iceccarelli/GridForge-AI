@@ -182,9 +182,6 @@ def test_a_wrong_content_type_is_refused_with_415(rig, ctype):
     assert status in (400, 415)
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: a NUL (or other C0 control character) inside a text field is accepted and echoed verbatim into the "
-                   "rendered deliverable, where a C consumer, a CSV importer or a log line truncates at it - gridforge/intake/loader.py:290-310 "
-                   "(text fields are not sanitised) / gridforge/reporting/render.py")
 def test_a_control_character_in_a_text_field_does_not_reach_the_document(rig, key):
     """REFUSE or QUALIFY (strip). project.client 'Evil\\u0000Corp' must be refused or cleaned; it must not be printed with the NUL."""
     d = json.loads(json.dumps(REF))

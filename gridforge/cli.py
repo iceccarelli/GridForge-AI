@@ -319,7 +319,7 @@ def cmd_study(args) -> int:
     report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
                          watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective),
                          retail_price=_price_for(intake),
-                         date_record=date_record(rec.ladder, document=intake.document))
+                         date_record=date_record(rec.ladder, document=intake.document), sourced=intake.report.sourced)
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)
