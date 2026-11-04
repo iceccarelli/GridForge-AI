@@ -244,14 +244,14 @@ export const TECH = [
   },
   {
     title: "A calibration ledger that says so when it's empty",
-    body: "Every modelled envelope is checked against measured outcomes as they arrive. Today the ledger reads UNCALIBRATED on most constraints, and every deliverable says so. That honesty is the point — and the reason it gets harder to copy with every hall we screen.",
+    body: "A ledger is ready to record measured outcomes against the predictions we store, constraint by constraint. It holds no reconciled observation today, so every constraint reads UNCALIBRATED and every deliverable says so. That honesty is the point, and the reason the record becomes harder to copy as real, permissioned observations are added.",
   },
 ];
 
 export const FAQ = [
   {
     q: "Is the calibration ledger real, or is this a demo?",
-    a: "Time to Power is pilot-stage and founder-led, and the calibration ledger says so on every deliverable: most constraints read UNCALIBRATED today, because the field-validation dataset is still thin. That is the honest state of the model, not a marketing gap — it is the first thing we work to fix on every paid engagement, and it is published rather than hidden.",
+    a: "Time to Power is pilot-stage and founder-led, and the calibration ledger says so on every deliverable: every constraint reads UNCALIBRATED today, because the ledger holds no reconciled field observation. That is the honest state of the model, not a marketing gap, and it is published rather than hidden. Field observations are added only when a customer authorises them.",
   },
   {
     q: "What can I actually buy today?",
@@ -309,7 +309,7 @@ export const COMPARATOR = {
   // Illustrative revenue-at-risk per MW-year of delayed compute. User can edit.
   // Anchored to public colo lease ranges; labeled as an assumption, not a quote.
   defaultRevPerMWYear: 1_400_000,
-  revSource: "Derived from public hyperscale colo lease ranges, 2025",
+  revSource: "An assumption you can edit, not a quote or a market figure",
 } as const;
 
 // TWO BLOCKS WERE REMOVED HERE, AND WHY.

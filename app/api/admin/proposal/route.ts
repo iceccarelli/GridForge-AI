@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { createDeliverable } from "@/lib/deliverables";
 import { availableCredits } from "@/lib/deposits";
 import { toEngineBody, type QualifyInput } from "@/lib/qualify";
@@ -20,6 +20,8 @@ const ENGAGEMENTS = ["density_screen", "envelope_study", "portfolio_screen"] as 
 //
 // The result is stored as a deliverable with its own link, so it can be emailed.
 export async function POST(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

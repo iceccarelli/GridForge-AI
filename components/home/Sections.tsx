@@ -98,8 +98,8 @@ export function Proof() {
   return (
     <section id="intelligence" className="mx-auto max-w-5xl px-6 pb-16 pt-20">
       <div className="mb-10 max-w-2xl">
-        <div className="eyebrow mb-3">PROOF OF METHOD · REAL DATA, NOT A MOCKUP</div>
-        <h2 className="section-title">Live, deterministic and quantified, not illustrated.</h2>
+        <div className="eyebrow mb-3">PROOF OF METHOD · REAL PRICE DATA, ILLUSTRATIVE ARITHMETIC</div>
+        <h2 className="section-title">A live price feed, and arithmetic you can check.</h2>
         <p className="mt-4 text-[15px] leading-relaxed text-mute">
           Below, the live EPEX day-ahead curve for the German grid, fetched when you scroll to it. It is wholesale price context, not the
           headroom of any site. Under it, put a number on what an unrelieved constraint is costing your own project; those figures are your

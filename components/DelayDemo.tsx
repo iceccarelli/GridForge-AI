@@ -20,7 +20,7 @@ export function DelayDemo() {
   const pct = d.queueCostEur > 0 ? (d.btmCostEur / d.queueCostEur) * 100 : 0;
 
   return (
-    <div className="rounded-[var(--radius)] border border-power/30 bg-power/[0.03] p-7">
+    <div className="rounded-[var(--radius)] border border-power/30 bg-power/[0.03] p-4 sm:p-7">
       <div className="flex items-center justify-between mb-1">
         <div className="eyebrow text-power">See it live</div>
         <div className="data text-[10px] text-faint">no signup required</div>
@@ -44,23 +44,23 @@ export function DelayDemo() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-power/30 bg-power/[0.05] p-5">
+      <div className="rounded-lg border border-power/30 bg-power/[0.05] p-4 sm:p-5">
         <div className="data text-[10px] text-faint">BEHIND-THE-METER UNLOCKS</div>
-        <div className="text-4xl md:text-5xl font-semibold text-power tracking-tight mt-1">{eurCompact(d.avoidedEur)}</div>
+        <div className="text-4xl md:text-5xl font-semibold text-power tracking-tight mt-1 [overflow-wrap:anywhere]">{eurCompact(d.avoidedEur)}</div>
         <div className="text-mute text-[13px] mt-1">{d.monthsSaved} months sooner to revenue on the assumptions below — {mw} MW in {region.region}.</div>
       </div>
 
       <div className="mt-5 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="data text-[10px] text-faint w-24 shrink-0">QUEUE PATH</div>
-          <div className="flex-1 h-7 rounded bg-queue/20 border border-queue/30 flex items-center px-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <div className="data text-[10px] text-faint sm:w-24 sm:shrink-0">QUEUE PATH</div>
+          <div className="flex-1 min-h-7 py-1 rounded bg-queue/20 border border-queue/30 flex items-center px-3">
             <span className="data text-[11px] text-queue">{region.queueWaitMonths}mo · {eurCompact(d.queueCostEur)} stranded</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="data text-[10px] text-faint w-24 shrink-0">BTM PATH</div>
-          <div className="h-7 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
-            <span className="data text-[11px] text-power whitespace-nowrap">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <div className="data text-[10px] text-faint sm:w-24 sm:shrink-0">BTM PATH</div>
+          <div className="min-h-7 py-1 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
+            <span className="data text-[11px] text-power sm:whitespace-nowrap">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
           </div>
         </div>
       </div>

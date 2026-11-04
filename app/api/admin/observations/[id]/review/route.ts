@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { reviewObservation } from "@/lib/project-observations";
 import { fail, readJson } from "@/lib/project-http";
 
@@ -10,6 +10,8 @@ export const runtime = "nodejs";
 // This does NOT add anything to the calibration ledger: a verified observation of class E5 or above
 // is what `gridforge calibrate add` accepts, and that stays a deliberate human step.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

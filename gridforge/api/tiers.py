@@ -25,6 +25,7 @@ PUBLIC_REDACTED_KEYS = frozenset({
     "capex_eur", "capex_total_eur", "capex_per_kW_it", "capex_eur_per_kW",
     "lead_time_weeks", "critical_path_weeks", "weeks_to_full", "weeks_to_first_rack",
     "annual_energy_cost_eur", "energy_cost_per_gpu_hour_eur", "economics",
+    "date_record",   # the full record behind a date (source, interval, limitation): paid, like every schedule figure
     "ladder", "curve", "constraints", "sensitivity", "document",
     # The measured queue history beside the grid wait (weeks and months of schedule): paid content like every other schedule figure here.
     "grid_queue_context",

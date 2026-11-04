@@ -29,6 +29,7 @@ from .reporting.portfolio import build as build_portfolio
 from .reporting.screen import build as build_screen
 from .commercial import ENGAGEMENTS, engagement
 from .change import diff as envelope_diff
+from .envelope.time_to_power import date_record
 from .reporting.change_note import build as build_change_note
 from .reporting.deck import build as build_deck
 from .reporting.deck import to_html as deck_to_html
@@ -317,7 +318,8 @@ def cmd_study(args) -> int:
     sens = sensitivity(rec, SENSITIVITY_KNOBS)
     report = build_study(intake.context, results, sens, client=intake.client, objective=objective,
                          watermark=watermark_for(intake), grid_queue=_queue_for(intake, results, objective),
-                         retail_price=_price_for(intake))
+                         retail_price=_price_for(intake),
+                         date_record=date_record(rec.ladder, document=intake.document), sourced=intake.report.sourced)
     out = Path(args.out)
     w = _emit(report, out, "envelope_study", claims=collect_claims(results))
     write_model_pack(out / "model_pack.json", intake, results, sens)
@@ -995,8 +997,24 @@ def cmd_compare(args) -> int:
 def cmd_portfolio(args) -> int:
     objective = OBJECTIVES[args.objective]
     entries = []
+    from .reporting.portfolio_guard import hall_key, identical_physics_warning, is_repeat, physics_fingerprint
+    seen: dict[tuple[str, str], tuple[str, dict]] = {}
+    prints: dict[str, int] = {}
     for p in args.intakes:
         intake = load(p)
+        raw = json.loads(Path(p).read_text(encoding="utf-8"))
+        key = hall_key(intake.context.site.id, intake.context.hall.id)
+        if key in seen and is_repeat(raw, seen[key][1]):
+            print(f"error: {p} repeats site {key[0]!r} hall {key[1]!r} (already {seen[key][0]}): a hall counts once, so its capacity would be "
+                  "added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id.", file=sys.stderr)
+            return 2
+        seen.setdefault(key, (p, raw))
+        fp = physics_fingerprint(raw)
+        if fp is not None:
+            if fp in prints:
+                print("warning: " + identical_physics_warning(len(entries), prints[fp]).replace("intakes[", "input #["), file=sys.stderr)
+            else:
+                prints[fp] = len(entries)
         entries.append(SiteEntry(intake=intake, results=_run(intake), objective=objective))
     report = build_portfolio(entries, client=args.client, objective=objective)
     out = Path(args.out)

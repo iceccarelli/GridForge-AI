@@ -131,7 +131,7 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
                    "service. If the margin is thin, check lead time before you check price.",
         relief="Additional or replacement transformer capacity, and the switchgear that comes "
                "with it.",
-        relief_risk="Lead times of 120–160+ weeks have been reported for power transformers. "
+        relief_risk="Transformer lead times vary widely by type and market; this library assumes 80 to 210 weeks (E0), not a quotation, so obtain a manufacturer quotation. "
                     "This is the item most likely to set the energisation date for the whole "
                     "retrofit, and every week of it is a week of contracted power earning "
                     "nothing.",
@@ -165,8 +165,8 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
     ConstraintDoc(
         id="grid_firm_capacity", name="Firm supply (grid import and behind-the-meter)", domain=_E,
         slug="firm-supply-capacity",
-        headline="In core European metros the grid connection is the asset, and it is not "
-                 "growing before the 2030s.",
+        headline="Where the utility cannot offer new capacity inside the decision horizon, the grid "
+                 "connection is the asset.",
         limits="Firm capacity available for new load: contracted grid import, less current "
                "site peak, plus any behind-the-meter supply that genuinely counts as firm.",
         relation="Headroom = (contracted MW − current site peak MW) + Σ(BTM capacity × firm "
@@ -186,8 +186,8 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
                     "labelled as one.",
         misconception="Nameplate BTM capacity counted as firm. A 2 MW battery is not 2 MW of "
                       "firm capacity, and the fraction that is depends on the duty.",
-        sources=("Mainova on Frankfurt connection availability; TenneT queue positions; "
-                 "CRU Large Energy User policy, Ireland.",),
+        sources=("Example of the kind of evidence: Mainova's statement (press-reported, 2026) that new high-power "
+                 "connections in Frankfurt are not expected until about the mid-2030s. Obtain the DSO's own connection offer for a real site.",),
         see_also=("transformer_capacity",),
     ),
     ConstraintDoc(
@@ -325,9 +325,9 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
         relief_risk="Each step up is a larger programme and a different skill set in the hall. "
                     "The decision is rarely reversible within a tenancy.",
         misconception="Believing a hall can be pushed to 100 kW+ a rack with better airflow. "
-                      "Fewer than 4% of facilities can host 100 kW racks today.",
-        sources=("Uptime Institute Global Survey 2025/26: 82% of operators' densest rack is "
-                 "below 30 kW; practical retrofit ceiling 20–40 kW.",),
+                      "Racks above 100 kW are rare in existing facilities: in one 2025 operator survey, as reported in the press, only about 9% of respondents had racks above 50 kW.",
+        sources=("Uptime Institute Global Data Center Survey 2025 (press-reported; the report itself was not read): more than 80% of "
+                 "surveyed operators say their densest rack is below 30 kW, self-reported. Practical retrofit ceiling 20–40 kW.",),
         see_also=("residual_air_removal", "cdu_capacity"),
     ),
     ConstraintDoc(

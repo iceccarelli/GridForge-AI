@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getSupabase } from "@/lib/supabase-client";
+import { loadSupabase } from "@/components/supabase-lazy";
 import { Mail, Loader2, CheckCircle } from "lucide-react";
 
 export default function LoginPage() {
@@ -23,7 +23,7 @@ export default function LoginPage() {
     }
     setStatus("sending");
     try {
-      const { error } = await getSupabase().auth.signInWithOtp({
+      const { error } = await (await loadSupabase()).auth.signInWithOtp({
         email,
         options: { emailRedirectTo: `${window.location.origin}/account` },
       });

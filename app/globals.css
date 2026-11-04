@@ -30,6 +30,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Reflow at 320 px and at 200% text size: a long word, URL or identifier wraps inside its box instead of widening the page, and a flex or
+   grid child may shrink below its content's natural width (the default minimum is what pushed cards and rows past the viewport). Data
+   tables are left alone: they scroll inside their own focusable region. Zero specificity, so any explicit min-w-* still wins. */
+body :where(p, li, dd, dt, h1, h2, h3, h4, h5, a, button, label, summary, figcaption, blockquote, code):not(:where(table *)) {
+  overflow-wrap: break-word;
+}
+@media (max-width: 40rem) {
+  :where(.grid, .flex, .inline-flex) > :not(svg, img) {
+    min-width: 0;
+  }
+}
+
 ::selection {
   background: rgba(0, 229, 255, 0.25);
   color: #ffffff;
@@ -141,6 +153,7 @@ body {
 
 /* ===== Form fields ===== */
 .field {
+  max-width: 100%;
   background: #070b14;
   border: 1px solid #2a3650;
   color: #ffffff;
@@ -296,5 +309,21 @@ textarea:focus-visible {
 @keyframes flowmove {
   to {
     stroke-dashoffset: -12;
+  }
+}
+
+/* Mobile navigation drawer: a plain CSS entrance (replaces a framer-motion height tween that put the animation library in every first load). */
+.mobile-nav-drop {
+  animation: mobile-nav-drop 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes mobile-nav-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-drop {
+    animation: none;
   }
 }

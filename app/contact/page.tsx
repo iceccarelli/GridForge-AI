@@ -34,7 +34,7 @@ export default function ContactPage() {
     name: TITLE,
     description: DESCRIPTION,
     url: siteUrl("/contact"),
-    mainEntity: { ...orgRef(), contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: SITE.email, availableLanguage: "en" } },
+    mainEntity: { ...orgRef(), contactPoint: { "@type": "ContactPoint", contactType: "enquiries", email: SITE.email, availableLanguage: "en" } },
   };
   return (
     <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">

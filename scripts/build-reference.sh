@@ -16,6 +16,11 @@ INTAKE="examples/intake/reference_hall.json"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+# Hand-authored API examples live outside this generated directory (the line above removes it) and are copied in, so a public example
+# is served at /reference/examples/ and is still covered by the drift guard. tests/test_api_examples.py executes them.
+mkdir -p "$OUT/examples"
+cp examples/api/qualify-request.json "$OUT/examples/qualify-request.json"
+
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge study "$INTAKE" -o "$OUT" --csv >/dev/null
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge deck "$INTAKE" -o "$OUT" >/dev/null
 GRIDFORGE_REPORT_DATE="$DATE" python3 -m gridforge proposal "$INTAKE" -o "$OUT" >/dev/null

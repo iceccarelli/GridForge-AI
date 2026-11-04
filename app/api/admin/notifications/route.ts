@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import { actOnNotification, listNotifications, summarise, sweepNotifications } from "@/lib/notifications";
 
 export const runtime = "nodejs";
@@ -31,6 +31,8 @@ export async function GET(req: Request) {
 // {} works through whatever is due. The message is rebuilt from the stored business record, so nothing
 // sensitive crosses this route. Every action is logged by notification id and outcome only.
 export async function POST(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   if (!(await authed())) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   let body: { id?: unknown; action?: unknown } = {};
   try { body = await req.json(); } catch { /* empty body = sweep */ }

@@ -33,7 +33,7 @@
     "contracted_MW": 12.0,
     "current_site_peak_MW": {"value": 7.4, "note": "12 months of half-hourly metered data"},
     "current_it_load_MW": 4.9,
-    "queue_note": "No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it."
+    "queue_note": "Assumed for this synthetic hall: no increase in connection capacity is available inside the study horizon. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it."
   },
   "transformers": [
     {"id": "TX-A/B", "unit_rating_MVA": 5.0, "units": 3, "redundancy": "N+1",

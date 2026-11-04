@@ -27,7 +27,7 @@ grid.current_site_peak_MW,7.4,client
 grid.dso,Reference DSO,client
 grid.firm_capacity_MVA,14.0,client
 grid.power_factor,0.97,client
-grid.queue_note,"No new or increased connection capacity is available from the DSO in this metro before the 2030s. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.",client
+grid.queue_note,"Assumed for this synthetic hall: no increase in connection capacity is available inside the study horizon. The existing firm capacity is therefore the asset, and the whole question is how much compute can be produced from it.",client
 hall.aisle_pitch_m,2.4,client
 hall.build_year,2015,client
 hall.clear_height_m,3.2,client

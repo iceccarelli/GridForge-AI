@@ -72,7 +72,7 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               why_it_binds="10-15% of a 135 kW rack is still 13-20 kW of air per position.",
               how_to_get_it="Measured per-tile airflow, or CFD."),
     FieldSpec("transformers", "Transformer schedule", "-", True,
-              why_it_binds="Usually the schedule driver: 160+ week lead times in 2026.",
+              why_it_binds="Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one.",
               how_to_get_it="Single-line diagram and transformer nameplates."),
     FieldSpec("ups", "UPS schedule", "-", True,
               why_it_binds="GPU racks present step loads, not just steady load.",

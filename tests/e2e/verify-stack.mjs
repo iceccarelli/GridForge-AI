@@ -276,6 +276,8 @@ async function main() {
     STRIPE_SECRET_KEY: "sk_test_local_verify",
     STRIPE_WEBHOOK_SECRET: WH_SECRET,
     ADMIN_PASSWORD,
+    // A production build refuses admin sessions without a distinct session-signing secret (32+ characters), as it does in production.
+    ADMIN_SESSION_SECRET: "local-verify-admin-session-secret-0123456789abcdef",
     CRON_SECRET,
     NEXT_PUBLIC_SITE_URL: SITE,
     RESEND_API_KEY: "re_test_local_verify",

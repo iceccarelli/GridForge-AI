@@ -34,12 +34,12 @@ export function Row({ children, emphasis = false }: { children: ReactNode; empha
 }
 
 const CELL =
-  "flex items-baseline justify-between gap-3 py-1 before:shrink-0 before:text-xs before:text-mute before:content-[attr(data-label)] md:table-cell md:px-3 md:py-3 md:align-top md:before:hidden";
+  "flex items-baseline justify-between gap-3 py-1 before:max-w-[55%] before:shrink-0 before:text-xs before:text-mute before:content-[attr(data-label)] md:table-cell md:px-3 md:py-3 md:align-top md:before:hidden";
 
 export function RowHead({ label, children }: { label: string; children: ReactNode }) {
   return (
     <th role="rowheader" scope="row" data-label={label} className={`${CELL} text-left font-medium text-ghost`}>
-      <div className="min-w-0 text-right md:text-left">{children}</div>
+      <div className="min-w-[40%] break-words text-right md:min-w-0 md:text-left">{children}</div>
     </th>
   );
 }
@@ -47,7 +47,7 @@ export function RowHead({ label, children }: { label: string; children: ReactNod
 export function Cell({ label, children }: { label: string; children: ReactNode }) {
   return (
     <td role="cell" data-label={label} className={CELL}>
-      <div className="min-w-0 text-right md:text-left">{children}</div>
+      <div className="min-w-[40%] break-words text-right md:min-w-0 md:text-left">{children}</div>
     </td>
   );
 }

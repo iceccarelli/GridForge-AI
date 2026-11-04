@@ -1,9 +1,10 @@
 """Behind-the-meter supply.
 
-Where a European grid connection cannot be enlarged inside the decision horizon
-- Frankfurt has no new large connections before the 2030s, Amsterdam's queue runs
-about a decade, and Ireland will not raise a site's load without matching
-connected generation - on-site supply is the only lever that moves the answer.
+Where a grid connection cannot be enlarged inside the decision horizon (a utility
+that forecasts no new large connections for years, or a regulator that ties new load
+to matching connected generation), on-site supply is the only lever that moves the
+answer. Which markets that describes is a question for the connection offer, not
+for this module.
 
 This module answers one question for the envelope solver: **how much FIRM
 capacity does a set of behind-the-meter options actually contribute?** Nameplate
@@ -43,6 +44,12 @@ FIRM_FACTOR_ASSUMPTION = (
 
 
 def firm_factor(option: GenerationOption) -> Quantity:
+    if option.kind not in DEFAULT_FIRM_FACTOR:
+        return V(0.0, "1", f"{option.kind} firm-capacity factor (unrecognised kind: no firm credit)", ASSUMED,
+                 assumptions=[FIRM_FACTOR_ASSUMPTION])
+    if option.kind in INTERMITTENT_KINDS:
+        return V(0.0, "1", f"{option.kind} firm-capacity factor (intermittent: no continuous firm output)", ASSUMED,
+                 assumptions=[FIRM_FACTOR_ASSUMPTION])
     if option.firm_capacity_factor is not None:
         return option.firm_capacity_factor
     f = DEFAULT_FIRM_FACTOR.get(option.kind, 0.0)
@@ -131,6 +138,8 @@ def bess_firm_factor_for_duration(option: GenerationOption,
 #: Technologies whose capacity is made of discrete, dispatchable units that can each be out of service. A battery's firm credit is bounded by
 #: its energy (see `bess_firm_factor_for_duration`), PV and wind are firm for nothing, and a reinforcement is not a unit.
 UNIT_BASED_KINDS = frozenset({"gas_engine", "chp", "fuel_cell"})
+#: Sources with no continuous firm output of their own: a customer-declared firm factor is not applied to them.
+INTERMITTENT_KINDS = frozenset({"pv", "wind"})
 
 
 def unit_usable_fraction(option: GenerationOption) -> Quantity | None:

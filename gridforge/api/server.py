@@ -71,6 +71,7 @@ from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
+from ..envelope.time_to_power import date_record as _date_record
 from ..reporting.study import build as build_study_report, watermark_for
 from ..reporting.study import collect_claims
 from ..reporting.study import Objective
@@ -126,14 +127,22 @@ def qualify_to_intake(body: dict) -> dict:
         parts = path.split(".")
         for p in parts[:-1]:
             cur = cur.setdefault(p, {})
-        cur[parts[-1]] = float(body[key])
+        cur[parts[-1]] = _qualify_number(key, body[key])
     if body.get("firm_capacity_MVA") is not None:
-        doc["grid"]["firm_capacity_MVA"] = float(body["firm_capacity_MVA"])
+        doc["grid"]["firm_capacity_MVA"] = _qualify_number("firm_capacity_MVA", body["firm_capacity_MVA"])
     elif doc.get("grid", {}).get("contracted_MW") is not None:
         # A connection is normally sized at or above the contracted figure; assume
         # parity rather than inventing headroom the site may not have.
         doc["grid"]["firm_capacity_MVA"] = float(doc["grid"]["contracted_MW"]) / 0.97
     return doc
+
+
+def _qualify_number(name: str, raw) -> float:
+    """A figure on the free route is a JSON number. float() would also accept `true` (as 1), the text "12" and digits from other scripts,
+    so a form that sent the wrong type was answered as if it had sent a figure."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ApiError(422, f"{name} must be a number, not {type(raw).__name__}")
+    return float(raw)
 
 
 class ApiError(Exception):
@@ -206,6 +215,17 @@ def _reject_constant(name: str):
     raise ValueError(f"{name} is not a valid JSON number")
 
 
+def _refuse_duplicate_keys(pairs):
+    """json.loads keeps the LAST of two equal keys silently, so {"grid": a, "grid": b} meant whatever the second said and the first
+    vanished without a word. A request that says one thing twice is ambiguous: refuse it by naming the key."""
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError(f"the object repeats the key {key[:60]!r}; each key may appear once")
+        seen.add(key)
+    return dict(pairs)
+
+
 class _RateLimiter:
     def __init__(self, per_minute: int):
         self.per_minute = per_minute
@@ -244,9 +264,29 @@ def _auth_configured() -> bool:
     return bool(key_plans()) or bool(os.environ.get("GRIDFORGE_KEY_SECRET"))
 
 
+# Browser origins allowed to call the whole API when GRIDFORGE_ALLOWED_ORIGINS is unset: the site itself.
+DEFAULT_ALLOWED_ORIGINS = ("https://timetopower.ai", "https://www.timetopower.ai")
+
+# The free, keyless routes. A browser on ANY origin may read these (CORS "*"): they take no credential, set no cookie
+# and cost compute only (per-IP rate limited). Non-browser clients (MCP, curl, the site's own server-side calls) are not
+# subject to CORS at all. Everything else (keyed, metered, operator) is answered cross-origin only to
+# GRIDFORGE_ALLOWED_ORIGINS. Set GRIDFORGE_PUBLIC_CORS=0 to close even these.
+PUBLIC_CORS_PATHS = frozenset({"/health", "/v1/version", "/v1/qualify", "/v1/estimate"})
+
+
 def _allowed_origins() -> list[str]:
-    raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS", "*")
+    """Origins allowed on the credentialed API. Unset -> the site. A comma-separated override is for preview hosts
+    (e.g. https://my-branch.vercel.app); "*" is still honoured if an operator writes it, but is no longer the default.
+    Credentials here are headers (X-API-Key / Authorization), never cookies, so CORS is not what protects a key: it
+    only decides which pages may read responses in a visitor's browser."""
+    raw = os.environ.get("GRIDFORGE_ALLOWED_ORIGINS")
+    if raw is None or not raw.strip():
+        return list(DEFAULT_ALLOWED_ORIGINS)
     return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _public_cors_enabled() -> bool:
+    return os.environ.get("GRIDFORGE_PUBLIC_CORS", "1").strip() != "0"
 
 
 def _run(doc: dict):
@@ -385,7 +425,10 @@ def handle_compare(body: dict, tier: Tier) -> dict:
             notes = []
         # /v1/screen reports these findings as warnings; a comparison built on inputs that disagree with each other (a unit slip
         # between MW, MVA and kW) must say so too, not rank scenarios as if the inputs were sound.
-        notes = [*notes, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
+        # A comparison of halls whose transformer or UPS schedule is missing leaves those constraints unevaluated (not limiting), which
+        # overstates every scenario's racks. The intake already says so; the comparison must too, not rank as if the inputs were complete.
+        intake_warnings = list(dict.fromkeys(intake.report.warnings))
+        notes = [*notes, *intake_warnings, *plausibility_findings(intake.context), *defaulted_date_findings(intake)]
         out = compare_payload(doc, chosen, objective=objective, baseline=baseline, notes=notes)
     except CompareError as exc:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
@@ -431,10 +474,12 @@ def handle_study(body: dict, tier: Tier) -> dict:
             return _rendered(build_board_report(intake, results, sens, objective=objective), results, fmt)
         report = build_study_report(intake.context, results, sens,
                                     client=intake.client, objective=objective,
-                                    watermark=watermark_for(intake),
+                                    watermark=watermark_for(intake), sourced=intake.report.sourced,
                                     grid_queue=(grid_queue_context_for(results, objective, country=_site_country(doc), region=region)
                                                 if tier is not Tier.PUBLIC else None),
-                                    retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None)
+                                    retail_price=_retail_price_context(intake, price_state) if tier is not Tier.PUBLIC else None,
+                                    date_record=(_date_record(rec.ladder, document=intake.document)
+                                                 if tier is not Tier.PUBLIC else None))
         out = _rendered(report, results, fmt)
         if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
@@ -940,13 +985,9 @@ def handle_bids(body: dict, tier: Tier) -> dict:
 MAX_PORTFOLIO_HALLS = 50
 
 
-def _declares_hall_ids(doc) -> bool:
-    """True when the document itself names both its site and its hall (rather than leaving them to the library's default ids)."""
-    if not isinstance(doc, dict):
-        return False
-    site, hall = doc.get("site"), doc.get("hall")
-    ids = (site.get("id") if isinstance(site, dict) else None, hall.get("id") if isinstance(hall, dict) else None)
-    return all(isinstance(v, str) and v.strip() for v in ids)
+from ..reporting.portfolio_guard import (declares_hall_ids as _declares_hall_ids, hall_key as _hall_key,  # noqa: E402
+                                         identical_physics_warning as _identical_warning, is_repeat as _is_repeat_hall,
+                                         physics_fingerprint as _fingerprint)
 
 
 def handle_portfolio(body: dict, tier: Tier) -> dict:
@@ -962,18 +1003,26 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         raise ApiError(422, f"unknown format {fmt!r}", allowed=["json", "md", "html"])
     entries = []
     seen: dict[tuple[str, str], int] = {}
+    prints: dict[str, int] = {}
+    portfolio_warnings: list[str] = []
     for i, d in enumerate(docs):
         intake, results = _run(d)
         # A hall is a physical thing: listing it twice cannot create capacity. Refuse a repeat by name rather than add it up silently. Two
         # entries are "the same hall" when they carry the same DECLARED site and hall ids, or are identical documents. Entries whose ids
         # were left to the library default (every sparse intake is SITE-1 / HALL-1) are not assumed to be one hall.
-        key = (intake.context.site.id, intake.context.hall.id)
+        key = _hall_key(intake.context.site.id, intake.context.hall.id)
         first = seen.get(key)
-        if first is not None and ((_declares_hall_ids(d) and _declares_hall_ids(docs[first])) or d == docs[first]):
+        if first is not None and _is_repeat_hall(d, docs[first]):
             raise ApiError(422, f"intakes[{i}] repeats site {key[0]!r} hall {key[1]!r} (already intakes[{first}]): a hall counts once, so its "
                                 "capacity would be added twice. Remove the repeat, or give genuinely different halls different site.id and hall.id",
                            duplicate_of=first, index=i, site_id=key[0], hall_id=key[1])
         seen.setdefault(key, i)
+        fp = _fingerprint(d)
+        if fp is not None:
+            if fp in prints:
+                portfolio_warnings.append(_identical_warning(i, prints[fp]))
+            else:
+                prints[fp] = i
         entries.append(SiteEntry(intake=intake, results=results, objective=objective))
     out = {
         "objective": objective.value,
@@ -981,6 +1030,8 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         "total_racks": sum(e.racks for e in entries),
         "total_racks_evidence": min(e.rack_class for e in entries).name,
     }
+    if portfolio_warnings:      # additive: present only when there is something to say, so a clean portfolio's shape is unchanged
+        out["warnings"] = portfolio_warnings
     if fmt != "json":
         # The Portfolio Screen as it is delivered: the ranking document, rendered and gated like every other document, and one model
         # pack per hall, all from the SAME solve as the ranking above, so the document and the packs cannot disagree.
@@ -1370,11 +1421,14 @@ class Handler(BaseHTTPRequestHandler):
         origins = _allowed_origins()
         origin = self.headers.get("Origin")
         allow = "*" if "*" in origins else (origin if origin in origins else "")
+        allow_headers = "Content-Type, X-API-Key, Authorization, Idempotency-Key, X-GridForge-Project"
+        if not allow and _public_cors_enabled() and urlparse(self.path).path.rstrip("/") in PUBLIC_CORS_PATHS:
+            # A foreign origin on a keyless free route: readable, but it may not send a key from there.
+            allow, allow_headers = "*", "Content-Type"
         if allow:
             self.send_header("Access-Control-Allow-Origin", allow)
-            self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Headers",
-                         "Content-Type, X-API-Key, Authorization, Idempotency-Key, X-GridForge-Project")
+        self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", allow_headers)
         self.send_header("Access-Control-Expose-Headers",
                          "X-GridForge-Units, X-GridForge-Units-Month, X-GridForge-Units-Remaining, "
                          "X-GridForge-Charge-Cents, X-GridForge-Idempotent-Replay, Idempotent-Replay")
@@ -1584,6 +1638,10 @@ class Handler(BaseHTTPRequestHandler):
         self._open_res = None
         plan = self._plan()
         if plan is None:
+            # A paid route reached with no plan: the key was valid when the tier was decided and is not any more (revoked in between).
+            # Serving it would be a free paid run, so refuse. The operator is the only caller with no plan that may use a paid route.
+            if not self._is_operator() and ROUTES.get(endpoint, (None, Tier.PUBLIC))[1] is Tier.CLIENT:
+                return {"status": 401, "error": "this key has been revoked or is no longer valid; nothing was run and nothing was charged"}
             return None
         units = units_for(endpoint, body)
         if units <= 0:
@@ -1732,7 +1790,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "max_bytes": MAX_BODY_BYTES})
         raw = self.rfile.read(length) if length else b"{}"
         try:
-            body = json.loads(raw or b"{}", parse_constant=_reject_constant)
+            body = json.loads(raw or b"{}", parse_constant=_reject_constant, object_pairs_hook=_refuse_duplicate_keys)
         except RecursionError:
             # Python's parser gives up on nesting around ten thousand levels. Uncaught, this ended the request with no HTTP response at all
             # (the connection was closed) and a traceback in the log, and it is reachable without a key on the free public endpoints.

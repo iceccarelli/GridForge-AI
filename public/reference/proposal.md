@@ -50,6 +50,12 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |
 | Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
 
+> ℹ️ BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.
+
+> ℹ️ BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.
+
+> ℹ️ Busway: the 380 occupied positions at their 8 kW design density would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.
+
 ## 4. Fee, timing and terms
 
 | Item | Terms |

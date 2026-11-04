@@ -9,8 +9,10 @@
 
 import { storeFault } from "@/lib/safe-log";
 import { reviewHash } from "@/lib/deliverables";
-import { callerIdentity } from "@/lib/rate-limit";
+import { RATE_POLICIES, callerIdentity, resetMemoryLimiter, countHit, isProduction, subjectOf } from "@/lib/rate-limit";
 import crypto from "node:crypto";
+import { NextResponse } from "next/server";
+import { SITE_URL } from "@/lib/site";
 
 export const ADMIN_COOKIE = "gf_admin";
 
@@ -22,22 +24,57 @@ export function adminConfigured(): boolean {
 export const ADMIN_SESSION_SECONDS = 60 * 60 * 12;
 
 /**
- * Secret the session tokens are signed with. ADMIN_SESSION_SECRET if set (a value of its own, never the password; rotate
- * it to invalidate every outstanding session at once).
+ * Secret the session tokens are signed with.
  *
- * Unset, the key is DERIVED from ADMIN_PASSWORD by a domain-separated HMAC, so the raw password is never the signing key
- * itself. Changing the password still invalidates every session. This is a compatibility path: it logs one warning per
- * process, and a deployment should set ADMIN_SESSION_SECRET (32+ random characters) instead.
+ * PRODUCTION (NODE_ENV=production, which Vercel also sets on previews) FAILS CLOSED: a session is minted or accepted only
+ * under ADMIN_SESSION_SECRET when it is at least 32 characters and is not the admin password (nor contains it). Anything
+ * else (unset, short, or equal to the password) means no session can be created and every cookie is refused, with one
+ * clear error per process in the log, and the login route answers 503 naming the variable. A key derived from the
+ * password would make an offline-guessable password also the cookie-forging key, and nothing would say so but a log line.
+ *
+ * Development and tests only: with no ADMIN_SESSION_SECRET the key is derived from ADMIN_PASSWORD by a domain-separated
+ * HMAC (one warning per process), so `npm run dev` works with just a password. That convenience never applies to a
+ * production build. Rotate ADMIN_SESSION_SECRET to invalidate every outstanding session at once.
  */
+export const ADMIN_SECRET_MIN_LENGTH = 32;
+
 let warnedDerivedSecret = false;
+let reportedWeakSecret = false;
+
+/** Why production would refuse to sign sessions, or null when the configured secret is acceptable. */
+export function adminSessionSecretProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const secret = env.ADMIN_SESSION_SECRET;
+  const pw = env.ADMIN_PASSWORD;
+  if (!secret) return "ADMIN_SESSION_SECRET is not set";
+  if (secret.length < ADMIN_SECRET_MIN_LENGTH) return `ADMIN_SESSION_SECRET is shorter than ${ADMIN_SECRET_MIN_LENGTH} characters`;
+  if (pw && (secret === pw || secret.includes(pw))) return "ADMIN_SESSION_SECRET is (or contains) ADMIN_PASSWORD";
+  return null;
+}
+
+/** True when sessions can be minted and checked: always in development, only with a distinct strong secret in production. */
+export function adminSessionReady(): boolean {
+  return adminConfigured() && sessionSecret() !== null;
+}
+
 function sessionSecret(): string | null {
-  const dedicated = process.env.ADMIN_SESSION_SECRET;
-  if (dedicated) return dedicated;
   const pw = process.env.ADMIN_PASSWORD;
   if (!pw) return null;
+  if (isProduction()) {
+    const problem = adminSessionSecretProblem();
+    if (problem) {
+      if (!reportedWeakSecret) {
+        reportedWeakSecret = true;
+        console.error(`[GridForge] admin: REFUSING admin sessions on a production build: ${problem}. Set ADMIN_SESSION_SECRET to a separate random value of 32+ characters (openssl rand -hex 32).`);
+      }
+      return null;
+    }
+    return process.env.ADMIN_SESSION_SECRET as string;
+  }
+  const dedicated = process.env.ADMIN_SESSION_SECRET;
+  if (dedicated) return dedicated;
   if (!warnedDerivedSecret) {
     warnedDerivedSecret = true;
-    console.warn("[GridForge] admin: ADMIN_SESSION_SECRET is not set; the session key is derived from ADMIN_PASSWORD. Set ADMIN_SESSION_SECRET to a separate random value (32+ characters).");
+    console.warn("[GridForge] admin: ADMIN_SESSION_SECRET is not set; the session key is derived from ADMIN_PASSWORD (development only: a production build refuses). Set ADMIN_SESSION_SECRET to a separate random value (32+ characters).");
   }
   return crypto.createHmac("sha256", pw).update("gf-admin-session-key-v1").digest("hex");
 }
@@ -45,6 +82,7 @@ function sessionSecret(): string | null {
 /** Test seam: forget that the one-time warning was logged. Never called in a request path. */
 export function resetAdminSecretWarning(): void {
   warnedDerivedSecret = false;
+  reportedWeakSecret = false;
 }
 
 function sign(payload: string, secret: string): string {
@@ -86,16 +124,12 @@ export function checkPassword(input: string): boolean {
  * attacker down, so the password's strength was the entire defence and a guess
  * cost nothing to try.
  *
- * Deliberately modest and deliberately honest about it: this is in-memory, so on
- * a serverless platform it is per-instance and resets on a cold start. That makes
- * it a cost multiplier on a guessing attack, not a lockout. The real defence is
- * still a long random ADMIN_PASSWORD, and this exists so that a merely decent one
- * is not brute-forced in an afternoon. A distributed lockout belongs with real
- * client logins, which is when this whole gate gets replaced.
+ * The counter is the shared Postgres one (lib/rate-limit.ts, migration 0024, bucket `admin_login`), so every serverless
+ * instance sees the same count and a cold start resets nothing. It FAILS CLOSED: if that counter cannot be read the login
+ * answers 503 and compares nothing. Without a configured store the in-memory counter is used in development and tests only.
+ * A long random ADMIN_PASSWORD is still the real defence; this makes a guess cost something everywhere at once.
  */
-const ATTEMPTS_PER_WINDOW = 8;
-const WINDOW_MS = 10 * 60 * 1000;
-const attempts = new Map<string, number[]>();
+const WINDOW_MS = RATE_POLICIES.admin_login.windowSeconds * 1000;
 
 /**
  * Who is asking, as the rate limiter's pseudonymous identity (lib/rate-limit.ts `callerIdentity`): the address comes only
@@ -106,29 +140,62 @@ const attempts = new Map<string, number[]>();
  */
 export function requestKey(req: Request): string {
   const who = callerIdentity(req);
-  return who.ok ? who.subject : "admin-login:unattributed";
+  return who.ok ? who.subject : (subjectOf("admin-login:unattributed") ?? "admin-login:unattributed");
 }
 
 /**
- * Record an attempt. Returns how long to wait, in seconds, or 0 to proceed.
+ * Record an attempt. Resolves to how long to wait, in seconds, or 0 to proceed, or "unavailable" when the shared counter
+ * cannot be read (the caller must refuse, not proceed).
  *
- * Counts the attempt whatever the outcome — a throttle that only counts failures
- * lets an attacker reset it by interleaving a request it will answer.
+ * Counts the attempt whatever the outcome: a throttle that only counts failures lets an attacker reset it by interleaving
+ * a request it will answer. `now` only moves the development/test in-memory window.
  */
-export function throttleLogin(key: string, now = Date.now()): number {
-  const seen = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
-  if (seen.length >= ATTEMPTS_PER_WINDOW) {
-    attempts.set(key, seen);
-    return Math.ceil((WINDOW_MS - (now - seen[0])) / 1000);
-  }
-  seen.push(now);
-  attempts.set(key, seen);
-  return 0;
+export async function throttleLogin(key: string, now?: number): Promise<number | "unavailable"> {
+  const h = await countHit("admin_login", key, now);
+  if (!h) return "unavailable";
+  return h.allowed ? 0 : Math.max(1, Math.min(h.retryAfter, Math.ceil(WINDOW_MS / 1000)));
 }
 
 /** Test seam. Never called in a request path. */
 export function resetLoginThrottle(): void {
-  attempts.clear();
+  resetMemoryLimiter();
+}
+
+/**
+ * Defence in depth against a cross-site write riding the admin cookie. The cookie is SameSite=Lax (a cross-site POST does
+ * not carry it in current browsers), and this refuses the cases that rule does not cover: a browser that reports the request
+ * as cross-site (Sec-Fetch-Site) or whose Origin is neither this deployment's host nor the configured site. A request with
+ * no Origin and no Sec-Fetch-Site is not a browser form/fetch (curl, the tests, server-to-server) and cannot be CSRF'd.
+ * Returns the 403 to send, or null to proceed. Call it first in every admin route that changes state.
+ */
+export function refuseCrossSiteWrite(req: Request): Response | null {
+  const fetchSite = req.headers.get("sec-fetch-site");
+  let bad = fetchSite === "cross-site";
+  const origin = req.headers.get("origin");
+  if (!bad && origin && origin !== "null") {
+    let oh = "";
+    try {
+      oh = new URL(origin).host;
+    } catch {
+      bad = true;
+    }
+    if (oh) {
+      const hosts = new Set<string>();
+      for (const h of [req.headers.get("x-forwarded-host"), req.headers.get("host")]) {
+        const last = h?.split(",").pop()?.trim();
+        if (last) hosts.add(last.toLowerCase());
+      }
+      try {
+        hosts.add(new URL(SITE_URL).host.toLowerCase());
+      } catch {
+        /* an unparseable SITE_URL adds nothing */
+      }
+      bad = !hosts.has(oh.toLowerCase());
+    }
+  } else if (!bad && origin === "null") {
+    bad = true;
+  }
+  return bad ? NextResponse.json({ ok: false, error: "Cross-site request refused." }, { status: 403 }) : null;
 }
 
 /** Request check: is this cookie a validly signed, unexpired admin session? */

@@ -182,9 +182,9 @@ export function EngagementLadder() {
             : "";
           return (
             <div key={id} className="panel flex flex-col p-6">
-              <div className="flex items-baseline justify-between gap-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h3 className="text-lg font-semibold text-ghost">{p.name}</h3>
-                <span className="data whitespace-nowrap font-mono text-power">
+                <span className="data font-mono text-power sm:whitespace-nowrap">
                   {eur(p.amountCents)}
                   {p.recurring ? (
                     <span className="text-faint">

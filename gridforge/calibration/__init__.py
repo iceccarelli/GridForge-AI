@@ -17,7 +17,12 @@ from .ledger import (Ledger, LedgerIntegrityError, load_ledger, append_observati
 from .keys import all_keys, constraint_key, label
 from .disclosure import accuracy_block, for_constraint, may_claim_field_validated
 
-__all__ = ["Observation", "ObservationError", "Calibration", "CalibrationState",
+from .records import ObservationRecord, RecordError, BatchResult, load_batch
+from .residuals import residual, residual_report, pending_counts
+
+__all__ = ["ObservationRecord", "RecordError", "BatchResult", "load_batch",
+           "residual", "residual_report", "pending_counts",
+"Observation", "ObservationError", "Calibration", "CalibrationState",
            "summarise", "calibration_for", "Ledger", "LedgerIntegrityError", "load_ledger",
            "append_observation", "import_export", "read_chain",
            "all_keys", "constraint_key", "label", "accuracy_block", "for_constraint",

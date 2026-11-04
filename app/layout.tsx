@@ -7,7 +7,6 @@ import { Toaster } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { BackgroundReel } from "@/components/BackgroundReel";
-import { MotionProvider } from "@/components/MotionProvider";
 import { ScopingAgent } from "@/components/ScopingAgent";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { SiteChrome } from "@/components/SiteChrome";
@@ -98,7 +97,6 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${inter.variable} ${mono.variable}`}>
       <body className="font-sans antialiased text-ghost">
-        <MotionProvider>
         <SiteChrome>
           {/* First focusable thing on every page with the site shell (the bare presenter route carries no link at all). */}
           <a
@@ -119,7 +117,6 @@ export default function RootLayout({
           <ScopingAgent />
         </SiteChrome>
         <Toaster position="top-center" theme="dark" richColors closeButton />
-        </MotionProvider>
       </body>
     </html>
   );

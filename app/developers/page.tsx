@@ -390,7 +390,7 @@ export default async function DevelopersPage() {
       </section>
 
       <section className="mt-10 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">
-        <div className="min-w-64 flex-1">
+        <div className="min-w-[min(16rem,100%)] flex-1">
           <h2 className="text-lg font-semibold text-ghost">Not sure yet?</h2>
           <p className="mt-1 text-sm text-mute">
             The qualifier is free and needs no key, and the full deliverable is published in

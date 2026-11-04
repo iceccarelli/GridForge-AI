@@ -11,6 +11,7 @@ const ISLANDS = {
   liveConsole: dynamic(() => import("@/components/LiveConsole").then((m) => m.LiveConsole), { ssr: false }),
   comparator: dynamic(() => import("@/components/TimeToPowerComparator").then((m) => m.TimeToPowerComparator), { ssr: false }),
   insights: dynamic(() => import("@/components/BindingConstraintInsights").then((m) => m.BindingConstraintInsights), { ssr: false }),
+  liveScenario: dynamic(() => import("@/components/LiveScenario").then((m) => m.LiveScenario), { ssr: false }),
   timeToPower: dynamic(() => import("@/components/TimeToPower").then((m) => m.TimeToPower), { ssr: false }),
 };
 

@@ -21,7 +21,7 @@ export default function ThreePaths() {
   const card = "panel flex flex-col p-5";
   const eyebrow = "font-mono text-[10px] uppercase tracking-[0.14em] text-power";
   const cta =
-    "mt-5 inline-flex min-h-11 items-center gap-2 self-start rounded border border-line px-4 py-2 text-sm font-semibold text-ghost hover:border-power/50";
+    "mt-5 inline-flex max-w-full min-h-11 items-center gap-2 self-start rounded border border-line px-4 py-2 text-sm font-semibold text-ghost hover:border-power/50";
   return (
     <section aria-labelledby="three-paths" className="mt-2">
       <h2 id="three-paths" className="sr-only">

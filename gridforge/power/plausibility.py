@@ -42,6 +42,12 @@ def plausibility_findings(ctx) -> list[str]:
             f"({peak_MW:,.2f} MW). The connection is already overdrawn on the inputs given, so the zero "
             f"headroom below says the inputs disagree with each other. Check the units (MW, MVA, kW) before "
             f"relying on this result.")
+    if peak_MW < it_MW:
+        out.append(
+            f"The current site peak ({peak_MW:,.2f} MW) is below the current IT load ({it_MW:,.2f} MW), but the IT load is part of the "
+            f"site peak, so one of the two figures is wrong or in the wrong unit (MW, MVA, kW), or one is a design value and the other a "
+            f"metered one. Supply headroom is taken from the peak, so a peak that is too low frees supply that does not exist and "
+            f"overstates the racks the grid can carry. Confirm both figures from the same metering period before relying on this result.")
     return out
 
 
@@ -53,6 +59,10 @@ def defaulted_date_findings(intake) -> list[str]:
         return ["The transformer replacement lead time was not supplied: a library placeholder of 160 weeks "
                 "(band 80-210) is used, and it can set the date. It is not a manufacturer's quote or a delivery "
                 "commitment. Supply a written lead time to replace it."]
+    if intake.report.supplied and "transformers.replacement_lead_time_weeks" in intake.report.supplied:
+        return ["The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic "
+                "+-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a "
+                "written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment."]
     return []
 
 

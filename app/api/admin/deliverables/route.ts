@@ -2,7 +2,7 @@ import { releaseHoldByOperator } from "@/lib/one-time-holds";
 import { markDepositDeliveredFor } from "@/lib/deposits";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { ADMIN_COOKIE, verifyAdminCookie } from "@/lib/admin";
+import { ADMIN_COOKIE, verifyAdminCookie, refuseCrossSiteWrite } from "@/lib/admin";
 import {
   BOARD_HTML,
   claimForGeneration,
@@ -39,6 +39,8 @@ export async function GET() {
 // separate human act from generating it: an engineering opinion gets a name
 // against it before a client reads it.
 export async function PATCH(req: Request) {
+  const xs = refuseCrossSiteWrite(req);
+  if (xs) return xs;
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

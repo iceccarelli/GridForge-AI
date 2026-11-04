@@ -169,6 +169,44 @@ def _opt(o: dict, key: str, unit: str, evidence, *, band: float, high: float | N
     return V(v, unit, f"{o.get('id', 'BTM')} {key}", evidence, band=band)
 
 
+def _band_containing(raw: Any, library_band: tuple[float, float], half_width: float) -> tuple[float, float]:
+    """The library's band for a fraction, unless the value the client supplied lies outside it. A range that does not contain its own value
+    is wrong on its face (a derating of 0.99 printed inside [0.85, 0.95]): then the band is drawn around the supplied value instead, clamped
+    to a fraction. A value inside the library band keeps the library band, so the reference results do not move."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return library_band
+    lo, hi = library_band
+    if lo <= v <= hi:
+        return library_band
+    return (max(v - half_width, 0.0), min(v + half_width, 1.0))
+
+
+def _strict_bool(raw: Any, what: str) -> bool:
+    """true or false, nothing else. bool("false") is True in Python, so the text "false" used to switch a firm-rated option ON."""
+    if isinstance(raw, bool):
+        return raw
+    raise IntakeError(f"{what} must be true or false, not {type(raw).__name__}")
+
+
+def _supplied_lead_time(raw: Any, what: str) -> Any:
+    """A lead time the customer wrote must be greater than zero. Zero would date a long-lead item as instantly available (a band of
+    zero around zero) and let another relief set the whole schedule. A missing value is not zero: it is absent and takes the library
+    placeholder, labelled as one. Non-numbers are refused by the number parser that follows."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return raw
+    try:
+        v = float(raw)
+    except OverflowError:
+        return raw          # too large for a float: the number parser that follows refuses it by name
+    if v == v and -1e300 < v <= 0:
+        raise IntakeError(f"{what} is {str(raw)[:24]}; a lead time must be greater than zero weeks. Leave it out to use the library placeholder "
+                          f"(which is labelled as one), or give the quoted delivery time. For a unit already on site or in stock, enter the weeks to "
+                          f"install and commission it (at least 1): zero would date a long-lead item as instantly available")
+    return raw
+
+
 def _pos(raw: Any, what: str) -> float:
     v = _num(raw, what)
     if v < 0:
@@ -193,7 +231,40 @@ def _dig(doc: dict, path: str) -> Any:
 MAX_EQUIPMENT_ITEMS = 100
 
 
-def _equipment_list(items, section: str) -> list:
+def _reference_vs_ids(doc: dict, ctx, report: "IntakeReport") -> None:
+    """Every shipped example writes project.reference as "<site.id>/<hall.id>". When it uses that form and names a different site or hall
+    than the document does, the deliverable would carry a reference to another hall: say so, naming both."""
+    proj = doc.get("project")
+    ref = proj.get("reference") if isinstance(proj, dict) else None
+    if not isinstance(ref, str) or "/" not in ref:
+        return
+    ref_site, _, ref_hall = (part.strip() for part in ref.partition("/"))
+    site_id, hall_id = str(ctx.site.id).strip(), str(ctx.hall.id).strip()
+    if ref_site.casefold() != site_id.casefold() or ref_hall.casefold() != hall_id.casefold():
+        report.warnings.append(
+            f"project.reference names {ref_site!r}/{ref_hall!r}, but the document's site.id and hall.id are {site_id!r}/{hall_id!r}. The "
+            f"deliverable carries both, so check which hall this intake describes.")
+
+
+def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
+    """The busway constraint reads `busway_ampacity_A` as the INSTALLED total and does not subtract what is already on it. If the racks
+    already in the hall would draw more than that total at their design density, the figure is more likely a spare or per-run value than
+    the whole hall's busway: say so rather than let the constraint look more precise than the input."""
+    import math
+    lv, hall = ctx.power.lv, ctx.hall
+    occupied = max(hall.rack_positions - hall.positions_available, 0)
+    existing_kW = occupied * hall.design_density_kW_per_rack.value
+    phase = math.sqrt(3) if lv.phases == 3 else 1.0
+    total_kW = (phase * lv.voltage_V.value * lv.busway_ampacity_A.value * lv.busway_utilisation_limit.value
+                * ctx.power.grid.power_factor.value * lv.busway_runs) / 1000.0
+    if existing_kW > total_kW > 0:
+        report.warnings.append(
+            f"Busway: the {occupied} occupied positions at their {hall.design_density_kW_per_rack.value:g} kW design density would draw "
+            f"{existing_kW:,.0f} kW, more than the {total_kW:,.0f} kW the declared busway can carry. busway_ampacity_A is read as the "
+            f"installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.")
+
+
+def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
     """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, or more
     items than a request may ask the engine to solve."""
     if items is None:
@@ -207,7 +278,26 @@ def _equipment_list(items, section: str) -> list:
         if not isinstance(item, dict):
             raise IntakeError(f"{section}[{n}] must be an object, not {type(item).__name__}")
     _refuse_repeated_ids(items, section)
+    if report is not None:
+        _warn_content_duplicates(items, section, report)
     return items
+
+
+def _warn_content_duplicates(items, section: str, report: "IntakeReport") -> None:
+    """Two entries that differ only in their id may be one machine listed twice under two names, which would count its capacity twice.
+    They may also be two genuinely identical machines, which the engine cannot tell apart from a duplicate: so this WARNS and never
+    refuses, and says what to do (declare identical units once, with `units`)."""
+    seen: dict[str, str] = {}
+    for n, item in enumerate(items):
+        body = {k: v for k, v in item.items() if k != "id"}
+        key = repr(sorted(body.items(), key=lambda kv: kv[0]))
+        ident = str(item.get("id", f"{section}[{n}]"))
+        if key in seen:
+            report.warnings.append(
+                f"{section}: {ident} is identical to {seen[key]} apart from its id. If they are one machine listed twice, its capacity "
+                f"is counted twice; if they are two identical machines, declare them once with `units`.")
+        else:
+            seen[key] = ident
 
 
 def _refuse_repeated_ids(items, section: str) -> None:
@@ -581,6 +671,8 @@ def load_document(doc: dict) -> Intake:
     never a KeyError or a traceback."""
     if not isinstance(doc, dict):
         raise IntakeError("an intake must be a JSON object")
+    _refuse_non_object_blocks(doc)
+    _refuse_control_characters(doc)
     try:
         return _load_document(doc)
     except IntakeError:
@@ -589,6 +681,36 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError(f"the intake is missing a required field: {exc.args[0]}") from None
     except (ValueError, TypeError, AttributeError) as exc:
         raise IntakeError(f"the intake is malformed: {exc}") from None
+
+
+def _refuse_control_characters(node: Any, path: str = "", _depth: int = 0) -> None:
+    """A control character (NUL and the rest of C0, DEL; tab, newline and carriage return are ordinary text) inside any text of the intake is
+    refused by path. It would be printed into the deliverable, where a C consumer, a CSV importer or a log line truncates at it."""
+    if _depth > 64:
+        return
+    if isinstance(node, str):
+        if any((ord(c) < 32 and c not in "\t\n\r") or ord(c) == 127 for c in node):
+            raise IntakeError(f"{path or 'the intake'} contains a control character (such as NUL), which cannot be printed into a document; "
+                              f"remove it")
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            _refuse_control_characters(k, f"{path}.<key>" if path else "<key>", _depth + 1)
+            _refuse_control_characters(v, f"{path}.{k}" if path else str(k), _depth + 1)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            _refuse_control_characters(v, f"{path}[{i}]", _depth + 1)
+
+
+#: The intake sections that are objects of fields. Present but not an object, the section used to be replaced by library defaults without a
+#: word, so an intake whose `grid` was the text "oops" was answered as if the client had supplied no grid data at all.
+_OBJECT_SECTIONS = ("site", "hall", "grid", "lv", "thermal", "compute", "economics")
+
+
+def _refuse_non_object_blocks(doc: dict) -> None:
+    for name in _OBJECT_SECTIONS:
+        if name in doc and doc[name] is not None and not isinstance(doc[name], dict):
+            raise IntakeError(f"{name} must be an object of fields, not {type(doc[name]).__name__}; omit it to use the library defaults, "
+                              f"which are then listed as assumptions")
 
 
 def _project_block(doc: dict) -> dict:
@@ -667,7 +789,7 @@ def _load_document(doc: dict) -> Intake:
     )
 
     transformers = []
-    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers")
+    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers", r.report)
     for t in tx_items:
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
@@ -679,8 +801,9 @@ def _load_document(doc: dict) -> Intake:
             # default and is an assumption (E0)
             derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating",
-                              ESTIMATED if t.get("derating_factor") is not None else ASSUMED, band=(0.85, 0.95)),
-            replacement_lead_time_weeks=V(_pos_max(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks",
+                              ESTIMATED if t.get("derating_factor") is not None else ASSUMED,
+                              band=_band_containing(t.get("derating_factor", 0.9), (0.85, 0.95), 0.05)),
+            replacement_lead_time_weeks=V(_pos_max(_supplied_lead_time(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks"), "transformers.replacement_lead_time_weeks",
                                                    "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
                                           # The library placeholder carries the library's band. A value the client supplied carries a band
@@ -695,7 +818,7 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = _equipment_list(r.raw("ups", []) or [], "ups")
+    ups_items = _equipment_list(r.raw("ups", []) or [], "ups", r.report)
     for u in ups_items:
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
@@ -704,25 +827,26 @@ def _load_document(doc: dict) -> Intake:
             units=_int_max(u.get("units", 2), "ups.units", "UPS units"),
             redundancy=_redundancy(u.get("redundancy", "N+1"), "UPS"),
             step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
-                                   "accepted instantaneous step load", ASSUMED, band=(0.3, 0.7)),
+                                   "accepted instantaneous step load", ASSUMED,
+                                   band=_band_containing(u.get("step_load_capability", 0.5), (0.3, 0.7), 0.1)),
         ))
 
     options = []
-    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options")
+    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options", r.report)
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
-            kind=str(o.get("kind", "bess")).strip().lower(),
+            kind=" ".join(str(o.get("kind", "bess")).replace("-", " ").split()).replace(" ", "_").lower(),
             capacity_MW=V(_pos_max(o["capacity_MW"], "btm_options.capacity_MW", "capacity_MW", "MW"), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
             # Absent means absent: no invented 900 EUR/kW and no invented 36 weeks. The option is then unpriced /
             # undated (a visible gap below), never ranked as complete and never the source of a date.
             capex_eur_per_kW=(V(_pos_max(o["capex_eur_per_kW"], "btm_options.capex_eur_per_kW", "capex_eur_per_kW", "EUR/kW"), "EUR/kW",
                                 f"{o.get('id','BTM')} installed capex", ASSUMED, band=0.3)
                               if o.get("capex_eur_per_kW") is not None else None),
-            lead_time_weeks=(V(_pos_max(o["lead_time_weeks"], "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
+            lead_time_weeks=(V(_pos_max(_supplied_lead_time(o["lead_time_weeks"], "btm_options.lead_time_weeks"), "btm_options.lead_time_weeks", "lead_time_weeks", "weeks"), "weeks",
                                f"{o.get('id','BTM')} lead time", ASSUMED, band=0.35)
                              if o.get("lead_time_weeks") is not None else None),
-            firm=bool(o.get("firm", True)),
+            firm=_strict_bool(o.get("firm", True), f"btm_options[{o.get('id', o.get('kind', 'BTM'))}].firm"),
             firm_capacity_factor=(V(_frac(o["firm_capacity_factor"], "BTM firm_capacity_factor"), "1",
                                     f"{o.get('id','BTM')} firm factor", ASSUMED, band=0.2)
                                   if o.get("firm_capacity_factor") is not None else None),
@@ -753,8 +877,31 @@ def _load_document(doc: dict) -> Intake:
                 f"BTM option {opt.id}: fuel_price_eur_per_MWh and electrical_efficiency are only meaningful "
                 f"together (fuel cost per MWh generated = price / efficiency).")
         _generator_structure(opt, o, r.report)
+        from ..power.btm import DEFAULT_FIRM_FACTOR, INTERMITTENT_KINDS
+        if opt.kind not in DEFAULT_FIRM_FACTOR:
+            # Not refused: a real generator (a diesel set, a gas turbine) is a legitimate thing to declare, and rejecting the whole intake for it
+            # would cost the customer the rest of the analysis. It is simply not credited: with no library basis for its firm capacity and no way to
+            # check the customer's factor, the option contributes 0 MW as firm, and the warning says how to get it counted.
+            r.report.warnings.append(
+                f"BTM option {opt.id}: kind {opt.kind!r} is not one the engine models ({', '.join(sorted(DEFAULT_FIRM_FACTOR))}), so it is "
+                f"credited 0 MW as firm capacity rather than on your factor alone. Declare it as the nearest modelled kind with its unit count "
+                f"and redundancy if that is what it is, or tell us which technology to add.")
+        if opt.kind in INTERMITTENT_KINDS and o.get("firm_capacity_factor") not in (None, 0, 0.0):
+            r.report.warnings.append(
+                f"BTM option {opt.id}: a {opt.kind} array carries no continuous firm capacity, so the declared firm_capacity_factor "
+                f"{o.get('firm_capacity_factor')!r} is not applied: it is credited 0 MW as firm. Declare storage with a ride-through window "
+                f"for the part of its output that must be relied on.")
         if opt.kind == "bess" and opt.firm:
             _bess_firm_credit(opt, o, r.report)
+            if opt.energy_MWh is None:
+                r.report.warnings.append(
+                    f"BTM option {opt.id}: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what "
+                    f"its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.")
+        from ..power.btm import UNIT_BASED_KINDS as _UBK
+        if opt.firm and opt.kind in _UBK and o.get("units") is None:
+            r.report.warnings.append(
+                f"BTM option {opt.id}: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out "
+                f"of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.")
         for key, what, unit, why in (
                 ("capex_eur_per_kW", "installed capex", "EUR/kW",
                  "without a price the relief that installs this option is reported as unpriced and the capex "
@@ -929,6 +1076,8 @@ def _load_document(doc: dict) -> Intake:
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
+    _busway_vs_existing_load(ctx, report)
+    _reference_vs_ids(doc, ctx, report)
     if not transformers:
         report.warnings.append("No transformer schedule supplied: transformer capacity is not "
                                "evaluated and may be the true binding constraint.")
