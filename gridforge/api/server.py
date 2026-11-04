@@ -1455,6 +1455,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
+    def _declares_json_or_nothing(self) -> bool:
+        """True when the request declares application/json (or an application/*+json type, parameters such as charset ignored) or
+        declares nothing. A missing header is allowed: a browser cannot send a body without one, so it is not the cross-site case,
+        and non-browser clients that never set it have always worked. A DECLARED type that is not JSON is the case refused."""
+        declared = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if not declared:
+            return True
+        return declared == "application/json" or (declared.startswith("application/") and declared.endswith("+json"))
+
     def _client_key(self) -> str:
         """The caller's address as OUR proxy saw it. X-Forwarded-For is appended to by each hop and
         the leftmost entry is whatever the client chose to send, so we count in from the right:
@@ -1788,6 +1797,15 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_BODY_BYTES:
             return self._send(413, {"error": "payload too large",
                                     "max_bytes": MAX_BODY_BYTES})
+        if length and not self._declares_json_or_nothing():
+            # Refused before the body is read, before any charge and before idempotency handling. A browser can send text/plain,
+            # application/x-www-form-urlencoded and multipart/form-data cross-site WITHOUT a preflight, which is exactly the
+            # request a page we do not control could aim at a public route; application/json always needs one, and the preflight
+            # is answered by our CORS policy. The server speaks HTTP/1.0 (one request per connection), so not reading the body
+            # leaves nothing behind to be parsed as the next request.
+            return self._send(415, {"error": "unsupported media type",
+                                    "fix": "send the body as JSON with 'Content-Type: application/json'",
+                                    "received": (self.headers.get("Content-Type") or "")[:80]})
         raw = self.rfile.read(length) if length else b"{}"
         try:
             body = json.loads(raw or b"{}", parse_constant=_reject_constant, object_pairs_hook=_refuse_duplicate_keys)

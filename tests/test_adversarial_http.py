@@ -171,15 +171,48 @@ def test_duplicate_json_keys_are_refused(rig, key):
     assert status == 400
 
 
-@pytest.mark.xfail(strict=True, reason="confirmed defect: Content-Type is never checked, so text/plain, application/x-www-form-urlencoded and a missing "
-                   "header are all parsed as JSON (a browser can send text/plain cross-site without a preflight) - gridforge/api/server.py:1700-1712")
 @pytest.mark.parametrize("ctype", ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", "application/xml"])
 def test_a_wrong_content_type_is_refused_with_415(rig, ctype):
-    """REFUSE (415 or 400). Reproducer: POST /v1/qualify with 'Content-Type: text/plain' and a JSON body -> 200."""
+    """REFUSE (415). A declared non-JSON type is refused: POST /v1/qualify with 'Content-Type: text/plain' and a JSON body used to return 200."""
     q = json.dumps({"contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW": 4.9, "busway_ampacity_A": 400, "tapoff_max_A": 63,
                     "plant_supply_C": 6, "positions_available": 180}).encode()
-    status, _, _ = raw(rig, "/v1/qualify", q, {"Content-Type": ctype})
-    assert status in (400, 415)
+    status, out, _ = raw(rig, "/v1/qualify", q, {"Content-Type": ctype})
+    assert status == 415
+    assert "application/json" in out["fix"]
+
+
+_QUALIFY = json.dumps({"contracted_MW": 12, "current_site_peak_MW": 7.4, "current_it_load_MW": 4.9, "busway_ampacity_A": 400, "tapoff_max_A": 63,
+                       "plant_supply_C": 6, "positions_available": 180}).encode()
+
+
+@pytest.mark.parametrize("ctype", ["application/json", "application/json; charset=utf-8", "APPLICATION/JSON", "application/vnd.api+json", None])
+def test_json_and_an_absent_content_type_are_still_accepted(rig, ctype):
+    """QUALIFY: the refusal is for a DECLARED non-JSON type only. A client that sends nothing (a browser cannot send a body without a type,
+    so it is not the cross-site case) and every JSON spelling keep working."""
+    headers = {} if ctype is None else {"Content-Type": ctype}
+    status, out, _ = raw(rig, "/v1/qualify", _QUALIFY, headers)
+    assert status == 200, out
+
+
+@pytest.mark.parametrize("ctype", ["application/jsonx", "application/json-seq", "text/json", "json"])
+def test_look_alike_content_types_are_not_json(rig, ctype):
+    """REFUSE: only application/json and application/*+json count; near-misses do not."""
+    status, _, _ = raw(rig, "/v1/qualify", _QUALIFY, {"Content-Type": ctype})
+    assert status == 415
+
+
+def test_a_wrong_content_type_is_refused_before_it_is_charged(rig, key):
+    """REFUSE and do not bill: a paid route refused on its media type writes nothing to the ledger."""
+    before = net_units(rig)
+    status, _, _ = raw(rig, "/v1/screen", BODY, {"Content-Type": "text/plain"}, key)
+    assert status == 415
+    assert net_units(rig) == before
+
+
+def test_a_bodyless_request_is_not_subject_to_the_content_type_rule(rig):
+    """QUALIFY: GETs and empty POSTs carry no body, so there is nothing to mis-declare."""
+    status, _, _ = raw(rig, "/v1/version", None, {"Content-Type": "text/plain"}, method="GET")
+    assert status == 200
 
 
 def test_a_control_character_in_a_text_field_does_not_reach_the_document(rig, key):
