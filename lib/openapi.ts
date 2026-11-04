@@ -64,7 +64,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string): Record<string,
             content: { "application/json": { schema: { type: "object" } } },
           },
           default: {
-            description: "A refusal (for example 401 without a key where one is needed, or 422 for input too thin or invalid). A rejected or failed request is not charged.",
+            description: "A refusal (for example 401 without a key where one is needed, 415 if the body is declared as anything other than application/json, or 422 for input too thin or invalid). A rejected or failed request is not charged.",
             content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
           },
         },
