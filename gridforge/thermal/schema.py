@@ -24,6 +24,9 @@ class PlantSpec:
     free_cooling_hours_per_year: Quantity
     dry_cooler_capacity_kW: Quantity | None = None
     dry_cooler_approach_K: Quantity | None = None
+    #: Flow the existing hall already draws on this plant (l/min). None = not supplied: the pump flow is then read as flow available
+    #: to the new load, exactly as before.
+    existing_flow_l_per_min: Quantity | None = None
 
 
 @dataclass

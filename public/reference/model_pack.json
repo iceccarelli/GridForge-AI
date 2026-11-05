@@ -200,6 +200,15 @@
         "how_to_get_it": "CDU nameplates and the mechanical single-line diagram."
       },
       {
+        "path": "thermal.plant.existing_flow_l_per_min",
+        "label": "Flow the existing hall already draws on the plant",
+        "unit": "l/min",
+        "required": false,
+        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+        "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load.",
+        "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
+      },
+      {
         "path": "thermal.tcs_target_supply_C",
         "label": "TCS target supply temperature",
         "unit": "degC",
