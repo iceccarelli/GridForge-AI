@@ -68,6 +68,7 @@ Inputs to the capacity model that were assumed rather than supplied (each is an 
 - GEN-5MW unit count and redundancy (btm_options[GEN-5MW].units; units): not supplied: assumed credited at nameplate x firm factor, as if no unit could be out of service (E0)
 - Installed CDU schedule (thermal.cdus): not supplied: assumed nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)
 - Flow the existing hall already draws on the plant (thermal.plant.existing_flow_l_per_min; l/min): not supplied: assumed 0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) (E0)
+- Other heat the existing hall already puts on the plant (thermal.plant.existing_non_it_heat_kW; kW): not supplied: assumed 0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only) (E0)
 - TCS target supply temperature (thermal.tcs_target_supply_C; degC): not supplied: assumed 30 [27–32] degC (E0)
 - Rear-door heat exchanger capacity per rack (thermal.rdhx.capacity_kW_per_rack; kW): not supplied: assumed 60 [20–80] kW (E0)
 - All-in grid electricity price (economics.electricity_eur_per_MWh; EUR/MWh): not supplied: assumed library placeholder of 140 EUR/MWh (E0)
