@@ -167,8 +167,11 @@ if [ -z "$BIN" ]; then
   BIN="$WORK/postgrest"
   if [ ! -x "$BIN" ]; then
     echo "[realdb] downloading PostgREST $VERSION"
-    curl -fsSL -o "$WORK/p.tar.xz" \
+    # A release download is an upstream call that answers 5xx now and then (a 504 once failed a whole CI job before a single test ran), so retry
+    # on transient errors, with a bounded total, and refuse a truncated archive instead of unpacking half a binary.
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 180 -o "$WORK/p.tar.xz" \
       "https://github.com/PostgREST/postgrest/releases/download/$VERSION/postgrest-$VERSION-linux-static-x64.tar.xz"
+    tar -tf "$WORK/p.tar.xz" >/dev/null
     tar -xf "$WORK/p.tar.xz" -C "$WORK"
   fi
 fi
