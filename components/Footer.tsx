@@ -58,7 +58,7 @@ export function Footer() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={label}
-                  className="w-9 h-9 rounded-lg border border-line hover:border-power/50 flex items-center justify-center text-mute hover:text-power transition-all hover:bg-white/5"
+                  className="w-11 h-11 rounded-lg border border-line hover:border-power/50 flex items-center justify-center text-mute hover:text-power transition-all hover:bg-white/5"
                 >
                   <Icon size={16} />
                 </a>
@@ -69,7 +69,7 @@ export function Footer() {
           {FOOTER_GROUPS.map((group) => (
             <div key={group.heading} className="lg:col-span-2">
               <div className="eyebrow text-mute mb-4">{group.heading}</div>
-              <div className="space-y-3 text-sm text-mute">
+              <div className="text-sm text-mute">
                 {group.links.map((link) => (
                   <FooterLink
                     key={`${group.heading}-${link.href}-${link.label}`}
@@ -86,7 +86,7 @@ export function Footer() {
 
         <div className="mt-14 pt-10 border-t border-line flex flex-col lg:flex-row lg:items-center lg:justify-between gap-y-6">
           <div className="min-w-0 break-words text-sm">
-            <a href={`mailto:${SITE.email}`} className="text-power underline">
+            <a href={`mailto:${SITE.email}`} className="inline-flex min-h-11 items-center text-power underline">
               {SITE.email}
             </a>
             <span className="text-faint mx-2">·</span>
@@ -96,7 +96,7 @@ export function Footer() {
             <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label} →</FooterLink>
             <button
               onClick={() => commissionDensityScreen({ context: "footer" })}
-              className="btn-primary px-5 py-2.5 rounded-full text-sm text-left sm:whitespace-nowrap"
+              className="btn-primary min-h-11 px-5 py-2.5 rounded-full text-sm text-left sm:whitespace-nowrap"
               title={DENSITY_SCREEN_CTA}
             >
               {DENSITY_SCREEN_CTA}
@@ -110,9 +110,9 @@ export function Footer() {
             Engine. Engineering by {SITE.founder}.
           </div>
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-            <Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link>
-            <Link href="/legal/terms" className="hover:text-white transition-colors">Terms</Link>
-            <Link href="/legal/security" className="hover:text-white transition-colors">Security</Link>
+            <Link href="/legal/privacy" className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-white transition-colors">Privacy</Link>
+            <Link href="/legal/terms" className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-white transition-colors">Terms</Link>
+            <Link href="/legal/security" className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-white transition-colors">Security</Link>
           </div>
         </div>
       </div>
@@ -122,7 +122,7 @@ export function Footer() {
 
 function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className="block hover:text-white transition-colors">
+    <Link href={href} className="flex min-h-11 items-center hover:text-white transition-colors">
       {children}
     </Link>
   );

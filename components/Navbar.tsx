@@ -60,7 +60,7 @@ export function Navbar() {
         }`}
       >
         <div className="max-w-7xl mx-auto px-5 sm:px-6 min-h-16 sm:min-h-20 flex items-center justify-between gap-3">
-          <Link href="/" className="flex min-w-0 items-center gap-3 group">
+          <Link href="/" className="flex min-h-11 min-w-0 items-center gap-3 group">
             <Logo />
             <div className="min-w-0 leading-tight sm:leading-none sm:whitespace-nowrap">
               <div className="font-semibold text-lg sm:text-xl tracking-tight">

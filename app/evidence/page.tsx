@@ -195,13 +195,13 @@ export default async function EvidencePage() {
       </section>
 
       <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-line pt-8">
-        <Link href="/qualify" className="rounded bg-power px-5 py-2.5 font-semibold text-ink">
+        <Link href="/qualify" className="inline-flex min-h-11 items-center rounded bg-power px-5 py-2.5 font-semibold text-ink">
           {QUALIFY_LINK.label}
         </Link>
-        <Link href="/constraints" className="text-sm text-power underline">
+        <Link href="/constraints" className="inline-flex min-h-11 items-center text-sm text-power underline">
           The thirteen constraints
         </Link>
-        <Link href="/reference" className="text-sm text-power underline">
+        <Link href="/reference" className="inline-flex min-h-11 items-center text-sm text-power underline">
           The worked example
         </Link>
       </div>

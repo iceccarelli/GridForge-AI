@@ -71,8 +71,8 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
       />
       <div className="max-w-3xl mx-auto px-6">
         <nav aria-label="Breadcrumb" className="mb-4 text-[12px] text-faint">
-          <Link href="/" className="hover:text-power">Home</Link> /{" "}
-          <Link href="/products" className="hover:text-power">Engagements</Link> / <span className="text-mute">{p.name}</span>
+          <Link href="/" className="inline-flex min-h-11 min-w-11 items-center hover:text-power">Home</Link> /{" "}
+          <Link href="/products" className="inline-flex min-h-11 items-center hover:text-power">Engagements</Link> / <span className="text-mute">{p.name}</span>
         </nav>
         <div className="eyebrow text-power mb-4">Engagement</div>
         <h1 className="text-4xl font-semibold tracking-tight text-ghost">{p.name}</h1>
@@ -120,7 +120,7 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
 
         <div className="mt-12 flex flex-wrap items-center gap-6 border-t border-line pt-8">
           <CommissionScreen productId={p.id} label={`Commission the ${p.name}`} context={`product-page:${slug}`} />
-          <Link href="/pricing#engagements" className="text-sm text-power underline">
+          <Link href="/pricing#engagements" className="inline-flex min-h-11 items-center text-sm text-power underline">
             Compare all engagements
           </Link>
         </div>

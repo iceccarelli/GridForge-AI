@@ -3,6 +3,7 @@ import { quantityText } from "@/lib/quantity-text";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BOARD_HTML, getByToken, isPackFile, reviewHash } from "@/lib/deliverables";
+import { LinkNotFound } from "@/components/LinkNotFound";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
 import { BidComparison } from "@/components/BidComparison";
@@ -24,16 +25,7 @@ export default async function DeliverablePage({
   const { token } = await params;
   const row = await getByToken(token);
 
-  if (!row) {
-    return (
-      <Shell title="Not found">
-        <p className="text-mute">
-          This link does not correspond to an engagement. Check the address, or reply to the email
-          it came in.
-        </p>
-      </Shell>
-    );
-  }
+  if (!row) return <LinkNotFound what="an engagement" />;
 
   // A refunded or disputed purchase is not shown (lib/one-time-holds.ts): the buyer is told why.
   const held = paymentHoldAnswer(row);

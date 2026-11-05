@@ -157,11 +157,11 @@ export default function FreeAllowanceForm({
       </div>
       {closed ? (
         <p role="status" className="mt-3 rounded border border-line bg-panel p-3 text-sm text-mute">
-          Free developer keys are not open on this deployment yet, so nothing is sent from here. The{" "}
+          Free developer keys are not open on this deployment yet, so nothing is sent from here. Two things need no key and work now:{" "}
           <Link href={QUALIFY_LINK.href} className="text-power underline">
-            {QUALIFY_LINK.label.toLowerCase()}
+            {QUALIFY_LINK.label}
           </Link>{" "}
-          and the cost estimate need no key and work now.
+          and the cost estimate.
         </p>
       ) : null}
       <p id={hintId} className="mt-2 text-[11px] text-faint">
@@ -180,11 +180,11 @@ export default function FreeAllowanceForm({
               <p>{failure.message}</p>
               {unavailable ? (
                 <p className="mt-1 text-xs text-mute">
-                  The free allowance is not offered here yet. The{" "}
+                  The free allowance is not offered here yet. This needs no account and works now:{" "}
                   <Link href={QUALIFY_LINK.href} className="text-power underline">
-                    {QUALIFY_LINK.label.toLowerCase()}
-                  </Link>{" "}
-                  needs no account and works now.
+                    {QUALIFY_LINK.label}
+                  </Link>
+                  .
                 </p>
               ) : null}
             </div>
