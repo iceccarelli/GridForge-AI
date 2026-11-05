@@ -297,6 +297,38 @@ def test_small_cells_are_reduced_to_counts(path):
     assert "mean_abs_error" not in json.dumps(v)
 
 
+def test_capex_and_schedule_residuals_are_withheld_from_the_public_report_everywhere(path):
+    """The public tier redacts capex and schedule figures; their residuals follow the same rule. Nothing about them may leak through
+    a count, a state or the headline, while the private report still carries them."""
+    rows = (calibrated_set("capex_total_eur", n=10, sites=3, start=1) + calibrated_set("weeks_to_full", n=10, sites=3, start=101)
+            + calibrated_set("it_load_kW", n=10, sites=3, start=201))
+    put(path, rows)
+    for r in rows:
+        approve(path, r["observation_id"])
+    recs = store.approved_records(path)
+    rep = R.public_report(recs)
+    text = json.dumps(rep)
+    assert "capex_total_eur" not in json.dumps(rep["subsystems"]) and "weeks_to_full" not in json.dumps(rep["subsystems"])
+    assert set(rep["subsystems"]) == {"envelope", "thermal", "power", "grid"}
+    assert set(rep["subsystem_states"]) == {"envelope", "thermal", "power", "grid"}
+    assert "economics" not in rep["headline"] and "schedule" not in rep["headline"]
+    assert rep["withheld_variables"] == ["capex_total_eur", "weeks_to_full"]
+    assert rep["n_records"] == 10, "only the published variable's records are counted"
+    assert "EUR" not in text.replace("withheld", "")
+    private = R.residual_report(recs)
+    assert private["subsystems"]["economics"]["approved_observations"] == 10
+    assert private["subsystems"]["schedule"]["approved_observations"] == 10
+
+
+def test_withholding_only_capex_and_schedule_leaves_an_empty_public_report_uncalibrated(path):
+    rows = calibrated_set("capex_total_eur", n=10, sites=3)
+    put(path, rows)
+    for r in rows:
+        approve(path, r["observation_id"])
+    rep = R.public_report(store.approved_records(path))
+    assert rep["state"] == "uncalibrated" and rep["n_records"] == 0 and rep["n_sites"] == 0
+
+
 # --- disclosure -------------------------------------------------------------
 
 def test_with_zero_approved_records_the_accuracy_block_is_exactly_as_before(path):

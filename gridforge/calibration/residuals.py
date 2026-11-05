@@ -288,34 +288,51 @@ def _public_variable(block: dict) -> dict:
     return out
 
 
+#: Variables the PUBLIC tier already redacts elsewhere as paid content (see gridforge/api/tiers.py: capex and schedule figures). Their residual
+#: statistics are held to the same rule: they stay in the private report and the CLI and are not published, so the public route never shows
+#: more about money or dates than the rest of the public tier does. Everything the public report says is computed WITHOUT these records.
+WITHHELD_FROM_PUBLIC: frozenset[str] = frozenset({"capex_total_eur", "weeks_to_full"})
+
+
 def public_report(records: Iterable[ObservationRecord]) -> dict:
     """``residual_report`` over approved records, reduced to what may be published: aggregate statistics only.
 
     No site id, hall id, observation id, free text (the per-configuration breakdown is dropped) or individual
     measurement appears; a breakdown cell resting on fewer than ``MIN_DISTINCT_SITES`` sites shows counts only.
+    Variables in ``WITHHELD_FROM_PUBLIC`` are not published and are named as withheld; every count, state and the
+    headline are derived from the published variables only, so nothing about a withheld one leaks through them.
     With no approved record the state is ``uncalibrated`` and ``n_records`` is 0.
     """
-    recs = _eligible_records(records)
+    recs = [r for r in _eligible_records(records) if r.variable not in WITHHELD_FROM_PUBLIC]
     rep = residual_report(recs)
-    states = list(rep["subsystem_states"].values())
-    state = ("calibrated" if all(s == CALIBRATED for s in states)
+    published = [s for s in SUBSYSTEMS
+                 if any(spec[0] == s and v not in WITHHELD_FROM_PUBLIC for v, spec in VARIABLES.items())]
+    states = {s: rep["subsystem_states"][s] for s in published}
+    state = ("calibrated" if published and all(v == CALIBRATED for v in states.values())
              else "indicative" if recs else "uncalibrated")
     subsystems = {}
-    for name, sub in rep["subsystems"].items():
+    for name in published:
+        sub = rep["subsystems"][name]
         subsystems[name] = {**{k: v for k, v in sub.items() if k != "variables"},
-                            "variables": {v: _public_variable(b) for v, b in sub["variables"].items()}}
+                            "variables": {v: _public_variable(b) for v, b in sub["variables"].items()
+                                          if v not in WITHHELD_FROM_PUBLIC}}
+    headline = ("Calibration is reported per subsystem; no single accuracy figure is produced. "
+                + " ".join(f"{s}: {subsystems[s]['state']} (n={subsystems[s]['approved_observations']})." for s in published))
     return {
         "schema": PUBLIC_SCHEMA,
         "state": state,
         "n_records": len(recs),
         "n_sites": len({r.site_id for r in recs}),
-        "headline": rep["headline"],
+        "headline": headline,
         "requirements": rep["requirements"],
-        "subsystem_states": rep["subsystem_states"],
+        "subsystem_states": states,
         "subsystems": subsystems,
+        "withheld_variables": sorted(WITHHELD_FROM_PUBLIC),
         "note": ("Aggregate statistics over human-approved site observations only. Errors are in each variable's own "
                  "unit and are never combined into one accuracy figure. A measured-versus-predicted residual describes "
-                 "this engine's past error at the contributing sites; it is not a guarantee for any other site."),
+                 "this engine's past error at the contributing sites; it is not a guarantee for any other site. "
+                 "Capex and schedule residuals are withheld from the public report, as those figures are elsewhere on "
+                 "the public tier."),
     }
 
 
