@@ -163,6 +163,12 @@
         "assumed": "nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)"
       },
       {
+        "path": "thermal.plant.existing_flow_l_per_min",
+        "label": "Flow the existing hall already draws on the plant",
+        "unit": "l/min",
+        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) (E0)"
+      },
+      {
         "path": "thermal.tcs_target_supply_C",
         "label": "TCS target supply temperature",
         "unit": "degC",
