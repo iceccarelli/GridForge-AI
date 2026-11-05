@@ -82,7 +82,7 @@ export default async function LeadTimesPage() {
               {rows.map((c) => (
                 <tr key={c.slug} className="border-t border-line/60 align-top">
                   <td className="p-3">
-                    <Link href={`/constraints/${c.slug}`} className="font-semibold text-ghost hover:text-power">
+                    <Link href={`/constraints/${c.slug}`} className="inline-flex min-h-11 items-center font-semibold text-ghost hover:text-power">
                       {c.name}
                     </Link>
                   </td>
@@ -114,13 +114,13 @@ export default async function LeadTimesPage() {
       </section>
 
       <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-line pt-8">
-        <Link href="/qualify" className="rounded bg-power px-5 py-2.5 font-semibold text-ink">
+        <Link href="/qualify" className="inline-flex min-h-11 items-center rounded bg-power px-5 py-2.5 font-semibold text-ink">
           {QUALIFY_LINK.label}
         </Link>
-        <Link href="/constraints" className="text-sm text-power underline">
+        <Link href="/constraints" className="inline-flex min-h-11 items-center text-sm text-power underline">
           The thirteen constraints
         </Link>
-        <Link href="/products/density-screen" className="text-sm text-power underline">
+        <Link href="/products/density-screen" className="inline-flex min-h-11 items-center text-sm text-power underline">
           Density Screen
         </Link>
       </div>

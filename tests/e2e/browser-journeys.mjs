@@ -166,6 +166,22 @@ try {
       const nameless = await page.evaluate(() => [...document.querySelectorAll("button,a[href]")].filter((el) =>
         !(el.textContent || "").trim() && !el.getAttribute("aria-label") && !el.querySelector("img[alt]:not([alt=''])")).length);
       if (nameless) fail(where, `${nameless} button/link(s) with no accessible name`);
+      // A code block or table that scrolls sideways must be reachable from the keyboard (axe: scrollable-region-focusable).
+      const unreachable = await page.evaluate(() => [...document.querySelectorAll("pre,div,section,table")].filter((el) => {
+        const s = getComputedStyle(el);
+        return (s.overflowX === "auto" || s.overflowX === "scroll") && el.scrollWidth > el.clientWidth + 1 && el.tabIndex < 0
+          && !el.querySelector("a[href],button,input,select,textarea,[tabindex]");
+      }).length);
+      if (unreachable) fail(where, `${unreachable} horizontally scrolling region(s) the keyboard cannot reach`);
+      // The MCP install block's Copy button must not sit on top of the snippet it copies.
+      const covering = await page.evaluate(() => {
+        const pre = document.querySelector("pre[aria-label='Install command']");
+        const btn = pre && pre.parentElement && pre.parentElement.querySelector("button");
+        if (!pre || !btn) return false;
+        const a = pre.getBoundingClientRect(), b = btn.getBoundingClientRect();
+        return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      });
+      if (covering) fail(where, "the Copy button overlaps the install snippet");
       const h1 = await page.locator("h1").count();
       if (h1 !== 1) fail(where, `${h1} h1 elements`);
       if (errs.length) fail(where, "console: " + errs.join(" | "));

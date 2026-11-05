@@ -5,6 +5,7 @@ import { depositBySession, type DepositStatus } from "@/lib/deposits";
 import { accessForSession } from "@/lib/purchase-access";
 import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
 import { balanceDueCents, depositTerms } from "@/lib/engagement-state";
+import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Engagement commissioned",
@@ -36,10 +37,31 @@ export default async function CommissionedPage({
   searchParams: Promise<{ session_id?: string }>;
 }) {
   const { session_id: sessionId } = await searchParams;
-  const row = sessionId ? await deliverableBySession(sessionId) : null;
+  // Opened with no session id at all (typed, bookmarked, or a link cut short): there is no payment to speak of, so say nothing about one.
+  if (!sessionId) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8" data-testid="commissioned-no-session">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-faint">Engagement</p>
+        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost">This page opens from a checkout.</h1>
+        <p className="mt-4 max-w-2xl text-mute">
+          It shows the state of an engagement after Stripe returns you here, and there is no checkout in this address. If you
+          have just paid, use the link in your Stripe receipt or the email we sent; the intake link in that email works on its own.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center gap-x-6">
+          <Link href="/products" className="inline-flex min-h-11 items-center text-power underline">
+            The engagements
+          </Link>
+          <Link href="/contact" className="inline-flex min-h-11 items-center text-power underline">
+            How to reach us
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  const row = await deliverableBySession(sessionId);
   const intakeToken = row?.intake_token ?? null;
   // An API plan or Hall Watch has no intake: its entitlement is an account/watch behind a private link.
-  const access = !row && sessionId ? await accessForSession(sessionId) : { state: "unknown" as const };
+  const access = !row ? await accessForSession(sessionId) : { state: "unknown" as const };
   if (access.state !== "unknown") {
     return (
       <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
@@ -76,7 +98,7 @@ export default async function CommissionedPage({
   }
 
   // A deposit opens no intake at payment: a person scopes the work with the buyer first, and the intake is opened after. Say so, from the record.
-  const deposit = !row && sessionId ? await depositBySession(sessionId) : null;
+  const deposit = !row ? await depositBySession(sessionId) : null;
   if (deposit) {
     const product = PRODUCT_BY_KIND[deposit.kind];
     const stage: Record<DepositStatus, string> = {
@@ -197,7 +219,8 @@ export default async function CommissionedPage({
         </p>
         {intakeToken ? null : (
           <p className="text-faint text-sm">
-            No email after a few minutes? Reply to the Stripe receipt and we will resend the link.
+            No email after a few minutes? Reply to the Stripe receipt and we will resend the link, or write to{" "}
+            <a href={`mailto:${SITE.email}`} className="text-power underline">{SITE.email}</a>.
           </p>
         )}
       </div>

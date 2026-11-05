@@ -47,8 +47,8 @@ export default async function AudiencePage({ params }: { params: Promise<{ slug:
       ))}
       <div className="mx-auto max-w-3xl px-6">
         <nav aria-label="Breadcrumb" className="mb-4 text-[12px] text-faint">
-          <Link href="/" className="hover:text-power">Home</Link> /{" "}
-          <Link href="/for" className="hover:text-power">Who it is for</Link> / <span className="text-mute">{a.name}</span>
+          <Link href="/" className="inline-flex min-h-11 min-w-11 items-center hover:text-power">Home</Link> /{" "}
+          <Link href="/for" className="inline-flex min-h-11 items-center hover:text-power">Who it is for</Link> / <span className="text-mute">{a.name}</span>
         </nav>
         <div className="eyebrow mb-4 text-power">FOR {a.name.toUpperCase()}</div>
         <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight tracking-tight text-ghost sm:text-4xl">{a.headline}</h1>
@@ -80,7 +80,7 @@ export default async function AudiencePage({ params }: { params: Promise<{ slug:
             {named.map((c) => (
               <li key={c.slug} className="panel p-5">
                 {c.doc ? (
-                  <Link href={`/constraints/${c.slug}`} className="font-semibold text-ghost underline-offset-4 hover:text-power underline">
+                  <Link href={`/constraints/${c.slug}`} className="inline-flex min-h-11 items-center font-semibold text-ghost underline-offset-4 hover:text-power underline">
                     {c.doc.name}
                   </Link>
                 ) : (
@@ -120,7 +120,7 @@ export default async function AudiencePage({ params }: { params: Promise<{ slug:
           <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             {others.map((o) => (
               <li key={o.slug}>
-                <Link href={`/for/${o.slug}`} className="text-power underline">{o.name}</Link>
+                <Link href={`/for/${o.slug}`} className="inline-flex min-h-11 items-center text-power underline">{o.name}</Link>
               </li>
             ))}
           </ul>

@@ -30,7 +30,7 @@ function DetailsLink({ id }: { id: ProductId }) {
   const page = PRODUCT_PAGES.find((x) => x.productId === id);
   if (!page) return null;
   return (
-    <Link href={`/products/${page.slug}`} className="text-[12px] text-power underline">
+    <Link href={`/products/${page.slug}`} className="inline-flex min-h-11 items-center px-1 text-[12px] text-power underline">
       Details
     </Link>
   );
@@ -94,7 +94,7 @@ function FeaturedRung({
           type="button"
           onClick={onBuy}
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg bg-power px-6 py-3 text-sm font-semibold text-ink transition-all hover:bg-power/90 disabled:opacity-60"
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-power px-6 py-3 text-sm font-semibold text-ink transition-all hover:bg-power/90 disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Commission the {product.name} <ArrowRight size={16} />
@@ -208,7 +208,7 @@ export function EngagementLadder() {
                     type="button"
                     onClick={() => buy(id)}
                     disabled={busy === id}
-                    className="inline-flex items-center gap-2 rounded-lg bg-power px-4 py-2.5 text-sm font-medium text-ink transition-all hover:bg-power/90 disabled:opacity-60"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-power px-4 py-2.5 text-sm font-medium text-ink transition-all hover:bg-power/90 disabled:opacity-60"
                   >
                     {busy === id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     {p.recurring ? "Start" : "Commission"} <ArrowRight size={15} />

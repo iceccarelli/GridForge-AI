@@ -76,7 +76,7 @@ export function SectionNav() {
                 <button
                   key={s.id}
                   onClick={() => go(s.id)}
-                  className={`relative shrink-0 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  className={`relative inline-flex min-h-11 shrink-0 items-center px-3 text-xs font-medium rounded-md transition-colors ${
                     on ? "text-power" : "text-mute hover:text-ghost"
                   }`}
                 >

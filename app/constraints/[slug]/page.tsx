@@ -201,7 +201,7 @@ export default async function ConstraintPage({
               <Link
                 key={r.id}
                 href={`/constraints/${r.slug}`}
-                className="rounded border border-line px-3 py-1.5 text-sm text-mute hover:border-power/50 hover:text-ghost"
+                className="inline-flex min-h-11 items-center rounded border border-line px-3 py-1.5 text-sm text-mute hover:border-power/50 hover:text-ghost"
               >
                 {r.name}
               </Link>

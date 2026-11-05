@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
 import type { QualifyResult } from "@/lib/qualify";
+import { assumedText } from "@/lib/assumed-text";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
@@ -223,7 +224,7 @@ export function CapacityQualifier() {
                   aria-required="true"
                   aria-invalid={err ? true : undefined}
                   aria-describedby={err ? `qualify-${f.key}-error qualify-${f.key}-hint` : `qualify-${f.key}-hint`}
-                  className={`mt-1 w-full bg-panel-2 border rounded px-3 py-2 font-mono text-ghost
+                  className={`mt-1 min-h-11 w-full bg-panel-2 border rounded px-3 py-2 font-mono text-ghost
                            focus:outline-none focus:ring-2 focus:ring-power/60 focus:border-power/60 ${err ? "border-flag" : "border-line"}`}
                 />
                 {err ? (
@@ -247,7 +248,7 @@ export function CapacityQualifier() {
               aria-describedby="qualify-platform-hint"
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
+              className="mt-1 min-h-11 w-full bg-panel-2 border border-line rounded px-3 py-2 font-mono text-ghost
                          focus:outline-none focus:ring-2 focus:ring-power/60"
             >
               {PLATFORMS.map((p) => (
@@ -270,7 +271,7 @@ export function CapacityQualifier() {
               type="text"
               value={siteName}
               onChange={(e) => setSiteName(e.target.value)}
-              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
+              className="mt-1 min-h-11 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
                          focus:outline-none focus:ring-2 focus:ring-power/60"
             />
           </div>
@@ -284,7 +285,7 @@ export function CapacityQualifier() {
               type="text"
               value={metro}
               onChange={(e) => setMetro(e.target.value)}
-              className="mt-1 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
+              className="mt-1 min-h-11 w-full bg-panel-2 border border-line rounded px-3 py-2 text-ghost
                          focus:outline-none focus:ring-2 focus:ring-power/60"
             />
           </div>
@@ -294,7 +295,7 @@ export function CapacityQualifier() {
           <button
             type="submit"
             disabled={busy}
-            className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink
+            className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink
                        disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
@@ -411,8 +412,13 @@ function QualifyReadout({
                       {g.input}
                       {g.required ? <span className="text-flag"> *</span> : null}
                     </td>
-                    <td className="px-3 py-2 font-mono text-mute">{g.assumed}</td>
-                    <td className="px-3 py-2 text-faint">{g.why_it_binds}</td>
+                    <td className="px-3 py-2 font-mono text-mute">{assumedText(g.assumed)}</td>
+                    <td className="px-3 py-2 text-faint">
+                      {g.why_it_binds}
+                      {g.how_to_get_it ? (
+                        <span className="mt-1 block text-mute">Where to find it: {g.how_to_get_it}</span>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -420,7 +426,7 @@ function QualifyReadout({
           </div>
           <p className="text-[11px] text-faint mt-2">
             {intake.required_inputs_missing} required input
-            {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer.
+            {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer. A * marks an input the paid document requires.
           </p>
         </div>
       ) : null}

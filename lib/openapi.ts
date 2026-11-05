@@ -29,6 +29,22 @@ const RESPONSE_HEADERS = {
   "X-GridForge-Idempotent-Replay": { description: "Present when the response is a replay of an earlier request with the same Idempotency-Key.", schema: { type: "string" } },
 };
 
+/** The longest Idempotency-Key the engine accepts (its /v1/version `idempotency_key_max_chars`). */
+export const IDEMPOTENCY_KEY_MAX_CHARS = 150;
+
+/**
+ * The refusals a caller can meet, read off the engine's HTTP handler. One list, so /developers and the OpenAPI default
+ * response say the same thing. A refused or failed call is never charged.
+ */
+export const ERROR_STATUSES: { status: number; meaning: string }[] = [
+  { status: 401, meaning: "a metered route was called without a key, or with one the engine does not accept" },
+  { status: 402, meaning: "the key's monthly allowance or cap is spent; the call was refused and not charged. Buy more, do not retry" },
+  { status: 415, meaning: "the body was declared as anything other than application/json" },
+  { status: 422, meaning: "the input is too thin or invalid; nothing was solved" },
+  { status: 429, meaning: "the per-client request rate limit was exceeded; wait and retry (the limit is rate_limit_per_minute at /v1/version)" },
+  { status: 503, meaning: "paid endpoints are not configured on that deployment, or a charge could not be recorded durably" },
+];
+
 function firstSentence(s: string): string {
   const m = s.match(/^.*?[.!?](\s|$)/);
   return (m ? m[0] : s).trim();
@@ -53,7 +69,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string): Record<string,
             in: "header",
             required: false,
             description: "Repeat a request safely: the same key replays the first response and is not charged twice.",
-            schema: { type: "string", maxLength: 150 },
+            schema: { type: "string", maxLength: IDEMPOTENCY_KEY_MAX_CHARS },
           },
         ],
         requestBody: { required: true, content: { "application/json": { schema: t.inputSchema } } },
@@ -64,7 +80,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string): Record<string,
             content: { "application/json": { schema: { type: "object" } } },
           },
           default: {
-            description: "A refusal (for example 401 without a key where one is needed, 415 if the body is declared as anything other than application/json, or 422 for input too thin or invalid). A rejected or failed request is not charged.",
+            description: `A refusal: ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}. A rejected or failed request is not charged.`,
             content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
           },
         },

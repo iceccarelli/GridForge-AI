@@ -189,7 +189,7 @@ export default async function ReferencePage() {
                 <a
                   key={f}
                   href={`/reference/${f}`}
-                  className="rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
+                  className="inline-flex min-h-11 items-center rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
                 >
                   {f}
                 </a>
@@ -227,7 +227,7 @@ export default async function ReferencePage() {
                 <a
                   key={f}
                   href={`/reference/${f}`}
-                  className="rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
+                  className="inline-flex min-h-11 items-center rounded border border-line px-3 py-1.5 font-mono text-xs text-mute hover:text-ghost"
                 >
                   {f.replace("working_files/", "")}
                 </a>

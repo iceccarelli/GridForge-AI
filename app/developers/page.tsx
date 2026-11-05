@@ -20,6 +20,7 @@ import { PAYG } from "@/lib/products";
 import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
 import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
+import { ERROR_STATUSES, IDEMPOTENCY_KEY_MAX_CHARS } from "@/lib/openapi";
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -92,6 +93,20 @@ async function readJson<T>(file: string): Promise<T | null> {
 }
 
 const API = "https://gridforge-engine.fly.dev";
+
+/**
+ * A complete MCP tools/call for the free qualifier, with the same seven numbers as the REST example above it, so the
+ * snippet runs as pasted: no key (the qualifier is free) and no placeholder that is not valid JSON.
+ */
+function MCP_CALL_SNIPPET(api: string): string {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "gridforge_qualify", arguments: QUALIFY_EXAMPLE },
+  };
+  return `curl -s -X POST ${api}/mcp \\\n  -H 'content-type: application/json' \\\n  -d '${JSON.stringify(body)}'`;
+}
 
 export default async function DevelopersPage() {
   const cat = await readJson<Catalogue>("tools.json");
@@ -256,6 +271,29 @@ export default async function DevelopersPage() {
         </p>
       </section>
 
+      <section id="errors" className="mt-12 scroll-mt-24">
+        <h2 className="text-xl font-semibold text-ghost">Auth, retries and errors</h2>
+        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5 text-sm text-mute">
+          <li>
+            Send your key as <span className="font-mono text-ghost">{cat?.auth.header ?? "X-API-Key"}: &lt;key&gt;</span> or{" "}
+            <span className="font-mono text-ghost">Authorization: Bearer &lt;key&gt;</span>. The free operations need no key.
+          </li>
+          <li>
+            Add an <span className="font-mono text-ghost">Idempotency-Key</span> header (at most {IDEMPOTENCY_KEY_MAX_CHARS} characters) to a
+            POST and a retry replays the first answer instead of being charged twice.
+          </li>
+          <li>A rejected or failed call is not charged. These are the refusals you can meet:</li>
+        </ul>
+        <dl className="mt-3 max-w-3xl divide-y divide-line/60 rounded border border-line bg-panel-2 text-sm">
+          {ERROR_STATUSES.map((e) => (
+            <div key={e.status} className="flex gap-4 px-4 py-2.5">
+              <dt className="w-10 shrink-0 font-mono text-xs text-power">{e.status}</dt>
+              <dd className="min-w-0 text-mute">{e.meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
       <section className="mt-12">
         <McpInstall engine={API} availability={mcpState} />
       </section>
@@ -296,13 +334,7 @@ export default async function DevelopersPage() {
             </p>
           ) : (
           <pre tabIndex={0} aria-label="Code example" className="mt-4 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
-{`curl -s -X POST ${API}/mcp \\
-  -H 'x-api-key: YOUR_KEY' \\
-  -H 'content-type: application/json' \\
-  -d '{"jsonrpc":"2.0","id":1,
-       "method":"tools/call",
-       "params":{"name":"gridforge_qualify",
-                 "arguments":{ ... }}}'`}
+{MCP_CALL_SNIPPET(API)}
           </pre>
           )}
         </div>
