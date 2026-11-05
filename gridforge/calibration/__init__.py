@@ -18,10 +18,11 @@ from .keys import all_keys, constraint_key, label
 from .disclosure import accuracy_block, for_constraint, may_claim_field_validated
 
 from .records import ObservationRecord, RecordError, BatchResult, load_batch
-from .residuals import residual, residual_report, pending_counts
+from .residuals import residual, residual_report, pending_counts, public_report
+from . import store
 
 __all__ = ["ObservationRecord", "RecordError", "BatchResult", "load_batch",
-           "residual", "residual_report", "pending_counts",
+           "residual", "residual_report", "pending_counts", "public_report", "store",
 "Observation", "ObservationError", "Calibration", "CalibrationState",
            "summarise", "calibration_for", "Ledger", "LedgerIntegrityError", "load_ledger",
            "append_observation", "import_export", "read_chain",

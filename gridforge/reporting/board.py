@@ -122,6 +122,10 @@ def build(intake: Intake, results: list[ScenarioResult],
         "This model has not yet been checked against any instrumented site (0 reconciled observations); "
         "every figure here is modelled, not measured."
         if not acc["observations"] else acc["statement"])
+    if "residual_records" in acc and not acc["observations"]:
+        # Present only when approved residual records exist. (With ledger observations the full statement above
+        # already carries it.)
+        items[-1] += " " + acc["residual_records"]["statement"]
     s.blocks.append(Bullets(items))
     below = claims_below_floor(collect_claims(results))
     if below:

@@ -26,7 +26,7 @@ OPERATOR_GET_ROUTES = ("/v1/admin/ledger", "/v1/admin/economics")
 #: MCP tools that are free on purpose.
 FREE_TOOLS = {"gridforge_qualify": "/v1/qualify", "gridforge_estimate": "/v1/estimate"}
 #: GET routes (all free, none may touch a ledger).
-GET_FREE = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template", "/v1/calibration", "/v1/tools",
+GET_FREE = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template", "/v1/calibration", "/v1/calibration/residuals", "/v1/tools",
             "/v1/usage")
 
 
@@ -51,7 +51,7 @@ def test_the_free_allowlist_is_exactly_the_zero_weight_routes():
     zero = {p for p, u in UNIT_COST.items() if u == 0}
     assert zero == FREE_ENDPOINTS
     # The only weight-0 entries that are not POST routes are the GET listings and the /mcp transport.
-    assert zero - set(FREE_POST_ROUTES) == {"/v1/calibration", "/v1/tools", "/v1/usage", "/mcp"}
+    assert zero - set(FREE_POST_ROUTES) == {"/v1/calibration", "/v1/calibration/residuals", "/v1/tools", "/v1/usage", "/mcp"}
 
 
 def test_a_route_with_no_published_weight_is_billed_never_free():
