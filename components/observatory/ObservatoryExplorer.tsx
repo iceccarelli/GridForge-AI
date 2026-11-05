@@ -38,7 +38,7 @@ function SectionHead({ id, eyebrow, title, children }: { id: string; eyebrow: st
 function Legend() {
   return (
     <details className="rounded-xl border border-line bg-panel p-4">
-      <summary className="cursor-pointer text-sm font-semibold text-ghost">Evidence classes E0 to E7: what each means</summary>
+      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-ghost">Evidence classes E0 to E7: what each means</summary>
       <ul className="mt-3 space-y-2 text-sm">
         {EVIDENCE_CLASSES.map((c) => (
           <li key={c} className="flex items-start gap-2">
@@ -128,7 +128,7 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
             type="button"
             aria-pressed={s.id === scenario.id}
             onClick={() => pickScenario(s.id)}
-            className={`rounded-xl border px-4 py-2 text-left transition-colors ${
+            className={`min-h-11 rounded-xl border px-4 py-2 text-left transition-colors ${
               s.id === scenario.id ? "border-power bg-power/10" : "border-line bg-panel hover:border-power/60"
             }`}
           >
@@ -158,7 +158,7 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
                 <select
                   value={outcome.id}
                   onChange={(e) => pickOutcome(e.target.value)}
-                  className="field rounded-lg px-3 py-1.5 text-sm text-ghost"
+                  className="field min-h-11 rounded-lg px-3 py-1.5 text-sm text-ghost"
                 >
                   {scenario.outcomes.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -173,7 +173,7 @@ export function ObservatoryExplorer({ file, contextSlot, ctaSlot }: { file: Scen
               <div className="min-w-0">
                 <Stage model={model} selectedId={activeDetail} focusId={activeFocus} onSelect={onSelect} descriptionId={descId} />
                 <details className="mt-3 rounded-lg border border-line bg-panel p-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-ghost">Text description of this scene</summary>
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-ghost">Text description of this scene</summary>
                   <p id={descId} className="mt-2 text-sm leading-relaxed text-mute">
                     {model.textAlternative}
                   </p>

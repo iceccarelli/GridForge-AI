@@ -141,7 +141,7 @@ export function TtpCompare() {
           <p className="eyebrow">The hall</p>
           <button
             type="button"
-            className="btn-secondary px-3 py-1.5 text-xs"
+            className="btn-secondary min-h-11 px-3 py-1.5 text-xs"
             onClick={() => {
               setF({ ...SYNTHETIC, platform: "gb300_nvl72" });
               setBtm([]);
@@ -161,7 +161,7 @@ export function TtpCompare() {
               </label>
               <input
                 id={`${uid}-${k}`}
-                className="field w-full"
+                className="field min-h-11 w-full"
                 type={type}
                 inputMode={type === "number" ? "decimal" : undefined}
                 step="any"
@@ -176,7 +176,7 @@ export function TtpCompare() {
           <label htmlFor={`${uid}-platform`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
             Target platform
           </label>
-          <select id={`${uid}-platform`} className="field w-full" value={f.platform ?? "gb300_nvl72"} onChange={(e) => set("platform", e.target.value)}>
+          <select id={`${uid}-platform`} className="field min-h-11 w-full" value={f.platform ?? "gb300_nvl72"} onChange={(e) => set("platform", e.target.value)}>
             <option value="gb300_nvl72">NVIDIA GB300 NVL72</option>
             <option value="gb200_nvl72">NVIDIA GB200 NVL72</option>
             <option value="generic_dlc_50">Generic liquid-cooled, 50 kW/rack</option>
@@ -192,7 +192,7 @@ export function TtpCompare() {
                 <label htmlFor={`${uid}-${k}`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
                   {label}
                 </label>
-                <input id={`${uid}-${k}`} className="field w-full" type="number" step="any" value={f[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
+                <input id={`${uid}-${k}`} className="field min-h-11 w-full" type="number" step="any" value={f[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
               </div>
             ))}
           </div>
@@ -218,7 +218,7 @@ export function TtpCompare() {
                   {key === "kind" ? (
                     <select
                       id={`${uid}-b${i}${key}`}
-                      className="field w-full"
+                      className="field min-h-11 w-full"
                       value={o.kind}
                       onChange={(e) => setBtm((p) => p.map((x, j) => (j === i ? { ...x, kind: e.target.value } : x)))}
                     >
@@ -227,7 +227,7 @@ export function TtpCompare() {
                   ) : (
                     <input
                       id={`${uid}-b${i}${key}`}
-                      className="field w-full"
+                      className="field min-h-11 w-full"
                       type="number"
                       step="any"
                       value={(o as Record<string, string>)[key]}
@@ -237,7 +237,7 @@ export function TtpCompare() {
                 </div>
               ))}
               <div className="flex items-end">
-                <button type="button" className="btn-ghost px-3 py-2 text-xs" onClick={() => setBtm((p) => p.filter((_, j) => j !== i))}>
+                <button type="button" className="btn-ghost min-h-11 px-3 py-2 text-xs" onClick={() => setBtm((p) => p.filter((_, j) => j !== i))}>
                   Remove
                 </button>
               </div>
@@ -245,7 +245,7 @@ export function TtpCompare() {
           ))}
           <button
             type="button"
-            className="btn-secondary mt-3 px-3 py-1.5 text-xs"
+            className="btn-secondary mt-3 min-h-11 px-3 py-1.5 text-xs"
             onClick={() => setBtm((p) => [...p, { id: `opt${p.length + 1}`, kind: "gas_engine", capacity_MW: "", lead_time_weeks: "", capex_eur_per_kW: "", energy_MWh: "" }])}
           >
             Add a supply option
@@ -257,7 +257,7 @@ export function TtpCompare() {
             <label htmlFor={`${uid}-obj`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
               Rank by
             </label>
-            <select id={`${uid}-obj`} className="field" value={objective} onChange={(e) => setObjective(e.target.value as CompareObjective)}>
+            <select id={`${uid}-obj`} className="field min-h-11" value={objective} onChange={(e) => setObjective(e.target.value as CompareObjective)}>
               {OBJECTIVES.map((o) => (<option key={o} value={o}>{OBJECTIVE_LABEL[o]}</option>))}
             </select>
           </div>
@@ -424,13 +424,13 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
           <code className="data">gridforge compare</code> returns the same numbers.
         </p>
         <div className="flex flex-wrap gap-3">
-          <button type="button" className="btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", r)}>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", r)}>
             <Download className="h-3.5 w-3.5" aria-hidden /> Result (JSON)
           </button>
-          <button type="button" className="btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("request.json", out.request)}>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("request.json", out.request)}>
             <Download className="h-3.5 w-3.5" aria-hidden /> Request (JSON)
           </button>
-          <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={onCopy}>{copied ? "Copied" : "Copy request"}</button>
+          <button type="button" className="btn-ghost min-h-11 px-3 py-1.5 text-xs" onClick={onCopy}>{copied ? "Copied" : "Copy request"}</button>
         </div>
         <code className="data block overflow-x-auto whitespace-pre text-[11px] text-faint">{cli}</code>
       </div>

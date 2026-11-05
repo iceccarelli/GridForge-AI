@@ -93,7 +93,7 @@ export function PowerDeployCaseForm() {
             id="pd-redundancy"
             value={redundancy}
             onChange={(e) => setRedundancy(e.target.value)}
-            className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
+            className="min-h-11 w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
           >
             <option value="N">N</option>
             <option value="N+1">N+1</option>
@@ -131,7 +131,7 @@ export function PowerDeployCaseForm() {
       <button
         type="submit"
         disabled={state === "busy"}
-        className="inline-flex w-fit max-w-full items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
       >
         {state === "busy" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
         Run the assessment
@@ -159,7 +159,7 @@ function Field({
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
+        className="min-h-11 w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost"
       />
     </div>
   );
@@ -186,7 +186,7 @@ function TextField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint"
+        className="min-h-11 w-full rounded border border-line bg-panel px-3 py-2 text-sm text-ghost placeholder:text-faint"
       />
     </div>
   );

@@ -91,7 +91,7 @@ export default async function PlatformsPage() {
               <tr key={p.id} className="border-t border-line/60 align-top">
                 <td className="p-3">
                   {pageablePlatforms([p]).length ? (
-                    <Link href={`/platforms/${p.id}`} className="font-semibold text-ghost hover:text-power">
+                    <Link href={`/platforms/${p.id}`} className="inline-flex min-h-11 items-center font-semibold text-ghost hover:text-power">
                       {p.name}
                     </Link>
                   ) : (

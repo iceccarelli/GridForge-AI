@@ -49,7 +49,7 @@ export function NodeTable({ model, selectedId, onSelect }: { model: SceneModel; 
               type="button"
               onClick={() => onSelect(v.id)}
               aria-pressed={selectedId === v.id}
-              className="max-w-full rounded text-left text-ghost [overflow-wrap:anywhere] underline decoration-line underline-offset-4 hover:decoration-power aria-pressed:decoration-power"
+              className="inline-flex min-h-11 max-w-full items-center rounded text-left text-ghost [overflow-wrap:anywhere] underline decoration-line underline-offset-4 hover:decoration-power aria-pressed:decoration-power"
             >
               {v.title}
             </button>

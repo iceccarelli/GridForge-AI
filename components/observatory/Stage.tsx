@@ -93,7 +93,7 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
                 aria-pressed={pressed}
                 disabled={disabled}
                 onClick={() => pick(v)}
-                className={`px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`min-h-11 px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                   pressed ? "bg-power text-ink" : "bg-panel text-mute hover:text-ghost"
                 }`}
               >
@@ -137,7 +137,7 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
             type="button"
             onClick={() => onSelect(null)}
             aria-pressed={focusId === null}
-            className="rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-ghost aria-pressed:border-power aria-pressed:text-power"
+            className="min-h-11 rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-ghost md:min-h-0 aria-pressed:border-power aria-pressed:text-power"
           >
             Overview
           </button>
@@ -147,7 +147,7 @@ export function Stage({ model, selectedId, focusId, onSelect, descriptionId }: P
               type="button"
               onClick={() => onSelect(n.id)}
               aria-pressed={focusId === n.id}
-              className="rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-ghost aria-pressed:border-power aria-pressed:text-power"
+              className="min-h-11 rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-ghost md:min-h-0 aria-pressed:border-power aria-pressed:text-power"
             >
               {splitLabel(n.label).title}
             </button>

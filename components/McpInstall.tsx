@@ -112,19 +112,21 @@ export default function McpInstall({ engine, availability = "available" }: { eng
         ))}
       </div>
 
-      <div className="relative mt-3">
-        <pre tabIndex={0} aria-label="Install command" className="overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
+      <div className="mt-3">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={copy}
+            aria-label={copied ? "Copied" : `Copy the ${tab} snippet`}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded border border-line bg-panel px-3 py-1 text-xs text-mute hover:text-ghost"
+          >
+            {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <pre tabIndex={0} aria-label="Install command" className="mt-2 overflow-x-auto rounded bg-ink p-4 font-mono text-[11px] leading-relaxed text-mute">
           {snippet}
         </pre>
-        <button
-          type="button"
-          onClick={copy}
-          aria-label={copied ? "Copied" : `Copy the ${tab} snippet`}
-          className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded border border-line bg-panel px-2.5 py-1 text-xs text-mute hover:text-ghost"
-        >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
       </div>
 
       <p className="mt-3 text-[11px] text-faint">
