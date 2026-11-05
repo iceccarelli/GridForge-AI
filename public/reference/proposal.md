@@ -46,6 +46,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | GEN-5MW unit count and redundancy | optional | credited at nameplate x firm factor, as if no unit could be out of service | the generator schedule: how many units make up the option's capacity_MW, and the redundancy scheme your resilience design requires (N, N+1, N+2 or 2N) |
 | Installed CDU schedule | optional | [] | CDU nameplates and the mechanical single-line diagram. |
 | Flow the existing hall already draws on the plant | optional | 0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) | Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point. |
+| Other heat the existing hall already puts on the plant | optional | 0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only) | BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power. |
 | TCS target supply temperature | optional | 30 [27–32] degC (E0) | The platform vendor's reference design for the target rack. |
 | Rear-door heat exchanger capacity per rack | optional | 60 [20–80] kW (E0) | The selected rear-door unit's datasheet at the site's water temperature and airflow. |
 | All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |

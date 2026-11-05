@@ -209,6 +209,15 @@
         "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
       },
       {
+        "path": "thermal.plant.existing_non_it_heat_kW",
+        "label": "Other heat the existing hall already puts on the plant",
+        "unit": "kW",
+        "required": false,
+        "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+        "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted.",
+        "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."
+      },
+      {
         "path": "thermal.tcs_target_supply_C",
         "label": "TCS target supply temperature",
         "unit": "degC",

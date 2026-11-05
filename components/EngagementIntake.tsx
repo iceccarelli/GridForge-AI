@@ -54,7 +54,7 @@ export function EngagementIntake({
     buswayAmpacityA: "", buswayRuns: "6", tapoffMaxA: "", voltageV: "400",
     floorLoadingKPa: "", positionsAvailable: "", rackPositions: "", netWhiteSpaceM2: "",
     clearHeightM: "", aislePitchM: "", designDensityKWPerRack: "",
-    plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "",
+    plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "", existingFlowLPerMin: "", existingNonItHeatKW: "",
     residualAirKWPerRack: "", designDrybulbC: "",
     platform: "gb300_nvl72", utilisation: "0.75",
   });
@@ -314,6 +314,8 @@ export function EngagementIntake({
         <Field label="Supply temperature · °C" required><input className={inputCls} type="number" step="0.5" value={f.plantSupplyC} onChange={set("plantSupplyC")} required /></Field>
         <Field label="Return temperature · °C"><input className={inputCls} type="number" step="0.5" value={f.plantReturnC} onChange={set("plantReturnC")} /></Field>
         <Field label="Available pumped flow · l/min"><input className={inputCls} type="number" value={f.pumpFlowLPerMin} onChange={set("pumpFlowLPerMin")} /></Field>
+        <Field label="Flow the existing hall already draws · l/min"><input className={inputCls} type="number" min="0" value={f.existingFlowLPerMin} onChange={set("existingFlowLPerMin")} /></Field>
+        <Field label="Other heat the existing hall already puts on the plant · kW"><input className={inputCls} type="number" min="0" value={f.existingNonItHeatKW} onChange={set("existingNonItHeatKW")} /></Field>
         <Field label="Air removal per position · kW"><input className={inputCls} type="number" step="0.5" value={f.residualAirKWPerRack} onChange={set("residualAirKWPerRack")} /></Field>
       </Section>
 

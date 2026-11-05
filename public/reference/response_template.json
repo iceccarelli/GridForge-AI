@@ -169,6 +169,12 @@
         "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) (E0)"
       },
       {
+        "path": "thermal.plant.existing_non_it_heat_kW",
+        "label": "Other heat the existing hall already puts on the plant",
+        "unit": "kW",
+        "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only) (E0)"
+      },
+      {
         "path": "thermal.tcs_target_supply_C",
         "label": "TCS target supply temperature",
         "unit": "degC",

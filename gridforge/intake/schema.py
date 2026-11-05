@@ -64,6 +64,13 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("thermal.plant.chilled_water_capacity_kW", "Chilled-water plant capacity", "kW", True,
               why_it_binds="Carries the residual air load, and the liquid load in a hybrid scheme.",
               how_to_get_it="Chiller schedule; derate to the actual condensing conditions."),
+    FieldSpec("thermal.plant.existing_non_it_heat_kW", "Other heat the existing hall already puts on the plant", "kW", False,
+              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
+              counts_toward_completeness=False,
+              why_it_binds=("Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected "
+                            "to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the "
+                            "engine subtracts it as well; when absent only the IT load is subtracted."),
+              how_to_get_it="BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."),
     FieldSpec("thermal.plant.design_supply_C", "Plant supply temperature", "degC", True,
               why_it_binds="Legacy 6-7 degC plant against a 27-32 degC TCS need governs the scheme.",
               how_to_get_it="BMS setpoint and 12 months of trend."),
