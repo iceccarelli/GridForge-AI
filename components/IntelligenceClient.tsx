@@ -1,15 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
 import { LazyIsland } from "@/components/home/LazyIsland";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { SIGNAL_INPUTS } from "@/lib/intelligence-basis";
+
+/** True when the address carries the marker the checkout's cancel address adds (app/api/subscribe/route.ts). */
+export function checkoutWasCancelled(search: string): boolean {
+  try {
+    return new URLSearchParams(search).get("sub") === "cancelled";
+  } catch {
+    return false;
+  }
+}
 
 export function IntelligenceClient() {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Returning from a checkout that was not completed (the checkout's cancel address is /intelligence?sub=cancelled).
+  const [cancelled, setCancelled] = useState(false);
+  useEffect(() => {
+    try {
+      setCancelled(checkoutWasCancelled(window.location.search));
+    } catch { /* no location: nothing to say */ }
+  }, []);
 
   async function subscribe(planId: string) {
     setLoading(planId);
@@ -44,12 +62,13 @@ export function IntelligenceClient() {
               <span className="text-power">by time to power, not just queue position.</span>
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
-              A live siting dashboard: interconnection-queue signal and modelled
-              time-to-energize across regions, with behind-the-meter supply scored as one
-              named relief option, priced and lead-timed like any other — not as
-              equipment we sell or own. This is an intelligence subscription, not a
-              verified-site portfolio; every figure is modelled, and the calibration
-              ledger against instrumented sites is still empty.
+              A siting dashboard for subscribers: a modelled ranking of regions by time
+              to energize, measured US interconnection-queue history beside it, and
+              day-ahead price and grid-mix context that states its source and time or
+              says it is unavailable. Behind-the-meter supply is scored as one named
+              relief option, not as equipment we sell or own. This is an intelligence
+              subscription, not a verified-site portfolio: the ranking is modelled, and
+              the calibration ledger against instrumented sites is still empty.
             </p>
           </div>
 
@@ -57,6 +76,29 @@ export function IntelligenceClient() {
             id="ttp-15"
             className="rounded-2xl overflow-hidden border border-line aspect-[16/9] mt-10 max-w-4xl"
           />
+
+          <section className="mt-12" aria-labelledby="basis-h" data-testid="signal-basis">
+            <div className="eyebrow text-power mb-3">WHAT THE SIGNAL IS MADE FROM</div>
+            <h2 id="basis-h" className="text-2xl font-semibold tracking-tight text-ghost">Every input, its source and what it is not.</h2>
+            <ul className="mt-5 grid gap-4 md:grid-cols-2">
+              {SIGNAL_INPUTS.map((i) => (
+                <li key={i.id} className="rounded-[var(--radius)] border border-line bg-panel p-5" data-signal-input={i.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-[15px] font-semibold text-ghost">{i.name}</h3>
+                    <span className="data text-[10px] uppercase text-queue border border-queue/40 rounded px-1.5 py-0.5 shrink-0">{i.kind}</span>
+                  </div>
+                  <dl className="mt-3 space-y-1.5 text-[13px]">
+                    <div><dt className="inline text-faint">Source: </dt><dd className="inline text-mute">{i.source}</dd></div>
+                    <div><dt className="inline text-faint">Describes: </dt><dd className="inline text-mute">{i.asOf}</dd></div>
+                    <div><dt className="inline text-faint">Not: </dt><dd className="inline text-mute">{i.notThis}</dd></div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-sm text-mute max-w-3xl">
+              When a market feed does not answer, the dashboard shows Unavailable for that figure and nothing in its place.
+            </p>
+          </section>
 
           <div className="mt-12">
             <DelayDemo />
@@ -73,10 +115,11 @@ export function IntelligenceClient() {
               </span>
               <p className="mt-1 text-mute">
                 This is a wholesale-price scenario tool, not a verified-site
-                portfolio and not a battery we sell, install or own. Every figure
-                is computed live from the real EPEX curve against inputs you
-                dial in — a planning estimate, never a guarantee, and not backed
-                by the calibration ledger, which is empty today.
+                portfolio and not a battery we sell, install or own. The prices
+                are the published EPEX day-ahead auction prices, shown with their
+                source and delivery window under the result; everything else is an
+                input you dial in. A planning estimate, never a guarantee, and not
+                backed by the calibration ledger, which is empty today.
               </p>
             </div>
             <div className="mt-6">
@@ -118,6 +161,8 @@ export function IntelligenceClient() {
                 <button
                   onClick={() => subscribe(plan.id)}
                   disabled={loading !== null}
+                  aria-label={`Subscribe to ${plan.name}`}
+                  aria-busy={loading === plan.id}
                   className={`mt-7 w-full rounded-lg px-4 py-3 text-sm font-medium inline-flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
                     plan.highlighted
                       ? "bg-power text-ink hover:bg-power/90"
@@ -136,11 +181,22 @@ export function IntelligenceClient() {
             ))}
           </div>
 
+          {cancelled && !error && (
+            <p role="status" className="mt-6 text-sm text-mute" data-testid="checkout-cancelled">
+              Checkout was not completed. Choose a plan above whenever you are ready.
+            </p>
+          )}
+
           {error && (
             <p role="alert" className="mt-6 text-sm text-red-400">
               {error}
             </p>
           )}
+
+          <p className="mt-6 text-sm text-mute" data-testid="already-subscribed">
+            Already subscribed, or invited to a seat?{" "}
+            <Link href="/account" className="text-power underline">Open the dashboard</Link>. It asks you to sign in with an emailed link.
+          </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 data text-xs text-faint">
             <span>Cancel anytime</span>

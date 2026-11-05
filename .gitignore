@@ -47,6 +47,8 @@ cost_library.local.json
 /walkthrough_deck_sample.html
 calibration.local.json
 calibration.local.json.lock
+calibration.records.local.jsonl
+calibration.records.local.jsonl.lock
 .claude/worktrees/
 *.egg-info/
 build/

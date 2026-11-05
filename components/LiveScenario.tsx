@@ -26,6 +26,15 @@ import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
  */
 
 type Series = { t: number; price: number }[];
+/** What the price curve is, from the /api/market body: who published it, and when this site asked for it (asOf is the REQUEST time). */
+type Meta = { market: string; source: string; asOf: number };
+/** The delivery window the curve covers, taken from the series itself: first interval start to last interval start plus one hour. */
+export function windowOf(series: Series): { from: number; to: number } | null {
+  if (series.length === 0) return null;
+  const ts = series.map((s) => s.t);
+  return { from: Math.min(...ts), to: Math.max(...ts) + 3600000 };
+}
+const fmtStamp = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 const RTE_OPTIONS = [0.85, 0.9, 0.95] as const;
 const CYCLE_OPTIONS = [1, 2] as const;
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -69,6 +78,7 @@ const PRESETS = [
 
 export function LiveScenario() {
   const [series, setSeries] = useState<Series | null>(null);
+  const [meta, setMeta] = useState<Meta | null>(null);
   const [failed, setFailed] = useState(false);
   const [mw, setMW] = useState(80);
   const [bess, setBess] = useState(160); // MWh (4h battery → power = bess/4)
@@ -93,7 +103,10 @@ export function LiveScenario() {
       .then((r) => r.json())
       .then((d) => {
         if (!live) return;
-        if (d && d.ok && Array.isArray(d.series)) setSeries(d.series);
+        if (d && d.ok && Array.isArray(d.series) && d.series.length > 0) {
+          setSeries(d.series);
+          setMeta(typeof d.source === "string" && typeof d.market === "string" && Number.isFinite(d.asOf) ? { market: d.market, source: d.source, asOf: d.asOf } : null);
+        }
         else setFailed(true);
       })
       .catch(() => live && setFailed(true));
@@ -152,8 +165,8 @@ export function LiveScenario() {
       <div className="panel p-8 flex flex-col items-center text-center gap-2">
         <Activity className="w-6 h-6 text-faint" />
         <p className="text-sm text-mute max-w-sm">
-          Live prices unavailable right now — the scenario model runs on the real
-          EPEX curve, so it waits for the feed rather than showing made-up numbers.
+          Day-ahead prices are unavailable right now. The scenario model runs on the published
+          EPEX curve, so it shows nothing until the feed answers rather than a made-up number.
         </p>
       </div>
     );
@@ -161,7 +174,7 @@ export function LiveScenario() {
   if (!model)
     return (
       <div className="panel p-8 h-48 flex items-center justify-center text-mute text-sm data">
-        Loading today&apos;s real price curve…
+        Loading the published day-ahead price curve…
       </div>
     );
 
@@ -177,7 +190,7 @@ export function LiveScenario() {
           </h3>
           <p className="text-sm text-mute mt-1 max-w-lg">
             Dial in your cluster and battery — the bill and the savings recompute
-            against today&apos;s real EPEX prices in real time.
+            against the published EPEX day-ahead prices, with the source and window stated below the results.
           </p>
         </div>
         <div className="flex gap-1.5">
@@ -256,7 +269,7 @@ export function LiveScenario() {
         {nowMs != null && (
           <span className="inline-flex items-center gap-1.5 text-power shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-verified animate-pulse" />
-            {fmtHM(nowMs)} · live
+            {fmtHM(nowMs)} · your local time
           </span>
         )}
       </div>
@@ -315,7 +328,13 @@ export function LiveScenario() {
 
       <div className="mt-5 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-faint max-w-lg leading-relaxed">
-          Computed on today&apos;s real EPEX curve. Arbitrage assumes {cycles} cycle{cycles > 1 ? "s" : ""}/day
+          {meta && series ? (
+            <span data-testid="scenario-price-basis" className="block mb-1">
+              Prices: {meta.market}, {meta.source}. Day-ahead auction prices for the delivery window {fmtStamp(windowOf(series)!.from)} to {fmtStamp(windowOf(series)!.to)}; retrieved {fmtStamp(meta.asOf)}. A day-ahead price is set in advance; it is not a measurement of now and not a price at any site.
+            </span>
+          ) : null}
+          {annual ? <span className="block mb-1">Annualised means the window above times 365: an extrapolation of one set of prices, not a forecast.</span> : null}
+          Arbitrage assumes {cycles} cycle{cycles > 1 ? "s" : ""}/day
           at {Math.round(rte * 100)}% round-trip efficiency; grid fees are your editable estimate —
           all planning inputs, not guarantees. A Density Screen replaces them with your hall’s own numbers.
         </p>

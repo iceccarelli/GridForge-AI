@@ -188,29 +188,51 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         return ConstraintResult("hydraulic_flow", "thermal", "Hydraulic flow capacity",
                                 V(float("inf"), "racks", "flow: not limiting", ESTIMATED),
                                 basis="no liquid circuit in this architecture")
-    racks = (t.plant.pump_flow_capacity_l_per_min / ctx.cluster.platform.flow_l_per_min_per_rack).relabel(
+    pump = t.plant.pump_flow_capacity_l_per_min
+    existing = t.plant.existing_flow_l_per_min
+
+    def _available(plant_flow: Quantity) -> Quantity:
+        """Flow left for the new load: the plant's pumped flow less what the existing hall already draws, never below zero.
+        With no existing-flow figure the pumped flow is returned untouched (the long-standing reading)."""
+        if existing is None:
+            return plant_flow
+        net = plant_flow - existing
+        lo, hi = net.band
+        return Quantity(max(net.value, 0.0), net.unit, net.prov, max(lo, 0.0), max(hi, 0.0))
+
+    racks = (_available(pump) / ctx.cluster.platform.flow_l_per_min_per_rack).relabel(
         "racks permitted by available pumped flow", "thermal.flow_limit", step_evidence=SIMULATED)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
+        # The uprate scales the PUMP capacity. What the existing hall draws does not change, so it is subtracted after the uprate.
         c = c.copy()
         c.thermal.plant.pump_flow_capacity_l_per_min = (
             c.thermal.plant.pump_flow_capacity_l_per_min * V(PUMP_UPRATE, "1", "pump uprate factor", ASSUMED))
         return c
 
-    added_lpm = t.plant.pump_flow_capacity_l_per_min.value * (PUMP_UPRATE - 1.0)
+    added_lpm = pump.value * (PUMP_UPRATE - 1.0)
     price = scaled_cost(
         "pump.uprate", 420_000 / 7200.0, "EUR/lpm", added_lpm, "lpm",
         "pump and secondary pipework uprate",
         note="Placeholder re-expressed per litre/min of flow added from the earlier 420 kEUR lump at the "
              "reference hall's 7,200 l/min (+80% of 9,000). Not a market price. lpm = litres per minute.")
 
+    if existing is None:
+        basis = (f"{pump.render()} available against "
+                 f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
+                 f"(the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new "
+                 f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total")
+    else:
+        basis = (f"{pump.render()} pumped flow less {existing.render()} already drawn by the existing hall = "
+                 f"{_available(pump).render()} available to the new load (never below zero), against "
+                 f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
+                 f"(the platform library's secondary-loop flow). Modelling limit: plant delta-T and pump head are not modelled; "
+                 f"a pump uprate scales the pumped flow, not the existing hall's draw")
+
     return ConstraintResult(
         "hydraulic_flow", "thermal", "Hydraulic flow capacity",
         floor_racks(racks),
-        basis=(f"{t.plant.pump_flow_capacity_l_per_min.render()} available against "
-               f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
-               f"(the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new "
-               f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total"),
+        basis=basis,
         relief=ReliefOption(
             description="Uprate pumps and secondary pipework",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,

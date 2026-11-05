@@ -10,6 +10,7 @@ import {
 } from "@/lib/admin";
 import { AdminDashboard } from "@/components/AdminDashboard";
 import { StripeHealthPanel } from "@/components/StripeHealthPanel";
+import { subscriptionOverview } from "@/lib/subscribers";
 import {
   CAPABILITY_REGISTRY,
   priceableButNotOnWeb,
@@ -52,6 +53,7 @@ export default async function AdminPage() {
   }
 
   const leads = await fetchLeads();
+  const subs = await subscriptionOverview();
   const gaps = [
     ...productsMissingFromRegistry().map((id) => `product ${id} has no registry entry`),
     ...intelligencePlansMissingFromRegistry().map((id) => `plan ${id} has no registry entry`),
@@ -66,6 +68,33 @@ export default async function AdminPage() {
         </Link>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <StripeHealthPanel />
+          <div className="rounded border border-line bg-panel-2 p-4" data-admin="intelligence-subscriptions">
+            <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
+              Intelligence subscriptions
+            </h3>
+            {subs === null ? (
+              <p className="mt-2 text-[12px] text-flag">
+                Unavailable: the subscription store could not be read. This is not a count of zero.
+              </p>
+            ) : subs.counts.length === 0 ? (
+              <p className="mt-2 text-[12px] text-ghost">The store was read and holds no subscription rows.</p>
+            ) : (
+              <>
+                <p className="mt-2 text-[12px] text-ghost">
+                  {subs.entitling} entitling (active or past due), before seats.
+                  {subs.newestAt ? ` Newest row written ${subs.newestAt}.` : ""}
+                </p>
+                <ul className="mt-2 space-y-1 text-[12px] text-mute">
+                  {subs.counts.map((c) => (
+                    <li key={`${c.plan}-${c.status}`}>
+                      {c.plan} · {c.status}: {c.rows}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="mt-2 text-[11px] text-faint">Counts only, no addresses. GET /api/admin/subscriptions</p>
+          </div>
           <div className="rounded border border-line bg-panel-2 p-4">
             <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
               Capability registry — {CAPABILITY_REGISTRY.length} capabilities

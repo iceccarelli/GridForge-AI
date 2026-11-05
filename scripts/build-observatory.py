@@ -61,6 +61,7 @@ from gridforge.validation.quantity import _round_sig  # noqa: E402
 _PRIVATE_FILES = {          # names the engine reads at call time
     "GRIDFORGE_COST_LIBRARY": "private-costs.json",
     "GRIDFORGE_CALIBRATION_LEDGER": "private-ledger.json",
+    "GRIDFORGE_CALIBRATION_RECORDS": "private-records.jsonl",
 }
 
 

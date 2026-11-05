@@ -241,7 +241,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
       subject: "Welcome to GridForge Intelligence",
       text:
         `Your ${String(row.plan ?? "")} subscription is active.\n\n` +
-        `Sign in to your live dashboard: ${SITE_URL}/account/login\n\n` +
+        `Sign in to your dashboard: ${SITE_URL}/account/login\n\n` +
         "— Time to Power",
     };
   }
@@ -260,7 +260,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
       text:
         `${owner} has given you a seat on their GridForge Intelligence subscription.\n\n` +
         "Open the link below, sign in with this email address, and accept the invitation. " +
-        "The seat gives you the same live siting dashboard the subscription already includes.\n\n" +
+        "The seat gives you the same siting dashboard the subscription already includes.\n\n" +
         `${SITE_URL}/account/invite/${secret}` +
         "\n\nThe link works only for this address, once, and expires " +
         `${new Date(String(row.expires_at)).toISOString().slice(0, 10)}. If you were not expecting it, ignore this message and nothing changes.`,

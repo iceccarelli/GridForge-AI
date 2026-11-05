@@ -37,6 +37,7 @@ export const STALE_ENGINE: string[] = [
 /** An engine redeployed from this repository: the stale list plus every route the site and the tool catalogue name. */
 export const FULL_ENGINE: string[] = [
   ...STALE_ENGINE,
+  "/v1/calibration/residuals",
   "/v1/compare",
   "/v1/estimate",
   "/v1/power/assess",

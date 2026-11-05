@@ -56,6 +56,7 @@ UNIT_COST: dict[str, int] = {
     "/v1/power/deploy/spec": 3,    # a derived, tender-ready document, same basis as /v1/spec
     "/v1/power/deploy/bids": 2,    # the tender package plus the comparison, same basis as /v1/bids
     "/v1/calibration": 0,
+    "/v1/calibration/residuals": 0,
     "/v1/tools": 0,
     "/v1/usage": 0,
     "/mcp": 0,               # the transport is free; the tool it calls is not

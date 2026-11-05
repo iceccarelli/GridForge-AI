@@ -114,7 +114,9 @@ What the site shows without a purchase is labelled by kind:
 ## API
 
 Public-tier routes (no signed key): `POST /v1/qualify`, `POST /v1/estimate`, and the read-only `GET /health`,
-`/v1/version`, `/v1/platforms`, `/v1/intake/template`, `/v1/calibration`, `/v1/tools`. Client routes (`/v1/screen`,
+`/v1/version`, `/v1/platforms`, `/v1/intake/template`, `/v1/calibration`, `/v1/calibration/residuals` (aggregate
+residual statistics over human-approved site observations only; `uncalibrated`, `n_records` 0 until there are
+some), `/v1/tools`. Client routes (`/v1/screen`,
 `/v1/compare`, `/v1/study`, `/v1/portfolio`, `/v1/diff`, `/v1/spec`, `/v1/bids` and others) need a signed key and
 are metered by plan. The OpenAPI description is served at `/openapi.json`. The developer page, `/developers`,
 documents authentication, limits and errors.

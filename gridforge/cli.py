@@ -668,6 +668,86 @@ def _cmd_calibrate(args) -> int:
     return 0
 
 
+def cmd_calibration(args) -> int:
+    """Observation records for the residual framework: ingest as draft, review by a second person, report.
+
+    Output is counts and states only. With nothing approved it says so plainly; it never invents a number.
+    Exit 0 ok, 2 refusal (nothing written), 3 the store failed its hash-chain check (nothing read or written).
+    """
+    from .calibration import residuals, store
+    from .calibration.ledger import LedgerIntegrityError
+    from .calibration.records import VARIABLES
+    from .calibration.schema import ObservationError
+    try:
+        path = store.store_path()
+        if args.cal_action == "ingest":
+            try:
+                doc = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"refused: cannot read {args.file}: {exc}", file=sys.stderr)
+                return 2
+            rows = doc.get("records") if isinstance(doc, dict) else doc
+            if not isinstance(rows, list):
+                print("refused: expected a JSON list of records, or {\"records\": [...]}", file=sys.stderr)
+                return 2
+            out = store.ingest(rows, submitter=args.submitter)
+            print(f"ingested {out['stored']} record(s) as draft; {out['duplicates_skipped']} duplicate(s) skipped "
+                  f"(of {out['submitted']} submitted) -> {out['path']}")
+            print("Drafts change no statistic. A second person must approve each with `gridforge calibration review`.")
+            return 0
+        if args.cal_action == "review":
+            decision = "approved" if args.approve else "rejected"
+            out = store.review(args.id, decision, reviewer=args.reviewer, reason=args.reason)
+            print(f"{out['observation_id']}: {out['previous_status']} -> {out['status']} "
+                  f"(recorded as a new entry; history is not edited)")
+            return 0
+        stored = store.load_all()
+        counts = residuals.pending_counts([s.record for s in stored])
+        if args.cal_action == "pending":
+            drafts = [s for s in stored if s.record.approval_status == "draft"]
+            print(f"{len(drafts)} draft record(s) awaiting review "
+                  f"({counts['approved']} approved, {counts['rejected']} rejected).")
+            for s in drafts:
+                print(f"  {s.record.observation_id}  variable={s.record.variable}  site={s.record.site_id}  "
+                      f"submitted_by={s.submitted_by}")
+            return 0
+        # report
+        approved = residuals.approved([s.record for s in stored])
+        rep = residuals.residual_report(approved)
+        n_sites = len({r.site_id for r in approved})
+        if args.json:
+            print(json.dumps({"n_records": len(approved), "n_sites": n_sites, "record_counts": counts,
+                              "report": rep}, indent=2, sort_keys=True))
+            return 0
+        print(f"records: {counts['approved']} approved, {counts['draft']} draft, {counts['rejected']} rejected "
+              f"({n_sites} site(s) among the approved).")
+        if not approved:
+            print("No variable is calibrated: there are no approved records, so accuracy is unquantified and every "
+                  "figure remains modelled.")
+        calibrated = sorted(v for sub in rep["subsystems"].values() for v, b in sub["variables"].items()
+                            if b["state"] == residuals.CALIBRATED)
+        for sub, body in rep["subsystems"].items():
+            print(f"  {body['statement']}")
+            for v, b in body["variables"].items():
+                if b["approved_observations"]:
+                    print(f"    {v:24s} {b['state']:12s} n={b['approved_observations']}  "
+                          f"sites={b['distinct_sites']}  still needed: {b['still_needed']['observations']} "
+                          f"observation(s), {b['still_needed']['sites']} site(s)")
+        if approved:
+            print(f"{len(calibrated)} of {len(VARIABLES)} variable(s) calibrated"
+                  + (f": {', '.join(calibrated)}." if calibrated else "; none."))
+        return 0
+    except LedgerIntegrityError as exc:
+        print(f"record store integrity failure: {exc}", file=sys.stderr)
+        print("Nothing was read or written. Restore the file from a backup or investigate who changed it; "
+              "do not edit it by hand.", file=sys.stderr)
+        return 3
+    except ObservationError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        print("Nothing was written.", file=sys.stderr)
+        return 2
+
+
 def cmd_tools(args) -> int:
     """Print the machine-callable surface: what an agent can call, and what it costs.
 
@@ -1171,6 +1251,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--note", default="")
     s.add_argument("--ledger", help="path to a ledger JSON (default: your private, gitignored one)")
     s.set_defaults(func=cmd_calibrate)
+
+    s = sub.add_parser("calibration",
+                       help="observation records: ingest as draft, review by a second person, report residuals")
+    cal = s.add_subparsers(dest="cal_action", required=True)
+    c = cal.add_parser("ingest", help="validate a JSON file of records and store them as draft (all or nothing)")
+    c.add_argument("file")
+    c.add_argument("--submitter", default="", help="who is submitting; they cannot later approve these records")
+    c = cal.add_parser("review", help="approve or reject one stored record (appends; never edits history)")
+    c.add_argument("id", help="the record's observation_id")
+    g = c.add_mutually_exclusive_group(required=True)
+    g.add_argument("--approve", action="store_true")
+    g.add_argument("--reject", action="store_true")
+    c.add_argument("--reviewer", default="", help="the reviewer's name (required; not the submitter, to approve)")
+    c.add_argument("--reason", default="", help="why (required)")
+    c = cal.add_parser("report", help="residual statistics over APPROVED records, per subsystem")
+    c.add_argument("--json", action="store_true")
+    cal.add_parser("pending", help="records still awaiting review")
+    s.set_defaults(func=cmd_calibration)
 
     s = sub.add_parser("tools", help="the machine-callable surface: tools, units, MCP")
     s.add_argument("--json", action="store_true", help="print the full catalogue as JSON")

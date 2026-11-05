@@ -39,7 +39,9 @@ def test_reference_intake_supplies_every_required_input_and_names_what_it_defaul
     assert sorted(g.path for g in intake.report.gaps) == [
         "btm_options[BESS-2MW-8MWh].energy_MWh", "btm_options[GEN-5MW].units",
         "economics.discount_rate", "economics.electricity_eur_per_MWh", "thermal.cdus",
-        "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
+        "thermal.plant.existing_flow_l_per_min", "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
+    # The existing-flow field is an optional sharpener the reference hall does not give: asked for in the data request,
+    # outside the completeness ratio (see FieldSpec.counts_toward_completeness).
     # A sanity floor, not a target. Completeness counts only gaps in the scalar intake fields (the ratio's denominator), so a
     # per-option data request (battery energy, generator unit count) is listed as a request without lowering it.
     assert 0.8 < intake.report.completeness < 1.0

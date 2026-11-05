@@ -70,8 +70,8 @@
       "hash": "c8f26b167718a5a19d69de9d0f852ce5a450f749752d77c665191f2fc7524e76"
     },
     "/developers": {
-      "lastmod": "2026-11-03",
-      "hash": "c34439f6161034ee8cb377b94371767d0494872e0de3b48c18fe91b4ee54e602"
+      "lastmod": "2026-11-05",
+      "hash": "108c74117c5d95e2cfb920bd319ebd32457f0e23b1debd8a43db0b06fbfa817d"
     },
     "/evidence": {
       "lastmod": "2026-11-03",
@@ -110,12 +110,12 @@
       "hash": "d4217f5728e209f3cbf9f49b8c1b7c869fd5caaea5885a81d26070d3be55b8a6"
     },
     "/guides/nameplate-vs-useful-compute": {
-      "lastmod": "2026-11-03",
-      "hash": "0e0c0402e2a9bd32cbfa53e44068d5449189ba91923904f38393f923d7051e1d"
+      "lastmod": "2026-11-05",
+      "hash": "57670514717228c9fc4a503a63d6f6e0f6529dcce4d35e09d1daadfd3474d7c5"
     },
     "/intelligence": {
-      "lastmod": "2026-11-03",
-      "hash": "cbac0d5c74d3a3e3d83a2a5a8bed361f34a8b77cabedd5ffe486cb87faedebff"
+      "lastmod": "2026-11-05",
+      "hash": "8d7f091ab4db4e10baac4337074773cbf99ea659e4b0bcc65cf5f8e6efd9c83a"
     },
     "/lead-times": {
       "lastmod": "2026-11-03",
@@ -134,8 +134,8 @@
       "hash": "975cfc009e607eb0620a7f7ee19169354810dd15963f4ec782be5c389934827d"
     },
     "/observatory": {
-      "lastmod": "2026-11-04",
-      "hash": "74cbdb5577b32ff6555b18d14b16f10206176d41926ca7e0549f6107bddba911"
+      "lastmod": "2026-11-05",
+      "hash": "0abf32f1397875c78ec858ff2a8629dce5e6fbcb0643bb2f8ff488b238f52301"
     },
     "/platforms": {
       "lastmod": "2026-11-03",
@@ -190,8 +190,8 @@
       "hash": "dc4ad9a62ed57ff444ee0cbe87c29bc27a013fdddccaa6729bea25258aa0bbd4"
     },
     "/reference": {
-      "lastmod": "2026-11-03",
-      "hash": "dbc5062f038ce790833101e3ac184f3b860fa1db4f0022919f4da5ac1fccdb66"
+      "lastmod": "2026-11-05",
+      "hash": "a6c4ca57fc5f911d78477774ff0dd075ba1f4841888423cd2429ac92527fc7a9"
     }
   }
 }

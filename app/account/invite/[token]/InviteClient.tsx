@@ -100,7 +100,7 @@ export default function InviteClient({ token }: { token: string }) {
               {cap(view.plan)} subscription.
             </p>
             <p className="text-mute text-[13px] mt-2">
-              You would sign in as <span className="text-white">{me}</span> and get the same live siting dashboard. The owner can
+              You would sign in as <span className="text-white">{me}</span> and get the same siting dashboard. The owner can
               remove the seat at any time. This offer expires {new Date(view.expiresAt).toISOString().slice(0, 10)}.
             </p>
             <div className="flex gap-3 mt-5">
