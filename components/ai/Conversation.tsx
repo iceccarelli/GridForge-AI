@@ -62,7 +62,7 @@ export function Conversation({
               <button
                 key={p}
                 onClick={() => onSend(p)}
-                className="block w-full text-left rounded-lg border border-line bg-ink/40 px-3 py-2.5 text-[13px] text-ghost hover:border-power/40 transition-colors"
+                className="block min-h-11 w-full text-left rounded-lg border border-line bg-ink/40 px-3 py-2.5 text-[13px] text-ghost hover:border-power/40 transition-colors"
               >
                 {p}
               </button>
@@ -104,12 +104,12 @@ export function Conversation({
             }}
             rows={1}
             placeholder="e.g. 40 MW hall, contracted, not sure what binds…"
-            className="flex-1 resize-none bg-ink border border-line rounded-lg px-3 py-2.5 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none max-h-28"
+            className="min-h-11 flex-1 resize-none bg-ink border border-line rounded-lg px-3 py-2.5 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none max-h-28"
           />
           <button
             onClick={submit}
             disabled={loading || !input.trim()}
-            className="shrink-0 rounded-lg bg-power text-ink p-2.5 disabled:opacity-40 hover:bg-power/90 transition-colors"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg bg-power text-ink p-2.5 disabled:opacity-40 hover:bg-power/90 transition-colors"
             aria-label="Send"
           >
             <Send size={16} />

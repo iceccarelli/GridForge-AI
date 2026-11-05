@@ -34,11 +34,11 @@ export function DelayDemo() {
       <div className="grid sm:grid-cols-2 gap-5 mb-6">
         <div>
           <label htmlFor="delaydemo-mw" className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
-          <input id="delaydemo-mw" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
+          <input id="delaydemo-mw" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="mt-2 h-11 w-full accent-[color:var(--power,#38bdf8)]" />
         </div>
         <div>
           <label htmlFor="delaydemo-region" className="data text-[10px] text-faint">MARKET</label>
-          <select id="delaydemo-region" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
+          <select id="delaydemo-region" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 min-h-11 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
             {ranked.map((r) => <option key={r.id} value={r.id}>{r.region}</option>)}
           </select>
         </div>
@@ -59,8 +59,8 @@ export function DelayDemo() {
         </div>
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
           <div className="data text-[10px] text-faint sm:w-24 sm:shrink-0">BTM PATH</div>
-          <div className="min-h-7 py-1 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
-            <span className="data text-[11px] text-power sm:whitespace-nowrap">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
+          <div className="min-h-7 min-w-[min(100%,15rem)] py-1 rounded bg-power/20 border border-power/30 flex items-center px-3" style={{ width: `${Math.max(18, pct)}%` }}>
+            <span className="data text-[11px] text-power">{region.btmMonths}mo assumed · {eurCompact(d.btmCostEur)}</span>
           </div>
         </div>
       </div>

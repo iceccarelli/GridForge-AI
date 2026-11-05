@@ -103,12 +103,12 @@ function Block({ title, note, code }: { title: string; note: string; code: strin
       <h3 className="text-sm font-semibold text-ghost">{title}</h3>
       <p className="mt-1 text-xs text-mute">{note}</p>
       <div className="relative mt-2">
-        <pre className="overflow-x-auto rounded bg-ink p-4 pr-20 font-mono text-[11px] leading-relaxed text-mute">{code}</pre>
+        <pre tabIndex={0} aria-label={`Command: ${title}`} className="min-h-[3.5rem] overflow-x-auto rounded bg-ink p-4 pr-20 font-mono text-[11px] leading-relaxed text-mute">{code}</pre>
         <button
           type="button"
           onClick={copy}
           aria-label={copied ? "Copied" : `Copy: ${title}`}
-          className="absolute right-2 top-2 inline-flex min-h-9 items-center gap-1.5 rounded border border-line bg-panel px-2.5 py-1 text-xs text-mute hover:text-ghost"
+          className="absolute right-2 top-2 inline-flex min-h-11 items-center gap-1.5 rounded border border-line bg-panel px-2.5 py-1 text-xs text-mute hover:text-ghost"
         >
           {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
           {copied ? "Copied" : "Copy"}

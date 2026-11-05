@@ -115,7 +115,7 @@ export default async function Guide() {
                     return (
                       <tr key={c.id} className="border-t border-line/60 align-top">
                         <th scope="row" className="p-3 font-normal text-ghost">
-                          {slug ? <Link href={`/constraints/${slug}`} className="underline underline-offset-4 hover:text-power">{c.name}</Link> : c.name}
+                          {slug ? <Link href={`/constraints/${slug}`} className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-power">{c.name}</Link> : c.name}
                           {c.gate ? <span className="data ml-2 text-[10px] text-queue">GATE</span> : null}
                         </th>
                         <td className="p-3 font-mono text-ghost">{c.racks_permitted}</td>
