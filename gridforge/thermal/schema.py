@@ -27,6 +27,9 @@ class PlantSpec:
     #: Flow the existing hall already draws on this plant (l/min). None = not supplied: the pump flow is then read as flow available
     #: to the new load, exactly as before.
     existing_flow_l_per_min: Quantity | None = None
+    #: Heat the plant already carries in the existing hall beyond the IT load (UPS and distribution losses, fan-wall and pump power
+    #: rejected to the plant, lighting), kW. None = not supplied: headroom is then plant capacity less the IT load only, as before.
+    existing_non_it_heat_kW: Quantity | None = None
 
 
 @dataclass

@@ -115,6 +115,11 @@ const baseShape = {
   pumpFlowLPerMin: num(200000).optional(),
   /** Flow the existing hall already draws on the plant (l/min). Optional: when given, the engine subtracts it from the pumped flow. */
   existingFlowLPerMin: num(200000).optional(),
+  /**
+   * Other heat the chilled-water plant already carries in the existing hall beyond the IT load (UPS and distribution losses, fan-wall and
+   * pump power rejected to the plant, lighting), kW. Optional: when given, the engine subtracts it from the plant headroom as well.
+   */
+  existingNonItHeatKW: num(200000).optional(),
   residualAirKWPerRack: num(200).optional(),
 
   // site conditions
@@ -145,10 +150,33 @@ function existingFlowRule(v: { pumpFlowLPerMin?: number; existingFlowLPerMin?: n
 }
 
 /**
+ * The engine refuses other plant heat larger than the plant capacity it is carried by, naming both numbers. The same rule here lets the form
+ * say so before anything is sent. Only checked when BOTH are given: with the capacity absent the engine applies its own placeholder and says so.
+ */
+function existingNonItHeatRule(v: { plantCapacityKW?: number; existingNonItHeatKW?: number }, ctx: z.RefinementCtx) {
+  if (v.existingNonItHeatKW !== undefined && v.plantCapacityKW !== undefined && v.existingNonItHeatKW > v.plantCapacityKW) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["existingNonItHeatKW"],
+      message: `the other heat on the plant (${v.existingNonItHeatKW} kW) is larger than the chilled-water plant capacity (${v.plantCapacityKW} kW) that carries it; give the heat the existing hall puts on this plant beyond its IT load, which cannot exceed the plant's capacity`,
+    });
+  }
+}
+
+/** The cross-field rules for the optional plant figures, in one refinement so each schema applies them all. */
+function plantFigureRules(
+  v: { pumpFlowLPerMin?: number; existingFlowLPerMin?: number; plantCapacityKW?: number; existingNonItHeatKW?: number },
+  ctx: z.RefinementCtx,
+) {
+  existingFlowRule(v, ctx);
+  existingNonItHeatRule(v, ctx);
+}
+
+/**
  * Everything, required. The Procurement Specification, and the safe default for
  * any product that does not say otherwise.
  */
-export const engagementIntakeSchema = z.object(baseShape).superRefine(existingFlowRule);
+export const engagementIntakeSchema = z.object(baseShape).superRefine(plantFigureRules);
 
 /**
  * The Density Screen: the seven the free qualifier proves are enough to name what
@@ -166,7 +194,7 @@ export const screenIntakeSchema = z
     floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
     plantCapacityKW: baseShape.plantCapacityKW.optional(),
   })
-  .superRefine(existingFlowRule);
+  .superRefine(plantFigureRules);
 
 /**
  * The schema for a product kind.
@@ -300,6 +328,7 @@ export function toIntakeDocument(i: ScreenIntake, company?: string): Record<stri
         design_return_C: i.plantReturnC,
         pump_flow_capacity_l_per_min: i.pumpFlowLPerMin,
         existing_flow_l_per_min: i.existingFlowLPerMin,
+        existing_non_it_heat_kW: i.existingNonItHeatKW,
       }),
       ...(i.residualAirKWPerRack !== undefined
         ? { residual_air_capacity_kW_per_rack: i.residualAirKWPerRack }

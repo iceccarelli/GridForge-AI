@@ -142,8 +142,16 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     plat = ctx.cluster.platform
     per_rack = plat.rack_kW if _liquid_load_to_plant(ctx) else plat.residual_air_kW()
     existing = ctx.power.current_it_load_MW.convert(1000.0, "kW", "existing hall heat load on plant")
-    headroom = (t.plant.chilled_water_capacity_kW - existing).relabel(
-        "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+    other_heat = t.plant.existing_non_it_heat_kW
+    if other_heat is None:
+        headroom = (t.plant.chilled_water_capacity_kW - existing).relabel(
+            "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+    else:
+        # Plant capacity less the IT load less the other heat the existing hall already puts on the plant, never below zero.
+        net = (t.plant.chilled_water_capacity_kW - existing - other_heat).relabel(
+            "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+        lo, hi = net.band
+        headroom = Quantity(max(net.value, 0.0), net.unit, net.prov, max(lo, 0.0), max(hi, 0.0))
     racks = headroom / per_rack
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
@@ -162,11 +170,18 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     route = ("full rack load (rack heat rejected into the existing plant)" if _liquid_load_to_plant(ctx)
              else "residual air load only (liquid rejected to a dedicated high-temperature loop)")
+    if other_heat is None:
+        basis = (f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}. Modelling limit: the headroom is "
+                 f"plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share")
+    else:
+        basis = (f"{headroom.render()} of plant headroom = {t.plant.chilled_water_capacity_kW.render()} plant capacity less "
+                 f"{existing.render()} IT load less {other_heat.render()} of other heat the existing hall already puts on the plant "
+                 f"(never below zero), against {per_rack.render()} per rack — {route}. Modelling limit: plant redundancy and condenser derating "
+                 f"are not modelled, and only the other heat the client gave is subtracted; a plant uprate scales the capacity, not that heat")
     return ConstraintResult(
         "plant_capacity", "thermal", "Chilled-water plant capacity",
         floor_racks(racks),
-        basis=(f"{headroom.render()} of plant headroom against {per_rack.render()} per rack — {route}. Modelling limit: the headroom is "
-               f"plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share"),
+        basis=basis,
         relief=ReliefOption(
             description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
