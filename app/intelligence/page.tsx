@@ -10,7 +10,7 @@ import { IntelligenceClient } from "@/components/IntelligenceClient";
 // its own title, description and canonical.
 const TITLE = "GridForge Intelligence — siting by time to power";
 const DESCRIPTION =
-  "Interconnection-queue signal and modelled time-to-energize across regions, with behind-the-meter supply scored as one named relief option — a modelled intelligence subscription, not a verified-site portfolio.";
+  "A modelled ranking of regions by time to energize, with measured US interconnection-queue history and day-ahead market context that states its source and time — a modelled intelligence subscription, not a verified-site portfolio.";
 
 export const metadata: Metadata = {
   title: TITLE,

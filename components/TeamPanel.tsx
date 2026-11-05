@@ -119,7 +119,7 @@ export default function TeamPanel({ headers }: { headers: () => Promise<Record<s
       </div>
       <p className="text-mute text-[13px] mb-5">
         You, the billing owner, hold one seat and always keep control of the subscription. Everyone you invite signs in with their own
-        email address and gets the same live dashboard; only you can add or remove seats.
+        email address and gets the same dashboard; only you can add or remove seats.
       </p>
 
       {suspended > 0 && (

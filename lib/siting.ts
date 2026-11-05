@@ -33,8 +33,9 @@ export interface SitingRegion {
   note: string;
 }
 
-// NOTE: powerCost/renewablePct for the DE row are overwritten with LIVE values
-// at runtime from useMarket(); the static values here are fallbacks.
+// Every figure in this table is MODELED (or, for the four US queue waits, MEASURED: see withQueueEvidence). The one hour's EPEX price
+// and the one interval's German generation mix are a different kind of number (a day-ahead auction price, an instantaneous reading),
+// so they are shown as separately labelled market context with their own source and time, never written over a row of this table.
 const RAW_SITING_REGIONS: SitingRegion[] = [
   {
     id: "ercot-tx", market: "ERCOT", region: "Texas (West/Permian)", country: "US",
@@ -62,9 +63,9 @@ const RAW_SITING_REGIONS: SitingRegion[] = [
   },
   {
     id: "de-eu", market: "EPEX (DE-LU)", region: "Germany / Central EU", country: "DE",
-    powerCost: 90, powerCostProvenance: "live",
-    queueWaitMonths: 54, btmMonths: 12, renewablePct: 45, renewableProvenance: "live",
-    congestion: 76, note: "High wholesale + grid fees; BTM avoids both. Live EPEX feed below.",
+    powerCost: 90, powerCostProvenance: "modeled",
+    queueWaitMonths: 54, btmMonths: 12, renewablePct: 45, renewableProvenance: "modeled",
+    congestion: 76, note: "High wholesale + grid fees; BTM avoids both. The live EPEX price is shown separately as market context.",
   },
   {
     id: "nordics", market: "Nord Pool", region: "Nordics (Sweden/Finland)", country: "EU",
@@ -92,11 +93,21 @@ export function queueBasisNote(r: SitingRegion): string {
 
 // Fastest-to-energize score: rewards low BTM time + low cost + low congestion.
 // Higher = better place to put an AI site you need powered fast.
+/** The weights of the score, exported so the page can state them from this one place. They sum to 1. */
+export const SCORE_WEIGHTS = { speed: 0.45, cost: 0.3, queue: 0.25 } as const;
+
+/** What the whole table rests on, in words for the page: a hand-set dataset has no as-of date and is not given one. */
+export const SITING_DATASET = {
+  basis: "modeled",
+  label: "Hand-set regional estimates grounded in published queue reports and typical industrial tariff ranges; directional, not bankable.",
+  asOf: null as string | null,
+} as const;
+
 export function sitingScore(r: SitingRegion): number {
   const speed = Math.max(0, 100 - r.btmMonths * 5);      // 10mo -> 50
   const cost = Math.max(0, 100 - r.powerCost);            // lower €/MWh better
   const queue = 100 - r.congestion;                       // less congested better
-  return Math.round(speed * 0.45 + cost * 0.3 + queue * 0.25);
+  return Math.round(speed * SCORE_WEIGHTS.speed + cost * SCORE_WEIGHTS.cost + queue * SCORE_WEIGHTS.queue);
 }
 
 // --- Cost-of-delay: the core hook. Quantifies what the interconnection queue

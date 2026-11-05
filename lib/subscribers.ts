@@ -516,3 +516,54 @@ export async function deleteScenario(email: string, id: string): Promise<boolean
   const rows = (await res.json()) as ScenarioRecord[];
   return rows.length > 0;
 }
+
+// --- operator overview ------------------------------------------------------
+
+export interface SubscriptionOverview {
+  /** Rows per plan and status, counted over the rows the store returned. No address, name or identifier is included. */
+  counts: { plan: string; status: string; rows: number }[];
+  /** Rows that currently entitle (active or past_due) before seats: what the paid view is open to. */
+  entitling: number;
+  /** The newest row's creation time, so an operator can see whether the webhook is still writing. */
+  newestAt: string | null;
+}
+
+/**
+ * What an operator can see about the Intelligence subscription store without reading a person's address: counts by plan and
+ * status. `null` means "could not ask" (not configured, unreachable, or the store refused), never "there are none": the caller
+ * says so. Read-only; it changes no entitlement and is used by no gate.
+ */
+export async function subscriptionOverview(): Promise<SubscriptionOverview | null> {
+  const r = rest(`subscriptions?select=plan,status,created_at&order=created_at.desc&limit=5000`);
+  if (!r) return null;
+  let res: Response;
+  try {
+    res = await fetch(r.url, { headers: r.headers, cache: "no-store" });
+  } catch (err) {
+    console.error("[GridForge] subscription overview unreachable:", err);
+    return null;
+  }
+  if (!res.ok) {
+    console.error("[GridForge] subscription overview failed:", await storeFault(res));
+    return null;
+  }
+  const rows = (await res.json()) as { plan?: unknown; status?: unknown; created_at?: unknown }[];
+  if (!Array.isArray(rows)) return null;
+  const tally = new Map<string, { plan: string; status: string; rows: number }>();
+  let entitling = 0;
+  for (const row of rows) {
+    const plan = typeof row.plan === "string" ? row.plan : "unknown";
+    const status = typeof row.status === "string" ? row.status : "unknown";
+    const key = `${plan}|${status}`;
+    const t = tally.get(key) ?? { plan, status, rows: 0 };
+    t.rows += 1;
+    tally.set(key, t);
+    if (status === "active" || status === "past_due") entitling += 1;
+  }
+  const newest = rows.find((x) => typeof x.created_at === "string")?.created_at;
+  return {
+    counts: [...tally.values()].sort((a, b) => a.plan.localeCompare(b.plan) || a.status.localeCompare(b.status)),
+    entitling,
+    newestAt: typeof newest === "string" ? newest : null,
+  };
+}
