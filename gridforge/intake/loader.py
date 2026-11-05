@@ -73,6 +73,7 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "grid.firm_capacity_MVA": 5_000, "grid.contracted_MW": 5_000, "grid.current_site_peak_MW": 5_000, "grid.current_it_load_MW": 5_000,
     "lv.voltage_V": 36_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
     "thermal.plant.chilled_water_capacity_kW": 2_000_000, "thermal.plant.pump_flow_capacity_l_per_min": 5_000_000,
+    "thermal.plant.existing_flow_l_per_min": 5_000_000,
     "thermal.plant.available_head_kPa": 2_000, "thermal.plant.free_cooling_hours_per_year": 8_760,
     "thermal.plant.design_supply_C": 40, "thermal.plant.design_return_C": 60,
     "thermal.residual_air_capacity_kW_per_rack": 100,
@@ -966,6 +967,14 @@ def _load_document(doc: dict) -> Intake:
             redundancy=_redundancy(c.get("redundancy", "N+1"), "CDU"),
         ))
 
+    existing_flow_path = "thermal.plant.existing_flow_l_per_min"
+    existing_flow = None
+    if _dig(doc, existing_flow_path) is None:
+        r._gap(existing_flow_path, FIELD_BY_PATH.get(existing_flow_path), None,
+               "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)")
+    else:
+        existing_flow = r.q(existing_flow_path, "l/min", "flow the existing hall already draws")
+
     thermal = ThermalInput(
         plant=PlantSpec(
             id=str(r.raw("thermal.plant.id", "PLANT")),
@@ -990,6 +999,7 @@ def _load_document(doc: dict) -> Intake:
                 V(2500, "h", "assumed free cooling hours", ASSUMED, band=0.3)),
             dry_cooler_capacity_kW=None,
             dry_cooler_approach_K=None,
+            existing_flow_l_per_min=existing_flow,
         ),
         tcs_target_supply_C=r.q("thermal.tcs_target_supply_C", "degC", "TCS target supply",
                                 TCS_SUPPLY_DESIGN_C),
@@ -1001,6 +1011,16 @@ def _load_document(doc: dict) -> Intake:
                                 band=(1.4, 1.5)),
         cdus=cdus,
     )
+    if existing_flow is not None:
+        pump = thermal.plant.pump_flow_capacity_l_per_min
+        if existing_flow.value > pump.value:
+            pump_path = "thermal.plant.pump_flow_capacity_l_per_min"
+            where = ("supplied" if pump_path in r.report.supplied
+                     else "not supplied, so the library placeholder applies; give the plant's pumped flow")
+            raise IntakeError(
+                f"{existing_flow_path} is {existing_flow.value:g} l/min, more than the pumped flow of {pump.value:g} l/min "
+                f"({pump_path}, {where}). The flow the existing hall already draws is part of the plant's pumped flow, so it cannot "
+                f"exceed it: check both figures and their units")
 
     cluster = ClusterSpec(
         platform=platform,

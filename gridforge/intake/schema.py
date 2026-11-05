@@ -28,6 +28,10 @@ class FieldSpec:
     supplied_evidence: EvidenceClass = EvidenceClass.E5_CUSTOMER_DATA
     why_it_binds: str = ""
     how_to_get_it: str = ""
+    #: False for an optional refinement that only sharpens one result and is not part of the intake a study is judged complete on.
+    #: Such a field is still asked for in the data request and the blank template, but it is left out of `completeness`, so adding
+    #: one never moves that figure for an intake that does not supply it.
+    counts_toward_completeness: bool = True
 
 
 # The intake pack from docs/01 §3, made machine-checkable. Order is the order a
@@ -67,6 +71,13 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
               why_it_binds="Flow, not delta-T, governs a retrofit.",
               how_to_get_it="Pump curves and pipe schedule; a hydraulic model before design."),
+    FieldSpec("thermal.plant.existing_flow_l_per_min", "Flow the existing hall already draws on the plant", "l/min", False,
+              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
+              counts_toward_completeness=False,
+              why_it_binds=("If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the "
+                            "hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per "
+                            "rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."),
+              how_to_get_it="Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."),
     FieldSpec("thermal.residual_air_capacity_kW_per_rack", "Air removal per rack position", "kW",
               False, supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
               why_it_binds="10-15% of a 135 kW rack is still 13-20 kW of air per position.",
@@ -191,8 +202,9 @@ class IntakeReport:
         # The share of the scalar intake fields that were supplied. Per-option gaps (a generator's unit count, a battery's duration)
         # are listed as data requests but are not among INTAKE_FIELDS, so they must not be subtracted from a ratio whose
         # denominator does not contain them: each honest request would otherwise lower "completeness" below what was supplied.
-        total = len(INTAKE_FIELDS)
-        missing = len({g.path for g in self.gaps if g.path in FIELD_BY_PATH})
+        counted = {f.path for f in INTAKE_FIELDS if f.counts_toward_completeness}
+        total = len(counted)
+        missing = len({g.path for g in self.gaps if g.path in counted})
         return (total - missing) / total if total else 1.0
 
     @property
