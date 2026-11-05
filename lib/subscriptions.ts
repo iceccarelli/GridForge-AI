@@ -33,17 +33,21 @@ interface Presentation {
   highlighted?: boolean;
 }
 
-// Every feature listed here is something the dashboard actually does today.
+// Every feature listed here is something the dashboard does today, described by what it is made from.
 // The three tiers unlock the same dashboard and differ in price and in seats. The seat
 // count is the catalogue's (lib/products.ts) and is enforced by the database
 // (migration 0027, lib/team.ts); tier-specific alerts, API access, SSO or dedicated
 // feeds are not built, so they are not sold.
+//
+// Wording rules, enforced by tests/site/intelligence-page.test.ts: nothing here says "live" for a figure that is modelled or
+// published on a schedule; the ranking is MODELLED, the queue history is a dated public report, the price is a published
+// day-ahead auction price with its source and time.
 const DASHBOARD_FEATURES = [
-  "Live EPEX day-ahead market data",
-  "Interconnection-queue views by region",
-  "Fastest-to-energize ranking across regions",
+  "Modelled time-to-energize ranking of regions, every figure labelled modelled, measured or assumed",
+  "Measured US interconnection-queue history (LBNL Queued Up), completed projects only",
+  "Day-ahead power price and German generation mix as market context, each with source and time",
   "Saved scenarios you can compare",
-  "AI siting analyst for your own site",
+  "Board brief (PDF) and an AI siting analyst working from the same modelled table",
 ];
 
 /** What the plan's seat count means to a buyer. Read from the catalogue, so the copy cannot disagree with what is enforced. */
@@ -55,16 +59,16 @@ export function seatLine(seats: number | null): string {
 
 const PRESENTATION: Record<IntelligencePlanId, Presentation> = {
   developer: {
-    tagline: "The live siting dashboard, billed monthly.",
+    tagline: "The siting dashboard, billed monthly.",
     features: [...DASHBOARD_FEATURES, seatLine(INTELLIGENCE_PLANS.developer.seats)],
   },
   team: {
-    tagline: "The same live siting dashboard, shared with the people on your team.",
+    tagline: "The same siting dashboard, shared with the people on your team.",
     features: [...DASHBOARD_FEATURES, seatLine(INTELLIGENCE_PLANS.team.seats)],
     highlighted: true,
   },
   enterprise: {
-    tagline: "The same live siting dashboard, with no limit on seats.",
+    tagline: "The same siting dashboard, with no limit on seats.",
     features: [...DASHBOARD_FEATURES, seatLine(INTELLIGENCE_PLANS.enterprise.seats)],
   },
 };

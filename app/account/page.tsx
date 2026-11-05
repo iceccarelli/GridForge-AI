@@ -4,31 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { loadSupabase, mayHaveSession } from "@/components/supabase-lazy";
-import { useMarket, arbPerDay } from "@/lib/market";
 import { SITING_REGIONS, sitingScore, costOfDelay, eurCompact, queueBasisNote } from "@/lib/siting";
-import { QUEUE_EVIDENCE_SOURCE } from "@/lib/queue-evidence";
+import { IntelligenceSignalTable } from "@/components/IntelligenceSignalTable";
+import { IntelligenceContext } from "@/components/IntelligenceContext";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS } from "@/lib/products";
 import TeamPanel from "@/components/TeamPanel";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
 import { CONFIRM_EMAIL_TEXT, isUnverified } from "@/lib/portal-links";
-
-type QueueLive = { label: string; value: number; unit: string; asOf: string; source: string } | null;
-
-function useQueue() {
-  const [live, setLive] = useState<QueueLive>(null);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    let on = true;
-    fetch("/api/queue")
-      .then((r) => r.json())
-      .then((j) => { if (on) { setLive(j?.live ?? null); setLoaded(true); } })
-      .catch(() => { if (on) setLoaded(true); });
-    return () => { on = false; };
-  }, []);
-  return { live, loaded };
-}
 
 /** The verified identity the paid routes now require. The email is no longer sent: the server reads it
  *  from the token, so a request cannot name someone else's account. */
@@ -107,7 +91,7 @@ export default function AccountPage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <div className="eyebrow text-power mb-2">GridForge Intelligence</div>
-              <h1 className="text-3xl font-semibold tracking-tight">Live siting dashboard</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">Siting dashboard</h1>
               <p className="text-mute text-sm mt-1">{email}{plan ? " - " + plan.charAt(0).toUpperCase() + plan.slice(1) + " plan" : ""}</p>
             </div>
             <div className="flex items-center gap-4">
@@ -164,86 +148,22 @@ function Gate() {
     <div className="rounded-[var(--radius)] border border-line bg-panel p-8">
       <div className="eyebrow text-mute mb-2">Subscription required</div>
       <h2 className="text-xl font-semibold tracking-tight">Activate GridForge Intelligence</h2>
-      <p className="text-mute text-[14px] leading-relaxed mt-2 max-w-xl">Ranked behind-the-meter siting intelligence across global markets, plus an AI siting analyst for your specific site. Choose a plan to unlock.</p>
+      <p className="text-mute text-[14px] leading-relaxed mt-2 max-w-xl">A modelled ranking of regions by time to energize with measured US queue history beside it, market and grid context that states its source and time, saved scenarios, board briefs and an AI siting analyst. Choose a plan to unlock.</p>
       <Link href="/intelligence" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-power text-ink px-5 py-3 text-sm font-semibold hover:bg-power/90 transition-all">View plans</Link>
     </div>
   );
 }
 
-function ProvBadge({ p }: { p: string }) {
-  return <span className={`data text-[9px] uppercase px-1.5 py-0.5 rounded ${p === "live" ? "bg-power/15 text-power" : "bg-white/5 text-faint"}`}>{p}</span>;
-}
-
 function Intelligence({ email }: { email: string }) {
-  const m = useMarket();
-  const q = useQueue();
   const [refreshKey, setRefreshKey] = useState(0);
-  const fmt = (n: number | null, s = "") => n === null ? "--" : n.toLocaleString("en-IE", { maximumFractionDigits: 1 }) + s;
-
-  // Live EPEX overwrites the DE row's modeled cost/renewables.
-  const regions = SITING_REGIONS.map((r) => {
-    if (r.id === "de-eu" && m.ok) {
-      return { ...r, powerCost: m.epex ?? r.powerCost, renewablePct: m.renewablePct ?? r.renewablePct };
-    }
-    return r;
-  }).map((r) => ({ ...r, score: sitingScore(r) })).sort((a, b) => b.score - a.score);
 
   return (
     <div className="space-y-8">
-      {/* Ranked siting table */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold tracking-tight">Fastest-to-energize — global markets</h2>
-          <div className="flex items-center gap-2 data text-xs text-power"><span className="w-2 h-2 rounded-full bg-power animate-pulse" /> LIVE + MODELED</div>
-        </div>
-        <div className="rounded-[var(--radius)] border border-line bg-panel overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="data text-[10px] text-faint uppercase border-b border-line">
-                <th className="text-left font-medium px-4 py-3">Market / Region</th>
-                <th className="text-right font-medium px-3 py-3">Score</th>
-                <th className="text-right font-medium px-3 py-3">Power €/MWh</th>
-                <th className="text-right font-medium px-3 py-3">Queue</th>
-                <th className="text-right font-medium px-3 py-3">BTM</th>
-                <th className="text-right font-medium px-3 py-3">Renew.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {regions.map((r, i) => (
-                <tr key={r.id} className={`border-b border-line/50 ${i === 0 ? "bg-power/[0.04]" : ""}`}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-white">{r.region}</div>
-                    <div className="data text-[10px] text-faint">{r.market} · {r.country}</div>
-                  </td>
-                  <td className="text-right px-3 py-3"><span className={`font-semibold ${i === 0 ? "text-power" : "text-white"}`}>{r.score}</span></td>
-                  <td className="text-right px-3 py-3"><div className="text-white">{fmt(r.powerCost)}</div><ProvBadge p={r.powerCostProvenance} /></td>
-                  <td className="text-right px-3 py-3 text-queue">{r.queueWaitMonths}mo</td>
-                  <td className="text-right px-3 py-3 text-power">{r.btmMonths}mo</td>
-                  <td className="text-right px-3 py-3"><div className="text-white">{fmt(r.renewablePct, "%")}</div><ProvBadge p={r.renewableProvenance} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="data text-[10px] text-faint mt-2">Score weights speed-to-power (BTM), cost, and queue congestion. Queue = interconnection wait (US ISOs: the measured median for completed generation projects; other markets: a hand-set estimate); BTM = an assumed time-to-energized, not a delivered result. Modeled figures are estimates, not bankable.</p>
-        <p className="data text-[10px] text-faint mt-1">Queue evidence: {QUEUE_EVIDENCE_SOURCE.attribution}, measured {QUEUE_EVIDENCE_SOURCE.measuredOn} (completed projects only; most requests are withdrawn){q.live ? " · live US grid demand " + q.live.value.toLocaleString() + " MW (" + q.live.source + ")" : ""}.</p>
-      </div>
+      {/* The modelled ranking, every figure labelled modelled / measured / assumed */}
+      <IntelligenceSignalTable />
 
-      {/* Live EPEX strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { l: "EPEX DAY-AHEAD", v: m.epex === null ? "--" : "€" + fmt(m.epex), s: "live wholesale" },
-          { l: "TODAY'S SPREAD", v: m.spread === null ? "--" : "€" + fmt(m.spread), s: "min–max" },
-          { l: "RENEWABLE NOW", v: fmt(m.renewablePct, "%"), s: "DE grid mix" },
-          { l: "20 MWh ARB/DAY", v: arbPerDay(m.spread, 20) === null ? "--" : "€" + fmt(arbPerDay(m.spread, 20)), s: "real spread" },
-        ].map((c, i) => (
-          <div key={i} className="rounded-[var(--radius)] border border-line bg-panel p-4">
-            <div className="data text-[9px] text-faint">{c.l}</div>
-            <div className="text-xl font-semibold mt-1">{c.v}</div>
-            <div className="data text-[9px] text-faint mt-0.5">{c.s}</div>
-          </div>
-        ))}
-      </div>
+      {/* Market and grid context, each figure with source, time it describes, retrieval time and basis; unavailable says so */}
+      <IntelligenceContext />
 
       {/* Saved scenarios comparison */}
       <SavedScenarios email={email} refreshKey={refreshKey} />
@@ -262,14 +182,20 @@ type Scenario = { id: string; name: string; mw: number; region_id: string; value
 function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: number }) {
   const [rows, setRows] = useState<Scenario[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // "Could not read them" is not "you have none": say which it is.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let on = true;
     authHeaders()
       .then((h) => fetch("/api/scenarios", { headers: h }))
-      .then((r) => r.json())
-      .then((j) => { if (on) { setRows(j.scenarios || []); setLoaded(true); } })
-      .catch(() => { if (on) setLoaded(true); });
+      .then(async (r) => ({ ok: r.ok, j: await r.json().catch(() => ({})) }))
+      .then(({ ok, j }) => {
+        if (!on) return;
+        if (ok && Array.isArray(j.scenarios)) { setRows(j.scenarios); setFailed(false); } else setFailed(true);
+        setLoaded(true);
+      })
+      .catch(() => { if (on) { setFailed(true); setLoaded(true); } });
     return () => { on = false; };
   }, [email, refreshKey]);
 
@@ -288,7 +214,21 @@ function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: numb
     } catch { setRows(before); }
   }
 
-  if (!loaded || rows.length === 0) return null;
+  if (!loaded) return null;
+  if (failed) {
+    return (
+      <div role="note" className="rounded-[var(--radius)] border border-line bg-panel p-6 text-sm text-mute">
+        <span className="font-semibold text-ghost">Saved scenarios unavailable.</span> They could not be read just now; nothing has been removed. Reload to try again.
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-[var(--radius)] border border-line bg-panel p-6 text-sm text-mute">
+        <span className="font-semibold text-ghost">No saved scenarios yet.</span> Save one from the cost-of-delay calculator below and it appears here for comparison.
+      </div>
+    );
+  }
   const best = Math.max(...rows.map((r) => r.avoided_eur));
 
   return (
@@ -305,7 +245,7 @@ function SavedScenarios({ email, refreshKey }: { email: string; refreshKey: numb
           <div key={r.id} className={`rounded-lg border p-4 ${r.avoided_eur === best ? "border-power/40 bg-power/[0.04]" : "border-line bg-ink"}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="font-medium text-white text-sm">{r.name}</div>
-              <button onClick={() => remove(r.id)} className="data text-[10px] text-faint hover:text-red-400 shrink-0">remove</button>
+              <button onClick={() => remove(r.id)} aria-label={"Remove saved scenario " + r.name} className="data text-[10px] text-faint hover:text-red-400 shrink-0">remove</button>
             </div>
             <div className="text-2xl font-semibold text-power tracking-tight mt-2">{eurCompact(r.avoided_eur)}</div>
             <div className="data text-[10px] text-faint mt-1">{r.months_saved} months sooner{r.avoided_eur === best ? " · best" : ""}</div>
@@ -388,18 +328,18 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
 
       <div className="grid sm:grid-cols-3 gap-4 mb-6">
         <div>
-          <label className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
-          <input aria-label="Site size in MW" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
+          <label htmlFor="dc-mw" className="data text-[10px] text-faint">SITE SIZE — {mw} MW</label>
+          <input id="dc-mw" type="range" min={5} max={500} step={5} value={mw} onChange={(e) => setMw(Number(e.target.value))} className="w-full mt-2 accent-[color:var(--power,#38bdf8)]" />
         </div>
         <div>
-          <label className="data text-[10px] text-faint">REGION</label>
-          <select aria-label="Market" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
+          <label htmlFor="dc-region" className="data text-[10px] text-faint">REGION</label>
+          <select id="dc-region" value={regionId} onChange={(e) => setRegionId(e.target.value)} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none">
             {ranked.map((r) => <option key={r.id} value={r.id}>{r.region}</option>)}
           </select>
         </div>
         <div>
-          <label className="data text-[10px] text-faint">€/MW-MONTH STRANDED</label>
-          <input type="number" step={1000} value={valuePerMwMonth} onChange={(e) => setVpm(Math.max(0, Number(e.target.value)))} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none" />
+          <label htmlFor="dc-vpm" className="data text-[10px] text-faint">€/MW-MONTH STRANDED</label>
+          <input id="dc-vpm" type="number" step={1000} value={valuePerMwMonth} onChange={(e) => setVpm(Math.max(0, Number(e.target.value)))} className="w-full mt-2 bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white focus:border-power/50 focus:outline-none" />
         </div>
       </div>
 
@@ -433,16 +373,16 @@ function DelayCalculator({ email, onSaved }: { email: string; onSaved: () => voi
         <button onClick={saveScenario} disabled={saving} className="rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50 hover:bg-power/90 transition-all">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Save scenario</>}
         </button>
-        {savedMsg && <span className="data text-[11px] text-power">{savedMsg}</span>}
+        <span role="status" aria-live="polite" className="data text-[11px] text-power">{savedMsg}</span>
       </div>
       <p className="data text-[10px] text-faint mt-4">Stranded value = your assumption for revenue/strategic value per MW per month a site sits un-energized. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms site-specific figures for one hall.</p>
       {showBrief && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6" onClick={() => setShowBrief(false)}>
-          <div className="w-full max-w-md rounded-[var(--radius)] border border-line bg-panel p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6" onClick={() => setShowBrief(false)} onKeyDown={(e) => { if (e.key === "Escape") setShowBrief(false); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="brief-h" className="w-full max-w-md rounded-[var(--radius)] border border-line bg-panel p-6" onClick={(e) => e.stopPropagation()}>
             <div className="eyebrow text-power mb-2">Board brief</div>
-            <h3 className="text-lg font-semibold tracking-tight">Prepare your brief</h3>
+            <h3 id="brief-h" className="text-lg font-semibold tracking-tight">Prepare your brief</h3>
             <p className="text-mute text-[13px] mt-1 mb-4">We will brand the one-pager for your organization. Optional — leave blank for an unbranded brief.</p>
-            <input value={briefCompany} onChange={(e) => setBriefCompany(e.target.value)} placeholder="Company / organization" className="w-full bg-ink border border-line rounded-lg px-3.5 py-2.5 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
+            <input aria-label="Company or organization (optional)" autoFocus value={briefCompany} onChange={(e) => setBriefCompany(e.target.value)} placeholder="Company / organization" className="w-full bg-ink border border-line rounded-lg px-3.5 py-2.5 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
             <div className="flex gap-3 mt-4">
               <button onClick={downloadBrief} className="flex-1 rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all">
                 <Download size={14} /> Generate PDF
@@ -473,7 +413,7 @@ function SitingAnalyst({ email }: { email: string }) {
       });
       const j = await res.json();
       setAnalysis(j.ok ? j.analysis : (j.error || "Analyst unavailable."));
-    } catch { setAnalysis("Connection error."); }
+    } catch { setAnalysis("The analyst could not be reached just now. Nothing was generated."); }
     finally { setLoading(false); }
   }
 
@@ -481,13 +421,13 @@ function SitingAnalyst({ email }: { email: string }) {
     <div className="rounded-[var(--radius)] border border-power/30 bg-power/[0.03] p-6">
       <div className="eyebrow text-power mb-2">AI siting analyst</div>
       <h2 className="text-lg font-semibold tracking-tight">Get a recommendation for your site</h2>
-      <p className="text-mute text-[13px] mt-1 mb-4">Describe your site — MW, region preference, timeline, workload — and the analyst ranks the best markets and queue-bypass path. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms figures for one hall.</p>
+      <p className="text-mute text-[13px] mt-1 mb-4">Describe your site — MW, region preference, timeline, workload — and the analyst ranks the best markets and queue-bypass path from the modelled table above (it reads no live feed). It is an AI model, so check what it says against that table. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms figures for one hall.</p>
       <textarea aria-label="Project brief" value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} placeholder="e.g. 80 MW for AI training, flexible on US region, need power by Q3 next year, prioritize low cost and fast energization." className="w-full resize-none bg-ink border border-line rounded-lg px-3.5 py-3 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none" />
       <button onClick={analyze} disabled={loading || !brief.trim()} className="mt-3 rounded-lg bg-power text-ink px-5 py-2.5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 hover:bg-power/90 transition-all">
         {loading ? <Loader2 size={15} className="animate-spin" /> : <><Send size={14} /> Analyze my site</>}
       </button>
       {analysis && (
-        <div className="mt-5 pt-5 border-t border-line text-[14px] text-ghost/90 leading-relaxed whitespace-pre-wrap">{analysis}</div>
+        <div role="status" aria-live="polite" className="mt-5 pt-5 border-t border-line text-[14px] text-ghost/90 leading-relaxed whitespace-pre-wrap">{analysis}</div>
       )}
     </div>
   );

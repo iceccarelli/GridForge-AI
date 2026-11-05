@@ -27,8 +27,8 @@ export function DelayDemo() {
       </div>
       <h2 className="text-xl font-semibold tracking-tight">What the queue is costing you</h2>
       <p className="text-mute text-[13px] mt-1 mb-5">
-        Drag your site size, pick a market. This is the exact model subscribers use —
-        live for you, right now.
+        Drag your site size, pick a market. This is the same cost-of-delay model
+        subscribers use, computed in your browser from the inputs you set.
       </p>
 
       <div className="grid sm:grid-cols-2 gap-5 mb-6">
@@ -68,7 +68,7 @@ export function DelayDemo() {
         Queue path: {queueBasisNote(region)} BTM path: an assumption for this comparison, not a quotation or a delivery date; a Density Screen replaces it with your hall's figures.
       </p>
       <p className="data text-[10px] text-faint mt-4">
-        Subscribe for live + published ISO queue data across all markets, an AI siting analyst,
+        Subscribers also get the modelled regional ranking with measured US queue history beside it, market context that states its source and time, an AI siting analyst,
         saved scenarios, and downloadable board briefs. Directional; a <Link href="/pricing" className="text-power underline">Density Screen</Link> confirms figures for one hall.
       </p>
     </div>

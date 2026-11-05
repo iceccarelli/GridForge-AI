@@ -172,6 +172,7 @@ ${absent}
 - ${SITE}/products — the engagements, one page each
 - ${SITE}/pricing — every price in one place
 - ${SITE}/observatory — scenario demonstrations on live public data
+- ${SITE}/intelligence — the Intelligence subscription: a modelled ranking of regions by time to energize, measured US queue history (LBNL) and day-ahead market context, each input labelled with its source and basis; not a verified-site portfolio
 - ${SITE}/developers — the machine interface; OpenAPI at ${SITE}/openapi.json
 
 ## What can be bought

@@ -62,7 +62,7 @@ export function routeSources() {
     "/power/compare": ["app/power/compare/page.tsx", "lib/ttp-compare.ts"],
     "/power/deploy": ["app/power/deploy/page.tsx", "lib/power-deploy.ts"],
     "/pricing": ["app/pricing/page.tsx", "lib/products.ts", "lib/site.ts"],
-    "/intelligence": ["app/intelligence/page.tsx", "lib/products.ts"],
+    "/intelligence": ["app/intelligence/page.tsx", "components/IntelligenceClient.tsx", "components/DelayDemo.tsx", "lib/subscriptions.ts", "lib/intelligence-basis.ts", "lib/products.ts"],
     "/legal/privacy": ["app/legal/privacy/page.tsx"],
     "/legal/terms": ["app/legal/terms/page.tsx"],
     "/legal/security": ["app/legal/security/page.tsx"],
