@@ -27,6 +27,7 @@ Endpoints
     POST /v1/power/deploy/spec          deployment request -> equipment tender (key)
     POST /v1/power/deploy/bids          deployment request+bids -> ranked comparison (key)
     GET  /v1/calibration                how far the model is reconciled      (public)
+    GET  /v1/calibration/residuals      aggregate residuals, approved only   (public)
     GET  /v1/tools                      machine-callable tool schemas        (public)
     GET  /v1/usage                      this key's metered usage             (key)
     POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (public
@@ -58,6 +59,8 @@ from urllib.parse import parse_qs, urlparse
 
 from ..calibration import accuracy_block, all_keys as calibration_keys, load_ledger
 from ..calibration.ledger import LedgerIntegrityError
+from ..calibration.residuals import public_report as public_residual_report
+from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
@@ -1223,7 +1226,7 @@ def _invoke(endpoint: str, handler, body, tier):
 
 
 GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
-              "/v1/calibration", "/v1/tools", "/v1/usage")
+              "/v1/calibration", "/v1/calibration/residuals", "/v1/tools", "/v1/usage")
 
 
 # --- Model Context Protocol --------------------------------------------------
@@ -1613,6 +1616,17 @@ class Handler(BaseHTTPRequestHandler):
                 "An observation must be E5 or above — site data, not another run of our "
                 "own model — and client site data never enters the published ledger.")
             return self._send(200, block)
+        if path == "/v1/calibration/residuals":
+            # Public and read-only. Aggregate statistics over APPROVED observation records only (a draft or rejected
+            # record changes nothing here, not even a count); no site id, hall id, record id, free text or measurement is
+            # in the payload. With nothing approved it says "uncalibrated" and n_records 0. A store whose hash chain is
+            # broken is a 503, never an empty or partial answer.
+            try:
+                recs = approved_observation_records()
+            except LedgerIntegrityError:
+                return self._send(503, {"error": "the calibration record store failed its integrity check and is not being served",
+                                        "state": "unavailable"})
+            return self._send(200, public_residual_report(recs))
         if path == "/v1/tools":
             return self._send(200, catalogue())
         if path == "/v1/usage":

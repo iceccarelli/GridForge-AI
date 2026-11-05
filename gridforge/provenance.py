@@ -55,7 +55,14 @@ def cost_library_sha256() -> str:
 
 def calibration_sha256() -> str:
     from .calibration.ledger import load_ledger
-    return _sha(_canonical(load_ledger().to_dict()))
+    doc = load_ledger().to_dict()
+    # Approved observation records move the calibration wording of a document, so they move this digest. With none
+    # (the shipped state) the digest is exactly what it was before the record store existed.
+    from .calibration.store import approved_records
+    approved = approved_records()
+    if approved:
+        doc = {"ledger": doc, "approved_records": sorted(r.content_hash() + ":" + r.reviewer for r in approved)}
+    return _sha(_canonical(doc))
 
 
 def provenance(engine_version: str) -> dict:

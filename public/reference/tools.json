@@ -2938,6 +2938,11 @@
       "tool": null
     },
     {
+      "endpoint": "/v1/calibration/residuals",
+      "units": 0,
+      "tool": null
+    },
+    {
       "endpoint": "/v1/compare",
       "units": 1,
       "tool": "gridforge_compare"

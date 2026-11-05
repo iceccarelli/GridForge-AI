@@ -13,6 +13,9 @@ OUT="public/reference"
 DATE="${GRIDFORGE_REPORT_DATE:-2026-09-14}"
 INTAKE="examples/intake/reference_hall.json"
 
+# Approved site observation records are private data: a developer's local store must never reach a public file.
+export GRIDFORGE_CALIBRATION_RECORDS="${TMPDIR:-/tmp}/gridforge-reference-no-such-dir/records.jsonl"
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 

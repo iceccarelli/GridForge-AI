@@ -13,10 +13,29 @@ from __future__ import annotations
 
 from .keys import all_keys, label
 from .ledger import Ledger, load_ledger
+from .residuals import disclosure_summary
 from .stats import Calibration, CalibrationState, calibration_for, coverage
 
 
-def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None) -> dict:
+def _approved_records() -> list:
+    """Approved observation records from the private store; empty when there is none. A store whose hash chain is
+    broken raises LedgerIntegrityError, exactly as a broken ledger does: a deliverable is not issued over it."""
+    from .store import approved_records
+    return approved_records()
+
+
+def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None,
+                   records: list | None = None) -> dict:
+    """The accuracy record for the given outputs.
+
+    `records` are ObservationRecords. Left as None they are the approved records in the private store, but only
+    when no `ledger` was passed: a caller that hands in a ledger (the public, published-only view) is asking for
+    exactly that, and site data from the private store never rides along. With no approved record the block is
+    exactly what it was before the residual framework existed; with some it gains `residual_records` and one
+    sentence appended to `statement`, in the residual framework's own vocabulary.
+    """
+    if records is None and ledger is None:
+        records = _approved_records()
     led = ledger or load_ledger()
     ks = keys or all_keys()
     cals = [calibration_for(k, led.observations) for k in ks]
@@ -29,9 +48,11 @@ def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None) 
                    c.state is CalibrationState.CALIBRATED for c in cals)
                else CalibrationState.INDICATIVE if with_data
                else CalibrationState.UNCALIBRATED)
-    return {
+    summary = disclosure_summary(records) if records else None
+    statement = disclosure_sentence(cov, overall)
+    block = {
         "state": overall.value,
-        "statement": disclosure_sentence(cov, overall),
+        "statement": statement,
         "observations": cov["observations"],
         "observations_total": cov["observations_total"],
         "observations_without_source_ref": cov["observations_without_source_ref"],
@@ -44,6 +65,10 @@ def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None) 
         "keys": [dict(c.to_dict(), label=label(c.key)) for c in with_data],
         "uncalibrated_keys": [c.key for c in cals if c.n == 0],
     }
+    if summary is not None:
+        block["statement"] = f"{statement} {summary['statement']}"
+        block["residual_records"] = summary
+    return block
 
 
 def disclosure_sentence(cov: dict, overall: CalibrationState) -> str:

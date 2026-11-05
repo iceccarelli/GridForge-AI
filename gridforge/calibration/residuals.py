@@ -246,3 +246,104 @@ def pending_counts(records: Iterable[ObservationRecord]) -> dict[str, int]:
     for r in records:
         out[r.approval_status] += 1
     return out
+
+
+# --- the aggregate views that leave the process -------------------------------
+
+PUBLIC_SCHEMA = "gridforge.calibration.residuals.public/1"
+
+
+def _eligible_records(records: Iterable[ObservationRecord]) -> list[ObservationRecord]:
+    """Approved records that also meet the ledger's evidence floor. The record type already refuses anything below
+    it; this is the second lock, so no path can put a model-run number into a statistic."""
+    from .schema import MINIMUM_EVIDENCE
+    return [r for r in approved(records) if r.evidence >= MINIMUM_EVIDENCE]
+
+
+def _public_cell(cell: dict) -> dict:
+    """A statistics cell built from fewer than MIN_DISTINCT_SITES sites would be one or two sites' raw readings
+    in aggregate clothing, so it is reduced to its counts."""
+    if cell["sites"] >= MIN_DISTINCT_SITES:
+        return cell
+    return {"n": cell["n"], "sites": cell["sites"], "suppressed": f"fewer than {MIN_DISTINCT_SITES} sites"}
+
+
+def _public_groups(groups: dict) -> dict:
+    return {k: _public_cell(v) for k, v in groups.items()}
+
+
+def _public_variable(block: dict) -> dict:
+    out = {k: v for k, v in block.items()
+           if k not in ("residuals", "by_configuration", "by_capacity_bucket", "by_evidence_class",
+                        "lead_time_error", "interval_coverage")}
+    if "residuals" in block:
+        out["residuals"] = _public_cell(block["residuals"])
+        # by_configuration is keyed by free text a submitter typed: never published.
+        out["by_capacity_bucket"] = _public_groups(block["by_capacity_bucket"])
+        out["by_evidence_class"] = _public_groups(block["by_evidence_class"])
+        out["lead_time_error"] = _public_groups(block["lead_time_error"])
+        iv = block["interval_coverage"]
+        out["interval_coverage"] = iv if iv["assessed"] else {
+            "n_intervals": iv["n_intervals"], "assessed": False, "note": iv["note"]}
+    return out
+
+
+def public_report(records: Iterable[ObservationRecord]) -> dict:
+    """``residual_report`` over approved records, reduced to what may be published: aggregate statistics only.
+
+    No site id, hall id, observation id, free text (the per-configuration breakdown is dropped) or individual
+    measurement appears; a breakdown cell resting on fewer than ``MIN_DISTINCT_SITES`` sites shows counts only.
+    With no approved record the state is ``uncalibrated`` and ``n_records`` is 0.
+    """
+    recs = _eligible_records(records)
+    rep = residual_report(recs)
+    states = list(rep["subsystem_states"].values())
+    state = ("calibrated" if all(s == CALIBRATED for s in states)
+             else "indicative" if recs else "uncalibrated")
+    subsystems = {}
+    for name, sub in rep["subsystems"].items():
+        subsystems[name] = {**{k: v for k, v in sub.items() if k != "variables"},
+                            "variables": {v: _public_variable(b) for v, b in sub["variables"].items()}}
+    return {
+        "schema": PUBLIC_SCHEMA,
+        "state": state,
+        "n_records": len(recs),
+        "n_sites": len({r.site_id for r in recs}),
+        "headline": rep["headline"],
+        "requirements": rep["requirements"],
+        "subsystem_states": rep["subsystem_states"],
+        "subsystems": subsystems,
+        "note": ("Aggregate statistics over human-approved site observations only. Errors are in each variable's own "
+                 "unit and are never combined into one accuracy figure. A measured-versus-predicted residual describes "
+                 "this engine's past error at the contributing sites; it is not a guarantee for any other site."),
+    }
+
+
+def disclosure_summary(records: Iterable[ObservationRecord]) -> dict | None:
+    """What the deliverables say about approved records, in the same vocabulary as ``residual_report``.
+
+    None when there are no approved records, so a caller can leave its output exactly as it was.
+    """
+    recs = _eligible_records(records)
+    if not recs:
+        return None
+    by_var: dict[str, list[ObservationRecord]] = {}
+    for r in recs:
+        by_var.setdefault(r.variable, []).append(r)
+    variables = {}
+    for v in sorted(by_var):
+        rs = by_var[v]
+        eligible = [r for r in _distinct_measurements(rs) if r.quality != "low"]
+        variables[v] = {"state": variable_state(rs), "approved_observations": len(rs),
+                        "distinct_sites": len({r.site_id for r in eligible})}
+    n_sites = len({r.site_id for r in recs})
+    parts = "; ".join(f"{v} {b['state']} (n={b['approved_observations']}, {b['distinct_sites']} site(s))"
+                      for v, b in variables.items())
+    unrecorded = len(VARIABLES) - len(variables)
+    statement = (
+        f"Residual records: {len(recs)} approved site observation(s) across {n_sites} site(s). Per variable: {parts}."
+        + (f" {unrecorded} other variable(s) have no approved record and remain UNCALIBRATED." if unrecorded else "")
+        + f" A variable is called CALIBRATED only with at least {MIN_APPROVED_OBSERVATIONS} approved, non-low-quality "
+          f"observations from {MIN_DISTINCT_SITES} distinct sites; no single accuracy figure is produced.")
+    return {"n_records": len(recs), "n_sites": n_sites, "variables": variables,
+            "variables_without_records": unrecorded, "statement": statement}
