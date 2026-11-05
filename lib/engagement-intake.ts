@@ -113,6 +113,8 @@ const baseShape = {
   plantSupplyC: z.coerce.number().min(-5).max(45),
   plantReturnC: z.coerce.number().min(-5).max(60).optional(),
   pumpFlowLPerMin: num(200000).optional(),
+  /** Flow the existing hall already draws on the plant (l/min). Optional: when given, the engine subtracts it from the pumped flow. */
+  existingFlowLPerMin: num(200000).optional(),
   residualAirKWPerRack: num(200).optional(),
 
   // site conditions
@@ -128,10 +130,25 @@ const baseShape = {
 };
 
 /**
+ * The engine refuses an existing-hall flow larger than the pumped flow it is subtracted from (the figure would leave less than nothing for
+ * the new load), naming both numbers. The same rule here lets the form say so before anything is sent, with the same two numbers.
+ * Only checked when BOTH are given: with the pumped flow absent the engine applies its own placeholder and says so.
+ */
+function existingFlowRule(v: { pumpFlowLPerMin?: number; existingFlowLPerMin?: number }, ctx: z.RefinementCtx) {
+  if (v.existingFlowLPerMin !== undefined && v.pumpFlowLPerMin !== undefined && v.existingFlowLPerMin > v.pumpFlowLPerMin) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["existingFlowLPerMin"],
+      message: `the existing hall's flow (${v.existingFlowLPerMin} l/min) is larger than the pumped flow (${v.pumpFlowLPerMin} l/min) it is taken from; give the flow the existing hall draws on this plant, which cannot exceed the plant's pumped flow`,
+    });
+  }
+}
+
+/**
  * Everything, required. The Procurement Specification, and the safe default for
  * any product that does not say otherwise.
  */
-export const engagementIntakeSchema = z.object(baseShape);
+export const engagementIntakeSchema = z.object(baseShape).superRefine(existingFlowRule);
 
 /**
  * The Density Screen: the seven the free qualifier proves are enough to name what
@@ -142,12 +159,14 @@ export const engagementIntakeSchema = z.object(baseShape);
  * Nothing below the free tier's own bar: a Screen built on fewer numbers than the
  * qualifier answers on would have no site-specific content to sell.
  */
-export const screenIntakeSchema = z.object({
-  ...baseShape,
-  firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
-  floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
-  plantCapacityKW: baseShape.plantCapacityKW.optional(),
-});
+export const screenIntakeSchema = z
+  .object({
+    ...baseShape,
+    firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
+    floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
+    plantCapacityKW: baseShape.plantCapacityKW.optional(),
+  })
+  .superRefine(existingFlowRule);
 
 /**
  * The schema for a product kind.
@@ -280,6 +299,7 @@ export function toIntakeDocument(i: ScreenIntake, company?: string): Record<stri
         design_supply_C: i.plantSupplyC,
         design_return_C: i.plantReturnC,
         pump_flow_capacity_l_per_min: i.pumpFlowLPerMin,
+        existing_flow_l_per_min: i.existingFlowLPerMin,
       }),
       ...(i.residualAirKWPerRack !== undefined
         ? { residual_air_capacity_kW_per_rack: i.residualAirKWPerRack }
