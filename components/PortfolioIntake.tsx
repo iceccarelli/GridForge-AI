@@ -87,9 +87,9 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
 
   return (
     <div className="space-y-6">
-      <div className="overflow-x-auto rounded border border-line">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
+      <div className="rounded border border-line sm:overflow-x-auto">
+        <table className="block w-full text-sm sm:table sm:min-w-[640px]">
+          <thead className="sr-only sm:not-sr-only sm:table-header-group">
             <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
               <th className="p-2">Column</th>
               <th className="p-2">What it is</th>
@@ -97,16 +97,16 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
               <th className="p-2">Where it comes from</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block sm:table-row-group">
             {PORTFOLIO_COLUMNS.map((c) => (
-              <tr key={c.key} className="border-t border-line/60 align-top">
-                <td className="p-2 font-mono text-power">{c.key}</td>
-                <td className="p-2 text-ghost">
+              <tr key={c.key} className="block border-t border-line/60 p-2 align-top first:border-t-0 sm:table-row sm:p-0 sm:first:border-t">
+                <td className="block px-0 py-0.5 font-mono text-power sm:table-cell sm:p-2">{c.key}</td>
+                <td className="block px-0 py-0.5 text-ghost sm:table-cell sm:p-2">
                   {c.label}
                   {c.unit ? <span className="text-faint"> ({c.unit})</span> : null}
                 </td>
-                <td className="p-2 text-mute">{c.required ? "required" : "optional, named as an assumption if blank"}</td>
-                <td className="p-2 text-mute">{c.from}</td>
+                <td className="block px-0 py-0.5 text-mute before:text-faint before:content-['Needed:_'] sm:table-cell sm:p-2 sm:before:content-none">{c.required ? "required" : "optional, named as an assumption if blank"}</td>
+                <td className="block px-0 py-0.5 text-mute before:text-faint before:content-['From:_'] sm:table-cell sm:p-2 sm:before:content-none">{c.from}</td>
               </tr>
             ))}
           </tbody>
@@ -114,7 +114,7 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={template} className="inline-flex items-center gap-2 rounded border border-line px-3 py-1.5 text-sm text-ghost hover:border-power/50">
+        <button type="button" onClick={template} className="inline-flex min-h-11 items-center gap-2 rounded border border-line px-3 py-1.5 text-sm text-ghost hover:border-power/50">
           <Download className="h-4 w-4" aria-hidden /> Download the template
         </button>
         <label className="text-sm text-mute">
@@ -122,7 +122,7 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
           <input
             type="file"
             accept=".csv,text/csv,text/plain"
-            className="text-xs"
+            className="min-h-11 py-2.5 text-xs"
             onChange={async (e) => {
               const f = e.target.files?.[0];
               if (f && f.size <= 256 * 1024) setText(await f.text());
@@ -139,7 +139,7 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
           onChange={(e) => setText(e.target.value)}
           rows={10}
           spellCheck={false}
-          className="mt-1 w-full rounded border border-line bg-panel p-3 font-mono text-xs text-ghost"
+          className="mt-1 w-full rounded border border-line bg-panel p-3 font-mono text-xs text-ghost focus:border-power/60 focus:outline-none focus:ring-2 focus:ring-power/60"
           aria-label="Hall list as CSV"
         />
       </label>
@@ -147,11 +147,11 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-sm text-mute">
           Name printed on the document (optional)
-          <input value={client} onChange={(e) => setClient(e.target.value)} maxLength={120} className="mt-1 w-full rounded border border-line bg-panel px-3 py-1.5 text-ghost" />
+          <input value={client} onChange={(e) => setClient(e.target.value)} maxLength={120} className="mt-1 min-h-11 w-full rounded border border-line bg-panel px-3 py-1.5 text-ghost focus:border-power/60 focus:outline-none focus:ring-2 focus:ring-power/60" />
         </label>
         <label className="text-sm text-mute">
           Rank the halls by
-          <select value={objective} onChange={(e) => setObjective(e.target.value)} className="mt-1 w-full rounded border border-line bg-panel px-3 py-1.5 text-ghost">
+          <select value={objective} onChange={(e) => setObjective(e.target.value)} className="mt-1 min-h-11 w-full rounded border border-line bg-panel px-3 py-1.5 text-ghost focus:border-power/60 focus:outline-none focus:ring-2 focus:ring-power/60">
             <option value="max_compute">Deployable compute (most racks first)</option>
             <option value="min_cost">Capital cost per rack (cheapest first)</option>
             <option value="fastest">Time to power (soonest first)</option>
@@ -180,11 +180,17 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
         type="button"
         onClick={submit}
         disabled={busy || !parsed}
-        className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:opacity-60"
+        aria-describedby="portfolio-submit-note"
+        className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:opacity-60"
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
         Submit the portfolio
       </button>
+      <p id="portfolio-submit-note" className="text-[12px] text-faint">
+        {parsed
+          ? "Nothing is sent until you press this."
+          : `This unlocks once there is a hall list above (${minHalls} to ${maxHalls} halls). Paste it, or load a CSV file; what was understood is shown before anything is sent.`}
+      </p>
     </div>
   );
 }

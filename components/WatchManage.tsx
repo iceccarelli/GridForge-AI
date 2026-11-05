@@ -65,7 +65,7 @@ export function WatchManage({ token, email }: { token: string; email: string }) 
         type="button"
         onClick={open}
         disabled={busy}
-        className="mt-3 inline-flex items-center gap-2 rounded border border-line px-4 py-2 text-sm text-ghost hover:border-power/60 disabled:opacity-60"
+        className="mt-3 inline-flex min-h-11 items-center gap-2 rounded border border-line px-4 py-2 text-sm text-ghost hover:border-power/60 disabled:opacity-60"
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Manage or cancel subscription

@@ -82,7 +82,7 @@ export function RackDensityChart() {
       </p>
 
       <details className="mt-3">
-        <summary className="cursor-pointer text-[13px] text-power">The plotted values, as a table</summary>
+        <summary className="inline-flex min-h-11 cursor-pointer items-center text-[13px] text-power">The plotted values, as a table</summary>
         <div className="mt-3 max-h-72 overflow-auto">
           <table className="w-full text-left text-[13px] text-mute">
             <caption className="sr-only">Racks placed by rack power, synthetic hall</caption>

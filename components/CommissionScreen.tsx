@@ -62,7 +62,7 @@ export function CommissionScreen({
     setBusy(false);
   }
 
-  const dims = size === "lg" ? "px-8 py-4 text-base" : "px-5 py-2.5 text-sm";
+  const dims = size === "lg" ? "px-8 py-4 text-base" : "min-h-11 px-5 py-2.5 text-sm";
   const skin =
     tone === "outline"
       ? "border border-power/50 text-power hover:bg-power/10"

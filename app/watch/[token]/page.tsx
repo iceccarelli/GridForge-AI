@@ -4,6 +4,7 @@ import { getWatch, notesFor, weeksLine } from "@/lib/watches";
 import { RATE_POLICIES } from "@/lib/rate-limit";
 import { WatchManage } from "@/components/WatchManage";
 import { SITE } from "@/lib/site";
+import { LinkNotFound } from "@/components/LinkNotFound";
 
 export const metadata: Metadata = {
   title: "Hall Watch",
@@ -16,17 +17,7 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
   const { token } = await params;
   const w = await getWatch(token);
 
-  if (!w) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
-        <h1 className="text-2xl font-semibold text-ghost">Not found</h1>
-        <p className="mt-3 text-mute">
-          This link does not correspond to a watched hall. Check the address, or reply to the email
-          it came in.
-        </p>
-      </div>
-    );
-  }
+  if (!w) return <LinkNotFound what="a watched hall" />;
 
   const notes = w.id === "local" ? [] : await notesFor(w.id);
 

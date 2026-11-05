@@ -184,7 +184,7 @@ export function EngagementIntake({
           <button
             type="button"
             onClick={() => setList(list.filter((_, j) => j !== i))}
-            className="inline-flex items-center justify-center rounded border border-line px-2 py-2 text-faint hover:text-flag"
+            className="inline-flex min-h-11 items-center justify-center rounded border border-line px-2 py-2 text-faint hover:text-flag"
             aria-label={`Remove ${label} ${i + 1}`}
           >
             <Trash2 className="h-4 w-4" />
@@ -196,7 +196,7 @@ export function EngagementIntake({
         onClick={() =>
           setList([...list, { id: `${label}-${list.length + 1}`, rating: "", units: "", redundancy: "N+1" }])
         }
-        className="inline-flex w-fit items-center gap-2 rounded border border-line px-3 py-1.5 text-sm text-mute hover:text-ghost"
+        className="inline-flex min-h-11 w-fit items-center gap-2 rounded border border-line px-3 py-1.5 text-sm text-mute hover:text-ghost"
       >
         <Plus className="h-3.5 w-3.5" /> Add
       </button>
@@ -270,8 +270,8 @@ export function EngagementIntake({
         title="The hall"
         note="Identity and geometry. Floor loading is a gate for 120 kW+ racks, not a margin."
       >
-        <Field label="Site name" required><input className={inputCls} value={f.siteName} onChange={set("siteName")} required /></Field>
-        <Field label="Hall id" required><input className={inputCls} value={f.hallId} onChange={set("hallId")} required /></Field>
+        <Field label="Site name" required hint="As it appears on the supply contract or lease."><input className={inputCls} value={f.siteName} onChange={set("siteName")} required /></Field>
+        <Field label="Hall id" required hint="Your own label for this hall, so the document can refer to it."><input className={inputCls} value={f.hallId} onChange={set("hallId")} required /></Field>
         <Field label="Metro"><input className={inputCls} value={f.metro} onChange={set("metro")} /></Field>
         <Field label="Country"><input className={inputCls} value={f.country} onChange={set("country")} /></Field>
         <Field label="Build year"><input className={inputCls} type="number" value={f.buildYear} onChange={set("buildYear")} /></Field>
@@ -284,37 +284,37 @@ export function EngagementIntake({
         <Field label="Floor loading · kPa" required={!screen} hint="Design value from the structural record.">
           <input className={inputCls} type="number" step="0.5" value={f.floorLoadingKPa} onChange={set("floorLoadingKPa")} required={!screen} disabled={confirmed.includes("floorLoadingKPa")} />
         </Field>
-        <Field label="Rack positions available" required><input className={inputCls} type="number" value={f.positionsAvailable} onChange={set("positionsAvailable")} required /></Field>
-        <Field label="Rack positions total"><input className={inputCls} type="number" value={f.rackPositions} onChange={set("rackPositions")} /></Field>
-        <Field label="Net white space · m²"><input className={inputCls} type="number" value={f.netWhiteSpaceM2} onChange={set("netWhiteSpaceM2")} /></Field>
-        <Field label="Clear height · m"><input className={inputCls} type="number" step="0.1" value={f.clearHeightM} onChange={set("clearHeightM")} /></Field>
-        <Field label="Aisle pitch · m"><input className={inputCls} type="number" step="0.1" value={f.aislePitchM} onChange={set("aislePitchM")} /></Field>
-        <Field label="Design density · kW/rack"><input className={inputCls} type="number" step="0.5" value={f.designDensityKWPerRack} onChange={set("designDensityKWPerRack")} /></Field>
-        <Field label="Summer design dry bulb · °C"><input className={inputCls} type="number" step="0.5" value={f.designDrybulbC} onChange={set("designDrybulbC")} /></Field>
+        <Field label="Rack positions available" required hint="Positions you could actually release from tenancy, not total positions."><input className={inputCls} type="number" value={f.positionsAvailable} onChange={set("positionsAvailable")} required /></Field>
+        <Field label="Rack positions total" hint="From the floor plan or the DCIM rack register."><input className={inputCls} type="number" value={f.rackPositions} onChange={set("rackPositions")} /></Field>
+        <Field label="Net white space · m²" hint="Rack area only, from the floor plan; leave out plant rooms and corridors."><input className={inputCls} type="number" value={f.netWhiteSpaceM2} onChange={set("netWhiteSpaceM2")} /></Field>
+        <Field label="Clear height · m" hint="Floor to the lowest obstruction above the racks."><input className={inputCls} type="number" step="0.1" value={f.clearHeightM} onChange={set("clearHeightM")} /></Field>
+        <Field label="Aisle pitch · m" hint="Centre of one rack row to the centre of the next."><input className={inputCls} type="number" step="0.1" value={f.aislePitchM} onChange={set("aislePitchM")} /></Field>
+        <Field label="Design density · kW/rack" hint="The per-rack figure the hall was designed to."><input className={inputCls} type="number" step="0.5" value={f.designDensityKWPerRack} onChange={set("designDensityKWPerRack")} /></Field>
+        <Field label="Summer design dry bulb · °C" hint="From the mechanical design basis, not today's weather."><input className={inputCls} type="number" step="0.5" value={f.designDrybulbC} onChange={set("designDrybulbC")} /></Field>
       </Section>
 
       <Section title="Supply" note="The ceiling on everything downstream. Peak from metered data, not a nameplate.">
-        <Field label="DSO"><input className={inputCls} value={f.dso} onChange={set("dso")} /></Field>
-        <Field label="Firm connection · MVA" required={!screen}><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required={!screen} disabled={confirmed.includes("firmCapacityMVA")} /></Field>
-        <Field label="Contracted · MW" required><input className={inputCls} type="number" step="0.1" value={f.contractedMW} onChange={set("contractedMW")} required /></Field>
-        <Field label="Current site peak · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentPeakMW} onChange={set("currentPeakMW")} required /></Field>
-        <Field label="Current IT load · MW" required><input className={inputCls} type="number" step="0.1" value={f.currentItLoadMW} onChange={set("currentItLoadMW")} required /></Field>
-        <Field label="Power factor"><input className={inputCls} type="number" step="0.01" value={f.powerFactor} onChange={set("powerFactor")} /></Field>
+        <Field label="DSO" hint="The distribution or transmission operator named on the connection agreement."><input className={inputCls} value={f.dso} onChange={set("dso")} /></Field>
+        <Field label="Firm connection · MVA" required={!screen} hint="From the connection agreement: the capacity the operator will hold in contingency."><input className={inputCls} type="number" step="0.1" value={f.firmCapacityMVA} onChange={set("firmCapacityMVA")} required={!screen} disabled={confirmed.includes("firmCapacityMVA")} /></Field>
+        <Field label="Contracted · MW" required hint="From the supply contract, not the connection nameplate."><input className={inputCls} type="number" step="0.1" value={f.contractedMW} onChange={set("contractedMW")} required /></Field>
+        <Field label="Current site peak · MW" required hint="Half-hourly metered peak over the last 12 months, from the utility bills or the site meter."><input className={inputCls} type="number" step="0.1" value={f.currentPeakMW} onChange={set("currentPeakMW")} required /></Field>
+        <Field label="Current IT load · MW" required hint="Protected load at the UPS output."><input className={inputCls} type="number" step="0.1" value={f.currentItLoadMW} onChange={set("currentItLoadMW")} required /></Field>
+        <Field label="Power factor" hint="From the utility bill or a power-quality meter."><input className={inputCls} type="number" step="0.01" value={f.powerFactor} onChange={set("powerFactor")} /></Field>
       </Section>
 
       <Section title="Distribution" note="400 A legacy against 800–1000 A modern is the most common hard stop.">
-        <Field label="Busway ampacity · A" required><input className={inputCls} type="number" value={f.buswayAmpacityA} onChange={set("buswayAmpacityA")} required /></Field>
-        <Field label="Busway runs"><input className={inputCls} type="number" value={f.buswayRuns} onChange={set("buswayRuns")} /></Field>
-        <Field label="Tap-off rating · A" required><input className={inputCls} type="number" value={f.tapoffMaxA} onChange={set("tapoffMaxA")} required /></Field>
-        <Field label="LV voltage · V"><input className={inputCls} type="number" value={f.voltageV} onChange={set("voltageV")} /></Field>
+        <Field label="Busway ampacity · A" required hint="Rating plate on the busway, or the electrical single-line: 400 A legacy, 800 to 1000 A modern."><input className={inputCls} type="number" value={f.buswayAmpacityA} onChange={set("buswayAmpacityA")} required /></Field>
+        <Field label="Busway runs" hint="Count of separate busway runs feeding the racks."><input className={inputCls} type="number" value={f.buswayRuns} onChange={set("buswayRuns")} /></Field>
+        <Field label="Tap-off rating · A" required hint="Rating on the tap-off boxes at the racks: the smallest that feeds a rack position."><input className={inputCls} type="number" value={f.tapoffMaxA} onChange={set("tapoffMaxA")} required /></Field>
+        <Field label="LV voltage · V" hint="Nominal distribution voltage on the single-line."><input className={inputCls} type="number" value={f.voltageV} onChange={set("voltageV")} /></Field>
       </Section>
 
       <Section title="Cooling" note="Legacy 6–7 °C plant against a 27–32 °C loop requirement governs the scheme.">
-        <Field label="Plant capacity · kW" required={!screen}><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required={!screen} disabled={confirmed.includes("plantCapacityKW")} /></Field>
-        <Field label="Supply temperature · °C" required><input className={inputCls} type="number" step="0.5" value={f.plantSupplyC} onChange={set("plantSupplyC")} required /></Field>
-        <Field label="Return temperature · °C"><input className={inputCls} type="number" step="0.5" value={f.plantReturnC} onChange={set("plantReturnC")} /></Field>
-        <Field label="Available pumped flow · l/min"><input className={inputCls} type="number" value={f.pumpFlowLPerMin} onChange={set("pumpFlowLPerMin")} /></Field>
-        <Field label="Air removal per position · kW"><input className={inputCls} type="number" step="0.5" value={f.residualAirKWPerRack} onChange={set("residualAirKWPerRack")} /></Field>
+        <Field label="Plant capacity · kW" required={!screen} hint="Chiller plant cooling capacity from the mechanical schedule, not the electrical input."><input className={inputCls} type="number" value={f.plantCapacityKW} onChange={set("plantCapacityKW")} required={!screen} disabled={confirmed.includes("plantCapacityKW")} /></Field>
+        <Field label="Supply temperature · °C" required hint="Chilled-water supply setpoint. Legacy plant runs 6 to 7 °C."><input className={inputCls} type="number" step="0.5" value={f.plantSupplyC} onChange={set("plantSupplyC")} required /></Field>
+        <Field label="Return temperature · °C" hint="Chilled-water return setpoint on the same plant."><input className={inputCls} type="number" step="0.5" value={f.plantReturnC} onChange={set("plantReturnC")} /></Field>
+        <Field label="Available pumped flow · l/min" hint="Pump schedule or commissioning record for the loop that would serve the racks."><input className={inputCls} type="number" value={f.pumpFlowLPerMin} onChange={set("pumpFlowLPerMin")} /></Field>
+        <Field label="Air removal per position · kW" hint="Heat the room's air system can remove per rack position."><input className={inputCls} type="number" step="0.5" value={f.residualAirKWPerRack} onChange={set("residualAirKWPerRack")} /></Field>
       </Section>
 
       <Section title="Target compute" note="The tenant's actual order, not a press release.">
@@ -325,11 +325,11 @@ export function EngagementIntake({
             <option value="generic_dlc_50">Generic DLC rack, 50 kW</option>
           </select>
         </Field>
-        <Field label="Annual utilisation"><input className={inputCls} type="number" step="0.05" min="0.1" max="1" value={f.utilisation} onChange={set("utilisation")} /></Field>
+        <Field label="Annual utilisation" hint="A fraction between 0.1 and 1."><input className={inputCls} type="number" step="0.05" min="0.1" max="1" value={f.utilisation} onChange={set("utilisation")} /></Field>
       </Section>
 
       <div>
-        <h3 className="text-sm font-semibold text-ghost">Transformer schedule</h3>
+        <h2 className="text-sm font-semibold text-ghost">Transformer schedule</h2>
         <p className="mb-3 mt-1 text-xs text-faint">
           Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one; otherwise the engine uses a labelled assumption.
         </p>
@@ -337,7 +337,7 @@ export function EngagementIntake({
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-ghost">UPS schedule</h3>
+        <h2 className="text-sm font-semibold text-ghost">UPS schedule</h2>
         <p className="mb-3 mt-1 text-xs text-faint">
           GPU racks present step loads, not just steady load.
         </p>
@@ -345,7 +345,7 @@ export function EngagementIntake({
       </div>
 
       {error ? (
-        <div className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
+        <div role="alert" className="flex gap-3 rounded border border-flag/40 bg-flag/10 p-4 text-sm text-ghost">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-flag" />
           <p>{error}</p>
         </div>
@@ -401,7 +401,7 @@ export function EngagementIntake({
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {busy ? "Solving" : submitLabel}
@@ -416,7 +416,7 @@ export function EngagementIntake({
 }
 
 const inputCls =
-  "w-full rounded border border-line bg-panel-2 px-3 py-2 font-mono text-ghost " +
+  "min-h-11 w-full rounded border border-line bg-panel-2 px-3 py-2 font-mono text-ghost " +
   "focus:border-power/60 focus:outline-none focus:ring-2 focus:ring-power/60";
 
 function Section({
@@ -432,7 +432,7 @@ function Section({
     <fieldset className="grid gap-4">
       <legend className="sr-only">{title}</legend>
       <div>
-        <h3 className="text-sm font-semibold text-ghost">{title}</h3>
+        <h2 className="text-sm font-semibold text-ghost">{title}</h2>
         <p className="mt-1 text-xs text-faint">{note}</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{children}</div>

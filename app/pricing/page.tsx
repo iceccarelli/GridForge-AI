@@ -134,7 +134,7 @@ export default async function PricingPage() {
                   capacity with the evidence class behind it. Save it to a project and send the read-only page to whoever approves the
                   spend; they can commission the next step from it, at the prices above.
                 </p>
-                <Link href="/power/compare" className="mt-3 inline-block text-sm text-power">
+                <Link href="/power/compare" className="mt-3 inline-flex min-h-11 items-center text-sm text-power">
                   Run the comparison →
                 </Link>
               </>
@@ -155,7 +155,7 @@ export default async function PricingPage() {
           <div className="mt-12">
             <Link
               href="/#services"
-              className="data text-xs uppercase tracking-[0.12em] text-mute hover:text-power transition-colors inline-flex items-center gap-1.5"
+              className="data text-xs uppercase tracking-[0.12em] text-mute hover:text-power transition-colors inline-flex min-h-11 items-center gap-1.5"
             >
               ← Full service detail
             </Link>
