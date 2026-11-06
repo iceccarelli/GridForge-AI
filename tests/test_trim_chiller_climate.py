@@ -5,10 +5,9 @@ What this pins (the owner has reserved these engine assumptions; this test chang
 * In the synthetic reference hall under full DLC the achievable-water-temperature gate fails at EVERY design dry-bulb tried
   (20, 34, 45, 60 degC), so the one relief that clears it, adiabatic assist plus a trim chiller, is taken every time, at one
   fixed library price and lead time. The racks after the ladder and the PUE used do not move with the climate.
-* That relief is a lump that is not scaled to the liquid heat load, and PUE is a fixed library figure per architecture that is
+* That relief is a lump whose cost and load depend on a heat duty the engine does not model, and PUE is a fixed library figure per architecture that is
   not recomputed for the achievable water temperature or for a trim chiller's power. Every result in which the relief is taken
-  must carry that disclosure, once, in the ladder step's basis note; the constraint's notes carry the PUE limit once; and the
-  constraint evaluated AFTER the relief states that the trim chiller's capacity and power are not modelled.
+  must carry that disclosure, once, in the ladder step's basis note, and the constraint's notes carry the PUE limit once.
 """
 from __future__ import annotations
 
@@ -22,9 +21,8 @@ from gridforge.thermal.schema import Architecture
 
 TRIM = "tcs_supply_achievable"
 #: the markers each disclosure must carry (lower-cased substring match)
-LUMP_MARKER = "not scaled to the liquid heat load"
+LUMP_MARKER = "would depend on the heat it must reject, which is not modelled"
 PUE_MARKER = "pue is not recomputed"
-AFTER_MARKER = "trim chiller capacity and power draw are not modelled"
 CLIMATES = (20, 34, 45, 60)
 FULL = {s.id: s for s in SCENARIOS if s.architecture == Architecture.FULL_DLC}
 
@@ -75,14 +73,8 @@ def test_every_result_taking_the_trim_chiller_discloses_the_lump_and_the_pue_lim
         note = step.basis_note.lower()
         assert note.count(LUMP_MARKER) == 1, step.basis_note
         assert note.count(PUE_MARKER) == 1, step.basis_note
-
-
-@pytest.mark.parametrize("drybulb", CLIMATES)
-def test_the_constraint_after_the_relief_says_the_trim_chiller_is_not_modelled(drybulb):
-    ctx = _result("s4_full", drybulb).context          # the context AFTER the ladder: the trim chiller is installed in it
-    assert ctx.thermal.trim_chiller_installed
-    basis = tcs_supply_achievable(ctx).basis.lower()
-    assert basis.count(AFTER_MARKER) == 1, basis
+        assert note.count("not scaled") == 1, step.basis_note        # the lump is described once, never repeated
+        assert "would cost more" not in note                           # no unsupported claim about a sized chiller's price
 
 
 @pytest.mark.parametrize("drybulb", CLIMATES)
@@ -92,10 +84,3 @@ def test_the_constraint_notes_state_the_pue_limit_once(drybulb):
     ctx.architecture = Architecture.FULL_DLC
     notes = " ".join(tcs_supply_achievable(ctx).notes).lower()
     assert notes.count(PUE_MARKER) == 1, notes
-
-
-def test_the_as_found_basis_is_not_burdened_with_the_after_relief_clause():
-    ctx = build_context()
-    ctx.architecture = Architecture.FULL_DLC
-    assert not ctx.thermal.trim_chiller_installed
-    assert AFTER_MARKER not in tcs_supply_achievable(ctx).basis.lower()

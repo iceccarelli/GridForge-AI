@@ -15,6 +15,7 @@ from examples.reference_site import SCENARIOS, build_context
 from gridforge.common import ESTIMATED, V
 from gridforge.compute.library import PLATFORMS
 from gridforge.constraints import all_constraints
+from gridforge.envelope import solve
 from gridforge.envelope.time_to_power import SCHEDULE_LIMITATION
 from gridforge.power.constraints import grid_firm_capacity
 from gridforge.scenario import run
@@ -52,30 +53,71 @@ def test_architecture_capability_discloses_that_the_rack_peak_is_not_used(platfo
     basis = architecture_capability(ctx).basis
     peak = PLATFORMS[platform_id].peak_rack_kW.value
     assert basis.count("peak rack power") == 1, basis
-    assert f"({peak:g} kW) is not used in this or any other thermal constraint" in basis
+    assert f"({peak:g} kW) is used by no constraint" in basis
+    assert "thermal constraint" not in basis
 
 
-def test_the_gb300_peak_is_155_and_the_only_thermal_read_is_the_disclosure_itself():
+#: Where the engine may mention the rack peak at all: the library that defines it, the reference catalogue that lists it, and the one
+#: disclosure that prints it. Anywhere else is a constraint (or anything else) that has started to depend on it.
+#: compute/library.py::_require_rack_power only refuses a non-positive or non-finite peak at load; it limits no racks.
+PEAK_READERS_ALLOWED = {("compute/library.py", "_require_rack_power"), ("reference/build.py", "platform_payload"),
+                        ("thermal/constraints.py", "architecture_capability")}
+
+
+def _peak_mentions() -> set[tuple[str, str]]:
+    """Every place in gridforge/ that reads 'peak_rack_kW': attribute access, getattr(...)/.get(...)/x[...] with the string, or
+    any string constant naming it that is not a dict-literal key or a keyword argument (those only write)."""
+    found: set[tuple[str, str]] = set()
+    for path in sorted(ROOT.rglob("*.py")):
+        rel = str(path.relative_to(ROOT))
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        owner: dict[int, str] = {}
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for n in ast.walk(fn):
+                    owner[id(n)] = fn.name
+        dict_keys = {id(k) for d in ast.walk(tree) if isinstance(d, ast.Dict) for k in d.keys if k is not None}
+        for n in ast.walk(tree):
+            hit = (isinstance(n, ast.Attribute) and n.attr == "peak_rack_kW" and isinstance(n.ctx, ast.Load)) or \
+                  (isinstance(n, ast.Constant) and n.value == "peak_rack_kW" and id(n) not in dict_keys)
+            if hit:
+                found.add((rel, owner.get(id(n), "<module>")))
+    return found
+
+
+def test_the_gb300_peak_is_155_and_no_constraint_reads_it():
     assert PLATFORMS["gb300_nvl72"].peak_rack_kW.value == 155
-    readers = []
-    for path in sorted((ROOT / "thermal").rglob("*.py")):
-        for fn in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(fn, ast.FunctionDef):
-                if any(isinstance(n, ast.Attribute) and n.attr == "peak_rack_kW" and isinstance(n.ctx, ast.Load)
-                       for n in ast.walk(fn)):
-                    readers.append(fn.name)
-    assert readers == ["architecture_capability"]       # which only prints it; the next test shows it limits nothing
+    extra = _peak_mentions() - PEAK_READERS_ALLOWED
+    assert not extra, f"something new reads peak_rack_kW: {sorted(extra)}"
+    assert not any(rel.startswith(("power/", "site/", "envelope/", "economics/", "scenario/")) for rel, _ in _peak_mentions())
 
 
-def test_changing_the_rack_peak_moves_no_constraint_but_its_own_disclosure():
+def _example_contexts():
+    import json
+    from gridforge.intake.loader import load_document
+    out = [("reference_site", build_context())]
+    for n in ("reference_hall", "dublin_hall", "london_hall", "nordic_hall"):
+        doc = json.loads((ROOT.parent / "examples" / "intake" / f"{n}.json").read_text(encoding="utf-8"))
+        out.append((n, load_document(doc).context))
+    return out
+
+
+@pytest.mark.parametrize("architecture", list(Architecture))
+def test_changing_the_rack_peak_moves_no_constraint_in_any_hall_or_architecture(architecture):
     import dataclasses
-    a, b = build_context(), build_context()
-    b.cluster.platform = dataclasses.replace(b.cluster.platform, peak_rack_kW=V(400, "kW", "perturbed peak", ESTIMATED))
-    for fn in all_constraints():
-        ra, rb = fn(a), fn(b)
-        assert ra.racks == rb.racks, fn.__name__
-        if fn.__name__ != "architecture_capability":
-            assert ra.basis == rb.basis, fn.__name__
+    import re
+    own = re.compile(r"\. Modelling limit: the platform's peak rack power \([\d.]+ kW\) is used by no constraint; every limit is "
+                     r"sized on the rack power \(TDP\) figure")
+    for name, base in _example_contexts():
+        a, b = base.copy(), base.copy()
+        a.architecture = b.architecture = architecture
+        b.cluster.platform = dataclasses.replace(b.cluster.platform, peak_rack_kW=V(400, "kW", "perturbed peak", ESTIMATED))
+        for fn in all_constraints():
+            ra, rb = fn(a), fn(b)
+            assert ra.racks == rb.racks, (name, architecture, fn.__name__)
+            assert own.sub("", ra.basis) == own.sub("", rb.basis), (name, architecture, fn.__name__)
+            assert ra.notes == rb.notes
+        assert solve(a).max_racks == solve(b).max_racks, (name, architecture)
 
 
 # ------------------------------------------------------------------ (iii) a supplied lead time is E0: already disclosed

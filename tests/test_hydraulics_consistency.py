@@ -80,17 +80,52 @@ def test_a_flow_that_departs_from_ten_kelvin_is_disclosed_in_the_basis(platform_
     basis = hydraulic_flow(_ctx(platform_id, existing_flow=existing_flow)).basis
     assert basis.count("Flow basis:") == 1, basis                       # once, never duplicated
     assert f"{liquid:.1f} K" in basis and f"{rack:.1f} K" in basis, basis
-    assert "no constraint uses" in basis                                  # the 1.45 l/min/kW reference is named as unused
-    assert "without converting between the two loops" in basis            # facility vs TCS loop, named
+    assert "is not used by any constraint" in basis or "not itself used by any constraint" in basis   # the reference is named unused
+    assert "without converting" in basis                                  # facility vs rack-side loop, named
     if abs(liquid - SCREENING_DELTA_T_K) > DISCLOSE_ABOVE_K:
-        assert "delta-T" in basis and "10 K" in basis                     # the departure from the 10 K reference is stated
+        # the departure from the 10 K reference is stated as a difference, in one string with the per-kW unit and "flow"
+        assert ("the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the "
+                "screening reference is not used by any constraint") in basis
+        assert "flow" in basis and "l/min/kW" in basis
+
+
+@pytest.mark.parametrize("platform_id", sorted(PLATFORMS))
+def test_the_direction_of_the_plant_versus_rack_side_delta_T_is_stated_from_the_heat_balance(platform_id):
+    """flow = heat / (rho cp dT): a plant delta-T smaller than the rack-side one needs MORE flow per rack than the platform figure,
+    so dividing the pumped flow by the platform figure can overstate the racks; a larger plant delta-T can understate them."""
+    for supply, ret in ((6.0, 12.0), (18.0, 26.0), (20.0, 30.0), (10.0, 30.0)):          # the example halls' 6/8/10 K, and 20 K
+        ctx = _ctx(platform_id)
+        ctx.thermal.plant.design_supply_C = V(supply, "degC", "plant supply", ESTIMATED)
+        ctx.thermal.plant.design_return_C = V(ret, "degC", "plant return", ESTIMATED)
+        p = PLATFORMS[platform_id]
+        liquid = implied_dT(p.rack_kW.value * p.liquid_fraction.value, p.flow_l_per_min_per_rack.value)
+        basis = hydraulic_flow(ctx).basis
+        plant_flow_needed = p.rack_kW.value * p.liquid_fraction.value * 60.0 / (RHO_KG_PER_L * CP_KJ_PER_KG_K * (ret - supply))
+        if ret - supply < liquid:
+            assert plant_flow_needed > p.flow_l_per_min_per_rack.value               # the physics behind the sentence
+            assert "can overstate the racks it supports" in basis and "can understate" not in basis
+        else:
+            assert plant_flow_needed < p.flow_l_per_min_per_rack.value
+            assert "can understate the racks it supports" in basis and "can overstate" not in basis
+
+
+def test_rdhx_is_not_described_as_having_a_cdu_or_tcs_loop():
+    ctx = _ctx("gb300_nvl72")
+    ctx.architecture = Architecture.RDHX
+    basis = hydraulic_flow(ctx).basis
+    flow_part = basis[basis.index("Flow basis:"):]
+    assert "TCS" not in flow_part and "CDU" not in flow_part and "two loops" not in flow_part
+    assert "Flow basis:" in basis and hydraulic_flow(ctx).racks == 69
+    for arch in (Architecture.HYBRID_DLC, Architecture.FULL_DLC):
+        ctx.architecture = arch
+        assert "rack-side (TCS) delta-T" in hydraulic_flow(ctx).basis
 
 
 def test_the_basis_names_the_plant_delta_T_so_the_two_loops_can_be_told_apart():
     ctx = _ctx("gb300_nvl72")
     plant_dT = ctx.thermal.plant.design_return_C.value - ctx.thermal.plant.design_supply_C.value        # 12 - 6 = 6 K
     assert plant_dT == 6.0
-    assert "the plant's own design delta-T is 6 K" in hydraulic_flow(ctx).basis
+    assert "plant's own design delta-T is 6 K and" in hydraulic_flow(ctx).basis
 
 
 def test_disclosure_changes_no_number():

@@ -36,16 +36,12 @@ PLANT_UPRATE = 1.5     # screening assumption: the plant relief adds 50% to chil
 PUMP_UPRATE = 1.8      # screening assumption: the pump relief adds 80% to pumped flow
 
 #: Disclosures for the trim-chiller relief (tcs_supply_achievable). Each is stated once per place it can be read: the relief's
-#: basis note (travels with the ladder step wherever the relief is taken), the constraint's notes, and, once the relief has been
-#: applied, the constraint's basis. They change no number.
-TRIM_CHILLER_LIMIT_NOTE = ("The trim-chiller cost is a fixed library lump per hall, not scaled to the liquid heat load: a chiller "
-                           "sized to this hall's heat would cost more and add electrical load. PUE is not recomputed for the "
-                           "achievable water temperature or for a trim chiller's power, so the racks after this relief carry "
-                           "neither that cost nor that load.")
+#: basis note (travels with the ladder step wherever the relief is taken) and the constraint's notes. They change no number.
+TRIM_CHILLER_LIMIT_NOTE = ("The cost and electrical load of a trim chiller would depend on the heat it must reject, which is not "
+                           "modelled. PUE is not recomputed for the achievable water temperature or for a trim chiller's power, so "
+                           "the racks after this relief include no allowance for that load.")
 TRIM_CHILLER_PUE_NOTE = ("PUE is not recomputed for the achievable facility-water temperature (design dry-bulb, free-cooling "
                          "hours) or for any trim chiller's power draw: the architecture's fixed library figure is used.")
-TRIM_CHILLER_AFTER_NOTE = ("Modelling limit: trim chiller capacity and power draw are not modelled, so this temperature is an "
-                           "assumption about equipment that is not sized or installed")
 
 
 def _liquid_load_to_plant(ctx: EnvelopeContext) -> bool:
@@ -82,8 +78,8 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
                   " (a library default for the architecture, not a manufacturer's rating or a site measurement)"
                   if ctx.architecture == Architecture.RDHX else "")
                + f"; the target platform draws {need.render()}"
-               + f". Modelling limit: the platform's peak rack power ({peak.value:g} kW) is not used in this or any other thermal "
-                 f"constraint; every thermal limit is sized on the sustained rack figure"),
+               + f". Modelling limit: the platform's peak rack power ({peak.value:g} kW) is used by no constraint; every "
+                 f"limit is sized on the rack power (TDP) figure"),
         relief=None,
         notes=("No capex relieves this constraint. If it binds, the architecture is wrong for the "
                "platform and a different scenario must be selected.",),
@@ -214,18 +210,36 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 def _flow_disclosure(ctx: EnvelopeContext) -> str:
     """Which per-kW flow hydraulic_flow uses and the delta-T it implies, so the flow figure can be checked against a heat balance.
     Discloses only: the limit is still the plant's pumped flow over the platform's own flow per rack. The 1.45 l/min/kW (10 K)
-    screening constant in the thermal library is not used. The platform flow is the rack-side TCS flow; the plant figure is compared
-    with it without converting between the two loops' delta-T values."""
+    screening constant in the thermal library is not used. Heat balance: flow = heat / (rho cp dT), so a plant with a SMALLER
+    delta-T than the rack-side loop needs MORE flow per rack than the platform figure, and comparing the two without conversion
+    overstates the racks (a larger plant delta-T understates them). That only matters if the intake figure is the plant's flow."""
     plat = ctx.cluster.platform
     flow = plat.flow_l_per_min_per_rack.value
     liquid_dT = implied_delta_T_K(plat.liquid_kW().value, flow)
     rack_dT = implied_delta_T_K(plat.rack_kW.value, flow)
     plant = ctx.thermal.plant
     plant_dT = plant.design_return_C.value - plant.design_supply_C.value
-    return (f". Flow basis: {flow:g} l/min per rack is {flow / plat.rack_kW.value:.3f} l/min per rack kW, which implies a rack-side "
-            f"(TCS) delta-T of {liquid_dT:.1f} K on the liquid-captured load ({rack_dT:.1f} K if the whole rack power were carried "
-            f"by the liquid), not the 10 K / 1.45 l/min/kW screening reference, which no constraint uses; the plant's own design "
-            f"delta-T is {plant_dT:g} K, and the plant flow is compared with the rack-side flow without converting between the two loops")
+    # Only a DLC architecture has a CDU / technology (TCS) loop; under RDHx the platform figure is still the library's flow per rack.
+    dlc = ctx.architecture in (Architecture.HYBRID_DLC, Architecture.FULL_DLC)
+    loop = "rack-side (TCS) delta-T" if dlc else "delta-T"
+    compared = "the rack-side flow without converting between the two loops" if dlc else "the platform's flow per rack without converting for the plant's delta-T"
+    if abs(liquid_dT - 10.0) > 1.0:
+        versus = ("the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the "
+                  "screening reference is not used by any constraint")
+    else:
+        versus = ("the platform figure agrees with the 10 K / 1.45 l/min/kW screening reference in the thermal library to within "
+                  "1 K, which is not itself used by any constraint")
+    if plant_dT < liquid_dT:
+        direction = (f"; the plant delta-T is smaller than the {liquid_dT:.1f} K implied by the platform flow, so if the pumped flow is "
+                     f"the plant's this can overstate the racks it supports")
+    elif plant_dT > liquid_dT:
+        direction = (f"; the plant delta-T is larger than the {liquid_dT:.1f} K implied by the platform flow, so if the pumped flow is "
+                     f"the plant's this can understate the racks it supports")
+    else:
+        direction = ""
+    return (f". Flow basis: {flow:g} l/min per rack is {flow / plat.rack_kW.value:.3f} l/min per rack kW, which implies a {loop} of "
+            f"{liquid_dT:.1f} K on the liquid-captured load ({rack_dT:.1f} K if the whole rack power were carried by the liquid); "
+            f"{versus}. The plant's own design delta-T is {plant_dT:g} K and the plant flow is compared with {compared}{direction}")
 
 
 @constraint
@@ -369,7 +383,7 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
         racks, gate=True,
         basis=(f"TCS target {t.tcs_target_supply_C.render()} needs facility water at or below "
                f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'is estimated to supply'} {achievable.render()}"
-               + (f". {TRIM_CHILLER_AFTER_NOTE}" if t.trim_chiller_installed else "")),
+),
         relief=ReliefOption(
             description="Adiabatic assist plus trim chiller on the high-temperature loop",
             capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
