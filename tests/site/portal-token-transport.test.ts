@@ -7,7 +7,7 @@
  * Stand-ins: the in-memory PostgREST fake and the pay-as-you-go harness. No live Stripe, Supabase or engine call is made.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { match } from "next/dist/compiled/path-to-regexp";
+import { createRequire } from "node:module";
 import { siteUrl } from "@/lib/site";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
 import { securityHeaderRules, TOKEN_ROUTES } from "@/lib/security-headers";
@@ -15,6 +15,8 @@ import { getUsage } from "@/lib/payg-client";
 import { mockEngine, newPaygDb, paygAccount, type MockEngine } from "./payg-harness";
 import type { PostgrestFake } from "./postgrest-fake";
 
+// Next's own compiled matcher (the one that applies `headers()` sources); it ships no types.
+const { match } = createRequire(import.meta.url)("next/dist/compiled/path-to-regexp") as { match: (source: string) => (path: string) => unknown };
 const TOKEN = "token-for-acme-0123456789abcd";
 let db: PostgrestFake;
 let restore: () => void;
