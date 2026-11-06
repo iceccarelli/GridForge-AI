@@ -181,7 +181,7 @@ export function TimeToPower() {
       <div className="flex items-start justify-between gap-4 mb-6 relative">
         <div>
           <div className="eyebrow">FIG. 01 — TIME TO POWER</div>
-          <div className="text-sm text-mute mt-1" style={{ opacity: captionOn ? 1 : 0.25, transition: "opacity 0.5s ease" }}>
+          <div data-testid="ttp-caption" className="text-sm text-mute mt-1" style={{ opacity: captionOn ? 1 : 0.25, transition: "opacity 0.5s ease" }}>
             {custom ? (
               <>
                 <span className="text-power font-medium">Your inputs</span>

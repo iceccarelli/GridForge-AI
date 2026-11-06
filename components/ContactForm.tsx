@@ -45,7 +45,10 @@ export function ContactForm({ email }: { email: string }) {
       if (res.status === 422 && j.fields) return fail("Some details need another look.", j.fields);
       if (res.status === 429) return fail(`Too many messages from this connection just now. Nothing was sent. Please try again later, or email ${email}.`);
       if (res.status === 413) return fail(`That message is too long to send here. Nothing was sent. Please shorten it, or email ${email}.`);
-      return fail(typeof j.error === "string" && j.error ? j.error : `Your message was not sent. Please email ${email} instead.`, {}, typeof j.ref === "string" ? j.ref : undefined);
+      // The route's own refusal ("was not saved", with a reference) says what happened and names the address. Any other server error, including
+      // the rate-limit guard's generic "temporarily unavailable", is replaced by words that say the message did not go and where to write.
+      if (typeof j.ref === "string" && typeof j.error === "string" && j.error) return fail(j.error, {}, j.ref);
+      return fail(`Your message was not sent. The service is unavailable just now. Please try again later, or email ${email}.`);
     } catch {
       return fail(`Network error. Nothing was sent. Please try again, or email ${email}.`);
     }
