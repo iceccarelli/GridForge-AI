@@ -89,10 +89,9 @@ def _date(res: ScenarioResult) -> dict:
                 "first_rack_weeks": None, "sets_the_date": None,
                 "reason": "No rack is deployable in this scenario, so there is nothing to date.", **basis}
     if not schedule_complete(res.ladder):
-        gaps = [s.binding_name for s in res.ladder.taken_steps if s.lead_time_weeks is None]
         return {"status": "lead_time_missing", "weeks": None, "low": None, "high": None, "evidence": None,
                 "first_rack_weeks": None, "sets_the_date": None,
-                "reason": "No defensible date: no lead time is known for " + ", ".join(gaps) + ".", **basis}
+                "reason": "No defensible date: " + res.ladder.incomplete_reason + ".", **basis}
     band = full_capacity_band(res.ladder, t)
     if band is None:
         return {"status": "no_date", "weeks": None, "low": None, "high": None, "evidence": None,
@@ -122,7 +121,7 @@ def _scenario(res: ScenarioResult, document: dict | None = None) -> dict:
     classes = [s.lead_time_weeks.evidence for s in taken if s.lead_time_weeks is not None]
     weakest = min(classes) if classes else None
     econ = economics_dict(res)
-    missing: list[str] = []
+    missing: list[str] = [f"not declared: {b}" for b in res.ladder.unassessed_banks]
     missing += [f"lead time: {s.binding_name}" for s in taken if s.lead_time_weeks is None]
     missing += [f"price: {u.get('component') or u.get('key')}" for u in econ["unpriced_components"]]
     final = res.ladder.final
@@ -146,7 +145,7 @@ def _scenario(res: ScenarioResult, document: dict | None = None) -> dict:
                       "cost_basis_mix": econ["cost_basis_mix"], "decision_grade": econ["decision_grade"],
                       "basis": econ["basis"], "limitations": econ["limitations"]},
         "weakest_lead_time_evidence": _cls(weakest.name) if weakest is not None else None,
-        "grade": _grade(date["status"], weakest, any(s.lead_time_weeks is None for s in taken)),
+        "grade": _grade(date["status"], weakest, not res.ladder.critical_path_complete),
         "missing_inputs": missing,
     }
 

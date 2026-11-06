@@ -145,10 +145,40 @@ class HeadroomLadder:
         return sum(s.capex_eur.value for s in self.taken_steps if s.capex_eur is not None)
 
     @property
+    def unassessed_banks(self) -> tuple[str, ...]:
+        """Equipment banks the client did not declare, by name ("transformers", "UPS").
+
+        An undeclared bank evaluates as "not limiting" (unbounded racks), so the ladder never prices or
+        times the relief it would have needed. That is not an assessment of the bank, it is the absence of
+        one: the rack figure stands as a screening answer, but any date, critical path or cost built on this
+        ladder is a LOWER BOUND and must not be presented as complete."""
+        ctx = self.initial_context
+        if ctx is None:
+            return ()
+        out = []
+        if not ctx.power.transformers:
+            out.append("transformers")
+        if not ctx.power.ups:
+            out.append("UPS")
+        return tuple(out)
+
+    @property
+    def incomplete_reason(self) -> str:
+        """Why the path is not complete, in words a reader can act on; "" when it is complete."""
+        parts = []
+        if self.unassessed_banks:
+            parts.append("not declared: " + ", ".join(self.unassessed_banks)
+                         + " (reliefs they would need are neither priced nor timed)")
+        gaps = [s.binding_name for s in self.taken_steps if s.lead_time_weeks is None]
+        if gaps:
+            parts.append("no lead time is known for " + ", ".join(gaps))
+        return "; ".join(parts)
+
+    @property
     def critical_path_complete(self) -> bool:
-        """False when a relief that is taken has no lead time: the critical path is then a LOWER BOUND (the
-        longest KNOWN lead time), not the path."""
-        return all(s.lead_time_weeks is not None for s in self.taken_steps)
+        """False when a relief that is taken has no lead time, or an equipment bank was not declared: the
+        critical path is then a LOWER BOUND (the longest KNOWN lead time), not the path."""
+        return not self.unassessed_banks and all(s.lead_time_weeks is not None for s in self.taken_steps)
 
     @property
     def critical_path_weeks(self) -> float:

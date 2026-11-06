@@ -67,6 +67,9 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
                       max_racks=lad.final.max_racks if lad.final else 0)
     elapsed = 0.0
     seen_racks = out.racks_now
+    if lad.unassessed_banks:
+        # An undeclared transformer or UPS bank was never timed, so every elapsed figure below is a lower bound.
+        out.complete = False
     if out.racks_now > 0:
         out.points.append(EnergisationPoint(0.0, out.racks_now, "available as found", "—"))
     for st in lad.steps:
@@ -177,9 +180,11 @@ def date_basis_of(cls: EvidenceClass, item: str | None) -> DateBasis:
 
 
 def schedule_complete(ladder: HeadroomLadder) -> bool:
-    """True when every relief taken has a lead time. A missing one is not 'zero weeks': ``schedule`` would
-    treat it as such and understate the date, so an incomplete schedule yields no date at all."""
-    return all(s.lead_time_weeks is not None for s in ladder.taken_steps)
+    """True when every relief taken has a lead time and every equipment bank was declared. A missing lead time
+    is not 'zero weeks': ``schedule`` would treat it as such and understate the date, so an incomplete schedule
+    yields no date at all. An undeclared bank is the same gap one step earlier: its reliefs were never taken, so
+    never timed."""
+    return ladder.critical_path_complete
 
 
 def full_capacity_band(ladder: HeadroomLadder, ttp: TimeToPower
@@ -307,7 +312,8 @@ def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document
     None), ``missing_inputs``, ``dependency_model``, ``limitation`` and ``calculation_version``."""
     ttp = ttp if ttp is not None else schedule(ladder)
     taken = ladder.taken_steps
-    missing = [f"lead time: {s.binding_name}" for s in taken if s.lead_time_weeks is None]
+    missing = [f"not declared: {b}" for b in ladder.unassessed_banks]
+    missing += [f"lead time: {s.binding_name}" for s in taken if s.lead_time_weeks is None]
     got = full_capacity_band(ladder, ttp)
     if not ttp.max_racks:
         status = "no_deployable_racks"
