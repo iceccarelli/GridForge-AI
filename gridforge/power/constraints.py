@@ -375,7 +375,8 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
         "rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
         racks, gate=True,
         basis=(f"platform needs {need.render()} per rack{feed_note}; installed tap-offs rated "
-               f"{lv.tapoff_max_A.render()}"),
+               f"{lv.tapoff_max_A.render()}. The tap-off rating is compared at 100% of its rating, with no continuous-load derating "
+               f"(the busway is derated to {lv.busway_utilisation_limit.render(with_class=False)})"),
         relief=ReliefOption(
             description="Higher-rated tap-off units (and busway if ampacity does not allow)",
             capex_eur=cost("tapoff.unit", 6_000, "EUR/rack", "tap-off unit and rack feed"),
