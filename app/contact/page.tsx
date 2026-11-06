@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ContactForm } from "@/components/ContactForm";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { orgRef } from "@/lib/entity";
 import { breadcrumbJsonLd } from "@/lib/jsonld";
@@ -46,8 +47,17 @@ export default function ContactPage() {
         takes no margin on hardware, so what you are told is not shaped by something it wants to sell you.
       </p>
 
-      <section className="mt-8 rounded-lg border border-line bg-panel p-5" aria-labelledby="email-h">
-        <h2 id="email-h" className="data text-[11px] tracking-[0.14em] text-power">EMAIL</h2>
+      <section className="relative mt-8 rounded-lg border border-line bg-panel p-5" aria-labelledby="form-h">
+        <h2 id="form-h" className="data text-[11px] tracking-[0.14em] text-power">WRITE TO US HERE</h2>
+        <p className="mb-4 mt-2 text-[14px] leading-relaxed text-mute">
+          Name, work email, company and a line on the hall or the problem. It is saved so we can reply; nothing is sent to you automatically, and it is not an
+          engagement. The email address below works as well, and is the fallback if this form cannot save your message.
+        </p>
+        <ContactForm email={SITE.email} />
+      </section>
+
+      <section className="mt-6 rounded-lg border border-line bg-panel p-5" aria-labelledby="email-h">
+        <h2 id="email-h" className="data text-[11px] tracking-[0.14em] text-power">OR EMAIL</h2>
         <p className="mt-2 text-lg text-ghost">
           <a href={`mailto:${SITE.email}`} className="text-power underline">{SITE.email}</a>
         </p>
