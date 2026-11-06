@@ -651,8 +651,7 @@ def test_a_fully_priced_estimate_is_not_called_a_lower_bound(private_library, tm
     intake = load_document(doc("dublin_hall"))
     results = run_all(intake.context, intake.scenarios)
     rec = {r.spec.id: r for r in results}["full_dlc"]
-    # The CAPEX is complete. (The date of this hall is still a lower bound: its CDU schedule is not declared, so that is said in its own sentence.)
-    assert rec.economics.capex_complete and not any("LOWER BOUND" in x and "capex" in x for x in rec.economics.limitations)
+    assert rec.economics.capex_complete and not any("LOWER BOUND" in x for x in rec.economics.limitations)
     from gridforge.reporting import to_markdown
     from gridforge.reporting.study import build
     md = to_markdown(build(intake.context, results, client="t"))

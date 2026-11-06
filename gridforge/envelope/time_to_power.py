@@ -35,7 +35,7 @@ class TimeToPower:
 
     @property
     def weeks_to_first_rack(self) -> float | None:
-        if self.racks_now > 0 and not self.as_found_unassessed:
+        if self.racks_now > 0 and not self.as_found_waits_for_cdu_kit:
             return 0.0
         if not self.complete:
             return None
@@ -59,9 +59,19 @@ class TimeToPower:
     #: step contributes nothing), so ``weeks_to_first_rack`` / ``weeks_to_full`` return None rather than a date,
     #: and ``critical_weeks`` is a lower bound only.
     complete: bool = True
-    #: True when the racks the hall hosts "as found" depend on equipment nobody declared (an assumed CDU kit in a liquid scenario).
-    #: They are then NOT energised at week 0: no "available as found" point is given and there is no first-rack date.
-    as_found_unassessed: bool = False
+    #: True when the racks the hall hosts "as found" depend on a CDU kit the engine ASSUMED (``installed=False``) in a liquid scenario.
+    #: They are then NOT energised at week 0: the first point is at the library CDU lead time, labelled as an assumption.
+    as_found_waits_for_cdu_kit: bool = False
+
+
+#: The first energisation point of a liquid scenario whose as-found racks depend on an assumed CDU kit, and the item that sets the date while
+#: nothing slower does. The weeks, band and class are the library CDU relief's own (``cdu_capacity``), never a figure of this module's.
+ASSUMED_CDU_KIT_LABEL = "after CDU kit delivery (library lead time, assumed)"
+ASSUMED_CDU_KIT_ITEM = "CDU kit delivery (assumed CDUs)"
+
+
+def _waits_for_cdu_kit(lad: HeadroomLadder, racks_now: int) -> bool:
+    return racks_now > 0 and lad.assumed_cdu_kit
 
 
 def schedule(lad: HeadroomLadder) -> TimeToPower:
@@ -74,12 +84,18 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
         # An undeclared transformer or UPS bank was never timed, and a ladder that stopped on its step budget never reached the ceiling,
         # so every elapsed figure below is a lower bound.
         out.complete = False
-    if "CDUs" in lad.unassessed_banks:
-        # The as-found racks run on a CDU kit the client never declared (the loader assumed one so the scenario could be solved):
-        # that kit is not in the hall, so calling these racks "available as found" at week 0 would date equipment that must still be
-        # bought and commissioned. The library has no lead time for it, so none is invented: the point is withheld.
-        out.as_found_unassessed = True
-    if out.racks_now > 0 and not out.as_found_unassessed:
+    if _waits_for_cdu_kit(lad, out.racks_now):
+        # The as-found racks run on a CDU kit the engine assumed so the scenario could be solved: it is not in the hall, so these racks
+        # are not energised at week 0. They are energised once the kit is delivered, at the library CDU lead time (an assumption, E0).
+        out.as_found_waits_for_cdu_kit = True
+        kit = lad.cdu_kit_lead_time
+        if kit is None:
+            out.complete = False            # no lead time to give: no date, and none is invented
+        else:
+            elapsed = kit.value
+            out.critical_item, out.critical_weeks = ASSUMED_CDU_KIT_ITEM, kit.value
+            out.points.append(EnergisationPoint(kit.value, out.racks_now, ASSUMED_CDU_KIT_LABEL, "thermal"))
+    elif out.racks_now > 0:
         out.points.append(EnergisationPoint(0.0, out.racks_now, "available as found", "—"))
     for st in lad.steps:
         if not st.taken:
@@ -106,7 +122,12 @@ def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, Evi
     elapsed = lo = hi = 0.0
     cls: EvidenceClass | None = None
     seen = ladder.initial.max_racks if ladder.initial else 0
-    if seen > 0 and "CDUs" not in ladder.unassessed_banks:         # the same rule as schedule(): the points and the bands stay aligned
+    if _waits_for_cdu_kit(ladder, seen):                               # the same rule as schedule(): the points and the bands stay aligned
+        kit = ladder.cdu_kit_lead_time
+        if kit is not None:
+            elapsed, lo, hi, cls = kit.value, kit.band[0], kit.band[1], kit.evidence
+            out.append((elapsed, lo, hi, cls))
+    elif seen > 0:
         out.append((0.0, 0.0, 0.0, EvidenceClass.E0_ASSUMPTION))
     for st in ladder.steps:
         if not st.taken:
@@ -337,7 +358,10 @@ def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document
         controlling = ttp.critical_item
         ctrl = next((s for s in taken if s.binding_name == controlling and s.lead_time_weeks is not None
                      and s.lead_time_weeks.value == ttp.critical_weeks), None)
-        src = step_lead_source(ctrl, document) if ctrl is not None else LEAD_SOURCE_UNKNOWN
+        if ctrl is not None:
+            src = step_lead_source(ctrl, document)
+        else:
+            src = LEAD_SOURCE_LIBRARY if controlling == ASSUMED_CDU_KIT_ITEM else LEAD_SOURCE_UNKNOWN
         tied = sorted({s.binding_name for s in taken if s.lead_time_weeks is not None
                        and s.lead_time_weeks.value == ttp.critical_weeks and s.binding_name != controlling})
     limitation = SCHEDULE_LIMITATION
@@ -346,6 +370,9 @@ def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document
                        "against a written quotation.")
     elif src == LEAD_SOURCE_LIBRARY:
         limitation += f" The lead time that sets the date is a {LEAD_SOURCE_LABELS[src]}, not the customer's figure."
+    if ttp.as_found_waits_for_cdu_kit:
+        limitation += (" The first-rack date rests on the library CDU lead time (an assumption: the intake declares no CDUs, so the scenario "
+                       "assumes a kit), and the kit's commissioning and the conversion works are not in the schedule.")
     return {
         "status": status,
         "controlling_component": controlling,

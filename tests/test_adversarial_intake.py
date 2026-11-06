@@ -281,9 +281,7 @@ def test_a_zero_transformer_bank_makes_the_transformer_the_binding_constraint_no
 def test_107_a_supplied_transformer_lead_time_lies_inside_its_own_stated_range(weeks):
     """Issue #107. QUALIFY: whenever a transformer sets the date, low <= weeks <= high. FIXED on this commit (band = +-35% around the supplied
     value). Checked on every dated scenario of /v1/compare."""
-    # The CDU schedule is declared: with none, the loader assumes a kit and every liquid scenario is undated (nothing would be checked here).
-    cdus = [{"id": "CDU-ROW", "rated_capacity_kW": 1350, "rated_approach_K": 5, "rated_flow_l_per_min": 2000, "units": 3, "redundancy": "N+1"}]
-    status, out = call("/v1/compare", {"intake": doc(**{"transformers.0.replacement_lead_time_weeks": weeks, "thermal.cdus": cdus})})
+    status, out = call("/v1/compare", {"intake": doc(**{"transformers.0.replacement_lead_time_weeks": weeks})})
     assert status == "ok"
     dated = [s["time_to_power"] for s in out["scenarios"] if s["time_to_power"]["weeks"] is not None]
     assert dated

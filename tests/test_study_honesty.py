@@ -18,14 +18,9 @@ from gridforge.scenario.objective import Objective, pick_recommended
 from gridforge.scenario.run import run_all
 from gridforge.thermal.library import PUE_BY_ARCHITECTURE
 
-import tempfile  # noqa: E402
-from declared_cdus import declared_copy  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 INTAKES = sorted((ROOT / "examples" / "intake").glob("*.json"))
-_CDU_DIR = tempfile.TemporaryDirectory()      # lives as long as the test process
-# The shipped intake leaves the CDU schedule empty, which undates every liquid scenario; these tests are about a DATED hall (tests/declared_cdus.py).
-SHIPPED = ROOT / "examples" / "intake" / "dublin_hall.json"       # as shipped: no CDU schedule
-DUBLIN = declared_copy(ROOT / "examples" / "intake" / "dublin_hall.json", Path(_CDU_DIR.name) / "dublin_hall.json")
+DUBLIN = ROOT / "examples" / "intake" / "dublin_hall.json"
 INF = float("inf")
 
 
@@ -198,10 +193,10 @@ def test_client_supplied_is_not_described_as_measured(tmp_path):
 # ------------------------------------------------------------------ the deck and the screen agree with the study
 
 def test_the_deck_does_not_claim_labels_it_does_not_print_and_does_not_hide_the_ladder(tmp_path):
-    out = gen(tmp_path, SHIPPED, "deck")           # the CDU schedule is one of the things this slide must say nobody has supplied
+    out = gen(tmp_path, DUBLIN, "deck")
     html = (out / "walkthrough.html").read_text()
     text = re.sub(r"<[^>]+>", " ", html)
-    _, _, rec = solved(SHIPPED)
+    _, _, rec = solved()
     assert "carries an evidence class and comes from" not in text
     assert f"{len(rec.envelope.constraints)} constraints across" in text
     taken = len(rec.ladder.taken_steps)

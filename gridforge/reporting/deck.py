@@ -63,7 +63,9 @@ def _energisation_svg(t: TimeToPower, assumed: bool = False) -> str:
     # them stacks a column of dots on one x position, which reads as noise and
     # implies events the client will never experience. What they experience is a
     # date on which capacity arrives.
-    by_week: dict[float, float] = {0.0: float(t.racks_now)}
+    # Driven from the schedule's points, not from racks_now: a hall whose as-found racks wait for an assumed CDU kit has nothing energised
+    # at week 0 (its first point is at the kit's lead time), and a hall with racks as found has a week-0 point that says so.
+    by_week: dict[float, float] = {0.0: 0.0}
     for p in t.points:
         by_week[p.weeks] = max(by_week.get(p.weeks, 0.0), float(p.racks))
     pts = sorted(by_week.items())

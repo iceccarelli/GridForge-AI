@@ -30,7 +30,6 @@ def pinned_today(monkeypatch):
     monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-10-13")
 
 
-from declared_cdus import with_declared_cdus  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -143,7 +142,7 @@ def _grade_ready(e):
 
 
 def test_decision_grade_needs_fresh_lines_at_e3_or_better_and_a_total_at_e3_or_better():
-    _, r = solve(with_declared_cdus(doc()), "full_dlc")      # an undeclared CDU schedule is itself a limitation (tests/declared_cdus.py)
+    _, r = solve(doc(), "full_dlc")
     ready = _grade_ready(r.economics)
     assert ready.decision_grade, "the property is reachable when every line and the total are firm and fresh"
     assert not dataclasses.replace(ready, stale_lines=["transformer.replacement"]).decision_grade
