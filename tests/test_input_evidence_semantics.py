@@ -160,7 +160,12 @@ def test_an_intake_with_nothing_to_flag_has_no_plausibility_finding_in_either_re
 
 
 def _no_transformer_lead_time():
-    return mutated(lambda d: d["transformers"][0].pop("replacement_lead_time_weeks"))
+    def edit(d):
+        d["transformers"][0].pop("replacement_lead_time_weeks")
+        # A declared CDU schedule: with none, the loader assumes a kit and the liquid scenarios are undated (test_week_zero_assumed_equipment.py).
+        d["thermal"]["cdus"] = [{"id": "CDU-ROW", "rated_capacity_kW": 1350, "rated_approach_K": 5, "rated_flow_l_per_min": 2000,
+                                 "units": 3, "redundancy": "N+1"}]
+    return mutated(edit)
 
 
 def test_removing_the_transformer_lead_time_is_disclosed_in_the_comparison_and_the_screen():

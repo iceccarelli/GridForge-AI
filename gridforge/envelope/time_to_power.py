@@ -35,7 +35,7 @@ class TimeToPower:
 
     @property
     def weeks_to_first_rack(self) -> float | None:
-        if self.racks_now > 0:
+        if self.racks_now > 0 and not self.as_found_unassessed:
             return 0.0
         if not self.complete:
             return None
@@ -59,6 +59,9 @@ class TimeToPower:
     #: step contributes nothing), so ``weeks_to_first_rack`` / ``weeks_to_full`` return None rather than a date,
     #: and ``critical_weeks`` is a lower bound only.
     complete: bool = True
+    #: True when the racks the hall hosts "as found" depend on equipment nobody declared (an assumed CDU kit in a liquid scenario).
+    #: They are then NOT energised at week 0: no "available as found" point is given and there is no first-rack date.
+    as_found_unassessed: bool = False
 
 
 def schedule(lad: HeadroomLadder) -> TimeToPower:
@@ -70,7 +73,12 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
     if lad.unassessed_banks:
         # An undeclared transformer or UPS bank was never timed, so every elapsed figure below is a lower bound.
         out.complete = False
-    if out.racks_now > 0:
+    if "CDUs" in lad.unassessed_banks:
+        # The as-found racks run on a CDU kit the client never declared (the loader assumed one so the scenario could be solved):
+        # that kit is not in the hall, so calling these racks "available as found" at week 0 would date equipment that must still be
+        # bought and commissioned. The library has no lead time for it, so none is invented: the point is withheld.
+        out.as_found_unassessed = True
+    if out.racks_now > 0 and not out.as_found_unassessed:
         out.points.append(EnergisationPoint(0.0, out.racks_now, "available as found", "—"))
     for st in lad.steps:
         if not st.taken:
@@ -97,7 +105,7 @@ def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, Evi
     elapsed = lo = hi = 0.0
     cls: EvidenceClass | None = None
     seen = ladder.initial.max_racks if ladder.initial else 0
-    if seen > 0:
+    if seen > 0 and "CDUs" not in ladder.unassessed_banks:         # the same rule as schedule(): the points and the bands stay aligned
         out.append((0.0, 0.0, 0.0, EvidenceClass.E0_ASSUMPTION))
     for st in ladder.steps:
         if not st.taken:

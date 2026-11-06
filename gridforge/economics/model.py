@@ -123,9 +123,13 @@ class EconomicsResult:
         """Every reason this economics result is not decision-grade, in the words a report prints. Empty only when
         every priced line rests on a quotation or better, nothing is unpriced, and the energy price is declared."""
         out: list[str] = []
-        if self.unassessed_banks:
+        unpriced_banks = [b for b in self.unassessed_banks if b != "CDUs"]
+        if unpriced_banks:
             out.append("the capex total and the critical path are LOWER BOUNDS: not declared: "
-                       + ", ".join(self.unassessed_banks) + " (the reliefs they would need are neither priced nor timed)")
+                       + ", ".join(unpriced_banks) + " (the reliefs they would need are neither priced nor timed)")
+        if "CDUs" in self.unassessed_banks:
+            out.append("the critical path is a LOWER BOUND: not declared: CDUs (the racks as found rest on an assumed CDU kit that "
+                       "is not in the hall; its delivery and commissioning time is not modelled, so no date is given)")
         if self.unpriced:
             items = [f"{g['component']} ({g['quantity']:g} x {g['unit'].split('/')[-1]}, needed in "
                      f"{len(g['where'])} place{'s' if len(g['where']) != 1 else ''})" for g in self.unpriced_summary()]
@@ -278,7 +282,7 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     # line it came from -- a firm quotation narrows it, a placeholder widens it.
     priced = [st.capex_eur for st in lad.taken_steps if st.capex_eur is not None]
     # An undeclared bank's relief is never taken, so it is never priced either: the total is then a lower bound.
-    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unassessed_banks
+    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unpriced_banks
     aace = library().aace_class(keys)
     if priced:
         relief = priced[0]

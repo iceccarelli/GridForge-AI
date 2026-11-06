@@ -20,6 +20,7 @@ from ..validation import EvidenceClass, Quantity
 from ..power import constraints as _p  # noqa: F401
 from ..site import constraints as _s  # noqa: F401
 from ..thermal import constraints as _t  # noqa: F401
+from ..thermal.schema import Architecture
 
 
 @dataclass
@@ -146,12 +147,17 @@ class HeadroomLadder:
 
     @property
     def unassessed_banks(self) -> tuple[str, ...]:
-        """Equipment banks the client did not declare, by name ("transformers", "UPS").
+        """Equipment banks the client did not declare, by name ("transformers", "UPS", "CDUs").
 
         An undeclared bank evaluates as "not limiting" (unbounded racks), so the ladder never prices or
         times the relief it would have needed. That is not an assessment of the bank, it is the absence of
         one: the rack figure stands as a screening answer, but any date, critical path or cost built on this
-        ladder is a LOWER BOUND and must not be presented as complete."""
+        ladder is a LOWER BOUND and must not be presented as complete.
+
+        "CDUs" is named for a liquid architecture (hybrid or full DLC) with no declared CDU schedule: either the
+        schedule is empty (the CDU constraint is then skipped) or the loader ASSUMED a kit (``installed=False``) so
+        the scenario could be solved. Either way the racks the hall hosts "as found" run on cooling that is not
+        declared to exist, and the library holds no delivery or commissioning time for it, so none is invented."""
         ctx = self.initial_context
         if ctx is None:
             return ()
@@ -160,15 +166,31 @@ class HeadroomLadder:
             out.append("transformers")
         if not ctx.power.ups:
             out.append("UPS")
+        if ctx.architecture in (Architecture.HYBRID_DLC, Architecture.FULL_DLC) and (
+                not ctx.thermal.cdus or any(not c.installed for c in ctx.thermal.cdus)):
+            out.append("CDUs")
         return tuple(out)
+
+    @property
+    def unpriced_banks(self) -> tuple[str, ...]:
+        """The undeclared banks whose reliefs are never priced either (transformers, UPS). An assumed CDU kit is NOT among them: the
+        economics prices the kit it starts from and every CDU the ladder adds, so its capex stands; only its timing is unknown."""
+        return tuple(b for b in self.unassessed_banks if b != "CDUs")
 
     @property
     def incomplete_reason(self) -> str:
         """Why the path is not complete, in words a reader can act on; "" when it is complete."""
         parts = []
-        if self.unassessed_banks:
-            parts.append("not declared: " + ", ".join(self.unassessed_banks)
-                         + " (reliefs they would need are neither priced nor timed)")
+        banks = self.unassessed_banks
+        if banks:
+            others = [b for b in banks if b != "CDUs"]
+            if "CDUs" in banks:
+                kit = ("the racks as found rest on an assumed CDU kit that has to be bought and commissioned, and the library has "
+                       "no delivery or commissioning time for it")
+                why = (f"reliefs they would need are neither priced nor timed; {kit}") if others else kit
+            else:
+                why = "reliefs they would need are neither priced nor timed"
+            parts.append("not declared: " + ", ".join(banks) + f" ({why})")
         gaps = [s.binding_name for s in self.taken_steps if s.lead_time_weeks is None]
         if gaps:
             parts.append("no lead time is known for " + ", ".join(gaps))

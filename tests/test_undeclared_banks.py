@@ -25,6 +25,10 @@ from gridforge.envelope.time_to_power import date_record, schedule_complete
 from gridforge.intake.loader import load_document
 
 DUBLIN = json.loads((Path(__file__).resolve().parent.parent / "examples" / "intake" / "dublin_hall.json").read_text())
+# "Fully declared" now includes the CDU schedule: the shipped intake leaves it empty, so the loader assumes a kit and the liquid scenarios are
+# undated on that account (tests/test_week_zero_assumed_equipment.py). The same hardware, declared, keeps this file about transformers and UPS.
+DUBLIN["thermal"]["cdus"] = [{"id": "CDU-ROW", "rated_capacity_kW": 1350, "rated_approach_K": 5, "rated_flow_l_per_min": 2000,
+                              "units": 3, "redundancy": "N+1"}]
 
 
 def _without(*sections: str) -> dict:
