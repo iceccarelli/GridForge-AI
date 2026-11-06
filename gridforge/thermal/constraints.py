@@ -267,15 +267,15 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
     if existing is None:
         basis = (f"{pump.render()} available against "
                  f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
-                 f"(the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new "
-                 f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total"
-                 f"{_flow_disclosure(ctx)}")
+                 f"(the platform library's secondary-loop flow){_flow_disclosure(ctx)}. Modelling limit: the intake figure is read as flow "
+                 f"available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the "
+                 f"figure is the plant's total")
     else:
         basis = (f"{pump.render()} pumped flow less {existing.render()} already drawn by the existing hall = "
                  f"{_available(pump).render()} available to the new load (never below zero), against "
                  f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
-                 f"(the platform library's secondary-loop flow). Modelling limit: plant delta-T and pump head are not modelled; "
-                 f"a pump uprate scales the pumped flow, not the existing hall's draw{_flow_disclosure(ctx)}")
+                 f"(the platform library's secondary-loop flow){_flow_disclosure(ctx)}. Modelling limit: plant delta-T and pump head are not "
+                 f"modelled; a pump uprate scales the pumped flow, not the existing hall's draw")
 
     return ConstraintResult(
         "hydraulic_flow", "thermal", "Hydraulic flow capacity",
