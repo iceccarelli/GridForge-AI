@@ -4,7 +4,7 @@
  * (lib/lead-store.ts: the existing `leads` table and columns, no migration), and:
  *   - the body is capped and validated, the caller rate-limited, a hidden honeypot field silently swallows bots;
  *   - the visitor is told plainly whether it was saved, and the mailto stays as the fallback;
- *   - nothing the visitor wrote reaches a log line, and NO email is sent to them (nor to anyone: see the report on the operator notice).
+ *   - nothing the visitor wrote reaches a log line, and NO email is sent to them (the operator notice: tests/site/contact-operator-notice.test.ts).
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -77,9 +77,18 @@ describe("a valid enquiry", () => {
     for (const mw of ["lots", "-5", "0", "100000", "NaN", "1e999"]) expect((await POST(post(valid({ mw })))).status, mw).toBe(422);
     expect((await POST(post(valid({ mw: 12.5 })))).status).toBe(200);
   });
-  it("sends no email: not to the visitor, not to anyone", async () => {
+  it("sends nothing to the visitor: the only mail is the operator's, to the owner's own address, with none of the enquiry in it", async () => {
+    const sent: { to: string[]; text: string; subject: string }[] = [];
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("api.resend.com")) { sent.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ id: "m1" }), { status: 200 }); }
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
     await (await route()).POST(post(valid()));
-    expect(outbound.filter((u) => /resend|mail|smtp/i.test(u))).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(["ops@example.test"]);
+    expect(JSON.stringify(sent[0])).not.toMatch(/Quillfeather|hallco-private|Hallco|48 MW|Frankfurt/);
   });
   it("logs nothing about the visitor", async () => {
     await (await route()).POST(post(valid()));

@@ -12,7 +12,7 @@ import { notifyOperatorOnce } from "@/lib/payg-operator";
 export type LeadOrigin = "scoping-agent" | "contact-form";
 
 export type LeadStoreResult =
-  | { ok: true }
+  | { ok: true; ref: string }
   | { ok: false; category: "not_configured" | "store_rejected" | "unreachable"; ref: string };
 
 /** A correlation id with no meaning: eight hex characters. */
@@ -40,7 +40,7 @@ export async function storeLead(record: Record<string, unknown>, origin: LeadOri
     });
     // PostgREST rejects with a status, not a throw. Without this check a lead is dropped in silence — the most expensive kind of failure
     // this site has, because nothing downstream knows the person existed.
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, ref };
     fault = await storeFault(res);
     category = "store_rejected";
   } catch (err) {
@@ -64,4 +64,23 @@ export async function noticeLeadLost(origin: LeadOrigin, result: Extract<LeadSto
     `A ${origin} lead was NOT saved (${result.category}, reference ${result.ref}). The visitor's details are not in this notice or in the logs. ` +
       "Check that the Supabase store is reachable and that the leads table accepts the service role. This notice is sent once per origin, category and day."
   ).catch(() => "unsent");
+}
+
+/**
+ * Tell the operator an enquiry was stored, so a lead is never silent. Goes through the same once-per-day helper (it dedupes on the key, so the
+ * first enquiry of a UTC day mails the operator and later ones that day are deduplicated there). The text names no visitor, address, company or
+ * message: only that something was stored, where to look, and an opaque reference. Mail goes to LEAD_TO_EMAIL (the operator's own address) and
+ * nowhere else. Best effort: a failure here is swallowed and never logs anything about the enquiry.
+ */
+export async function noticeLeadStored(category: "contact_enquiry", ref: string): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  try {
+    await notifyOperatorOnce(
+      `${category}:${day}`,
+      "A contact enquiry was stored",
+      `A contact enquiry was stored (reference ${ref}); see the admin leads view. This notice carries no details of the enquiry and is sent once per day.`
+    );
+  } catch {
+    /* the lead is already stored; a notice that cannot be sent must not change the response */
+  }
 }

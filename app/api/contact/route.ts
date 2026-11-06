@@ -3,7 +3,7 @@ import * as z from "zod";
 import { SITE } from "@/lib/site";
 import { readBoundedJson } from "@/lib/http-body";
 import { guardRequest } from "@/lib/rate-limit";
-import { noticeLeadLost, storeLead } from "@/lib/lead-store";
+import { noticeLeadLost, noticeLeadStored, storeLead } from "@/lib/lead-store";
 import { scoreLead } from "@/lib/lead";
 
 export const runtime = "nodejs";
@@ -14,9 +14,9 @@ export const runtime = "nodejs";
  * table, no new table or column), so it appears in the same place for the operator.
  *
  * What this route deliberately does NOT do:
- *   - send any email. Not a confirmation to the visitor (an address a stranger typed is not proof its owner asked), and not an operator
- *     mail: the only operator notice that already exists for leads is inline in the closed /api/audit route, so none is added here. A
- *     lost enquiry is the exception: lib/lead-store.ts tells the operator once a day, without the enquiry's contents.
+ *   - send any email to the visitor (an address a stranger typed is not proof its owner asked). The OPERATOR is told, through the repo's
+ *     once-per-day notice helper, that an enquiry was stored and to look in the admin leads view; the notice carries an opaque reference
+ *     and none of what the visitor wrote. A lost enquiry is told the same way (lib/lead-store.ts).
  *   - log anything the visitor wrote, or echo it back.
  *   - take a tier, score, status or source from the caller: those are set here.
  *
@@ -95,5 +95,7 @@ export async function POST(req: Request) {
       503
     );
   }
+  // A stored enquiry nobody hears about is a lost sale: tell the operator. Best effort and carrying no enquiry data; it can never fail the request.
+  await noticeLeadStored("contact_enquiry", stored.ref);
   return json({ ok: true });
 }
