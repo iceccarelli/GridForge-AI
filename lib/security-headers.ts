@@ -14,7 +14,13 @@ export interface HeaderRule {
   headers: { key: string; value: string }[];
 }
 
-/** The route patterns whose path contains a bearer token. */
+/**
+ * API routes that take a bearer token in a header or body (and, for one more release, a query string). Their path has no token segment, so the
+ * pattern is the exact route: Next matches `/api/keys` and nothing under it. Responses are never cached, never sent as a referrer and never indexed.
+ */
+export const TOKEN_API_ROUTES = ["/api/keys", "/api/usage"] as const;
+
+/** The route patterns whose path contains a bearer token, then the API routes that authenticate with one. */
 export const TOKEN_ROUTES = [
   "/q/:token*",
   "/intake/:token*",
@@ -24,6 +30,7 @@ export const TOKEN_ROUTES = [
   "/power/deploy/:token*",
   "/account/invite/:token*",
   "/api-access/:token*",
+  ...TOKEN_API_ROUTES,
 ] as const;
 
 export const GLOBAL_HEADERS: { key: string; value: string }[] = [

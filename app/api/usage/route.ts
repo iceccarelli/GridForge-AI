@@ -8,18 +8,23 @@ import { capUsedUnits, recentEvents, usageNet } from "@/lib/payg-usage";
 import { reversalViews } from "@/lib/payg-refunds";
 import type { Settlement } from "@/lib/payg-settle";
 import { guardRequest } from "@/lib/rate-limit";
+import { sealPortalResponse, tokenForRead } from "@/lib/portal-token";
 
 export const runtime = "nodejs";
 
 /**
- * GET ?token= -> the account's own usage, this month's meter, its last events and its settlements.
+ * GET (Authorization: Bearer <token>; the old ?token= still works for one release and is marked deprecated) -> the account's own usage, this month's meter, its last events and its settlements.
  *
  * The account portal token is the only credential, exactly as for /api/keys, and every read below is keyed on THAT account's id:
  * there is no parameter that names another account, so there is nothing to enumerate. Usage is copied from the engine's ledger
  * once a day, so `as_of` says how fresh it is; the engine's own counter is what enforces the cap, in real time.
  */
 export async function GET(req: Request) {
-  const token = new URL(req.url).searchParams.get("token") || "";
+  const { token, deprecatedQuery } = tokenForRead(req);
+  return sealPortalResponse(await readUsage(req, token), "/api/usage", deprecatedQuery);
+}
+
+async function readUsage(req: Request, token: string): Promise<Response> {
   if (!token) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
   const g = await guardRequest(req, "usage_read");
   if (g.denied) return g.denied;
