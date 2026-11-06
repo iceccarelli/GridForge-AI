@@ -117,7 +117,11 @@ def test_refund_returns_units():
     assert used(acct) == 0 and METER.current(acct).calls == 0
 
 
-def test_rate_limit_ignores_a_spoofed_leftmost_forwarded_address():
+def test_rate_limit_ignores_a_spoofed_leftmost_forwarded_address(monkeypatch):
+    # One proxy of ours in front, declared (undeclared, no forwarding header is read at all: tests/test_rate_limit_proxy.py).
+    monkeypatch.setenv("GRIDFORGE_TRUSTED_PROXY_HOPS", "1")
+    monkeypatch.delenv("FLY_APP_NAME", raising=False)
+    monkeypatch.delenv("GRIDFORGE_TRUSTED_IP_HEADER", raising=False)
     class H(S.Handler):
         def __init__(self, xff, peer="10.0.0.1"):
             self.headers = {"X-Forwarded-For": xff}

@@ -40,11 +40,27 @@ endpoints refuse rather than open — a misconfigured deployment must fail close
 Metering: every paid call bills units (see /v1/version). Over quota returns 402,
 not 429 — to a machine those mean buy more and try later respectively, and an
 agent told to retry a call it can never afford will retry it forever.
+
+Who a caller is (the rate limiter's identity). A forwarding header is only something the caller typed unless a proxy WE run wrote it, so
+the identity is the socket peer unless the operator says otherwise:
+    GRIDFORGE_TRUSTED_PROXY_HOPS   how many proxies of ours sit in front of the engine (whole number, 0 or more). The caller is then the
+                                   X-Forwarded-For entry that many places from the RIGHT (each hop appends the address it saw; the
+                                   entries to the left are whatever the client sent and are never read). Unset: 1 on Fly.io (the platform
+                                   sets FLY_APP_NAME and its proxy appends), 0 everywhere else. A deployment behind another proxy
+                                   (Render, nginx, a load balancer) must set it, or every caller shares the proxy's address.
+    GRIDFORGE_TRUSTED_IP_HEADER    a single-address header that OUR proxy overwrites on every request (e.g. cf-connecting-ip). Unset on
+                                   Fly.io, Fly-Client-IP is trusted. Anywhere else it is read only when named here.
+    GRIDFORGE_RATE_LIMIT           requests per minute per caller on every route except the cheap discovery routes (default 30; 0 = off).
+    GRIDFORGE_DISCOVERY_RATE_LIMIT requests per minute per caller on /health, /v1/version and /v1/tools, which cost almost nothing but are
+                                   still bounded (default: ten times GRIDFORGE_RATE_LIMIT, at least 600; follows the main limiter off).
+An address that does not parse is not an identity: the socket peer is used instead. IPv6 callers are counted per /64.
+GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET, when set, must be at least 24 characters or `serve` refuses to start (MIN_SECRET_CHARS).
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import math
 import os
@@ -92,6 +108,14 @@ from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 VERSION = "0.9.0"
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
+#: GET routes that cost almost nothing and are the first thing a health check, a directory or an agent reads: they are not charged to the main
+#: limiter, but they are bounded by their own (a generous multiple of it), so they cannot be hammered for ever.
+DISCOVERY_PATHS = frozenset({"/", "/health", "/v1/version", "/v1/tools"})
+DISCOVERY_MIN_PER_MINUTE = 600
+DISCOVERY_FACTOR = 10
+#: The shortest an operator or signing secret may be. 24 characters is 96 bits at 4 bits each (hex), the least that `openssl rand -hex 12` gives.
+MIN_SECRET_CHARS = 24
+SECRET_ENV_NAMES = ("GRIDFORGE_ADMIN_KEY", "GRIDFORGE_KEY_SECRET")
 
 
 # --- the seven-question qualifier -------------------------------------------
@@ -250,6 +274,33 @@ class _RateLimiter:
                 return False
             q.append(now)
             return True
+
+
+def _bucket(addr: str) -> str:
+    """The identity a rate limit is counted on for an address, or "" when it is not an address. IPv6 is counted per /64 (the smallest block one
+    subscriber is handed: a host holding one can mint 2^64 addresses and would otherwise get a fresh allowance for each); an IPv4-mapped IPv6
+    address is the IPv4 address it wraps. Text that is not an IP (a name a client made up) is never an identity."""
+    try:
+        ip = ipaddress.ip_address((addr or "").strip().split("%", 1)[0])
+    except ValueError:
+        return ""
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
+
+def weak_secrets(env=None) -> list[str]:
+    """The operator and signing secrets that are set but shorter than MIN_SECRET_CHARS, as messages that name the variable and the length
+    (never the value). Unset is not weak: it means the surface does not exist."""
+    env = os.environ if env is None else env
+    out = []
+    for name in SECRET_ENV_NAMES:
+        val = (env.get(name) or "").strip()
+        if val and len(val) < MIN_SECRET_CHARS:
+            out.append(f"{name} is {len(val)} characters; it must be at least {MIN_SECRET_CHARS}. Generate one with `openssl rand -hex 32`.")
+    return out
 
 
 def _api_keys() -> set[str]:
@@ -1414,6 +1465,18 @@ class Handler(BaseHTTPRequestHandler):
     timeout = 30
     server_version = f"gridforge/{VERSION}"
     limiter = _RateLimiter(RATE_LIMIT_PER_MINUTE)
+    #: Bounds the cheap discovery GETs (see DISCOVERY_PATHS). Its rate follows ``limiter.per_minute``: off when that is off.
+    discovery_limiter = _RateLimiter(max(DISCOVERY_FACTOR * RATE_LIMIT_PER_MINUTE, DISCOVERY_MIN_PER_MINUTE) if RATE_LIMIT_PER_MINUTE > 0 else 0)
+
+    def _allowed_to_read(self, path: str) -> bool:
+        """The GET rate limit. Discovery routes are counted on their own (generous) limiter, every other GET on the main one, so reading
+        the platform library, the calibration record, an estimate or an operator route cannot be done at machine speed (nor an operator key
+        guessed at it)."""
+        if path in DISCOVERY_PATHS:
+            main = self.limiter.per_minute
+            self.discovery_limiter.per_minute = max(DISCOVERY_FACTOR * main, DISCOVERY_MIN_PER_MINUTE) if main > 0 else 0
+            return self.discovery_limiter.allow(self._client_key())
+        return self.limiter.allow(self._client_key())
 
     def log_message(self, fmt: str, *args) -> None:  # pragma: no cover - noise
         if os.environ.get("GRIDFORGE_ACCESS_LOG"):
@@ -1468,18 +1531,30 @@ class Handler(BaseHTTPRequestHandler):
         return declared == "application/json" or (declared.startswith("application/") and declared.endswith("+json"))
 
     def _client_key(self) -> str:
-        """The caller's address as OUR proxy saw it. X-Forwarded-For is appended to by each hop and
-        the leftmost entry is whatever the client chose to send, so we count in from the right:
-        GRIDFORGE_TRUSTED_PROXY_HOPS (default 1, i.e. the entry our own proxy added; 0 ignores the
-        header and uses the socket address)."""
+        """Who is calling, for the rate limiter: see "Who a caller is" in the module docstring.
+
+        The socket peer, unless a proxy of ours is declared (GRIDFORGE_TRUSTED_PROXY_HOPS, GRIDFORGE_TRUSTED_IP_HEADER, or Fly.io's own
+        FLY_APP_NAME). A client-supplied X-Forwarded-For with no declared proxy is ignored: it used to be read with one hop by default, so a
+        caller could send a different single entry on every request and never meet the limit."""
+        env = os.environ
+        peer = _bucket(self.client_address[0] if self.client_address else "") or "?"
+        on_fly = bool(env.get("FLY_APP_NAME"))
         try:
-            hops = max(0, int(os.environ.get("GRIDFORGE_TRUSTED_PROXY_HOPS", "1")))
+            raw_hops = env.get("GRIDFORGE_TRUSTED_PROXY_HOPS")
+            hops = max(0, int(raw_hops)) if raw_hops not in (None, "") else (1 if on_fly else 0)
         except ValueError:
-            hops = 1
-        fwd = [p.strip() for p in (self.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
-        if hops and len(fwd) >= hops:
-            return fwd[-hops]
-        return self.client_address[0] or "?"
+            hops = 1 if on_fly else 0
+        named = (env.get("GRIDFORGE_TRUSTED_IP_HEADER") or "").strip().lower() or ("fly-client-ip" if on_fly else "")
+        if named:
+            entries = [p.strip() for p in (self.headers.get(named) or "").split(",") if p.strip()]
+            n = max(hops, 1) if named == "x-forwarded-for" else 1
+            if len(entries) >= n and _bucket(entries[-n]):
+                return _bucket(entries[-n])
+        if hops:
+            fwd = [p.strip() for p in (self.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
+            if len(fwd) >= hops and _bucket(fwd[-hops]):
+                return _bucket(fwd[-hops])
+        return peer
 
     def _supplied_key(self) -> str:
         auth = (self.headers.get("Authorization") or "").strip()
@@ -1515,6 +1590,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         _CTX.plan, _CTX.supplied_key = self._plan(), self._supplied_key()
+        if not self._allowed_to_read(path):
+            return self._send(429, {"error": "rate limit exceeded",
+                                    "limit_per_minute": RATE_LIMIT_PER_MINUTE})
         if path == "/v1/admin/ledger":
             # Operator tier only, and 404 (not 401) to anyone else, like /v1/revoke: an operator surface does
             # not confirm it exists to a caller who cannot use it. Deliberately absent from every listing.
@@ -2004,6 +2082,13 @@ def install_signal_handlers() -> None:
 
 
 def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover - entry point
+    weak = weak_secrets()
+    if weak:
+        # Before anything is bound: a deployment with a guessable operator or signing secret must not come up looking healthy.
+        print("gridforge: refusing to start with a weak secret:", file=sys.stderr)
+        for line in weak:
+            print(f"  - {line}", file=sys.stderr)
+        raise SystemExit(2)
     httpd = ThreadingHTTPServer((host, port), Handler)
     keys = _api_keys()
     print(f"gridforge {VERSION} listening on http://{host}:{port}")
