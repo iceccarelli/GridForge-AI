@@ -44,6 +44,12 @@ def _lesser_of(a: Quantity, b: Quantity, label: str) -> Quantity:
                     min(a.band[0], b.band[0]), min(a.band[1], b.band[1]))
 
 
+def _non_negative(q: Quantity) -> Quantity:
+    """The quantity with its value and band clamped at zero: spare capacity can run out, it cannot go below nothing."""
+    lo, hi = q.band
+    return Quantity(max(q.value, 0.0), q.unit, q.prov, max(lo, 0.0), max(hi, 0.0))
+
+
 def _it_headroom_to_racks(headroom_kW: Quantity, ctx: EnvelopeContext, label: str) -> Quantity:
     """Facility-power headroom -> new IT power -> racks. This division by PUE is
     where power and thermal actually couple: a worse cooling architecture eats
@@ -250,13 +256,26 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "total usable busway capacity in hall", "power.busway_total", step_evidence=ESTIMATED)
     rack_kW = ctx.cluster.platform.rack_kW
     topology = lv.rack_feed_topology
+    existing = lv.existing_load_kW
+    left = ""
     if topology == "single_run":
         # Each rack hangs off ONE run, so a run's spare kW cannot be pooled with another's: whole racks are counted run by run.
         # (A run that carries 1.6 racks carries 1, however many runs there are.)
-        racks = floor_racks(per_run_kW / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+        if existing is None:
+            racks = floor_racks(per_run_kW / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+        else:
+            # The intake gives the hall's load already on the busway, not run by run: it is spread evenly over the runs (stated in the basis).
+            share = existing.convert(1.0 / max(lv.busway_runs, 1), "kW", "existing load per busway run")
+            net_run = _non_negative((per_run_kW - share).relabel("spare capacity per busway run", "power.busway_run_spare",
+                                                                 step_evidence=ESTIMATED))
+            racks = floor_racks(net_run / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+            left = f"{net_run.render(with_class=False)} left per run"
         topo_note = "; each rack is fed from one run, so racks are counted whole, run by run"
     else:
-        racks = total / rack_kW
+        available = total if existing is None else _non_negative((total - existing).relabel(
+            "spare busway capacity in hall", "power.busway_spare", step_evidence=ESTIMATED))
+        racks = available / rack_kW
+        left = f"{available.render(with_class=False)} left"
         topo_note = ("; a rack's load is shared across runs, as declared" if topology == "pooled" else
                      "; this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare "
                      "lv.rack_feed_topology = single_run and whole racks are counted run by run")
@@ -282,12 +301,20 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "busway and tap-off works, per run", scope_unit="busway run(s)",
         note="Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. "
              "Not a market price.")
+    basis = (f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
+             f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}. Modelling limit: the "
+             f"figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted, so the rack count is overstated if the figure is not the hall's spare capacity")
+    if existing is not None:
+        spread = (f", spread evenly over the {lv.busway_runs} run(s) because the intake gives the hall's load, not each run's"
+                  if topology == "single_run" else "")
+        basis = (f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
+                 f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}; less "
+                 f"{existing.render()} already on the busway{spread} = {left} (never below zero). Modelling limit: only the existing load the client "
+                 f"gave is subtracted; positions that are occupied but whose load was not given are not counted")
     return ConstraintResult(
         "busway_ampacity", "electrical", "Busway ampacity",
         floor_racks(racks),
-        basis=(f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
-               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}. Modelling limit: the "
-               f"figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted, so the rack count is overstated if the figure is not the hall's spare capacity"),
+        basis=basis,
         relief=ReliefOption(
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else
