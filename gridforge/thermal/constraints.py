@@ -12,7 +12,7 @@ from ..common import ASSUMED, ESTIMATED, SIMULATED, V
 from ..costs import cdu_cost, cost, scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
-from ..thermal.library import ARCH_RACK_CAPABILITY_kW
+from ..thermal.library import ARCH_RACK_CAPABILITY_kW, implied_delta_T_K
 from ..thermal.schema import Architecture
 from ..validation import Quantity
 
@@ -34,6 +34,18 @@ def _units_per_relief_step(redundancy: str) -> int:
 
 PLANT_UPRATE = 1.5     # screening assumption: the plant relief adds 50% to chilled-water capacity
 PUMP_UPRATE = 1.8      # screening assumption: the pump relief adds 80% to pumped flow
+
+#: Disclosures for the trim-chiller relief (tcs_supply_achievable). Each is stated once per place it can be read: the relief's
+#: basis note (travels with the ladder step wherever the relief is taken), the constraint's notes, and, once the relief has been
+#: applied, the constraint's basis. They change no number.
+TRIM_CHILLER_LIMIT_NOTE = ("The trim-chiller cost is a fixed library lump per hall, not scaled to the liquid heat load: a chiller "
+                           "sized to this hall's heat would cost more and add electrical load. PUE is not recomputed for the "
+                           "achievable water temperature or for a trim chiller's power, so the racks after this relief carry "
+                           "neither that cost nor that load.")
+TRIM_CHILLER_PUE_NOTE = ("PUE is not recomputed for the achievable facility-water temperature (design dry-bulb, free-cooling "
+                         "hours) or for any trim chiller's power draw: the architecture's fixed library figure is used.")
+TRIM_CHILLER_AFTER_NOTE = ("Modelling limit: trim chiller capacity and power draw are not modelled, so this temperature is an "
+                           "assumption about equipment that is not sized or installed")
 
 
 def _liquid_load_to_plant(ctx: EnvelopeContext) -> bool:
@@ -58,6 +70,7 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
         capability = ctx.thermal.rdhx.capacity_kW_per_rack
         declared = True
     need = ctx.cluster.platform.rack_kW
+    peak = ctx.cluster.platform.peak_rack_kW
     ok = need.value <= capability.value
     racks = gate_racks(ok, "racks permitted by the chosen cooling architecture", need, capability)
     return ConstraintResult(
@@ -68,7 +81,9 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
                + (" (the client's declared rear-door rating)" if declared else
                   " (a library default for the architecture, not a manufacturer's rating or a site measurement)"
                   if ctx.architecture == Architecture.RDHX else "")
-               + f"; the target platform draws {need.render()}"),
+               + f"; the target platform draws {need.render()}"
+               + f". Modelling limit: the platform's peak rack power ({peak.value:g} kW) is not used in this or any other thermal "
+                 f"constraint; every thermal limit is sized on the sustained rack figure"),
         relief=None,
         notes=("No capex relieves this constraint. If it binds, the architecture is wrong for the "
                "platform and a different scenario must be selected.",),
@@ -196,6 +211,23 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     )
 
 
+def _flow_disclosure(ctx: EnvelopeContext) -> str:
+    """Which per-kW flow hydraulic_flow uses and the delta-T it implies, so the flow figure can be checked against a heat balance.
+    Discloses only: the limit is still the plant's pumped flow over the platform's own flow per rack. The 1.45 l/min/kW (10 K)
+    screening constant in the thermal library is not used. The platform flow is the rack-side TCS flow; the plant figure is compared
+    with it without converting between the two loops' delta-T values."""
+    plat = ctx.cluster.platform
+    flow = plat.flow_l_per_min_per_rack.value
+    liquid_dT = implied_delta_T_K(plat.liquid_kW().value, flow)
+    rack_dT = implied_delta_T_K(plat.rack_kW.value, flow)
+    plant = ctx.thermal.plant
+    plant_dT = plant.design_return_C.value - plant.design_supply_C.value
+    return (f". Flow basis: {flow:g} l/min per rack is {flow / plat.rack_kW.value:.3f} l/min per rack kW, which implies a rack-side "
+            f"(TCS) delta-T of {liquid_dT:.1f} K on the liquid-captured load ({rack_dT:.1f} K if the whole rack power were carried "
+            f"by the liquid), not the 10 K / 1.45 l/min/kW screening reference, which no constraint uses; the plant's own design "
+            f"delta-T is {plant_dT:g} K, and the plant flow is compared with the rack-side flow without converting between the two loops")
+
+
 @constraint
 def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
     t = ctx.thermal
@@ -236,13 +268,14 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         basis = (f"{pump.render()} available against "
                  f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
                  f"(the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new "
-                 f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total")
+                 f"load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total"
+                 f"{_flow_disclosure(ctx)}")
     else:
         basis = (f"{pump.render()} pumped flow less {existing.render()} already drawn by the existing hall = "
                  f"{_available(pump).render()} available to the new load (never below zero), against "
                  f"{ctx.cluster.platform.flow_l_per_min_per_rack.render()} per rack "
                  f"(the platform library's secondary-loop flow). Modelling limit: plant delta-T and pump head are not modelled; "
-                 f"a pump uprate scales the pumped flow, not the existing hall's draw")
+                 f"a pump uprate scales the pumped flow, not the existing hall's draw{_flow_disclosure(ctx)}")
 
     return ConstraintResult(
         "hydraulic_flow", "thermal", "Hydraulic flow capacity",
@@ -335,7 +368,8 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
         "tcs_supply_achievable", "thermal", "Achievable facility water temperature",
         racks, gate=True,
         basis=(f"TCS target {t.tcs_target_supply_C.render()} needs facility water at or below "
-               f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'is estimated to supply'} {achievable.render()}"),
+               f"{required_fws.render()}; {mech} {'is assumed to hold' if t.trim_chiller_installed else 'is estimated to supply'} {achievable.render()}"
+               + (f". {TRIM_CHILLER_AFTER_NOTE}" if t.trim_chiller_installed else "")),
         relief=ReliefOption(
             description="Adiabatic assist plus trim chiller on the high-temperature loop",
             capex_eur=cost("trim_chiller.adiabatic", 350_000, "EUR",
@@ -343,11 +377,12 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
             cost_key="trim_chiller.adiabatic",
             cost_kind="fixed_site",
             basis_note="One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no "
-                       "loop capacity is modelled, so the lump is not scaled with hall size.",
+                       "loop capacity is modelled, so the lump is not scaled with hall size. " + TRIM_CHILLER_LIMIT_NOTE,
             lead_time_weeks=V(32, "weeks", "lead time", ASSUMED, band=(20, 48)),
             apply=_apply,
             risk="Adiabatic assist reintroduces water consumption; check permits and WUE targets.",
         ),
         notes=("The ASHRAE W45 rating on the platform is an equipment survival rating, not an "
-               "operating point; operators specify 27-30 degC for 500-700 W parts.",),
+               "operating point; operators specify 27-30 degC for 500-700 W parts.",
+               TRIM_CHILLER_PUE_NOTE),
     )
