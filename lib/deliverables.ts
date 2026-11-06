@@ -274,6 +274,23 @@ export async function getByToken(token: string): Promise<DeliverableRecord | nul
 }
 
 /**
+ * One engagement by its row id. For server-side joins that already hold an explicit link to it (a project's link to its
+ * deliverable); it is never reachable from a token or an email, and returns the whole row, so callers must pick fields.
+ */
+export async function getById(id: string): Promise<DeliverableRecord | null> {
+  const c = creds();
+  if (!c || !id) return null;
+  try {
+    const res = await fetch(`${c.url}/rest/v1/deliverables?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, { headers: c.headers, cache: "no-store" });
+    if (!res.ok) return null;
+    return ((await res.json()) as DeliverableRecord[])[0] ?? null;
+  } catch (err) {
+    console.error("[GridForge] deliverable lookup unreachable:", err);
+    return null;
+  }
+}
+
+/**
  * The engagement an intake link addresses.
  *
  * Tries `intake_token` first, then `token` — rows created before 0012 have only
