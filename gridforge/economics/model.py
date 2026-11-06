@@ -282,7 +282,7 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     # line it came from -- a firm quotation narrows it, a placeholder widens it.
     priced = [st.capex_eur for st in lad.taken_steps if st.capex_eur is not None]
     # An undeclared bank's relief is never taken, so it is never priced either: the total is then a lower bound.
-    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unpriced_banks
+    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unpriced_banks and lad.converged
     aace = library().aace_class(keys)
     if priced:
         relief = priced[0]

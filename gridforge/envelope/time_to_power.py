@@ -70,8 +70,9 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
                       max_racks=lad.final.max_racks if lad.final else 0)
     elapsed = 0.0
     seen_racks = out.racks_now
-    if lad.unassessed_banks:
-        # An undeclared transformer or UPS bank was never timed, so every elapsed figure below is a lower bound.
+    if lad.unassessed_banks or not lad.converged:
+        # An undeclared transformer or UPS bank was never timed, and a ladder that stopped on its step budget never reached the ceiling,
+        # so every elapsed figure below is a lower bound.
         out.complete = False
     if "CDUs" in lad.unassessed_banks:
         # The as-found racks run on a CDU kit the client never declared (the loader assumed one so the scenario could be solved):
