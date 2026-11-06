@@ -14,9 +14,13 @@ from gridforge.api.server import handle_study
 from gridforge.api.tiers import Tier
 from gridforge.reporting.study import DECISION_GATES
 
+import tempfile  # noqa: E402
+from declared_cdus import declared_copy  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 INTAKES = sorted((ROOT / "examples" / "intake").glob("*.json"))
-DUBLIN = ROOT / "examples" / "intake" / "dublin_hall.json"
+_CDU_DIR = tempfile.TemporaryDirectory()      # lives as long as the test process
+# The shipped intake leaves the CDU schedule empty, which undates every liquid scenario; these tests are about a DATED hall (tests/declared_cdus.py).
+DUBLIN = declared_copy(ROOT / "examples" / "intake" / "dublin_hall.json", Path(_CDU_DIR.name) / "dublin_hall.json")
 
 
 def run_study(intake, out):

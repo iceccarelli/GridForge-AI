@@ -33,13 +33,16 @@ from gridforge.scenario.objective import Objective, pick_recommended
 from gridforge.scenario.run import run_all
 from gridforge.validation import EvidenceClass
 
+from declared_cdus import with_declared_cdus  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 INTAKES = ROOT / "examples" / "intake"
 E = EvidenceClass
 
 
 def doc(name):
-    return json.loads((INTAKES / f"{name}.json").read_text())
+    # CDU schedule declared (tests/declared_cdus.py): the shipped halls leave it empty, which undates every liquid scenario, and these
+    # tests are about how DATED halls are banded, ranked and described.
+    return with_declared_cdus(json.loads((INTAKES / f"{name}.json").read_text()))
 
 
 def moved(base, **changes):

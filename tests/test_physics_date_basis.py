@@ -33,6 +33,7 @@ from gridforge.scenario.run import run_all
 from gridforge.serialize import csv_bundle, economics_dict, scenario_dict
 from gridforge.validation import EvidenceClass
 
+from declared_cdus import declared_copy, with_declared_cdus  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 INTAKE = ROOT / "examples" / "intake" / "reference_hall.json"
 LABEL = "assumed lead time, not a date"
@@ -41,7 +42,7 @@ KEYS = {"date_basis", "date_evidence_class", "date_binding_item", "date_label"}
 
 @pytest.fixture(scope="module")
 def solved():
-    doc = json.loads(INTAKE.read_text())
+    doc = with_declared_cdus(json.loads(INTAKE.read_text()))      # DATED scenarios are the subject here (tests/declared_cdus.py)
     intake = load_document(copy.deepcopy(doc))
     return doc, intake, run_all(intake.context, intake.scenarios)
 
@@ -243,7 +244,8 @@ def test_the_cli_compare_line_says_assumed_lead_time_not_a_date(tmp_path):
     import os
     import subprocess
     import sys
-    r = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(INTAKE), "-o", str(tmp_path)], cwd=ROOT,
+    path = declared_copy(INTAKE, tmp_path / "reference_declared.json")
+    r = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(path), "-o", str(tmp_path)], cwd=ROOT,
                        env={**os.environ, "GRIDFORGE_REPORT_DATE": "2026-01-01"}, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert " — assumed lead time, not a date" in r.stdout

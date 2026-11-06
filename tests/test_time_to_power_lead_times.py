@@ -25,8 +25,9 @@ from gridforge.intake.loader import IntakeError, load_document
 from gridforge.scenario.run import run_all
 from gridforge.validation import EvidenceClass
 
+from declared_cdus import with_declared_cdus  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
-BASE = json.loads((ROOT / "examples" / "intake" / "reference_hall.json").read_text())
+BASE = with_declared_cdus(json.loads((ROOT / "examples" / "intake" / "reference_hall.json").read_text()))   # CDUs declared: see tests/declared_cdus.py
 
 
 def hall(weeks="keep"):

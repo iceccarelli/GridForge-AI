@@ -23,8 +23,9 @@ from gridforge.api.compare_payload import SCHEMA, CompareError, compare_payload,
 from gridforge.scenario.objective import Objective
 from gridforge.scenario.run import run_all
 
+from declared_cdus import with_declared_cdus  # noqa: E402
 EX = Path(__file__).resolve().parent.parent / "examples" / "intake"
-DUBLIN = json.loads((EX / "dublin_hall.json").read_text())
+DUBLIN = with_declared_cdus(json.loads((EX / "dublin_hall.json").read_text()))   # CDUs declared: a dated hall (tests/declared_cdus.py)
 LONDON = json.loads((EX / "london_hall.json").read_text())
 KEY = "sk_compare_test"
 
@@ -240,7 +241,9 @@ def test_the_mcp_tool_is_registered_and_described(server):
 
 
 def test_the_cli_calls_the_same_handler_and_writes_the_same_answer(tmp_path):
-    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(EX / "dublin_hall.json"),
+    from declared_cdus import declared_copy
+    path = declared_copy(EX / "dublin_hall.json", tmp_path / "dublin_declared.json")      # the same intake DUBLIN is
+    p = subprocess.run([sys.executable, "-m", "gridforge", "compare", str(path),
                         "-o", str(tmp_path), "--objective", "fastest"], capture_output=True, text=True)
     assert p.returncode == 0, p.stderr
     written = json.loads((tmp_path / "ttp_compare.json").read_text())
