@@ -248,6 +248,16 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
             converged = True
             break
         nxt = solve(nxt_ctx)
+        if nxt.max_racks < res.max_racks:
+            # A relief that leaves the hall with FEWER racks than it had is not a relief, whatever it was written to do
+            # (a replacement part that is weaker than the installed one, for example). It is shown, not taken, and the plan stops here:
+            # the next rung would only relieve the constraint this one made worse.
+            st = _step(i, binding, res, res.max_racks, rack_evidence(res), taken=False)
+            st.not_taken_reason = (f"applying this relief would lower the hall from {res.max_racks} to {nxt.max_racks} rack(s), "
+                                   "so it is not taken and not costed")
+            out.steps.append(st)
+            converged = True
+            break
         reliefs[i] = binding.relief
         out.steps.append(_step(i, binding, res, nxt.max_racks, rack_evidence(nxt)))
         states[i] = (nxt_ctx, nxt)

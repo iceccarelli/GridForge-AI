@@ -223,6 +223,22 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     )
 
 
+#: The tap-off rating the busway and tap-off reliefs install (a screening assumption, not a product rating).
+RELIEF_TAPOFF_A = 400.0
+
+
+def _better_tapoff(installed: Quantity, label: str) -> Quantity:
+    """The tap-off rating after a relief: the BETTER of what is installed and the rating the relief buys.
+
+    A relief assigned 400 A unconditionally, so on a hall whose installed tap-offs were rated above that (a 230 V single-phase feed needs
+    about 618 A per rack, so a 630 A part is the right one) buying "higher-rated tap-offs" or a new busway REPLACED them with weaker ones, the
+    rack-feed gate failed and the plan took the hall to zero racks. Installed equipment that already meets or beats the relief rating is kept
+    exactly as declared, with its own provenance."""
+    if installed.value >= RELIEF_TAPOFF_A:
+        return installed
+    return V(RELIEF_TAPOFF_A, "A", label, ASSUMED)
+
+
 @constraint
 def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
     lv = ctx.power.lv
@@ -251,7 +267,7 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
             c.power.lv.busway_ampacity_A = V(
                 1000, "A", "replacement busway ampacity", ASSUMED,
                 assumptions=["Modern AI halls use 800-1000 A busway vs 400 A legacy"])
-            c.power.lv.tapoff_max_A = V(400, "A", "replacement tap-off rating", ASSUMED)
+            c.power.lv.tapoff_max_A = _better_tapoff(c.power.lv.tapoff_max_A, "replacement tap-off rating")
         else:
             # already at modern ampacity: the next increment is more runs, which
             # needs riser and routing space, not a bigger busway
@@ -325,7 +341,7 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.power.lv.tapoff_max_A = V(400, "A", "upgraded tap-off rating", ASSUMED)
+        c.power.lv.tapoff_max_A = _better_tapoff(c.power.lv.tapoff_max_A, "upgraded tap-off rating")
         return c
 
     return ConstraintResult(
