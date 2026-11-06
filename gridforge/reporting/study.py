@@ -49,7 +49,7 @@ def _schedule_claim(r) -> Quantity:
     return Quantity.given(r.economics.critical_path_weeks, "weeks",
                           f"{r.spec.id}: critical path"
                           + ("" if r.economics.critical_path_complete else
-                             " (lower bound: a relief on the path has no lead time)"),
+                             f" (lower bound: {r.ladder.incomplete_reason})"),
                           cls)
 
 WATERMARK = ("SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. "

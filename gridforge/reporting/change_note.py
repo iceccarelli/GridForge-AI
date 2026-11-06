@@ -160,7 +160,7 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
               _known(d.after.capex_class),
               band=(cl, ch) if cl is not None and ch is not None and ch > cl else None),
             _was_capex(d.before)
-            + ("" if d.after.capex_complete else " · a relief on the path is unpriced, so this is a lower bound")))
+            + ("" if d.after.capex_complete else " · a lower bound: a cost on the path is unpriced or an equipment bank was not declared")))
         if d.capex_delta and _overlap(d.before, d.after):
             s.blocks.append(Para(
                 "The capex change is inside the uncertainty of both estimates; it is not evidence that the "

@@ -194,8 +194,29 @@ describe.runIf(hasPython)("what the page shows is what the engine said", () => {
     expect(markup).toMatch(/indicative/);
   });
 
-  it("shows each dated scenario's band and evidence class, and the digest that reproduces the run", async () => {
+  it("never dates a hall whose transformer and UPS schedules were not declared", async () => {
+    // An undeclared bank evaluates as 'not limiting': the ladder then never prices or times the relief it would need,
+    // and the same hall that is dated at 160 weeks with its banks declared came back 'dated' at 0 weeks without them.
     const { body, markup } = await render();
+    const scenarios = (body.result as CompareResult).scenarios;
+    expect(scenarios.some((s) => s.time_to_power.status === "dated")).toBe(false);
+    const undated = scenarios.filter((s) => s.time_to_power.status === "lead_time_missing");
+    expect(undated.length).toBeGreaterThan(0);
+    for (const s of undated) {
+      expect(s.time_to_power.weeks).toBeNull();
+      expect(s.missing_inputs).toEqual(expect.arrayContaining(["not declared: transformers", "not declared: UPS"]));
+    }
+    expect(markup).toMatch(/not declared/);
+  });
+
+  it("shows each dated scenario's band and evidence class, and the digest that reproduces the run", async () => {
+    // Banks declared, so the engine can stand behind a date.
+    const banked = {
+      ...HALL,
+      transformers: [{ id: "TX-A/B", unit_rating_MVA: 5, units: 3, redundancy: "N+1", replacement_lead_time_weeks: 160 }],
+      ups: [{ id: "UPS-1", unit_rating_kW: 1200, units: 6, redundancy: "N+1" }],
+    };
+    const { body, markup } = await render({ hall: banked });
     const dated = (body.result as CompareResult).scenarios.find((s) => s.time_to_power.status === "dated")!;
     expect(markup).toContain(`${dated.time_to_power.weeks!.toLocaleString()} wk`);
     expect(markup).toContain(dated.time_to_power.evidence!);

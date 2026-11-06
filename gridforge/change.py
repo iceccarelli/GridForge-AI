@@ -348,8 +348,10 @@ class EnvelopeDiff:
             bits.append("the recommended architecture changed to "
                         f"{self.recommendation_changed[1]}")
         if self.capex_moved:
+            like = "" if self.before.capex_complete and self.after.capex_complete else (
+                " -- not like for like: at least one side is a lower bound, so this is not a saving")
             bits.append(f"indicative capex moved {self.capex_delta / 1e6:+.1f} M EUR "
-                        f"({self.before.capex_eur / 1e6:.1f} to {self.after.capex_eur / 1e6:.1f})")
+                        f"({self.before.capex_eur / 1e6:.1f} to {self.after.capex_eur / 1e6:.1f}){like}")
         if self.evidence_moved:
             bits.append("the evidence behind the answer changed (an input was upgraded or downgraded)")
         head = "; ".join(bits)

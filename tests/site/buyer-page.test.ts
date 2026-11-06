@@ -94,6 +94,11 @@ const HALL = {
   siteName: "Synthetic Hall", hallId: "H1", metro: "Dublin", dso: "Private DSO Name", queueNote: "confidential queue note",
   firmCapacityMVA: 15, contractedMW: 12, currentPeakMW: 7.4, currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63,
   floorLoadingKPa: 12, positionsAvailable: 180, plantCapacityKW: 6000, plantSupplyC: 6, platform: "gb300_nvl72",
+  // Declared banks: without them the engine withholds every date (an undeclared bank is unassessed, not "not limiting"),
+  // and there is no dated decision for this page to show.
+  // Sized to the hall's own 15 MVA connection, so the banks do not become the limit that levels every scenario.
+  transformers: [{ id: "TX-A/B", unit_rating_MVA: 10, units: 3, redundancy: "N+1", replacement_lead_time_weeks: 160 }],
+  ups: [{ id: "UPS-1", unit_rating_kW: 2500, units: 6, redundancy: "N+1" }],
 };
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.5", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });

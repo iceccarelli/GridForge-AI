@@ -244,9 +244,21 @@ def test_an_incomplete_schedule_ranks_below_a_dated_hall_on_fastest(halls):
     for res in undated.results:                            # every scenario of the hall: on "fastest" the engine
         for s in res.ladder.taken_steps:                   # now prefers a dated scenario to an undated one
             s.lead_time_weeks = None
-    ordered = rank([undated, halls["london_hall"]], Objective.FASTEST_TO_POWER)
-    assert ordered[0].ident == halls["london_hall"].ident and "no lead time" in portfolio_rows(
-        [undated, halls["london_hall"]], Objective.FASTEST_TO_POWER)[1]["rank_note"]
+    # dublin_hall declares every bank, so its date is one the engine can stand behind. (london_hall ships with no UPS
+    # schedule: it was "dated" only while an undeclared bank counted as not limiting, so it cannot be the dated hall.)
+    dated = halls["dublin_hall"]
+    ordered = rank([undated, dated], Objective.FASTEST_TO_POWER)
+    assert ordered[0].ident == dated.ident and "no lead time" in portfolio_rows(
+        [undated, dated], Objective.FASTEST_TO_POWER)[1]["rank_note"]
+
+
+def test_a_hall_with_an_undeclared_bank_ranks_below_a_dated_hall_and_says_why(halls):
+    sparse, dated = halls["london_hall"], halls["dublin_hall"]          # london_hall declares no UPS
+    assert sparse.best.ladder.unassessed_banks == ("UPS",)
+    ordered = rank([sparse, dated], Objective.FASTEST_TO_POWER)
+    assert ordered[0].ident == dated.ident
+    note = portfolio_rows([sparse, dated], Objective.FASTEST_TO_POWER)[1]["rank_note"]
+    assert "required inputs not supplied" in note and "UPS schedule" in note   # the portfolio's own, earlier gate
 
 
 def test_an_unpriced_relief_marks_capex_as_a_lower_bound(halls):
