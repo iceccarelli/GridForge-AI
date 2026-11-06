@@ -1,5 +1,5 @@
 import { siteUrl } from "@/lib/site";
-import { storeFault } from "@/lib/safe-log";
+import { noticeLeadLost, storeLead } from "@/lib/lead-store";
 import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { scoreLead, parseCapacityMW, type LeadInput } from "@/lib/lead";
@@ -33,31 +33,10 @@ export const runtime = "nodejs";
  * widget.
  */
 async function persistLead(record: Record<string, unknown>): Promise<void> {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return;
-  const auth: Record<string, string> = key.startsWith("sb_secret_")
-    ? { apikey: key }
-    : { apikey: key, Authorization: `Bearer ${key}` };
-  try {
-    const res = await fetch(`${url}/rest/v1/leads`, {
-      method: "POST",
-      headers: { ...auth, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify(record),
-    });
-    // PostgREST rejects with a status, not a throw. Without this the only lead the
-    // agent ever captures is dropped in silence — the most expensive kind of
-    // failure this site has, because nothing downstream knows the person existed.
-    if (!res.ok) {
-      console.error(
-        "[GridForge] agent lead NOT persisted:",
-        await storeFault(res),
-        JSON.stringify(record)
-      );
-    }
-  } catch (err) {
-    console.error("[GridForge] agent lead persist error:", err, JSON.stringify(record));
-  }
+  // The row is handed to the store and never logged (lib/lead-store.ts): a failure leaves a status-level category and a reference, and
+  // one operator notice per category per day, never the visitor's name, address, company or words.
+  const stored = await storeLead(record, "scoping-agent");
+  if (!stored.ok) await noticeLeadLost("scoping-agent", stored);
 }
 
 /** Eight messages of the longest allowed length would still fit; a real conversation is a small fraction of this. */
