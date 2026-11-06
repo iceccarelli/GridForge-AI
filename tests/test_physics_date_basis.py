@@ -46,6 +46,18 @@ def solved():
     return doc, intake, run_all(intake.context, intake.scenarios)
 
 
+@pytest.fixture(scope="module")
+def solved_declared():
+    """The same hall with its CDU schedule DECLARED (installed). The 'every lead time is quoted' tests below need no assumed lead time left on the
+    path; while the CDU kit is assumed, its library lead time (E0) is on the path and the date honestly stays an assumed lead time
+    (tests/test_week_zero_assumed_equipment.py)."""
+    doc = json.loads(INTAKE.read_text())
+    doc["thermal"]["cdus"] = [{"id": "CDU-ROW", "rated_capacity_kW": 1350, "rated_approach_K": 5, "rated_flow_l_per_min": 2000,
+                               "units": 3, "redundancy": "N+1"}]
+    intake = load_document(copy.deepcopy(doc))
+    return doc, intake, run_all(intake.context, intake.scenarios)
+
+
 def _by_id(results, sid):
     return next(r for r in results if r.spec.id == sid)
 
@@ -81,8 +93,8 @@ class TestDateBasis:
         res.ladder.taken_steps[0].lead_time_weeks = None
         assert date_basis(res.ladder).basis == "none"
 
-    def test_quoted_lead_times_are_not_labelled_assumed(self, solved):
-        _, intake, _ = solved
+    def test_quoted_lead_times_are_not_labelled_assumed(self, solved_declared):
+        _, intake, _ = solved_declared
         res = _by_id(run_all(intake.context, intake.scenarios), "full_dlc")
         _quote_every_lead_time(res)
         db = date_basis(res.ladder)
@@ -228,8 +240,8 @@ class TestRenderers:
         assert "*Limited by: assumed lead time, not a date (E0) · was 160" in md
         assert d.after.date_basis()["date_basis"] == "assumed"
 
-    def test_quoted_lead_times_are_not_called_assumed_in_the_study(self, solved):
-        _, intake, _ = solved
+    def test_quoted_lead_times_are_not_called_assumed_in_the_study(self, solved_declared):
+        _, intake, _ = solved_declared
         results = run_all(intake.context, intake.scenarios)
         for r in results:
             _quote_every_lead_time(r)
@@ -391,9 +403,9 @@ class TestScheduleClaim:
         no_claims = to_markdown(spec_mod.build(pkg))
         assert "electrical capacity, cooling performance, capex, schedule (lead times)" in no_claims
 
-    def test_a_quoted_schedule_is_not_below_the_floor(self, solved):
+    def test_a_quoted_schedule_is_not_below_the_floor(self, solved_declared):
         from gridforge.reporting.gates import claims_below_floor
-        _, intake, _ = solved
+        _, intake, _ = solved_declared
         results = run_all(intake.context, intake.scenarios)
         for r in results:
             _quote_every_lead_time(r)

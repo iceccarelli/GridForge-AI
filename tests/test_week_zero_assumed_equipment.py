@@ -121,10 +121,10 @@ def test_with_a_quicker_transformer_the_date_is_still_the_longest_lead_time_and_
 def test_the_date_record_states_the_limitation_and_the_comparison_caveat_says_it_too():
     r = _scenario(DUBLIN, "hybrid_dlc")
     rec = date_record(r.ladder)
-    assert "first-rack date rests on the library CDU lead time" in rec["limitation"]
+    assert "No rack is dated earlier than the library CDU lead time" in rec["limitation"] and "first-rack date rests on it" in rec["limitation"]
     assert "commissioning" in rec["limitation"] and "conversion" in rec["limitation"] and "not in the schedule" in rec["limitation"]
     out = handle_compare({"intake": DUBLIN}, Tier.CLIENT)
-    assert any("assumed CDU kit" in c and "not in the schedule" in c for c in out["caveats"])
+    assert any("assumes a CDU kit" in c and "earlier than the library CDU lead time" in c and "not in the schedule" in c for c in out["caveats"])
 
 
 def test_the_comparison_row_and_the_screen_carry_the_first_rack_date():
@@ -137,11 +137,12 @@ def test_the_comparison_row_and_the_screen_carry_the_first_rack_date():
 
 
 def test_the_four_shipped_halls_liquid_scenarios_remain_dated_with_these_first_rack_dates():
-    """first_rack_weeks per scenario (weeks). Only a hall with racks as found on the assumed kit moves (Dublin and Nordic hybrid_dlc: 0 -> 26)."""
+    """first_rack_weeks per scenario (weeks). Dublin and Nordic hybrid_dlc move 0 -> 26 (racks as found on the assumed kit); Reference hybrid_dlc
+    moves 24 -> 26 (its first racks were dated before the kit that runs them could arrive)."""
     want = {
         "dublin": {"hybrid_dlc": 26, "full_dlc": 32, "full_dlc_btm": 32},
         "nordic": {"hybrid_dlc": 26, "full_dlc": 32},
-        "reference": {"hybrid_dlc": 24, "full_dlc": 32, "full_dlc_btm": 32},
+        "reference": {"hybrid_dlc": 26, "full_dlc": 32, "full_dlc_btm": 32},
     }
     for hall, scenarios in want.items():
         out = handle_compare({"intake": _doc(hall)}, Tier.CLIENT)
@@ -213,3 +214,66 @@ def test_the_energisation_chart_starts_at_zero_racks_when_the_as_found_racks_wai
 def test_the_energisation_chart_of_a_hall_with_declared_cdus_starts_at_its_racks_as_found():
     svg = deck._energisation_svg(schedule(_scenario(_declared(DUBLIN), "hybrid_dlc").ladder))
     assert _first_path(svg).split()[2] != "298.0"
+
+
+# --- the floor holds everywhere: no point and no band earlier than the kit --------------------------------------------------------------------
+HALLS = ["dublin", "london", "nordic", "reference"]
+
+
+@pytest.mark.parametrize("hall", HALLS)
+def test_no_point_and_no_band_of_an_assumed_kit_scenario_is_earlier_than_the_kit(hall):
+    intake = load_document(_doc(hall))
+    seen = 0
+    for r in run_all(intake.context, intake.scenarios):
+        lad = r.ladder
+        if not lad.assumed_cdu_kit or lad.final.max_racks == 0:
+            continue
+        seen += 1
+        ttp = schedule(lad)
+        bands = elapsed_bands(lad)
+        assert ttp.floored_by_cdu_kit and len(bands) == len(ttp.points) and ttp.points, (hall, r.spec.id)
+        assert min(p.weeks for p in ttp.points) >= CDU_KIT_WEEKS, (hall, r.spec.id, [(p.weeks, p.unlocked_by) for p in ttp.points])
+        for weeks, lo, hi, _cls in bands:
+            assert weeks >= CDU_KIT_WEEKS and lo >= CDU_KIT_BAND[0] and hi >= CDU_KIT_BAND[1], (hall, r.spec.id, (weeks, lo, hi))
+        assert ttp.weeks_to_first_rack is None or ttp.weeks_to_first_rack >= CDU_KIT_WEEKS
+    assert seen >= 2, hall                                             # every shipped hall has liquid scenarios that deploy
+
+
+def test_the_reference_hall_every_scenario():
+    intake = load_document(REFERENCE)
+    by = {r.spec.id: r for r in run_all(intake.context, intake.scenarios)}
+    for sid in ("hybrid_dlc", "full_dlc", "full_dlc_btm"):
+        ttp = schedule(by[sid].ladder)
+        assert min(p.weeks for p in ttp.points) >= CDU_KIT_WEEKS and ttp.weeks_to_full == 160.0, sid
+    assert schedule(by["hybrid_dlc"].ladder).weeks_to_first_rack == 26          # base b649b3e: 24, before the assumed kit could be delivered
+    for sid in ("retained_air", "rdhx"):
+        assert schedule(by[sid].ladder).points == [] and not schedule(by[sid].ladder).floored_by_cdu_kit
+
+
+def test_declared_installed_cdus_and_air_cooled_are_byte_identical_to_the_unfloored_schedule():
+    for doc in (_declared(REFERENCE), _declared(DUBLIN)):
+        intake = load_document(doc)
+        for r in run_all(intake.context, intake.scenarios):
+            ttp = schedule(r.ladder)
+            assert not ttp.floored_by_cdu_kit and not ttp.as_found_waits_for_cdu_kit, r.spec.id
+            for w, lo, hi, cls in elapsed_bands(r.ladder):
+                assert (lo, hi) == (0.0, 0.0) or w > 0
+
+
+def test_a_scenario_that_deploys_nothing_is_not_given_a_kit_date():
+    r = _scenario(DUBLIN, "retained_air")
+    ttp = schedule(r.ladder)
+    assert ttp.critical_item == "—" and not ttp.floored_by_cdu_kit
+
+
+def test_quoting_every_step_lead_time_does_not_remove_the_assumption_while_the_kit_is_assumed():
+    """The kit's library lead time (E0) is on the path of every liquid scenario with an assumed kit, so the date stays an assumed lead time
+    even when each relief's lead time is a customer figure. With the CDUs declared it becomes supported."""
+    from gridforge.common import CUSTOMER, V
+    from gridforge.envelope.time_to_power import date_basis
+    for doc, basis in ((DUBLIN, "assumed"), (_declared(DUBLIN), "supported")):
+        res = _scenario(doc, "full_dlc")
+        for st in res.ladder.steps:
+            if st.lead_time_weeks is not None:
+                st.lead_time_weeks = V(st.lead_time_weeks.value, "weeks", "quoted lead time", CUSTOMER)
+        assert date_basis(res.ladder).basis == basis

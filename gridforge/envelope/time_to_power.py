@@ -62,6 +62,9 @@ class TimeToPower:
     #: True when the racks the hall hosts "as found" depend on a CDU kit the engine ASSUMED (``installed=False``) in a liquid scenario.
     #: They are then NOT energised at week 0: the first point is at the library CDU lead time, labelled as an assumption.
     as_found_waits_for_cdu_kit: bool = False
+    #: True when the kit is assumed and the scenario deploys anything: no point and no elapsed band is earlier than the kit's lead time,
+    #: whether the racks are as found or unlocked by a later relief.
+    floored_by_cdu_kit: bool = False
 
 
 #: The first energisation point of a liquid scenario whose as-found racks depend on an assumed CDU kit, and the item that sets the date while
@@ -70,8 +73,11 @@ ASSUMED_CDU_KIT_LABEL = "after CDU kit delivery (library lead time, assumed)"
 ASSUMED_CDU_KIT_ITEM = "CDU kit delivery (assumed CDUs)"
 
 
-def _waits_for_cdu_kit(lad: HeadroomLadder, racks_now: int) -> bool:
-    return racks_now > 0 and lad.assumed_cdu_kit
+def _kit_sets_the_floor(lad: HeadroomLadder) -> bool:
+    """True when this ladder deploys something in a liquid scenario whose CDU kit is assumed: no rack of it, as found or unlocked later, is
+    energised before the kit is delivered."""
+    deployable = (lad.initial.max_racks if lad.initial else 0) > 0 or (lad.final.max_racks if lad.final else 0) > 0
+    return deployable and lad.assumed_cdu_kit
 
 
 def schedule(lad: HeadroomLadder) -> TimeToPower:
@@ -84,17 +90,19 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
         # An undeclared transformer or UPS bank was never timed, and a ladder that stopped on its step budget never reached the ceiling,
         # so every elapsed figure below is a lower bound.
         out.complete = False
-    if _waits_for_cdu_kit(lad, out.racks_now):
-        # The as-found racks run on a CDU kit the engine assumed so the scenario could be solved: it is not in the hall, so these racks
-        # are not energised at week 0. They are energised once the kit is delivered, at the library CDU lead time (an assumption, E0).
-        out.as_found_waits_for_cdu_kit = True
+    if _kit_sets_the_floor(lad):
+        # The CDU kit is assumed so the scenario could be solved: it is not in the hall, and every liquid rack of this scenario, as found or
+        # unlocked by a later relief, runs on it. None is energised before the kit is delivered, at the library CDU lead time (an assumption, E0).
+        out.floored_by_cdu_kit = True
+        out.as_found_waits_for_cdu_kit = out.racks_now > 0
         kit = lad.cdu_kit_lead_time
         if kit is None:
             out.complete = False            # no lead time to give: no date, and none is invented
         else:
             elapsed = kit.value
             out.critical_item, out.critical_weeks = ASSUMED_CDU_KIT_ITEM, kit.value
-            out.points.append(EnergisationPoint(kit.value, out.racks_now, ASSUMED_CDU_KIT_LABEL, "thermal"))
+            if out.racks_now > 0:
+                out.points.append(EnergisationPoint(kit.value, out.racks_now, ASSUMED_CDU_KIT_LABEL, "thermal"))
     elif out.racks_now > 0:
         out.points.append(EnergisationPoint(0.0, out.racks_now, "available as found", "—"))
     for st in lad.steps:
@@ -122,11 +130,12 @@ def elapsed_bands(ladder: HeadroomLadder) -> list[tuple[float, float, float, Evi
     elapsed = lo = hi = 0.0
     cls: EvidenceClass | None = None
     seen = ladder.initial.max_racks if ladder.initial else 0
-    if _waits_for_cdu_kit(ladder, seen):                               # the same rule as schedule(): the points and the bands stay aligned
+    if _kit_sets_the_floor(ladder):                                   # the same rule as schedule(): the points and the bands stay aligned
         kit = ladder.cdu_kit_lead_time
         if kit is not None:
             elapsed, lo, hi, cls = kit.value, kit.band[0], kit.band[1], kit.evidence
-            out.append((elapsed, lo, hi, cls))
+            if seen > 0:
+                out.append((elapsed, lo, hi, cls))
     elif seen > 0:
         out.append((0.0, 0.0, 0.0, EvidenceClass.E0_ASSUMPTION))
     for st in ladder.steps:
@@ -370,9 +379,9 @@ def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document
                        "against a written quotation.")
     elif src == LEAD_SOURCE_LIBRARY:
         limitation += f" The lead time that sets the date is a {LEAD_SOURCE_LABELS[src]}, not the customer's figure."
-    if ttp.as_found_waits_for_cdu_kit:
-        limitation += (" The first-rack date rests on the library CDU lead time (an assumption: the intake declares no CDUs, so the scenario "
-                       "assumes a kit), and the kit's commissioning and the conversion works are not in the schedule.")
+    if ttp.floored_by_cdu_kit:
+        limitation += (" No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake declares no CDUs, "
+                       "so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.")
     return {
         "status": status,
         "controlling_component": controlling,
