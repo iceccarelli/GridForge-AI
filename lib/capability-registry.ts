@@ -18,10 +18,20 @@
 // updating it in the same commit as the code it describes — it is a map of
 // the territory, not a wishlist for one.
 //
-// scripts/capability-audit.mjs reads this file as text and checks every layer an entry names against the code (ROUTES in
+// scripts/capability-audit.mjs reads this file as text and checks every layer an entry names against the code (ROUTES and GET_ROUTES in
 // gridforge/api/server.py, TOOLS in gridforge/api/tools.py, the subcommands of gridforge/cli.py, the pages under app/, the Stripe
-// kinds in lib/products.ts, the deployed-engine snapshot) and, the other way round, that every engine route and MCP tool is named
-// here. tests/site/capability-registry-fields.test.ts runs it, so a wrong field fails the build.
+// kinds in lib/products.ts and the webhook, the tables in supabase/migrations, the files engine_capability cites, the deployed-engine
+// snapshot) and, the other way round, that every engine route and MCP tool is named here. tests/site/capability-registry-fields.test.ts
+// runs it, so a wrong field fails the build.
+//
+// production_status is a MACHINE-PROVEN claim, not a hope (the audit fails on a breach of any line):
+//   live          the entry has a CONCRETE rest_endpoint (not null, no wildcard) and lib/engine-deployed.json lists it. Nothing else can be live.
+//   unverified    implemented and exercised by this repository's tests, but its production state cannot be proven from the repository: a
+//                 Stripe, database, cron, mail or key-secret path, a feature that lives only in the website build, a wildcard /v1/* plan.
+//                 It says nobody has looked; it claims neither that the thing works in production nor that it does not. The website may
+//                 still offer it, and its note must say so plainly.
+//   not_deployed  a concrete rest_endpoint that the snapshot does NOT list and that nothing else proves live. A route that is in the
+//                 snapshot can never be not_deployed (the entry is stale).
 
 import { PRODUCTS, INTELLIGENCE_PLANS, type ProductId, type IntelligencePlanId } from "@/lib/products";
 
@@ -49,17 +59,27 @@ export interface Capability {
   entitlement: string; // how access is actually gated today, stated plainly
   stripe_product_or_price: string | null; // "none" is a valid, honest answer
   deliverable: string | null;
+  /**
+   * For a "commercial" entry that has no product_id or intelligence_plan_id of its own because it is a mechanism included in priced
+   * things (a fulfilment path, a seat count): the ProductIds / IntelligencePlanIds it is included in. The audit requires every
+   * commercial entry to say what it is sold under, and every id here to exist in lib/products.ts.
+   */
+  included_in?: (ProductId | IntelligencePlanId)[];
   status: CapabilityStatus;
   /**
-   * "live" only while the DEPLOYED engine serves `rest_endpoint` (lib/engine-deployed.json is the committed snapshot of
-   * what it served when last read; tests/site/engine-deployed-snapshot.test.ts fails when a live entry names a route
-   * that is not in it). Everything the repository implements but the engine on Fly does not yet serve is
-   * "not_deployed", whatever the repository's own tests say.
+   * What this repository can PROVE about production; scripts/capability-audit.mjs enforces all three lines.
    *
-   * "unverified" is for a capability whose production state this repository cannot prove: it is implemented and tested here, but it
-   * lives in the website build, the database, Stripe or the mail provider, none of which any test in this repository can read. It
-   * claims neither that it works in production nor that it does not; it says nobody has looked. An entry moves to "live" only
-   * with evidence the repository holds (a route in the deployed snapshot), never because its tests pass.
+   * "live": `rest_endpoint` is concrete (not null, no wildcard) and lib/engine-deployed.json, the committed snapshot of what the
+   * deployed engine served when last read, lists it. Nothing else can be live: an entry that lives in the website build, the database,
+   * Stripe or a cron has no machine proof here however well its tests pass.
+   *
+   * "unverified": implemented and exercised by this repository's tests, production state not provable from it (Stripe, database, cron,
+   * mail, key-secret and site-only paths, wildcard /v1/* plans, and a route the live engine serves but a stale snapshot does not list).
+   * It claims neither that it works nor that it does not; it says nobody has looked. The website may still offer it, and `notes` must
+   * say "production state is unverified".
+   *
+   * "not_deployed": a concrete `rest_endpoint` the snapshot does not list and nothing else proves live. If the snapshot lists the
+   * route the entry is stale and the audit fails.
    */
   production_status: "live" | "not_deployed" | "unverified";
   notes?: string;
@@ -71,7 +91,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     family: "free_tier",
     name: "Free Qualifier",
     description: "One-page free screening: rough headroom for a target platform, no engagement.",
-    engine_capability: "gridforge/reporting/qualify.py",
+    engine_capability: "gridforge/api/payloads.py:qualify_payload (via gridforge/api/server.py handle_qualify)",
     rest_endpoint: "/v1/qualify",
     mcp_tool: "gridforge_qualify",
     cli_command: null,
@@ -240,7 +260,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=api_triage",
     deliverable: "Signed API key + MCP endpoint",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/developers) and its tests pass, but its production state is unverified: rest_endpoint is the /v1/* wildcard, so no single route in lib/engine-deployed.json proves it, and the Stripe subscription, the signed key and the engine's key secret cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "api_scale",
@@ -259,7 +281,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=api_scale",
     deliverable: "Signed API key + MCP endpoint",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/developers) and its tests pass, but its production state is unverified: rest_endpoint is the /v1/* wildcard, so no single route in lib/engine-deployed.json proves it, and the Stripe subscription, the signed key and the engine's key secret cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "api_platform",
@@ -278,7 +302,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=api_platform",
     deliverable: "Signed API key + MCP endpoint",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/developers) and its tests pass, but its production state is unverified: rest_endpoint is the /v1/* wildcard, so no single route in lib/engine-deployed.json proves it, and the Stripe subscription, the signed key and the engine's key secret cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "intelligence_developer",
@@ -297,7 +323,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=intelligence_subscription, metadata.plan=developer",
     deliverable: "Live dashboard access",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/intelligence, Stripe checkout) and its tests pass, but its production state is unverified: it has no engine route, so nothing in lib/engine-deployed.json can prove it, and the Stripe subscription, the subscriptions table and the webhook cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "intelligence_team",
@@ -316,7 +344,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=intelligence_subscription, metadata.plan=team",
     deliverable: "Live dashboard access",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/intelligence, Stripe checkout) and its tests pass, but its production state is unverified: it has no engine route, so nothing in lib/engine-deployed.json can prove it, and the Stripe subscription, the subscriptions table and the webhook cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "intelligence_enterprise",
@@ -335,7 +365,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "subscription, metadata.kind=intelligence_subscription, metadata.plan=enterprise",
     deliverable: "Live dashboard access",
     status: "commercial",
-    production_status: "live",
+    production_status: "unverified",
+    notes:
+      "The site offers it (/intelligence, Stripe checkout) and its tests pass, but its production state is unverified: it has no engine route, so nothing in lib/engine-deployed.json can prove it, and the Stripe subscription, the subscriptions table and the webhook cannot be read from this repository. Production state is unverified, not known to be broken.",
   },
   {
     capability_id: "ttp_compare",
@@ -394,13 +426,15 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "A private, noindexed web page; not a document and not sold",
     status: "free",
-    production_status: "not_deployed",
+    production_status: "unverified",
     notes:
-      "Prices, turnaround, credits and the order of the next step are read from lib/products.ts through " +
+      "The site offers it (the project panel's Create buyer link) and its tests pass, but its production state is unverified. It was marked " +
+      "not_deployed while nobody had looked; that claimed an absence nobody had seen, and the audit's rule is that not_deployed needs a " +
+      "concrete engine route the snapshot lacks, which this page does not have. Prices, turnaround, credits and the order of the next step are read from lib/products.ts through " +
       "lib/buyer-path.ts; no figure on the page is typed there. Verified in this repository: the page, its " +
       "routes and their tests exist, and docs/EXECUTION_STATE.md records the production database as migrated through 0045, which " +
       "includes 0024 (the guard) and 0025 (the tables). NOT verified: that the deployed website build serves /p/[shareToken], or that " +
-      "any buyer link has ever been created in production. It stays not_deployed until someone has opened a link on the live site. When the " +
+      "any buyer link has ever been created in production. A read-only probe reported on 2026-11-06 (by the coordinator; not repeated here) got a route-level not-found for /p/abc, as for /intake/abc and /api-access/abc, which is consistent with the route being deployed and proves nothing about a real link. When the " +
       "latest comparison was saved on accepted quotations (0026) the page lists them without supplier names, prices or " +
       "references, says which capital lines are quoted and which are library estimates, and says when the quotations " +
       "have since been replaced, withdrawn or expired.",
@@ -432,7 +466,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "metered_only",
     production_status: "live",
     notes:
-      "Deployed: the engine on Fly serves /v1/power/deploy/assess (lib/engine-deployed.json, snapshot 2026-10-27). If the " +
+      "Deployed: the engine on Fly serves /v1/power/deploy/assess (lib/engine-deployed.json, snapshot 2026-11-05). If the " +
       "engine is ever older than this repository again, the web page shows 'not available yet' and the API answers 503 " +
       "with nothing charged. Real gap: priced and sellable through the API today, but not through a direct one-off " +
       "web checkout the way density_screen/procurement_spec are. Before adding a one-off SKU, " +
@@ -463,7 +497,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "metered_only",
     production_status: "live",
     notes:
-      "Deployed: the engine on Fly serves /v1/power/deploy/spec (lib/engine-deployed.json, snapshot 2026-10-27). " +
+      "Deployed: the engine on Fly serves /v1/power/deploy/spec (lib/engine-deployed.json, snapshot 2026-11-05). " +
       "Same open gap as btm_deploy_assess: no dedicated one-off web SKU yet.",
   },
   {
@@ -488,7 +522,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "A persistent project record; not a document and not sold",
     status: "free",
-    production_status: "live",
+    production_status: "unverified",
     notes:
       "Unpriced by design: a workflow and data layer, not a product. No checkout, SKU or " +
       "entitlement exists for it. Calibration: project_links reserves a typed slot " +
@@ -499,7 +533,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "(0016_project_purchases.sql); no price or SKU is added. Measured outcomes against a stored prediction (btm.firm_MW) are recorded " +
       "as immutable submissions and reviewed by an admin (0017_project_observations.sql); nothing is added to the " +
       "calibration ledger. Needs migration 0015_projects.sql applied and the private " +
-      "'project-evidence' storage bucket (created by the migration where Storage is installed).",
+      "'project-evidence' storage bucket (created by the migration where Storage is installed). The site offers it (/workspace, the project panel) and its tests pass, but its production " +
+      "state is unverified: it has no engine route to find in lib/engine-deployed.json, and the database, the storage bucket and the deployed build cannot be read " +
+      "from this repository.",
   },
   {
     capability_id: "btm_rfq_loop",
@@ -526,7 +562,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     production_status: "live",
     notes:
       "Deployed: the engine on Fly serves /v1/power/deploy/bids and /v1/power/deploy/spec (lib/engine-deployed.json, " +
-      "snapshot 2026-10-27). " +
+      "snapshot 2026-11-05). " +
       "No BTM price, SKU or checkout exists and none is implied. Supplier responses are validated " +
       "by the engine and stored as submitted; selection is a human decision and never rewrites the " +
       "ranking. Installation method and evidence quality remain engineer-scored.",
@@ -643,13 +679,13 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "api_payg with the chosen cap. Usage is invoiced in arrears by app/api/cron/payg; over the cap the engine answers 402.",
     stripe_product_or_price: "setup-mode checkout.session, metadata.kind=api_payg_enable; month-end invoices, metadata.kind=payg_settlement",
     deliverable: "A signed API key (trial or payg scope) and a monthly invoice for the net units used",
-    status: "commercial",
+    status: "metered_only",
     production_status: "unverified",
     notes:
-      "'PAYG' is not in PRODUCTS (it is one scheme, not a product), so productsMissingFromRegistry() cannot see it; this entry is its only " +
-      "registry trace. The engine side is recorded as redeployed with metering published (docs/EXECUTION_STATE.md, 2026-10-27). " +
+      "The site offers it (/developers, /api-access/[token]) and its tests pass, but its production state is unverified. 'PAYG' is not in PRODUCTS (it is one scheme, not a product), so productsMissingFromRegistry() cannot see it; this entry is its only " +
+      "registry trace. The engine side is recorded as redeployed with metering published (docs/EXECUTION_STATE.md, 2026-10-27, a dated record, not a probe). " +
       "Never exercised against live Stripe, the Vercel cron or the mail provider from this repository (docs/EXECUTION_STATE.md: 'Not " +
-      "run: anything against live Stripe, Vercel crons, Resend'), so production_status is unverified, not live.",
+      "run: anything against live Stripe, Vercel crons, Resend'), so production state is unverified, not live; its rest_endpoint is the /v1/* wildcard, which no snapshot route can prove.",
   },
   {
     capability_id: "cost_evidence_runs",
@@ -660,7 +696,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "lines for that one request, as a durable, versioned, integrity-checked run that owns its exact document.",
     engine_capability:
       "cost_evidence overlay on /v1/study (gridforge/costs.py cost_overlay, gridforge/api/server.py _invoke); lines validated by /v1/bids (evidence_only)",
-    rest_endpoint: "/v1/study",
+    rest_endpoint: null,
     mcp_tool: null,
     cli_command: "gridforge study",
     web_route: "/deliverable/[token]",
@@ -675,7 +711,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "unverified",
     notes:
-      "Not a SKU and not priced: it is an operator-reviewed refinement of an engagement already bought. REST only through the cost_evidence " +
+      "The site offers it (the quotes and evidence-run panel on /deliverable/[token]) and its tests pass, but its production state is unverified. rest_endpoint is null because the capability is the site's quotation workflow, not an engine route: the engine side is only the optional cost_evidence field of /v1/study (and the evidence_only mode of /v1/bids), both covered by their own entries. Not a SKU and not priced: it is an operator-reviewed refinement of an engagement already bought. REST only through the cost_evidence " +
       "request field, which the /v1/study tool schema does not expose, so there is no MCP tool; the CLI takes it as `study --cost-evidence FILE`. " +
       "See docs/09_COST_EVIDENCE_RUNS.md for identity, writing and retrieval. Needs migrations 0022 and 0023 (recorded as applied) and the " +
       "private artifact bucket; whether a real run has been made in production is not recorded.",
@@ -701,10 +737,12 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "Aggregate residual statistics (n_records, per-subsystem); an export file for `gridforge calibrate import`",
     status: "free",
-    production_status: "not_deployed",
+    production_status: "unverified",
     notes:
-      "not_deployed because GET /v1/calibration/residuals is served by this repository's engine but is not in lib/engine-deployed.json " +
-      "(the deployed engine lists 23 endpoints without it); the owner refreshes the snapshot after a redeploy. Nothing here writes the ledger " +
+      "The site offers the capture (the project panel) and its tests pass, but its production state is unverified. Not not_deployed: a " +
+      "read-only GET of /v1/calibration/residuals on the live engine returned 200 on 2026-11-06 and the live /v1/version listed 24 endpoints (observed " +
+      "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-05), lists 23 and is stale; " +
+      "it is not edited here and the owner refreshes it. Once it lists the route this entry may become live. Nothing here writes the ledger " +
       "by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. The site-side capture needs 0017 and 0038 " +
       "(recorded as applied); no real observation is recorded as having passed review.",
   },
@@ -728,12 +766,13 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "cannot both get it. Removing or revoking frees the seat.",
     stripe_product_or_price: "none",
     deliverable: "Shared access to the Intelligence dashboard for the invited people",
+    included_in: ["team", "enterprise"],
     status: "commercial",
     production_status: "unverified",
     notes:
       "Included in the three Intelligence plans, not a separate SKU and not an add-on: there is nothing to buy to get more seats than the " +
       "plan has. Tests pin the seat numbers against 0027 (tests/test_team_seats_migration.py). Migration 0027 is recorded as applied; no " +
-      "invitation sent by the production deployment is recorded.",
+      "invitation sent by the production deployment is recorded. The site offers it (/account) and its production state is unverified: it has no engine route to find in the snapshot.",
   },
   {
     capability_id: "engagement_deposit_flow",
@@ -755,12 +794,13 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "holds the engagement opened from it (0045).",
     stripe_product_or_price: "checkout.session, metadata.kind=envelope_study_deposit and metadata.kind=portfolio_screen_deposit",
     deliverable: "The Study or Portfolio document, board summary and model packs, released by a named engineer",
+    included_in: ["envelope_study_deposit", "portfolio_screen_deposit"],
     status: "commercial",
     production_status: "unverified",
     notes:
       "Priced under envelope_study_deposit and portfolio_screen_deposit; this entry maps the fulfilment path, not a third product. " +
       "docs/EXECUTION_STATE.md (2026-11-02) records it proven end to end against real PostgreSQL + PostgREST + the real engine in CI. " +
-      "Not proven: a real Stripe payment delivering, the mail provider delivering, Supabase itself.",
+      "Not proven: a real Stripe payment delivering, the mail provider delivering, Supabase itself. The site sells both deposits and its production state is unverified.",
   },
 ];
 

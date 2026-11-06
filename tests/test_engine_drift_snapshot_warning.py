@@ -48,13 +48,30 @@ def test_an_identical_set_is_silent_whatever_the_order():
     assert mod.snapshot_staleness(list(reversed(SNAPSHOT)), SNAPSHOT) == []
 
 
-def test_a_snapshot_that_lists_more_than_the_live_engine_is_not_this_warning():
-    assert mod.snapshot_staleness(SNAPSHOT[:-1], SNAPSHOT) == []
+def test_a_live_set_that_is_a_strict_subset_says_so_and_names_the_retired_route():
+    out = mod.snapshot_staleness(SNAPSHOT[:-1], SNAPSHOT)
+    assert len(out) == 1
+    assert SNAPSHOT[-1] in out[0] and "strict subset" in out[0] and "1 endpoint the live engine no longer serves" in out[0]
+    assert "exit status is unchanged" in out[0]
+
+
+def test_an_empty_live_list_is_said_not_passed_as_current():
+    out = mod.snapshot_staleness([], SNAPSHOT)
+    assert len(out) == 1 and "lists no endpoints at all" in out[0] and f"{len(SNAPSHOT)} endpoints" in out[0]
+    assert "1 endpoint " in mod.snapshot_staleness([], ["/only"])[0] and "1 endpoints" not in mod.snapshot_staleness([], ["/only"])[0]
 
 
 def test_extras_and_a_retired_route_together_are_both_said():
     out = mod.snapshot_staleness(["/a", "/c"], ["/a", "/b"])
-    assert len(out) == 1 and "different from" in out[0] and "/c" in out[0] and "no longer served: /b" in out[0]
+    assert len(out) == 1 and "different from (neither a superset nor a subset of)" in out[0] and "/c" in out[0] and "no longer served: /b" in out[0]
+
+
+def test_the_wording_is_grammatical_for_one_endpoint_and_for_many():
+    one = mod.snapshot_staleness(["/a", "/b"], ["/a"])[0]
+    assert "serves 2 endpoints, the snapshot lists 1 " in one and "a strict superset of the snapshot" in one
+    two = mod.snapshot_staleness(["/a", "/b", "/c"], ["/a", "/b"])[0]
+    assert "serves 3 endpoints, the snapshot lists 2 " in two
+    assert "serves 1 endpoint," in mod.snapshot_staleness(["/x"], [])[0]
 
 
 def test_nothing_comparable_is_reported_as_skipped_never_as_fine():

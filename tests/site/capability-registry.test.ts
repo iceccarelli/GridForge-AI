@@ -136,30 +136,44 @@ describe("the capabilities the registry used to omit", () => {
     expect(c.stripe_product_or_price).toContain("api_payg_enable");
   });
 
-  it("calls the calibration residuals route not_deployed exactly because the deployed snapshot lacks it", () => {
+  it("calls calibration_capture unverified, not not_deployed and not live: the live engine was seen serving the route, the snapshot is stale", () => {
     const c = cap("calibration_capture");
     expect(c.rest_endpoint).toBe("/v1/calibration/residuals");
+    expect(c.production_status).toBe("unverified");
+    expect(c.notes).toMatch(/2026-11-06/);
+    expect(c.notes).toMatch(/lists 23 and is stale/);
+    expect(c.notes).toMatch(/production state is unverified/);
+    expect(c.notes).not.toMatch(/lists 23 endpoints without it/);
+    // The snapshot is not edited by this change: it records only what was actually read from the deployed engine.
     expect(snapshot.endpoints).not.toContain("/v1/calibration/residuals");
-    expect(c.production_status).toBe("not_deployed");
+    expect(snapshot.endpoints).toHaveLength(23);
   });
 
-  it("claims 'live' only where the deployed engine serves the route; every site-only addition is unverified", () => {
-    for (const id of ["procurement_bids", "study_deck", "proposal", "power_assess", "estimate"]) {
-      const c = cap(id);
-      expect(snapshot.endpoints, id).toContain(c.rest_endpoint);
-      expect(c.production_status).toBe("live");
+  it("production_status is machine-proven: live only with a concrete route in the deployed snapshot, and every other entry says it is unverified", () => {
+    const deployed = new Set(snapshot.endpoints);
+    for (const c of CAPABILITY_REGISTRY) {
+      const concrete = !!c.rest_endpoint && !c.rest_endpoint.includes("*");
+      if (c.production_status === "live") expect(concrete && deployed.has(c.rest_endpoint!), `${c.capability_id} is live without a snapshot route`).toBe(true);
+      if (c.production_status === "not_deployed") expect(concrete && !deployed.has(c.rest_endpoint!), `${c.capability_id} is not_deployed without an absent concrete route`).toBe(true);
+      if (c.production_status === "unverified") expect(c.notes, c.capability_id).toMatch(/production state is unverified/);
     }
-    for (const id of ["payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow"]) {
+    for (const id of ["procurement_bids", "study_deck", "proposal", "power_assess", "estimate"]) {
+      expect(snapshot.endpoints, id).toContain(cap(id).rest_endpoint);
+      expect(cap(id).production_status).toBe("live");
+    }
+    // No route, a wildcard plan or a site-only flow: nothing for the snapshot to prove.
+    for (const id of ["intelligence_developer", "intelligence_team", "intelligence_enterprise", "project_record", "project_buyer_page", "api_triage", "api_scale", "api_platform", "payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow", "calibration_capture"]) {
       expect(cap(id).production_status, id).toBe("unverified");
     }
   });
 
-  it("keeps the buyer page not_deployed and words the migration state as verified-in-repo versus unverified-in-production", () => {
+  it("keeps the buyer page unverified (it was not_deployed while nobody had looked) and separates verified-in-repo from unverified-in-production", () => {
     const c = cap("project_buyer_page");
-    expect(c.production_status).toBe("not_deployed");
+    expect(c.production_status).toBe("unverified");
     expect(c.notes).not.toMatch(/Needs migration 0025/);
     expect(c.notes).toMatch(/NOT verified: that the deployed website build serves/);
     expect(c.notes).toMatch(/through 0045/);
+    expect(c.notes).toMatch(/2026-11-06/);
   });
 
   it("describes the two deposit products as running end to end, with the deposit recorded before any deliverable", () => {

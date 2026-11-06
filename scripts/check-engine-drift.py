@@ -141,12 +141,15 @@ def tool_drift(served: set[str], tools: dict) -> list[str]:
 
 
 def snapshot_staleness(live_endpoints, snapshot_endpoints) -> list[str]:
-    """Warnings (never drift) for endpoints the LIVE engine serves that the committed snapshot lacks. Pure: no I/O.
+    """Warnings (never drift) when the committed snapshot and the LIVE engine's endpoint lists disagree. Pure: no I/O.
 
     `live_endpoints` is the `endpoints` list of the deployed /v1/version; `snapshot_endpoints` is the `endpoints` list of
-    lib/engine-deployed.json. If either is not a list of strings the comparison is impossible and says so rather than passing. Nothing
-    is reported when the snapshot already lists everything the engine serves. If the live set is not a strict superset (the snapshot also
-    lists something the engine no longer serves), the warning says so in the same message rather than hiding it."""
+    lib/engine-deployed.json. The cases, each said in words:
+      * either is not a list of strings: the comparison is impossible, and that is reported (never passed as fine);
+      * the live list is empty: it says so (an engine that serves nothing is not a reason to say the snapshot is current);
+      * the live set has endpoints the snapshot lacks: the snapshot is STALE (a strict superset when it lacks only those);
+      * the live set is a strict subset (the snapshot lists something the engine no longer serves): said, with the routes named;
+      * the sets are equal: nothing is reported."""
     def names(v):
         return {e for e in v if isinstance(e, str)} if isinstance(v, list) else None
     live, snap = names(live_endpoints), names(snapshot_endpoints)
@@ -154,18 +157,26 @@ def snapshot_staleness(live_endpoints, snapshot_endpoints) -> list[str]:
         return ["snapshot check skipped: the live /v1/version has no endpoints list to compare"]
     if snap is None:
         return ["snapshot check skipped: lib/engine-deployed.json has no endpoints list to compare"]
+    if not live:
+        return ["snapshot check skipped: the live /v1/version lists no endpoints at all, so there is nothing to compare "
+                f"lib/engine-deployed.json's {len(snap)} endpoint{'s' if len(snap) != 1 else ''} with"]
     extra, gone = sorted(live - snap), sorted(snap - live)
-    if not extra:
-        return []
-    kind = "a strict superset" if not gone else "different from"
-    msg = (f"lib/engine-deployed.json is STALE: the live engine serves {len(live)} endpoints, the snapshot lists {len(snap)} "
-           f"(the live set is {kind} the snapshot). Served but not in the snapshot: {', '.join(extra)}. "
-           "The capability registry may only call a route 'live' when the snapshot lists it, so it understates what is deployed. "
-           "This is not drift and the exit status is unchanged; the owner refreshes the snapshot from /v1/version after a deploy "
-           "(this script does not edit it).")
+    plural = lambda n: f"{n} endpoint{'s' if n != 1 else ''}"  # noqa: E731
+    if extra:
+        relation = "a strict superset of" if not gone else "different from (neither a superset nor a subset of)"
+        msg = (f"lib/engine-deployed.json is STALE: the live engine serves {plural(len(live))}, the snapshot lists {len(snap)} "
+               f"(the live set is {relation} the snapshot). Served but not in the snapshot: {', '.join(extra)}. "
+               "The capability registry may only call a route 'live' when the snapshot lists it, so it understates what is deployed. "
+               "This is not drift and the exit status is unchanged; the owner refreshes the snapshot from /v1/version after a deploy "
+               "(this script does not edit it).")
+        if gone:
+            msg += f" Listed by the snapshot but no longer served: {', '.join(gone)}."
+        return [msg]
     if gone:
-        msg += f" Listed by the snapshot but no longer served: {', '.join(gone)}."
-    return [msg]
+        return [f"lib/engine-deployed.json lists {plural(len(gone))} the live engine no longer serves: {', '.join(gone)} "
+                f"(the live set of {len(live)} is a strict subset of the snapshot's {len(snap)}). The registry may be calling a retired route "
+                "'live'. This is not drift and the exit status is unchanged; the owner refreshes the snapshot from /v1/version."]
+    return []
 
 
 def read_snapshot_endpoints(path: Path = SNAPSHOT_JSON):

@@ -293,8 +293,8 @@ describe("the registry says what is true about the guard", () => {
 
 describe("the buyer page in the capability registry", () => {
   const c = CAPABILITY_REGISTRY.find((x) => x.capability_id === "project_buyer_page");
-  it("is declared without a price, a SKU or a claim to be live", () => {
-    expect(c).toMatchObject({ family: "project", status: "free", stripe_product_or_price: "none", production_status: "not_deployed", web_route: "/p/[shareToken]" });
+  it("is declared without a price, a SKU or a claim to be live (it has no engine route, so nothing can machine-prove it)", () => {
+    expect(c).toMatchObject({ family: "project", status: "free", stripe_product_or_price: "none", production_status: "unverified", rest_endpoint: null, web_route: "/p/[shareToken]" });
     expect(c!.product_id).toBeUndefined();
   });
   it("names the tables it reads and states that only a hash of the link is kept", () => {
