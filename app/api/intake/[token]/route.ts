@@ -2,7 +2,7 @@ import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
 import { notifyOperator } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
-import { claimForGeneration, claimStamp, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
+import { availableReliefs, claimForGeneration, claimStamp, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
 import { intakePrefill, qualificationById } from "@/lib/qualify";
 import {
@@ -18,6 +18,7 @@ import {
 import { applyConfirmedValues, confirmedForIntake } from "@/lib/intake-evidence";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
+import { SPEC_RELIEF_IDS, SPEC_RELIEF_KIND, parseSpecRelief } from "@/lib/project-spec-relief";
 
 /** An intake is a few dozen bounded fields and two short schedules; the schema is the real limit, this is the outer wall. */
 const MAX_INTAKE_BYTES = 128 * 1024;
@@ -121,7 +122,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!read.ok) {
     return NextResponse.json({ ok: false, error: read.status === 413 ? read.error : "Invalid payload" }, { status: read.status });
   }
-  const raw = read.value;
+  let raw = read.value;
+  // The relief a Procurement Specification is written for is OUR field, not part of the customer's hall: it is taken off the body
+  // and validated on its own, so the intake schema (and the engine's intake) stay exactly as they were. Absent => unchanged.
+  let relief: string | null = null;
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && "constraint" in raw) {
+    const { constraint, ...rest } = raw as Record<string, unknown>;
+    const parsedRelief = parseSpecRelief(constraint);
+    if (!parsedRelief.ok) {
+      return NextResponse.json({ ok: false, error: parsedRelief.error, valid_reliefs: SPEC_RELIEF_IDS }, { status: 422 });
+    }
+    if (parsedRelief.constraint && row.kind !== SPEC_RELIEF_KIND) {
+      return NextResponse.json({ ok: false, error: "Only a Procurement Specification is written for a chosen relief." }, { status: 422 });
+    }
+    relief = parsedRelief.constraint;
+    raw = rest;
+  }
   // The schema is the product's, not one shape for everything. A Density Screen
   // asks for what the free qualifier asks for; a Procurement Specification asks
   // for all of it, because its duties end up on a purchase order.
@@ -180,7 +196,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         { status: 422 }
       );
     }
-    const doc = merged.doc;
+    // A chosen relief is checked against THIS hall before anything is spent: the engine writes a specification only for a relief
+    // the hall can actually buy. If the engine cannot be asked, the choice goes through and the engine itself decides.
+    if (relief) {
+      const offered = await availableReliefs(merged.doc);
+      if (offered && !offered.some((r) => r.id === relief)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              `The engine has no purchasable relief for "${relief}" on this hall. Reliefs it can write a specification for: ` +
+              `${offered.length ? offered.map((r) => r.id).join(", ") : "none"}. Nothing was submitted.`,
+            available_reliefs: offered,
+          },
+          { status: 422 }
+        );
+      }
+    }
+    // The choice rides in OUR block of the stored intake (`_gridforge.spec_request`); generateAndStore passes it to the engine.
+    const doc = relief ? { ...merged.doc, _gridforge: { spec_request: { constraint_id: relief } } } : merged.doc;
     // A confirmed figure is not an assumption: it is named in the document with the file it came from.
     const confirmedFields = new Set<string>(evidence.confirmed.map((c) => c.field));
     const assumed = typedAssumed.filter((f) => !confirmedFields.has(f));
