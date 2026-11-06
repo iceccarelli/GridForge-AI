@@ -6,7 +6,11 @@
 // Not every route that exists belongs in the header: /dashboard, /account,
 // /account/login, /watch/*, /intake/*, /deliverable/*, /api-access/* and
 // /workspace are application/customer surfaces, reached from the Client
-// portal entry point rather than the main nav. /constraints and /platforms
+// portal entry point rather than the main nav (the footer's "Customer" group
+// links /workspace, noindexed, so the project journey has an entry that is
+// not hidden behind a chat panel). /power/compare and /power/deploy are the
+// two free power tools; both are in the footer's "How it works" group.
+// /constraints and /platforms
 // are real technical-trust content but sit one click deeper, in the footer's
 // "How it works" group, so the header stays to five items a visitor can scan
 // in one glance: brand → product discovery → technical trust → purchase →
@@ -76,6 +80,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
     links: [
       { href: "#technology", label: "How it works", hash: true },
       { href: "/power/compare", label: "Time-to-Power comparison" },
+      { href: "/power/deploy", label: "Behind-the-meter power assessment" },
       { href: "/constraints", label: "Constraints" },
       { href: "/platforms", label: "Platforms" },
       { href: "/reference", label: "Reference" },
@@ -90,6 +95,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
     heading: "Customer",
     links: [
       CLIENT_PORTAL_LINK,
+      { href: "/workspace", label: "Project workspace" },
       { href: "/account/login", label: "Sign in" },
       { href: "/developers", label: "API access" },
     ],
