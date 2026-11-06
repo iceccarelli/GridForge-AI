@@ -52,7 +52,7 @@ describe("the homepage is a Server Component with client islands only where the 
   it("the chat panel is a labelled dialog that takes focus, closes on Escape and returns focus", () => {
     const panel = read("components/ScopingAgentPanel.tsx");
     expect(panel).toContain('role="dialog"');
-    expect(panel).toMatch(/aria-label="Scoping engineer"/);
+    expect(panel).toMatch(/aria-label="Time to Power scoping assistant \(AI\)"/);
     expect(panel).toMatch(/e\.key === "Escape"/);
     expect(panel).toMatch(/inputRef\.current\?\.focus\(\)/);
     expect(panel).toContain('role="log"');

@@ -53,7 +53,7 @@ export function ScopingAgent() {
           className={`fixed z-[60] flex min-h-11 items-center gap-2.5 rounded-full bg-power text-ink pl-4 pr-5 py-3.5 shadow-[0_8px_30px_-6px_rgba(0,229,255,0.5)] hover:scale-105 transition-transform font-medium text-sm bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-4 lg:bottom-6 lg:right-6 ${
             pastHero ? "visible" : "invisible"
           } lg:visible`}
-          aria-label="Open scoping engineer"
+          aria-label="Scope my site: open the Time to Power scoping assistant (AI)"
         >
           <MessageSquare size={18} aria-hidden /> Scope my site
         </button>

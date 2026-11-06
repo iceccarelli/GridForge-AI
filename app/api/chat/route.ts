@@ -15,7 +15,7 @@ import type { AgentBlock, ToolCallRecord } from "@/lib/ai/schemas";
 export const runtime = "nodejs";
 
 /**
- * The scoping engineer, now bound to the real engine.
+ * The scoping assistant (an AI, and the widget says so), now bound to the real engine.
  *
  * This used to call Anthropic directly with a hand-written system prompt and
  * return raw prose — every "directional read" was LLM narration, never a

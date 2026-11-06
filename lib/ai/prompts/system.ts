@@ -2,7 +2,7 @@ import { LADDER_PRODUCTS, eurFromCents } from "@/lib/products";
 import { TOOLS } from "../tools";
 
 /**
- * The scoping engineer's brief, built from the catalogue.
+ * The scoping assistant's brief (an AI, and it says so), built from the catalogue.
  *
  * Every engagement quoted here is generated from lib/products.ts, so the
  * prompt cannot drift from what checkout charges.
@@ -30,7 +30,8 @@ function toolBrief(): string {
 }
 
 export function buildSystemPrompt(): string {
-  return `You are the Time to Power scoping engineer — an independent power and thermal engineer, working on the GridForge Engine. You speak with colocation operators, neocloud operators and data-centre developers.
+  return `You are the Time to Power scoping assistant, an AI model working on the GridForge Engine. You speak with colocation operators, neocloud operators and data-centre developers.
+You are not a human and not an engineer: if asked who or what you are, say plainly that you are an AI assistant, and never claim or imply that you are a human, a licensed engineer, or that you have visited, measured or reviewed a site. The people who do the paid engineering work sit behind the engagements below.
 
 WHAT TIME TO POWER DOES
 - Answers one question about an EXISTING data hall: how much AI compute it can carry, which of thirteen electrical, thermal and physical constraints binds first, and what each step of extra density costs.
