@@ -66,7 +66,7 @@ describe("POST /api/csp-report", () => {
   let n = 0;
   const post = (body: string, ip = `10.9.${Math.floor(++n / 250)}.${(n % 250) + 1}`, type = "application/csp-report") =>
     new Request(siteUrl("/api/csp-report"), { method: "POST", headers: { "content-type": type, "x-real-ip": ip }, body });
-  const report = (over: Record<string, unknown> = {}) => JSON.stringify({ "csp-report": { "document-uri": "https://timetopower.ai/q/SECRETTOKEN123?email=a@b.c", "violated-directive": "script-src-elem", "effective-directive": "script-src-elem", "blocked-uri": "https://cdn.evil.example/path/lib.js?key=SECRET#frag", disposition: "report", ...over } });
+  const report = (over: Record<string, unknown> = {}) => JSON.stringify({ "csp-report": { "document-uri": "https://site.example/q/SECRETTOKEN123?email=a@b.c", "violated-directive": "script-src-elem", "effective-directive": "script-src-elem", "blocked-uri": "https://cdn.evil.example/path/lib.js?key=SECRET#frag", disposition: "report", ...over } });
   const route = () => import("@/app/api/csp-report/route");
 
   it("answers 204 with no body and logs the violated directive and the blocked ORIGIN, never a path, query, fragment or the page address", async () => {
@@ -81,7 +81,7 @@ describe("POST /api/csp-report", () => {
   });
   it("names the keyword sources honestly (inline, eval, data, blob) and keeps anything odd to a fixed word", async () => {
     const { POST } = await route();
-    for (const [blocked, expectWord] of [["inline", "inline"], ["eval", "eval"], ["data", "data"], ["blob:https://timetopower.ai/abc-def", "blob"], ["", "none"], ["about:blank", "other"], ["x".repeat(500), "other"]] as const) {
+    for (const [blocked, expectWord] of [["inline", "inline"], ["eval", "eval"], ["data", "data"], ["blob:https://site.example/abc-def", "blob"], ["", "none"], ["about:blank", "other"], ["x".repeat(500), "other"]] as const) {
       logs.length = 0;
       expect((await POST(post(report({ "blocked-uri": blocked })))).status).toBe(204);
       expect(logs.find((l) => /csp/i.test(l)), blocked.slice(0, 20)).toMatch(new RegExp(`blocked=${expectWord}\\b`));

@@ -35,7 +35,8 @@ export function Hero() {
       <div className="relative z-10 mx-auto grid w-full max-w-7xl items-start gap-12 px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
         <div>
           <div className="data mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-white/5 px-3 py-1 text-[10px] tracking-[0.16em] text-mute">
-            <span className="h-1.5 w-1.5 rounded-full bg-verified" />
+            {/* Neutral on purpose: the confirmed-green status colour must not mark a pilot-stage badge. */}
+            <span className="h-1.5 w-1.5 rounded-full bg-faint" aria-hidden />
             PILOT-STAGE · FOUNDER-LED · EVIDENCE-GRADED
           </div>
 
@@ -89,7 +90,17 @@ export function Hero() {
             </div>
           </div>
 
-          <p className="data mt-8 text-[10px] text-faint">{REFERENCE_PHOTO_NOTICE}</p>
+          {/* Two secondary routes beside the paid CTA above, for a visitor who is not ready to commission. They do not replace it. */}
+          <p className="mt-4 flex max-w-2xl flex-wrap gap-x-6 gap-y-1 text-sm">
+            <Link href="/qualify" className="inline-flex min-h-11 items-center gap-1.5 text-power underline underline-offset-4">
+              Try the free qualifier
+            </Link>
+            <Link href="/reference" className="inline-flex min-h-11 items-center gap-1.5 text-power underline underline-offset-4">
+              See a sample deliverable
+            </Link>
+          </p>
+
+          <p className="data mt-4 text-[10px] text-faint">{REFERENCE_PHOTO_NOTICE}</p>
         </div>
 
         <aside aria-labelledby="glance-h" className="panel p-6 lg:mt-6">
