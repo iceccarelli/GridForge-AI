@@ -90,11 +90,8 @@ export function Hero() {
             </div>
           </div>
 
-          {/* Two secondary routes beside the paid CTA above, for a visitor who is not ready to commission. They do not replace it. */}
-          <p className="mt-4 flex max-w-2xl flex-wrap gap-x-6 gap-y-1 text-sm">
-            <Link href="/qualify" className="inline-flex min-h-11 items-center gap-1.5 text-power underline underline-offset-4">
-              Try the free qualifier
-            </Link>
+          {/* One secondary route under the two actions above. The free check is already the "Run free capacity check" button in panel A: no second label for it. */}
+          <p className="mt-4 max-w-2xl text-sm">
             <Link href="/reference" className="inline-flex min-h-11 items-center gap-1.5 text-power underline underline-offset-4">
               See a sample deliverable
             </Link>

@@ -26,20 +26,19 @@ describe("Hero call-to-action row", () => {
     expect(html).toContain(`${s.turnaroundDays} working days from a complete intake`);
   });
 
-  it("adds two secondary links with the wanted labels to routes that exist", async () => {
+  it("adds one secondary link to a route that exists, and gives the free check no second label: the existing 'Run free capacity check' button is the only link to /qualify", async () => {
     const html = await hero();
-    const link = (label: string) => new RegExp(`<a[^>]*href="([^"]+)"[^>]*>${label}`).exec(html)?.[1];
-    expect(link("Try the free qualifier")).toBe("/qualify");
-    expect(link("See a sample deliverable")).toBe("/reference");
-    for (const r of ["qualify", "reference"]) expect(fs.existsSync(path.join(ROOT, "app", r, "page.tsx")), r).toBe(true);
+    expect(new RegExp('<a[^>]*href="([^"]+)"[^>]*>See a sample deliverable').exec(html)?.[1]).toBe("/reference");
+    expect(fs.existsSync(path.join(ROOT, "app", "reference", "page.tsx"))).toBe(true);
+    expect(html).not.toContain("Try the free qualifier");
+    const { QUALIFY_LINK } = await import("@/lib/nav");
+    expect(html).toContain(QUALIFY_LINK.label);
+    expect((html.match(/href="\/qualify"/g) ?? []).length).toBe(1);
   });
 
-  it("the secondary links are real links (not buttons that act), with a comfortable touch target", async () => {
-    const html = await hero();
-    for (const label of ["Try the free qualifier", "See a sample deliverable"]) {
-      const tag = new RegExp(`<a([^>]*)>${label}`).exec(html)?.[1] ?? "";
-      expect(tag, label).toMatch(/min-h-11/);
-    }
+  it("the secondary link is a real link with a comfortable touch target", async () => {
+    const tag = /<a([^>]*)>See a sample deliverable/.exec(await hero())?.[1] ?? "";
+    expect(tag).toMatch(/min-h-11/);
   });
 
   it("leaves the H1 and the one-line proposition as they were, to wait for the owner's wording", async () => {
