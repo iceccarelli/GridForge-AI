@@ -748,3 +748,29 @@ class TestSourceIsMain:
     def test_the_workflow_never_sets_the_override(self):
         wf = (ROOT / ".github" / "workflows" / "deploy-engine.yml").read_text()
         assert "GRIDFORGE_DEPLOY_ANY_REF" not in wf
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# --check against an app that already exists with its secrets and volume (the production state): every flyctl call is a read.
+# ---------------------------------------------------------------------------------------------------------------------
+READ_ONLY_FLY = (["auth", "whoami"], ["status", "--app", "test-engine"], ["secrets", "list"], ["volumes", "list"])
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+class TestCheckModeReadsOnly:
+    def test_check_against_the_production_state_makes_only_read_calls(self, tmp_path):
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, args=("--check",))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert calls, "the fake fly was never called: the test proves nothing"
+        for c in calls:
+            assert any(c[:len(r)] == r for r in READ_ONLY_FLY), f"--check made a call that is not on the read-only list: {c}"
+        assert mutations(calls) == []
+        assert [c for c in calls if c[:1] in (["machines"], ["releases"], ["scale"], ["destroy"])] == [], calls
+        assert "--check: stopping before deploy" in proc.stdout
+        assert "Creating app" not in proc.stdout and "Staging" not in proc.stdout and "Creating a 1GB volume" not in proc.stdout
+
+    def test_check_with_the_deploy_switch_on_in_the_environment_still_reads_only(self, tmp_path):
+        # --check wins over GRIDFORGE_SKIP_DEPLOY=0 in the environment
+        proc, calls = run(tmp_path, secrets_out=JSON_LIST, args=("--check",), env_extra={"GRIDFORGE_SKIP_DEPLOY": "0"})
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert mutations(calls) == []
