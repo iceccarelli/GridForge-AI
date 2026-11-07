@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { MessageSquare } from "lucide-react";
-import { OPEN_SCOPING_AGENT_EVENT } from "@/lib/nav";
+import { MOBILE_MENU_BUTTON_ID, OPEN_SCOPING_AGENT_EVENT, scopingAgentAvailable } from "@/lib/nav";
 
 // Only the launcher button is part of every page. The conversation (its state, its markup and its network calls) is a separate chunk
 // that is requested when the visitor shows intent: hovering, focusing or pressing the launcher. Before that, no chat code is downloaded
@@ -42,15 +42,18 @@ export function ScopingAgent() {
 
   const close = useCallback(() => {
     setOpen(false);
-    // Return focus to what opened the dialog, after the launcher has been put back in the page.
-    requestAnimationFrame(() => launcher.current?.focus());
+    // Return focus to what opened the dialog, after the launcher has been put back in the page. Below lg the launcher is not drawn (its box
+    // has no size), so focus goes to the mobile menu's button, which is how the dialog was opened there: never to a hidden element.
+    requestAnimationFrame(() => {
+      const l = launcher.current;
+      if (l && l.getClientRects().length > 0) launcher.current?.focus();
+      else document.getElementById(MOBILE_MENU_BUTTON_ID)?.focus();
+    });
   }, []);
 
-  // Redundant on the full workspace: the whole page is already this conversation, and on mobile the launcher overlapped its tab bar.
-  if (pathname?.startsWith("/workspace")) return null;
-
-  // The Observatory is a demonstration page: no assistant launcher over it, and nothing on it that leads to a sale.
-  if (pathname?.startsWith("/observatory")) return null;
+  // Redundant on the full workspace (the whole page is already this conversation, and on mobile the launcher overlapped its tab bar), and
+  // the Observatory is a demonstration page: no assistant launcher over it, and nothing on it that leads to a sale.
+  if (!scopingAgentAvailable(pathname)) return null;
 
   return (
     <>

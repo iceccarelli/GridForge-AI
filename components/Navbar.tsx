@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, X, ArrowRight, ChevronDown } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
-import { NAV_LINKS, QUALIFY_LINK, SIGN_IN_LABEL, SIGN_IN_LINKS, OPEN_SCOPING_AGENT_EVENT, paidCtaAllowed } from "@/lib/nav";
+import { NAV_LINKS, QUALIFY_LINK, SIGN_IN_LABEL, SIGN_IN_LINKS, MOBILE_MENU_BUTTON_ID, OPEN_SCOPING_AGENT_EVENT, paidCtaAllowed, scopingAgentAvailable } from "@/lib/nav";
 
 /**
  * One "Sign in" control for the two places an account lives. Each item says what it opens, and no destination is changed. A disclosure
@@ -35,7 +35,15 @@ function SignInMenu() {
     };
   }, [open]);
   return (
-    <div ref={wrap} className="relative">
+    <div
+      ref={wrap}
+      className="relative"
+      // Tabbing (or clicking) out of the menu closes it, and aria-expanded follows: focus that moves to something outside this wrapper is a
+      // departure. relatedTarget is null when focus leaves the window, which closes it too.
+      onBlur={(e) => {
+        if (!wrap.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <button
         ref={button}
         type="button"
@@ -64,7 +72,9 @@ function SignInMenu() {
 
 export function Navbar() {
   const router = useRouter();
-  const showPaid = paidCtaAllowed(usePathname());
+  const pathname = usePathname();
+  const showPaid = paidCtaAllowed(pathname);
+  const showAssistant = scopingAgentAvailable(pathname);
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -170,6 +180,7 @@ export function Navbar() {
 
           <button
             ref={toggleRef}
+            id={MOBILE_MENU_BUTTON_ID}
             type="button"
             onClick={() => setIsOpen(!isOpen)}
             className="xl:hidden inline-flex min-h-11 min-w-11 items-center justify-center p-2 text-mute hover:text-white"
@@ -234,16 +245,18 @@ export function Navbar() {
                     </Link>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    window.dispatchEvent(new Event(OPEN_SCOPING_AGENT_EVENT));
-                  }}
-                  className="min-h-11 text-left text-base text-ghost/90 hover:text-white"
-                >
-                  Ask the scoping assistant (AI)
-                </button>
+                {showAssistant && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      window.dispatchEvent(new Event(OPEN_SCOPING_AGENT_EVENT));
+                    }}
+                    className="min-h-11 text-left text-base text-ghost/90 hover:text-white"
+                  >
+                    Ask the scoping assistant (AI)
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -9,7 +9,8 @@ import path from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { FOOTER_GROUPS, NAV_LINKS, NO_PAID_CTA_ON, SIGN_IN_LABEL, SIGN_IN_LINKS, CLIENT_PORTAL_LINK, paidCtaAllowed, QUALIFY_LINK } from "@/lib/nav";
+import { FOOTER_GROUPS, NAV_LINKS, NO_PAID_CTA_ON, NO_SCOPING_AGENT_ON, MOBILE_MENU_BUTTON_ID, SIGN_IN_LABEL, SIGN_IN_LINKS, CLIENT_PORTAL_LINK, paidCtaAllowed, scopingAgentAvailable, QUALIFY_LINK } from "@/lib/nav";
+import { DENSITY_SCREEN_CTA } from "@/lib/cta";
 
 const mockPath = vi.hoisted(() => ({ value: "/" }));
 vi.mock("next/navigation", () => ({ usePathname: () => mockPath.value, useRouter: () => ({ push: () => {}, replace: () => {} }) }));
@@ -20,17 +21,18 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const unesc = (s: string) => s.replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
 
 describe("the header", () => {
-  it("has at most six items: five links and one 'Sign in' menu", async () => {
-    expect(NAV_LINKS.length).toBeLessThanOrEqual(5);
+  it("the primary navigation is five links plus one Sign in menu (six items); the header's two actions come on top, so its interactive controls number eight", async () => {
+    expect(NAV_LINKS.length).toBe(5);
+    expect(NAV_LINKS.length + 1).toBeLessThanOrEqual(6); // five links + the Sign in menu
     mockPath.value = "/";
     const { Navbar } = await import("@/components/Navbar");
     const html = renderToStaticMarkup(React.createElement(Navbar));
     const desktop = html.slice(html.indexOf('class="hidden xl:flex'), html.lastIndexOf("<button", html.indexOf("xl:hidden inline-flex")));
-    const items = desktop.match(/<(a|button)[ >]/g) ?? [];
-    // Five links, the free check, the paid text button and the Sign in menu button. The ITEMS of the primary navigation are the five links
-    // and Sign in (six); the free check and the paid screen are the header's two actions (see the next tests).
-    expect(NAV_LINKS.length + 1).toBeLessThanOrEqual(6);
-    expect(items.length).toBe(NAV_LINKS.length + 3);
+    const controls = desktop.match(/<(a|button)[ >]/g) ?? [];
+    // 5 links + free check (filled) + paid screen (text) + Sign in button = 8 controls: the six navigation items and two actions.
+    expect(controls.length).toBe(NAV_LINKS.length + 2 + 1);
+    // and the Sign in menu is ONE control while closed, however many accounts it lists
+    expect(desktop.match(/aria-controls="sign-in-menu"/g)).toHaveLength(1);
   });
 
   it("sends 'Product' to /products, not to a section of the home page", () => {
@@ -53,8 +55,8 @@ describe("the header", () => {
     const { Navbar } = await import("@/components/Navbar");
     const html = unesc(renderToStaticMarkup(React.createElement(Navbar)));
     expect(html).toMatch(new RegExp(`<a[^>]*class="[^"]*btn-primary[^"]*"[^>]*>${QUALIFY_LINK.label}`) );
-    expect(html).toMatch(/<button[^>]*class="[^"]*btn-tertiary[^"]*"[^>]*>Density Screen — €4,500 · 5 days/);
-    expect(html.indexOf(QUALIFY_LINK.label)).toBeLessThan(html.indexOf("Density Screen — €4,500"));
+    expect(html).toMatch(new RegExp(`<button[^>]*class="[^"]*btn-tertiary[^"]*"[^>]*>${DENSITY_SCREEN_CTA.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    expect(html.indexOf(QUALIFY_LINK.label)).toBeLessThan(html.indexOf(DENSITY_SCREEN_CTA));
   });
 
   it("has no filled paid button: 'btn-primary' is only ever on the free-check link", async () => {
@@ -100,6 +102,13 @@ describe("sign-in surfaces are labelled by what they open, and none of their des
     expect(src).toMatch(/e\.key === "Escape"/);
     expect(src).toContain("mousedown");
   });
+
+  it("tabbing out of the menu closes it: the wrapper closes on a blur whose next focus is outside it, and aria-expanded follows the same state", () => {
+    const src = read("components/Navbar.tsx");
+    expect(src).toMatch(/onBlur=\{\(e\) => \{\s*if \(!wrap\.current\?\.contains\(e\.relatedTarget as Node \| null\)\) setOpen\(false\);/);
+    expect(src).toContain("aria-expanded={open}");
+    expect(src).toMatch(/\{open && \(\s*<ul id="sign-in-menu"/); // the list exists only while open, driven by the same state
+  });
 });
 
 describe("the paid call to action stays off the Observatory", () => {
@@ -121,7 +130,7 @@ describe("the paid call to action stays off the Observatory", () => {
       mockPath.value = p;
       for (const C of [Navbar, Footer]) {
         const html = unesc(renderToStaticMarkup(React.createElement(C)));
-        expect(/Density Screen — €4,500/.test(html), `${C.name} on ${p}`).toBe(expected);
+        expect(html.includes(DENSITY_SCREEN_CTA), `${C.name} on ${p}`).toBe(expected);
       }
     }
     mockPath.value = "/";
@@ -174,6 +183,25 @@ describe("the assistant's launcher does not float over a phone's page", () => {
     const navbar = read("components/Navbar.tsx");
     expect(navbar).toContain("Ask the scoping assistant (AI)");
     expect(navbar).toContain("window.dispatchEvent(new Event(OPEN_SCOPING_AGENT_EVENT))");
+  });
+
+  it("the menu entry is offered only where the assistant exists: one shared route list gates both the launcher and the entry", () => {
+    expect(NO_SCOPING_AGENT_ON).toEqual(expect.arrayContaining(["/workspace", "/observatory"]));
+    for (const [p, ok] of [["/", true], ["/pricing", true], ["/qualify", true], ["/workspace", false], ["/workspace/abc", false], ["/observatory", false], ["/observatory/presenter", false], ["/workspaces", true], [null, true]] as const) {
+      expect(scopingAgentAvailable(p), String(p)).toBe(ok);
+    }
+    expect(read("components/ScopingAgent.tsx")).toContain("if (!scopingAgentAvailable(pathname)) return null;");
+    expect(read("components/ScopingAgent.tsx")).not.toMatch(/startsWith\("\/(workspace|observatory)"\)/);
+    // the drawer is rendered only when open, so the Chromium journey checks the rendered entry; here the gate is pinned in source
+    expect(read("components/Navbar.tsx")).toMatch(/\{showAssistant && \(\s*<button/);
+  });
+
+  it("closing the assistant returns focus to the launcher when it is drawn, and to the mobile menu's button when it is not (below lg)", () => {
+    const agent = read("components/ScopingAgent.tsx");
+    expect(agent).toContain("l.getClientRects().length > 0");
+    expect(agent).toContain("document.getElementById(MOBILE_MENU_BUTTON_ID)?.focus()");
+    expect(read("components/Navbar.tsx")).toContain("id={MOBILE_MENU_BUTTON_ID}");
+    expect(MOBILE_MENU_BUTTON_ID).toBe("main-menu-toggle");
   });
 
   it("the chat panel labels a captured lead neutrally: no 'qualifies', no 'priority', no tier", async () => {
@@ -235,8 +263,10 @@ describe("shared design tokens", () => {
   });
 
   it("the page family shares one H1 scale (.page-title); the home page keeps its own larger .display", () => {
-    expect(css).toMatch(/\.page-title\s*\{[^}]*font-size:\s*1\.875rem[^}]*letter-spacing:\s*-0\.025em/);
-    for (const f of ["app/qualify/page.tsx", "components/IntelligenceClient.tsx", "components/observatory/ObservatoryView.tsx"]) {
+    expect(css).toMatch(/\.page-title\s*\{[^}]*font-size:\s*1\.875rem[^}]*letter-spacing:\s*-0\.02em/);
+    // the comment names exactly the pages that use it
+    for (const page of ["/qualify", "/intelligence", "/observatory", "/contact", "/about"]) expect(css).toContain(page);
+    for (const f of ["app/qualify/page.tsx", "components/IntelligenceClient.tsx", "components/observatory/ObservatoryView.tsx", "app/contact/page.tsx", "app/about/page.tsx"]) {
       expect(read(f), f).toMatch(/<h1 className="page-title/);
     }
     expect(read("components/home/Hero.tsx")).toMatch(/<h1 className="display /);

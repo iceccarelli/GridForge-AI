@@ -23,9 +23,10 @@ interface PackScenario {
   name: string;
   architecture: string;
   as_found: { racks: number; binding: string; binding_name: string; basis?: string };
-  constraints?: { id: string; domain: string }[];
+  ladder?: { taken?: boolean }[];
   after_ladder: { racks: number; it_load_kW?: Figure };
-  economics?: { decision_grade?: boolean; cost_basis_mix?: Record<string, { label?: string }> };
+  economics?: { decision_grade?: boolean; cost_basis_mix?: Record<string, { label?: string }>; capex_total_eur?: { low?: number | null; high?: number | null } | null };
+  time_to_power?: { date_record?: { date_interval_weeks?: { low?: number; high?: number }; evidence_class?: string | null } };
 }
 export interface ModelPack {
   synthetic?: boolean;
@@ -42,18 +43,39 @@ const ARCHITECTURE_WORDS: Record<string, string> = {
   retained_air: "retained air cooling",
 };
 
+/** What it takes to reach a scenario's rack count, from the same scenario record: steps taken, total capex interval, time interval. */
+export interface ScenarioDetail {
+  steps: number;
+  capexLowEur: number;
+  capexHighEur: number;
+  weeksLow: number;
+  weeksHigh: number;
+}
+
+function detailOf(s: PackScenario): ScenarioDetail {
+  const capex = need(s.economics?.capex_total_eur, `economics.capex_total_eur on scenario "${s.id}"`);
+  const iv = need(s.time_to_power?.date_record?.date_interval_weeks, `time_to_power.date_record.date_interval_weeks on scenario "${s.id}"`);
+  return {
+    steps: need(s.ladder, `ladder on scenario "${s.id}"`).filter((l) => l.taken).length,
+    capexLowEur: need(capex.low, `capex low on scenario "${s.id}"`),
+    capexHighEur: need(capex.high, `capex high on scenario "${s.id}"`),
+    weeksLow: need(iv.low, `date interval low on scenario "${s.id}"`),
+    weeksHigh: need(iv.high, `date interval high on scenario "${s.id}"`),
+  };
+}
+
 export interface WorkedResult {
   hallLabel: string;
   platform: string;
   asFoundRacks: number;
   firstLimit: string;
-  /** "electrical" or "thermal", from the constraint record the file carries for the first limit. */
-  firstLimitDomain: string;
-  /** The rated amps of the installed tap-offs, when the first limit's basis states them ("installed tap-offs rated 63 A"). */
-  tapoffAmps: number | null;
+  /** The evidence class the file gives the per-rack current the platform needs, when the first limit is the rack feed ("platform needs 205 A (E0) per rack"). */
+  firstLimitInputClass: string | null;
   afterLadderRacks: number;
   afterLadderArchitecture: string;
+  afterLadderDetail: ScenarioDetail;
   onSiteSupplyRacks: number;
+  onSiteSupplyDetail: ScenarioDetail;
   evidenceCode: string;
   evidenceVerb: string;
   decisionGrade: boolean;
@@ -83,14 +105,18 @@ export function buildWorkedResult(pack: ModelPack, platformName?: string): Worke
     platform: platformName ?? need(pack.intake?.document?.compute?.platform, "compute platform"),
     asFoundRacks: grid.as_found.racks,
     firstLimit: need(grid.as_found.binding_name, "binding constraint name"),
-    firstLimitDomain: need(grid.constraints?.find((c) => c.id === grid.as_found.binding)?.domain, `the domain of the first limit "${grid.as_found.binding}"`),
-    tapoffAmps: (() => {
-      const m = /tap-offs? rated (\d+) A/.exec(grid.as_found.basis ?? "");
-      return m ? Number(m[1]) : null;
+    firstLimitInputClass: (() => {
+      // The file states the platform's per-rack current and its class in the first limit's basis ("platform needs 205 [174–236] A (E0) per rack").
+      // For the rack feed that is the figure the limit rests on, so the build THROWS if it is not there rather than dropping the caveat.
+      if (grid.as_found.binding !== "rack_feed_tapoff") return null;
+      const m = /platform needs [^()]*?\bA \((E\d)\) per rack/.exec(grid.as_found.basis ?? "");
+      return need(m?.[1], `the per-rack current and its evidence class in the basis of the rack-feed limit on scenario "${grid.id}"`);
     })(),
     afterLadderRacks: grid.after_ladder.racks,
     afterLadderArchitecture: ARCHITECTURE_WORDS[grid.architecture] ?? grid.name,
+    afterLadderDetail: detailOf(grid),
     onSiteSupplyRacks: btm.after_ladder.racks,
+    onSiteSupplyDetail: detailOf(btm),
     evidenceCode: code,
     evidenceVerb: need(doc, `a known evidence class ${code}`).verb,
     decisionGrade: need(grid.economics?.decision_grade, `economics.decision_grade on scenario "${grid.id}"`),
@@ -113,26 +139,45 @@ export function loadWorkedResult(root: string = process.cwd()): WorkedResult {
 }
 
 const racks = (n: number) => `${n} ${n === 1 ? "rack" : "racks"}`;
+const eurM = (n: number) => `€${(n / 1_000_000).toFixed(1)}M`;
+
+/** "<n> relief steps · capex <low>–<high> · <weeks> weeks to full capacity · assumed (E0)": the cost and time behind a rack count, all from the file. */
+export function scenarioDetailLine(d: ScenarioDetail, evidenceCode: string): string {
+  return `${d.steps} relief ${d.steps === 1 ? "step" : "steps"} · capex ${eurM(d.capexLowEur)}–${eurM(d.capexHighEur)} · ${d.weeksLow}–${d.weeksHigh} weeks to full capacity · assumed (${evidenceCode})`;
+}
 
 /** The panel's sentences, in reading order. The component renders exactly these, and the test compares them with the JSON. */
-export function workedResultLines(w: WorkedResult): { label: string; text: string }[] {
+export function workedResultLines(w: WorkedResult): { label: string; text: string; detail?: string }[] {
   return [
     { label: "As found", text: `${racks(w.asFoundRacks)} of ${w.platform}. First limit: ${w.firstLimit}.` },
-    { label: "After the relief ladder", text: `${racks(w.afterLadderRacks)} (${w.afterLadderArchitecture}).` },
-    { label: "With on-site supply", text: `${racks(w.onSiteSupplyRacks)}.` },
+    { label: "After the relief ladder", text: `${racks(w.afterLadderRacks)} (${w.afterLadderArchitecture}).`, detail: scenarioDetailLine(w.afterLadderDetail, w.evidenceCode) },
+    { label: "With on-site supply", text: `${racks(w.onSiteSupplyRacks)}.`, detail: scenarioDetailLine(w.onSiteSupplyDetail, w.evidenceCode) },
   ];
 }
 
 export function workedResultEvidenceLine(w: WorkedResult): string {
-  return `Evidence class ${w.evidenceCode} (${w.evidenceVerb}): the weakest input sets the class. ${w.decisionGrade ? "Decision-grade." : "Planning-grade, not decision-grade."} Rung costs here: ${w.costBasis}.`;
+  return `Class ${w.evidenceCode} (${w.evidenceVerb}): the weakest input sets it; counts are point values. ${w.decisionGrade ? "Decision-grade." : "Planning-grade, not decision-grade."} Costs: ${w.costBasis}.`;
 }
 
 /**
- * The true statement that replaces "most halls fail on ...": it is about OUR synthetic reference hall only, says nothing about other
- * halls, and says "not cooling" only when the file's own record puts the first limit outside the thermal domain.
+ * The statement that replaces "most halls fail on ...": it is about OUR synthetic reference hall only and generalises to no other. When the
+ * first limit is the rack feed it says what the limit rests on, from the file: a per-rack current the platform library assumes.
  */
 export function referenceLimitSentence(w: WorkedResult): string {
-  const amps = w.tapoffAmps !== null ? ` (${w.tapoffAmps} A tap-offs)` : "";
-  const notCooling = w.firstLimitDomain !== "thermal" ? `, ${w.firstLimitDomain === "electrical" ? "an electrical limit" : "a " + w.firstLimitDomain + " limit"}, not cooling` : "";
-  return `In our synthetic reference hall the first limit is the ${w.firstLimit.toLowerCase()}${amps}${notCooling}.`;
+  const doc = w.firstLimitInputClass ? EVIDENCE_CLASSES.find((c) => c.code === w.firstLimitInputClass) : undefined;
+  const verb = doc?.verb ?? "unclassified";
+  const basis = w.firstLimitInputClass ? `, on ${/^[aeiou]/i.test(verb) ? "an" : "a"} ${verb} per-rack current (${w.firstLimitInputClass})` : "";
+  return `In our synthetic reference hall the first limit is the ${w.firstLimit.toLowerCase()}${basis}.`;
+}
+
+/** The trust line for the first screen, from the committed calibration record: how many reconciled observations back the engine's accuracy. */
+export function loadCalibration(root: string = process.cwd()): { observations: number; sites: number } {
+  const c = JSON.parse(fs.readFileSync(path.join(root, "public/reference/calibration.json"), "utf8")) as { observations?: number; sites?: number };
+  return { observations: need(c.observations, "calibration observations"), sites: need(c.sites, "calibration sites") };
+}
+
+export function calibrationLine(c: { observations: number; sites: number }): string {
+  return c.observations === 0
+    ? "Pilot-stage and founder-led. The calibration ledger is empty: 0 reconciled observations, so no accuracy is claimed."
+    : `Pilot-stage and founder-led. The calibration ledger holds ${c.observations} reconciled observations across ${c.sites} sites.`;
 }

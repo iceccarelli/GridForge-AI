@@ -64,7 +64,8 @@ describe("the hero describes what the engine models", () => {
     // can support ..."). The guard is the same: EXISTING halls, the binding limit, cost and lead time, evidence, and an assumed lead time labelled.
     expect(home).toContain("capacity analysis for existing data-centre halls");
     expect(home).toContain("the electrical or thermal limit that binds first");
-    expect(home).toContain("a priced relief ladder with lead times, and the evidence behind every figure");
+    // (was "a priced relief ladder with lead times": the ladder's costs and lead times are library placeholders, and the copy now says so)
+    expect(home).toContain("a relief ladder with costs and lead times (library placeholders until you supply quotes), and the evidence behind every figure");
     expect(home).toContain("A lead time that is only assumed is labelled as one");
     expect(read("components/Footer.tsx").replace(/\s+/g, " ")).toContain("the owner of an existing AI hall");
   });

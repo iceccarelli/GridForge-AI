@@ -8,6 +8,7 @@
 
 import { PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
 import { marketFigure } from "@/lib/market-evidence";
+import { DEPOSIT_CLOCK_START } from "@/lib/engagement-state";
 
 /**
  * The site's own address, in one place.
@@ -127,13 +128,13 @@ export const PROBLEM_CARDS = [
   {
     kind: "power" as const,
     label: "The density gap",
-    body: "More than 80% of surveyed operators say their densest rack is below 30 kW. Nobody in the building can usually say, in writing, the highest kW per rack they will commit to today, or what stops them at that number.",
+    body: "More than 80% of surveyed operators say their densest rack is below 30 kW. Can your hall state, in writing, the highest kW per rack it will commit to today, and what stops it at that number?",
     source: "Uptime Institute survey, 2025 (self-reported)",
   },
   {
     kind: "power" as const,
-    label: "The binding constraint is usually electrical",
-    body: "At high density, power distribution creates more problems than cooling: busway, tap-off units, transformer lead time, floor loading. A thermal-only or power-only answer is wrong by construction — the envelope has to be solved together.",
+    label: "Power distribution at high density",
+    body: "The commentary cited by the engine's constraint reference says that at high density power distribution creates more problems than cooling: busway, tap-off units, transformer lead time, floor loading. A thermal-only or power-only answer leaves a limit out; the envelope has to be solved together.",
     source: "Uptime Intelligence commentary, as cited by the engine's constraint reference (original not re-read in the 2026-11-03 check)",
   },
 ];
@@ -218,11 +219,11 @@ export function serviceCards() {
       // The same wording the pricing page uses for a deposit (components/EngagementLadder.tsx), from the same catalogue field: the figure
       // on the card is the DEPOSIT, and the engagement it opens is priced at scoping, so the card says so beside the figure.
       band: p.opensBandCents ? `Deposit against ${eurFromCents(p.opensBandCents[0])}–${eurFromCents(p.opensBandCents[1])}` : null,
-      // Where the clock starts, as the pricing page says it: a deposit's days run from the scoping call, not from payment; a fixed-fee
-      // document's run from a complete intake.
+      // Where the clock starts, as the engagement terms say it (lib/engagement-state.ts depositTerms): a deposit's days run from a complete
+      // intake and the scoping call, not from payment; a fixed-fee document's run from a complete intake.
       timeline: p.recurring
         ? "Continuous"
-        : `${p.turnaroundDays} working days ${p.opensBandCents ? "from the scoping call" : "from a complete intake"}`,
+        : `${p.turnaroundDays} working days ${p.opensBandCents ? DEPOSIT_CLOCK_START : "from a complete intake"}`,
     };
   });
 }
@@ -263,7 +264,7 @@ export const FAQ = [
   },
   {
     q: "Who is this for?",
-    a: "Operators of an existing hall being asked for AI-density racks they cannot yet confirm, and the investors or tenants evaluating whether a site can actually take the load — anyone whose compute roadmap is gated by a physical constraint nobody in the building has named yet.",
+    a: "Operators of an existing hall being asked for AI-density racks they cannot yet confirm, and the investors or tenants evaluating whether a site can actually take the load — anyone whose compute roadmap is gated by a physical constraint that has not yet been named.",
   },
 ];
 

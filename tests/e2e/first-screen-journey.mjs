@@ -69,9 +69,10 @@ async function up() {
 // the exact words, so a rewording that keeps the answer still passes and one that drops it fails.
 const QUESTIONS = {
   audience: /operators?[\s\S]*investors?[\s\S]*engineers?/i,
-  decision: /how many ai racks can your hall really power/i,
+  decision: /how many ai racks can your hall power/i,
   dataNeeded: /7 numbers[\s\S]*no card/i,
   whatYouReceive: /relief ladder[\s\S]*lead times[\s\S]*evidence/i,
+  trust: /pilot-stage and founder-led[\s\S]*calibration ledger is empty/i,
   tryNow: /try the free capacity check/i,
   difference: /independent[\s\S]*(sell no equipment|no equipment)/i,
   nextStep: /see a sample deliverable/i,
@@ -207,8 +208,8 @@ async function runViewport(browser, vp) {
   r.h1 = fold.h1;
   r.fold = Object.fromEntries(Object.entries(QUESTIONS).map(([k, re]) => [k, re.test(fold.text)]));
   for (const [k, ok] of Object.entries(r.fold)) if (!ok) fail(where, `first viewport does not answer "${k}" from fully visible text`);
-  r.worked = /synthetic reference hall/i.test(fold.text) && /as found/i.test(fold.text) && /with on-site supply/i.test(fold.text) && /evidence class E\d/i.test(fold.text);
-  if (!r.worked) fail(where, "the worked-result panel (synthetic reference hall, as found, with on-site supply, evidence class) is not fully inside the first viewport");
+  r.worked = /synthetic reference hall/i.test(fold.text) && /as found/i.test(fold.text) && /with on-site supply/i.test(fold.text) && /Class E\d \(/.test(fold.text) && /weeks to full capacity/i.test(fold.text);
+  if (!r.worked) fail(where, "the worked-result panel (synthetic reference hall, as found, with on-site supply, cost and time lines, evidence class) is not fully inside the first viewport");
   r.ctas = fold.ctas;
   if (fold.ctas.some((c) => !c)) fail(where, "one of the three calls to action is missing from the page");
   else {
@@ -309,7 +310,6 @@ async function mobileBubble(browser) {
 }
 
 async function cancelledBanner(browser) {
-  const vp = VIEWPORTS[1];
   const cases = [
     { url: "/qualify?purchase=cancelled", expect: true },
     { url: "/pricing?deposit=cancelled", expect: true },
@@ -320,31 +320,128 @@ async function cancelledBanner(browser) {
     { url: "/qualify", expect: false },
     { url: "/pricing?deposit=success", expect: false },
   ];
-  for (const c of cases) {
-    const { ctx, page, errs } = await newPage(browser, vp);
-    await page.goto(BASE + c.url, { waitUntil: "networkidle" });
-    await page.waitForTimeout(500);
-    const banner = page.locator("[data-testid='checkout-cancelled']");
-    const n = await banner.count();
-    if (Boolean(n) !== c.expect) fail(`banner ${c.url}`, c.expect ? "no 'Checkout cancelled' banner" : "a banner appeared although nothing was cancelled");
-    if (n) {
-      const txt = (await banner.innerText()).replace(/\s+/g, " ");
-      if (!/checkout cancelled/i.test(txt) || !/nothing was charged/i.test(txt)) fail(`banner ${c.url}`, `wrong words: ${txt}`);
-      const hrefs = await banner.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
-      if (!hrefs.some((h) => h === "/qualify")) fail(`banner ${c.url}`, `no link to the free check: ${hrefs}`);
-      for (const h of hrefs) if (!/^\/[a-z0-9\-/]*$/i.test(h || "")) fail(`banner ${c.url}`, `a link that is not a relative site path: ${h}`);
-      if (c.link && !hrefs.some((h) => c.link.test(h))) fail(`banner ${c.url}`, `expected a link back to the product page, got ${hrefs}`);
-      if (c.noReflect && (await page.content()).includes(c.noReflect) && (await banner.innerHTML()).includes(c.noReflect)) fail(`banner ${c.url}`, `reflected hostile input ${c.noReflect}`);
-      if (c.url.startsWith("/qualify?purchase=cancelled") && !c.noReflect && !c.link) {
-        await banner.getByRole("button", { name: /dismiss/i }).click();
-        await page.waitForTimeout(200);
-        if (await banner.count()) fail(`banner ${c.url}`, "the banner is not dismissible");
-        else report.bannerDismissOk = true;
+  for (const vp of VIEWPORTS) {
+    for (const c of cases) {
+      const { ctx, page, errs } = await newPage(browser, vp);
+      const where = `banner ${c.url}@${vp.name}`;
+      await page.goto(BASE + c.url, { waitUntil: "networkidle" });
+      await page.waitForTimeout(600);
+      const banner = page.locator("[data-testid='checkout-cancelled']");
+      const n = await banner.count();
+      if (Boolean(n) !== c.expect) fail(where, c.expect ? "no 'Checkout cancelled' banner" : "a banner appeared although nothing was cancelled");
+      if (n) {
+        const txt = (await banner.innerText()).replace(/\s+/g, " ");
+        if (!/checkout cancelled/i.test(txt) || !/nothing was charged/i.test(txt)) fail(where, `wrong words: ${txt}`);
+        const hrefs = await banner.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+        if (!hrefs.some((h) => h === "/qualify")) fail(where, `no link to the free check: ${hrefs}`);
+        for (const h of hrefs) if (!/^\/[a-z0-9\-/]*$/i.test(h || "")) fail(where, `a link that is not a relative site path: ${h}`);
+        if (c.link && !hrefs.some((h) => c.link.test(h))) fail(where, `expected a link back to the product page, got ${hrefs}`);
+        if (c.noReflect && (await banner.innerHTML()).includes(c.noReflect)) fail(where, `reflected hostile input ${c.noReflect}`);
+        // The notice is in the flow: it must not cover the page's H1, and its own links and button must be what a click on them reaches.
+        const geo = await page.evaluate(() => {
+          const h1 = document.querySelector("main h1");
+          const b = document.querySelector("[data-testid='checkout-cancelled']");
+          const hit = (el) => { const r = el.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 12)); return Boolean(e && (e === el || el.contains(e))); };
+          const card = b.firstElementChild; // the visible box; the outer element also carries the padding that clears the header
+          const br = card.getBoundingClientRect(), hr = h1.getBoundingClientRect();
+          return { h1Hit: hit(h1), h1Top: Math.round(hr.top), bannerBottom: Math.round(br.bottom), bannerTop: Math.round(br.top), navBottom: Math.round(document.querySelector("nav[aria-label='Primary']").getBoundingClientRect().bottom),
+            controlsHit: [...b.querySelectorAll("a,button")].every(hit), positions: [...new Set([b, b.firstElementChild].map((e) => getComputedStyle(e).position))] };
+        });
+        if (!geo.h1Hit) fail(where, "the page H1 is covered by something (elementFromPoint does not reach it)");
+        if (geo.h1Top < geo.bannerBottom) fail(where, `the H1 (top ${geo.h1Top}) starts above the notice's bottom (${geo.bannerBottom})`);
+        if (geo.bannerTop < geo.navBottom - 1) fail(where, `the notice (top ${geo.bannerTop}) sits under the header (bottom ${geo.navBottom})`);
+        if (!geo.controlsHit) fail(where, "a link or the dismiss button inside the notice is covered (elementFromPoint misses it)");
+        if (geo.positions.some((p) => p === "fixed" || p === "sticky")) fail(where, `the notice is ${geo.positions.join("/")} positioned`);
+        // The announcement: an EMPTY live region exists from the start and is filled after the notice appears.
+        const live = await page.locator("[data-testid='checkout-cancelled-live']").innerText();
+        if (!/checkout cancelled/i.test(live)) fail(where, `the live region was not filled: "${live}"`);
+        if (c.url.startsWith("/qualify?purchase=cancelled") && !c.noReflect && !c.link) {
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(250);
+          if (await banner.count()) fail(where, "Escape does not dismiss the notice");
+          else report[`escapeDismissOk_${vp.name}`] = true;
+          if (/purchase=cancelled/.test(page.url())) fail(where, "the marker is still in the address after dismissing");
+          if (await page.locator("[data-testid='checkout-cancelled-live']").innerText()) fail(where, "the live region was not cleared with the notice");
+        } else if (c.url === "/pricing?deposit=cancelled") {
+          await banner.getByRole("button", { name: /dismiss/i }).click();
+          await page.waitForTimeout(200);
+          if (await banner.count()) fail(where, "the dismiss button does not dismiss");
+          else report[`dismissOk_${vp.name}`] = true;
+        }
+      } else {
+        // not shown: the live region is still there and empty
+        const live = await page.locator("[data-testid='checkout-cancelled-live']").count();
+        if (!live) fail(where, "the empty live region is not in the shell");
       }
+      if (errs.length) fail(where, "console: " + errs.join(" | "));
+      await ctx.close();
     }
-    if (errs.length) fail(`banner ${c.url}`, "console: " + errs.join(" | "));
+
+    // The remembered product: names the page on /qualify, is consumed, is stale after an hour, and is never used on /pricing.
+    for (const [label, setup, url, expectLink, expectCleared] of [
+      ["remembered, fresh, on /qualify", { id: "density_screen", ageMs: 1000 }, "/qualify?purchase=cancelled", /\/products\/density-screen/, true],
+      ["remembered but stale (2 h)", { id: "density_screen", ageMs: 2 * 3600 * 1000 }, "/qualify?purchase=cancelled", null, true],
+      ["remembered, on /pricing", { id: "density_screen", ageMs: 1000 }, "/pricing?deposit=cancelled", null, true],
+      ["hostile remembered id", { id: "<script>", ageMs: 1000 }, "/qualify?purchase=cancelled", null, true],
+    ]) {
+      const { ctx, page } = await newPage(browser, vp);
+      const where = `remembered ${label}@${vp.name}`;
+      await page.goto(BASE + "/qualify", { waitUntil: "networkidle" });
+      await page.evaluate(({ id, ageMs }) => sessionStorage.setItem("gf:last-checkout-product", JSON.stringify({ id, at: Date.now() - ageMs })), setup);
+      await page.goto(BASE + url, { waitUntil: "networkidle" });
+      await page.waitForTimeout(600);
+      const hrefs = await page.locator("[data-testid='checkout-cancelled'] a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+      if (expectLink ? !hrefs.some((h) => expectLink.test(h)) : hrefs.some((h) => /\/products\/[a-z]/.test(h || ""))) fail(where, `links were ${hrefs}`);
+      const left = await page.evaluate(() => sessionStorage.getItem("gf:last-checkout-product"));
+      if (expectCleared && left !== null) fail(where, "the remembered id was not cleared");
+      await ctx.close();
+    }
+  }
+}
+
+async function assistantMenu(browser) {
+  const vp = VIEWPORTS[1];
+  for (const [route, offered] of [["/", true], ["/pricing", true], ["/workspace", false], ["/observatory", false]]) {
+    const { ctx, page, errs } = await newPage(browser, vp);
+    const where = `assistant menu ${route}@mobile`;
+    await page.goto(BASE + route, { waitUntil: "networkidle" });
+    await page.waitForTimeout(500);
+    await page.locator("#main-menu-toggle").click();
+    const entry = page.getByRole("button", { name: /Ask the scoping assistant \(AI\)/ });
+    const n = await entry.count();
+    if (Boolean(n) !== offered) fail(where, offered ? "the menu has no assistant entry" : "the menu offers an assistant that does not exist on this page (dead control)");
+    if (offered && n) {
+      await entry.click();
+      const dlg = page.getByRole("dialog", { name: /scoping assistant/i });
+      await dlg.waitFor({ timeout: 15000 }).catch(() => fail(where, "the assistant did not open from the menu"));
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(400);
+      const focused = await page.evaluate(() => { const e = document.activeElement; const r = e && e.getBoundingClientRect(); return { id: e && e.id, visible: Boolean(r && r.width > 0 && r.height > 0) }; });
+      if (focused.id !== "main-menu-toggle" || !focused.visible) fail(where, `focus after closing the assistant is ${JSON.stringify(focused)}, not the visible menu button`);
+      else report.assistantFocusReturnOk = true;
+    }
+    if (errs.length) fail(where, "console: " + errs.join(" | "));
     await ctx.close();
   }
+}
+
+async function signInMenu(browser) {
+  const vp = VIEWPORTS[0];
+  const { ctx, page } = await newPage(browser, vp);
+  await page.goto(BASE + "/", { waitUntil: "networkidle" });
+  const btn = page.getByRole("button", { name: /^Sign in$/ });
+  await btn.focus();
+  await page.keyboard.press("Enter");
+  if ((await btn.getAttribute("aria-expanded")) !== "true") fail("sign-in menu", "does not open from the keyboard");
+  await page.keyboard.press("Tab"); // into the first item
+  if ((await btn.getAttribute("aria-expanded")) !== "true") fail("sign-in menu", "closed while focus was still inside it");
+  await page.keyboard.press("Tab"); // second item
+  await page.keyboard.press("Tab"); // out of the menu
+  await page.waitForTimeout(150);
+  if ((await btn.getAttribute("aria-expanded")) !== "false") fail("sign-in menu", "still open after Tab left it");
+  if (await page.locator("#sign-in-menu").count()) fail("sign-in menu", "the list is still in the page after Tab left it");
+  report.signInMenuTabOutOk = (await btn.getAttribute("aria-expanded")) === "false";
+  await ctx.close();
 }
 
 async function observatoryHeader(browser) {
@@ -369,6 +466,8 @@ try {
   for (const vp of VIEWPORTS) await runViewport(browser, vp);
   await mobileBubble(browser);
   await cancelledBanner(browser);
+  await assistantMenu(browser);
+  await signInMenu(browser);
   await observatoryHeader(browser);
   await browser.close();
 } catch (err) {

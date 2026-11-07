@@ -10,3 +10,6 @@ export const CANCEL_RETURNS: { path: string; param: string }[] = [
 export function isCancelledReturn(pathname: string | null | undefined, params: { get(name: string): string | null }): boolean {
   return CANCEL_RETURNS.some((r) => pathname === r.path && params.get(r.param) === "cancelled");
 }
+
+/** What the notice says, and what a screen reader is told when it appears. */
+export const CANCELLED_TITLE = "Checkout cancelled — nothing was charged.";

@@ -247,18 +247,19 @@ body :where(p, li, dd, dt, h1, h2, h3, h4, h5, a, button, label, summary, figcap
   line-height: 0.98;
 }
 
-/* The H1 of the page family (pricing, products, intelligence, observatory, qualify and the other inner pages): one scale, one weight, one
-   letter-spacing. The home page keeps its own larger .display scale. */
+/* The H1 of the inner pages this stream owns: /qualify, /intelligence, /observatory, /contact and /about use .page-title, one scale, weight
+   and letter-spacing (the same 3xl-to-4xl size the other inner pages already spell out by hand). /pricing and /products have their own
+   H1 classes and are not switched here. The home page keeps its own larger .display scale. */
 .page-title {
   font-size: 1.875rem;
-  line-height: 1.15;
-  letter-spacing: -0.025em;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
   font-weight: 600;
   color: #f5f7fa;
 }
 @media (min-width: 640px) {
   .page-title {
-    font-size: 2.5rem;
+    font-size: 2.25rem;
   }
 }
 

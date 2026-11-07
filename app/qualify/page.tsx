@@ -9,7 +9,7 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 
 export const metadata: Metadata = {
-  title: "Capacity qualifier — what actually stops your hall",
+  title: "Free capacity check — what binds your hall",
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
   alternates: { canonical: "/qualify" },
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     ...OG_BASE,
     images: pageImages("qualify"),
-    title: "Free capacity qualifier — what stops your hall taking AI racks",
+    title: "Free capacity check — what stops your hall taking AI racks",
     description:
       "Seven numbers in, the binding constraint out. No card, no call, no contact details required.",
     url: "/qualify",

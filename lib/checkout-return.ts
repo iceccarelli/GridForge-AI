@@ -11,7 +11,7 @@
 import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { PRODUCTS, type ProductId } from "@/lib/products";
 
-export { LAST_CHECKOUT_KEY } from "@/lib/checkout-return-key";
+export { LAST_CHECKOUT_KEY, takeRememberedCheckout } from "@/lib/checkout-return-key";
 export { CANCEL_RETURNS, isCancelledReturn } from "@/lib/checkout-return-path";
 
 export interface ProductBack {

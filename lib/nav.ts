@@ -48,6 +48,17 @@ export const QUALIFY_LINK: NavLink = { href: "/qualify", label: "Try the free ca
 /** Asks the scoping assistant (components/ScopingAgent.tsx) to open. Below lg the floating launcher is not drawn; the mobile menu sends this. */
 export const OPEN_SCOPING_AGENT_EVENT = "gridforge:open-scoping-agent";
 
+/** Routes on which the scoping assistant is not offered at all: the full workspace IS that conversation, and the Observatory is a demonstration
+ *  with nothing on it that leads to a sale. One list, read by the launcher (components/ScopingAgent.tsx) and by the mobile menu's entry. */
+export const NO_SCOPING_AGENT_ON = ["/workspace", "/observatory"];
+
+export function scopingAgentAvailable(pathname: string | null | undefined): boolean {
+  return !(pathname && NO_SCOPING_AGENT_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`)));
+}
+
+/** The id of the mobile menu's button: the element focus returns to when the assistant closes on a screen where its launcher is not drawn. */
+export const MOBILE_MENU_BUTTON_ID = "main-menu-toggle";
+
 /** The routes on which no paid call to action may be drawn by the site's chrome (header, footer, sticky bar): they are demonstrations, and
  *  the page's own calm call to action is the free check. components/StickyMobileCTA.tsx hides itself on the same routes. */
 export const NO_PAID_CTA_ON = ["/observatory"];

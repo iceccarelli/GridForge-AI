@@ -72,12 +72,14 @@ describe("Hero call-to-action row", () => {
 
   it("carries the owner's H1 and a sub-copy of at most 45 words that claims only what the software does", async () => {
     const html = unesc(await hero());
-    expect(html).toContain("How many AI racks can your hall really power — and what unlocks more?");
+    expect(html).toContain("How many AI racks can your hall power — and what unlocks more?");
     const { SUB } = await import("@/components/home/Hero");
     expect(html).toContain(SUB);
     expect(SUB.split(/\s+/).length).toBeLessThanOrEqual(45);
     expect(SUB).toMatch(/electrical or thermal limit that binds first/);
-    expect(SUB).toMatch(/relief ladder with lead times/);
+    // The ladder's costs and lead times are library placeholders in the reference output, and the sub-copy says so rather than calling them prices.
+    expect(SUB).toMatch(/relief ladder with costs and lead times \(library placeholders until you supply quotes\)/);
+    expect(SUB).not.toMatch(/\bpriced\b/i);
     expect(SUB).toMatch(/evidence behind every figure/);
     // Nothing that implies customers, traction or accuracy.
     expect(html).not.toMatch(/trusted by|customers? (include|use)|used by|accura(te|cy) of|case stud/i);
@@ -119,9 +121,31 @@ describe("the home meta description", () => {
     expect(d).toMatch(/evidence class/);
     expect(d).not.toMatch(/€|EUR|\d|best|leading|only|fastest|guarantee/i);
   });
-  it("leaves the social description, the title and the keywords alone", async () => {
+  it("the home title fits (60 characters) and the social text follows the first-screen proposition, not the old tagline", async () => {
     const { metadata } = await import("@/app/layout");
-    expect(String((metadata.title as { default: string }).default)).toBe("Time to Power — Power-Capacity Intelligence for AI Infrastructure");
-    expect(String(metadata.openGraph?.description)).toMatch(/The bottleneck isn't chips/);
+    const page = (await import("@/app/page")).metadata;
+    const title = String((metadata.title as { default: string }).default);
+    expect(title).toBe("Time to Power — AI rack capacity for existing halls");
+    expect(title.length).toBeLessThanOrEqual(60);
+    // The layout's Open Graph block (the default for pages without their own) and the home page's own Open Graph and Twitter blocks.
+    for (const og of [metadata.openGraph, page.openGraph]) {
+      expect(String(og?.title)).toBe(title);
+      expect(String(og?.description)).toMatch(/^How many AI racks can your hall power, and what unlocks more\?/);
+      expect(String(og?.description)).not.toMatch(/bottleneck|isn't chips|it's power/i);
+    }
+    const tw = page.twitter as { card?: string; title?: string; description?: string };
+    expect(tw.card).toBe("summary_large_image");
+    expect(tw.title).toBe(title);
+    expect(tw.description).toBe(String(page.openGraph?.description));
+    expect(String(metadata.title && JSON.stringify(metadata.title))).not.toMatch(/Power-Capacity Intelligence/);
+  });
+  it("the qualifier's title fits once the site name is added, and says what the page is", async () => {
+    const { metadata } = await import("@/app/layout");
+    const q = (await import("@/app/qualify/page")).metadata;
+    const template = (metadata.title as { template: string }).template;
+    const rendered = template.replace("%s", String(q.title));
+    expect(String(q.title)).toBe("Free capacity check — what binds your hall");
+    expect(rendered.length).toBeLessThanOrEqual(60);
+    expect(String(q.description).length).toBeLessThanOrEqual(160);
   });
 });
