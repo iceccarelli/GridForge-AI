@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2, Plus, Trash2 } from "lucide-react";
 import { IntakeEvidence } from "@/components/IntakeEvidence";
+import { SPEC_RELIEF_CONSTRAINTS } from "@/lib/project-spec-relief";
 
 /**
  * The intake a client fills in after commissioning an engagement.
@@ -57,6 +58,7 @@ export function EngagementIntake({
     plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "", existingFlowLPerMin: "", existingNonItHeatKW: "",
     residualAirKWPerRack: "", designDrybulbC: "",
     platform: "gb300_nvl72", utilisation: "0.75",
+    constraint: "",
   });
   /**
    * A Density Screen may proceed without three of these.
@@ -397,6 +399,25 @@ export function EngagementIntake({
             data and an assumed one is ours.
           </p>
         </div>
+      ) : null}
+
+      {meta?.kind === "procurement_spec" && !endpoint ? (
+        <Section
+          title="The relief to specify"
+          note="A Procurement Specification tenders one relief. Choose it, or leave this to the engine."
+        >
+          <Field
+            label="Relief to specify"
+            hint="Optional. If you leave it, the engine selects the relief itself and the delivered page says so. If the engine cannot write a specification for your choice on this hall, you are told which it can, before anything is submitted."
+          >
+            <select className={inputCls} value={f.constraint} onChange={set("constraint")}>
+              <option value="">Let the engine choose</option>
+              {SPEC_RELIEF_CONSTRAINTS.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </Field>
+        </Section>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">

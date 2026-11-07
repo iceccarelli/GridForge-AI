@@ -304,18 +304,15 @@ export function predictionRef(case_token: string, revision: number, architecture
 
 // ---------------------------------------------------------------- evidence
 
-export const EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
-/** Per project: how many files and how many bytes in all. A project's inventory is a record, not a file share. */
-export const EVIDENCE_MAX_FILES = 100;
-export const EVIDENCE_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
-export const EVIDENCE_MEDIA_TYPES = ["application/pdf", "text/csv", "application/json"] as const;
-export const EVIDENCE_CATEGORIES = [
-  "utility_correspondence",
-  "supplier_document",
-  "load_data",
-  "site_documentation",
-  "other",
-] as const;
+import {
+  EVIDENCE_CATEGORIES,
+  EVIDENCE_MAX_BYTES,
+  EVIDENCE_MAX_FILES,
+  EVIDENCE_MAX_TOTAL_BYTES,
+  EVIDENCE_MEDIA_TYPES,
+} from "@/lib/project-evidence-upload";
+// The upload contract is defined once, in a leaf module the browser's upload control also reads.
+export { EVIDENCE_CATEGORIES, EVIDENCE_MAX_BYTES, EVIDENCE_MAX_FILES, EVIDENCE_MAX_TOTAL_BYTES, EVIDENCE_MEDIA_TYPES };
 export const EVIDENCE_BUCKET = "project-evidence";
 
 export interface EvidenceRow {

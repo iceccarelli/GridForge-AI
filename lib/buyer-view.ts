@@ -27,6 +27,40 @@ export interface BuyerAssumption {
  */
 export type PublicComparison = Pick<ComparisonRow, "id" | "saved_at" | "grade" | "engine_version"> & { result: CompareResult };
 
+/** The most saved comparisons the buyer page lists. The count of earlier ones is always the true count. */
+export const BUYER_HISTORY_MAX = 25;
+
+/**
+ * One saved comparison as a line of the project's history, from an allow-list. Deliberately NOT the request the owner sent
+ * (hall inputs, DSO name, queue note, client and reference strings), NOT the engine's answer beyond the name of the scenario it
+ * ranked first, and NOT the quotation lines (supplier names, prices, reviewers, references): only how many its prices rested on.
+ */
+export interface BuyerHistoryEntry {
+  saved_at: string;
+  grade: "indicative" | "screening";
+  /** The scenario the engine ranked first on the request's objective; null when it ranked none. */
+  leader: string | null;
+  /** First 16 characters of the request digest, as the page shows for the latest. */
+  request_digest: string;
+  engine_version: string;
+  /** Accepted quotation lines its prices rested on when it was saved (0 = library cost data only). */
+  quotation_lines: number;
+  /** True for the one shown in full above. */
+  shown: boolean;
+}
+
+export function historyOf(comparisons: ComparisonRow[]): BuyerHistoryEntry[] {
+  return comparisons.slice(0, BUYER_HISTORY_MAX).map((c, i) => ({
+    saved_at: c.saved_at,
+    grade: c.grade,
+    leader: c.result?.scenarios?.find((x) => x.id === c.result.ranking?.leader)?.name ?? null,
+    request_digest: String(c.request_digest ?? "").slice(0, 16),
+    engine_version: c.engine_version,
+    quotation_lines: (c.evidence_ids ?? []).length,
+    shown: i === 0,
+  }));
+}
+
 export interface BuyerView {
   project: Pick<ProjectRow, "project_name" | "company" | "site_label" | "created_at">;
   comparison: PublicComparison | null;
@@ -34,6 +68,8 @@ export interface BuyerView {
   backing: BuyerQuotations | null;
   /** Saved comparisons older than the one shown. */
   earlier_comparisons: number;
+  /** Every saved comparison, newest first (at most BUYER_HISTORY_MAX), as an allow-listed line each. */
+  history: BuyerHistoryEntry[];
   assumptions: BuyerAssumption[];
   engagements: { kind: string; name: string }[];
   /** Quotation lines recorded against this project's engagements, whether or not the comparison shown uses them. */
@@ -141,6 +177,7 @@ export async function getBuyerView(shareToken: string): Promise<Result<{ view: B
       comparison: latest && shown ? { id: latest.id, saved_at: latest.saved_at, grade: latest.grade, engine_version: latest.engine_version, result: shown } : null,
       backing,
       earlier_comparisons: Math.max(0, cmp.comparisons.length - 1),
+      history: historyOf(cmp.comparisons),
       assumptions: latest ? assumptionsOf(latest.request) : [],
       engagements,
       quotations: total > 0 ? { total, accepted: (lines.data ?? []).filter((l) => l.state === "accepted").length } : null,
