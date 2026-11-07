@@ -4,6 +4,12 @@ import { pageImages } from "@/lib/page-cards";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
 import { NotYetAvailable } from "@/app/power/NotYetAvailable";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
+
+const DEPLOY_TITLE = "BTM Power Deployment Assessment";
+const DEPLOY_DESCRIPTION =
+  "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.";
 
 // Whether the form is shown follows the DEPLOYED engine (its /v1/version), not the last build of this site.
 export const revalidate = 300;
@@ -35,6 +41,15 @@ export default async function PowerDeployPage() {
   const state = availabilityIn(await deployedEngineRoutes(), "/v1/power/deploy/assess");
   return (
     <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          webPageJsonLd("/power/deploy", DEPLOY_TITLE, DEPLOY_DESCRIPTION),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "BTM power deployment", path: "/power/deploy" },
+          ]),
+        ]}
+      />
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
         BTM power deployment
       </p>

@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { IntelligenceClient } from "@/components/IntelligenceClient";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 
 // Previously this route had no metadata export at all — a "use client" page
 // cannot export one — so it silently inherited the root layout's home-page
 // title and description instead of describing itself. Split into a thin
 // server wrapper (same pattern as app/workspace/page.tsx) so this route gets
 // its own title, description and canonical.
-const TITLE = "GridForge Intelligence — siting by time to power";
+const TITLE = "GridForge Intelligence: regional siting";
 const DESCRIPTION =
-  "A modelled ranking of regions by time to energize, with measured US interconnection-queue history and day-ahead market context that states its source and time — a modelled intelligence subscription, not a verified-site portfolio.";
+  "A modelled ranking of regions by time to energize, with US interconnection-queue history and day-ahead prices. A modelled subscription, not verified sites.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -27,5 +29,18 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <IntelligenceClient />;
+  return (
+    <>
+      <PageJsonLd
+        data={[
+          webPageJsonLd("/intelligence", TITLE, DESCRIPTION),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Intelligence", path: "/intelligence" },
+          ]),
+        ]}
+      />
+      <IntelligenceClient />
+    </>
+  );
 }

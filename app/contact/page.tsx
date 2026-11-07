@@ -10,7 +10,7 @@ import { OG_BASE, SITE, siteUrl } from "@/lib/site";
 
 const TITLE = "Contact Time to Power";
 const DESCRIPTION =
-  "How to reach Time to Power, and what to include so the first reply can be useful: the hall, the platform, the decision and what you already have. NDA on request. A founder-led, pilot-stage practice that sells no equipment.";
+  "How to reach Time to Power and what to include so the first reply is useful: the hall, the platform and the decision. NDA on request. We sell no equipment.";
 
 export const metadata: Metadata = {
   title: TITLE,

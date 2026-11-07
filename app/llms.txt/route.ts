@@ -151,7 +151,8 @@ ${absent}
 
 ## The complete worked deliverable, published
 
-- [Envelope Study](${SITE}/reference/envelope_study.md): the full document, on a synthetic hall
+- [Density Screen](${SITE}/reference/density_screen.md): the entry deliverable as a buyer receives it, on a synthetic hall
+- [Envelope Study](${SITE}/reference/envelope_study.md): the full document, on a synthetic hall, and the next step after the screen
 - [Procurement Specification](${SITE}/reference/specification.md): the tender document the study implies
 - [Proposal](${SITE}/reference/proposal.md)
 - [Model pack](${SITE}/reference/model_pack.json): every scenario, solved

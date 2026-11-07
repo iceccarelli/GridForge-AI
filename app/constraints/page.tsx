@@ -16,9 +16,9 @@ const DOMAIN_IMAGE: Record<string, TtpImageId> = {
 };
 
 export const metadata: Metadata = {
-  title: "What stops an existing hall taking AI racks — all thirteen constraints",
+  title: "All thirteen constraints on AI rack density",
   description:
-    "The complete, quantified list of what physically limits AI rack density in an existing data hall: electrical, thermal and physical. Each with the governing relation, a worked example you can check by hand, what relieves it and how long that takes.",
+    "What limits AI rack density in an existing hall, quantified: electrical, thermal and physical, each with its governing relation, relief and a worked example.",
   alternates: { canonical: "/constraints" },
   twitter: { card: "summary_large_image", images: pageImages("constraints") },
   openGraph: {

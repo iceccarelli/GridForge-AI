@@ -8,19 +8,22 @@ import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucid
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { formatWeeks } from "@/lib/date-basis";
+import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, collectionPageJsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
-  title: "The deliverable, in full — worked example",
+  title: "Sample deliverables — worked examples",
   description:
-    "Read the exact document a Capacity & Density Envelope Study produces, on a synthetic European colocation hall. The headroom ladder, time to power, the economics, and the working files behind every number.",
+    "Read the Density Screen and Envelope Study as a buyer receives them, on a synthetic colocation hall: ladder, time to power, economics and working files.",
   alternates: { canonical: "/reference" },
   twitter: { card: "summary_large_image", images: pageImages("reference") },
   openGraph: {
     ...OG_BASE,
     images: pageImages("reference"),
-    title: "The deliverable, in full — worked example",
+    title: "Sample deliverables — worked examples",
     description:
-      "The actual document a paid engagement produces, on a synthetic hall — headroom ladder, time to power, economics and the working files behind every number.",
+      "The actual documents a paid engagement produces, on a synthetic hall: the Density Screen first, then the Envelope Study with its working files.",
     url: "/reference",
   },
 };
@@ -76,26 +79,52 @@ const eur = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
+const DOCS = [
+  { name: "Density Screen", path: "/reference/density_screen.html", format: "text/html", description: "The Density Screen on a synthetic reference hall, as a buyer receives it." },
+  { name: "Density Screen (Markdown)", path: "/reference/density_screen.md", format: "text/markdown" },
+  { name: "Proposal", path: "/reference/proposal.html", format: "text/html" },
+  { name: "Envelope Study", path: "/reference/envelope_study.html", format: "text/html" },
+  { name: "Board summary", path: "/reference/board_summary.html", format: "text/html" },
+  { name: "Walkthrough deck", path: "/reference/walkthrough.html", format: "text/html" },
+  { name: "Procurement Specification", path: "/reference/specification.html", format: "text/html" },
+];
+
 export default async function ReferencePage() {
   const pack = await readPack();
   const best = pack?.scenarios?.reduce((a, b) =>
     b.after_ladder.racks > a.after_ladder.racks ? b : a
   );
   const gridOnly = pack?.scenarios?.find((s) => s.id === "full_dlc");
+  const screen = PRODUCTS.density_screen;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          collectionPageJsonLd(
+            "/reference",
+            "Sample deliverables",
+            "The documents a paid engagement produces, on a synthetic reference hall: the Density Screen first, then the Envelope Study with its working files.",
+            DOCS
+          ),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Sample deliverables", path: "/reference" },
+          ]),
+        ]}
+      />
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
-          Worked example · nothing withheld
+          Worked examples · nothing withheld
         </p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
           Read the deliverable before you pay for it.
         </h1>
         <p className="mt-4 text-mute">
-          This is the complete output of a Capacity &amp; Density Envelope Study — the document,
-          the walkthrough deck, the proposal, and the tables behind every number — run on a
-          synthetic European colocation hall. Not a sample, not an extract. The whole thing.
+          These are the documents the engine produces for a paying client, run on a synthetic
+          European colocation hall. Start with the {screen.name}, the first step and the one
+          most halls buy ({eurFromCents(screen.amountCents)}); the Envelope Study it credits against is the next step, and is
+          below it. Not an extract: the whole documents.
         </p>
         <div className="mt-5 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost">
           <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-queue">
@@ -103,10 +132,44 @@ export default async function ReferencePage() {
           </span>
           <p className="mt-1 text-mute">
             The hall does not exist. Every figure is modelled from invented inputs and none is a
-            measurement of a real site — which is exactly why we can publish it in full.
+            measurement of a real site — which is exactly why we can publish it in full. Every
+            document is marked as synthetic reference data.
           </p>
         </div>
       </header>
+
+      <section className="mt-8 rounded border border-power/50 bg-panel-2 p-6 sm:p-8" aria-labelledby="screen-h">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Start here · the first step</p>
+        <h2 id="screen-h" className="mt-2 text-2xl font-semibold text-ghost">The {screen.name}</h2>
+        <p className="mt-3 max-w-3xl text-[15px] leading-relaxed text-mute">{screen.description}</p>
+        <p className="mt-3 max-w-3xl text-sm text-faint">
+          The sample is the document a buyer is handed, generated by the same engine route; the stamp
+          for synthetic data is the only thing added. It ends with the list of inputs nobody has
+          measured and how to get each one: the data request you would send to your own engineers.
+        </p>
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <Link
+            href="/reference/density_screen.html"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-power px-5 py-2.5 text-sm font-semibold text-ink"
+          >
+            Read the {screen.name} sample <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link href="/reference/density_screen.md" className="inline-flex min-h-11 items-center justify-center rounded border border-line px-4 py-2 font-mono text-xs text-mute hover:text-ghost">
+            density_screen.md
+          </Link>
+          <Link href="/products/density-screen" className="inline-flex min-h-11 items-center text-sm text-power underline">
+            About the {screen.name} and how to commission it
+          </Link>
+        </div>
+        <div className="mt-6 border-t border-line pt-5">
+          <Card
+            href="/reference/proposal.html"
+            icon={<FileText className="h-4 w-4" />}
+            title="The proposal"
+            body="What a proposal looks like when the engine has already run: the binding constraint and the rack counts before the fee, and the data request in section three."
+          />
+        </div>
+      </section>
 
       <TtpPhoto
         id="ttp-12"
@@ -137,7 +200,13 @@ export default async function ReferencePage() {
         </section>
       ) : null}
 
-      <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <h2 className="mt-12 text-2xl font-semibold text-ghost">The next step: the Envelope Study</h2>
+      <p className="mt-2 max-w-3xl text-sm text-mute">
+        What the {screen.name} credits against. The full ladder, every architecture compared, time to power and
+        economics, with the model pack and working files you keep.{" "}
+        <Link href="/products/envelope-study" className="text-power underline">About the Envelope Study</Link>
+      </p>
+      <section className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card
           href="/reference/envelope_study.html"
           icon={<FileText className="h-4 w-4" />}
@@ -156,12 +225,10 @@ export default async function ReferencePage() {
           title="The walkthrough deck"
           body="Nine slides from the same solved model, for the session with your engineering team. Arrow keys to advance; print to PDF to send."
         />
-        <Card
-          href="/reference/proposal.html"
-          icon={<FileText className="h-4 w-4" />}
-          title="The proposal"
-          body="What a proposal looks like when the engine has already run: the binding constraint and the rack counts before the fee, and the data request in section three."
-        />
+      </section>
+
+      <h2 className="mt-12 text-2xl font-semibold text-ghost">After the study: the Procurement Specification</h2>
+      <section className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card
           href="/reference/specification.html"
           icon={<ClipboardList className="h-4 w-4" />}
@@ -288,8 +355,6 @@ function Card({
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noreferrer"
       className="panel flex flex-col p-5 transition-colors hover:border-power/50"
     >
       <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-power">

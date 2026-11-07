@@ -9,7 +9,7 @@ import { QUALIFY_LINK } from "@/lib/nav";
 
 const TITLE = "About Time to Power — who is behind it, what it does and how to reach us";
 const DESCRIPTION =
-  "Time to Power is a founder-led engineering practice for existing AI data halls: the constraint that binds first, what relieves it, what that costs and when. What we sell, what we do not, where we are and how to contact us.";
+  "Time to Power is a founder-led engineering practice for existing AI data halls. What we sell and what we do not, where we are and how to reach us.";
 
 export const metadata: Metadata = {
   title: "About",

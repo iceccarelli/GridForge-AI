@@ -7,7 +7,7 @@ import { OG_BASE } from "@/lib/site";
 
 const TITLE = "Who Time to Power is for";
 const DESCRIPTION =
-  "Seven buyers of power-capacity work on existing AI data halls: owners, colocation operators, AI infrastructure operators, developers, investors, engineers and advisors. Each page starts from that buyer's own decision and names what the work would and would not tell them.";
+  "Seven buyers of power-capacity work on existing AI data halls. Each page starts from the buyer's decision and says what the work would and would not tell them.";
 
 export const metadata: Metadata = {
   title: TITLE,

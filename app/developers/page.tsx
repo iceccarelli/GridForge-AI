@@ -29,7 +29,7 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Machine interface — call the engine",
   description:
-    "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
+    "The GridForge capacity engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
   alternates: { canonical: "/developers" },
   twitter: { card: "summary_large_image", images: pageImages("developers") },
   openGraph: {
