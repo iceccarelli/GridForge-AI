@@ -175,8 +175,13 @@ async function contactJourney(browser, width, height, ipTail) {
     await page.keyboard.press("Tab");
     order.push(await page.evaluate(() => document.activeElement?.id || document.activeElement?.textContent?.trim()));
   }
-  check(!order.includes("contact-website"), `[${tag}] the honeypot is not in the tab order (order: ${order.join(" > ")})`);
-  check(/Send enquiry/.test(String(order.at(-1))), `[${tag}] the sixth Tab lands on the submit button`);
+  // The urgency select ("Just exploring" by default) takes the next stop; keep it, then Tab to the button.
+  check(order.at(-1) === "contact-urgency", `[${tag}] the urgency question follows the capacity field`);
+  check((await page.locator("#contact-urgency").inputValue()) === "exploratory", `[${tag}] "Just exploring" is selected by default`);
+  await page.keyboard.press("Tab");
+  order.push(await page.evaluate(() => document.activeElement?.id || document.activeElement?.textContent?.trim()));
+  check(!order.includes("contact-hp"), `[${tag}] the honeypot is not in the tab order (order: ${order.join(" > ")})`);
+  check(/Send enquiry/.test(String(order.at(-1))), `[${tag}] the next Tab lands on the submit button`);
   await page.keyboard.press("Enter");
   const status = page.getByRole("status").filter({ hasText: "Your message was saved." });
   await status.waitFor({ timeout: 20_000 });

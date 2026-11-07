@@ -40,7 +40,7 @@ beforeEach(() => {
 afterEach(() => { globalThis.fetch = realFetch; restoreDb(); vi.restoreAllMocks(); });
 
 let n = 0;
-const post = () => new Request(siteUrl("/api/contact"), { method: "POST", headers: { "content-type": "application/json", "x-real-ip": `10.6.${Math.floor(++n / 250)}.${(n % 250) + 1}` }, body: JSON.stringify({ ...PII, mw: "48", website: "" }) });
+const post = () => new Request(siteUrl("/api/contact"), { method: "POST", headers: { "content-type": "application/json", "x-real-ip": `10.6.${Math.floor(++n / 250)}.${(n % 250) + 1}` }, body: JSON.stringify({ ...PII, mw: "48", urgency: "exploratory", hp_contact_ref: "" }) });
 const route = () => import("@/app/api/contact/route");
 const leaked = (s: string) => /Quillfeather|hallco-private|Hallco|Frankfurt|Secret plan/.test(s);
 

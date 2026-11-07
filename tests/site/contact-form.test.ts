@@ -49,7 +49,7 @@ afterEach(() => { globalThis.fetch = realFetch; restoreDb(); vi.restoreAllMocks(
 let n = 0;
 const post = (body: unknown, ip = `10.8.${Math.floor(++n / 250)}.${(n % 250) + 1}`, raw = false) =>
   new Request(siteUrl("/api/contact"), { method: "POST", headers: { "content-type": "application/json", "x-real-ip": ip }, body: raw ? String(body) : JSON.stringify(body) });
-const valid = (over: Record<string, unknown> = {}) => ({ ...PII, mw: "48", website: "", ...over });
+const valid = (over: Record<string, unknown> = {}) => ({ ...PII, mw: "48", urgency: "90days", hp_contact_ref: "", ...over });
 const route = () => import("@/app/api/contact/route");
 const leads = () => db.rows("leads") as Record<string, unknown>[];
 
@@ -125,12 +125,42 @@ describe("validation", () => {
   });
 });
 
-describe("abuse", () => {
-  it("a filled honeypot looks like success to the bot and stores nothing", async () => {
-    const res = await (await route()).POST(post(valid({ website: "https://spam.example" })));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+describe("urgency is the visitor's own answer, one of exactly the three the table allows", () => {
+  it("is stored as chosen", async () => {
+    const { POST } = await route();
+    for (const u of ["immediate", "90days", "exploratory"]) expect((await POST(post(valid({ urgency: u })))).status, u).toBe(200);
+    expect(leads().map((l) => l.urgency)).toEqual(["immediate", "90days", "exploratory"]);
+  });
+  it("is required and refused when it is anything else: nothing is defaulted or invented for the visitor", async () => {
+    const { POST } = await route();
+    for (const u of [undefined, "", "not stated", "ASAP", "Immediate", 1, null, ["immediate"]]) {
+      const res = await POST(post(valid({ urgency: u })));
+      expect(res.status, JSON.stringify(u)).toBe(422);
+      expect((await res.json()).fields.urgency).toBeTruthy();
+    }
     expect(leads()).toHaveLength(0);
+  });
+});
+
+describe("abuse", () => {
+  it("a filled honeypot, whatever its type, looks like success to the bot, stores nothing and leaves ONE PII-free log line", async () => {
+    const { POST } = await route();
+    for (const v of ["https://spam.example", " x ", 7, 0, true, false, ["a"], { a: 1 }]) {
+      logs.length = 0;
+      const res = await POST(post(valid({ hp_contact_ref: v })));
+      expect(res.status, JSON.stringify(v)).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(logs.filter((l) => l === "[GridForge] contact honeypot hit"), JSON.stringify(v)).toHaveLength(1);
+      expect(logs.join("\n")).not.toMatch(/spam\.example|Quillfeather|hallco/);
+    }
+    expect(leads()).toHaveLength(0);
+  });
+  it("an empty honeypot (absent, null, empty or blank) is a person; the old `website` name is no longer special", async () => {
+    const { POST } = await route();
+    for (const v of [undefined, null, "", "   "]) expect((await POST(post(valid({ hp_contact_ref: v })))).status).toBe(200);
+    expect(leads()).toHaveLength(4);
+    expect((await POST(post(valid({ website: "https://x.example" })))).status).toBe(200);
+    expect(leads()).toHaveLength(5);
   });
   it("is rate-limited per caller by the repo's guard: the limit+1th enquiry from one address is a 429 with Retry-After, another address is unaffected", async () => {
     const { POST } = await route();
@@ -183,7 +213,14 @@ describe("the page", () => {
     expect(html).toMatch(/id="contact-email"[^>]*type="email"|type="email"[^>]*id="contact-email"/);
     expect(html).toMatch(/autoComplete="email"|autocomplete="email"/i);
     expect((html.match(/required=""/g) ?? []).length).toBeGreaterThanOrEqual(4);
-    expect(html).toMatch(/name="website"[^>]*tabindex="-1"|tabindex="-1"[^>]*name="website"/);
+    expect(html).toMatch(/name="hp_contact_ref"[^>]*tabindex="-1"|tabindex="-1"[^>]*name="hp_contact_ref"/);
+    expect(html).toMatch(/autoComplete="off"|autocomplete="off"/i);
+    expect(html).not.toMatch(/name="website"/);
+    // the urgency question: a labelled select, the three allowed values with plain labels, "Just exploring" selected by default
+    expect(html).toMatch(/<label[^>]*for="contact-urgency"[^>]*>How soon do you need an answer\?/);
+    const sel = /<select[^>]*id="contact-urgency"[^>]*>(.*?)<\/select>/.exec(html)?.[1] ?? "";
+    expect([...sel.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((m) => [m[1], m[2]])).toEqual([["immediate", "As soon as possible"], ["90days", "Within about 90 days"], ["exploratory", "Just exploring"]]);
+    expect(sel).toMatch(/<option value="exploratory" selected="">Just exploring/);
     expect(html).toContain(`mailto:${SITE.email}`);
     expect(html).toMatch(/<form[^>]*aria-labelledby=/);
   });

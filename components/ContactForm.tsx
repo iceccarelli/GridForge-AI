@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 
-type Fields = "name" | "email" | "company" | "message" | "mw" | "form";
+type Fields = "name" | "email" | "company" | "message" | "mw" | "urgency" | "form";
 type State =
   | { kind: "idle" }
   | { kind: "sending" }
@@ -27,7 +27,7 @@ export function ContactForm({ email }: { email: string }) {
     if (state.kind === "sending") return;
     const form = e.currentTarget;
     const data = new FormData(form);
-    const body = Object.fromEntries(["name", "email", "company", "message", "mw", "website"].map((k) => [k, String(data.get(k) ?? "")]));
+    const body = Object.fromEntries(["name", "email", "company", "message", "mw", "urgency", "hp_contact_ref"].map((k) => [k, String(data.get(k) ?? "")]));
     setState({ kind: "sending" });
     const fail = (message: string, fields: Partial<Record<Fields, string>> = {}, ref?: string) => {
       setState({ kind: "error", message, fields, ref });
@@ -113,10 +113,21 @@ export function ContactForm({ email }: { email: string }) {
         {err("mw")}
       </div>
 
-      {/* Honeypot: people never see or reach this field. Hidden from assistive technology, out of the tab order, off-screen. */}
+      <div>
+        <label htmlFor="contact-urgency" className="block text-sm font-medium text-ghost">How soon do you need an answer?</label>
+        <select id="contact-urgency" name="urgency" required defaultValue="exploratory" className={input} {...field("urgency")}>
+          <option value="immediate">As soon as possible</option>
+          <option value="90days">Within about 90 days</option>
+          <option value="exploratory">Just exploring</option>
+        </select>
+        {err("urgency")}
+      </div>
+
+      {/* Honeypot: people never see or reach this field. Hidden from assistive technology, out of the tab order, off-screen, and named so that
+          browsers and password managers do not offer to fill it. */}
       <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
-        <label htmlFor="contact-website">Leave this field empty</label>
-        <input id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+        <label htmlFor="contact-hp">Leave this field empty</label>
+        <input id="contact-hp" name="hp_contact_ref" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
