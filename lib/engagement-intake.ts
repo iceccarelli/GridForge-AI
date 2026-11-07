@@ -203,6 +203,19 @@ export const screenIntakeSchema = z
  * decision here asks for everything, which is the failure that costs a form field
  * rather than a wrong number in a specification.
  */
+
+// Ensure .shape is accessible even when wrapped in ZodEffects (.superRefine / .refine)
+function withShape<T extends z.ZodTypeAny>(schema: T): T & { shape: Record<string, z.ZodTypeAny> } {
+let cur: any = schema;
+while (cur && !cur.shape && cur._def?.schema) cur = cur._def.schema;
+if (cur?.shape && !(schema as any).shape) {
+Object.defineProperty(schema, "shape", { value: cur.shape, enumerable: false, configurable: true });
+}
+return schema as any;
+}
+withShape(screenIntakeSchema);
+withShape(engagementIntakeSchema);
+
 export function intakeSchemaFor(kind: string) {
   return kind === "density_screen" ? screenIntakeSchema : engagementIntakeSchema;
 }
