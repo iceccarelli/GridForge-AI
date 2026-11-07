@@ -7,6 +7,11 @@ import { Loader2 } from "lucide-react";
 import { loadSupabase, mayHaveSession } from "@/components/supabase-lazy";
 import { CONFIRM_EMAIL_TEXT } from "@/lib/portal-links";
 import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
+import { Alert, Field, button, fieldBox, useForm } from "@/components/SiteRegistryParts";
+import SiteRegistryDiff from "@/components/SiteRegistryDiff";
+import SiteRegistryExport from "@/components/SiteRegistryExport";
+import SiteRegistryImport from "@/components/SiteRegistryImport";
+import { originText, sourceText, valueText, type RegistryEvent, type RegistryInput } from "@/lib/site-registry-model";
 import {
   DATA_ORIGINS, DATA_ORIGIN_MEANING, EXPECTED_HALL_FIELDS, ORIGINS, ORIGINS_CAPPED_AT_E3, ORIGINS_NEEDING_A_SOURCE, ORIGIN_MEANING,
   type DataOrigin, type Origin,
@@ -18,25 +23,15 @@ import {
 type Org = { id: string; name: string; role: "owner" | "editor" | "viewer"; memberId?: string; addedBy?: string; addedAt?: string };
 type Hall = { id: string; siteId: string; label: string };
 type Site = { id: string; orgId: string; orgName?: string; name: string; country: string | null; dataOrigin: DataOrigin; halls?: Hall[] };
-type Input = {
-  id: string; fieldPath: string; value: number | string | boolean | null; unit: string | null; evidenceClass: string; origin: Origin; asOf: string; recordedBy: string;
-  superseded?: boolean; recordedAt?: string;
-  source: { kind: string; id: string; filename: string | null; reviewStatus: string | null } | null;
-};
-type Event = {
-  occurredAt: string; kind: string; summary: string; origin: string; evidenceClass: string | null; basis: string; superseded: boolean; projectId?: string | null;
-  sourceTable?: string; sourceId?: string; subject?: string;
-};
+type Input = RegistryInput;
+type Event = RegistryEvent;
 
 type Phase = "loading" | "unconfirmed" | "unavailable" | "ready";
-type Msg = { ok: boolean; text: string } | null;
 
 const CLASS_NAME = Object.fromEntries(EVIDENCE_CLASSES.map((c) => [c.code, c.verb]));
 const day = (iso: string) => iso.slice(0, 10);
-const fieldBox = "w-full bg-ink border border-line rounded-lg px-3 py-2 text-[13px] text-white placeholder:text-faint focus:border-power/50 focus:outline-none disabled:opacity-50";
-const button = "rounded-lg bg-power text-ink px-4 py-2 text-sm font-semibold disabled:opacity-40 hover:bg-power/90 transition-all inline-flex items-center gap-2";
 
-async function api(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: any }> {
+async function api(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: any; retryAfter: number | null }> {
   const { data } = await (await loadSupabase()).auth.getSession();
   const token = data.session?.access_token;
   const res = await fetch(path, {
@@ -45,36 +40,8 @@ async function api(path: string, init: { method?: string; body?: unknown } = {})
     headers: { ...(token ? { Authorization: "Bearer " + token } : {}), ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
-}
-
-/** Two stable live regions, so a message is announced when it appears: errors in role="alert" (which also takes focus, so a keyboard user lands
- *  on what went wrong), success in role="status". */
-function Alert({ msg, forwardRef }: { msg: Msg; forwardRef: React.RefObject<HTMLParagraphElement> }) {
-  return (
-    <>
-      <p ref={forwardRef} role="alert" tabIndex={-1} className={msg && !msg.ok ? "text-[13px] mt-3 outline-none text-red-400" : "sr-only"}>{msg && !msg.ok ? msg.text : ""}</p>
-      <p role="status" className={msg?.ok ? "text-[13px] mt-3 text-power" : "sr-only"}>{msg?.ok ? msg.text : ""}</p>
-    </>
-  );
-}
-
-function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label htmlFor={id} className="block text-[12px] text-mute mb-1">{label}</label>
-      {children}
-      {hint && <p id={`${id}-hint`} className="data text-[10px] text-faint mt-1">{hint}</p>}
-    </div>
-  );
-}
-
-function useForm() {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const alertRef = useRef<HTMLParagraphElement>(null);
-  const fail = (text: string) => { setMsg({ ok: false, text }); setTimeout(() => alertRef.current?.focus(), 0); };
-  return { busy, setBusy, msg, setMsg, alertRef, fail };
+  const retry = Number.parseInt(res.headers.get("Retry-After") ?? "", 10);
+  return { status: res.status, body: await res.json().catch(() => ({})), retryAfter: Number.isFinite(retry) && retry > 0 ? retry : null };
 }
 
 export default function SitesWorkspace() {
@@ -305,6 +272,8 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
   const [older, setOlder] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [error, setError] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  /** Bumped by every write, so the "what changed" panel reads the history again. */
+  const [changes, setChanges] = useState(0);
 
   const loadTimeline = useCallback(async () => {
     try {
@@ -330,6 +299,15 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
   /** The write's own answer updates the table; only the timeline's first page is fetched again. */
   function recorded(input: Input) {
     setInputs((prev) => [...(prev ?? []).filter((x) => x.fieldPath !== input.fieldPath), input].sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)));
+    setChanges((n) => n + 1);
+    void loadTimeline();
+  }
+
+  /** An import's own answers update the table in one step, and the timeline's first page is read once. */
+  function imported(written: Input[]) {
+    const paths = new Set(written.map((w) => w.fieldPath));
+    setInputs((prev) => [...(prev ?? []).filter((x) => !paths.has(x.fieldPath)), ...written].sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)));
+    setChanges((n) => n + 1);
     void loadTimeline();
   }
 
@@ -361,7 +339,10 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
       {inputs === null && !error && <Loader2 className="animate-spin text-power mt-4" size={18} aria-label="Loading" />}
       {inputs && <InputsTable inputs={inputs} onHistory={setHistoryFor} />}
       {inputs && historyFor && <FieldHistory hall={hall} path={historyFor} onClose={() => setHistoryFor(null)} />}
+      {inputs && <SiteRegistryDiff hall={hall} api={api} current={inputs} refreshKey={changes} />}
+      {inputs && <SiteRegistryExport hall={hall} api={api} />}
       {inputs && canWrite && <RecordInput hall={hall} current={inputs} onRecorded={recorded} />}
+      {inputs && canWrite && <SiteRegistryImport hall={hall} api={api} onWritten={imported} />}
       {canWrite && <AttachProject hall={hall} onDone={loadTimeline} />}
       {events && (
         <Timeline events={events} more={nextCursor !== null} onOlder={loadOlder} older={older} onDetach={isOwner ? detach : undefined} />
@@ -370,24 +351,8 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
   );
 }
 
-function valueText(i: Input): string {
-  if (i.origin === "missing" || i.value === null) return "missing";
-  return `${String(i.value)}${i.unit ? " " + i.unit : ""}`;
-}
-
-/** What the origin cell says: a figure's origin is the recorder's declaration, so it reads "declared measured", not "measured". */
-export function originText(o: Origin): string {
-  return o === "missing" ? "missing" : `declared ${o}`;
-}
-
-export function sourceText(i: Input): string {
-  if (!i.source) return i.origin === "missing" ? "none (missing)" : "no file cited";
-  const name = i.source.filename ?? "a file";
-  // A purchased engagement's file has no review step at all; a project file has a live review status.
-  if (i.source.kind === "intake_evidence") return `${name} (file not reviewable)`;
-  const review = i.source.reviewStatus === "verified" ? "file reviewed and verified" : i.source.reviewStatus === "rejected" ? "file rejected" : "file not yet reviewed";
-  return `${name} (${review})`;
-}
+// The words for a figure's origin and file live in lib/site-registry-model.ts (shared with the export, import preview and diff); re-exported for the tests.
+export { originText, sourceText };
 
 export function InputsTable({ inputs, onHistory }: { inputs: Input[]; onHistory?: (path: string) => void }) {
   const byPath = new Map(inputs.map((i) => [i.fieldPath, i]));

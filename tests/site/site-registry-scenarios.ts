@@ -12,6 +12,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { rest } from "@/lib/pgrest";
 import { installAuth, tokenFor, unconfirmedBearerFor } from "./auth-fake";
+import { buildChains, diffPoints, NOW_POINT, pointsOf, START_POINT, successions } from "@/lib/site-registry-diff";
+import { buildExport, exportJson, inputsCsv, readWholeTimeline, timelineCsv } from "@/lib/site-registry-export";
+import { buildPreview, parseImport, runImport, writeOrder, type ImportReport, type Preview } from "@/lib/site-registry-import";
+import type { RegistryApi, RegistryInput } from "@/lib/site-registry-model";
 
 export interface Backend {
   /** Install the store under test (as globalThis.fetch) and the env it needs. Returns its restore. */
@@ -694,6 +698,224 @@ export function defineRegistryScenarios(backend: Backend): void {
         expect((await call("timeline", "GET", t.viewer, { id: t.hall, query: `?cursor=${c}` })).status, c).toBe(400);
       }
       expect((await call("timeline", "GET", t.viewer, { id: t.hall, query: "?before=yesterday" })).status).toBe(200);   // ignored
+    });
+  });
+
+  // ------------------------------------------------------------------------------------------------- export, import and diff, over these very routes
+
+  describe("batch export, import and diff over the real routes", () => {
+    /** The page's `api` door, answered by the real route handlers as `as`. */
+    const apiAs = (as: string): RegistryApi => async (path, init = {}) => {
+      const m = /^\/api\/halls\/([^/?]+)\/(inputs|timeline)(\?.*)?$/.exec(path);
+      if (!m) throw new Error(`unexpected path ${path}`);
+      const r = await call(m[2] as RouteName, init.method ?? "GET", as, { id: m[1], query: m[3] ?? "", body: init.body });
+      const ra = Number(r.headers.get("retry-after"));
+      return { status: r.status, body: r.body, retryAfter: Number.isFinite(ra) && ra > 0 ? ra : null };
+    };
+    const today = () => new Date().toISOString().slice(0, 10);
+    const csv = (rows: string[]) => `field_path,value,unit,origin,class,as_of,source_kind,source_id\n${rows.join("\n")}\n`;
+    async function previewFor(as: string, hall: string, text: string): Promise<Preview> {
+      const cur = await apiAs(as)(`/api/halls/${hall}/inputs`);
+      expect(cur.status).toBe(200);
+      const parsed = parseImport(text, "csv");
+      if (!parsed.ok) throw new Error(parsed.error);
+      return buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: today() });
+    }
+    const runPreview = (as: string, hall: string, preview: Preview, gapMs = 0): Promise<ImportReport> =>
+      runImport(writeOrder(preview), { post: (body) => apiAs(as)(`/api/halls/${hall}/inputs`, { method: "POST", body }), sleep: async () => {}, gapMs });
+
+    it("EXPORT: a viewer exports the hall's figures and timeline; every field is there, nothing secret is, the timeline is whole and oldest first", async () => {
+      const t = await team();
+      const proj = await seedProject({ as: t.editor, hall: t.hall });
+      const ev = await seedEvidence(proj.id);
+      expect((await record(t.editor, t.hall, { fieldPath: "grid.contracted_mw", value: 30, unit: "MW", origin: "measured", evidenceClass: "E5", projectEvidenceId: ev })).status).toBe(201);
+      const first = await record(t.editor, t.hall);
+      expect((await record(t.editor, t.hall, { value: 42, supersedes: first.body.id })).status).toBe(201);
+      expect((await record(t.editor, t.hall, { fieldPath: "hall.rack_positions", value: null, unit: null, origin: "missing", evidenceClass: "E0" })).status).toBe(201);
+
+      const api = apiAs(t.viewer);
+      const cur = await api(`/api/halls/${t.hall}/inputs`);
+      const paged = await readWholeTimeline(api, t.hall, 20, 2);          // two events a page: the cursor is followed all the way
+      const whole = await readWholeTimeline(api, t.hall, 20, 500);
+      expect(paged).toMatchObject({ complete: true, error: null });
+      expect(paged.events.map((e) => `${e.sourceTable}|${e.sourceId}|${e.subject}`)).toEqual(whole.events.map((e) => `${e.sourceTable}|${e.sourceId}|${e.subject}`));
+      expect(paged.events.length).toBeGreaterThanOrEqual(5);               // 4 figures and the attachment
+
+      const doc = buildExport({
+        hall: { id: t.hall, ...cur.body.hall, label: cur.body.hall.label }, inputs: cur.body.inputs, eventsNewestFirst: paged.events, timelineComplete: paged.complete, exportedAt: new Date().toISOString(),
+      });
+      expect(doc.currentInputs.map((i) => i.fieldPath)).toEqual(["grid.contracted_mw", "grid.firm_capacity_mva", "hall.rack_positions"]);
+      expect(doc.currentInputs[0]).toMatchObject({
+        declaredOrigin: "measured", declaredClass: "E5", sourceFileName: "connection-agreement.pdf", sourceReviewStatusNow: "verified", recordedBy: t.editor, sourceKind: "project_evidence", sourceId: ev,
+      });
+      expect(doc.currentInputs[1]).toMatchObject({ value: 42, supersedesId: first.body.id, declaredOrigin: "assumed" });
+      expect(doc.currentInputs[2]).toMatchObject({ declaredOrigin: "missing", value: null, declaredClass: "E0" });
+      const times = doc.timeline.map((e) => Date.parse(e.occurredAt));
+      expect([...times].sort((a, b) => a - b)).toEqual(times);              // oldest first
+      for (const text of [exportJson(doc), inputsCsv(doc), timelineCsv(doc)]) {
+        expect(text).toContain("declaration of the person who recorded");
+        expect(text).not.toContain(SECRET);
+        expect(text).not.toContain(proj.token);
+        expect(text).not.toMatch(/storage_ref|project-evidence\/|sha256/);
+      }
+    });
+
+    it("EXPORT: a stranger gets the same 404 for the figures and the timeline as for a hall that does not exist, and no file", async () => {
+      const t = await team();
+      expect((await record(t.editor, t.hall)).status).toBe(201);
+      const stranger = apiAs(person("stranger"));
+      for (const hall of [t.hall, GHOST]) {
+        const i = await stranger(`/api/halls/${hall}/inputs`);
+        expect(i.status).toBe(404);
+        const tl = await readWholeTimeline(stranger, hall);
+        expect(tl).toMatchObject({ complete: false, events: [], error: "No such item." });
+      }
+      expect(JSON.stringify((await stranger(`/api/halls/${t.hall}/inputs`)).body)).toBe(JSON.stringify((await stranger(`/api/halls/${GHOST}/inputs`)).body));
+    });
+
+    it("DIFF: the history the API returns gives changed/added/withdrawn/unchanged, a field's steps, and 'cannot be told' when only part of it is loaded", async () => {
+      const t = await team();
+      const proj = await seedProject({ as: t.editor, hall: t.hall });
+      const ev = await seedEvidence(proj.id);
+      const first = await record(t.editor, t.hall);
+      expect((await record(t.editor, t.hall, { value: 42, origin: "measured", evidenceClass: "E5", projectEvidenceId: ev, supersedes: first.body.id })).status).toBe(201);
+      const peak = await record(t.editor, t.hall, { fieldPath: "grid.current_site_peak_mw", value: 10, unit: "MW" });
+      expect((await record(t.editor, t.hall, { fieldPath: "grid.current_site_peak_mw", value: null, unit: null, origin: "missing", evidenceClass: "E0", supersedes: peak.body.id })).status).toBe(201);
+      expect((await record(t.editor, t.hall, { fieldPath: "hall.rack_positions", value: 200, unit: null })).status).toBe(201);
+      const api = apiAs(t.viewer);
+      const cur = (await api(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
+      const hist = (await api(`/api/halls/${t.hall}/inputs?history=1&limit=500`)).body;
+      expect(hist.truncated).toBe(false);
+      expect(hist.inputs).toHaveLength(5);
+      const chains = buildChains([...hist.inputs, ...cur]);
+      const r = diffPoints(chains, START_POINT, NOW_POINT);
+      expect(r.ok && r.diff.counts).toMatchObject({ added: 3, changed: 0, withdrawn: 0 });
+      const points = pointsOf([...hist.inputs, ...cur]);
+      expect(points.map((p) => p.id)).toEqual(["now", today(), "start"]);
+      const steps = successions(chains.get("grid.firm_capacity_mva")!);
+      expect(steps).toHaveLength(2);
+      expect(steps[1]!.aspects.map((a) => a.what)).toEqual(["value", "declared origin", "declared class", "source file", "file review status"]);
+      expect(steps[1]!.after.source).toMatchObject({ filename: "connection-agreement.pdf", reviewStatus: "verified" });
+      // only the newest 2 claims loaded: the capacity field's first claim is not among them, so it is "cannot be told" for the start, never "added"
+      const part = (await api(`/api/halls/${t.hall}/inputs?history=1&limit=2`)).body;
+      expect(part.truncated).toBe(true);
+      const partial = diffPoints(buildChains([...part.inputs, ...cur]), START_POINT, NOW_POINT);
+      expect(partial.ok && partial.diff.rows.find((x) => x.path === "grid.firm_capacity_mva")?.kind).toBe("unknown");
+      expect(partial.ok && partial.diff.rows.find((x) => x.path === "grid.current_site_peak_mw")?.kind).toBe("unknown");
+    });
+
+    it("IMPORT: a previewed file is written one row at a time through the existing route: new and superseding rows land with their declared origin, class and file; refused rows never reach the route", async () => {
+      const t = await team();
+      const proj = await seedProject({ as: t.editor, hall: t.hall });
+      const ev = await seedEvidence(proj.id);
+      const old = await record(t.editor, t.hall);
+      const text = csv([
+        `grid.firm_capacity_mva,42,MVA,measured,E5,2026-10-01,project,${ev}`,
+        "grid.contracted_mw,30,MW,assumed,E2,2026-10-01,,",
+        "hall.floor_loading_kpa,12,kPa,assumed,E5,2026-10-01,,",
+        "grid.firm_capcity_mva,9,MVA,assumed,E0,2026-10-01,,",
+      ]);
+      const preview = await previewFor(t.editor, t.hall, text);
+      expect(preview.rows.map((r) => r.status)).toEqual(["supersede", "new", "rejected", "rejected"]);
+      expect(preview.rows[0]!.body?.supersedes).toBe(old.body.id);
+      expect(preview.rows[0]!.needsDatabaseCheck).toBe(true);
+      expect(preview.rows[2]!.reasons.join()).toMatch(/cannot claim a class above E3; E5 is refused/);
+      expect(preview.rows[3]!.reasons.join()).toMatch(/not a field this registry knows/);
+      // nothing is written by previewing
+      expect(((await apiAs(t.editor)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[]).map((i) => i.value)).toEqual([40]);
+
+      const report = await runPreview(t.editor, t.hall, preview);
+      expect(report).toMatchObject({ outcome: "complete", failed: null, notAttempted: [] });
+      expect(report.written.map((w) => w.fieldPath)).toEqual(["grid.firm_capacity_mva", "grid.contracted_mw"]);
+      const now = (await apiAs(t.viewer)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
+      expect(now.find((i) => i.fieldPath === "grid.firm_capacity_mva")).toMatchObject({ value: 42, origin: "measured", evidenceClass: "E5", supersedesId: old.body.id, source: { id: ev, reviewStatus: "verified" } });
+      expect(now.find((i) => i.fieldPath === "grid.contracted_mw")).toMatchObject({ value: 30, origin: "assumed", evidenceClass: "E2", supersedesId: null });
+      expect(now.find((i) => i.fieldPath === "hall.floor_loading_kpa")).toBeUndefined();
+      const hist = (await apiAs(t.viewer)(`/api/halls/${t.hall}/inputs?history=1&field=grid.firm_capacity_mva`)).body.inputs as RegistryInput[];
+      expect(hist.map((i) => i.value)).toEqual([42, 40]);                           // the earlier figure stays
+      // running the same file again changes nothing: both rows are now unchanged
+      const again = await previewFor(t.editor, t.hall, text);
+      expect(again.rows.map((r) => r.status)).toEqual(["unchanged", "unchanged", "rejected", "rejected"]);
+      expect(again.counts.writes).toBe(0);
+    });
+
+    it("IMPORT: a refusal by the database stops the run at that row; the report names what was written, what failed and what was never tried", async () => {
+      const t = await team();
+      const proj = await seedProject({ as: t.editor, hall: t.hall });
+      const good = await seedEvidence(proj.id);
+      const unreviewed = await seedEvidence(proj.id, "unverified");
+      const text = csv([
+        `grid.firm_capacity_mva,40,MVA,measured,E5,2026-10-01,project,${good}`,
+        `grid.contracted_mw,30,MW,measured,E5,2026-10-01,project,${unreviewed}`,
+        "hall.floor_loading_kpa,12,kPa,assumed,E1,2026-10-01,,",
+        "hall.rack_positions,100,,assumed,E1,2026-10-01,,",
+      ]);
+      const preview = await previewFor(t.editor, t.hall, text);
+      expect(preview.counts).toMatchObject({ new: 4, rejected: 0, needDatabaseCheck: 2 });     // the page cannot see either file's status
+      expect(writeOrder(preview).map((r) => r.n)).toEqual([1, 2, 3, 4]);                          // unchecked rows first, in file order
+      const report = await runPreview(t.editor, t.hall, preview);
+      expect(report.outcome).toBe("stopped");
+      expect(report.written.map((w) => w.n)).toEqual([1]);
+      expect(report.failed).toMatchObject({ n: 2, fieldPath: "grid.contracted_mw", status: 400, outcomeUnknown: false });
+      expect(report.failed!.message).toMatch(/reviewed and verified/);
+      expect(report.notAttempted.map((x) => x.n)).toEqual([3, 4]);
+      const after = (await apiAs(t.viewer)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
+      expect(after.map((i) => i.fieldPath)).toEqual(["grid.firm_capacity_mva"]);                  // exactly what the report says, no more
+    });
+
+    it("IMPORT: a viewer's import is refused at the first row and writes nothing; a stranger's likewise (404)", async () => {
+      const t = await team();
+      const text = csv(["grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,", "hall.rack_positions,100,,assumed,E1,2026-10-01,,"]);
+      const preview = await previewFor(t.viewer, t.hall, text);              // a viewer may preview (it reads); it may not write
+      const asViewer = await runPreview(t.viewer, t.hall, preview);
+      expect(asViewer.outcome).toBe("stopped");
+      expect(asViewer.written).toEqual([]);
+      expect(asViewer.failed).toMatchObject({ n: 1, status: 403 });
+      expect(asViewer.notAttempted).toHaveLength(1);
+      const asStranger = await runPreview(person("stranger"), t.hall, preview);
+      expect(asStranger.failed).toMatchObject({ n: 1, status: 404, message: "No such item." });
+      expect((await apiAs(t.viewer)(`/api/halls/${t.hall}/inputs`)).body.inputs).toEqual([]);
+    });
+
+    it("IMPORT: someone correcting a field after the preview makes the superseding row fail with a stale-figure message; the run stops there", async () => {
+      const t = await team();
+      const old = await record(t.editor, t.hall);
+      const text = csv([
+        "grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,",
+        "grid.firm_capacity_mva,45,MVA,assumed,E1,2026-10-02,,",
+        "hall.rack_positions,100,,assumed,E1,2026-10-01,,",
+      ]);
+      const preview = await previewFor(t.editor, t.hall, text);
+      expect(preview.rows[1]!.status).toBe("supersede");
+      expect((await record(t.editor, t.hall, { value: 41, supersedes: old.body.id })).status).toBe(201);        // a colleague, after the preview
+      const report = await runPreview(t.editor, t.hall, preview);
+      expect(report.outcome).toBe("stopped");
+      expect(report.written.map((w) => w.n)).toEqual([1]);
+      expect(report.failed).toMatchObject({ n: 2, status: 409 });
+      expect(report.failed!.message).toMatch(/after the preview was made.*preview again/);
+      expect(report.notAttempted.map((x) => x.n)).toEqual([3]);
+      const cur = (await apiAs(t.editor)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
+      expect(cur.find((i) => i.fieldPath === "grid.firm_capacity_mva")?.value).toBe(41);                       // the colleague's correction stands
+    });
+
+    it("IMPORT: when the account's write allowance runs out the run stops (a long Retry-After is not waited out) and says exactly where", async () => {
+      const t = await team();
+      // Spend all but two of the hour's writes; a write the database turns away still counts (the request was admitted). the allowance is
+      // per account, and team() made two writes as the editor (the site and the hall); the owner's three are another account's.
+      const limit = 120;
+      for (let i = 0; i < limit - 2 - 2; i++) expect((await call("inputs", "POST", t.editor, { id: GHOST, body: input() })).status).toBe(404);
+      const text = csv([
+        "grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,", "hall.rack_positions,100,,assumed,E1,2026-10-01,,", "hall.floor_loading_kpa,12,kPa,assumed,E1,2026-10-01,,",
+        "grid.current_site_peak_mw,9,MW,assumed,E1,2026-10-01,,",
+      ]);
+      const preview = await previewFor(t.editor, t.hall, text);
+      const report = await runPreview(t.editor, t.hall, preview);
+      expect(report.outcome).toBe("stopped");
+      expect(report.written.map((w) => w.n)).toEqual([1, 2]);
+      expect(report.failed).toMatchObject({ n: 3, status: 429, outcomeUnknown: false });
+      expect(report.failed!.message).toMatch(/allowance for writes is used up/);
+      expect(report.notAttempted.map((x) => x.n)).toEqual([4]);
+      expect(((await apiAs(t.viewer)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[]).map((i) => i.fieldPath).sort()).toEqual(["grid.contracted_mw", "hall.rack_positions"]);
     });
   });
 }

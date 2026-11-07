@@ -8,6 +8,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, replace:
 import SitesPage, { metadata, dynamic } from "@/app/account/sites/page";
 import { AddedNotice, FieldHistory, InputsTable, NewHall, NewSite, RecordInput, Timeline, originText, sourceText } from "@/components/SitesWorkspace";
 import { EXPECTED_HALL_FIELDS } from "@/lib/site-registry-fields";
+import SiteRegistryDiff from "@/components/SiteRegistryDiff";
+import SiteRegistryExport from "@/components/SiteRegistryExport";
+import SiteRegistryImport from "@/components/SiteRegistryImport";
 
 // The page's structure and honesty, without a browser. The browser-level run (a production build, a real database, a verified session at 1440 and
 // 390 px, the keyboard path and the console) is reported with the change; it is not re-run here.
@@ -219,5 +222,83 @@ describe("history, leaving, and the requests a page makes", () => {
     expect(src).not.toMatch(/onDone=\{load\}/);
     expect(src).toContain("onCreated={addedSite}");
     expect(src).toContain("onRecorded={recorded}");
+  });
+});
+
+
+describe("export, import and what-changed in a hall", () => {
+  const api = async () => ({ status: 200, body: {} });
+  const panels: [string, React.ReactElement][] = [
+    ["export", React.createElement(SiteRegistryExport, { hall, api })],
+    ["import", React.createElement(SiteRegistryImport, { hall, api, onWritten: () => {} })],
+    ["what changed", React.createElement(SiteRegistryDiff, { hall, api, current: [input()], refreshKey: 0 })],
+  ];
+  for (const [name, el] of panels) {
+    it(`${name}: a labelled section, every control labelled for its id, buttons are real buttons`, () => {
+      const out = html(el);
+      expect(out).toMatch(/<section[^>]*aria-labelledby="[a-z-]+-title"/);
+      for (const tag of [...out.matchAll(/<(input|select)\b[^>]*>/g)].map((m) => m[0])) {
+        const id = /\bid="([^"]+)"/.exec(tag)?.[1];
+        expect(id, tag).toBeTruthy();
+        expect(out, id).toMatch(new RegExp(`<label[^>]*for="${id}"`));
+      }
+      expect(out).not.toMatch(/<(div|span)[^>]*onclick/i);
+    });
+  }
+  it("export: three downloads, the declaration is on the page, nothing is promised that the file lacks, and any member may use it", () => {
+    const out = html(panels[0]![1]);
+    for (const b of ["Download JSON (figures and timeline)", "Download CSV: current figures", "Download CSV: timeline"]) expect(out).toContain(b);
+    expect(out).toContain("declaration of the person who recorded each figure");
+    expect(out).toContain("It holds no file contents, storage locations or link tokens.");
+    expect(out).toMatch(/role="alert"/);
+    expect(out).toMatch(/role="status"/);
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toMatch(/\{inputs && <SiteRegistryExport /);                            // not behind canWrite: a viewer can read, so a viewer can export
+    expect(src).toMatch(/\{inputs && canWrite && <SiteRegistryImport /);                // writing is for editors and owners
+  });
+  it("import: a labelled file input with its hint, both templates, the limits, and the promise that nothing is written before the preview is confirmed", () => {
+    const out = html(panels[1]![1]);
+    expect(out).toContain("File to import (CSV or JSON)");
+    expect(out).toMatch(/<input id="import-file"[^>]*type="file"[^>]*accept="\.csv,\.json,text\/csv,application\/json"/);
+    expect(out).toMatch(/aria-describedby="import-file-hint"/);
+    expect(out).toContain("Download CSV template");
+    expect(out).toContain("Download JSON template");
+    expect(out).toContain("up to 200 rows and 256 KB");
+    expect(out).toContain("it writes nothing");
+    expect(out).toContain("never changed to fit");
+    expect(out).toContain("nothing here checks them against the real hall");
+    expect(out).not.toContain("import-confirm");                                      // no confirm control until there is a preview
+    expect(out).not.toMatch(/Write \d+ figure/);
+  });
+  it("import: the confirm is explicit (a button, disabled until the replacements are acknowledged), rows are sent one at a time, text is never injected as HTML", () => {
+    const src = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(src).toContain("disabled={!canConfirm}");
+    expect(src).toContain("(c.supersede === 0 || okReplace)");
+    expect(src).toContain("I understand that");
+    expect(src).toContain("await runImport(");
+    expect(src).not.toMatch(/Promise\.all|dangerouslySetInnerHTML|innerHTML|eval\(/);
+    expect(src).toContain("tabIndex={-1}");                                            // the preview and the report take focus
+    expect(src).toMatch(/role="alert"/);
+    expect(src).toContain("beforeunload");                                           // leaving mid-run is confirmed
+  });
+  it("what changed: closed until asked for, says it compares recorded claims (not a recalculated capacity) and that file status is the live one", () => {
+    const out = html(panels[2]![1]);
+    expect(out).toContain("Show what changed");
+    expect(out).toMatch(/aria-expanded="false"/);
+    expect(out).toContain("It is not a recalculated capacity result.");
+    expect(out).toContain("its status now");
+    expect(out).not.toMatch(/improv|better|saving/i);
+  });
+  it("the wording of the new panels never claims verification of a figure", () => {
+    const text = ["SiteRegistryExport", "SiteRegistryImport", "SiteRegistryDiff"].map((n) => fs.readFileSync(`components/${n}.tsx`, "utf8")).join("\n")
+      + ["site-registry-export", "site-registry-import", "site-registry-diff"].map((n) => fs.readFileSync(`lib/${n}.ts`, "utf8")).join("\n");
+    expect(text).not.toMatch(/Verified Power Record/i);
+    expect(text).not.toMatch(/\bverified (figure|record|capacity|hall)/i);
+    expect(text).not.toMatch(/guarantee|certified|bankable/i);
+  });
+  it("the sign-in token still goes with every request, and the allowance's Retry-After is read from the response", () => {
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toMatch(/Authorization: "Bearer " \+ token/);
+    expect(src).toContain('res.headers.get("Retry-After")');
   });
 });
