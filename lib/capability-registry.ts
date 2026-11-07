@@ -752,8 +752,8 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     notes:
       "The site offers the capture (the project panel) and its tests pass, but its production state is unverified. Not not_deployed: a " +
       "read-only GET of /v1/calibration/residuals on the live engine returned 200 on 2026-11-06 and the live /v1/version listed 24 endpoints (observed " +
-      "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-05), lists 23 and is stale; " +
-      "it is not edited here and the owner refreshes it. Once it lists the route this entry may become live. Nothing here writes the ledger " +
+      "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-07), lists all 24 endpoints including /v1/calibration/residuals; " +
+      "this entry remains unverified until migrations 0046-0048 and 0052 are applied. Nothing here writes the ledger " +
       "by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. The site-side capture needs 0017 and 0038 " +
       "(recorded as applied); no real observation is recorded as having passed review. Migrations 0046-0048 (forecast freeze, consent and origin, file verification) " +
       "and 0052 (the site-origin gate) are written and NOT applied: until they are, the database enforces none of the gates in the Eligibility sentence beyond 0038's, " +
