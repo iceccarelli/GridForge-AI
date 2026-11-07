@@ -753,11 +753,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "The site offers the capture (the project panel) and its tests pass, but its production state is unverified. Not not_deployed: a " +
       "read-only GET of /v1/calibration/residuals on the live engine returned 200 on 2026-11-06 and the live /v1/version listed 24 endpoints (observed " +
       "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-07), lists all 24 endpoints including /v1/calibration/residuals; " +
-      "this entry remains unverified until migrations 0046-0048 and 0052 are applied. Nothing here writes the ledger " +
-      "by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. The site-side capture needs 0017 and 0038 " +
-      "(recorded as applied); no real observation is recorded as having passed review. Migrations 0046-0048 (forecast freeze, consent and origin, file verification) " +
-      "and 0052 (the site-origin gate) are written and NOT applied: until they are, the database enforces none of the gates in the Eligibility sentence beyond 0038's, " +
-      "the two admin routes above answer 503, and the export keeps the definition the applied migrations gave it. Applying them is an operator decision.",
+      "Nothing here writes the ledger by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. " +
+      "The site-side capture needs 0017 and 0038, plus 0046-0048 (forecast freeze, consent and origin, file verification) " +
+      "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); no real observation is recorded as having passed review in production.",
   },
   {
     capability_id: "site_hall_registry",
@@ -782,7 +780,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "unverified",
     notes:
-      "Needs migrations 0049-0052 applied; they are written and NOT applied, and every route under /api/orgs, /api/sites and /api/halls answers 503 until they are. " +
+      "Needs migrations 0049-0052 (recorded as applied on 2026-11-07); every route under /api/orgs, /api/sites and /api/halls fails closed (503) if the store is unreachable. " +
       "A site's data origin (production, test or synthetic) and a figure's origin and evidence class are the recorder's declaration: the database enforces the rules between " +
       "them (a measured, observed or quoted figure needs a source file; an assumption or a model cannot claim above E3) and nothing verifies that a declared class is deserved. " +
       "An organisation here is not a billing entity: Intelligence seats (0027) are unchanged and unrelated. A project ever filed under a non-production site (detaching does not undo it) is kept out of the " +
