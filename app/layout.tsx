@@ -50,8 +50,9 @@ export const metadata: Metadata = {
     default: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
     template: "%s · Time to Power",
   },
+  // 157 characters: a search result shows about 160. States what the product does and nothing else (the price and turnaround are on the page and in the social card).
   description:
-    `Give Time to Power the technical information for an existing AI hall, and it will tell you how much useful AI compute the hall can actually support, what blocks it, what fixes it, what the fix costs, and the time to full capacity, with the evidence class behind each figure. Start with a Density Screen: one hall, ${SCREEN_DAYS} working days from a complete intake, ${SCREEN_PRICE}. Powered by GridForge Engine.`,
+    "Estimates how much useful AI compute an existing data hall can support, what blocks it, what relieves it and at what cost, with an evidence class per figure.",
   keywords: [
     "AI data center power capacity",
     "data hall rack density",

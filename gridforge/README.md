@@ -51,6 +51,18 @@ no domain module may import `gridforge.integrations`.
    asserting measurement over a modelled quantity, and — in `ISSUED` mode — on any
    capacity claim below its evidence floor.
 
+## Running the engine: who a caller is, and secrets
+
+The rate limiter counts a caller by the socket address unless the operator says a proxy of theirs wrote a forwarding header:
+`GRIDFORGE_TRUSTED_PROXY_HOPS` (proxies in front, counted from the right of `X-Forwarded-For`; unset means 1 on Fly.io, where
+`Fly-Client-IP` is also trusted, and 0 elsewhere) and `GRIDFORGE_TRUSTED_IP_HEADER` (a single-address header the proxy overwrites). Behind
+any other proxy set the hop count, or every caller shares the proxy's allowance. `GRIDFORGE_RATE_LIMIT` covers every route except
+`/health`, `/v1/version` and `/v1/tools`, which have a separate, generous bound. `GRIDFORGE_ADMIN_KEY` and `GRIDFORGE_KEY_SECRET` should
+be at least 24 characters: `serve` logs a warning with the variable and its length, and refuses to start only when
+`GRIDFORGE_ENFORCE_SECRET_STRENGTH=1`. The headroom ladder is bounded at 600 steps per scenario (`LADDER_STEP_CAP`); a hall that needs more
+(roughly above 450 MW of supply plus behind-the-meter capacity) is refused by name with a 422. The details are in the docstring of
+`gridforge/api/server.py`.
+
 ## Adding a constraint
 
 ```python

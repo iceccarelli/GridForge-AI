@@ -58,6 +58,7 @@ class ThermalInput:
     tcs_target_supply_C: Quantity
     cdu_approach_K: Quantity
     residual_air_capacity_kW_per_rack: Quantity
+    #: Reference only: no constraint reads this (hydraulic_flow uses the platform's own flow per rack); see thermal/library.py.
     flow_l_per_min_per_kW: Quantity
     cdus: list[CDUSpec] = field(default_factory=list)
     rdhx: RDHxSpec | None = None

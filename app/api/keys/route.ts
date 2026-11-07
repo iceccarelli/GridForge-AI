@@ -6,6 +6,7 @@ import { verifyFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
 import { meteredUnavailable } from "@/lib/api-readiness";
 import { inspectKey } from "@/lib/api-access";
+import { bearerToken, sealPortalResponse, tokenForRead } from "@/lib/portal-token";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
  * The customer's key, and rotation.
  *
  * Authenticated by the account's portal token — the same pattern as /deliverable
- * and /watch. The token is the credential; there is no password to forget and
+ * and /watch, presented as `Authorization: Bearer <token>` (or, for POST, in the body). The token is the credential; there is no password to forget and
  * nothing to reset.
  *
  * GET  returns the account and the state of its key, never the key itself. A key
@@ -25,7 +26,14 @@ export const runtime = "nodejs";
  *      keeps working until it expires is not rotated, it is duplicated.
  */
 export async function GET(req: Request) {
-  const token = new URL(req.url).searchParams.get("token") || "";
+  // Authorization: Bearer <token>. The query form still works for one release and is marked deprecated (lib/portal-token.ts).
+  const { token, deprecatedQuery } = tokenForRead(req);
+  const res = await readAccount(token);
+  // Marked (and logged) as deprecated only when the query token opened a REAL account, so a junk ?token= cannot fill the log.
+  return sealPortalResponse(res, "/api/keys", deprecatedQuery && res.status === 200);
+}
+
+async function readAccount(token: string): Promise<Response> {
   const row = token ? await getApiAccount(token) : null;
   if (!row) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
   // has_key alone reported a dead credential as a live one. The portal needs to
@@ -60,7 +68,12 @@ export async function GET(req: Request) {
   });
 }
 
+/** Every answer from POST, the one that carries a new key included, is uncached. */
 export async function POST(req: Request) {
+  return sealPortalResponse(await mintOrRotate(req), "/api/keys");
+}
+
+async function mintOrRotate(req: Request): Promise<Response> {
   if (!signingConfigured()) {
     return NextResponse.json(
       {
@@ -78,7 +91,9 @@ export async function POST(req: Request) {
   } catch {
     /* empty body means "issue if I have none" */
   }
-  const token = typeof body.token === "string" ? body.token : "";
+  // Same precedence as GET: when the request carries an Authorization header the token is read from it ALONE (a stale `token` left in the body
+  // cannot override a caller's explicit credential); only without that header is the body's `token` used. Never from the query string on a write.
+  const token = req.headers.has("authorization") ? bearerToken(req) : typeof body.token === "string" ? body.token : "";
   const rotate = body.rotate === true;
 
   // Admitted once the body has been read, before anything is minted or rotated.

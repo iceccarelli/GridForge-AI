@@ -521,7 +521,7 @@ def test_a_malformed_annotation_is_refused(bad):
 # ===================================================================================================================================
 
 
-@pytest.mark.parametrize("claimed", ["E6", "E7", "e7", "E7_VALIDATED"])
+@pytest.mark.parametrize("claimed", ["E6", "E7", "e7", " E7 "])
 @pytest.mark.parametrize("path", ["grid.contracted_MW", "grid.firm_capacity_MVA", "hall.design_density_kW_per_rack", "lv.busway_ampacity_A",
                                   "thermal.plant.chilled_water_capacity_kW", "hall.build_year"])
 def test_a_client_declared_E6_or_E7_is_capped_at_E5_with_a_warning(path, claimed):
@@ -537,14 +537,12 @@ def test_a_client_declared_E6_or_E7_is_capped_at_E5_with_a_warning(path, claimed
     assert next(s for s in intake.report.sourced if s.path == path).evidence == "E5"
 
 
-@pytest.mark.parametrize("claimed", ["E9", "E8", 7, "7", "E", "Z3", ""], ids=repr)
+@pytest.mark.parametrize("claimed", ["E9", "E8", 7, "7", "E", "Z3", "", "E10", "E1x", "E1 (measured)", "E39", "e5foo", "E7_VALIDATED"], ids=repr)
 def test_an_evidence_class_that_does_not_exist_is_refused(claimed):
-    """REFUSE: only E0..E7 exist. (An empty string is 'not declared' and is accepted; the others are 422.)"""
+    """REFUSE: only E0..E7 exist, exactly (trimmed, any case). The first two characters used to be enough ("E10" was E1, "E39" was E3);
+    an empty string used to count as 'not declared', and is now refused too: a JSON null is the way to say nothing was declared."""
     d = doc(**{"grid.contracted_MW": {"value": 12, "source": "x", "evidence": claimed}})
-    if claimed == "":
-        assert load_document(d)
-    else:
-        assert call("/v1/screen", {"intake": d})[0] == "refused"
+    assert call("/v1/screen", {"intake": d})[0] == "refused"
 
 
 def test_no_rack_count_in_a_comparison_exceeds_E5_when_every_grid_input_claims_E7():

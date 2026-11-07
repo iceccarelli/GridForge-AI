@@ -192,7 +192,8 @@ type Meta = {
   generated_at?: string;
   provenance?: { engine_version?: string; code_sha256?: string | null; cost_library_sha256?: string | null; calibration_sha256?: string | null; read_at?: string } | null;
   review?: { by?: string | null; at?: string; pack_sha256?: string };
-  spec?: { constraint?: string; relief?: string; sized_for_racks?: number };
+  spec?: { constraint_id?: string; constraint?: string; relief?: string; sized_for_racks?: number };
+  spec_request?: { constraint_id?: string };
 };
 const metaOf = (intake: unknown): Meta => ((intake as { _gridforge?: Meta } | null)?._gridforge ?? {}) as Meta;
 const short = (h?: string | null) => (h ? `${h.slice(0, 12)}…` : null);
@@ -270,6 +271,15 @@ function SpecBasis({ intake, files }: { intake: unknown; files?: Record<string, 
         {m.spec?.constraint ? ` It is written for one relief: ${m.spec.relief || m.spec.constraint}${m.spec.sized_for_racks ? `, sized for ${m.spec.sized_for_racks} racks` : ""}.` : ""}{" "}
         These are the site conditions it was derived from and where each came from.
       </p>
+      {m.spec?.constraint ? (
+        <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="spec-relief-basis">
+          {m.spec_request?.constraint_id
+            ? m.spec.constraint_id === m.spec_request.constraint_id
+              ? `Relief: ${m.spec.constraint} (${m.spec.constraint_id}), the one you chose at intake.`
+              : `Relief: ${m.spec.constraint} (${m.spec.constraint_id}). You chose ${m.spec_request.constraint_id} at intake; the engine recorded this one.`
+            : `Relief: ${m.spec.constraint}${m.spec.constraint_id ? ` (${m.spec.constraint_id})` : ""}, selected by the engine; no relief was chosen at intake.`}
+        </p>
+      ) : null}
       {carried ? (
         <>
           <dl className="mt-3 grid max-w-3xl gap-x-6 gap-y-1 text-sm text-mute sm:grid-cols-[14rem_1fr]">

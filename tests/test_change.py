@@ -177,3 +177,57 @@ def test_cli_diff_explains_a_missing_file(tmp_path):
         [sys.executable, "-m", "gridforge", "diff", str(REFERENCE), str(tmp_path / "nope.json"),
          "-o", str(tmp_path)], cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 2 and "no such intake file" in r.stderr
+
+
+# --- the diff reads a declared evidence class with the loader's strict parser -------------------------------------------------------------
+def _with_evidence(base, path, value, evidence):
+    d = copy.deepcopy(base)
+    sec, key = path.rsplit(".", 1)
+    cur = d
+    for part in sec.split("."):
+        cur = cur[part]
+    cur[key] = {"value": value, "source": "client", "evidence": evidence}
+    return d
+
+
+def test_a_change_only_of_the_declared_evidence_class_is_material(base):
+    """Base: str(' e3 ').upper()[:2] == str(' e4 ').upper()[:2] == ' E', so ' e3 ' -> ' e4 ' said 'Nothing that changes the answer'."""
+    before = _with_evidence(base, "grid.contracted_MW", 10.5, " e3 ")
+    after = _with_evidence(base, "grid.contracted_MW", 10.5, " e4 ")
+    d = diff(before, after)
+    assert d.evidence_changes == ["grid.contracted_MW"] and d.changed_paths == []
+    assert d.material and d.inputs == "changed"
+    assert "Nothing that changes the answer" not in d.headline()
+
+
+def test_a_class_with_trailing_text_is_refused_by_the_diff_as_by_the_loader(base):
+    from gridforge.intake.loader import IntakeError
+    before = _with_evidence(base, "grid.contracted_MW", 10.5, "E3")
+    for bad in ("E3 measured", "E10", 0):
+        with pytest.raises(IntakeError):
+            diff(before, _with_evidence(base, "grid.contracted_MW", 10.5, bad))
+
+
+def test_the_diff_and_the_loader_share_one_parser():
+    import gridforge.change as change
+    from gridforge.intake import loader
+    assert change.declared_evidence_class is loader.declared_evidence_class
+    assert change.declared_evidence({"a": {"value": 1, "evidence": " e5 "}}) == {"a": "E5"}
+
+
+def test_an_unchanged_class_is_still_not_a_change(base):
+    d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E4"), _with_evidence(base, "grid.contracted_MW", 10.5, " e4"))
+    assert d.evidence_changes == [] and not d.material
+
+
+def test_the_diff_reads_a_canonical_enum_name_as_the_same_class_as_its_code(base):
+    assert declared_evidence_for({"a": {"value": 1, "evidence": " e5_customer_data "}}) == {"a": "E5"}
+    d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E5_CUSTOMER_DATA"), _with_evidence(base, "grid.contracted_MW", 10.5, "e5"))
+    assert d.evidence_changes == [] and not d.material           # one class, two spellings: not a change
+    d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E5_CUSTOMER_DATA"), _with_evidence(base, "grid.contracted_MW", 10.5, "E4_EXPERIMENTAL"))
+    assert d.evidence_changes == ["grid.contracted_MW"] and d.material
+
+
+def declared_evidence_for(doc):
+    import gridforge.change as change
+    return change.declared_evidence(doc)

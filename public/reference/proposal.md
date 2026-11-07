@@ -10,7 +10,7 @@ We ran your hall through the capacity engine before writing this. The following 
 
 **Deployable NVIDIA GB300 NVL72 racks as the hall stands:** 0 racks (E0)
 
-*Limited by: platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5)*
+*Limited by: platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)*
 
 **Deployable after the costed ladder:** 62 racks (E0)
 
@@ -20,7 +20,7 @@ We ran your hall through the capacity engine before writing this. The following 
 
 *Limited by: assumed lead time, not a date (E0) · set by transformer capacity*
 
-> ➡️ Binding constraint: Rack feed / tap-off rating (electrical). platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5).
+> ➡️ Binding constraint: Rack feed / tap-off rating (electrical). platform needs 205 [174–236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8).
 
 > ⚠️ On these inputs the hall cannot host a single rack of the target platform today. That is a finding, not a sales problem — and a credible 'not without these three things' is worth the fee on its own.
 
@@ -51,6 +51,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | Rear-door heat exchanger capacity per rack | optional | 60 [20–80] kW (E0) | The selected rear-door unit's datasheet at the site's water temperature and airflow. |
 | All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |
 | Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
+| Load already on the busway | optional | 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) | Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway. |
 
 > ℹ️ BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.
 

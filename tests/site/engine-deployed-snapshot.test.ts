@@ -3,12 +3,14 @@
  *
  * lib/engine-deployed.json is a committed snapshot of the deployed engine's GET /v1/version `endpoints` (and the MCP
  * transport it declares). The repository's engine can be ahead of the one on Fly, so "implemented here" is not "deployed".
- * As of the 2026-10-27 redeploy the snapshot lists every route the repository serves (scripts/check-engine-drift.py: no
- * difference), so no concrete registry route is not_deployed; the invariants below are what stays true either way.
+ * As of the 2026-10-27 redeploy the snapshot listed every route the repository's ROUTES serves (scripts/check-engine-drift.py: no
+ * difference). The live engine has since been seen serving GET /v1/calibration/residuals (read-only GET 200 on 2026-11-06; /v1/version
+ * lists 24 endpoints) which the committed snapshot (23, dated 2026-11-05) does not list, so calibration_capture is "unverified", not
+ * "not_deployed" and not "live". The invariants below do not pin that state; they are computed from the snapshot.
  *
  * UPDATING THAT SNAPSHOT IS PART OF AN ENGINE REDEPLOY. After the engine is redeployed:
  *   1. read https://gridforge-engine.fly.dev/v1/version and replace `endpoints` (and `snapshot_date`) in lib/engine-deployed.json;
- *   2. flip the matching lib/capability-registry.ts entries from production_status "not_deployed" to "live";
+ *   2. flip the matching lib/capability-registry.ts entries to production_status "live" (calibration_capture, for one);
  *   3. these tests then pass in the other direction (a route now in the snapshot needs no routeMissing handling).
  * Leaving the snapshot stale is safe (the site reads the live engine at render time, see lib/engine-capabilities.ts); the
  * snapshot only stops the repository from CLAIMING a deployment it has not seen.
@@ -52,28 +54,38 @@ describe("the capability registry never calls a route live that the deployed eng
         expect(
           deployed.has(endpoint),
           `${id} is marked live but ${endpoint} is not in lib/engine-deployed.json (snapshot ${snapshot.snapshot_date}). ` +
-            `Either the engine has not been redeployed with it (mark it not_deployed), or it has and the snapshot is stale (update the snapshot).`
+            `Either the engine has not been redeployed with it (mark it not_deployed or unverified), or it has and the snapshot is stale (update the snapshot).`
         ).toBe(true);
       }
     }
   );
 
-  it("registry not_deployed IFF the route is absent from the snapshot (both directions, for every concrete route)", () => {
+  it("never live without the snapshot listing the route, and never not_deployed when it does (every concrete route, both directions)", () => {
+    // live => listed. not_deployed => NOT listed (else the entry is stale). A route the snapshot lacks may be unverified: the live
+    // engine can serve a route that a stale snapshot does not list (calibration_capture, observed 2026-11-06), and the snapshot is the owner's to refresh.
     const wrong = concrete
-      .filter((c) => (c.production_status === "not_deployed") !== !deployed.has(c.rest_endpoint!))
+      .filter((c) => (c.production_status === "live" && !deployed.has(c.rest_endpoint!)) || (c.production_status === "not_deployed" && deployed.has(c.rest_endpoint!)))
       .map((c) => `${c.capability_id} ${c.rest_endpoint}: registry ${c.production_status}, snapshot ${deployed.has(c.rest_endpoint!) ? "serves" : "lacks"} it`);
     expect(wrong).toEqual([]);
   });
 
-  it("today the snapshot serves every concrete registry route, so none of them is not_deployed", () => {
-    expect(concrete.filter((c) => !deployed.has(c.rest_endpoint!)).map((c) => c.capability_id)).toEqual([]);
-    expect(concrete.filter((c) => c.production_status === "not_deployed").map((c) => c.capability_id)).toEqual([]);
+  it("a route the snapshot lacks is never claimed live, and what the registry calls not_deployed is a subset of what the snapshot lacks (computed, not pinned)", () => {
+    const lacking = new Set(concrete.filter((c) => !deployed.has(c.rest_endpoint!)).map((c) => c.capability_id));
+    const notDeployed = concrete.filter((c) => c.production_status === "not_deployed").map((c) => c.capability_id);
+    for (const id of notDeployed) expect(lacking.has(id), `${id} is not_deployed but the snapshot lists its route`).toBe(true);
+    for (const id of lacking) expect(CAPABILITY_REGISTRY.find((c) => c.capability_id === id)!.production_status, id).not.toBe("live");
+    // Every not_deployed entry anywhere in the registry has a concrete route (the audit enforces this too).
+    for (const c of CAPABILITY_REGISTRY.filter((x) => x.production_status === "not_deployed")) {
+      expect(c.rest_endpoint && !c.rest_endpoint.includes("*"), c.capability_id).toBeTruthy();
+    }
   });
 
-  it("the invariant bites: against an injected stale engine exactly the four redeploy-added capabilities would be absent", () => {
+  it("the invariant bites: against an injected stale engine exactly the redeploy-added capabilities would be absent", () => {
+    // btm_deploy_assess/spec, btm_rfq_loop and ttp_compare were added by the 2026-10-27 redeploy; power_assess and estimate are routes the
+    // pre-redeploy list did not name; calibration_capture's route is not in the pre-redeploy list either.
     const stale = new Set(STALE_ENGINE);
     const absent = concrete.filter((c) => !stale.has(c.rest_endpoint!)).map((c) => c.capability_id).sort();
-    expect(absent).toEqual(["btm_deploy_assess", "btm_deploy_spec", "btm_rfq_loop", "ttp_compare"]);
+    expect(absent).toEqual(["btm_deploy_assess", "btm_deploy_spec", "btm_rfq_loop", "calibration_capture", "estimate", "power_assess", "ttp_compare"]);
   });
 
   it("the tool catalogue (public/reference/tools.json) names only routes the deployed engine serves", () => {

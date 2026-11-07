@@ -10,6 +10,7 @@ import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/l
 import { oneTimeAmountMismatch } from "@/lib/checkout-amount";
 import { accountRef } from "@/lib/payg";
 import { notifyOperatorOnce, operatorMailExpected } from "@/lib/payg-operator";
+import { livemodeMismatch, stripeKeyMode } from "@/lib/stripe-mode";
 import { handlePaygCardUpdate, handlePaygEnable, handlePaygInvoice } from "@/lib/payg-billing";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { pg } from "@/lib/payg-store";
@@ -134,6 +135,28 @@ export async function POST(req: Request) {
   if (!event || typeof event !== "object" || typeof event.type !== "string" || !event.data || typeof event.data !== "object") {
     console.error("[GridForge] Stripe event envelope is malformed (no type or data); refused");
     return NextResponse.json({ ok: false, error: "Malformed event" }, { status: 400 });
+  }
+
+  // A correctly signed event can still come from the wrong Stripe MODE (a test-mode event delivered to a live deployment, or the reverse): a
+  // misconfigured endpoint, and fulfilling it would open a paid entitlement for money that never moved. The configured mode is read from the
+  // secret key's prefix (lib/stripe-mode.ts, never logged); when it is known and the event's `livemode` disagrees the event is refused with a
+  // non-2xx the platform's failed-delivery alerting can see. When the mode cannot be told, behaviour is unchanged.
+  const keyMode = stripeKeyMode(key);
+  if (livemodeMismatch(keyMode, (event as { livemode?: unknown }).livemode)) {
+    const eventMode = (event as { livemode?: unknown }).livemode === true ? "live" : "test";
+    const safe = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_.]{1,60}$/.test(v) ? v : "-");
+    console.error(`[GridForge] Stripe webhook REFUSED livemode_mismatch: event ${safe(event.id)} type ${safe(event.type)} event_livemode=${eventMode === "live"} configured_mode=${keyMode}; nothing fulfilled`);
+    try {
+      await notifyOperatorOnce(
+        `livemode_mismatch:${keyMode}:${eventMode}:${new Date().toISOString().slice(0, 10)}`,
+        "A Stripe webhook delivery was refused: wrong mode",
+        `A correctly signed Stripe event (${safe(event.type)}, ${safe(event.id)}) was for ${eventMode} mode but this deployment's Stripe key is ${keyMode} mode. It was refused with 400 and nothing was fulfilled. ` +
+          "Check that the webhook endpoint in the Stripe dashboard and STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET all belong to the same mode. This notice is sent once per mode pair per day."
+      );
+    } catch {
+      /* the refusal stands whether or not the notice could be sent */
+    }
+    return NextResponse.json({ ok: false, error: "livemode_mismatch" }, { status: 400 });
   }
 
   // A checkout that has not been PAID is not a sale. Card checkout completes only once paid, but a delayed method (a bank debit or

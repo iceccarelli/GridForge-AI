@@ -161,7 +161,9 @@ function fulfilmentClass(p: Product): "deliverable" | "watch" | "api_account" | 
 /** The registry must name this product and its web route must be a page that exists. */
 function registryProves(productId: string): boolean {
   const cap = CAPABILITY_REGISTRY.find((c) => c.product_id === productId);
-  if (!cap || cap.status === "internal_only" || cap.production_status !== "live") return false;
+  // "live" is machine-proven (a concrete route in the deployed snapshot); an API plan or a site-only flow is "unverified". Either is a truthful
+  // representation of a thing the catalogue sells; "not_deployed" would say it is absent, which the sale contradicts.
+  if (!cap || cap.status === "internal_only" || !["live", "unverified"].includes(cap.production_status)) return false;
   if (!cap.web_route) return false;
   const dir = path.join(process.cwd(), "app", cap.web_route);
   return fs.existsSync(path.join(dir, "page.tsx")) || fs.existsSync(path.join(dir, "route.ts"));
@@ -354,7 +356,8 @@ describe.each(Object.values(INTELLIGENCE_PLANS))("intelligence:$id", (plan) => {
     r().idempotent = "proven";
     r().fulfilment = "subscription ×1 after 3 deliveries";
     const cap = CAPABILITY_REGISTRY.find((c) => c.intelligence_plan_id === plan.id);
-    expect(cap && cap.production_status === "live" && cap.status !== "internal_only").toBe(true);
+    // An Intelligence plan has no engine route, so nothing machine-proves it: the registry says "unverified", not "live" (see lib/capability-registry.ts).
+    expect(cap && ["live", "unverified"].includes(cap.production_status) && cap.status !== "internal_only").toBe(true);
     r().registry = "proven";
   });
 });

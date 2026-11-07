@@ -88,6 +88,8 @@ class EconomicsResult:
     #: Equipment banks the client did not declare ("transformers", "UPS"): the reliefs they would need are neither
     #: priced nor timed, so the capex total and the critical path are lower bounds.
     unassessed_banks: tuple = ()
+    #: False for a ladder that stopped on its step budget (ladder(allow_partial=True)): it is not the plan's ceiling, so the capex and dates are lower bounds.
+    converged: bool = True
     #: Library keys on this run's path whose quotation has expired (they carry the class of a modelled figure).
     stale_lines: list = field(default_factory=list)
     #: The weakest class among the priced lines, after expiry and basis caps; None when nothing was priced.
@@ -123,6 +125,8 @@ class EconomicsResult:
         """Every reason this economics result is not decision-grade, in the words a report prints. Empty only when
         every priced line rests on a quotation or better, nothing is unpriced, and the energy price is declared."""
         out: list[str] = []
+        if not self.converged:
+            out.append("the ladder did not converge: the capex and dates are lower bounds")
         if self.unassessed_banks:
             out.append("the capex total and the critical path are LOWER BOUNDS: not declared: "
                        + ", ".join(self.unassessed_banks) + " (the reliefs they would need are neither priced nor timed)")
@@ -278,7 +282,8 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     # line it came from -- a firm quotation narrows it, a placeholder widens it.
     priced = [st.capex_eur for st in lad.taken_steps if st.capex_eur is not None]
     # An undeclared bank's relief is never taken, so it is never priced either: the total is then a lower bound.
-    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unassessed_banks
+    # A ladder that stopped on its step budget (ladder(allow_partial=True)) never reached the ceiling, so its total is not the plan's.
+    capex_complete = len(priced) == len(lad.taken_steps) and not unpriced and not lad.unassessed_banks and lad.converged
     aace = library().aace_class(keys)
     if priced:
         relief = priced[0]
@@ -375,5 +380,5 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
         synthetic_evidence=sorted(k for k in keys if k in library().entries and library().entries[k].synthetic), tariff_eur_per_MWh=tariff, tariff_declared=declared,
         annual_grid_energy_cost_eur=grid_cost, btm=btm, opex_complete=opex_complete,
         lifecycle_cost_eur=life, horizon_years=horizon, discount_rate=rate, lifecycle_basis=basis,
-        critical_path_complete=lad.critical_path_complete, unassessed_banks=lad.unassessed_banks, stale_lines=library().stale_keys(keys),
+        critical_path_complete=lad.critical_path_complete, unassessed_banks=lad.unassessed_banks, converged=lad.converged, stale_lines=library().stale_keys(keys),
         weakest_line_evidence=weakest_line, capex_input_evidence=inherited, nothing_deployable=nothing)

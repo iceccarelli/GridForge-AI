@@ -44,6 +44,12 @@ def _lesser_of(a: Quantity, b: Quantity, label: str) -> Quantity:
                     min(a.band[0], b.band[0]), min(a.band[1], b.band[1]))
 
 
+def _non_negative(q: Quantity) -> Quantity:
+    """The quantity with its value and band clamped at zero: spare capacity can run out, it cannot go below nothing."""
+    lo, hi = q.band
+    return Quantity(max(q.value, 0.0), q.unit, q.prov, max(lo, 0.0), max(hi, 0.0))
+
+
 def _it_headroom_to_racks(headroom_kW: Quantity, ctx: EnvelopeContext, label: str) -> Quantity:
     """Facility-power headroom -> new IT power -> racks. This division by PUE is
     where power and thermal actually couple: a worse cooling architecture eats
@@ -223,6 +229,22 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     )
 
 
+#: The tap-off rating the busway and tap-off reliefs install (a screening assumption, not a product rating).
+RELIEF_TAPOFF_A = 400.0
+
+
+def _better_tapoff(installed: Quantity, label: str) -> Quantity:
+    """The tap-off rating after a relief: the BETTER of what is installed and the rating the relief buys.
+
+    A relief assigned 400 A unconditionally, so on a hall whose installed tap-offs were rated above that (a 230 V single-phase feed needs
+    about 618 A per rack, so a 630 A part is the right one) buying "higher-rated tap-offs" or a new busway REPLACED them with weaker ones, the
+    rack-feed gate failed and the plan took the hall to zero racks. Installed equipment that already meets or beats the relief rating is kept
+    exactly as declared, with its own provenance."""
+    if installed.value >= RELIEF_TAPOFF_A:
+        return installed
+    return V(RELIEF_TAPOFF_A, "A", label, ASSUMED)
+
+
 @constraint
 def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
     lv = ctx.power.lv
@@ -234,13 +256,26 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "total usable busway capacity in hall", "power.busway_total", step_evidence=ESTIMATED)
     rack_kW = ctx.cluster.platform.rack_kW
     topology = lv.rack_feed_topology
+    existing = lv.existing_load_kW
+    left = ""
     if topology == "single_run":
         # Each rack hangs off ONE run, so a run's spare kW cannot be pooled with another's: whole racks are counted run by run.
         # (A run that carries 1.6 racks carries 1, however many runs there are.)
-        racks = floor_racks(per_run_kW / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+        if existing is None:
+            racks = floor_racks(per_run_kW / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+        else:
+            # The intake gives the hall's load already on the busway, not run by run: it is spread evenly over the runs (stated in the basis).
+            share = existing.convert(1.0 / max(lv.busway_runs, 1), "kW", "existing load per busway run")
+            net_run = _non_negative((per_run_kW - share).relabel("spare capacity per busway run", "power.busway_run_spare",
+                                                                 step_evidence=ESTIMATED))
+            racks = floor_racks(net_run / rack_kW) * V(float(lv.busway_runs), "1", "busway runs in hall", ASSUMED)
+            left = f"{net_run.render(with_class=False)} left per run"
         topo_note = "; each rack is fed from one run, so racks are counted whole, run by run"
     else:
-        racks = total / rack_kW
+        available = total if existing is None else _non_negative((total - existing).relabel(
+            "spare busway capacity in hall", "power.busway_spare", step_evidence=ESTIMATED))
+        racks = available / rack_kW
+        left = f"{available.render(with_class=False)} left"
         topo_note = ("; a rack's load is shared across runs, as declared" if topology == "pooled" else
                      "; this ASSUMES a rack's load can be shared across runs (A and B feeds): if each rack is fed from one run, declare "
                      "lv.rack_feed_topology = single_run and whole racks are counted run by run")
@@ -251,7 +286,7 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
             c.power.lv.busway_ampacity_A = V(
                 1000, "A", "replacement busway ampacity", ASSUMED,
                 assumptions=["Modern AI halls use 800-1000 A busway vs 400 A legacy"])
-            c.power.lv.tapoff_max_A = V(400, "A", "replacement tap-off rating", ASSUMED)
+            c.power.lv.tapoff_max_A = _better_tapoff(c.power.lv.tapoff_max_A, "replacement tap-off rating")
         else:
             # already at modern ampacity: the next increment is more runs, which
             # needs riser and routing space, not a bigger busway
@@ -266,12 +301,20 @@ def busway_ampacity(ctx: EnvelopeContext) -> ConstraintResult:
         "busway and tap-off works, per run", scope_unit="busway run(s)",
         note="Placeholder re-expressed per run from the earlier 450 kEUR lump for the reference hall's 8 runs. "
              "Not a market price.")
+    basis = (f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
+             f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}. Modelling limit: the "
+             f"figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted, so the rack count is overstated if the figure is not the hall's spare capacity")
+    if existing is not None:
+        spread = (f", spread evenly over the {lv.busway_runs} run(s) because the intake gives the hall's load, not each run's"
+                  if topology == "single_run" else "")
+        basis = (f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
+                 f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}; less "
+                 f"{existing.render()} already on the busway{spread} = {left} (never below zero). Modelling limit: only the existing load the client "
+                 f"gave is subtracted; positions that are occupied but whose load was not given are not counted")
     return ConstraintResult(
         "busway_ampacity", "electrical", "Busway ampacity",
         floor_racks(racks),
-        basis=(f"{lv.busway_runs} run(s) at {lv.busway_ampacity_A.render(with_class=False)} "
-               f"derated to {lv.busway_utilisation_limit.render(with_class=False)} -> {total.render()}{topo_note}. Modelling limit: the "
-               f"figure is the INSTALLED busway total as declared; existing load and occupied positions are not subtracted, so the rack count is overstated if the figure is not the hall's spare capacity"),
+        basis=basis,
         relief=ReliefOption(
             description=("Replace busway with 800-1000 A and new tap-off units"
                          if lv.busway_ampacity_A.value < 1000 else
@@ -325,14 +368,15 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.power.lv.tapoff_max_A = V(400, "A", "upgraded tap-off rating", ASSUMED)
+        c.power.lv.tapoff_max_A = _better_tapoff(c.power.lv.tapoff_max_A, "upgraded tap-off rating")
         return c
 
     return ConstraintResult(
         "rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
         racks, gate=True,
         basis=(f"platform needs {need.render()} per rack{feed_note}; installed tap-offs rated "
-               f"{lv.tapoff_max_A.render()}"),
+               f"{lv.tapoff_max_A.render()}. The tap-off rating is compared at 100% of its rating, with no continuous-load derating "
+               f"(the busway is derated to {lv.busway_utilisation_limit.render(with_class=False)})"),
         relief=ReliefOption(
             description="Higher-rated tap-off units (and busway if ampacity does not allow)",
             capex_eur=cost("tapoff.unit", 6_000, "EUR/rack", "tap-off unit and rack feed"),

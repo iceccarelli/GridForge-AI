@@ -315,7 +315,7 @@ describe("the record stays a record", () => {
     };
     for (const d of ["lib", "app", "components", "gridforge"]) walk(d);
     const touching = sources.filter((f) => /supplier[-_]reality|supplier_actual/.test(readFileSync(f, "utf8")));
-    const allowed = /^(lib\/supplier-reality\.ts|lib\/project-state\.ts|app\/api\/(projects|admin)\/.*(actuals|supplier-actuals)\/.*route\.ts|app\/api\/admin\/supplier-actuals\/route\.ts|lib\/projects\.ts|components\/ai\/ProjectPanel\.tsx)$/;
+    const allowed = /^(lib\/supplier-reality\.ts|lib\/project-state\.ts|app\/api\/(projects|admin)\/.*(actuals|supplier-actuals)\/.*route\.ts|app\/api\/admin\/supplier-actuals\/route\.ts|lib\/projects\.ts|components\/ai\/ProjectPanel\.tsx|lib\/project-review-queue\.ts)$/;
     expect(touching.filter((f) => !allowed.test(f))).toEqual([]);
     expect(touching.some((f) => f.startsWith("gridforge/"))).toBe(false);
   });

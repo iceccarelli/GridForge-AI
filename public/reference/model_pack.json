@@ -252,6 +252,15 @@
         "assumed": "none: the lifecycle value is undiscounted",
         "why_it_binds": "When absent the lifecycle value is stated undiscounted and says so.",
         "how_to_get_it": "The client's hurdle rate."
+      },
+      {
+        "path": "lv.existing_busway_load_kW",
+        "label": "Load already on the busway",
+        "unit": "kW",
+        "required": false,
+        "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted.",
+        "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway."
       }
     ],
     "warnings": [
@@ -271,7 +280,7 @@
         "racks": 0,
         "binding": "rack_feed_tapoff",
         "binding_name": "Rack feed / tap-off rating",
-        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
       "after_ladder": {
         "racks": 0,
@@ -477,7 +486,7 @@
           "name": "Rack feed / tap-off rating",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
           "relief": {
             "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
             "capex_eur": {
@@ -509,7 +518,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "retained_air is practically capable of 22 [15\u201325] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "retained_air is practically capable of 22 [15\u201325] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
         },
         {
@@ -829,7 +838,7 @@
         "racks": 0,
         "binding": "rack_feed_tapoff",
         "binding_name": "Rack feed / tap-off rating",
-        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
       "after_ladder": {
         "racks": 0,
@@ -1035,7 +1044,7 @@
           "name": "Rack feed / tap-off rating",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
           "relief": {
             "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
             "capex_eur": {
@@ -1067,7 +1076,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "rdhx is practically capable of 60 [20\u201380] kW (E0) per rack (a library default for the architecture, not a manufacturer's rating or a site measurement); the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "rdhx is practically capable of 60 [20\u201380] kW (E0) per rack (a library default for the architecture, not a manufacturer's rating or a site measurement); the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
         },
         {
@@ -1268,7 +1277,7 @@
           "name": "Hydraulic flow capacity",
           "gate": false,
           "racks_permitted": 69,
-          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the platform's flow per rack without converting for the plant's delta-T; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
@@ -1410,7 +1419,7 @@
         "racks": 0,
         "binding": "rack_feed_tapoff",
         "binding_name": "Rack feed / tap-off rating",
-        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
       "after_ladder": {
         "racks": 26,
@@ -1785,7 +1794,7 @@
         }
       ],
       "time_to_power": {
-        "weeks_to_first_rack": 24,
+        "weeks_to_first_rack": 26,
         "weeks_to_full": 160.0,
         "schedule_complete": true,
         "sets_the_date": "Transformer capacity",
@@ -1806,14 +1815,14 @@
           },
           "missing_inputs": [],
           "dependency_model": "all_parallel",
-          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation. No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake declares no CDUs, so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.",
           "calculation_version": "gridforge.time_to_power/1"
         },
         "curve": [
           {
-            "weeks": 24,
+            "weeks": 26,
             "racks": 7,
-            "unlocked_by": "Residual air load removal per rack"
+            "unlocked_by": "after CDU kit delivery (library lead time, assumed)"
           },
           {
             "weeks": 160.0,
@@ -2028,7 +2037,7 @@
           "name": "Rack feed / tap-off rating",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
           "relief": {
             "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
             "capex_eur": {
@@ -2284,7 +2293,7 @@
           "name": "Hydraulic flow capacity",
           "gate": false,
           "racks_permitted": 69,
-          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
@@ -2380,7 +2389,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": null,
-          "basis": "hybrid_dlc is practically capable of 142 [100\u2013150] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "hybrid_dlc is practically capable of 142 [100\u2013150] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
         },
         {
@@ -2426,7 +2435,7 @@
         "racks": 0,
         "binding": "rack_feed_tapoff",
         "binding_name": "Rack feed / tap-off rating",
-        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
       "after_ladder": {
         "racks": 28,
@@ -2555,7 +2564,7 @@
           "scope": null,
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size.",
+          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size. The cost and electrical load of a trim chiller would depend on the heat it must reject, which is not modelled. PUE is not recomputed for the achievable water temperature or for a trim chiller's power, so the racks after this relief include no allowance for that load.",
           "not_taken_reason": null
         },
         {
@@ -2822,7 +2831,7 @@
           },
           "missing_inputs": [],
           "dependency_model": "all_parallel",
-          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation. No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake declares no CDUs, so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.",
           "calculation_version": "gridforge.time_to_power/1"
         },
         "curve": [
@@ -3034,7 +3043,7 @@
           "name": "Rack feed / tap-off rating",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
           "relief": {
             "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
             "capex_eur": {
@@ -3290,7 +3299,7 @@
           "name": "Hydraulic flow capacity",
           "gate": false,
           "racks_permitted": 69,
-          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
@@ -3418,7 +3427,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": null,
-          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
         }
       ]
@@ -3432,7 +3441,7 @@
         "racks": 0,
         "binding": "rack_feed_tapoff",
         "binding_name": "Rack feed / tap-off rating",
-        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)"
+        "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
       "after_ladder": {
         "racks": 62,
@@ -3561,7 +3570,7 @@
           "scope": null,
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size.",
+          "basis_note": "One lump placeholder per hall. The trim chiller is sized to the liquid loop, but no loop capacity is modelled, so the lump is not scaled with hall size. The cost and electrical load of a trim chiller would depend on the heat it must reject, which is not modelled. PUE is not recomputed for the achievable water temperature or for a trim chiller's power, so the racks after this relief include no allowance for that load.",
           "not_taken_reason": null
         },
         {
@@ -4323,7 +4332,7 @@
           },
           "missing_inputs": [],
           "dependency_model": "all_parallel",
-          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation.",
+          "limitation": "Reliefs are assumed to start together and run in parallel, so the date is the longest single lead time. No dependency between reliefs is modelled (the intake carries none), so a chain of works that must run one after another would take longer than this. Every lead time here is an assumption (E0), whether a library placeholder or a figure the customer supplied: none is a manufacturer's quotation or a delivery commitment. The interval is the longest low and the longest high among the lead times taken, a generic tolerance, not a statistical confidence interval. The lead time that sets the date is customer-supplied (unverified): typed by the customer, not checked against a written quotation. No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake declares no CDUs, so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.",
           "calculation_version": "gridforge.time_to_power/1"
         },
         "curve": [
@@ -4671,7 +4680,7 @@
           "name": "Rack feed / tap-off rating",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5)",
+          "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
           "relief": {
             "description": "Higher-rated tap-off units (and busway if ampacity does not allow)",
             "capex_eur": {
@@ -4927,7 +4936,7 @@
           "name": "Hydraulic flow capacity",
           "gate": false,
           "racks_permitted": 69,
-          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "9,000 l/min (E3) available against 130 [120\u2013140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "relief": {
             "description": "Uprate pumps and secondary pipework",
             "capex_eur": {
@@ -5055,7 +5064,7 @@
           "name": "Cooling architecture per-rack capability",
           "gate": true,
           "racks_permitted": null,
-          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0)",
+          "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
         }
       ]

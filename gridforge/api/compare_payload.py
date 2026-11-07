@@ -242,6 +242,25 @@ def _rank(rows: list[dict], objective: Objective) -> dict:
                      "): a better rank on this objective is not more capacity." if differ else None)}
 
 
+BUSWAY_NOT_SUBTRACTED = ("Existing load on the busway is not subtracted unless declared (lv.existing_busway_load_kW); busway-bound rack counts "
+                         "do not fall as the hall fills.")
+
+
+def busway_caveat(results: list[ScenarioResult]) -> str | None:
+    """The sentence a consumer of the comparison needs about the busway constraint: whether the load already on the busway was subtracted.
+
+    Said whenever the busway constraint is among the evaluated constraints (it always is). Absent the declared figure, the busway result is the
+    INSTALLED capacity and does not fall as the hall fills; declared, the figure is subtracted and is stated. No number depends on this text."""
+    if not any(c.id == "busway_ampacity" for r in results for c in r.envelope.constraints):
+        return None
+    lv = results[0].ladder.initial_context.power.lv if results and results[0].ladder.initial_context is not None else None
+    existing = lv.existing_load_kW if lv is not None else None
+    if existing is None:
+        return BUSWAY_NOT_SUBTRACTED
+    return (f"The load already on the busway ({existing.value:,.0f} kW, lv.existing_busway_load_kW as declared) is subtracted from the busway "
+            "capacity; busway-bound rack counts are the spare capacity, never below zero.")
+
+
 def compare_payload(document: dict, results: list[ScenarioResult], *, objective: Objective,
                     baseline: str | None, notes: list[str] | None = None) -> dict:
     if len(results) < 2:
@@ -264,6 +283,12 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
     if indicative:
         caveats.append("At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: "
                        "it shows which inputs decide the answer, not a commitment to any date.")
+    if any(schedule(r.ladder).floored_by_cdu_kit for r in results):
+        caveats.append("Where a liquid scenario assumes a CDU kit (the intake declares no CDUs), no rack is dated earlier than the library CDU lead time, "
+                       "an assumption, and the first-rack date rests on it; the kit's commissioning and the conversion works are not in the schedule.")
+    busway = busway_caveat(results)
+    if busway:
+        caveats.append(busway)
     caveats.append("Grid reinforcement is not dated here: a connection date needs the network operator's offer.")
     return {
         "schema": SCHEMA,

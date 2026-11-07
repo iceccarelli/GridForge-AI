@@ -134,7 +134,9 @@ describe("getUsage (GET /api/usage)", () => {
   it("parses the contract shape, keeps only well-formed rows and only Stripe https invoice links", async () => {
     const fetchFn = fetching(json(usageBody));
     const r = await getUsage("tok/with space", fetchFn);
-    expect(fetchFn.calls[0][0]).toBe("/api/usage?token=tok%2Fwith%20space");
+    // The token is a bearer credential: it travels in the Authorization header, never in the URL.
+    expect(fetchFn.calls[0][0]).toBe("/api/usage");
+    expect((fetchFn.calls[0][1]?.headers as Record<string, string>).Authorization).toBe("Bearer tok/with space");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const u = r.data;

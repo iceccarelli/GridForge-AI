@@ -82,6 +82,53 @@ export default async function SharedProjectPage({ params }: { params: Promise<{ 
   );
 }
 
+function History({ v }: { v: BuyerView }) {
+  return (
+    <section className="mt-8" aria-labelledby="history">
+      <h2 id="history" className="text-xl font-semibold text-ghost">
+        Saved comparisons for this project
+      </h2>
+      <p className="mt-1 max-w-3xl text-xs text-faint">
+        Newest first. Each line is a separate saved comparison: a different request digest means different inputs or a different engine
+        build. Only the latest is shown in full; for the others this page shows what was saved, not the inputs behind it.
+        {v.earlier_comparisons + 1 > v.history.length ? ` The ${v.history.length} most recent of ${v.earlier_comparisons + 1} are listed.` : ""}
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
+          <caption className="sr-only">Saved comparisons, newest first</caption>
+          <thead>
+            <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
+              <th scope="col" className="py-2 pr-4 font-normal">Saved</th>
+              <th scope="col" className="py-2 pr-4 font-normal">Grade</th>
+              <th scope="col" className="py-2 pr-4 font-normal">Ranked first</th>
+              <th scope="col" className="py-2 pr-4 font-normal">Priced on</th>
+              <th scope="col" className="py-2 pr-4 font-normal">Request digest</th>
+              <th scope="col" className="py-2 font-normal">Engine</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.history.map((h) => (
+              <tr key={`${h.saved_at}-${h.request_digest}`} className="border-b border-line/60 align-top text-mute">
+                <th scope="row" className="py-2 pr-4 font-normal text-ghost">
+                  {new Date(h.saved_at).toISOString().slice(0, 10)}
+                  {h.shown ? <span className="ml-2 text-xs text-faint">(shown above)</span> : null}
+                </th>
+                <td className="py-2 pr-4">{h.grade}</td>
+                <td className="py-2 pr-4">{h.leader ?? "none ranked first"}</td>
+                <td className="py-2 pr-4">
+                  {h.quotation_lines > 0 ? `${h.quotation_lines} accepted quotation line${h.quotation_lines === 1 ? "" : "s"}` : "library cost data"}
+                </td>
+                <td className="py-2 pr-4 font-mono text-xs">{h.request_digest}</td>
+                <td className="py-2 font-mono text-xs">{h.engine_version}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function NoComparison() {
   return (
     <section className="mt-8 rounded border border-line bg-panel-2 p-5">
@@ -148,10 +195,12 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
         </ul>
         {v.earlier_comparisons > 0 ? (
           <p className="mt-3 text-xs text-faint">
-            {v.earlier_comparisons} earlier saved comparison{v.earlier_comparisons === 1 ? "" : "s"} for this project {v.earlier_comparisons === 1 ? "is" : "are"} not shown; this is the latest.
+            {v.earlier_comparisons} earlier saved comparison{v.earlier_comparisons === 1 ? "" : "s"} for this project {v.earlier_comparisons === 1 ? "is" : "are"} listed below; only the latest is shown in full.
           </p>
         ) : null}
       </section>
+
+      {v.history.length > 1 ? <History v={v} /> : null}
 
       <section className="mt-8" aria-labelledby="scenarios">
         <h2 id="scenarios" className="text-xl font-semibold text-ghost">

@@ -6,6 +6,7 @@ import { FolderOpen, Loader2 } from "lucide-react";
 import type { ProjectState } from "@/lib/project-state";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
+import { EvidenceUpload } from "@/components/ai/EvidenceUpload";
 
 /**
  * The project record, as stored.
@@ -214,8 +215,8 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
         <p className="text-faint">Unknown — no attached architecture holds a positive predicted firm MW to compare with.</p>
       ) : state.evidence.items.length === 0 ? (
         <p className="text-faint">
-          Attach the measurement&apos;s source artifact (PDF, CSV or JSON) to this project first — an observation
-          cannot be recorded without it.
+          Attach the measurement&apos;s source artifact (PDF, CSV or JSON) to this project first, using &ldquo;Attach file&rdquo; in
+          the Evidence card above — an observation cannot be recorded without it.
         </p>
       ) : (
         <form onSubmit={submit} className="space-y-1.5 pt-1">
@@ -476,7 +477,7 @@ function SupplierReality({ state, projectToken, onSaved }: { state: ProjectState
             A record of one project. It does not change any price, ranking or accuracy figure.
           </p>
           {state.evidence.items.length === 0 ? (
-            <p className="text-faint">Attach the source (PO, delivery note, handover record) to this project first.</p>
+            <p className="text-faint">Attach the source (PO, delivery note, handover record) to this project first, using &ldquo;Attach file&rdquo; in the Evidence card above.</p>
           ) : (
             <form onSubmit={submit} className="space-y-1.5 pt-1">
               {selected.length > 1 && (
@@ -589,7 +590,9 @@ export function ProjectPanel({
 
   const load = useCallback(async () => {
     if (!projectToken) return;
-    setLoaded({ kind: "loading" });
+    // A refresh after a save keeps what is on screen until the new read lands: replacing the panel with "loading" would unmount
+    // the form that was just used, and with it the confirmation it was about to show. The first read (nothing yet) still loads.
+    setLoaded((cur) => (cur.kind === "ready" ? cur : { kind: "loading" }));
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectToken)}`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
@@ -607,6 +610,8 @@ export function ProjectPanel({
   }, [projectToken]);
 
   useEffect(() => {
+    // A different project (or none): nothing of the previous one stays on screen while this one is read.
+    setLoaded({ kind: "loading" });
     void load();
   }, [load]);
 
@@ -723,6 +728,7 @@ export function ProjectPanel({
                   {e.filename} · {e.review_status} · class {e.evidence_class ?? "not classified"}
                 </p>
               ))}
+              <EvidenceUpload projectToken={projectToken!} onSaved={() => void load()} />
             </Card>
 
             <Card title="COMMERCIAL / PROCUREMENT">

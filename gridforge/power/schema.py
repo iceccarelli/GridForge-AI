@@ -49,6 +49,9 @@ class LVDistribution:
     #: "single_run" (each rack is fed from one run, so whole racks are counted run by run). None = not declared; the capacity is pooled and
     #: the result says so.
     rack_feed_topology: str | None = None
+    #: Load already drawing from the busway (kW), declared by the customer. Optional and additive: None = not declared, and the busway
+    #: constraint then reads `busway_ampacity_A` as the whole installed total with nothing subtracted, exactly as before this field existed.
+    existing_load_kW: Quantity | None = None
 
 
 @dataclass

@@ -55,6 +55,12 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("lv.tapoff_max_A", "Installed tap-off rating", "A", True,
               why_it_binds="A rack that cannot be fed cannot be placed, whatever else is true.",
               how_to_get_it="Tap-off unit nameplate."),
+    FieldSpec("lv.existing_busway_load_kW", "Load already on the busway", "kW", False,
+              counts_toward_completeness=False,
+              why_it_binds=("The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the "
+                            "racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below "
+                            "zero); when absent nothing is subtracted."),
+              how_to_get_it="Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway."),
     FieldSpec("hall.floor_loading_kPa", "Hall design floor loading", "kPa", True,
               why_it_binds="A 1.4 t rack against a 12 kPa design is a gate, not a margin.",
               how_to_get_it="Structural record drawings; a survey if the building changed hands."),

@@ -223,7 +223,10 @@ def test_a_declared_evidence_class_that_does_not_exist_is_refused_not_silently_d
     with pytest.raises(IntakeError, match=f"{path}.*'E9'.*not an evidence class"):
         load_document(d)
     d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = "E3 derived from design density"
-    load_document(d)  # a valid class with trailing words is still read as before
+    with pytest.raises(IntakeError, match=f"{path}.*'E3 derived from design density'.*not an evidence class"):
+        load_document(d)  # a class followed by words is not a class: only the exact E0..E7 is read (the note field is for the words)
+    d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = " e3 "
+    load_document(d)  # surrounding whitespace and case are ignored
     d["thermal"]["residual_air_capacity_kW_per_rack"]["evidence"] = "E7"
     assert any("capped at E5" in w for w in load_document(d).report.warnings)  # E6/E7 are capped, not refused
 

@@ -18,6 +18,7 @@ import { storeFault } from "@/lib/safe-log";
 import { PRODUCTS, PRODUCT_BY_KIND, type DeliverableEndpoint } from "./products";
 import { engineFetch } from "@/lib/rate-limit";
 import { ENGINE_CALL_TIMEOUT_MS, claimMeta, generatingStampOf, isStaleGenerating } from "@/lib/engagement-state";
+import { parseSpecRelief } from "@/lib/project-spec-relief";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -639,6 +640,47 @@ export function reviewHash(row: Reviewable): string {
   return v === 2 ? packHashV2(row) : packHash(row);
 }
 
+/**
+ * The reliefs the engine can write a specification for on THIS hall (`/v1/spec` with `list: true`), or null when the engine
+ * could not be asked.
+ *
+ * COST: this is a full engine solve on the platform key, billed like a render (3 units), not a free lookup. It is made only when
+ * the buyer chose a relief, only inside the intake route's `guardRequest(..., "customer_generate")` admission, and its engine call
+ * is counted by engineFetch like every other. Do not call it from anywhere that is not behind that guard.
+ *
+ * Used only to refuse a choice the hall cannot satisfy BEFORE the buyer's one submission is spent; a null
+ * answer never blocks (the engine itself refuses a relief it cannot write, naming what is available).
+ */
+export async function availableReliefs(intake: Record<string, unknown>): Promise<{ id: string; name: string }[] | null> {
+  const base = process.env.GRIDFORGE_API_URL;
+  const key = process.env.GRIDFORGE_API_KEY;
+  if (!base || !key) return null;
+  try {
+    const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/spec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify({ intake, list: true }),
+      signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { reliefs?: { constraint_id?: unknown; constraint?: unknown }[] };
+    if (!Array.isArray(body.reliefs)) return null;
+    return body.reliefs
+      .filter((r) => typeof r?.constraint_id === "string")
+      .map((r) => ({ id: r.constraint_id as string, name: typeof r.constraint === "string" ? r.constraint : (r.constraint_id as string) }));
+  } catch {
+    return null;
+  }
+}
+
+/** The relief id stored in a `_gridforge` block by the buyer's intake, re-validated on every read; null when none or invalid. */
+export function requestedRelief(meta: unknown): string | null {
+  const id = (meta as { spec_request?: { constraint_id?: unknown } } | null | undefined)?.spec_request?.constraint_id;
+  const parsed = parseSpecRelief(id);
+  return parsed.ok ? parsed.constraint : null;
+}
+
 export type StoreOutcome =
   | { ok: true; complete: boolean; missing: string[]; title: string }
   | { ok: false; stage: "render" | "persist"; error: string };
@@ -652,19 +694,36 @@ export type StoreOutcome =
  * failure is reported, not swallowed: the row is never left in `generating` while the caller reports success.
  */
 export async function generateAndStore(
-  row: Pick<DeliverableRecord, "token" | "kind" | "working_files"> & { claim?: string },
-  doc: Record<string, unknown>,
+  row: Pick<DeliverableRecord, "token" | "kind" | "working_files"> & { claim?: string; intake?: unknown },
+  submitted: Record<string, unknown>,
   endpoint: DeliverableEndpoint
 ): Promise<StoreOutcome> {
+  // The relief the buyer chose for a Procurement Specification travels in OUR block (`_gridforge.spec_request`), never in
+  // the engine's intake. A fresh submission carries it on the document; an operator's regenerate carries the stored one on
+  // the row. The engine only ever receives the customer's own numbers.
+  //
+  // A FRESH submission always states the buyer's choice, including "none" (`spec_request: null`), and that statement replaces
+  // whatever an earlier attempt stored. The stored choice applies ONLY when there is no fresh statement: an operator's regenerate,
+  // which passes the stored numbers back without `_gridforge`. Otherwise a failed first attempt would override the resubmission.
+  const { _gridforge: submittedMeta, ...doc } = submitted;
+  const fresh = typeof submittedMeta === "object" && submittedMeta !== null && "spec_request" in submittedMeta;
+  const requested =
+    endpoint !== "spec"
+      ? null
+      : fresh
+        ? requestedRelief(submittedMeta)
+        : requestedRelief((row.intake as { _gridforge?: unknown } | null | undefined)?._gridforge);
   // The caller has already claimed the row (`generating`). Every write here is a compare-and-set on that status, so
   // a release or a second claim that slipped in is never overwritten.
-  const rendered = await renderDeliverable(doc, endpoint);
+  const rendered = await renderDeliverable(doc, endpoint, requested ? { constraint: requested } : {});
   if (!rendered.ok) {
     await updateByTokenIf(row.token, { status: "engine_unavailable" }, ["generating"], row.claim);
     return { ok: false, stage: "render", error: rendered.error };
   }
 
   const meta: Record<string, unknown> = {};
+  // What the buyer asked for, kept apart from what the engine resolved (`spec`): the page can say which of the two it is.
+  if (requested) meta.spec_request = { constraint_id: requested };
   const binding = rendered.binding ?? bindingFrom(rendered.working);
   if (binding) meta.binding = binding;
   if (rendered.spec) meta.spec = rendered.spec;
@@ -871,7 +930,8 @@ async function renderPortfolio(base: string, key: string, doc: Record<string, un
 
 export async function renderDeliverable(
   intake: Record<string, unknown>,
-  endpoint: DeliverableEndpoint
+  endpoint: DeliverableEndpoint,
+  options: { constraint?: string } = {}
 ): Promise<
   | {
       ok: true;
@@ -909,11 +969,14 @@ export async function renderDeliverable(
   if (!key) return { ok: false, error: "GRIDFORGE_API_KEY is not set — paid endpoints need it" };
   if (endpoint === "portfolio") return renderPortfolio(base, key, intake);
 
+  // Only a Procurement Specification takes a relief, and only when the buyer chose one: otherwise the request body is
+  // exactly what it was before the choice existed (the engine picks).
+  const specConstraint = endpoint === "spec" && options.constraint ? { constraint: options.constraint } : {};
   const call = async (format: "html" | "md", bundle = false) => {
     const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
-      body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}) }),
+      body: JSON.stringify({ intake, format, ...(bundle ? { bundle: "board" } : {}), ...specConstraint }),
       signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
       cache: "no-store",
     });
@@ -1001,7 +1064,7 @@ export async function renderDeliverable(
         const res = await engineFetch(`${base.replace(/\/$/, "")}/v1/spec`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": key },
-          body: JSON.stringify({ intake, format: "md" }),
+          body: JSON.stringify({ intake, format: "md", ...specConstraint }),
           signal: AbortSignal.timeout(ENGINE_CALL_TIMEOUT_MS),
           cache: "no-store",
         });

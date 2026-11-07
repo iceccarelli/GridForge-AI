@@ -352,12 +352,12 @@ export function parseUsage(json: Record<string, unknown>): UsageSnapshot | null 
   };
 }
 
-/** GET /api/usage?token=. The token is the account's portal token; it is sent in the query string as the route expects. */
+/** GET /api/usage. The token is the account's portal token; it travels in the Authorization header, never in the URL. */
 export function getUsage(token: string, f: FetchLike = defaultFetch()): Promise<ClientResult<UsageSnapshot>> {
   return run(
     f,
-    `/api/usage?token=${encodeURIComponent(token)}`,
-    { method: "GET", cache: "no-store", headers: { Accept: "application/json" } },
+    "/api/usage",
+    { method: "GET", cache: "no-store", headers: { Accept: "application/json", Authorization: `Bearer ${token}` } },
     parseUsage
   );
 }

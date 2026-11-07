@@ -3,6 +3,7 @@ static checks, in the same style as test_one_company.py, so a future edit
 that reintroduces drift (a hand-typed link in Footer, a page that loses its
 canonical, a price typed outside the catalogue) fails CI instead of shipping.
 """
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,11 @@ def test_workspace_is_reachable_but_not_in_primary_nav():
     # it) and noindexed, but it no longer competes with the five-item
     # commercial header for a visitor's attention.
     nav = read("lib/nav.ts")
-    assert '"/workspace"' not in nav, "Workspace must not overload the primary commercial nav"
+    # The primary header (NAV_LINKS) must not carry it. The footer's Customer group does (lib/nav.ts FOOTER_GROUPS), so the
+    # project journey has an entry that is not only a chat-panel affordance; tests/site/nav-journeys.test.ts pins that.
+    primary = re.search(r"export const NAV_LINKS: NavLink\[\] = \[(.*?)\n\];", nav, re.S)
+    assert primary, "NAV_LINKS not found in lib/nav.ts"
+    assert '"/workspace"' not in primary.group(1), "Workspace must not overload the primary commercial nav"
 
 
 def test_workspace_stays_noindex_but_reachable():

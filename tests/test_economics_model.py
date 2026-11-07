@@ -732,3 +732,22 @@ def test_the_cost_cli_enforces_what_each_basis_must_name(tmp_path):
                               "--unit", "EUR", "--value", "5", "--basis", "engineering_estimate", "--note", "n"],
                              capture_output=True, text=True, cwd=ROOT)
     assert refused.returncode == 2, "an estimate is not publishable; only placeholders and benchmarks reach the seed"
+
+
+# === a ladder that did not converge is never a complete capex ===================================================================================
+
+def test_a_partial_ladder_is_not_a_complete_capex_even_when_every_line_is_priced(private_library):
+    """Mutation guard: with the CDU components priced, the converged ladder's capex is complete; the SAME ladder stopped early (allow_partial) must
+    not be, and its limitations say why. Dropping ``lad.converged`` from capex_complete makes the second assertion fail."""
+    from gridforge.economics.model import evaluate
+    from gridforge.envelope.solver import ladder
+    private_library([quote("cdu.integration", "EUR/unit", 20_000.0), quote("cdu.commissioning", "EUR/unit", 8_000.0)])
+    intake, full = scenario(doc("dublin_hall"), "full_dlc")
+    assert full.economics.capex_complete and full.ladder.converged
+    ctx = full.ladder.initial_context
+    lad = ladder(ctx, max_steps=3, allow_partial=True)
+    assert lad.converged is False and len(lad.steps) == 3
+    econ = evaluate(lad.final, lad, ctx.cluster.utilisation)
+    assert econ.unpriced == [] and not econ.unassessed_banks          # nothing else makes it incomplete: only the early stop
+    assert econ.capex_complete is False
+    assert "the ladder did not converge: the capex and dates are lower bounds" in econ.limitations and not econ.decision_grade
