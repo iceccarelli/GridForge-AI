@@ -317,6 +317,19 @@ def _existing_busway_vs_installed(path: str, existing, power, report: "IntakeRep
             f"further rack until the load or the limit is rechecked.")
 
 
+#: Why `installed` is refused on each equipment list. Each list is read as one thing, and a key that would change what an item MEANS must never be
+#: silently dropped (a CDU entry with `installed: false` was accepted, ignored, and counted as a CDU already in the hall).
+_INSTALLED_MEANING = {
+    "thermal.cdus": "declare only CDUs that are already installed; the scenario prices and dates the units it needs",
+    "transformers": "a transformer bank is declared only when it is already in the hall (it is counted as installed capacity); leave a bank that is "
+                    "not installed out, the study prices and dates the uprate it needs",
+    "ups": "a UPS block is declared only when it is already in the hall (it is counted as installed capacity); leave a block that is not "
+           "installed out, the study prices and dates the modules it needs",
+    "btm_options": "every option listed is a candidate the study may add, and the study decides whether it is taken; an option already running "
+                   "is already in the site's metered peak, so leave it out",
+}
+
+
 def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
     """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, or more
     items than a request may ask the engine to solve."""
@@ -330,6 +343,9 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
     for n, item in enumerate(items):
         if not isinstance(item, dict):
             raise IntakeError(f"{section}[{n}] must be an object, not {type(item).__name__}")
+        if "installed" in item:
+            raise IntakeError(f"{section}[{n}].installed is not an input: {_INSTALLED_MEANING[section]}. It changes what the study counts as already "
+                              f"there, so it is refused rather than ignored")
     _refuse_repeated_ids(items, section)
     if report is not None:
         _warn_content_duplicates(items, section, report)
