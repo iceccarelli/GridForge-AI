@@ -20,7 +20,7 @@ import { PAYG } from "@/lib/products";
 import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
 import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
-import { ERROR_STATUSES, IDEMPOTENCY_KEY_MAX_CHARS } from "@/lib/openapi";
+import { ENGINE_DISCOVERY, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -117,6 +117,7 @@ export default async function DevelopersPage() {
   const routes = await deployedEngineRoutes();
   const rates: ToolRate[] = parseToolRates(cat).map((r) => ({ ...r, availability: availabilityIn(routes, r.endpoint) }));
   const callable = callableRates(rates);
+  const deckUnits = (cat as unknown as { rate_card?: { endpoint: string; units: number }[] } | null)?.rate_card?.find((r) => r.endpoint === "/v1/deck")?.units ?? null;
   const estimateAvailable = await estimateEndpointServed();
   const state = (endpoint: string): Availability => availabilityIn(routes, endpoint);
   const mcpState: Availability = mcpAvailabilityIn(routes);
@@ -262,6 +263,24 @@ export default async function DevelopersPage() {
             callable once the release that serves them is live.
           </p>
         ) : null}
+        <h3 className="mt-8 text-sm font-semibold text-ghost">Also served, not tools</h3>
+        <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5 text-sm text-mute" data-testid="engine-other-routes">
+          {deckUnits !== null && state("/v1/deck") === "available" ? (
+            <li>
+              <span className="font-mono text-ghost">POST /v1/deck</span> ({deckUnits} units, key required): the walkthrough deck for a hall. REST only; there is no MCP tool for it.
+            </li>
+          ) : null}
+          {ENGINE_DISCOVERY.filter((r) => state(r.path) === "available").map((r) => (
+            <li key={r.path}>
+              <span className="font-mono text-ghost">GET {r.path}</span> ({r.keyRequired ? "key required" : "free, no key"}): {r.summary}
+            </li>
+          ))}
+          {state("/mcp") === "available" ? (
+            <li>
+              <span className="font-mono text-ghost">POST /mcp</span>: the MCP transport, JSON-RPC 2.0, at most {MAX_MCP_BATCH} messages in a batch. The {tools.length} tools above are its tools.
+            </li>
+          ) : null}
+        </ul>
         <p className="mt-3 max-w-3xl text-xs text-faint">
           The same catalogue as an OpenAPI 3.1 description, generated from it:{" "}
           <a href="/openapi.json" className="font-mono text-power underline">
@@ -278,10 +297,7 @@ export default async function DevelopersPage() {
             Send your key as <span className="font-mono text-ghost">{cat?.auth.header ?? "X-API-Key"}: &lt;key&gt;</span> or{" "}
             <span className="font-mono text-ghost">Authorization: Bearer &lt;key&gt;</span>. The free operations need no key.
           </li>
-          <li>
-            Add an <span className="font-mono text-ghost">Idempotency-Key</span> header (at most {IDEMPOTENCY_KEY_MAX_CHARS} characters) to a
-            POST and a retry replays the first answer instead of being charged twice.
-          </li>
+          <li data-testid="idempotency-statement">{idempotencyStatement()}</li>
           <li>A rejected or failed call is not charged. These are the refusals you can meet:</li>
         </ul>
         <dl className="mt-3 max-w-3xl divide-y divide-line/60 rounded border border-line bg-panel-2 text-sm">

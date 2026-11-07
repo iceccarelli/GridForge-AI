@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { REGISTRY_PATH_NAMES, buildOpenApi, type ToolsFile } from "@/lib/openapi";
+import { ENGINE_NON_TOOL_PATHS, REGISTRY_PATH_NAMES, buildOpenApi, type ToolsFile } from "@/lib/openapi";
 import { GET } from "@/app/openapi.json/route";
 
 const tools = JSON.parse(readFileSync("public/reference/tools.json", "utf8")) as ToolsFile;
@@ -14,8 +14,8 @@ describe("/openapi.json", () => {
       expect(op.operationId).toBe(t.name);
       expect(op.requestBody.content["application/json"].schema).toEqual(t.inputSchema);
     }
-    // The document holds the engine's endpoints and, besides them, only the website's registry paths.
-    expect(Object.keys(doc.paths).sort()).toEqual([...new Set(tools.tools.map((t) => t.endpoint)), ...REGISTRY_PATH_NAMES].sort());
+    // The document holds the tools' endpoints, the engine's other public routes (the deck, the free discovery reads, the MCP transport) and, besides them, only the website's registry paths.
+    expect(Object.keys(doc.paths).sort()).toEqual([...new Set(tools.tools.map((t) => t.endpoint)), ...ENGINE_NON_TOOL_PATHS, ...REGISTRY_PATH_NAMES].sort());
   });
 
   it("describes the site and hall registry as website routes: a session token, no key, never metered, every answer no-store, no admin route", () => {

@@ -1,10 +1,14 @@
 import { constraintReference, platformLibrary } from "@/lib/constraints";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
-import { LADDER_PRODUCTS, API_PRODUCTS, eurFromCents, priceLine } from "@/lib/products";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { LADDER_PRODUCTS, API_PRODUCTS, PAYG, eurFromCents, priceLine } from "@/lib/products";
+import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
+import { ENGINE_DISCOVERY, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE as COMPANY, SITE_URL } from "@/lib/site";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
-import { NOT_YET_AVAILABLE, isPerHall } from "@/lib/payg-pricing";
+import { FREE_ALLOWANCE_TEXT, NOT_YET_AVAILABLE, billingRuleText, eurExact, isPerHall } from "@/lib/payg-pricing";
 import { readToolRates } from "@/lib/tool-rates";
 
 // Regenerated at most every five minutes: what it says about the engine must follow the engine, not the last build.
@@ -46,9 +50,9 @@ export async function GET() {
   const catalogue = await readToolRates();
   const unitText = (u: number, perHall: boolean) =>
     u === 0 ? "free" : `${u} unit${u === 1 ? "" : "s"}${perHall ? " per hall" : ""}`;
-  const callableOps = catalogue
-    .filter((r) => serves(r.endpoint))
-    .map((r) => `- \`${r.name}\` — POST ${ENGINE}${r.endpoint} — ${unitText(r.units, isPerHall(r))}`)
+  const callableTools = catalogue.filter((r) => serves(r.endpoint));
+  const callableOps = callableTools
+    .map((r) => `- \`${r.name}\` — POST ${ENGINE}${r.endpoint} — ${r.tier === "public" ? "free, no key" : `needs a key — ${unitText(r.units, isPerHall(r))}`}`)
     .join("\n");
   // An operation the deployed engine does not serve is left out entirely: this file is read by agents that act on it, and
   // an unpriced, uncallable line is still a line they may try. (The human pages list such rows as "not yet available".)
@@ -58,6 +62,32 @@ export async function GET() {
 
 ${callableOps || "- none"}
 `;
+  // Routes that are not tools. /v1/deck is weighted in units (the catalogue's rate_card) but is REST only: there is no MCP tool for it.
+  let deckUnits: number | null = null;
+  try {
+    const raw = JSON.parse(await fs.readFile(path.join(process.cwd(), "public", "reference", "tools.json"), "utf8")) as { rate_card?: { endpoint: string; units: number }[] };
+    deckUnits = raw.rate_card?.find((r) => r.endpoint === "/v1/deck")?.units ?? null;
+  } catch {
+    deckUnits = null;
+  }
+  const deckLine =
+    deckUnits !== null && serves("/v1/deck")
+      ? `- REST only, no MCP tool: POST ${ENGINE}/v1/deck — ${unitText(deckUnits, false)} — the walkthrough deck for a hall\n`
+      : "";
+  const discoveryLines = ENGINE_DISCOVERY.filter((r) => serves(r.path))
+    .map((r) => `- GET ${ENGINE}${r.path} — ${r.keyRequired ? "needs a key" : "free, no key"} — ${r.summary}`)
+    .join("\n");
+  const estimateLine = serves("/v1/estimate")
+    ? `- Estimate before you spend: \`gridforge_estimate\` (MCP) or POST ${ENGINE}/v1/estimate returns the units and the cost of a call before it is made. Free, no key.\n`
+    : "";
+  const toolNames = callableTools.map((t) => `\`${t.name}\``).join(", ");
+  const mcpParagraph = serves("/mcp")
+    ? `MCP: ${callableTools.length ? `the tools are ${toolNames}. ` : ""}The transport at /mcp is open and each tool keeps its own tier: the free tools answer without a key, every other tool is refused with
+JSON-RPC error -32001 until a key is sent. A batch holds at most ${MAX_MCP_BATCH} messages. The tools named here are those in the engine's published catalogue whose route the deployed engine serves; the
+machine description of the same operations is ${SITE}/openapi.json.
+
+`
+    : "";
   const mcpLine = serves("/mcp") ? `- MCP endpoint (JSON-RPC 2.0): ${ENGINE}/mcp\n` : "";
   const toolsLine = serves("/v1/tools") ? `- Tool schemas, OpenAI and MCP shape: ${ENGINE}/v1/tools\n` : "";
   const qualifyLine = serves("/v1/qualify") ? `- Free qualifier: POST ${ENGINE}/v1/qualify\n` : "";
@@ -112,26 +142,62 @@ ${callableOps || "- none"}
 > first, and what each step of extra density costs. We quote no equipment and
 > take no margin on hardware.
 
+## What this is, and what it is not
+
+What it is: a screening engine for existing data halls, and a published reference of the thirteen constraints and the rack platform library it
+uses. Seven numbers about a hall go in; the constraint that binds first comes out, with the racks the hall carries as found and after relief,
+the item that sets the time to power, and the inputs nobody has measured. Output is planning-grade screening, not an issued engineering opinion.
+
+What it is not: it quotes no equipment and takes no margin on hardware; it does not sell, broker or promise megawatts or a grid connection; and it
+is not an EPC contractor, a utility, an energy trader or a hardware vendor. A queue statistic is not a connection time for any site, and a
+published platform figure is the manufacturer's, not a measurement of a customer's asset.
+
 ## How to use this site as a tool
 
 The engine is callable directly. \`gridforge_qualify\` is free and needs no API key:
 seven numbers about a hall in, the binding constraint out. This section lists only what the
 deployed engine says it serves (read from its own /v1/version when this file is generated).
+Authentication: send a key as \`X-API-Key: <key>\` or \`Authorization: Bearer <key>\`; the free operations need none.
 
 ${mcpLine}${toolsLine}${qualifyLine}${versionLine}${calibrationLine}
-${operationLines}${compareLines}
+${operationLines}${deckLine}${compareLines}
+Free reads, all on ${ENGINE}:
+
+${discoveryLines || "- none (the deployed engine could not be read)"}
+
+${mcpParagraph}Retries: ${idempotencyStatement()}
+
+Refusals (a refused or failed call is not charged): ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}.
+
+## Pricing
+
+One source: the product catalogue that drives checkout, and the engine's own payg object at GET ${ENGINE}/v1/version. There is no separate machine price list.
+
+- Pay as you go: ${eurExact(PAYG.unitPriceCents)} per unit; each operation above has a unit weight. ${billingRuleText()}
+- Free allowance: ${FREE_ALLOWANCE_TEXT} You get it as a key at ${SITE}/developers#free.
+- Monthly spending cap, chosen by the customer: from ${eurExact(PAYG.minCapEur * 100)} to ${eurExact(PAYG.maxCapEur * 100)} a month (default ${eurExact(PAYG.defaultCapEur * 100)}). It becomes the key's unit quota, and the engine answers 402 once it is reached.
+${estimateLine}- Plans and engagements: see "What can be bought" below; every figure there is the checkout price.
+
 ## How to read our numbers
 
 Every numeric field carries an evidence class and a provenance digest:
 
-E0 assumed · E1 modelled · E2 simulated · E3 estimated · E4 validated against test
-data · E5 supplied by the client (not measured by us) · E6 field-validated · E7 observed in operation.
+${EVIDENCE_CLASSES.map((c) => `${c.code} ${c.verb}`).join(" · ")}.
 
 A computed value is never stronger than the weakest input it came from. **Do not
 present an E0 or E1 figure as a property of a physical asset** — it is modelled, not
 measured. Our calibration record currently reports zero reconciled site
 observations — we have not yet checked this engine against an instrumented hall —
-and every response says so. If you quote our figures, say that too.
+and every response says so (live record: ${ENGINE}/v1/calibration). If you quote our figures, say that too.
+
+## Limits
+
+- Uncalibrated: the model has not been reconciled against an instrumented hall, so its accuracy is unquantified. Treat every output as planning-grade screening unless
+  the response itself states a stronger evidence class for that figure.
+- A lead time that is an assumption is labelled "assumed lead time, not a date"; a scenario with an unknown lead time is not dated and not ranked.
+- Context blocks (a measured US queue statistic, a retail electricity price) sit beside the model's assumptions for comparison. They change no number and no date,
+  and are not a connection time or a tariff for any particular site.
+- Synthetic examples are labelled synthetic; the worked hall is invented to demonstrate the method.
 
 ## The thirteen constraints
 
@@ -202,12 +268,12 @@ there is no separate machine price list.
   or watch link there; the Envelope Study and Portfolio Screen deposits are scoped
   with the buyer by a person — there is no intake form and no response time is
   promised. A private, emailed link is the durable reference where one exists, and
-  \`${SITE}/dashboard\` lists every engagement against the email a purchase was made
+  the private \`/dashboard\` page (signed in, not indexed) lists every engagement against the email a purchase was made
   with, behind a passwordless email sign-in.
 - Status and delivery of a document: \`awaiting_intake\` → \`generating\` → \`draft\`
   (with a senior engineer, unreleased) → \`released\` (the document is live at its
   private link). No engineering opinion is released unread.
-- From a saved comparison: a project's owner can create a read-only buyer link (${SITE}/p/<secret>, private and not indexed). Its
+- From a saved comparison: a project's owner can create a read-only buyer link (\`/p/<secret>\` on this site, private and not indexed). Its
   holder can start the same checkout with \`{"product": "<id>", "project_share_token": "<secret>"}\`, limited to the ids
   that can be commissioned for a project: ${PROJECT_PRODUCTS}. The price is the catalogue price; the purchase attaches to the
   project.
