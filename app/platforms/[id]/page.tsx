@@ -11,6 +11,7 @@ import { PLATFORM_CONSTRAINT_SLUGS, derive, pageablePlatforms } from "@/lib/plat
 import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { fitText, pageTitle } from "@/lib/meta";
+import { platformDefinition } from "@/lib/definitions";
 
 export const dynamicParams = false;
 
@@ -86,7 +87,8 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
         What a {p.name} rack asks of an existing hall
       </h1>
-      <p className="mt-4 text-mute">
+      <p data-definition className="mt-4 text-lg text-ghost">{platformDefinition(p)}</p>
+      <p className="mt-3 text-mute">
         Each figure below is the manufacturer&rsquo;s own published value, used unchanged by the engine that screens halls. The
         sources are listed at the end. Where a figure was not published it says so; nothing is estimated to fill a gap.
       </p>

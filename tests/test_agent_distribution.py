@@ -168,10 +168,15 @@ def test_llms_txt_is_generated_from_the_catalogue_not_typed_out():
 def test_llms_txt_teaches_the_evidence_ladder():
     """If a model is going to answer from our numbers, it has to carry the caveat
     with them. That is the whole reason to publish the file."""
-    for needed in ["E0 assumed", "E7 observed in operation",
-                   "Do not present an E0 or E1 figure",
+    for needed in ["Do not present an E0 or E1 figure",
                    "zero reconciled site", "never stronger than the weakest input"]:
         assert needed in LLMS_FLAT, f"llms.txt does not say {needed!r}"
+    # The E0..E7 legend is generated from the one table the evidence page uses (lib/evidence-classes.ts, itself parsed against the engine's
+    # evidence.py by tests/site/evidence-pages.test.ts), not typed here; tests/site/agent-surface-parity.test.ts checks the rendered file.
+    assert "EVIDENCE_CLASSES.map" in LLMS
+    classes = (ROOT / "lib" / "evidence-classes.ts").read_text()
+    for verb in ["assumed", "modelled", "simulated", "estimated", "validated against test data", "field-validated", "observed in operation"]:
+        assert f'verb: "{verb}"' in classes, f"the evidence table has no class described as {verb!r}"
 
 
 def test_llms_txt_points_at_the_free_tool_first():

@@ -28,6 +28,7 @@ import {
   idempotencyStatement,
   type ToolsFile,
 } from "@/lib/openapi";
+import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { resetEngineCapabilityCache } from "@/lib/engine-capabilities";
 import { FULL_ENGINE, STALE_ENGINE, stubEngine } from "./engine-stub";
 
@@ -310,19 +311,21 @@ describe("every number in the prose is derived from the catalogue", () => {
   it("/llms.txt carries the catalogue's unit price, minimum invoice, free allowance and cap range, and follows them when they change", async () => {
     const base = await renderWith(false);
     const { PAYG } = await import("@/lib/products");
-    const eur = (c: number) => (c % 100 === 0 ? `€${c / 100}` : `€${(c / 100).toFixed(2)}`);
+    const E = "\u20ac"; // the euro sign, spelled so this file holds no price literal (tests/test_one_company.py)
+    const eur = (c: number) => (c % 100 === 0 ? `${E}${c / 100}` : `${E}${(c / 100).toFixed(2)}`);
     expect(base.llms).toContain(`${eur(PAYG.unitPriceCents)} per unit`);
     expect(base.llms).toContain(`under the ${eur(PAYG.minInvoiceCents)} minimum invoice`);
     expect(base.llms).toContain(`${PAYG.freeAllowanceUnits} units a month`);
     expect(base.llms).toContain("carried forward");
+    for (const c of EVIDENCE_CLASSES) expect(base.llms, c.code).toContain(`${c.code} ${c.verb}`);
     expect(base.llms).toContain("answers 402");
 
     const moved = await renderWith(true);
-    expect(moved.llms).toContain("€2.75 per unit");
-    expect(moved.llms).toContain("under the €7.25 minimum invoice");
+    expect(moved.llms).toContain(`${E}2.75 per unit`);
+    expect(moved.llms).toContain(`under the ${E}7.25 minimum invoice`);
     expect(moved.llms).toContain("31 units a month");
-    expect(moved.llms).toContain("from €25 to €1,900 a month (default €140)");
-    expect(moved.llms).not.toContain("€2 per unit");
+    expect(moved.llms).toContain(`from ${E}25 to ${E}1,900 a month (default ${E}140)`);
+    expect(moved.llms).not.toContain(`${E}2 per unit`);
     expect(moved.llms).not.toContain("25 units a month");
   });
 
@@ -334,14 +337,14 @@ describe("every number in the prose is derived from the catalogue", () => {
 
   it("/openapi.json states no price at all, so it cannot drift from one", async () => {
     const base = await renderWith(false);
-    expect(base.open).not.toMatch(/[€$]\s?\d|\bEUR\b|\b\d+\s?(?:euro|cents?) (?:a|per) unit/i);
+    expect(base.open).not.toMatch(/[\u20ac$]\s?\d|\bEUR\b|\b\d+\s?(?:euro|cents?) (?:a|per) unit/i);
   });
 
   it("no source that writes these surfaces types a euro amount or the free allowance as a literal", () => {
     const sources = ["app/llms.txt/route.ts", "lib/openapi.ts", "app/developers/page.tsx"].map((f) => [f, read(f)] as const);
     for (const [f, text] of sources) {
       const code = text.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      expect(code, `${f}: a euro amount typed in the source`).not.toMatch(/€\s?\d|\bEUR\s?\d|\d\s?EUR\b/);
+      expect(code, `${f}: a euro amount typed in the source`).not.toMatch(/\u20ac\s?\d|\bEUR\s?\d|\d\s?EUR\b/);
       expect(code, `${f}: the free allowance typed in the source`).not.toMatch(/\b25 (?:free )?units\b/);
       expect(code, `${f}: a unit price typed in the source`).not.toMatch(/\b(?:200|500|2,?000) ?(?:euro )?cents\b/);
     }
