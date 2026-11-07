@@ -214,7 +214,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       }
     }
     // The choice rides in OUR block of the stored intake (`_gridforge.spec_request`); generateAndStore passes it to the engine.
-    const doc = relief ? { ...merged.doc, _gridforge: { spec_request: { constraint_id: relief } } } : merged.doc;
+    // For a Procurement Specification the statement is ALWAYS made, "none" included, so this submission replaces any choice a
+    // failed earlier attempt left stored (lib/deliverables.ts generateAndStore).
+    const doc = row.kind === SPEC_RELIEF_KIND ? { ...merged.doc, _gridforge: { spec_request: relief ? { constraint_id: relief } : null } } : merged.doc;
     // A confirmed figure is not an assumption: it is named in the document with the file it came from.
     const confirmedFields = new Set<string>(evidence.confirmed.map((c) => c.field));
     const assumed = typedAssumed.filter((f) => !confirmedFields.has(f));

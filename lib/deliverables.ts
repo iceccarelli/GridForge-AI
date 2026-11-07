@@ -642,7 +642,13 @@ export function reviewHash(row: Reviewable): string {
 
 /**
  * The reliefs the engine can write a specification for on THIS hall (`/v1/spec` with `list: true`), or null when the engine
- * could not be asked. Used only to refuse a choice the hall cannot satisfy BEFORE the buyer's one submission is spent; a null
+ * could not be asked.
+ *
+ * COST: this is a full engine solve on the platform key, billed like a render (3 units), not a free lookup. It is made only when
+ * the buyer chose a relief, only inside the intake route's `guardRequest(..., "customer_generate")` admission, and its engine call
+ * is counted by engineFetch like every other. Do not call it from anywhere that is not behind that guard.
+ *
+ * Used only to refuse a choice the hall cannot satisfy BEFORE the buyer's one submission is spent; a null
  * answer never blocks (the engine itself refuses a relief it cannot write, naming what is available).
  */
 export async function availableReliefs(intake: Record<string, unknown>): Promise<{ id: string; name: string }[] | null> {
@@ -695,8 +701,18 @@ export async function generateAndStore(
   // The relief the buyer chose for a Procurement Specification travels in OUR block (`_gridforge.spec_request`), never in
   // the engine's intake. A fresh submission carries it on the document; an operator's regenerate carries the stored one on
   // the row. The engine only ever receives the customer's own numbers.
+  //
+  // A FRESH submission always states the buyer's choice, including "none" (`spec_request: null`), and that statement replaces
+  // whatever an earlier attempt stored. The stored choice applies ONLY when there is no fresh statement: an operator's regenerate,
+  // which passes the stored numbers back without `_gridforge`. Otherwise a failed first attempt would override the resubmission.
   const { _gridforge: submittedMeta, ...doc } = submitted;
-  const requested = endpoint === "spec" ? requestedRelief(submittedMeta) ?? requestedRelief((row.intake as { _gridforge?: unknown } | null | undefined)?._gridforge) : null;
+  const fresh = typeof submittedMeta === "object" && submittedMeta !== null && "spec_request" in submittedMeta;
+  const requested =
+    endpoint !== "spec"
+      ? null
+      : fresh
+        ? requestedRelief(submittedMeta)
+        : requestedRelief((row.intake as { _gridforge?: unknown } | null | undefined)?._gridforge);
   // The caller has already claimed the row (`generating`). Every write here is a compare-and-set on that status, so
   // a release or a second claim that slipped in is never overwritten.
   const rendered = await renderDeliverable(doc, endpoint, requested ? { constraint: requested } : {});

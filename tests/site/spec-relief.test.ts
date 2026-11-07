@@ -62,6 +62,7 @@ let restorePg: () => void;
 let restoreEngine: () => void;
 let calls: { url: string; body: Record<string, unknown>; raw: string }[] = [];
 let listAnswer: "ok" | "down" = "ok";
+let renderFails = false;
 /** Reliefs this synthetic hall can buy. */
 const HALL_RELIEFS = ["rack_feed_tapoff", "transformer_capacity"];
 
@@ -86,6 +87,7 @@ function installEngine() {
         if (listAnswer === "down") return json({ error: "down" }, 503);
         return json({ reliefs: HALL_RELIEFS.map((id) => ({ constraint_id: id, constraint: `Name of ${id}` })) });
       }
+      if (renderFails) return json({ error: "engine fault" }, 502);
       const chosen = typeof body.constraint === "string" ? body.constraint : "rack_feed_tapoff"; // the engine's default
       return json({
         title: "Procurement Specification — North Hall",
@@ -123,6 +125,7 @@ beforeEach(() => {
   process.env.GRIDFORGE_API_KEY = "engine-key";
   calls = [];
   listAnswer = "ok";
+  renderFails = false;
   db = new PostgrestFake(["deliverables"]);
   restorePg = db.install();
   restoreEngine = installEngine();
@@ -207,6 +210,34 @@ describe("POST /api/intake/[token] with a chosen relief", () => {
     const res = await submit({ ...INTAKE, constraint: "ups_capacity" });
     expect(res.status).toBe(422);
     expect(calls).toHaveLength(0);
+  });
+
+  it("a resubmission REPLACES a stale stored choice (a failed first attempt never overrides it), page included", async () => {
+    seed();
+    renderFails = true;
+    expect((await submit({ ...INTAKE, constraint: "transformer_capacity" })).status).toBe(502);
+    expect((db.rows("deliverables")[0] as Record<string, any>).status).toBe("engine_unavailable");
+    expect((db.rows("deliverables")[0] as Record<string, any>).intake._gridforge.spec_request).toEqual({ constraint_id: "transformer_capacity" });
+    renderFails = false;
+    calls = [];
+    // the buyer now chooses "let the engine choose"
+    expect((await submit({ ...INTAKE, constraint: "" })).status).toBe(200);
+    expect(specCalls().length).toBeGreaterThan(0);
+    for (const c of specCalls()) expect(c.raw, c.raw).not.toContain("constraint");
+    const row = db.rows("deliverables")[0] as Record<string, any>;
+    expect(row.intake._gridforge).not.toHaveProperty("spec_request");
+    expect(row.intake._gridforge.spec.constraint_id).toBe("rack_feed_tapoff"); // the engine's default, not the stale choice
+  });
+
+  it("a resubmission with a DIFFERENT choice uses the new one", async () => {
+    seed();
+    renderFails = true;
+    await submit({ ...INTAKE, constraint: "transformer_capacity" });
+    renderFails = false;
+    calls = [];
+    expect((await submit({ ...INTAKE, constraint: "rack_feed_tapoff" })).status).toBe(200);
+    for (const c of specCalls()) expect(c.body.constraint).toBe("rack_feed_tapoff");
+    expect((db.rows("deliverables")[0] as Record<string, any>).intake._gridforge.spec_request).toEqual({ constraint_id: "rack_feed_tapoff" });
   });
 
   it("an operator regenerate keeps the buyer's choice (it is read from the stored block)", async () => {
