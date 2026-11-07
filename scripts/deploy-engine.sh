@@ -315,7 +315,7 @@ To rotate deliberately (this script never will):
   …then paste the same value into Vercel as GRIDFORGE_API_KEY.
 
 Database migrations are applied one at a time, in filename order, behind safety gates:
-  python3 scripts/apply-migration.py <number>      (see docs/10_PAYG_LAUNCH_CHECKLIST.md)
+  python3 scripts/apply-migration.py <number>      (the script's own header describes the gates)
 ────────────────────────────────────────────────────────────────────────
 EOF
 }

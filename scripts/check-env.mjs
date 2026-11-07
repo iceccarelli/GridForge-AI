@@ -6,8 +6,8 @@
 //   node scripts/check-env.mjs path/to/prod.env     # validate a dotenv-style file (KEY=VALUE, `export `, quotes, # comments)
 //   node scripts/check-env.mjs --json [file]        # machine-readable result (names and reasons only)
 //
-// It reads; it never contacts Stripe, Supabase or the engine, and it never writes a file. The rules mirror docs/10_PAYG_LAUNCH_CHECKLIST.md
-// section 1 step 5 and .env.example; a check here is a floor, not proof the credential is live (that is production-smoke's job).
+// It reads; it never contacts Stripe, Supabase or the engine, and it never writes a file. The rules mirror .env.example
+// (the launch checklist that once also described them was deleted from the repository); a check here is a floor, not proof the credential is live (that is production-smoke's job).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 

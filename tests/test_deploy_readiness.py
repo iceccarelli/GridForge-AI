@@ -171,6 +171,38 @@ def test_no_other_workflow_publishes_a_check_that_could_be_mistaken_for_a_requir
             assert not re.search(r"^  stress:\n", "\n".join(code_lines(f.read_text())), re.M), f"{f.name} also publishes `stress`"
 
 
+# ---- no dangling docs citations ----------------------------------------------------------------------------------------------
+CITED = re.compile(r"docs/([A-Za-z0-9_.-]+\.md)\b")
+
+
+def _cited_files():
+    for d in ("scripts", ".github", "app", "lib"):
+        for p in sorted((ROOT / d).rglob("*")):
+            if not p.is_file() or "node_modules" in p.parts or p.suffix in {".png", ".jpg", ".ico", ".woff2", ".pdf", ".gz", ".zip"}:
+                continue
+            # lib/capability-registry.ts says in words that docs/07_DELIVERY_RUNBOOK.md was deleted; tests/site/capability-registry.test.ts pins that
+            if p == ROOT / "lib" / "capability-registry.ts":
+                continue
+            try:
+                yield p, p.read_text()
+            except UnicodeDecodeError:
+                continue
+
+
+def test_every_docs_file_cited_in_scripts_workflows_and_the_site_exists():
+    missing = [f"{p.relative_to(ROOT)} cites docs/{m}" for p, text in _cited_files() for m in CITED.findall(text) if not (ROOT / "docs" / m).is_file()]
+    assert not missing, "cited but not in the repository (do not claim a document that is gone):\n" + "\n".join(missing)
+
+
+def test_the_citation_check_actually_finds_citations():
+    hits = [m for _, text in _cited_files() for m in CITED.findall(text)]
+    assert hits, "the pattern matched nothing anywhere: the test above would pass vacuously"
+
+
+def test_the_deploy_summary_does_not_cite_the_deleted_launch_checklist():
+    assert "10_PAYG_LAUNCH_CHECKLIST" not in (ROOT / "scripts" / "deploy-engine.sh").read_text()
+
+
 # ---- the facts that must stay next to the deploy summary -----------------------------------------------------------------------
 def test_the_deploy_script_records_the_persisted_format_and_first_boot_facts():
     s = (ROOT / "scripts" / "deploy-engine.sh").read_text()
