@@ -3,123 +3,123 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-07",
-      "hash": "9e4a40378bc788eb8bbf394396aca5b8931a69a8b952012000458d45e5fc8824"
+      "hash": "25a47c475cb871fe426aae2d2b3fc2726fa17362698218bac25f7e9dbcda3baf"
     },
     "/about": {
-      "lastmod": "2026-11-03",
-      "hash": "89b7f6a82fcb1cf61f647a64907a5db00ae217b303108eaf6dbeea8b5ac2990b"
+      "lastmod": "2026-11-07",
+      "hash": "67decac6a2e222f47907f2d5fd4c168cad2df0723f99c185276a70a9bb270bf8"
     },
     "/constraints": {
-      "lastmod": "2026-11-03",
-      "hash": "c385f084bcb69957e6580e44488e5c7af056d44ca07c18f7b31d8c2c9cccb804"
+      "lastmod": "2026-11-07",
+      "hash": "45e08ebc361dec0ccdc03750086e84c235b37a41523607e78e444aea219266de"
     },
     "/constraints/achievable-facility-water-temperature": {
-      "lastmod": "2026-11-05",
-      "hash": "dbbd91a8a28edd2787ed9ca2c98bc59ea7fa5048aa3b376877b3507f98fcbb97"
+      "lastmod": "2026-11-07",
+      "hash": "91ca80b10c466226afb5dac73eb71d6c8fba83e512fad06c28c4c05274b35785"
     },
     "/constraints/available-rack-positions": {
-      "lastmod": "2026-11-05",
-      "hash": "d23444db496c5ddce12aa750b7b790ad549bd894aa730de12089079e28f2f009"
+      "lastmod": "2026-11-07",
+      "hash": "f6e751bc60dc00413537a129d27f41ebe767cc3a5d2c7a1c416238c62b306278"
     },
     "/constraints/busway-ampacity": {
-      "lastmod": "2026-11-05",
-      "hash": "a063b6f771def5bc0226b4e390961884dd8b4703b23337f530ed3534f58cee79"
+      "lastmod": "2026-11-07",
+      "hash": "70d78073dc818207271ab9c7c1ed91afe15900e59f5db087338738e333b5d994"
     },
     "/constraints/cdu-capacity-site-conditions": {
-      "lastmod": "2026-11-05",
-      "hash": "5698388ce0243cc435b7bc3efdd37a4d3f3c74176a0f541b7dcb77a3ba26caae"
+      "lastmod": "2026-11-07",
+      "hash": "d97352f0bfa5817d383536c95599f91374f2a108cfb8df80f0a7abdf91d2a166"
     },
     "/constraints/chilled-water-plant-capacity": {
-      "lastmod": "2026-11-05",
-      "hash": "304ee6b4320f645acdb4a8b35c049e38de434343b816868b9f3f0af3ff3a1574"
+      "lastmod": "2026-11-07",
+      "hash": "e19c2d822c7d8a4a963258a8969cc34743572c95b9783ee5f255593a6f5a773d"
     },
     "/constraints/cooling-architecture-capability": {
-      "lastmod": "2026-11-05",
-      "hash": "02fb197fea8f07d758dc527c37ab696cb85356e5efd5c15c98bf8b92f2a45625"
+      "lastmod": "2026-11-07",
+      "hash": "a1cba77bd0320e0948fccb10dbcf87696e25a8ecc60851c4ba027943f80132fb"
     },
     "/constraints/firm-supply-capacity": {
-      "lastmod": "2026-11-05",
-      "hash": "bf9fbb1cef48eaff259636560911b176be64c115106190dcaa69655edb9742a4"
+      "lastmod": "2026-11-07",
+      "hash": "3c3a4da66f5e7b26e698d05d904d0d4acad386d8d4ce108e4eeaee568d5c32c4"
     },
     "/constraints/floor-loading": {
-      "lastmod": "2026-11-05",
-      "hash": "e465674d4689656b61146246b4345af760a8da48ece83a1c3d3cee351bb665b6"
+      "lastmod": "2026-11-07",
+      "hash": "49b7ec7a5d1e3f6d1bc3df308593e843226d5bf2812fbed64a804ea6fde8d15c"
     },
     "/constraints/hydraulic-flow-capacity": {
-      "lastmod": "2026-11-05",
-      "hash": "c2e3842ec247204a6141be603b17e973d65a1b52e105726e550876eb5a2840fd"
+      "lastmod": "2026-11-07",
+      "hash": "0c64dee297b666706cb627299df6b14545b5f76f79156fc430a0d936e0737138"
     },
     "/constraints/rack-feed-tapoff-rating": {
-      "lastmod": "2026-11-05",
-      "hash": "b7c95fb29b5ca1a97c7b8bcadbb92949ea6bf64aa3b0fa7f02bda20f12490f89"
+      "lastmod": "2026-11-07",
+      "hash": "30f4a51df8e9fe2dca0d5be49279d83199d13fde789db6ac21137f8f253bd346"
     },
     "/constraints/residual-air-load-removal": {
-      "lastmod": "2026-11-05",
-      "hash": "a13f12e006626d2249ae0c8011073b2e9e9fbef9d0c3a603238105c4e97898be"
+      "lastmod": "2026-11-07",
+      "hash": "4d119f21c7357b518526920bb506a2aee3b1a553fa7e921de80e2ab45668f41c"
     },
     "/constraints/transformer-capacity": {
-      "lastmod": "2026-11-05",
-      "hash": "6b46205c62e1fce525b33e1757d1b6d974ebfd882fd6f637ed1bf0262c578635"
+      "lastmod": "2026-11-07",
+      "hash": "1c2213636925b5796523d44d5b6999f86b708608911e0c9030754c30a3a7c6dd"
     },
     "/constraints/ups-capacity": {
-      "lastmod": "2026-11-05",
-      "hash": "d368f1d55b2aa56ce15ce8b6f09b8b963cd3dd102fc2aa0eaebb55ef1bf73b7d"
+      "lastmod": "2026-11-07",
+      "hash": "64561c64dac599a6bd55aec23acbeaa79d7e2542b5098a16d69efc9a59dc09e3"
     },
     "/contact": {
       "lastmod": "2026-11-07",
-      "hash": "1f71c035aedeb0f6174c9ca9ebf5474cdc8e6dfdf4a5f7b73a5f8d96c3f5713b"
+      "hash": "10f7921f758fafc8c434568fa7145dc4ba30a660296dc843a92bf55269364c27"
     },
     "/developers": {
-      "lastmod": "2026-11-05",
-      "hash": "c246cfbc93da1aacf50e44f6364dce0796e2e7763079a58f6d195530f666fa82"
+      "lastmod": "2026-11-07",
+      "hash": "df5467ff9eea40bb0a714fa55f6900eb7065ca176224863285215a21181ebab4"
     },
     "/evidence": {
-      "lastmod": "2026-11-05",
-      "hash": "407b4095b3b413fed0331b22731ea5f5a3a6b5dcc63b8afdf8a3b546f36f6f21"
+      "lastmod": "2026-11-07",
+      "hash": "00e469a50cd080a6e654df483fb72231bc645a3b360f9825e2064339cc34c4b2"
     },
     "/for": {
-      "lastmod": "2026-11-03",
-      "hash": "979771e50bc178260569f01a0174306858d333ef49ccdf7c9f3ea6d60226dbc7"
+      "lastmod": "2026-11-07",
+      "hash": "9e6946ca5d47867d0996dde1182ead872ebf4a1650989d4c309796fb9fa6a8f5"
     },
     "/for/advisors": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/ai-operators": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/colocation": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/developers": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/engineering-teams": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/existing-owners": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/for/investors": {
-      "lastmod": "2026-11-05",
-      "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
+      "lastmod": "2026-11-07",
+      "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-07",
-      "hash": "f72ce93a27a84d26dd728f549b411251b1f6dddec8e0bed2a1bad8c83fb14fad"
+      "hash": "b30fd05e1a512a883ae187a85e5018fdc42480c2785669ffd954397e10e78d08"
     },
     "/intelligence": {
-      "lastmod": "2026-11-05",
-      "hash": "06448d712a270d8ff59bc4e0b81351c0d7d7b0a17e031b3ef38eeb492afab37e"
+      "lastmod": "2026-11-07",
+      "hash": "6186b62cf71e3e6a8ae591cd7d0a46b90b92745b19cd7400dc0a983d4c70a5b7"
     },
     "/lead-times": {
-      "lastmod": "2026-11-05",
-      "hash": "14291d85b7576e50b9eff73339d04ad543eb3a412893525875c5eba875494038"
+      "lastmod": "2026-11-07",
+      "hash": "9a5ef1b527670408d5e5e007875d91757cdee27899f51a342ae1a6ba726da489"
     },
     "/legal/privacy": {
       "lastmod": "2026-11-03",
@@ -135,63 +135,87 @@
     },
     "/observatory": {
       "lastmod": "2026-11-07",
-      "hash": "9c88404f75bf4055ae764f9299333b47002a50cba015ed191ec958b7f79e2d63"
+      "hash": "995e8038b145bf06dcc5cdf397ac6674c2f9377ac1258950a8d4863f5c8cfcc2"
     },
     "/platforms": {
-      "lastmod": "2026-11-05",
-      "hash": "2fa112288614651a4a8edb2c776f595410f7564a6efbd05354ffda3a6b111c53"
+      "lastmod": "2026-11-07",
+      "hash": "21a2aad8b7d9193c69df095bc7cdc736bd3061e5f92186f791a6850fb3c913ff"
     },
     "/platforms/gb200_nvl72": {
-      "lastmod": "2026-11-05",
-      "hash": "758be38b07645552856c98e0a963602e5b5567d946430f2674ce40f83d28efa7"
+      "lastmod": "2026-11-07",
+      "hash": "76bd66da33338800944f0bb7b0246d6b7a1b72a6b7d3a2b958d918b58a4c900c"
     },
     "/platforms/gb300_nvl72": {
-      "lastmod": "2026-11-05",
-      "hash": "758be38b07645552856c98e0a963602e5b5567d946430f2674ce40f83d28efa7"
+      "lastmod": "2026-11-07",
+      "hash": "76bd66da33338800944f0bb7b0246d6b7a1b72a6b7d3a2b958d918b58a4c900c"
     },
     "/power/compare": {
-      "lastmod": "2026-11-03",
-      "hash": "7cc37ec1e1a9760f50efc09d42a9f20556000233e71a339004a96087d1b617d1"
+      "lastmod": "2026-11-07",
+      "hash": "a7d32446282aac41f609f85e79b73476c31c4689306dbff2a79dee55705924df"
     },
     "/power/deploy": {
-      "lastmod": "2026-11-03",
-      "hash": "4044b9bc4d5840d5422b97987200cfbaaa2aa2617883a0e2cefa51ce07e41b50"
+      "lastmod": "2026-11-07",
+      "hash": "b424b3b327788f48de2b166026f58292108cf05dc9ffbb67e7d1fa62a1e478db"
     },
     "/pricing": {
-      "lastmod": "2026-11-05",
-      "hash": "fafe95d7606a2440db53a515c64e93a96882ab2cd5468f2652799166d137b168"
+      "lastmod": "2026-11-07",
+      "hash": "82a77b42080cda736bf52f05ab500af62e30516fb45b35d8d56c4cac69834475"
     },
     "/products": {
-      "lastmod": "2026-11-03",
-      "hash": "057092613e4bef98983d12bffa37eb67c20f0172824115e2d96e1d68075f9785"
+      "lastmod": "2026-11-07",
+      "hash": "084c86721ef7422a65c5f991d5c9e294bfbfe2c4650ccd39adb61a19783c0d5b"
     },
     "/products/density-screen": {
-      "lastmod": "2026-11-05",
-      "hash": "b56bd75473cef5fdeaeff0b082b4e95b2f4007ae6f59704fdafefb85c95cbdb7"
+      "lastmod": "2026-11-07",
+      "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/products/envelope-study": {
-      "lastmod": "2026-11-05",
-      "hash": "b56bd75473cef5fdeaeff0b082b4e95b2f4007ae6f59704fdafefb85c95cbdb7"
+      "lastmod": "2026-11-07",
+      "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/products/hall-watch": {
-      "lastmod": "2026-11-05",
-      "hash": "b56bd75473cef5fdeaeff0b082b4e95b2f4007ae6f59704fdafefb85c95cbdb7"
+      "lastmod": "2026-11-07",
+      "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/products/portfolio-screen": {
-      "lastmod": "2026-11-05",
-      "hash": "b56bd75473cef5fdeaeff0b082b4e95b2f4007ae6f59704fdafefb85c95cbdb7"
+      "lastmod": "2026-11-07",
+      "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/products/procurement-specification": {
-      "lastmod": "2026-11-05",
-      "hash": "b56bd75473cef5fdeaeff0b082b4e95b2f4007ae6f59704fdafefb85c95cbdb7"
+      "lastmod": "2026-11-07",
+      "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/qualify": {
-      "lastmod": "2026-11-03",
-      "hash": "dc4ad9a62ed57ff444ee0cbe87c29bc27a013fdddccaa6729bea25258aa0bbd4"
+      "lastmod": "2026-11-07",
+      "hash": "9756e94907010de1fc79bf6f18b7ecab5e9d7c15e8206fcdfbcadc3b5b3c9b6a"
     },
     "/reference": {
       "lastmod": "2026-11-07",
-      "hash": "366c7fb5d9ac6533dc2e6e8947e9ba442194bf9f96c9d5a4fed9bb87c1d3f154"
+      "hash": "191e95ac4890445a6a86a71d14df9411ca25bbe7c1f86d4e82201144c3717c4e"
+    },
+    "/reference/board_summary.html": {
+      "lastmod": "2026-11-02",
+      "hash": "01acd0b76135b1ed8ebbeaaa24b1170a737c17a972734bbc86dd653408326401"
+    },
+    "/reference/density_screen.html": {
+      "lastmod": "2026-11-07",
+      "hash": "bb431fa8573e2cdfe51123a294f82d551ae4e064adfb1d50eb11aa168b863c9e"
+    },
+    "/reference/envelope_study.html": {
+      "lastmod": "2026-11-07",
+      "hash": "48c7d5c4a4489f152b6b3fb1b8b764b382c34793f51823944936635a36c32931"
+    },
+    "/reference/proposal.html": {
+      "lastmod": "2026-11-07",
+      "hash": "fe671fc23f900032bad167521bdb2cf6b5e57a3a607f8620317252cec1d78644"
+    },
+    "/reference/specification.html": {
+      "lastmod": "2026-11-07",
+      "hash": "80b0340c3b3e7a086d8f6a6d95f4283b7f80e614804e287a43adc7951185184e"
+    },
+    "/reference/walkthrough.html": {
+      "lastmod": "2026-11-07",
+      "hash": "814e8bb5ea063c0591ca80ffcd1060c55f9c33e404269cd823004b0e3ba2e6e2"
     }
   }
 }

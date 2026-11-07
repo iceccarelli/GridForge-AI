@@ -209,6 +209,14 @@ export class PostgrestFake {
       this.objects.delete(ref);
       return json(JSON.stringify({ message: "Successfully deleted" }), 200);
     }
+    // GET /storage/v1/object/authenticated/<ref>: the private read-back lib/project-evidence-review.ts uses. A missing object is
+    // HTTP 400 with the real status in the body, as Supabase Storage answers it.
+    if (method === "GET" && ref.startsWith("authenticated/")) {
+      if (this.failStorage) return json(this.failStorage.body, this.failStorage.status, false);
+      const o = this.objects.get(ref.slice("authenticated/".length));
+      if (!o) return json(JSON.stringify({ statusCode: "404", error: "not_found", code: "NoSuchKey" }), 400);
+      return new Response(o.bytes as BodyInit, { status: 200, headers: { "content-type": o.contentType || "application/octet-stream" } });
+    }
     return json(JSON.stringify({ message: `unsupported ${method}` }), 405);
   }
 

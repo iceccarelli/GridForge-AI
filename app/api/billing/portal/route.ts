@@ -15,7 +15,7 @@ const MAX_BODY_BYTES = 1024;
  * POST { token } -> { ok, url }: a Stripe Billing Portal session for the Stripe customer behind this token. The token is either an API /
  * pay-as-you-go portal token or a Hall Watch token; whichever it opens is the account whose customer is used, and nothing in the request
  * names a customer. In the portal the customer can cancel a subscription, replace their card and read their invoices (what is allowed is
- * configured in the Stripe dashboard: docs/10_PAYG_LAUNCH_CHECKLIST.md). A cancellation there reaches the site through the signed
+ * configured in the Stripe dashboard; no document in this repository describes it). A cancellation there reaches the site through the signed
  * `customer.subscription.deleted` webhook, which revokes the key and ends the account: this route changes nothing itself.
  *
  * The return URL carries NO token. The way back is resolved by a short-lived HttpOnly cookie (lib/payg-return.ts), as for checkout.

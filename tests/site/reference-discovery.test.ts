@@ -1,5 +1,5 @@
 /**
- * The published worked example (public/reference/*.html) names itself as the canonical copy of its content: each page
+ * The published worked example (public/reference/*.html, six documents since the Density Screen sample was added) names itself as the canonical copy of its content: each page
  * duplicates its .md twin, so the HTML says "I am the canonical one" and carries a description and a robots tag. The tags
  * are written by scripts/build-reference.sh (the same place that writes the files, so CI's byte-for-byte diff covers them).
  */
@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 import { SITE_URL } from "@/lib/site";
 
 const DIR = path.join(process.cwd(), "public", "reference");
-const PAGES = ["envelope_study", "board_summary", "proposal", "specification", "walkthrough"];
+import { REFERENCE_DOCUMENTS } from "@/lib/reference-docs";
+
+const PAGES = [...REFERENCE_DOCUMENTS];
 
 describe.each(PAGES)("public/reference/%s.html", (name) => {
   const html = fs.readFileSync(path.join(DIR, `${name}.html`), "utf8");

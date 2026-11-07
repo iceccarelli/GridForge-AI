@@ -5,6 +5,7 @@ import { SITE_URL } from "@/lib/site";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { AUDIENCES } from "@/lib/audiences";
 import pageDates from "@/lib/page-lastmod.json";
+import { REFERENCE_DOCUMENTS, referencePath } from "@/lib/reference-docs";
 
 /**
  * Every public page, including the generated ones.
@@ -39,6 +40,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly" as const,
     priority: 0.7,
   }));
+  // The sample deliverables are indexable pages that name themselves canonical; they belong in the sitemap with the rest.
+  const referencePages: MetadataRoute.Sitemap = REFERENCE_DOCUMENTS.map((name) => ({
+    url: `${base}${referencePath(name)}`,
+    ...lm(referencePath(name)),
+    changeFrequency: "monthly" as const,
+    priority: name === "density_screen" ? 0.8 : 0.6,
+  }));
   const lib = await platformLibrary();
   const platformPages: MetadataRoute.Sitemap = pageablePlatforms(lib?.platforms ?? []).map((p) => ({
     url: `${base}/platforms/${p.id}`,
@@ -50,6 +58,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: base, ...lm("/"), changeFrequency: "weekly", priority: 1 },
     { url: `${base}/qualify`, ...lm("/qualify"), changeFrequency: "weekly", priority: 0.9 },
     { url: `${base}/reference`, ...lm("/reference"), changeFrequency: "monthly", priority: 0.9 },
+    ...referencePages,
     { url: `${base}/observatory`, ...lm("/observatory"), changeFrequency: "weekly", priority: 0.7 },
     { url: `${base}/constraints`, ...lm("/constraints"), changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/platforms`, ...lm("/platforms"), changeFrequency: "monthly", priority: 0.8 },

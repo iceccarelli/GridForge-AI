@@ -29,7 +29,7 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Machine interface — call the engine",
   description:
-    "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number.",
+    "The GridForge capacity engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, an evidence class per headline figure.",
   alternates: { canonical: "/developers" },
   twitter: { card: "summary_large_image", images: pageImages("developers") },
   openGraph: {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     images: pageImages("developers"),
     title: "Machine interface — call the GridForge engine",
     description:
-      "JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number the engine returns.",
+      "JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class per headline figure the engine returns.",
     url: "/developers",
   },
 };
@@ -129,7 +129,7 @@ export default async function DevelopersPage() {
           webPageJsonLd(
             "/developers",
             "Machine interface — call the engine",
-            "The GridForge capacity and thermal envelope engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, and an evidence class on every number."
+            "The GridForge capacity engine as a tool your software can call: JSON over HTTPS, MCP for agents, published unit pricing, an evidence class per headline figure."
           ),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },

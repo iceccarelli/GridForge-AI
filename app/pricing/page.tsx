@@ -10,22 +10,32 @@ import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import PaygRateCard from "@/components/PaygRateCard";
 import ThreePaths from "@/components/ThreePaths";
 import { TtpPhoto } from "@/components/TtpPhoto";
-import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { INTELLIGENCE_PLANS, PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { PLANS, eurMonth, seatLine } from "@/lib/subscriptions";
+import { QUALIFY_LINK } from "@/lib/nav";
+import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { callableRates } from "@/lib/payg-pricing";
 import { engineServes } from "@/lib/engine-capabilities";
 import { estimateEndpointServed, readToolRatesWithAvailability } from "@/lib/tool-rates";
 
-const PRICING_DESCRIPTION = `A free capacity check, metered software with a free allowance and a cap you set, and fixed-fee engineering engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen up to the full Capacity & Density Envelope Study. No retainer hours, no second price list.`;
+const PRICING_TITLE = "Pricing: free check, API, engagements";
+const PRICING_DESCRIPTION = `A free capacity check, a metered API with a free allowance, engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen, and a market intelligence subscription.`;
+
+// True while every Intelligence plan is recorded in the capability registry with an unverified production state.
+const INTELLIGENCE_UNVERIFIED = CAPABILITY_REGISTRY.filter((c) => c.family === "intelligence").every((c) => c.production_status === "unverified");
+
+// The engagements, named as a buyer says them (the catalogue names the deposits "... — deposit").
+const short = (id: keyof typeof PRODUCTS) => PRODUCTS[id].name.replace(/ — deposit$/, "").replace(/^Capacity & Density /, "");
 
 export const metadata: Metadata = {
-  title: "Pricing — free check, metered API, fixed-fee engagements",
+  title: PRICING_TITLE,
   description: PRICING_DESCRIPTION,
   alternates: { canonical: "/pricing" },
   twitter: { card: "summary_large_image", images: pageImages("pricing") },
   openGraph: {
     ...OG_BASE,
     images: pageImages("pricing"),
-    title: "Pricing — free check, metered API, fixed-fee engagements",
+    title: PRICING_TITLE,
     description: PRICING_DESCRIPTION,
     url: "/pricing",
   },
@@ -43,7 +53,7 @@ export default async function PricingPage() {
     <div className="bg-ink min-h-screen pt-28 pb-24">
       <PageJsonLd
         data={[
-          webPageJsonLd("/pricing", "Pricing — free check, metered API, fixed-fee engagements", PRICING_DESCRIPTION),
+          webPageJsonLd("/pricing", PRICING_TITLE, PRICING_DESCRIPTION),
           engagementCatalogJsonLd(),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
@@ -60,9 +70,20 @@ export default async function PricingPage() {
               <span className="text-power">each priced before you start.</span>
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
-              A free result you can get without an account, metered software you call from your own code, and fixed-fee
-              engineering a senior power-systems engineer produces for your site. They are different things with different
-              prices, and none of them is billed by the hour.
+              A free result you can get without an account, metered software you call from your own code, and
+              engineering a senior power-systems engineer reviews for your site. They are different things with different
+              prices, and none of them is billed by the hour. Market intelligence is a separate subscription, further down.
+            </p>
+            {/* One line, every link to the page that explains the step: the answer to "which one do I need?". */}
+            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-mute" data-testid="which-one">
+              <span className="font-semibold text-ghost">Which one do I need?</span>{" "}
+              Not sure what binds your hall:{" "}
+              <Link href={QUALIFY_LINK.href} className="text-power underline">the free check</Link>. One hall and a decision:{" "}
+              <Link href="/products/density-screen" className="text-power underline">{short("density_screen")}</Link>. The full ladder and the
+              architecture to commit to:{" "}
+              <Link href="/products/envelope-study" className="text-power underline">{short("envelope_study_deposit")}</Link>. The engine from
+              your own code: <Link href="/developers#plans" className="text-power underline">the API</Link>. The answer kept current as inputs
+              change: <Link href="/products/hall-watch" className="text-power underline">{short("hall_watch")}</Link>.
             </p>
           </div>
 
@@ -83,8 +104,11 @@ export default async function PricingPage() {
           <section id="engagements" aria-labelledby="engagements-h" className="scroll-mt-24">
             <h2 id="engagements-h" className="text-2xl font-semibold text-ghost">Engineering engagements</h2>
             <p className="mt-2 mb-6 max-w-2xl text-sm text-mute">
-              Every engagement is a concrete deliverable, fixed-fee and agreed before we start, not retainer hours. Most
-              halls begin with the Density Screen, which credits in full against the study it usually leads to.
+              Every engagement is a named deliverable, not retainer hours. The Density Screen and the Procurement
+              Specification are priced at checkout. The Envelope Study and the Portfolio Screen start with a deposit: the
+              fee is then agreed with you in writing, within the band shown, before any work starts, and the deposit is
+              credited in full against it. Hall Watch is billed every quarter. The first paid step is the Density Screen,
+              which credits in full against the Envelope Study.
             </p>
             <EngagementLadder />
           </section>
@@ -121,6 +145,41 @@ export default async function PricingPage() {
               </Link>
               .
             </p>
+          </section>
+
+          <section id="intelligence" aria-labelledby="intelligence-h" className="mt-16 scroll-mt-24">
+            <h2 id="intelligence-h" className="text-2xl font-semibold text-ghost">Market intelligence subscription</h2>
+            <p className="mt-2 max-w-3xl text-sm text-mute">
+              A separate product from the engine, the API and the engagements: a siting dashboard that ranks regions by
+              modelled time to energize, with US interconnection-queue history and day-ahead price context. Billed monthly.
+              The plan names below belong to this dashboard; API plans are on the{" "}
+              <Link href="/developers#plans" className="text-power underline">developers page</Link>.
+            </p>
+            {/* Shown while the capability registry records Intelligence's production state as unverified (tests/site/pricing-lanes.test.ts
+                keeps the two in step). /intelligence says the ranking is modelled; it does not say this. */}
+            {INTELLIGENCE_UNVERIFIED ? (
+              <p className="mt-3 max-w-3xl text-sm text-faint" data-testid="intelligence-unverified">
+                We have not yet verified this subscription end to end in production. The ranking is modelled, not a verified-site portfolio.
+              </p>
+            ) : null}
+            <ul className="mt-5 grid gap-4 md:grid-cols-3">
+              {PLANS.map((plan) => (
+                <li key={plan.id} className="panel flex flex-col p-5" data-testid={`intelligence-plan-${plan.id}`}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="text-lg font-semibold text-ghost">{plan.name}</h3>
+                    <span className="data font-mono text-power">
+                      {eurMonth(INTELLIGENCE_PLANS[plan.id].priceCents)}
+                      <span className="text-faint"> / {INTELLIGENCE_PLANS[plan.id].interval}</span>
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-mute">{plan.tagline}</p>
+                  <p className="mt-3 text-[12px] text-faint">{seatLine(INTELLIGENCE_PLANS[plan.id].seats)}</p>
+                </li>
+              ))}
+            </ul>
+            <Link href="/intelligence" className="mt-4 inline-flex min-h-11 items-center text-sm text-power underline">
+              See what the subscription contains
+            </Link>
           </section>
 
           <section className="mt-12 max-w-3xl rounded border border-line bg-panel-2 p-6" aria-labelledby="start-free">

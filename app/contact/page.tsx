@@ -10,7 +10,7 @@ import { OG_BASE, SITE, siteUrl } from "@/lib/site";
 
 const TITLE = "Contact Time to Power";
 const DESCRIPTION =
-  "How to reach Time to Power, and what to include so the first reply can be useful: the hall, the platform, the decision and what you already have. NDA on request. A founder-led, pilot-stage practice that sells no equipment.";
+  "How to reach Time to Power and what to include so the first reply is useful: the hall, the platform and the decision. NDA on request. We sell no equipment.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -41,7 +41,7 @@ export default function ContactPage() {
     <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd data={[page, breadcrumbJsonLd([{ name: "Time to Power", path: "/" }, { name: "Contact", path: "/contact" }])]} />
       <p className="eyebrow mb-3 text-power">CONTACT</p>
-      <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight text-ghost sm:text-4xl">Talk to the engineer who will do the work.</h1>
+      <h1 className="page-title [overflow-wrap:anywhere]">Talk to the engineer who will do the work.</h1>
       <p className="mt-4 text-[17px] leading-relaxed text-mute">
         Time to Power is a founder-led, pilot-stage practice. Early partners work with the engineer, not an account manager. It sells no equipment and
         takes no margin on hardware, so what you are told is not shaped by something it wants to sell you.

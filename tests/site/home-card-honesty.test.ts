@@ -26,8 +26,8 @@ describe("homepage service cards", () => {
     for (const c of cards.filter((c) => !PRODUCTS[c.productId].opensBandCents)) expect(c.band).toBeNull();
   });
 
-  it("says where the days start: from the scoping call for a deposit, from a complete intake for a fixed-fee document", () => {
-    expect(card("envelope_study_deposit").timeline).toContain("from the scoping call");
+  it("says where the days start: from a complete intake and the scoping call for a deposit, from a complete intake for a fixed-fee document", () => {
+    expect(card("envelope_study_deposit").timeline).toContain("from a complete intake and the scoping call");
     expect(card("density_screen").timeline).toContain("from a complete intake");
     expect(card("procurement_spec").timeline).toContain("from a complete intake");
     expect(card("hall_watch").timeline).toBe("Continuous");

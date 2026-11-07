@@ -46,9 +46,9 @@ export function routeSources() {
     ? readdirSync(path.join(ROOT, "public/reference/constraints")).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
     : [];
   const routes = {
-    "/": ["app/page.tsx", ...homeComponents(), "lib/products.ts", "lib/site.ts", "lib/market-evidence.ts", "lib/audiences.ts", "lib/rack-math.ts"],
-    "/qualify": ["app/qualify/page.tsx"],
-    "/reference": ["app/reference/page.tsx", "public/reference/model_pack.json", "public/reference/calibration.json"],
+    "/": ["app/page.tsx", ...homeComponents(), "lib/products.ts", "lib/site.ts", "lib/market-evidence.ts", "lib/audiences.ts", "lib/rack-math.ts", "lib/worked-result.ts", "public/reference/model_pack.json"],
+    "/qualify": ["app/qualify/page.tsx", "lib/worked-result.ts", "public/reference/model_pack.json"],
+    "/reference": ["app/reference/page.tsx", "lib/reference-docs.ts", "public/reference/model_pack.json", "public/reference/calibration.json"],
     "/constraints": ["app/constraints/page.tsx", "public/reference/constraints.json", "lib/constraints.ts"],
     "/platforms": ["app/platforms/page.tsx", "public/reference/platforms.json"],
     "/contact": ["app/contact/page.tsx", "lib/site.ts"],
@@ -67,6 +67,11 @@ export function routeSources() {
     "/legal/terms": ["app/legal/terms/page.tsx"],
     "/legal/security": ["app/legal/security/page.tsx"],
   };
+  // The published sample documents are generated into public/reference; each is its own indexable page, dated by its own content.
+  const refDir = path.join(ROOT, "public/reference");
+  if (existsSync(refDir)) {
+    for (const f of readdirSync(refDir).filter((f) => f.endsWith(".html")).sort()) routes[`/reference/${f}`] = [`public/reference/${f}`];
+  }
   routes["/products"] = ["app/products/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   routes["/guides/nameplate-vs-useful-compute"] = ["app/guides/nameplate-vs-useful-compute/page.tsx", "lib/guide-data.ts", "public/reference/model_pack.json", "components/diagrams/RackDensityChart.tsx", "lib/rack-math.ts"];

@@ -56,7 +56,7 @@ export function IntelligenceClient() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="max-w-2xl">
             <div className="eyebrow text-power mb-4">GridForge Intelligence</div>
-            <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+            <h1 className="page-title">
               Comparing markets
               <br />
               <span className="text-power">by time to power, not just queue position.</span>
@@ -195,7 +195,7 @@ export function IntelligenceClient() {
 
           <p className="mt-6 text-sm text-mute" data-testid="already-subscribed">
             Already subscribed, or invited to a seat?{" "}
-            <Link href="/account" className="text-power underline">Open the dashboard</Link>. It asks you to sign in with an emailed link.
+            <Link href="/account" className="text-power underline">Open your Intelligence account</Link>. It asks you to sign in with an emailed link.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 data text-xs text-faint">

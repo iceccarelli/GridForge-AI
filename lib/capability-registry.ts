@@ -526,7 +526,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "unverified",
     notes:
-      "Evidence files are attached from the project panel (stored unverified); observations and supplier delivery records are reviewed at /admin/reviews (admin cookie). No screen verifies evidence files yet, so a review can currently only reject. " +
+      "Evidence files are attached from the project panel (stored unverified); observations, supplier delivery records and, once migration 0048 is applied, each file (verified or rejected, POST /api/admin/evidence/[id]/review) are reviewed at /admin/reviews (admin cookie). Until 0048 is applied the file decision answers 503, no file can be verified, and an observation review can only reject. " +
       "Unpriced by design: a workflow and data layer, not a product. No checkout, SKU or " +
       "entitlement exists for it. Calibration: project_links reserves a typed slot " +
       "(calibration_observation + prediction_ref) but nothing writes one and the calibration " +
@@ -733,10 +733,18 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     cli_command: "gridforge calibration report",
     web_route: "/workspace",
     workspace_action: "ProjectPanel: record a measured outcome (POST /api/projects/[token]/observations)",
-    database_record: "project_observations, project_observation_reviews (0017, 0038), calibration_ledger_rows view",
+    database_record:
+      "project_observations, project_observation_reviews (0017, 0038), calibration_permissions (0047), project_evidence_reviews (0048), calibration_ledger_rows view",
     entitlement:
       "Submission: the holder of the project token. Review: an administrator who is not the submitter (app/api/admin/observations/[id]/review). " +
-      "Export: GET /api/admin/calibration-export (admin), then `gridforge calibrate import`, which re-checks every row. /v1/calibration/residuals: public, read-only, 0 units.",
+      "A project's permission is recorded by an administrator (POST /api/admin/calibration-permissions) and a file's verified or rejected decision by one " +
+      "(POST /api/admin/evidence/[id]/review). " +
+      "Export: GET /api/admin/calibration-export (admin), then `gridforge calibrate import`, which re-checks every row. /v1/calibration/residuals: public, read-only, 0 units. " +
+      "Eligibility is decided by the calibration_ledger_rows view alone: a reviewer who is not the submitter verifies as E5, against a file with a verified decision on record, " +
+      "a frozen forecast made before the outcome that still holds the predicted value, a production data origin, and a project whose latest recorded permission is a grant " +
+      "(and which has never been filed under a non-production site, migration 0052). The permission is an assertion recorded by an administrator (the document digest is not verified " +
+      "and the administrator is not identified). Revoking a permission stops future exports; it does not recall rows already imported by `gridforge calibrate import`. " +
+      "The forecast rule compares the stored forecast with the outcome date the submitter declared, not with when the measurement was taken. A verdict is final: there is no withdrawal. Observations recorded before origin tracking stay unclassified and are not exported.",
     stripe_product_or_price: "none",
     deliverable: "Aggregate residual statistics (n_records, per-subsystem); an export file for `gridforge calibrate import`",
     status: "free",
@@ -747,7 +755,39 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-05), lists 23 and is stale; " +
       "it is not edited here and the owner refreshes it. Once it lists the route this entry may become live. Nothing here writes the ledger " +
       "by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. The site-side capture needs 0017 and 0038 " +
-      "(recorded as applied); no real observation is recorded as having passed review.",
+      "(recorded as applied); no real observation is recorded as having passed review. Migrations 0046-0048 (forecast freeze, consent and origin, file verification) " +
+      "and 0052 (the site-origin gate) are written and NOT applied: until they are, the database enforces none of the gates in the Eligibility sentence beyond 0038's, " +
+      "the two admin routes above answer 503, and the export keeps the definition the applied migrations gave it. Applying them is an operator decision.",
+  },
+  {
+    capability_id: "site_hall_registry",
+    family: "project",
+    name: "Site and hall registry",
+    description:
+      "A signed-in person's organisations, their sites and halls, the figures recorded about a hall with where each came from, the projects attached to it, " +
+      "and one time-ordered record of what was entered or happened there.",
+    engine_capability: "n/a -- lib/sites.ts over the database functions gf_create_org / gf_create_site / gf_record_hall_input / gf_attach_project_to_hall / gf_hall_timeline (0049-0051)",
+    rest_endpoint: null,
+    mcp_tool: null,
+    cli_command: null,
+    web_route: "/account/sites",
+    workspace_action: "components/SitesWorkspace.tsx; routes /api/orgs, /api/sites, /api/halls (signed in, verified address)",
+    database_record:
+      "organisations, organisation_members, sites, halls (0049), hall_inputs, hall_project_attachments, hall_project_detachments, hall_inputs_labelled, hall_inputs_current (0050), hall_timeline (0051)",
+    entitlement:
+      "The caller is the verified Supabase identity; their role in the organisation (owner, editor or viewer) is checked inside the database on every call, so a person who is " +
+      "not an active member reaches nothing of it, whatever ids they send. The last owner can never be removed. Fails closed (503) without Supabase or while the migrations are not applied.",
+    stripe_product_or_price: "none",
+    deliverable: "A per-organisation record of sites, halls, recorded figures and a timeline; not a document and not sold",
+    status: "free",
+    production_status: "unverified",
+    notes:
+      "Needs migrations 0049-0052 applied; they are written and NOT applied, and every route under /api/orgs, /api/sites and /api/halls answers 503 until they are. " +
+      "A site's data origin (production, test or synthetic) and a figure's origin and evidence class are the recorder's declaration: the database enforces the rules between " +
+      "them (a measured, observed or quoted figure needs a source file; an assumption or a model cannot claim above E3) and nothing verifies that a declared class is deserved. " +
+      "An organisation here is not a billing entity: Intelligence seats (0027) are unchanged and unrelated. A project ever filed under a non-production site (detaching does not undo it) is kept out of the " +
+      "calibration ledger (0052). The site offers it (/account/sites, signed in) and its tests pass, but its production state is unverified: it has no engine route to find in " +
+      "lib/engine-deployed.json, and the database and the deployed build cannot be read from this repository.",
   },
   {
     capability_id: "intelligence_team_seats",

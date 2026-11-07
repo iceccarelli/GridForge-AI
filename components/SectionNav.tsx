@@ -13,7 +13,7 @@ const SECTIONS = [
   { id: "intelligence", label: "Live data" },
   { id: "qualify", label: "Qualifier" },
   { id: "services", label: "Services" },
-  { id: "technology", label: "How it works" },
+  { id: "technology", label: "Method" },
   { id: "evidence", label: "Evidence" },
   { id: "about", label: "About" },
   { id: "faq", label: "FAQ" },
@@ -56,11 +56,15 @@ export function SectionNav() {
   };
 
   return (
+    // Not drawn below lg: on a phone the header, this rail and the sticky bar together used a fifth of the screen, and the section links
+    // are a convenience on a long page, not a way in. While hidden on a wide screen it is `invisible` (visibility: hidden), which takes
+    // its eight buttons out of the tab order as well as out of sight: opacity-0 + aria-hidden alone left them focusable, so a keyboard
+    // user tabbed through eight controls they could not see (tests/e2e/first-screen-journey.mjs checks this in Chromium).
     <div
-      className={`fixed inset-x-0 z-40 top-16 sm:top-20 transition-all duration-300 ${
+      className={`fixed inset-x-0 z-40 top-16 sm:top-20 hidden lg:block transition-all duration-300 ${
         visible
-          ? "opacity-100 translate-y-0"
-          : "opacity-0 -translate-y-2 pointer-events-none"
+          ? "visible opacity-100 translate-y-0"
+          : "invisible opacity-0 -translate-y-2 pointer-events-none"
       }`}
       aria-hidden={!visible}
     >

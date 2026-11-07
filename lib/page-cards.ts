@@ -102,7 +102,7 @@ export const PAGE_CARDS: Record<string, CardContent> = {
 
 PAGE_CARDS["guide-nameplate"] = {
   kicker: "Guide",
-  title: "Nameplate megawatts are not useful AI compute",
+  title: "Nameplate power is not useful AI compute",
   subtitle: "The rack count of an existing hall is the smallest of a chain of limits. Method and a worked example from a synthetic hall.",
   facts: ["Synthetic worked example", "Evidence class on every figure"],
 };

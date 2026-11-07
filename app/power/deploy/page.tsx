@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
+import { QUALIFY_LINK } from "@/lib/nav";
 import { pageImages } from "@/lib/page-cards";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
 import { NotYetAvailable } from "@/app/power/NotYetAvailable";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
+
+const DEPLOY_TITLE = "BTM Power Deployment Assessment";
+const DEPLOY_DESCRIPTION =
+  "Compare grid, generation and storage architectures under a real contingency test, priced and dated where declared.";
 
 // Whether the form is shown follows the DEPLOYED engine (its /v1/version), not the last build of this site.
 export const revalidate = 300;
@@ -35,6 +42,17 @@ export default async function PowerDeployPage() {
   const state = availabilityIn(await deployedEngineRoutes(), "/v1/power/deploy/assess");
   return (
     <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          // The WebPage describes an assessment the visitor can run; while the deployed engine does not serve it the page says it is not
+          // available yet, and structured data must not say otherwise. The breadcrumb is true either way.
+          ...(state === "available" ? [webPageJsonLd("/power/deploy", DEPLOY_TITLE, DEPLOY_DESCRIPTION)] : []),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "BTM power deployment", path: "/power/deploy" },
+          ]),
+        ]}
+      />
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
         BTM power deployment
       </p>
@@ -55,7 +73,7 @@ export default async function PowerDeployPage() {
         <NotYetAvailable
           what="The BTM power deployment assessment"
           unreadable={state === "unknown"}
-          alternative={{ href: "/qualify", label: "Run the free capacity check instead" }}
+          alternative={{ href: QUALIFY_LINK.href, label: QUALIFY_LINK.label }}
         />
       )}
     </div>

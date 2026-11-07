@@ -1,7 +1,7 @@
 /**
  * POST /api/billing/portal: the customer's way to cancel, replace a card and read invoices, through Stripe's hosted Billing Portal.
  * The Stripe client is a MOCK (MockStripe, payg-harness.ts); no live Stripe call is made. What the portal ALLOWS is configured in the Stripe
- * dashboard, which no test here can prove (docs/10_PAYG_LAUNCH_CHECKLIST.md names that as an external dependency).
+ * dashboard, which no test here can prove (it is an external dependency that lives in the Stripe dashboard).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";

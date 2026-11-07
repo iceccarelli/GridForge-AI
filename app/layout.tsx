@@ -10,6 +10,8 @@ import { BackgroundReel } from "@/components/BackgroundReel";
 import { ScopingAgent } from "@/components/ScopingAgent";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { SiteChrome } from "@/components/SiteChrome";
+import { CheckoutReturnNotice } from "@/components/CheckoutReturnNotice";
+import { Suspense } from "react";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -47,12 +49,13 @@ export const viewport: Viewport = { themeColor: "#070B14", colorScheme: "dark" }
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
+    // 51 characters (a result shows about 60). Pages with their own title are wrapped by the template below.
+    default: "Time to Power — AI rack capacity for existing halls",
     template: "%s · Time to Power",
   },
   // 157 characters: a search result shows about 160. States what the product does and nothing else (the price and turnaround are on the page and in the social card).
   description:
-    "Estimates how much useful AI compute an existing data hall can support, what blocks it, what relieves it and at what cost, with an evidence class per figure.",
+    "Capacity analysis for existing data halls: how much AI compute a hall can support, what binds first and what unlocks more, with an evidence class per figure.",
   keywords: [
     "AI data center power capacity",
     "data hall rack density",
@@ -79,9 +82,9 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: siteUrl,
-    title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
+    title: "Time to Power — AI rack capacity for existing halls",
     description:
-      `The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured. ${SCREEN_PRICE}, ${SCREEN_DAYS} working days from a complete intake.`,
+      `How many AI racks can your hall power, and what unlocks more? Evidence-graded capacity analysis for existing halls: the limit that binds first, what relieves it, and the evidence behind every figure. Density Screen: ${SCREEN_PRICE}, ${SCREEN_DAYS} working days from a complete intake.`,
     siteName: "Time to Power",
   },
   // Only the card type: a page that sets its own openGraph title and description would otherwise inherit THIS twitter title, so a shared
@@ -107,6 +110,10 @@ export default function RootLayout({
             Skip to the main content
           </a>
           <Navbar />
+          {/* "Checkout cancelled — nothing was charged" after Stripe sends a visitor back (/qualify?purchase=cancelled, /pricing?deposit=cancelled). */}
+          <Suspense fallback={null}>
+            <CheckoutReturnNotice />
+          </Suspense>
           <BackgroundReel />
         </SiteChrome>
         <main id="main-content" tabIndex={-1} className="relative pb-16 outline-none lg:pb-0">

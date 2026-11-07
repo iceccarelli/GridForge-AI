@@ -296,6 +296,21 @@ jobs:
           assert t['values'], 'no response fields in the published template'
           print('published specification ok')
           "
+      - name: The published Density Screen is the buyer's document, stamped synthetic, and loads nothing from a third party
+        run: |
+          python - <<'PY'
+          import pathlib
+          ref = pathlib.Path('public/reference')
+          for n in ('density_screen.html', 'density_screen.md'):
+              t = (ref / n).read_text()
+              assert 'NOT A CUSTOMER ASSET' in t, f'{n}: no synthetic stamp'
+              assert 'SCREENING OPINION' in t, f'{n}: not the screening document a buyer receives'
+          for f in ref.glob('*.html'):
+              t = f.read_text()
+              assert 'fonts.googleapis' not in t and 'fonts.gstatic' not in t, f'{f.name}: third-party font request'
+              assert 'Back to the sample deliverables' in t, f'{f.name}: dead end'
+          print('published Density Screen ok')
+          PY
       - name: The published pack must declare itself synthetic
         run: |
           python -c "
@@ -687,6 +702,16 @@ jobs:
         run: bash scripts/realdb-run.sh npx vitest run tests/site/delivery-journeys.realdb.test.ts
       - name: Calibration capture - truncate guards, submitter/evidence separation, E5-only, measurement kind, site_ref and provenance, ledger-eligible export view, privileges on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_calibration_capture_migration.py -q
+      - name: Calibration integrity (0046-0048) - frozen forecast, consent and origin gate, evidence verification, final-gate definition and the seven-condition ledger truth table on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_forecast_freeze_migration.py tests/test_calibration_consent_migration.py tests/test_evidence_verification_migration.py tests/test_calibration_truth_table.py tests/test_calibration_final_gate.py -q
+      - name: Site-origin gate (0052) - a project in a test or synthetic site never reaches the ledger; detached, never attached and production sites are unchanged (fails, never skips)
+        run: python -m pytest tests/test_site_origin_gate.py -q
+      - name: Site and hall registry (0049-0051) - organisations, roles, declared origin, hall inputs and their sources, attach/detach, timeline - constraints, grants and the apply gates on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_site_registry_migration.py tests/test_hall_inputs_migration.py tests/test_hall_timeline_migration.py tests/test_site_registry_apply.py -q
+      - name: The whole chain (0001-0052) - closed function privileges, every event type, replaying 0049-0052 twice, and applying 0046-0052 over legacy rows without rewriting any (fails, never skips)
+        run: python -m pytest tests/test_migration_chain_0046_0052.py -q
+      - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_integrity_hardening_migration.py -q
       - name: Billing holds, audit trail and terminal-state guards (migration 0041) on real PostgreSQL (fails, never skips)

@@ -6,9 +6,10 @@ import { breadcrumbJsonLd, qualifierJsonLd } from "@/lib/jsonld";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
 import { TtpPhoto } from "@/components/TtpPhoto";
+import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 
 export const metadata: Metadata = {
-  title: "Capacity qualifier — what actually stops your hall",
+  title: "Free capacity check — what binds your hall",
   description:
     "Seven numbers in, the binding constraint out. The same power-and-thermal engine that produces our paid capacity study, run against your hall.",
   alternates: { canonical: "/qualify" },
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     ...OG_BASE,
     images: pageImages("qualify"),
-    title: "Free capacity qualifier — what stops your hall taking AI racks",
+    title: "Free capacity check — what stops your hall taking AI racks",
     description:
       "Seven numbers in, the binding constraint out. No card, no call, no contact details required.",
     url: "/qualify",
@@ -24,6 +25,8 @@ export const metadata: Metadata = {
 };
 
 export default function QualifyPage() {
+  // About our synthetic reference hall only, read from the engine's committed output (lib/worked-result.ts); never a claim about halls in general.
+  const limit = referenceLimitSentence(loadWorkedResult());
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
@@ -39,14 +42,11 @@ export default function QualifyPage() {
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Free · directional · no contact details required
         </p>
-        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
-          Most halls do not fail on cooling. They fail on a 63 A tap-off.
-        </h1>
+        <h1 className="page-title mt-3">Which limit binds first in your hall?</h1>
         <p className="mt-4 text-mute">
-          Thirteen constraints across electrical, thermal and physical domains decide how much AI
-          compute an existing hall can carry. One of them binds first, and it is rarely the one
-          people expect. Give the engine seven numbers you already know and it will tell you which —
-          and which of your inputs nobody has actually measured.
+          {limit} Your hall may differ, which is what this check is for. Thirteen constraints across electrical, thermal and physical
+          domains decide how much AI compute an existing hall can carry, and one of them binds first. Give the engine seven numbers you
+          already know and it will tell you which, and which of your inputs nobody has actually measured.
         </p>
       </header>
 

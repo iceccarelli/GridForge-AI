@@ -8,12 +8,14 @@ import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { QUALIFY_LINK } from "@/lib/nav";
 
-const TITLE = "How long does it take to relieve each constraint in an AI data hall?";
+const TITLE = "How long it takes to relieve each hall constraint";
+// Wrapped by the site name this is 62: the heading above is the question the page answers; the result title is the short form.
+const META_TITLE = "Lead times to relieve each hall constraint";
 const DESCRIPTION =
-  "Indicative lead-time ranges, in weeks, for relieving each of the thirteen electrical, thermal and physical constraints that limit an existing hall, with what each range rests on. Library ranges, not quotations.";
+  "Indicative lead times, in weeks, to relieve each of thirteen electrical, thermal and physical constraints in an existing hall. Library ranges, not quotations.";
 
 export const metadata: Metadata = {
-  title: TITLE,
+  title: META_TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/lead-times" },
   twitter: { card: "summary_large_image", images: pageImages("lead-times") },

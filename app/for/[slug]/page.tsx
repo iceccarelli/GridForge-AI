@@ -7,6 +7,7 @@ import { AUDIENCES, audienceBySlug } from "@/lib/audiences";
 import { constraintReference } from "@/lib/constraints";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import { OG_BASE } from "@/lib/site";
+import { fitText, pageTitle } from "@/lib/meta";
 
 export const dynamicParams = false;
 
@@ -18,10 +19,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const a = audienceBySlug(slug);
   if (!a) return {};
-  const title = `For ${a.name.toLowerCase()}`;
+  // Lower-case the first word only when it is an ordinary word: "AI infrastructure operators" must keep its capitals (lower-casing
+  // the whole name once rendered "For ai infrastructure operators").
+  const title = pageTitle(`For ${a.name.replace(/^([A-Z])([a-z])/, (_m, c: string, d: string) => c.toLowerCase() + d)}`);
   return {
     title,
-    description: a.summary,
+    description: fitText(a.summary),
     alternates: { canonical: `/for/${a.slug}` },
     openGraph: { ...OG_BASE, title: a.headline, description: a.summary, url: `/for/${a.slug}` },
   };

@@ -48,7 +48,8 @@ export function CommissionScreen({
   label?: string;
   context?: string;
   size?: "md" | "lg";
-  tone?: "primary" | "outline";
+  /** primary: filled. outline: bordered. text: a quiet underlined button for a paid action that must not outrank a free one. */
+  tone?: "primary" | "outline" | "text";
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,11 +63,14 @@ export function CommissionScreen({
     setBusy(false);
   }
 
-  const dims = size === "lg" ? "px-8 py-4 text-base" : "min-h-11 px-5 py-2.5 text-sm";
+  const quiet = tone === "text";
+  const dims = quiet ? "" : size === "lg" ? "px-8 py-4 text-base" : "min-h-11 px-5 py-2.5 text-sm";
   const skin =
     tone === "outline"
       ? "border border-power/50 text-power hover:bg-power/10"
-      : "bg-power text-ink hover:bg-power/90";
+      : quiet
+        ? "btn-tertiary sm:self-start"
+        : "bg-power text-ink hover:bg-power/90";
 
   return (
     <div className="flex flex-col gap-2">
@@ -74,7 +78,7 @@ export function CommissionScreen({
         type="button"
         onClick={commission}
         disabled={busy}
-        className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${dims} ${skin}`}
+        className={`${quiet ? "" : "inline-flex items-center justify-center gap-2 rounded-xl font-semibold"} transition-all disabled:cursor-not-allowed disabled:opacity-60 ${dims} ${skin}`}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {busy ? "Opening checkout" : (label ?? DENSITY_SCREEN_CTA)}

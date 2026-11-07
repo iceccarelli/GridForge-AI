@@ -149,6 +149,38 @@ describe("the capabilities the registry used to omit", () => {
     expect(snapshot.endpoints).toHaveLength(23);
   });
 
+  it("states the calibration gate as the view alone, names its two admin routes and tables, and says the migrations are not applied", () => {
+    const c = cap("calibration_capture");
+    expect(c.entitlement).toContain("Eligibility is decided by the calibration_ledger_rows view alone:");
+    expect(c.entitlement).toContain("(and which has never been filed under a non-production site, migration 0052)");
+    expect(c.entitlement).toContain("the document digest is not verified and the administrator is not identified");
+    expect(c.entitlement).toContain("it does not recall rows already imported by `gridforge calibrate import`");
+    expect(c.entitlement).toContain("A verdict is final: there is no withdrawal.");
+    expect(c.entitlement).toContain("Observations recorded before origin tracking stay unclassified and are not exported.");
+    expect(c.entitlement).toContain("POST /api/admin/calibration-permissions");
+    expect(c.entitlement).toContain("POST /api/admin/evidence/[id]/review");
+    expect(c.database_record).toMatch(/calibration_permissions \(0047\)/);
+    expect(c.database_record).toMatch(/project_evidence_reviews \(0048\)/);
+    expect(c.notes).toMatch(/0046-0048[\s\S]*and 0052[\s\S]*are written and NOT applied/);
+    for (const route of ["app/api/admin/calibration-permissions/route.ts", "app/api/admin/evidence/[id]/review/route.ts"]) {
+      expect(fs.existsSync(path.join(process.cwd(), route)), route).toBe(true);
+    }
+  });
+
+  it("describes the site and hall registry honestly: declared, not verified; not a billing entity; unapplied migrations; never live", () => {
+    const c = cap("site_hall_registry");
+    expect(c.production_status).toBe("unverified");
+    expect(c.rest_endpoint).toBeNull();
+    expect(c.status).toBe("free");
+    expect(c.stripe_product_or_price).toBe("none");
+    expect(c.notes).toMatch(/0049-0052 applied; they are written and NOT applied/);
+    expect(c.notes).toMatch(/the recorder's declaration/);
+    expect(c.notes).toMatch(/nothing verifies that a declared class is deserved/);
+    expect(c.notes).toMatch(/not a billing entity/);
+    expect(fs.existsSync(path.join(process.cwd(), "app/account/sites/page.tsx"))).toBe(true);
+    expect(c.web_route).toBe("/account/sites");
+  });
+
   it("production_status is machine-proven: live only with a concrete route in the deployed snapshot, and every other entry says it is unverified", () => {
     const deployed = new Set(snapshot.endpoints);
     for (const c of CAPABILITY_REGISTRY) {
@@ -162,7 +194,7 @@ describe("the capabilities the registry used to omit", () => {
       expect(cap(id).production_status).toBe("live");
     }
     // No route, a wildcard plan or a site-only flow: nothing for the snapshot to prove.
-    for (const id of ["intelligence_developer", "intelligence_team", "intelligence_enterprise", "project_record", "project_buyer_page", "api_triage", "api_scale", "api_platform", "payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow", "calibration_capture"]) {
+    for (const id of ["intelligence_developer", "intelligence_team", "intelligence_enterprise", "project_record", "project_buyer_page", "api_triage", "api_scale", "api_platform", "payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow", "calibration_capture", "site_hall_registry"]) {
       expect(cap(id).production_status, id).toBe("unverified");
     }
   });

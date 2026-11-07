@@ -3,6 +3,7 @@ import Link from "next/link";
 import { TtpCompare } from "@/components/TtpCompare";
 import { comparisonToolJsonLd } from "@/lib/jsonld";
 import { OG_BASE } from "@/lib/site";
+import { QUALIFY_LINK } from "@/lib/nav";
 import { pageImages } from "@/lib/page-cards";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
@@ -21,10 +22,10 @@ export const metadata: Metadata = {
     url: "/power/compare",
     title: "Time-to-Power scenario comparison",
     description:
-      "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",
+      "Compare cooling and supply scenarios for one hall: racks, binding constraint, evidence-graded date and capital. Dated only where lead times support it.",
   },
   description:
-    "Compare cooling and supply scenarios for one data-centre hall: racks, binding constraint, date with its evidence class, and capital — dated only where the lead times support it.",
+    "Compare cooling and supply scenarios for one hall: racks, binding constraint, evidence-graded date and capital. Dated only where lead times support it.",
 };
 
 /**
@@ -55,7 +56,7 @@ export default async function PowerComparePage() {
         <NotYetAvailable
           what="The scenario comparison"
           unreadable={state === "unknown"}
-          alternative={{ href: "/qualify", label: "Run the free capacity check instead" }}
+          alternative={{ href: QUALIFY_LINK.href, label: QUALIFY_LINK.label }}
         />
       ) : null}
       <p className="mt-4 max-w-3xl text-mute">

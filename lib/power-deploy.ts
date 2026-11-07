@@ -35,6 +35,8 @@ export interface PowerDeploymentCaseRow {
    * observation takes its engine digest from here.
    */
   engine_provenance?: Record<string, unknown> | null;
+  /** sha256 of the canonical request + result, set by the database at insert (migration 0046); null for revisions written before it. */
+  case_digest?: string | null;
   /** Set only when the revision was written together with project history events. */
   project_events?: number;
 }

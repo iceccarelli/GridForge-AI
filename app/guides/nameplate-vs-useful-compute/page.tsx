@@ -12,9 +12,10 @@ import { FOUNDER_ID, ORG_ID } from "@/lib/entity";
 import { OG_BASE, siteUrl } from "@/lib/site";
 
 const PATH = "/guides/nameplate-vs-useful-compute";
-const TITLE = "Nameplate megawatts are not useful AI compute";
+// The heading, the structured-data headline and the search-result title are one string, so it must fit once the site name is added (44 characters).
+const TITLE = "Nameplate power is not useful AI compute";
 const DESCRIPTION =
-  "How the usable rack count of an existing AI hall is decided: the smallest of a chain of electrical, thermal and physical limits, not the first number on the contract. Method, a worked example from a synthetic reference hall, and what the method does not cover.";
+  "How an existing AI hall's usable rack count is decided: the smallest of a chain of electrical, thermal and physical limits. Worked example on a synthetic hall.";
 
 export const metadata: Metadata = {
   title: TITLE,

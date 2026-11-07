@@ -60,10 +60,13 @@ describe("the hero describes what the engine models", () => {
       expect(t, f).not.toMatch(/when the compute can go live/i);
     }
     const home = homeSource().replace(/\s+/g, " ").replace(/&apos;|&rsquo;/g, "'");
-    expect(home).toContain("Time to Power evaluates how much useful AI compute an existing data-centre hall can support");
-    expect(home).toContain("identifies the binding electrical or thermal constraint");
-    expect(home).toContain("with cost, lead time and the evidence behind every number");
-    expect(home).toContain("labelled as one, not as a date");
+    // The owner's sub-copy replaced the earlier hero paragraph ("Time to Power evaluates how much useful AI compute an existing data-centre hall
+    // can support ..."). The guard is the same: EXISTING halls, the binding limit, cost and lead time, evidence, and an assumed lead time labelled.
+    expect(home).toContain("capacity analysis for existing data-centre halls");
+    expect(home).toContain("the electrical or thermal limit that binds first");
+    // (was "a priced relief ladder with lead times": the ladder's costs and lead times are library placeholders, and the copy now says so)
+    expect(home).toContain("a relief ladder with costs and lead times (library placeholders until you supply quotes), and the evidence behind every figure");
+    expect(home).toContain("A lead time that is only assumed is labelled as one");
     expect(read("components/Footer.tsx").replace(/\s+/g, " ")).toContain("the owner of an existing AI hall");
   });
 });
