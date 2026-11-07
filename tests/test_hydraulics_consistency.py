@@ -56,6 +56,11 @@ def test_each_platform_flow_implies_a_physical_delta_T(platform_id):
     assert 5.0 <= on_liquid <= on_rack <= 20.0, (platform_id, on_liquid, on_rack)
 
 
+def test_the_gb300_per_kW_figures_are_printed_in_the_unit_notation_a_reader_searches_for():
+    basis = hydraulic_flow(_ctx("gb300_nvl72")).basis
+    assert "0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat)" in basis
+
+
 def test_the_gb300_numbers_the_owner_asked_about():
     p = PLATFORMS["gb300_nvl72"]
     assert p.flow_l_per_min_per_rack.value / p.rack_kW.value == pytest.approx(0.963, abs=0.001)     # not 1.45
@@ -80,6 +85,11 @@ def test_a_flow_that_departs_from_ten_kelvin_is_disclosed_in_the_basis(platform_
     basis = hydraulic_flow(_ctx(platform_id, existing_flow=existing_flow)).basis
     assert basis.count("Flow basis:") == 1, basis                       # once, never duplicated
     assert f"{liquid:.1f} K" in basis and f"{rack:.1f} K" in basis, basis
+    # the per-kW flow is stated as a number next to l/min/kW, for both readings, recomputed here from the platform's own figures
+    per_rack_kW = p.flow_l_per_min_per_rack.value / p.rack_kW.value
+    per_liquid_kW = p.flow_l_per_min_per_rack.value / (p.rack_kW.value * p.liquid_fraction.value)
+    assert f"{per_rack_kW:.3f} l/min/kW of rack power" in basis, basis
+    assert f"({per_liquid_kW:.2f} l/min/kW of the liquid-captured heat)" in basis, basis
     assert "is not used by any constraint" in basis or "not itself used by any constraint" in basis   # the reference is named unused
     assert "without converting" in basis                                  # facility vs rack-side loop, named
     if abs(liquid - SCREENING_DELTA_T_K) > DISCLOSE_ABOVE_K:

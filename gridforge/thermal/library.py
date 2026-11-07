@@ -20,7 +20,7 @@ CDU_L2L_APPROACH_K = V(5.0, "K", "CDU liquid-to-liquid approach temperature", AS
                        assumptions=["Vendor ratings are stated AT this approach; derate for site FWS temperature"])
 
 # REFERENCE-ONLY. No constraint reads this constant. hydraulic_flow divides the plant's pumped flow by the PLATFORM's own library
-# flow per rack (compute/library.py: 130 l/min for a 135 kW GB300 rack = 0.963 l/min per rack kW, which implies a TCS delta-T of
+# flow per rack (compute/library.py: 130 l/min for a 135 kW GB300 rack = 0.963 l/min/kW of rack power, which implies a TCS delta-T of
 # about 13.4 K on the liquid-captured load, not the 10 K behind this 1.45 figure). The intake loader and examples/reference_site.py
 # copy the same 1.45 into ThermalInput.flow_l_per_min_per_kW, which is likewise never read. Kept as the documented 10 K screening
 # reference (tests/test_physics_equations.py checks it against Q = m_dot cp dT); changing which figure the constraint uses would

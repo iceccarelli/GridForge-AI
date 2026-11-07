@@ -237,7 +237,8 @@ def _flow_disclosure(ctx: EnvelopeContext) -> str:
                      f"the plant's this can understate the racks it supports")
     else:
         direction = ""
-    return (f". Flow basis: {flow:g} l/min per rack is {flow / plat.rack_kW.value:.3f} l/min per rack kW, which implies a {loop} of "
+    return (f". Flow basis: {flow:g} l/min per rack is {flow / plat.rack_kW.value:.3f} l/min/kW of rack power "
+            f"({flow / plat.liquid_kW().value:.2f} l/min/kW of the liquid-captured heat), which implies a {loop} of "
             f"{liquid_dT:.1f} K on the liquid-captured load ({rack_dT:.1f} K if the whole rack power were carried by the liquid); "
             f"{versus}. The plant's own design delta-T is {plant_dT:g} K and the plant flow is compared with {compared}{direction}")
 
