@@ -193,8 +193,10 @@ try {
       console.log("  correction did not appear; alerts:", JSON.stringify(await page.locator("[role=alert]").allInnerTexts()));
     });
     check(at("the correction is current and the old figure is no longer in the current table"), (await page.locator("tbody tr", { hasText: "40 MVA" }).count()) === 0);
-    await page.locator("ol li", { hasText: "40 MVA" }).waitFor({ timeout: 15000 });
-    check(at("the timeline keeps the replaced figure, marked as replaced"), /replaced by a later figure/.test(await page.locator("ol li", { hasText: "40 MVA" }).innerText()));
+    // the timeline's first page is fetched again after a write (and only that): wait for the replaced marker to arrive
+    const replacedLine = page.locator("ol li", { hasText: /40 MVA.*replaced by a later figure/s });
+    await replacedLine.first().waitFor({ timeout: 15000 }).catch(() => {});
+    check(at("the timeline keeps the replaced figure, marked as replaced"), (await replacedLine.count()) >= 1);
 
     // the history of a field is one click away and keeps the replaced figure
     await page.getByRole("button", { name: "History of grid.firm_capacity_mva" }).click();
@@ -202,7 +204,7 @@ try {
     await hist.waitFor({ timeout: 10000 });
     await page.locator("section[aria-labelledby=history-title] li", { hasText: "40 MVA" }).waitFor({ timeout: 10000 });
     const histText = await page.locator("section[aria-labelledby=history-title]").innerText();
-    check(at("the field's history lists the replaced figure and the current one"), /40 MVA/.test(histText) && /replaced by a later figure/.test(histText) && /42 MVA/.test(histText) && /current/.test(histText), histText.replace(/\s+/g, " ").slice(0, 200));
+    check(at("the field's history lists the replaced figure and the current one"), /40 MVA/.test(histText) && /replaced by a later figure/.test(histText) && /42 MVA/.test(histText) && /current/.test(histText), histText.replace(/\s+/g, " ").slice(0, 700));
     check(at("opening the history moves focus to its heading"), await hist.evaluate((el) => el === document.activeElement));
     await page.getByRole("button", { name: "Close history" }).click();
 

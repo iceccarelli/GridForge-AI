@@ -208,6 +208,12 @@ describe("history, leaving, and the requests a page makes", () => {
     expect(load).not.toMatch(/\/halls/);
     expect(load).not.toMatch(/map\(async/);
   });
+  it("the field's unit survives a recorded figure and the field is matched case-insensitively, so a correction does not lose its unit", () => {
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toContain('setValue(""); setSrcId(""); setSrcKind("none");          // the field and its unit stay');
+    expect(src).toContain("path.trim().toLowerCase()");
+    expect(src).toContain("const p = next.trim().toLowerCase();");
+  });
   it("a write updates local state from its own answer instead of reloading everything", () => {
     const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
     expect(src).not.toMatch(/onDone=\{load\}/);

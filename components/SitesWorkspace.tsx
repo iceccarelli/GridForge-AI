@@ -489,14 +489,14 @@ export function RecordInput({ hall, current, onRecorded }: { hall: Hall; current
   const [asOf, setAsOf] = useState(today);
   const [srcKind, setSrcKind] = useState<"none" | "project" | "intake">("none");
   const [srcId, setSrcId] = useState("");
-  const replaces = current.find((i) => i.fieldPath === path.trim());
+  const replaces = current.find((i) => i.fieldPath === path.trim().toLowerCase());
   const capped = ORIGINS_CAPPED_AT_E3.includes(origin);
   const needsSource = ORIGINS_NEEDING_A_SOURCE.includes(origin);
 
   /** Choosing a field fills in its usual unit (or the unit of the figure it would replace), so a correction does not silently lose it. */
   function onPath(next: string) {
     setPath(next);
-    const p = next.trim();
+    const p = next.trim().toLowerCase();                       // stored lower case, so two spellings are one field
     const known = current.find((i) => i.fieldPath === p)?.unit ?? EXPECTED_HALL_FIELDS.find((x) => x.path === p)?.unit ?? "";
     if (known && origin !== "missing") setUnit(known);
   }
@@ -532,7 +532,7 @@ export function RecordInput({ hall, current, onRecorded }: { hall: Hall; current
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
     if (r.body.ok) {
       f.setMsg({ ok: true, text: replaces ? "Correction recorded. The earlier figure stays in the history." : "Figure recorded." });
-      setValue(""); setUnit(""); setSrcId(""); setSrcKind("none");
+      setValue(""); setSrcId(""); setSrcKind("none");          // the field and its unit stay: the next entry is usually a correction of the same figure
       if (r.body.input) onRecorded(r.body.input);
     } else {
       const issue = Array.isArray(r.body.issues) && r.body.issues[0] ? ` ${r.body.issues[0].field}: ${r.body.issues[0].message}` : "";
