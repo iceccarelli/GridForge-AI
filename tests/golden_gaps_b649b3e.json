@@ -1,0 +1,190 @@
+{
+ "dublin_hall": [
+  [
+   "GEN-8MW unit count and redundancy",
+   "credited at nameplate x firm factor, as if no unit could be out of service",
+   "the generator schedule: how many units make up the option's capacity_MW, and the redundancy scheme your resilience design requires (N, N+1, N+2 or 2N)"
+  ],
+  [
+   "Installed CDU schedule",
+   "[]",
+   "CDU nameplates and the mechanical single-line diagram."
+  ],
+  [
+   "Flow the existing hall already draws on the plant",
+   "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+   "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
+  ],
+  [
+   "Other heat the existing hall already puts on the plant",
+   "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+   "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."
+  ],
+  [
+   "TCS target supply temperature",
+   "30 [27\u201332] degC (E0)",
+   "The platform vendor's reference design for the target rack."
+  ],
+  [
+   "Rear-door heat exchanger capacity per rack",
+   "60 [20\u201380] kW (E0)",
+   "The selected rear-door unit's datasheet at the site's water temperature and airflow."
+  ]
+ ],
+ "london_hall": [
+  [
+   "Net white space",
+   "2,000 [1,400\u20132,600] m2 (E0)",
+   "Floor plan."
+  ],
+  [
+   "Installed aisle pitch",
+   "2.4 [2.04\u20132.76] m (E0)",
+   "Floor plan or a site walk."
+  ],
+  [
+   "UPS schedule",
+   "[]",
+   "UPS nameplate, topology and remaining design life."
+  ],
+  [
+   "Installed CDU schedule",
+   "[]",
+   "CDU nameplates and the mechanical single-line diagram."
+  ],
+  [
+   "Flow the existing hall already draws on the plant",
+   "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+   "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
+  ],
+  [
+   "Other heat the existing hall already puts on the plant",
+   "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+   "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."
+  ],
+  [
+   "Available pumped flow",
+   "7,000 [4,900\u20139,100] l/min (E0)",
+   "Pump curves and pipe schedule; a hydraulic model before design."
+  ],
+  [
+   "TCS target supply temperature",
+   "30 [27\u201332] degC (E0)",
+   "The platform vendor's reference design for the target rack."
+  ],
+  [
+   "Air removal per rack position",
+   "8 [6\u201312] kW (E0)",
+   "Measured per-tile airflow, or CFD."
+  ],
+  [
+   "Rear-door heat exchanger capacity per rack",
+   "60 [20\u201380] kW (E0)",
+   "The selected rear-door unit's datasheet at the site's water temperature and airflow."
+  ],
+  [
+   "All-in grid electricity price",
+   "library placeholder of 140 EUR/MWh (E0)",
+   "The supply contract, or 12 months of invoices divided by metered energy."
+  ],
+  [
+   "Lifecycle horizon",
+   "none: no lifecycle value is computed",
+   "The investment committee's evaluation period."
+  ],
+  [
+   "Discount rate",
+   "none: the lifecycle value is undiscounted",
+   "The client's hurdle rate."
+  ]
+ ],
+ "nordic_hall": [
+  [
+   "Installed CDU schedule",
+   "[]",
+   "CDU nameplates and the mechanical single-line diagram."
+  ],
+  [
+   "Flow the existing hall already draws on the plant",
+   "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+   "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
+  ],
+  [
+   "Other heat the existing hall already puts on the plant",
+   "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+   "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."
+  ],
+  [
+   "TCS target supply temperature",
+   "30 [27\u201332] degC (E0)",
+   "The platform vendor's reference design for the target rack."
+  ],
+  [
+   "Rear-door heat exchanger capacity per rack",
+   "60 [20\u201380] kW (E0)",
+   "The selected rear-door unit's datasheet at the site's water temperature and airflow."
+  ],
+  [
+   "All-in grid electricity price",
+   "library placeholder of 140 EUR/MWh (E0)",
+   "The supply contract, or 12 months of invoices divided by metered energy."
+  ],
+  [
+   "Lifecycle horizon",
+   "none: no lifecycle value is computed",
+   "The investment committee's evaluation period."
+  ],
+  [
+   "Discount rate",
+   "none: the lifecycle value is undiscounted",
+   "The client's hurdle rate."
+  ]
+ ],
+ "reference_hall": [
+  [
+   "BESS-2MW-8MWh battery energy rating",
+   "your firm factor 0.5 accepted as declared, unchecked against the battery's energy",
+   "the battery datasheet or supplier quotation: usable energy in MWh at the discharge rate the duty needs"
+  ],
+  [
+   "GEN-5MW unit count and redundancy",
+   "credited at nameplate x firm factor, as if no unit could be out of service",
+   "the generator schedule: how many units make up the option's capacity_MW, and the redundancy scheme your resilience design requires (N, N+1, N+2 or 2N)"
+  ],
+  [
+   "Installed CDU schedule",
+   "[]",
+   "CDU nameplates and the mechanical single-line diagram."
+  ],
+  [
+   "Flow the existing hall already draws on the plant",
+   "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+   "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point."
+  ],
+  [
+   "Other heat the existing hall already puts on the plant",
+   "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+   "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power."
+  ],
+  [
+   "TCS target supply temperature",
+   "30 [27\u201332] degC (E0)",
+   "The platform vendor's reference design for the target rack."
+  ],
+  [
+   "Rear-door heat exchanger capacity per rack",
+   "60 [20\u201380] kW (E0)",
+   "The selected rear-door unit's datasheet at the site's water temperature and airflow."
+  ],
+  [
+   "All-in grid electricity price",
+   "library placeholder of 140 EUR/MWh (E0)",
+   "The supply contract, or 12 months of invoices divided by metered energy."
+  ],
+  [
+   "Discount rate",
+   "none: the lifecycle value is undiscounted",
+   "The client's hurdle rate."
+  ]
+ ]
+}

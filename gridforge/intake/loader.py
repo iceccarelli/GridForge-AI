@@ -55,6 +55,22 @@ def _num(raw: Any, what: str = "value") -> float:
     return v
 
 
+def declared_evidence_class(path: str, raw: Any) -> EvidenceClass:
+    """The evidence class a client declares for a figure: exactly E0..E7 (case-insensitive, surrounding whitespace ignored), nothing else.
+
+    Reading only the first two characters made "E10" an E1, "E39" an E3 and "E1 (measured)" an E1, so a client could attest to a class it
+    never named; a bare 0, false or [] was dropped as "nothing declared". Anything that is not exactly a class is refused by field.
+
+    The ONE parser of a declared class: ``change.declared_evidence`` (the diff's evidence fingerprint) calls it too, so the loader and the diff
+    cannot disagree about what a class is."""
+    if isinstance(raw, str):
+        found = _EVIDENCE_BY_NAME.get(raw.strip().upper())
+        if found is not None:
+            return found
+    raise IntakeError(f"{path}: declared evidence {raw!r} is not an evidence class; "
+                      f"use exactly one of {', '.join(_EVIDENCE_BY_NAME)} (nothing else is read as a class, and null means not declared)")
+
+
 def _int(raw: Any, what: str = "value") -> int:
     v = _num(raw, what)
     if v != int(v) or v < 0:
@@ -72,6 +88,7 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "site.design_drybulb_C": 60, "site.design_wetbulb_C": 45,
     "grid.firm_capacity_MVA": 5_000, "grid.contracted_MW": 5_000, "grid.current_site_peak_MW": 5_000, "grid.current_it_load_MW": 5_000,
     "lv.voltage_V": 36_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
+    "lv.existing_busway_load_kW": 5_000_000,
     "thermal.plant.chilled_water_capacity_kW": 2_000_000, "thermal.plant.pump_flow_capacity_l_per_min": 5_000_000,
     "thermal.plant.existing_flow_l_per_min": 5_000_000, "thermal.plant.existing_non_it_heat_kW": 2_000_000,
     "thermal.plant.available_head_kPa": 2_000, "thermal.plant.free_cooling_hours_per_year": 8_760,
@@ -253,6 +270,8 @@ def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
     the whole hall's busway: say so rather than let the constraint look more precise than the input."""
     import math
     lv, hall = ctx.power.lv, ctx.hall
+    if lv.existing_load_kW is not None:
+        return          # the load already on the busway was given and is subtracted: the "existing load is not subtracted" caveat no longer applies
     occupied = max(hall.rack_positions - hall.positions_available, 0)
     existing_kW = occupied * hall.design_density_kW_per_rack.value
     phase = math.sqrt(3) if lv.phases == 3 else 1.0
@@ -263,6 +282,31 @@ def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
             f"Busway: the {occupied} occupied positions at their {hall.design_density_kW_per_rack.value:g} kW design density would draw "
             f"{existing_kW:,.0f} kW, more than the {total_kW:,.0f} kW the declared busway can carry. busway_ampacity_A is read as the "
             f"installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.")
+
+
+def _existing_busway_vs_installed(path: str, existing, power, report: "IntakeReport") -> None:
+    """The load already on the busway cannot exceed what the installed busway can carry. The comparison is against the NAMEPLATE total
+    (voltage x ampacity x power factor x runs, no continuous-load derating): a figure above that is not a hall with a full busway, it is a
+    document that is wrong or in the wrong unit. A figure between the derated limit and the nameplate is a busway that is full or over its
+    continuous limit: accepted (it leaves no racks) and said."""
+    import math
+    lv = power.lv
+    phase = math.sqrt(3.0) if lv.phases == 3 else 1.0
+    nameplate_kW = phase * lv.voltage_V.value * lv.busway_ampacity_A.value * power.grid.power_factor.value * lv.busway_runs / 1000.0
+    derated_kW = nameplate_kW * lv.busway_utilisation_limit.value
+    amps_path = "lv.busway_ampacity_A"
+    where = ("supplied" if amps_path in report.supplied
+             else "not supplied, so the library placeholder applies; give the busway's ampacity")
+    if existing.value > nameplate_kW:
+        raise IntakeError(
+            f"{path} is {existing.value:g} kW, more than the {nameplate_kW:,.0f} kW the installed busway can carry at its nameplate "
+            f"({lv.busway_runs} run(s) x {lv.busway_ampacity_A.value:g} A at {lv.voltage_V.value:g} V, {amps_path} {where}). The load already "
+            f"on the busway is carried by it, so it cannot exceed that: check both figures and their units (kW versus kVA, W versus kW)")
+    if existing.value > derated_kW:
+        report.warnings.append(
+            f"{path} is {existing.value:g} kW, above the {derated_kW:,.0f} kW the busway may carry continuously "
+            f"({lv.busway_utilisation_limit.value:g} of its nameplate): the busway is over its continuous limit as declared, so it feeds no "
+            f"further rack until the load or the limit is rechecked.")
 
 
 def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
@@ -361,11 +405,8 @@ class _Reader:
             if val is not None and not isinstance(val, str):
                 raise IntakeError(f"{path}.{what} must be text, not {type(val).__name__}")
         declared = None
-        if raw.get("evidence"):
-            declared = _EVIDENCE_BY_NAME.get(str(raw["evidence"]).upper()[:2], None)
-            if declared is None:
-                raise IntakeError(f"{path}: declared evidence {raw['evidence']!r} is not an evidence class; "
-                                  f"use one of {', '.join(_EVIDENCE_BY_NAME)}")
+        if raw.get("evidence") is not None:      # JSON null = not declared; ANYTHING else, falsy or not, is a claim and must be a class
+            declared = declared_evidence_class(path, raw["evidence"])
             # A client can attest to their own data, never to our validation: E6/E7 are
             # earned by the calibration ledger, not by writing them into an intake.
             if declared > EvidenceClass.E5_CUSTOMER_DATA:
@@ -917,6 +958,14 @@ def _load_document(doc: dict) -> Intake:
                     why_it_binds=why, how_to_get_it="a supplier quotation or programme for this option"))
         options.append(opt)
 
+    existing_busway_path = "lv.existing_busway_load_kW"
+    existing_busway = None
+    if _dig(doc, existing_busway_path) is None:
+        r._gap(existing_busway_path, FIELD_BY_PATH.get(existing_busway_path), None,
+               "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)")
+    else:
+        existing_busway = r.q(existing_busway_path, "kW", "load already on the busway")
+
     power = PowerInput(
         grid=GridConnection(
             dso=str(r.raw("grid.dso", "—")),
@@ -949,6 +998,7 @@ def _load_document(doc: dict) -> Intake:
             tapoff_max_A=r.q("lv.tapoff_max_A", "A", "installed tap-off rating",
                              V(63, "A", "assumed legacy tap-off rating", ASSUMED, band=(32, 125))),
             rack_feed_topology=_rack_feed_topology(_dig(r.doc, "lv.rack_feed_topology")),
+            existing_load_kW=existing_busway,
         ),
         options=options,
     )
@@ -1113,6 +1163,8 @@ def _load_document(doc: dict) -> Intake:
         # Only one was stated: the other is a library default that now sits on the wrong side of it. Say so, do not refuse a document for
         # a figure the customer never gave.
         report.warnings.append(msg + " (one of the two is a library default: supply the other)")
+    if existing_busway is not None:
+        _existing_busway_vs_installed(existing_busway_path, existing_busway, power, r.report)
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
@@ -1127,6 +1179,9 @@ def _load_document(doc: dict) -> Intake:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
 
+    # The optional busway-load row goes LAST in the ledger: the deck's "What nobody has measured yet" slide shows the first eight gaps, and a
+    # newer optional input must not displace the long-standing ones from it (tests/test_existing_load_input.py pins the first eight).
+    r.report.gaps.sort(key=lambda g: g.path == existing_busway_path)       # stable: only that row moves, and only to the end
     scenarios = _scenario_set(doc.get("scenarios"))
     return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)

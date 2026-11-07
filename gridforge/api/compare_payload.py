@@ -264,6 +264,9 @@ def compare_payload(document: dict, results: list[ScenarioResult], *, objective:
     if indicative:
         caveats.append("At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: "
                        "it shows which inputs decide the answer, not a commitment to any date.")
+    if any(schedule(r.ladder).floored_by_cdu_kit for r in results):
+        caveats.append("Where a liquid scenario assumes a CDU kit (the intake declares no CDUs), no rack is dated earlier than the library CDU lead time, "
+                       "an assumption, and the first-rack date rests on it; the kit's commissioning and the conversion works are not in the schedule.")
     caveats.append("Grid reinforcement is not dated here: a connection date needs the network operator's offer.")
     return {
         "schema": SCHEMA,

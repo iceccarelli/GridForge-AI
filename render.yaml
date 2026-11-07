@@ -18,6 +18,16 @@ services:
     envVars:
       - key: GRIDFORGE_RATE_LIMIT
         value: "60"
+      # Who a caller is, for the rate limiter. A forwarding header is only trusted when we say a proxy of ours wrote it; unset, the engine
+      # counts every caller by the socket address, which behind a proxy is the PROXY's (one shared allowance for everyone). Render's router
+      # sits in front of the service and appends the address it saw to X-Forwarded-For, so one hop: the last entry is the client.
+      # ASSUMPTION, not verified: if a CDN (e.g. Cloudflare) is put in front of Render, that address is the CDN's and the right count
+      # is 2 (or name the CDN's single-address header with GRIDFORGE_TRUSTED_IP_HEADER). See the docstring of gridforge/api/server.py.
+      - key: GRIDFORGE_TRUSTED_PROXY_HOPS
+        value: "1"
+      # Optional hardening, comments only here: GRIDFORGE_ENFORCE_SECRET_STRENGTH=1 makes the engine REFUSE to start when
+      # GRIDFORGE_ADMIN_KEY or GRIDFORGE_KEY_SECRET is shorter than 24 characters. Without it a short one is only logged as a WARNING at start.
+      # Set it once the live secrets are confirmed long enough.
       # Browser origins allowed to call the keyed API (see fly.toml). Add a preview origin here if you need one; the free keyless
       # routes (/v1/qualify, /v1/estimate, /health) remain readable from any origin, and non-browser clients ignore CORS.
       - key: GRIDFORGE_ALLOWED_ORIGINS

@@ -341,7 +341,7 @@ def _free_port():
 class LocalEngine:
     def __init__(self, tmp_path, *, ledger=True, admin_key=None):
         self.port = _free_port()
-        env = {**os.environ, "GRIDFORGE_KEY_SECRET": "deploy-test-secret", "GRIDFORGE_USAGE_FILE": str(tmp_path / "usage.json"),
+        env = {**os.environ, "GRIDFORGE_KEY_SECRET": "deploy-test-secret-0123456789abcdef", "GRIDFORGE_USAGE_FILE": str(tmp_path / "usage.json"),
                "GRIDFORGE_REVOKED_FILE": str(tmp_path / "revoked.json"), "GRIDFORGE_COST_FILE": str(tmp_path / "costs.json")}
         if ledger:
             env["GRIDFORGE_LEDGER_FILE"] = str(tmp_path / "ledger.jsonl")
@@ -391,15 +391,15 @@ class TestPostDeployProof:
             "FAKE_MACHINES_OUT": machines, **(extra or {})})
 
     def test_a_current_engine_with_one_volume_machine_passes(self, tmp_path):
-        eng = LocalEngine(tmp_path, admin_key="op-key-for-test")
+        eng = LocalEngine(tmp_path, admin_key="op-key-for-test-0123456789abcdef")
         try:
-            proc, calls = self.deploy(tmp_path, eng, machines_file(tmp_path, ONE_MACHINE), {"GRIDFORGE_ADMIN_KEY": "op-key-for-test"})
+            proc, calls = self.deploy(tmp_path, eng, machines_file(tmp_path, ONE_MACHINE), {"GRIDFORGE_ADMIN_KEY": "op-key-for-test-0123456789abcdef"})
         finally:
             eng.stop()
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "durable usage ledger" in proc.stdout and "machines: 1, mounting gridforge_data: 1" in proc.stdout
         assert "revocation persistable" in proc.stdout and "no drift. Compared: routes, unit rates, version, usage ledger, tool names and code digest" in proc.stdout
-        assert "op-key-for-test" not in proc.stdout + proc.stderr, "the operator key must never be printed"
+        assert "op-key-for-test-0123456789abcdef" not in proc.stdout + proc.stderr, "the operator key must never be printed"
 
     def test_two_machines_fail_the_deploy(self, tmp_path):
         eng = LocalEngine(tmp_path)

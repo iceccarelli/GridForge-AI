@@ -323,8 +323,9 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.thermal.residual_air_capacity_kW_per_rack = V(
-            25, "kW", "per-position air capacity after in-row / RDHx augmentation", ASSUMED, band=(20, 30))
+        if c.thermal.residual_air_capacity_kW_per_rack.value < 25:          # a relief never lowers a capacity that is already better
+            c.thermal.residual_air_capacity_kW_per_rack = V(
+                25, "kW", "per-position air capacity after in-row / RDHx augmentation", ASSUMED, band=(20, 30))
         return c
 
     return ConstraintResult(
@@ -373,8 +374,10 @@ def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.thermal.plant.dry_cooler_approach_K = V(
-            6, "K", "dry cooler approach with adiabatic assist", ASSUMED, band=(4, 8))
+        have = c.thermal.plant.dry_cooler_approach_K
+        if have is None or have.value > 6:                                   # a lower approach is better: never replace one with a worse
+            c.thermal.plant.dry_cooler_approach_K = V(
+                6, "K", "dry cooler approach with adiabatic assist", ASSUMED, band=(4, 8))
         c.thermal.trim_chiller_installed = True
         return c
 

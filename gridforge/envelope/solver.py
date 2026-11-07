@@ -20,6 +20,7 @@ from ..validation import EvidenceClass, Quantity
 from ..power import constraints as _p  # noqa: F401
 from ..site import constraints as _s  # noqa: F401
 from ..thermal import constraints as _t  # noqa: F401
+from ..thermal.schema import Architecture
 
 
 @dataclass
@@ -123,6 +124,10 @@ class HeadroomLadder:
     initial: EnvelopeResult | None = None
     final_context: EnvelopeContext | None = None
     initial_context: EnvelopeContext | None = None
+    #: False only for a ladder handed back by ``ladder(..., allow_partial=True)`` after its step budget ran out: it is then NOT the ceiling
+    #: (reliefs were still being found), ``non_convergence_reason`` says so, and no date or cost built on it is complete.
+    converged: bool = True
+    non_convergence_reason: str = ""
 
     @property
     def cost_keys(self) -> list[str]:
@@ -151,7 +156,11 @@ class HeadroomLadder:
         An undeclared bank evaluates as "not limiting" (unbounded racks), so the ladder never prices or
         times the relief it would have needed. That is not an assessment of the bank, it is the absence of
         one: the rack figure stands as a screening answer, but any date, critical path or cost built on this
-        ladder is a LOWER BOUND and must not be presented as complete."""
+        ladder is a LOWER BOUND and must not be presented as complete.
+
+        CDUs are deliberately NOT here: a hall being converted from air to liquid has no CDUs, and that is the normal state, not a gap in
+        the intake. The scenario assumes a kit (``installed=False``), prices it, and the schedule dates the racks that depend on it
+        (``time_to_power.schedule``)."""
         ctx = self.initial_context
         if ctx is None:
             return ()
@@ -163,12 +172,33 @@ class HeadroomLadder:
         return tuple(out)
 
     @property
+    def assumed_cdu_kit(self) -> bool:
+        """True when this ladder starts from a CDU kit the engine ASSUMED (``installed=False``) in a liquid architecture: the racks as
+        found run on cooling that has still to be bought, delivered and commissioned."""
+        ctx = self.initial_context
+        return bool(ctx is not None and ctx.architecture in (Architecture.HYBRID_DLC, Architecture.FULL_DLC)
+                    and any(not c.installed for c in ctx.thermal.cdus))
+
+    @property
+    def cdu_kit_lead_time(self) -> Quantity | None:
+        """The library lead time of the CDU relief (the very object ``cdu_capacity`` carries), or None when there is none."""
+        res = self.initial
+        if res is None:
+            return None
+        for c in res.constraints:
+            if c.id == "cdu_capacity" and c.relief is not None:
+                return c.relief.lead_time_weeks
+        return None
+
+    @property
     def incomplete_reason(self) -> str:
         """Why the path is not complete, in words a reader can act on; "" when it is complete."""
         parts = []
         if self.unassessed_banks:
             parts.append("not declared: " + ", ".join(self.unassessed_banks)
                          + " (reliefs they would need are neither priced nor timed)")
+        if self.non_convergence_reason:
+            parts.append(self.non_convergence_reason)
         gaps = [s.binding_name for s in self.taken_steps if s.lead_time_weeks is None]
         if gaps:
             parts.append("no lead time is known for " + ", ".join(gaps))
@@ -178,7 +208,7 @@ class HeadroomLadder:
     def critical_path_complete(self) -> bool:
         """False when a relief that is taken has no lead time, or an equipment bank was not declared: the
         critical path is then a LOWER BOUND (the longest KNOWN lead time), not the path."""
-        return not self.unassessed_banks and all(s.lead_time_weeks is not None for s in self.taken_steps)
+        return self.converged and not self.unassessed_banks and all(s.lead_time_weeks is not None for s in self.taken_steps)
 
     @property
     def critical_path_weeks(self) -> float:
@@ -205,8 +235,53 @@ class LadderDidNotConverge(RuntimeError, ValueError):
     """The ladder was still finding reliefs when the step budget ran out. Reporting
     the rung it happened to stop on would publish a capacity that is not the ceiling.
 
-    It is also a ValueError: the cause is the input (a hall so unbounded the ladder never settles), so the API
-    answers 422 "could not be processed as given" and refunds the call, rather than a 500 that blames the engine."""
+    It is also a ValueError: the cause is the input (a hall so large the ladder cannot be finished inside the work one request may ask
+    for), so the API answers 422 "could not be processed as given" and refunds the call, rather than a 500 that blames the engine. The
+    message names the intake fields that set the size of the hall."""
+
+
+#: The fewest rungs the ladder may use, whatever the size of the hall (the historical fixed budget; ordinary halls never come near it).
+LADDER_STEP_FLOOR = 200
+#: Rungs allowed per MW of hall size (see ``ladder_step_budget``). Measured on the shipped intakes scaled up, a rung adds about
+#: 1 / 1.2 to 1 / 1.5 MW, so 3 per MW leaves a margin of more than two.
+LADDER_STEPS_PER_MW = 3.0
+#: The most rungs one request may demand: a deterministic bound on the work (no clock is read: the engine stays reproducible). Measured on the
+#: largest hall the loader admits (50,000 positions, 5,000 MVA, 5,000 MW of behind-the-meter capacity; Python 3.13, one core), a rung costs
+#: 1.2 to 2 ms and 0.1 MB, growing with depth:
+#:     rungs   200    400    600    800    1,200  2,000   4,000
+#:     CPU s   0.36   0.70   1.20   1.63   2.49   4.25    9.80     (full_dlc_btm, the widest scenario; hybrid/full DLC run ~10% quicker)
+#:     RSS MB  33     48     62     77     106    165     312
+#: A request runs up to three liquid ladders, so 600 rungs bound a request at about 3.5 s of CPU and well under 100 MB. The provenance chain
+#: deepens by about one level per rung (the capex total adds each rung's price to the last), and its digest is recursive: /v1/screen, /study
+#: and /compare raised RecursionError (a 500) at about 1,000 rungs, so the cap must stay well under the interpreter's recursion limit
+#: (tests/test_ladder_convergence.py pins both). 600 answers halls up to roughly 450 MW of firm supply plus behind-the-meter capacity in the
+#: widest scenario; a hall that needs more is refused by name (LadderDidNotConverge, 422) and must be split into one request per hall.
+LADDER_STEP_CAP = 600
+#: Rungs per MW of hall size actually needed, measured worst case (see above): the supported scale the refusal states.
+LADDER_STEPS_PER_MW_MEASURED = 1.3
+
+#: The intake fields that set how many rungs a hall needs, named in the refusal so the caller knows what to split or re-check.
+_SIZE_FIELDS = "hall.positions_available, grid.firm_capacity_MVA, grid.contracted_MW and btm_options.capacity_MW"
+
+
+def _finite_positive(x: float) -> float:
+    return x if isinstance(x, (int, float)) and math.isfinite(x) and x > 0 else 0.0
+
+
+def ladder_step_budget(ctx: EnvelopeContext) -> int:
+    """How many rungs the ladder may take for this hall: LADDER_STEP_FLOOR plus LADDER_STEPS_PER_MW for every MW of the hall's size,
+    never more than LADDER_STEP_CAP.
+
+    Every relief adds a fixed increment (two busway runs, one CDU per bank, two UPS modules per block), so the rungs needed grow with how
+    much capacity there is to unlock. That is the smaller of what the supply could carry (the lesser of the firm connection and the
+    contract, plus every behind-the-meter option) and what the free positions could hold at the platform's rack power. A fixed 200
+    rungs refused ordinary halls above roughly 150 MVA. Non-finite or non-positive figures count as zero (they cannot enlarge the budget)."""
+    g = ctx.power.grid
+    supply_MW = min(_finite_positive(g.firm_capacity_MVA.value * g.power_factor.value), _finite_positive(g.contracted_MW.value))
+    btm_MW = sum(_finite_positive(o.capacity_MW.value) for o in ctx.power.options)
+    hall_MW = _finite_positive(float(ctx.hall.positions_available) * ctx.cluster.platform.rack_kW.value / 1000.0)
+    size_MW = min(supply_MW + btm_MW, hall_MW)
+    return int(min(LADDER_STEP_CAP, LADDER_STEP_FLOOR + math.ceil(LADDER_STEPS_PER_MW * size_MW)))
 
 
 def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *, taken: bool = True) -> LadderStep:
@@ -224,7 +299,15 @@ def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *,
         limited=rl.limited)
 
 
-def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
+def ladder(ctx: EnvelopeContext, max_steps: int | None = None, *, allow_partial: bool = False) -> HeadroomLadder:
+    """The Headroom Ladder: relieve the binding constraint, solve again, repeat until a relief earns nothing.
+
+    ``max_steps`` None (the default) takes the budget the hall's size calls for (``ladder_step_budget``); an explicit number is honoured
+    exactly. When the budget runs out while reliefs are still being found, the ladder is NOT the ceiling: ``LadderDidNotConverge`` is
+    raised, naming the fields that set the hall's size. With ``allow_partial=True`` the rungs taken so far come back instead, in a ladder
+    with ``converged=False`` and a ``non_convergence_reason`` that says so (and that withholds the date and the complete critical path)."""
+    if max_steps is None:
+        max_steps = ladder_step_budget(ctx)
     out = HeadroomLadder()
     cur = ctx
     res = solve(cur)
@@ -248,6 +331,16 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
             converged = True
             break
         nxt = solve(nxt_ctx)
+        if nxt.max_racks < res.max_racks:
+            # A relief that leaves the hall with FEWER racks than it had is not a relief, whatever it was written to do
+            # (a replacement part that is weaker than the installed one, for example). It is shown, not taken, and the plan stops here:
+            # the next rung would only relieve the constraint this one made worse.
+            st = _step(i, binding, res, res.max_racks, rack_evidence(res), taken=False)
+            st.not_taken_reason = (f"applying this relief would lower the hall from {res.max_racks} to {nxt.max_racks} rack(s), "
+                                   "so it is not taken and not costed")
+            out.steps.append(st)
+            converged = True
+            break
         reliefs[i] = binding.relief
         out.steps.append(_step(i, binding, res, nxt.max_racks, rack_evidence(nxt)))
         states[i] = (nxt_ctx, nxt)
@@ -256,8 +349,15 @@ def ladder(ctx: EnvelopeContext, max_steps: int = 200) -> HeadroomLadder:
             break
         cur, res = nxt_ctx, nxt
     if not converged:
-        raise LadderDidNotConverge(
-            f"the headroom ladder was still finding reliefs after {max_steps} steps")
+        why = (f"the headroom ladder was still finding reliefs after {max_steps} steps, at {res.max_racks} rack(s) "
+               f"(from {out.initial.max_racks} as found), so the capacity reached is not the ceiling. The size of the hall sets the number of "
+               f"steps: check {_SIZE_FIELDS}, or split the site into one request per hall. "
+               f"Supported scale: a hall that needs at most {LADDER_STEP_CAP} steps, which is about "
+               f"{int(LADDER_STEP_CAP / LADDER_STEPS_PER_MW_MEASURED // 10 * 10)} MW of firm supply plus behind-the-meter capacity")
+        if not allow_partial:
+            raise LadderDidNotConverge(why)
+        out.converged = False
+        out.non_convergence_reason = why
     # A relief that earns no deployable capacity, and is not followed by one that does, is spending with no
     # return: the plan ends at the last step that added racks. (A zero-gain step BEFORE a gaining one is a
     # tied constraint and stays: relieving one of two limits at the same count changes nothing alone.)
