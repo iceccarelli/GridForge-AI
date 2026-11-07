@@ -12,7 +12,7 @@ type Msg = { role: "user" | "assistant"; content: string };
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "I'm the Time to Power scoping engineer. Tell me about your existing AI hall — approximate MW, hall size, and where you are with the grid connection — and I'll give you a directional read on how much of that power can actually become useful AI compute, and what's likely to bind first.",
+    "I'm the Time to Power scoping assistant, an AI. I'm not a human engineer. Tell me about your existing AI hall — approximate MW, hall size, and where you are with the grid connection — and I'll run it through the GridForge engine for a directional read on how much of that power can actually become useful AI compute, and what's likely to bind first. Any figure I give comes from that engine run, not from me.",
 };
 
 /**
@@ -85,10 +85,10 @@ export default function ScopingAgentPanel({ open, onClose }: { open: boolean; on
   return (
     <>
       {open && (
-        <div role="dialog" aria-label="Scoping engineer" className="fixed z-[60] w-[min(92vw,400px)] h-[min(75vh,600px)] flex flex-col rounded-2xl border border-line bg-panel shadow-2xl overflow-hidden bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-3 lg:bottom-6 lg:right-6">
+        <div role="dialog" aria-label="Time to Power scoping assistant (AI)" className="fixed z-[60] w-[min(92vw,400px)] h-[min(75vh,600px)] flex flex-col rounded-2xl border border-line bg-panel shadow-2xl overflow-hidden bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] right-3 lg:bottom-6 lg:right-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-ink/60">
             <div>
-              <div className="font-semibold text-sm">Scoping engineer</div>
+              <div className="font-semibold text-sm">Scoping assistant (AI)</div>
               <div className="data text-[10px] text-power">Time to Power · directional reads</div>
             </div>
             <div className="flex items-center gap-1">

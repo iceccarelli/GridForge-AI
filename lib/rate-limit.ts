@@ -106,6 +106,10 @@ export const RATE_POLICIES = {
    * the same count; fails closed (503) when that counter cannot be read.
    */
   admin_login: { bucket: "admin_login", limit: 8, windowSeconds: 600 },
+  /** POST /api/contact: records an enquiry in the leads table. 5 an hour per caller address is a person writing, or an office behind one address, not a loop. */
+  contact: { bucket: "contact", limit: 5, windowSeconds: HOUR },
+  /** POST /api/csp-report: browsers post a violation report per blocked resource; report-only, so it can never break a page. Bounded so it cannot be a free write path. */
+  csp_report: { bucket: "csp_report", limit: 120, windowSeconds: HOUR },
   /** GET /api/usage: token-addressed reads of the account's own usage; polled by the portal. */
   usage_read: { bucket: "usage_read", limit: 240, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;

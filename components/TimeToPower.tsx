@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
+import { REDUCED_MOTION_QUERY, autoplayReducer, prefersReducedMotion } from "@/lib/ttp-autoplay";
 
 /**
  * FIG. 01 — the signature hero panel: the time-to-power gap, now interactive.
@@ -31,9 +33,9 @@ export function TimeToPower() {
   const [current, setCurrent] = useState<number | null>(null);
 
   // --- Autoplay scenario reel -------------------------------------------------
-  // Five critical buyer stories. The reel glides the four knobs to each target
-  // every 10s; because it calls the real setters, every bar + headline figure
-  // animates for free. Grabbing a knob pauses autoplay for 20s, then it resumes.
+  // Five illustrative stories. The reel glides the four knobs to each target every 10 s; because it calls the real setters, every bar and
+  // headline figure animates for free. It follows lib/ttp-autoplay.ts: no autoplay for a visitor who prefers reduced motion, a visible
+  // Pause/Play control, and the first change the visitor makes to an input STOPS it for good (it never resumes over their numbers).
   // Illustrative scenarios — none is a named customer or a delivered result.
   // Each names the kind of constraint that binds a hall, not a place or a deal.
   const SCENARIOS = useMemo(
@@ -48,24 +50,72 @@ export function TimeToPower() {
   );
   const [sceneIdx, setSceneIdx] = useState(0);
   const [captionOn, setCaptionOn] = useState(true);
-  const pausedUntil = useRef(0);
+  // Nothing plays until the visitor's motion preference has been read on mount.
+  const [mode, dispatch] = useReducer(autoplayReducer, "paused");
+  // True once the numbers on screen are the visitor's own, not a scenario's: the caption then says so.
+  const [custom, setCustom] = useState(false);
+  const reducedRef = useRef(false);
   const rafRef = useRef<number | null>(null);
+  const glideRef = useRef<{ finish: () => void } | null>(null);
 
-  // Pause autoplay for 20s whenever the user interacts with a control.
-  const nudge = () => { pausedUntil.current = Date.now() + 20000; };
+  const cancelGlide = useCallback(() => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    glideRef.current = null;
+    setCaptionOn(true);
+  }, []);
+
+  // The first actual CHANGE to an input value stops the reel for good, mid-glide included. (Knob calls this only when the value differs.)
+  const nudge = useCallback(() => {
+    cancelGlide();
+    setCustom(true);
+    dispatch({ type: "user_adjusted" });
+  }, [cancelGlide]);
+
+  const applyScenario = useCallback((i: number) => {
+    const t = SCENARIOS[i];
+    setMW(t.mw);
+    setQueueYrs(t.queueYrs);
+    setOnsiteMo(t.onsiteMo);
+    setRevPerMW(t.revPerMW);
+  }, [SCENARIOS]);
+
+  // Read the visitor's motion preference, and follow it if it changes while the page is open.
+  useEffect(() => {
+    reducedRef.current = prefersReducedMotion(window);
+    dispatch({ type: "mount", reduced: reducedRef.current });
+    let mq: MediaQueryList | null = null;
+    try { mq = window.matchMedia(REDUCED_MOTION_QUERY); } catch { /* unreadable: the Pause control is the way out */ }
+    const onChange = (e: MediaQueryListEvent) => {
+      reducedRef.current = e.matches;
+      if (e.matches) glideRef.current?.finish();
+      dispatch({ type: "reduced_changed", reduced: e.matches });
+    };
+    mq?.addEventListener?.("change", onChange);
+    return () => mq?.removeEventListener?.("change", onChange);
+  }, []);
 
   useEffect(() => {
+    if (mode !== "playing") return;
     const easeInOutCubic = (t: number) =>
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-    let dwellTimer: ReturnType<typeof setTimeout>;
 
     function glideTo(next: number) {
       const from = SCENARIOS[sceneIdx];
       const to = SCENARIOS[next];
+      const land = () => {
+        applyScenario(next);
+        setSceneIdx(next);
+        setCaptionOn(true);
+        rafRef.current = null;
+        glideRef.current = null;
+      };
+      // Reduced motion: jump to the next scenario, no animation frames at all.
+      if (reducedRef.current) { land(); return; }
       const dur = 1600;
       const t0 = performance.now();
       setCaptionOn(false);
+      glideRef.current = { finish: () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); land(); } };
       const step = (now: number) => {
         const p = Math.min(1, (now - t0) / dur);
         const e = easeInOutCubic(p);
@@ -76,29 +126,24 @@ export function TimeToPower() {
         if (p < 1) {
           rafRef.current = requestAnimationFrame(step);
         } else {
-          setSceneIdx(next);
-          setCaptionOn(true);
+          land();
         }
       };
       rafRef.current = requestAnimationFrame(step);
     }
 
-    function schedule() {
-      dwellTimer = setTimeout(function tick() {
-        if (Date.now() < pausedUntil.current) {
-          dwellTimer = setTimeout(tick, 1000); // wait out the pause, re-check
-          return;
-        }
-        glideTo((sceneIdx + 1) % SCENARIOS.length);
-      }, 10000);
-    }
-    schedule();
+    const dwellTimer = setTimeout(() => glideTo((sceneIdx + 1) % SCENARIOS.length), 10000);
 
     return () => {
       clearTimeout(dwellTimer);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     };
-  }, [sceneIdx, SCENARIOS]);
+  }, [mode, sceneIdx, SCENARIOS, applyScenario]);
+
+  // Pause freezes the reel on a whole scenario, not on a half-way blend of two.
+  const pauseReel = () => { glideRef.current?.finish(); dispatch({ type: "pause" }); };
+  const playReel = () => dispatch({ type: "play" });
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -136,10 +181,20 @@ export function TimeToPower() {
       <div className="flex items-start justify-between gap-4 mb-6 relative">
         <div>
           <div className="eyebrow">FIG. 01 — TIME TO POWER</div>
-          <div className="text-sm text-mute mt-1" style={{ opacity: captionOn ? 1 : 0.25, transition: "opacity 0.5s ease" }}>
-            <span className="text-power font-medium">{SCENARIOS[sceneIdx].title}</span>
-            <span className="mx-1.5 text-faint">·</span>
-            {SCENARIOS[sceneIdx].sub}
+          <div data-testid="ttp-caption" className="text-sm text-mute mt-1" style={{ opacity: captionOn ? 1 : 0.25, transition: "opacity 0.5s ease" }}>
+            {custom ? (
+              <>
+                <span className="text-power font-medium">Your inputs</span>
+                <span className="mx-1.5 text-faint">·</span>
+                Edited by you; not an engine result. A Density Screen replaces them with your hall&apos;s numbers
+              </>
+            ) : (
+              <>
+                <span className="text-power font-medium">{SCENARIOS[sceneIdx].title}</span>
+                <span className="mx-1.5 text-faint">·</span>
+                {SCENARIOS[sceneIdx].sub}
+              </>
+            )}
           </div>
         </div>
         <LiveEpex series={series} current={current} />
@@ -174,12 +229,23 @@ export function TimeToPower() {
         <Knob label="Headroom Ladder time-to-power (your assumption)" value={onsiteMo} unit="mo" min={9} max={30} step={1} onChange={setOnsiteMo} onNudge={nudge} />
         <Knob label="Revenue / MW-yr" value={revPerMW} unit="$M" min={0.5} max={4} step={0.1} onChange={setRevPerMW} fixed={1} assumption onNudge={nudge} />
 
-        {/* Scene dots — show the reel is alive and progressing */}
-        <div className="col-span-2 flex items-center justify-center gap-2 mt-1">
+        {/* Pause / Play, then the scene dots */}
+        <div className="col-span-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-1">
+          {mode === "stopped" ? (
+            <span className="data text-[11px] text-faint" role="status">Autoplay stopped; your inputs are kept.</span>
+          ) : mode === "playing" ? (
+            <button type="button" onClick={pauseReel} aria-label="Pause scenario autoplay" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-[12px] text-mute hover:text-ghost">
+              <Pause size={14} aria-hidden /> Pause
+            </button>
+          ) : (
+            <button type="button" onClick={playReel} aria-label="Play scenario autoplay" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 text-[12px] text-mute hover:text-ghost">
+              <Play size={14} aria-hidden /> Play
+            </button>
+          )}
           {SCENARIOS.map((_, i) => (
             <button
               key={i}
-              onClick={() => { nudge(); setSceneIdx(i); }}
+              onClick={() => { cancelGlide(); dispatch({ type: "scenario_selected" }); setCustom(false); setSceneIdx(i); applyScenario(i); }}
               aria-label={"Scenario " + (i + 1)}
               className="h-1.5 rounded-full transition-all"
               style={{
@@ -267,8 +333,12 @@ function Knob({ label, value, unit, min, max, step, onChange, fixed = 0, assumpt
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
-        onPointerDown={onNudge}
-        onChange={(e) => { onNudge?.(); onChange(Number(e.target.value)); }}
+        onChange={(e) => {
+          // Only a value that actually changed is an edit: a press on the thumb that moves nothing leaves the reel alone.
+          const next = Number(e.target.value);
+          if (next !== value) onNudge?.();
+          onChange(next);
+        }}
         className="w-full accent-[#00E5FF] cursor-pointer"
         aria-label={label}
       />

@@ -3,7 +3,7 @@
 // long conversation; these checks are the backstop.
 
 /**
- * Topics the scoping engineer must never engage with, however the caller
+ * Topics the scoping assistant must never engage with, however the caller
  * phrases the question. Mirrors "WHAT WE DO NOT DO" in prompts/system.ts —
  * kept here too so a caller can screen a user turn before it ever reaches
  * the model, and so an out-of-scope ask cannot accidentally trigger a paid

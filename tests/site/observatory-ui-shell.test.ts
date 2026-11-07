@@ -30,7 +30,7 @@ describe("no checkout push from /observatory", () => {
     pathname.value = "/observatory/presenter";
     expect(renderToStaticMarkup(React.createElement(ScopingAgent))).toBe("");
     pathname.value = "/pricing";
-    expect(renderToStaticMarkup(React.createElement(ScopingAgent))).toContain("Open scoping engineer");
+    expect(renderToStaticMarkup(React.createElement(ScopingAgent))).toContain("scoping assistant (AI)");
     pathname.value = "/workspace";
     expect(renderToStaticMarkup(React.createElement(ScopingAgent))).toBe("");
   });
