@@ -83,6 +83,11 @@ export const RATE_POLICIES = {
   team_invite_account: { bucket: "team_invite_account", limit: 20, windowSeconds: HOUR },
   /** POST /api/team/invitation (preview, accept, decline): per caller address. A secret is 256 bits; this bounds noise, not guessing. */
   team_redeem: { bucket: "team_redeem", limit: 60, windowSeconds: HOUR },
+  /** GET /api/orgs, /api/sites, /api/halls/...: reads of the site and hall registry (0049-0051) by a signed-in, VERIFIED member. Counted per VERIFIED ACCOUNT, not per
+   *  address (`accountOnly`): an office behind one NAT must not lock itself out, and the caller has been identified before anything is counted. A page load is two. */
+  registry_read: { bucket: "registry_read", limit: 600, windowSeconds: HOUR },
+  /** POST/DELETE on the same routes: each writes an append-only row. 120 an hour per verified account is a team entering a hall's figures, not a loop. */
+  registry_write: { bucket: "registry_write", limit: 120, windowSeconds: HOUR },
   /** POST /api/audit: records an enquiry, mails the desk, pings Slack and may mail the address typed in the form. */
   audit: { bucket: "audit", limit: 10, windowSeconds: HOUR },
   /** POST /api/qualify/[token]/follow-up: each first request mails the desk and an address the caller typed. */
@@ -424,6 +429,12 @@ export interface GuardOptions {
    * proven first, so one subscriber cannot multiply their allowance across addresses.
    */
   account?: { verifiedEmail: string; policy: RatePolicyName };
+  /**
+   * With `account`: count the verified ACCOUNT only, not the caller's address. For routes that identify the caller (a verified bearer) BEFORE
+   * counting, where an address is a poor key: an office or a school behind one NAT shares it. The caller's address is still resolved (the guard
+   * fails closed without one) and still scopes provider spend; it just is not charged. Ignored without `account`.
+   */
+  accountOnly?: boolean;
 }
 
 export type Guard =
@@ -449,8 +460,10 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
     console.error(`[GridForge] rate limit: caller identity unavailable (${who.reason}); refusing`);
     return { denied: refuse503() };
   }
-  const own = await charge(RATE_POLICIES[name], who.subject);
-  if (own) return { denied: responseFor(own) };
+  if (!(opts.accountOnly && opts.account)) {
+    const own = await charge(RATE_POLICIES[name], who.subject);
+    if (own) return { denied: responseFor(own) };
+  }
 
   if (opts.account) {
     const acct = accountSubject(opts.account.verifiedEmail);
