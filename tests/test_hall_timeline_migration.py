@@ -93,7 +93,9 @@ def test_the_timeline_unions_inputs_project_log_supplier_dates_and_observations_
     times = [e["occurred_at"] for e in events]
     assert times == sorted(times, reverse=True)                       # newest first
     assert [e["subject"] for e in events if e["kind"] == "supplier_date"] == ["on_site_date", "po_date"]
-    assert [e["subject"] for e in events if e["kind"] == "project_event"] == ["rfq_generated", "project_created"]
+    # The two newest are the real events the fixtures' own steps append (the file's review, the observation's submission, both stamped now);
+    # then the two the test wrote with fixed dates.
+    assert [e["subject"] for e in events if e["kind"] == "project_event"] == ["observation_submitted", "evidence_reviewed", "rfq_generated", "project_created"]
 
 
 def test_every_event_says_what_kind_of_thing_it_is_and_what_stands_behind_it(w):

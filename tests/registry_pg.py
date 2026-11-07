@@ -150,9 +150,29 @@ def seed_project_event(db, project_id, event_type, occurred_at=None, actor="engi
              f"values ('{project_id}', '{event_type}', {at}, '{actor}', {q(json.dumps(payload or {}))}::jsonb)")
 
 
+def _event(event_type):
+    return q(json.dumps({"event_type": event_type, "actor": "reviewer@desk.example", "payload": {}})) + "::jsonb"
+
+
+def review_evidence(db, evidence_id, decision="verified", sha=None, reviewer="F. Keane", reason="checked against the stored object"):
+    """The only way a file becomes verified or rejected (0048): gf_review_evidence, with the SHA-256 the reviewing server says it computed
+    (here: the digest stored at upload, i.e. a matching confirmation). A rejection needs no digest."""
+    p = {"evidence_id": evidence_id, "decision": decision, "reviewer": reviewer, "reason": reason}
+    if decision == "verified":
+        p["sha256_confirmed"] = sha or scalar(db, f"select sha256 from project_evidence where id = '{evidence_id}'")
+    psql(db, f"select public.gf_review_evidence({q(json.dumps(p))}::jsonb, {_event('evidence_reviewed')})")
+
+
 def seed_evidence(db, project_id, review="verified", filename="agreement.pdf", storage_ref="project-evidence/x/y"):
-    return scalar(db, "insert into project_evidence (project_id, filename, media_type, sha256, byte_size, storage_ref, review_status) "
-                      f"values ('{project_id}', {q(filename)}, 'application/pdf', '{uuid.uuid4().hex * 2}', 100, {q(storage_ref)}, '{review}') returning id")
+    """A project file the way production gets one: it ARRIVES unverified (0048 refuses a file that arrives verified) and reaches 'verified' or
+    'rejected' only through gf_review_evidence."""
+    eid = scalar(db, "insert into project_evidence (project_id, filename, media_type, sha256, byte_size, storage_ref) "
+                     f"values ('{project_id}', {q(filename)}, 'application/pdf', '{uuid.uuid4().hex * 2}', 100, {q(storage_ref)}) returning id")
+    if review in ("verified", "rejected"):
+        review_evidence(db, eid, review)
+    else:
+        assert review == "unverified", review
+    return eid
 
 
 def seed_intake_file(db, buyer_email):
@@ -182,12 +202,34 @@ def seed_actual_review(db, actual_id, project_id, verified_fields):
     psql(db, f"insert into supplier_actual_reviews (actual_id, project_id, decision, verified_fields, reviewer) values ('{actual_id}', '{project_id}', 'verified', {arr}, 'r@desk.example')")
 
 
-def seed_observation(db, project_id, evidence_id, observed_on="2026-03-01", observed=11.0, review_class=None):
-    oid = scalar(db, "insert into project_observations (project_id, prediction_ref, case_token, case_revision, architecture, calibration_key, unit, predicted_value, "
-                     "predicted_source, observed_value, observed_on, method, evidence_id, installed_attested, installed_basis, submitted_by) "
-                     f"values ('{project_id}', 'power_deployment_case:c:r1:A', 'c', 1, 'A', 'btm.firm_MW', 'MW', 12.5, 'engine', {observed}, '{observed_on}', 'meter', "
-                     f"'{evidence_id}', true, 'commissioning sheet', 'x@a.example') returning id")
+def seed_forecast(db, observed_on, predicted=12.5, architecture="A"):
+    """A stored forecast (a power_deployment_cases revision) made BEFORE `observed_on`, as 0046 requires of an observation's forecast.
+    Stored through gf_append_case_revision, so the DATABASE sets case_digest and created_at. The database clock is the only clock, so to have a
+    forecast older than a past outcome the revision's created_at is then moved back with row triggers off (session_replication_role = replica):
+    the one out-of-band step in these fixtures, taken only to make the date true. The digest does not cover created_at, so it stays valid."""
+    token = f"case-{uuid.uuid4().hex}"
+    result = {"architectures": [{"label": architecture, "available_MW": predicted}, {"label": "Z", "available_MW": 1.0}]}
+    prov = {"digest": uuid.uuid4().hex * 2, "report_date": "2026-01-01", "engine_version": "test"}
+    p = {"case_token": token, "revision": 1, "request": {"it_mw": 10}, "result": result, "changed_fields": [], "engine_provenance": prov}
+    psql(db, f"select public.gf_append_case_revision({q(json.dumps(p))}::jsonb, {_event('btm_case_revised')})")
+    psql(db, "set session_replication_role = replica; update power_deployment_cases set created_at = "
+             f"(date '{observed_on}' - 30)::timestamp at time zone 'UTC' where case_token = '{token}'")
+    return token
+
+
+def seed_observation(db, project_id, evidence_id, observed_on="2026-03-01", observed=11.0, review_class=None, data_origin="production",
+                     predicted=12.5, submitted_by="x@a.example", reviewer="reviewer@desk.example"):
+    """An observation through gf_submit_observation (0047/0046 rules apply): a stored forecast made before `observed_on` that holds `predicted`
+    for the architecture, a declared data origin, a measurement kind. With `review_class`, reviewed through gf_review_observation (the file
+    must already be verified)."""
+    case = seed_forecast(db, observed_on, predicted)
+    p = {"project_id": project_id, "prediction_ref": f"power_deployment_case:{case}:r1:A", "case_token": case, "case_revision": 1,
+         "architecture": "A", "calibration_key": "btm.firm_MW", "unit": "MW", "predicted_value": predicted,
+         "predicted_source": "result.architectures[\"A\"].available_MW", "observed_value": observed, "observed_on": observed_on,
+         "method": "meter", "evidence_id": evidence_id, "installed_attested": True, "installed_basis": "commissioning sheet",
+         "measurement_kind": "metered", "data_origin": data_origin, "submitted_by": submitted_by}
+    oid = json.loads(scalar(db, f"select public.gf_submit_observation({q(json.dumps(p))}::jsonb, {_event('observation_submitted')})"))["id"]
     if review_class:
-        psql(db, "insert into project_observation_reviews (observation_id, project_id, decision, evidence_class, reviewer) "
-                 f"values ('{oid}', '{project_id}', 'verified', '{review_class}', 'reviewer@desk.example')")
+        r = {"observation_id": oid, "decision": "verified", "evidence_class": review_class, "reviewer": reviewer, "reason": "checked"}
+        psql(db, f"select public.gf_review_observation({q(json.dumps(r))}::jsonb, {_event('observation_reviewed')})")
     return oid
