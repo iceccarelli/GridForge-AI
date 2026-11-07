@@ -7,7 +7,7 @@ changes ONLY where its project sits in the site registry (0049/0050). Everything
   attached to a production site                     -> exported (unchanged)
   attached to a test site                           -> not exported
   attached to a synthetic site                      -> not exported
-  attached to a test site, then detached            -> exported again (the gate follows the registry's current state)
+  attached to a test site, then detached            -> still NOT exported (detaching does not turn a rehearsal into ledger data)
   never attached                                    -> exported (unchanged: every project that exists today)
   observation stored before the project was attached -> still gated (the view, not an insert-time check, carries the gate)
 """
@@ -85,11 +85,11 @@ def test_a_project_in_a_test_or_synthetic_site_is_not_exported_although_its_obse
 
 
 @pytest.mark.parametrize("origin", ["test", "synthetic"])
-def test_detached_from_a_non_production_site_the_observation_is_exported_again(reg, origin):
+def test_detached_from_a_non_production_site_the_observation_stays_out(reg, origin):
     oid, project = reg.exported_observation(attach=origin)
     assert not reg.exported(oid)
     reg.detach(project, origin)
-    assert reg.exported(oid)
+    assert not reg.exported(oid)
     # the history stays: the attachment and its detachment are both still recorded
     assert scalar(reg.db, f"select count(*) from hall_project_attachments a join hall_project_detachments d on d.attachment_id = a.id where a.project_id = '{project}'") == "1"
 
@@ -101,12 +101,12 @@ def test_an_observation_stored_before_its_project_was_attached_is_gated_once_it_
     assert not reg.exported(oid)
 
 
-def test_the_gate_follows_the_project_through_a_second_attachment(reg):
+def test_a_later_production_attachment_does_not_undo_an_earlier_test_one(reg):
     oid, project = reg.exported_observation(attach="test")
     reg.detach(project, "test")
-    assert reg.exported(oid)
+    assert not reg.exported(oid)
     reg.attach(project, "production")
-    assert reg.exported(oid)
+    assert not reg.exported(oid), "a later production attachment must not undo an earlier test one"
     reg.detach(project, "production")
     reg.attach(project, "synthetic")
     assert not reg.exported(oid)
@@ -143,7 +143,7 @@ def test_the_view_is_the_0048_view_plus_exactly_one_condition_with_the_same_colu
         added = new.replace(old.rstrip(";"), "", 1) if new.startswith(old.rstrip(";")) else None
         assert added is not None, "the 0052 view must begin with 0048's definition, unchanged"
         flat = " ".join(added.split())
-        assert re.fullmatch(r"AND \(?NOT \(?EXISTS \(\s*SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text AND \(?NOT \(?EXISTS \(\s*SELECT 1 FROM hall_project_detachments hpd WHERE hpd\.attachment_id = hpa\.id\)\)?\)?\)\)?;?", flat), flat
+        assert re.fullmatch(r"AND \(?NOT \(?EXISTS \(\s*SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text\)\)?;?", flat), flat
     finally:
         drop_database(before)
 

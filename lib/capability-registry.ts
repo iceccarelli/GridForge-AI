@@ -742,7 +742,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "Export: GET /api/admin/calibration-export (admin), then `gridforge calibrate import`, which re-checks every row. /v1/calibration/residuals: public, read-only, 0 units. " +
       "Eligibility is decided by the calibration_ledger_rows view alone: a reviewer who is not the submitter verifies as E5, against a file with a verified decision on record, " +
       "a frozen forecast made before the outcome that still holds the predicted value, a production data origin, and a project whose latest recorded permission is a grant " +
-      "(and which is not attached to a non-production site, migration 0052). The permission is an assertion recorded by an administrator (the document digest is not verified " +
+      "(and which has never been filed under a non-production site, migration 0052). The permission is an assertion recorded by an administrator (the document digest is not verified " +
       "and the administrator is not identified). Revoking a permission stops future exports; it does not recall rows already imported by `gridforge calibrate import`. " +
       "A verdict is final: there is no withdrawal. Observations recorded before origin tracking stay unclassified and are not exported.",
     stripe_product_or_price: "none",
@@ -785,7 +785,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "Needs migrations 0049-0052 applied; they are written and NOT applied, and every route under /api/orgs, /api/sites and /api/halls answers 503 until they are. " +
       "A site's data origin (production, test or synthetic) and a figure's origin and evidence class are the recorder's declaration: the database enforces the rules between " +
       "them (a measured, observed or quoted figure needs a source file; an assumption or a model cannot claim above E3) and nothing verifies that a declared class is deserved. " +
-      "An organisation here is not a billing entity: Intelligence seats (0027) are unchanged and unrelated. A project attached to a non-production site is kept out of the " +
+      "An organisation here is not a billing entity: Intelligence seats (0027) are unchanged and unrelated. A project ever filed under a non-production site (detaching does not undo it) is kept out of the " +
       "calibration ledger (0052). The site offers it (/account/sites, signed in) and its tests pass, but its production state is unverified: it has no engine route to find in " +
       "lib/engine-deployed.json, and the database and the deployed build cannot be read from this repository.",
   },

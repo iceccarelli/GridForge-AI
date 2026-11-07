@@ -18,11 +18,11 @@
 -- a verified file and a reviewer, reach the ledger that `gridforge calibrate import` publishes. The organisation has said, in the registry,
 -- that this place is not a real asset; the ledger must not contradict it.
 --
--- The one added condition. An observation is NOT eligible when its project has an OPEN attachment (no row in hall_project_detachments for that
--- attachment) to a site whose data_origin is anything but 'production'. So:
+-- The one added condition. An observation is NOT eligible when its project has EVER been attached (hall_project_attachments is append-only,
+-- and a detachment does not remove the row) to a site whose data_origin is anything but 'production'. So:
 --   * attached to a production site                 -> unchanged (eligible if every other gate holds);
 --   * attached to a test or a synthetic site        -> not eligible;
---   * attached to such a site and then detached     -> eligible again (the gate follows the CURRENT state of the registry);
+--   * attached to such a site and then detached     -> STILL not eligible: detaching must not turn a rehearsal into ledger data;
 --   * never attached to any hall                    -> unchanged: every project that exists today, and every project of 0001-0045.
 -- The view is evaluated whenever the ledger is read, so it also covers an observation that was stored BEFORE its project was attached.
 --
@@ -33,11 +33,12 @@
 -- lib/project-observations.ts must handle; (c) it would put a third copy of gf_submit_observation in the chain. Nothing is lost by this: the
 -- observation is still stored, still reviewable, and simply not exported.
 --
--- RESIDUAL, stated plainly. The gate follows the registry's CURRENT state. An owner of the organisation can detach a project from a test site
--- (recorded, with a project event, and the attachment stays) and the project's observations then qualify again if every other gate holds
--- (reviewer who is not the submitter, a verified file, a frozen forecast, a production data origin, a standing permission). The site's
--- origin is the organisation's declaration, never verified (0049). Neither is a defence against a determined insider; both are a guard against
--- a rehearsal being mistaken for a measurement.
+-- RESIDUAL, stated plainly. The gate is a one-way door: once a project has been filed under a non-production site, its observations stay out
+-- of the ledger. That is deliberately the safe direction, and it has a cost: anyone holding a project's link token can attach the project to a
+-- test site of their own organisation (0050 documents that the token is the only credential for attaching) and so keep its observations out of
+-- the ledger. A withheld row is recoverable by a reviewed, owner-decided step; test data in a real ledger is not. The site's origin is the
+-- organisation's declaration, never verified (0049); this is a guard against a rehearsal being mistaken for a measurement, not a defence
+-- against a determined insider.
 --
 -- Every column, the column order and the privileges of the view are exactly 0048's. Additive and idempotent; no row is touched.
 
@@ -86,13 +87,12 @@ where r.decision = 'verified'
     where cp.scope_type = 'project' and cp.scope_id = o.project_id and cp.kind = 'granted'
       and cp.seq = (select max(c2.seq) from public.calibration_permissions c2
                     where c2.scope_type = 'project' and c2.scope_id = o.project_id))
-  -- 0052: the project is not sitting, now, in a site its organisation declared anything but production.
+  -- 0052: the project has never been filed under a site its organisation declared anything but production (a detachment does not undo it).
   and not exists (
     select 1 from public.hall_project_attachments hpa
     join public.sites st on st.id = hpa.site_id
     where hpa.project_id = o.project_id
-      and st.data_origin <> 'production'
-      and not exists (select 1 from public.hall_project_detachments hpd where hpd.attachment_id = hpa.id));
+      and st.data_origin <> 'production');
 
 -- ---------------------------------------------------------------------------
 -- Privileges, as 0048 left them: readable by service_role alone. (CREATE OR REPLACE keeps the grants; this states them again so the file

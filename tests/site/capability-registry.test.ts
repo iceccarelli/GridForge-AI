@@ -152,7 +152,7 @@ describe("the capabilities the registry used to omit", () => {
   it("states the calibration gate as the view alone, names its two admin routes and tables, and says the migrations are not applied", () => {
     const c = cap("calibration_capture");
     expect(c.entitlement).toContain("Eligibility is decided by the calibration_ledger_rows view alone:");
-    expect(c.entitlement).toContain("(and which is not attached to a non-production site, migration 0052)");
+    expect(c.entitlement).toContain("(and which has never been filed under a non-production site, migration 0052)");
     expect(c.entitlement).toContain("the document digest is not verified and the administrator is not identified");
     expect(c.entitlement).toContain("it does not recall rows already imported by `gridforge calibrate import`");
     expect(c.entitlement).toContain("A verdict is final: there is no withdrawal.");

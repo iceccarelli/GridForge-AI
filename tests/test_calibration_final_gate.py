@@ -36,11 +36,10 @@ VIEW_GATES = {
     "production origin": r"o\.data_origin = 'production'::text",
     "the project's LATEST permission is a grant":
         r"calibration_permissions cp.*cp\.kind = 'granted'::text AND cp\.seq = .*max\(c2\.seq\).*calibration_permissions c2",
-    # 0052: an OPEN attachment (no detachment) to a site that is anything but production keeps the observation out
-    "the project is not in a non-production site (an open attachment)":
+    # 0052: ever having been attached to a site that is anything but production keeps the observation out (a detachment does not undo it)
+    "the project was never filed under a non-production site":
         r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
-        r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text "
-        r"AND NOT \(EXISTS \( SELECT 1 FROM hall_project_detachments hpd WHERE hpd\.attachment_id = hpa\.id\)\)\)\)",
+        r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text\)\)",
 }
 VIEW_COLUMNS = ["id", "key", "observed_value", "predicted_value", "unit", "site_ref", "measurement_kind", "evidence_sha256",
                 "engine_provenance_digest", "report_date", "observed_on", "method", "evidence_class", "reviewed_by", "reviewed_at"]
@@ -119,7 +118,7 @@ def test_replaying_0048_after_0052_drops_the_site_origin_gate_and_is_reported():
     try:
         assert final_gaps(name) == []
         psql(name, file=next(MIGRATIONS.glob("0048_*.sql")))
-        assert final_gaps(name) == ["view: the project is not in a non-production site (an open attachment)"]
+        assert final_gaps(name) == ["view: the project was never filed under a non-production site"]
         psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))          # and replaying 0052 afterwards restores it
         assert final_gaps(name) == []
     finally:
