@@ -61,6 +61,14 @@ export default function QualifyPage() {
             </a>{" "}
             — the whole document, the deck, and the tables behind every number.
           </p>
+          <p className="mt-3 text-sm text-mute">
+            No figures to hand yet? The{" "}
+            <a href="/power/compare" className="text-power underline">
+              scenario comparison
+            </a>{" "}
+            can start from a reference template: synthetic input values, labelled as assumed, so you can watch the engine work before you
+            gather your own hall&apos;s figures.
+          </p>
         </div>
 
         <div className="hidden lg:flex flex-col gap-5">

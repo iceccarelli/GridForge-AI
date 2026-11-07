@@ -7,6 +7,8 @@ import type { ProjectState } from "@/lib/project-state";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
 import { EvidenceUpload } from "@/components/ai/EvidenceUpload";
+import { EvidenceLadderCard } from "@/components/ai/EvidenceLadderCard";
+import { evidenceLadder } from "@/lib/project-spec-relief";
 
 /**
  * The project record, as stored.
@@ -733,6 +735,22 @@ export function ProjectPanel({
                 </p>
               ))}
               <EvidenceUpload projectToken={projectToken!} onSaved={() => void load()} />
+            </Card>
+
+            <Card title="WHAT EVIDENCE COULD MOVE THE BINDING LIMIT">
+              {state.comparisons.available ? (
+                <EvidenceLadderCard
+                  ladder={evidenceLadder(state.comparisons.items[0]?.ladder ?? null, {
+                    total: state.evidence.total,
+                    verified: state.evidence.verified,
+                    unverified: state.evidence.unverified,
+                    rejected: state.evidence.rejected,
+                  })}
+                  projectToken={projectToken!}
+                />
+              ) : (
+                <p className="text-flag">Saved comparisons could not be read, so no ladder is shown (not &ldquo;none saved&rdquo;).</p>
+              )}
             </Card>
 
             <Card title="COMMERCIAL / PROCUREMENT">

@@ -22,6 +22,16 @@ import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 import { GridQueuePanel } from "@/components/GridQueuePanel";
 import { RetailPricePanel } from "@/components/RetailPricePanel";
+import {
+  HALL_PRESETS,
+  PRESET_DISCLOSURE,
+  PRESET_VALUE_CLASS,
+  PRESET_VALUE_KEYS,
+  presetById,
+  presetFormState,
+  stillTemplateValues,
+  type HallPreset,
+} from "@/lib/hall-presets";
 
 type Fields = Record<string, string>;
 type Btm = { id: string; kind: string; capacity_MW: string; lead_time_weeks: string; capex_eur_per_kW: string; energy_MWh: string };
@@ -41,6 +51,10 @@ const OPTIONAL: [string, string][] = [
   ["firmCapacityMVA", "Firm connection capacity (MVA)"],
   ["floorLoadingKPa", "Floor loading (kPa)"],
   ["plantCapacityKW", "Chilled-water plant capacity (kW)"],
+  ["pumpFlowLPerMin", "Pumped flow available (l/min)"],
+  ["existingNonItHeatKW", "Other heat already on the plant (kW)"],
+  ["designDrybulbC", "Summer design dry-bulb (°C)"],
+  ["residualAirKWPerRack", "Air removal per rack position (kW)"],
 ];
 
 // Clearly synthetic: loaded only on request, and named as such wherever it is shown.
@@ -50,7 +64,11 @@ const SYNTHETIC: Fields = {
   floorLoadingKPa: "12", plantCapacityKW: "6000",
 };
 
-function build(f: Fields, btm: Btm[], objective: CompareObjective) {
+/** What a result remembers about a reference template it started from: the label stays with the answer, whatever was edited since. */
+type TemplateUsed = { name: string; assumed: number; edited: number };
+
+/** The body the form posts to /api/power/compare. Exported so the tests send exactly what a click-then-compare sends. */
+export function buildCompareBody(f: Fields, btm: Btm[], objective: CompareObjective, preset: HallPreset | null) {
   const hall: Record<string, unknown> = { platform: f.platform || "gb300_nvl72" };
   for (const [k] of [...REQUIRED, ...OPTIONAL.map((o) => [o[0]])]) if (f[k]?.trim()) hall[k] = f[k].trim();
   const options = btm.map((o) => ({
@@ -61,7 +79,9 @@ function build(f: Fields, btm: Btm[], objective: CompareObjective) {
     ...(o.capex_eur_per_kW.trim() ? { capex_eur_per_kW: o.capex_eur_per_kW } : {}),
     ...(o.energy_MWh.trim() ? { energy_MWh: o.energy_MWh } : {}),
   }));
-  return { hall, btm_options: options, objective };
+  // Only the figures that still hold the template's own value are declared assumed (E0) to the engine; a figure the visitor changed is theirs.
+  const assumed = preset ? stillTemplateValues(preset, f).filter((k) => f[k]?.trim()) : [];
+  return { hall, btm_options: options, objective, ...(assumed.length ? { assumed_fields: assumed } : {}) };
 }
 
 const evidenceTone = (e: string | null) => (e && Number(e.slice(1)) >= 3 ? "text-verified" : "text-queue");
@@ -80,6 +100,17 @@ function download(name: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
+/** Under a field a template filled in: whether the figure is still the template's (assumed) or has become the visitor's. */
+function TemplateTag({ id, preset, fieldKey, value }: { id: string; preset: HallPreset; fieldKey: string; value: string | undefined }) {
+  if (!(PRESET_VALUE_KEYS as readonly string[]).includes(fieldKey)) return null;
+  const still = (value ?? "").trim() === preset.values[fieldKey as (typeof PRESET_VALUE_KEYS)[number]];
+  return (
+    <span id={id} className={`mt-1 block text-[11px] leading-snug ${still ? "text-queue" : "text-faint"}`}>
+      {still ? `Template value · assumed (${PRESET_VALUE_CLASS})` : "Your value"}
+    </span>
+  );
+}
+
 export function TtpCompare() {
   const uid = useId();
   const [f, setF] = useState<Fields>({ platform: "gb300_nvl72" });
@@ -87,13 +118,22 @@ export function TtpCompare() {
   const [objective, setObjective] = useState<CompareObjective>("max_compute");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; fields?: string[] } | null>(null);
-  const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean; compare: Record<string, unknown> } | null>(null);
+  const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean; compare: Record<string, unknown>; template?: TemplateUsed } | null>(null);
   const [synthetic, setSynthetic] = useState(false);
+  // The reference template the form was started from (null: none). It stays until the form is cleared, so the disclosure survives edits.
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const preset = presetById(templateId);
+  const templateStill = preset ? stillTemplateValues(preset, f).length : 0;
   const [copied, setCopied] = useState(false);
 
   const set = (k: string, v: string) => {
     setF((p) => ({ ...p, [k]: v }));
     setSynthetic(false);
+  };
+  // A change to the supply options is a change to the hall too: an edited template is no longer an untouched example.
+  const editBtm = (fn: (p: Btm[]) => Btm[]) => {
+    setBtm(fn);
+    if (templateId) setSynthetic(false);
   };
   const missing = useMemo(() => REQUIRED.filter(([k]) => !f[k]?.trim()).map(([, l]) => l), [f]);
 
@@ -106,7 +146,7 @@ export function TtpCompare() {
     }
     setBusy(true);
     try {
-      const compare = build(f, btm, objective);
+      const compare = buildCompareBody(f, btm, objective, preset);
       const res = await fetch("/api/power/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -123,7 +163,8 @@ export function TtpCompare() {
         setError({ message: body?.error ?? "The comparison could not be produced.", fields: problems });
         return;
       }
-      setOut({ result: body.result, request: body.request, synthetic, compare });
+      const template = preset ? { name: preset.name, assumed: stillTemplateValues(preset, f).length, edited: PRESET_VALUE_KEYS.length - stillTemplateValues(preset, f).length } : undefined;
+      setOut({ result: body.result, request: body.request, synthetic, compare, template });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -137,21 +178,82 @@ export function TtpCompare() {
   return (
     <div className="flex flex-col gap-8">
       <form onSubmit={run} className="panel flex flex-col gap-6 p-6" aria-busy={busy}>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="eyebrow">No figures to hand? Start from a reference template</legend>
+          <p id={`${uid}-tpl-help`} className="max-w-3xl text-xs text-mute">
+            A template fills the form with input values only. They are synthetic and assumed (E0), not a customer&apos;s hall. Nothing is
+            solved until you press Compare, and what comes back is what the engine produced from the values in the form.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {HALL_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={templateId === p.id}
+                aria-describedby={`${uid}-tpl-help ${uid}-tpl-${p.id}`}
+                className={`min-h-11 rounded border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60 ${
+                  templateId === p.id ? "border-power/70 bg-power/10" : "border-line bg-panel-2 hover:border-power/50"
+                }`}
+                onClick={() => {
+                  setF(presetFormState(p));
+                  setBtm(p.supply.map((o) => ({ ...o })));
+                  setObjective(p.objective);
+                  setTemplateId(p.id);
+                  setSynthetic(true);
+                  setOut(null);
+                  setError(null);
+                }}
+              >
+                <span className="block text-sm font-semibold text-ghost">{p.name}</span>
+                <span id={`${uid}-tpl-${p.id}`} className="mt-1 block text-xs text-mute">{p.shape}</span>
+              </button>
+            ))}
+          </div>
+          {preset ? (
+            <div role="status" className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
+              <p><strong>{PRESET_DISCLOSURE}.</strong></p>
+              <p className="mt-1 text-mute">
+                Started from &ldquo;{preset.name}&rdquo;. {templateStill} of {PRESET_VALUE_KEYS.length} values are still the template&apos;s and are sent
+                to the engine as assumed ({PRESET_VALUE_CLASS}); a value you change is yours from then on. The identity fields and the on-site
+                supply options are labels and candidates, not measurements.
+              </p>
+            </div>
+          ) : null}
+        </fieldset>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="eyebrow">The hall</p>
-          <button
-            type="button"
-            className="btn-secondary min-h-11 px-3 py-1.5 text-xs"
-            onClick={() => {
-              setF({ ...SYNTHETIC, platform: "gb300_nvl72" });
-              setBtm([]);
-              setSynthetic(true);
-              setOut(null);
-              setError(null);
-            }}
-          >
-            Load a synthetic example
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {preset ? (
+              <button
+                type="button"
+                className="btn-ghost min-h-11 px-3 py-1.5 text-xs"
+                onClick={() => {
+                  setF({ platform: "gb300_nvl72" });
+                  setBtm([]);
+                  setTemplateId(null);
+                  setSynthetic(false);
+                  setOut(null);
+                  setError(null);
+                }}
+              >
+                Clear the form
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn-secondary min-h-11 px-3 py-1.5 text-xs"
+              onClick={() => {
+                setF({ ...SYNTHETIC, platform: "gb300_nvl72" });
+                setBtm([]);
+                setTemplateId(null);
+                setSynthetic(true);
+                setOut(null);
+                setError(null);
+              }}
+            >
+              Load a synthetic example
+            </button>
+          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {REQUIRED.map(([k, label, type]) => (
@@ -167,8 +269,10 @@ export function TtpCompare() {
                 step="any"
                 required
                 value={f[k] ?? ""}
+                aria-describedby={preset ? `${uid}-${k}-tag` : undefined}
                 onChange={(e) => set(k, e.target.value)}
               />
+              {preset ? <TemplateTag id={`${uid}-${k}-tag`} preset={preset} fieldKey={k} value={f[k]} /> : null}
             </div>
           ))}
         </div>
@@ -192,7 +296,8 @@ export function TtpCompare() {
                 <label htmlFor={`${uid}-${k}`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
                   {label}
                 </label>
-                <input id={`${uid}-${k}`} className="field min-h-11 w-full" type="number" step="any" value={f[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
+                <input id={`${uid}-${k}`} className="field min-h-11 w-full" type="number" step="any" value={f[k] ?? ""} aria-describedby={preset ? `${uid}-${k}-tag` : undefined} onChange={(e) => set(k, e.target.value)} />
+                {preset ? <TemplateTag id={`${uid}-${k}-tag`} preset={preset} fieldKey={k} value={f[k]} /> : null}
               </div>
             ))}
           </div>
@@ -220,7 +325,7 @@ export function TtpCompare() {
                       id={`${uid}-b${i}${key}`}
                       className="field min-h-11 w-full"
                       value={o.kind}
-                      onChange={(e) => setBtm((p) => p.map((x, j) => (j === i ? { ...x, kind: e.target.value } : x)))}
+                      onChange={(e) => editBtm((p) => p.map((x, j) => (j === i ? { ...x, kind: e.target.value } : x)))}
                     >
                       {BTM_KINDS.map((k) => (<option key={k} value={k}>{k.replace("_", " ")}</option>))}
                     </select>
@@ -231,13 +336,13 @@ export function TtpCompare() {
                       type="number"
                       step="any"
                       value={(o as Record<string, string>)[key]}
-                      onChange={(e) => setBtm((p) => p.map((x, j) => (j === i ? { ...x, [key]: e.target.value } : x)))}
+                      onChange={(e) => editBtm((p) => p.map((x, j) => (j === i ? { ...x, [key]: e.target.value } : x)))}
                     />
                   )}
                 </div>
               ))}
               <div className="flex items-end">
-                <button type="button" className="btn-ghost min-h-11 px-3 py-2 text-xs" onClick={() => setBtm((p) => p.filter((_, j) => j !== i))}>
+                <button type="button" className="btn-ghost min-h-11 px-3 py-2 text-xs" onClick={() => editBtm((p) => p.filter((_, j) => j !== i))}>
                   Remove
                 </button>
               </div>
@@ -246,7 +351,7 @@ export function TtpCompare() {
           <button
             type="button"
             className="btn-secondary mt-3 min-h-11 px-3 py-1.5 text-xs"
-            onClick={() => setBtm((p) => [...p, { id: `opt${p.length + 1}`, kind: "gas_engine", capacity_MW: "", lead_time_weeks: "", capex_eur_per_kW: "", energy_MWh: "" }])}
+            onClick={() => editBtm((p) => [...p, { id: `opt${p.length + 1}`, kind: "gas_engine", capacity_MW: "", lead_time_weeks: "", capex_eur_per_kW: "", energy_MWh: "" }])}
           >
             Add a supply option
           </button>
@@ -301,12 +406,21 @@ export function TtpCompare() {
   );
 }
 
-export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result: CompareResult; request: Record<string, unknown>; synthetic: boolean }; cli: string; copied: boolean; onCopy: () => void }) {
+export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result: CompareResult; request: Record<string, unknown>; synthetic: boolean; template?: TemplateUsed }; cli: string; copied: boolean; onCopy: () => void }) {
   const r = out.result;
   const byId = Object.fromEntries(r.scenarios.map((s) => [s.id, s]));
   return (
     <section aria-label="Comparison result" className="flex flex-col gap-6">
-      {out.synthetic ? (
+      {out.template ? (
+        <div role="note" className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
+          <p><strong>{PRESET_DISCLOSURE}.</strong></p>
+          <p className="mt-1 text-mute">
+            This result started from &ldquo;{out.template.name}&rdquo;. {out.template.assumed} of {out.template.assumed + out.template.edited} template
+            values were still the template&apos;s when it was run and went to the engine as assumed ({PRESET_VALUE_CLASS})
+            {out.template.edited > 0 ? `; ${out.template.edited} had been changed by you` : ""}. Do not read it as a finding about any site.
+          </p>
+        </div>
+      ) : out.synthetic ? (
         <p className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
           <strong>Synthetic example.</strong> These inputs are not a real hall; do not read the result as a finding about any site.
         </p>
