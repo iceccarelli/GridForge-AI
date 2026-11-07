@@ -704,6 +704,14 @@ jobs:
         run: python -m pytest tests/test_calibration_capture_migration.py -q
       - name: Calibration integrity (0046-0048) - frozen forecast, consent and origin gate, evidence verification, final-gate definition and the seven-condition ledger truth table on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_forecast_freeze_migration.py tests/test_calibration_consent_migration.py tests/test_evidence_verification_migration.py tests/test_calibration_truth_table.py tests/test_calibration_final_gate.py -q
+      - name: Site-origin gate (0052) - a project in a test or synthetic site never reaches the ledger; detached, never attached and production sites are unchanged (fails, never skips)
+        run: python -m pytest tests/test_site_origin_gate.py -q
+      - name: Site and hall registry (0049-0051) - organisations, roles, declared origin, hall inputs and their sources, attach/detach, timeline - constraints, grants and the apply gates on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_site_registry_migration.py tests/test_hall_inputs_migration.py tests/test_hall_timeline_migration.py tests/test_site_registry_apply.py -q
+      - name: The whole chain (0001-0052) - closed function privileges, every event type, replaying 0049-0052 twice, and applying 0046-0052 over legacy rows without rewriting any (fails, never skips)
+        run: python -m pytest tests/test_migration_chain_0046_0052.py -q
+      - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_integrity_hardening_migration.py -q
       - name: Billing holds, audit trail and terminal-state guards (migration 0041) on real PostgreSQL (fails, never skips)

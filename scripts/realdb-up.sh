@@ -149,6 +149,13 @@ done
 "${DBQ[@]}" -At -c "select count(*) from pg_proc where proname in ('gf_funnel_summary','gf_usage_activity','gf_usage_month_summary')" \
   | grep -qx 3 || { echo "[realdb] FAILED: migration 0035 (funnel measurement) is missing"; exit 1; }
 
+# 0046-0052 (calibration integrity: forecast freeze, consent and origin, evidence review, the site-origin gate; the site, hall and timeline registry)
+# must be present, each with the function that proves its migration ran, and the view that governs must be the LAST definition (0052's).
+"${DBQ[@]}" -At -c "select count(distinct proname) from pg_proc where proname in ('gf_record_calibration_permission','gf_review_evidence','gf_create_org','gf_record_hall_input','gf_attach_project_to_hall','gf_hall_timeline')" \
+  | grep -qx 6 || { echo "[realdb] FAILED: migrations 0046-0051 (calibration integrity, site and hall registry) are missing"; exit 1; }
+"${DBQ[@]}" -At -c "select pg_get_viewdef('public.calibration_ledger_rows'::regclass) like '%hall_project_attachments%'" \
+  | grep -qx t || { echo "[realdb] FAILED: migration 0052 (the site-origin gate on calibration_ledger_rows) is missing"; exit 1; }
+
 if [ "$REAL_STORAGE" = 1 ]; then
   # The migrations must have created the bucket in the REAL table, and it must be private.
   [ "$("${DBQ[@]}" -At -c "select public from storage.buckets where id = 'cost-evidence-artifacts'")" = f ] \

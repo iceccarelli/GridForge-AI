@@ -123,13 +123,23 @@ export function defineRegistryScenarios(backend: Backend): void {
     if (attachTo) expect((await call("projects", "POST", attachTo.as, { id: attachTo.hall, body: { projectToken: token } })).status).toBe(201);
     return { id, token };
   }
+  /** A project file the way production gets one (0048): it arrives UNVERIFIED and becomes verified or rejected only through gf_review_evidence. */
   async function seedEvidence(projectId: string, review = "verified") {
+    const sha = uid().repeat(7).slice(0, 64).padEnd(64, "a");
     const e = await rest<any[]>("POST", "project_evidence", {
-      project_id: projectId, filename: "connection-agreement.pdf", media_type: "application/pdf", sha256: uid().repeat(7).slice(0, 64).padEnd(64, "a"),
-      byte_size: 100, storage_ref: `project-evidence/${SECRET}`, review_status: review,
+      project_id: projectId, filename: "connection-agreement.pdf", media_type: "application/pdf", sha256: sha,
+      byte_size: 100, storage_ref: `project-evidence/${SECRET}`,
     });
     expect(e.ok, JSON.stringify(e)).toBe(true);
-    return (e as any).data[0].id as string;
+    const id = (e as any).data[0].id as string;
+    if (review === "verified" || review === "rejected") {
+      const r = await rest("POST", "rpc/gf_review_evidence", {
+        p: { evidence_id: id, decision: review, reviewer: "F. Keane", reason: "checked against the stored object", ...(review === "verified" ? { sha256_confirmed: sha } : {}) },
+        p_event: { event_type: "evidence_reviewed", actor: "reviewer@desk.example", payload: {} },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+    }
+    return id;
   }
 
   // ------------------------------------------------------------------------------------------------- the door

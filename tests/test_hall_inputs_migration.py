@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 from registry_pg import (add_member, call, drop_database, make_database, needs_db, new_hall, new_org, new_site, ok, psql, q,
-                         reason, refused, refused_either, scalar, seed_evidence, seed_intake_file, seed_project)
+                         reason, refused, refused_either, review_evidence, scalar, seed_evidence, seed_intake_file, seed_project)
 
 pytestmark = needs_db
 
@@ -514,7 +514,7 @@ def test_the_view_shows_the_files_live_review_status_even_after_it_changes(w):
     pid, _ = w.project(attach_to=w.hall)
     ev = w.evidence(pid, "unverified")
     w.record(origin="measured", cls="E3", pe=ev, path="hall.live")
-    psql(w.db, f"update project_evidence set review_status = 'verified' where id = '{ev}'")
+    review_evidence(w.db, ev, "verified")
     out = call(w.db, "gf_hall_inputs", p_actor=w.viewer, p_hall=w.hall)
     assert out["inputs"][0]["source"]["review_status"] == "verified" and out["inputs"][0]["evidence_class"] == "E3"
 
