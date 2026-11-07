@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "e9bf15e68cba74b59f9a685c4382a7b87d6201f6d2562bcbb35337d0bbbb73c9",
+  "contentSha256": "d3aac7fde5062ec909d00753cbd3d344b7bc2da742d4701e72d61ab00c6facc2",
   "engine": {
-    "codeSha256": "5ece6ddb5e20e8c6ead930a3c62f332c4c3943285a21f009c7cf45a14483ea5f",
+    "codeSha256": "678231064d826fa83e267fa1a880dbc4583c3a52fc89234bd8324ca9adf20bf1",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -97,7 +97,7 @@
           "racksAllowed": 26
         },
         {
-          "basis": "9,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min per rack kW, which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "9,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "binds": false,
           "domain": "thermal",
           "evidence": "E0",
@@ -167,6 +167,7 @@
         "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Where a liquid scenario assumes a CDU kit (the intake declares no CDUs), no rack is dated earlier than the library CDU lead time, an assumption, and the first-rack date rests on it; the kit's commissioning and the conversion works are not in the schedule.",
+        "Existing load on the busway is not subtracted unless declared (lv.existing_busway_load_kW); busway-bound rack counts do not fall as the hall fills.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "Context only: retail_price_context shows what US customers in this sector paid on average in one month. It is not this site's tariff and changes no cost here.",
@@ -693,7 +694,7 @@
           "racksAllowed": 31
         },
         {
-          "basis": "14,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min per rack kW, which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 8 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "14,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 8 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "binds": false,
           "domain": "thermal",
           "evidence": "E0",
@@ -782,6 +783,7 @@
         "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Where a liquid scenario assumes a CDU kit (the intake declares no CDUs), no rack is dated earlier than the library CDU lead time, an assumption, and the first-rack date rests on it; the kit's commissioning and the conversion works are not in the schedule.",
+        "Existing load on the busway is not subtracted unless declared (lv.existing_busway_load_kW); busway-bound rack counts do not fall as the hall fills.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "Context only: retail_price_context shows what US customers in this sector paid on average in one month. It is not this site's tariff and changes no cost here.",
@@ -1316,7 +1318,7 @@
           "racksAllowed": 113
         },
         {
-          "basis": "22,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min per rack kW, which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 10 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
+          "basis": "22,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 10 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total",
           "binds": false,
           "domain": "thermal",
           "evidence": "E0",
@@ -1394,6 +1396,7 @@
         "No behind-the-meter options declared: where the grid binds, the study can only report that it binds.",
         "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
+        "Existing load on the busway is not subtracted unless declared (lv.existing_busway_load_kW); busway-bound rack counts do not fall as the hall fills.",
         "Grid reinforcement is not dated here: a connection date needs the network operator's offer.",
         "Context only: grid_queue_context shows how long US generation interconnection requests that reached operation took. It is not a connection time for this site and changes no date here.",
         "Context only: retail_price_context shows what US customers in this sector paid on average in one month. It is not this site's tariff and changes no cost here.",
