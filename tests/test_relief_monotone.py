@@ -153,3 +153,39 @@ def test_the_ladder_rejects_a_relief_that_would_lower_the_rack_count(monkeypatch
     step = lad.steps[0]
     assert step.taken is False and step.racks_after == step.racks_before == 6
     assert "lower" in step.not_taken_reason and "6" in step.not_taken_reason and "2" in step.not_taken_reason
+
+
+# --- the other reliefs that assign a fixed value: each takes the better of what is installed and what the relief buys ----------------------------
+from gridforge.site.constraints import floor_loading
+from gridforge.thermal.constraints import residual_air_removal, tcs_supply_achievable
+
+
+def _ctx():
+    return load_document(DUBLIN).context
+
+
+def test_residual_air_relief_never_lowers_a_better_installed_capacity():
+    ctx = _ctx()
+    ctx.thermal.residual_air_capacity_kW_per_rack = V(40, "kW", "installed", ASSUMED)
+    assert residual_air_removal(ctx).relief.apply(ctx).thermal.residual_air_capacity_kW_per_rack.value == 40      # base: 25
+    ctx.thermal.residual_air_capacity_kW_per_rack = V(9, "kW", "installed", ASSUMED)
+    assert residual_air_removal(ctx).relief.apply(ctx).thermal.residual_air_capacity_kW_per_rack.value == 25      # a worse one is still raised
+
+
+def test_floor_loading_relief_never_lowers_a_better_floor():
+    ctx = _ctx()
+    ctx.hall.floor_loading_kPa = V(35, "kPa", "installed", ASSUMED)
+    assert floor_loading(ctx).relief.apply(ctx).hall.floor_loading_kPa.value == 35                                  # base: 20
+    ctx.hall.floor_loading_kPa = V(8, "kPa", "installed", ASSUMED)
+    assert floor_loading(ctx).relief.apply(ctx).hall.floor_loading_kPa.value == 20
+
+
+def test_dry_cooler_relief_never_replaces_a_lower_approach_with_a_higher_one():
+    ctx = _ctx()
+    ctx.thermal.plant.dry_cooler_approach_K = V(4, "K", "installed", ASSUMED)
+    after = tcs_supply_achievable(ctx).relief.apply(ctx)
+    assert after.thermal.plant.dry_cooler_approach_K.value == 4 and after.thermal.trim_chiller_installed is True    # base: 6
+    ctx.thermal.plant.dry_cooler_approach_K = V(12, "K", "installed", ASSUMED)
+    assert tcs_supply_achievable(ctx).relief.apply(ctx).thermal.plant.dry_cooler_approach_K.value == 6
+    ctx.thermal.plant.dry_cooler_approach_K = None
+    assert tcs_supply_achievable(ctx).relief.apply(ctx).thermal.plant.dry_cooler_approach_K.value == 6

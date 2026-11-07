@@ -28,8 +28,9 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        c.hall.floor_loading_kPa = V(20, "kPa", "floor capacity after load spreading / slab deployment",
-                                     ASSUMED, band=(15, 25))
+        if c.hall.floor_loading_kPa.value < 20:                      # a relief never lowers a capacity that is already better
+            c.hall.floor_loading_kPa = V(20, "kPa", "floor capacity after load spreading / slab deployment",
+                                         ASSUMED, band=(15, 25))
         c.hall.floor_type = FloorType.SLAB
         return c
 
