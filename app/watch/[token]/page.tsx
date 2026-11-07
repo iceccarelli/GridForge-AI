@@ -5,7 +5,6 @@ import { RATE_POLICIES } from "@/lib/rate-limit";
 import { WatchManage } from "@/components/WatchManage";
 import { SITE } from "@/lib/site";
 import { LinkNotFound } from "@/components/LinkNotFound";
-import { seedForWatch } from "@/lib/project-watch-seed";
 
 export const metadata: Metadata = {
   title: "Hall Watch",
@@ -21,8 +20,6 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
   if (!w) return <LinkNotFound what="a watched hall" />;
 
   const notes = w.id === "local" ? [] : await notesFor(w.id);
-  // Offered only through the project link that holds both this watch and an earlier engagement; null otherwise.
-  const seed = await seedForWatch(w);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
@@ -109,7 +106,6 @@ export default async function WatchPage({ params }: { params: Promise<{ token: s
             token={token}
             endpoint={`/api/watch/${token}`}
             submitLabel={w.intake ? "Re-solve the hall" : "Start the watch"}
-            seed={seed}
           />
         </section>
       ) : null}

@@ -24,29 +24,15 @@ interface Row {
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
 
-/**
- * Numbers the SAME buyer already submitted for another engagement, reached through an explicit server-side link
- * (lib/project-watch-seed.ts). Offered, never applied automatically: the buyer presses the button, reviews the form, and
- * submits through the same validation as any other submission.
- */
-export interface IntakeSeed {
-  source: { product: string };
-  fields: Record<string, string>;
-  transformers: { id: string; rating: number | ""; units: number | ""; redundancy: string }[];
-  ups: { id: string; rating: number | ""; units: number | ""; redundancy: string }[];
-}
-
 export function EngagementIntake({
   token,
   endpoint,
   submitLabel = "Submit the hall's numbers",
-  seed,
 }: {
   token: string;
   /** Defaults to the engagement intake. A Hall Watch points it at /api/watch. */
   endpoint?: string;
   submitLabel?: string;
-  seed?: IntakeSeed | null;
 }) {
   const url = endpoint ?? `/api/intake/${token}`;
   const [loading, setLoading] = useState(true);
@@ -139,20 +125,6 @@ export function EngagementIntake({
       alive = false;
     };
   }, [url]);
-
-  const [seeded, setSeeded] = useState(false);
-  function applySeed() {
-    if (!seed) return;
-    setF((cur) => {
-      const next = { ...cur };
-      // Only fields the form has; never touches a field the engagement did not supply.
-      for (const [k, v] of Object.entries(seed.fields)) if (k in next && k !== "constraint") next[k] = v;
-      return next;
-    });
-    if (seed.transformers.length) setTransformers(seed.transformers);
-    if (seed.ups.length) setUps(seed.ups);
-    setSeeded(true);
-  }
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
@@ -294,27 +266,6 @@ export function EngagementIntake({
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           {meta.product.name} · intake
         </p>
-      ) : null}
-
-      {seed ? (
-        <div className="rounded border border-line bg-panel-2 p-4" data-testid="intake-seed">
-          <p className="text-sm font-semibold text-ghost">You already gave us this hall</p>
-          <p className="mt-1 max-w-3xl text-xs text-faint">
-            This watch is on the same project as your {seed.source.product}. You can fill the form below with the numbers you submitted
-            for it. Nothing is sent until you press &ldquo;{submitLabel}&rdquo;, and the same checks apply. Anything that engagement
-            left blank stays blank here.
-          </p>
-          <button
-            type="button"
-            onClick={applySeed}
-            className="mt-3 inline-flex min-h-11 items-center rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10 focus:outline-none focus:ring-2 focus:ring-power/60"
-          >
-            Use the intake from your {seed.source.product}
-          </button>
-          <p role="status" aria-live="polite" className="mt-2 text-xs text-mute">
-            {seeded ? `Filled from your ${seed.source.product}. Check every figure before you submit; you can change any of them.` : ""}
-          </p>
-        </div>
       ) : null}
 
       <Section
