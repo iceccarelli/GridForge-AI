@@ -16,7 +16,7 @@ const EVENT_TYPES = new Set([
   "paid_product_attached", "observation_submitted", "observation_reviewed",
   "supplier_actual_submitted", "supplier_actual_reviewed",
   "cost_evidence_received", "cost_evidence_reviewed", "cost_evidence_retired", "cost_evidence_run",
-  "comparison_saved", "share_issued", "share_revoked",
+  "comparison_saved", "share_issued", "share_revoked", "calibration_permission_recorded", "evidence_reviewed",
 ]);
 
 export function installProjectRpcs(db: PostgrestFake): void {
@@ -66,6 +66,14 @@ export function installProjectRpcs(db: PostgrestFake): void {
         && o.calibration_key === p.calibration_key && o.observed_on === p.observed_on)) {
       throw new PgError("23505", "project_observations unique", 409);
     }
+    // 0047: the origin is one of four words and an absent one is "unclassified", never production.
+    const origin = p.data_origin ?? "unclassified";
+    if (!["production", "test", "synthetic", "unclassified"].includes(origin)) throw new PgError("23514", "project_observations_data_origin_check", 400);
+    // 0046: the forecast must predate the outcome (created before 00:00 UTC of the observed date), and must exist.
+    const fc: any = db.rows("power_deployment_cases").find((x) => x.case_token === p.case_token && x.revision === p.case_revision);
+    if (!fc || typeof fc.created_at !== "string" || Date.parse(fc.created_at) >= Date.parse(`${p.observed_on}T00:00:00Z`)) {
+      throw new PgError("GF004", "the forecast must predate the outcome", 400);
+    }
     // The database, not the caller, derives the site reference (site label only) and reads the prediction's engine
     // digest from the case revision.
     const label = String(db.rows("projects").find((x) => x.id === p.project_id)?.site_label ?? "").trim().toLowerCase();
@@ -75,7 +83,7 @@ export function installProjectRpcs(db: PostgrestFake): void {
     const { site_ref: _s, engine_provenance_digest: _d, report_date: _r, ...given } = p;
     void _s; void _d; void _r;
     const r = db.insertRow("project_observations", {
-      ...given, measurement_kind: p.measurement_kind ?? null, site_ref,
+      ...given, data_origin: origin, measurement_kind: p.measurement_kind ?? null, site_ref,
       engine_provenance_digest: typeof prov?.digest === "string" ? prov.digest : null,
       report_date: typeof prov?.report_date === "string" ? prov.report_date : null,
       submitted_at: p.submitted_at ?? new Date().toISOString(),
@@ -175,6 +183,41 @@ export function installProjectRpcs(db: PostgrestFake): void {
       ...p, project_id: a.project_id, verified_fields: vf, evidence_sha256: p.decision === "verified" ? evid.sha256 : null,
     });
     emit(a.project_id, p_event, { actual_id: a.id, decision: r.decision, verified_fields: vf });
+    return r;
+  });
+  // --- 0047_calibration_consent_and_origin.sql
+  db.rpcs.set("gf_record_calibration_permission", ({ p, p_event }) => {
+    if (p.scope_type !== "project") throw new PgError("23514", "calibration_permissions_scope_type_check", 400);
+    if (!["granted", "revoked"].includes(p.kind)) throw new PgError("23514", "calibration_permissions_kind_check", 400);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(p.granted_by_email ?? "").trim())) throw new PgError("23514", "calibration_permissions_granted_by_email_check", 400);
+    if (!/^[0-9a-f]{64}$/.test(String(p.document_sha256 ?? ""))) throw new PgError("23514", "calibration_permissions_document_sha256_check", 400);
+    if (!db.rows("projects").some((x) => x.id === p.scope_id)) throw new PgError("23503", "no such project", 409);
+    const own = db.rows("calibration_permissions").filter((x) => x.scope_id === p.scope_id);
+    if (p.kind === "revoked" && own[own.length - 1]?.kind !== "granted") throw new PgError("GF006", "nothing to revoke", 409);
+    const r = db.insertRow("calibration_permissions", {
+      seq: db.rows("calibration_permissions").length + 1, scope_type: "project", scope_id: p.scope_id, kind: p.kind,
+      granted_by_email: String(p.granted_by_email).trim().toLowerCase(), granted_at: new Date().toISOString(),
+      document_sha256: p.document_sha256, note: p.note ? String(p.note).trim() || null : null,
+    });
+    emit(p.scope_id, p_event, { permission_id: r.id, kind: r.kind, document_sha256: r.document_sha256 });
+    return r;
+  });
+  // --- 0048_evidence_verification.sql
+  db.rpcs.set("gf_review_evidence", ({ p, p_event }) => {
+    const e: any = db.rows("project_evidence").find((x) => x.id === p.evidence_id);
+    if (!e) throw new PgError("23503", "no such evidence", 409);
+    if (e.review_status !== "unverified") throw new PgError("GF008", "this file has already been reviewed", 409);
+    if (!["verified", "rejected"].includes(p.decision)) throw new PgError("23514", "decision", 400);
+    if (!String(p.reviewer ?? "").trim() || String(p.reviewer).length > 120) throw new PgError("23514", "reviewer", 400);
+    if (!String(p.reason ?? "").trim() || String(p.reason).length > 500) throw new PgError("23514", "reason", 400);
+    if (p.decision === "verified" && p.sha256_confirmed !== e.sha256) throw new PgError("GF007", "the confirmed SHA-256 does not match", 409);
+    if (db.rows("project_evidence_reviews").some((x) => x.evidence_id === e.id)) throw new PgError("23505", "unique evidence_id", 409);
+    const r = db.insertRow("project_evidence_reviews", {
+      evidence_id: e.id, project_id: e.project_id, decision: p.decision, reviewer: p.reviewer, reason: p.reason,
+      sha256_confirmed: p.sha256_confirmed ?? null, reviewed_at: new Date().toISOString(),
+    });
+    e.review_status = p.decision;
+    emit(e.project_id, p_event, { evidence_id: e.id, decision: r.decision, sha256_confirmed: r.sha256_confirmed });
     return r;
   });
   db.rpcs.set("gf_create_project", ({ p, p_event }) => {

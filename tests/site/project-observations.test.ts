@@ -11,7 +11,7 @@ import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { siteUrl } from "@/lib/site";
-import { PostgrestFake } from "./postgrest-fake";
+import { PgError, PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 
 const jar: { name: string; value: string }[] = [];
@@ -30,13 +30,13 @@ beforeEach(() => {
   db = new PostgrestFake([
     "projects", "project_links", "project_events", "project_evidence", "project_observations",
     "project_observation_reviews", "supplier_actuals", "supplier_actual_reviews", "supplier_reality", "cost_evidence_state", "cost_evidence_runs", "procurement_packages", "procurement_responses",
-    "procurement_comparisons", "power_deployment_cases",
+    "procurement_comparisons", "power_deployment_cases", "calibration_permissions",
   ]);
   db.uniqueKeys.set("project_observation_reviews", [["observation_id"]]);
   db.uniqueKeys.set("project_links", [["project_id", "object_type", "object_id"]]);
   installProjectRpcs(db);
   db.seed("power_deployment_cases", [{
-    case_token: CASE, revision: 1, email: null, request: {}, changed_fields: [],
+    case_token: CASE, revision: 1, email: null, request: {}, changed_fields: [], created_at: "2026-03-02T09:00:00Z",
     engine_provenance: { digest: "c".repeat(64), report_date: "2026-03-01", engine_version: "test" },
     result: { capacity: { target_MW: 35, grid_firm_MW: 10, gap_MW: 25 }, architectures: [
       { label: ARCH, status: "pass", available_MW: 36.4, margin_MW: 1.4, rfq_ready: true, readiness_gates: [] },
@@ -44,8 +44,9 @@ beforeEach(() => {
     ] },
   }]);
   restore = db.install();
+  process.env.VERCEL_ENV = "production";      // 0047: only a production deployment stamps data_origin 'production' (the cases below say otherwise)
 });
-afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; });
+afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_DATA_ORIGIN; });
 
 const json = (path: string, body: unknown) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -61,6 +62,11 @@ async function project(attachCase = true, site_label: string | null = "Dublin DC
   }
   return { token: made.project_token as string, id: db.rows("projects").find((p) => p.project_token === made.project_token)!.id as string };
 }
+/** The project's owner has agreed (0047): a grant row, as the admin route would write it. */
+const grant = (projectId: string, kind = "granted") => db.insertRow("calibration_permissions", {
+  seq: db.rows("calibration_permissions").length + 1, scope_type: "project", scope_id: projectId, kind, granted_by_email: "owner@example.test",
+  granted_at: "2026-10-01T00:00:00Z", document_sha256: "d".repeat(64), note: null,
+});
 const evidence = (projectId: string, review_status = "unverified"): string => db.insertRow("project_evidence", {
   project_id: projectId, filename: "meter.csv", media_type: "text/csv", sha256: "a".repeat(64), byte_size: 10,
   storage_ref: "b/x", source_category: "load_data", evidence_class: null, review_status,
@@ -182,6 +188,85 @@ describe("submitting an observation", () => {
     expect(db.rows("project_observations")).toHaveLength(2);
   });
 
+  it("refuses an outcome judged against a forecast that was made after it (0046), before anything is written", async () => {
+    const p = await project();
+    const events = db.rows("project_events").length;
+    // the case revision was created 2026-03-02T09:00Z
+    for (const on of ["2026-03-02", "2026-03-01", "2026-01-15"]) {
+      const r = await submit(p.token, good(p.id, { observed_on: on }));
+      expect(r.res.status, on).toBe(422);
+      expect(r.body.error).toMatch(/must predate the outcome/);
+    }
+    expect(db.rows("project_observations")).toHaveLength(0);
+    expect(db.rows("project_events")).toHaveLength(events);
+    expect((await submit(p.token, good(p.id, { observed_on: "2026-03-03" }))).res.status).toBe(201);   // the day after the forecast is fine
+  });
+
+  it("refuses a case revision with no recorded creation time, since it cannot be shown to predate anything", async () => {
+    const p = await project();
+    delete (db.rows("power_deployment_cases")[0] as any).created_at;
+    const r = await submit(p.token, good(p.id));
+    expect(r.res.status).toBe(422);
+    expect(r.body.error).toMatch(/no recorded creation time/);
+  });
+
+  it("maps the database's own refusal of a late forecast (GF004) to the same 422", async () => {
+    const p = await project();
+    // the application check is bypassed (a clock disagreement or a race): the database still refuses
+    const real = db.rpcs.get("gf_submit_observation")!;
+    db.rpcs.set("gf_submit_observation", () => { throw new PgError("GF004", "the forecast must predate the outcome", 400); });
+    const r = await submit(p.token, good(p.id));
+    expect(r.res.status).toBe(422);
+    expect(r.body.error).toMatch(/must predate the outcome/);
+    db.rpcs.set("gf_submit_observation", real);
+  });
+
+  it("stamps the data origin itself: production on a production deployment, test elsewhere, and never what the request says", async () => {
+    const p = await project();
+    const a = await submit(p.token, good(p.id, { data_origin: "synthetic" }));
+    expect(a.res.status).toBe(201);
+    expect((db.rows("project_observations")[0] as any).data_origin).toBe("production");     // beforeEach: VERCEL_ENV=production; the body's word is ignored
+    delete process.env.VERCEL_ENV;
+    const b = await submit(p.token, good(p.id, { data_origin: "production", observed_on: "2026-10-01" }));
+    expect(b.res.status).toBe(201);
+    expect((db.rows("project_observations")[1] as any).data_origin).toBe("test");
+    process.env.GRIDFORGE_DATA_ORIGIN = "synthetic";
+    process.env.VERCEL_ENV = "production";
+    await submit(p.token, good(p.id, { observed_on: "2026-10-02" }));
+    expect((db.rows("project_observations")[2] as any).data_origin).toBe("synthetic");
+  });
+
+  it("a test-origin observation is never ledger-eligible, whoever reviewed it and whatever the owner agreed", async () => {
+    signIn();
+    delete process.env.VERCEL_ENV;
+    const p = await project();
+    grant(p.id);
+    const id = (await submit(p.token, good(p.id))).body.observation.id;
+    expect((await review(id, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).res.status).toBe(201);
+    expect((await state(p.token)).observations[0]).toMatchObject({ ledger_eligible: false, ledger_blockers: ["the data origin is not production (test)"] });
+  });
+
+  it("a revoked permission removes eligibility; a store that cannot say reads as 'could not be read', never as granted", async () => {
+    signIn();
+    const p = await project();
+    grant(p.id);
+    const id = (await submit(p.token, good(p.id))).body.observation.id;
+    await review(id, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" });
+    expect((await state(p.token)).observations[0].ledger_eligible).toBe(true);
+    grant(p.id, "revoked");
+    expect((await state(p.token)).observations[0]).toMatchObject({ ledger_eligible: false, ledger_blockers: ["the project's permission to share its measurements was revoked"] });
+    db.failMethod = null;
+    const url = (u: string) => u.includes("calibration_permissions");
+    const real = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      url(String(input)) ? Promise.resolve(new Response("{}", { status: 500 })) : real(input, init)) as typeof fetch;
+    try {
+      expect((await state(p.token)).observations[0].ledger_blockers).toEqual(["the project's permission record could not be read"]);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
   it("is saved with its event or not at all", async () => {
     const p = await project();
     const body = good(p.id);
@@ -217,6 +302,7 @@ describe("the human review", () => {
   it("records one immutable decision, by a named person, and shows the class the reviewer chose", async () => {
     signIn();
     const p = await project();
+    grant(p.id);
     const id = (await submit(p.token, good(p.id))).body.observation.id;
     const ok = await review(id, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz", reason: "meter export matches the submitted trend" });
     expect(ok.res.status).toBe(201);
@@ -276,6 +362,11 @@ describe("the human review", () => {
     const a = (await submit(p.token, good(p.id))).body.observation.id;
     expect((await state(p.token)).observations[0]).toMatchObject({ ledger_eligible: false, ledger_blockers: ["not reviewed yet"] });
     await review(a, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" });
+    // reviewed and verified, but the project's owner has not agreed to its measurements being shared
+    expect((await state(p.token)).observations[0]).toMatchObject({
+      ledger_eligible: false, ledger_blockers: ["no permission from the project's owner to share its measurements is on record"],
+    });
+    grant(p.id);
     expect((await state(p.token)).observations[0]).toMatchObject({
       ledger_eligible: true, ledger_blockers: [], measurement_kind: "metered", evidence_class: "E5",
     });
@@ -300,6 +391,7 @@ describe("the human review", () => {
   it("is never ledger-eligible without a site reference or a recorded engine build", async () => {
     signIn();
     const noSite = await project(true, null);
+    grant(noSite.id);
     const a = (await submit(noSite.token, good(noSite.id))).body.observation.id;
     await review(a, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" });
     expect((await state(noSite.token)).observations[0].ledger_blockers).toEqual(["the project has no site label, so there is no site reference"]);
@@ -309,6 +401,7 @@ describe("the human review", () => {
     signIn();
     (db.rows("power_deployment_cases")[0] as any).engine_provenance = null;
     const legacy = await project();
+    grant(legacy.id);
     const b = (await submit(legacy.token, good(legacy.id))).body.observation.id;
     await review(b, { decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" });
     expect((await state(legacy.token)).observations[0].ledger_blockers).toEqual(["the prediction's engine build was not recorded"]);

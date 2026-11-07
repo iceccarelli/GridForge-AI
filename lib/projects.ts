@@ -50,7 +50,9 @@ export type ProjectEventType =
   | "cost_evidence_run"
   | "comparison_saved"
   | "share_issued"
-  | "share_revoked";
+  | "share_revoked"
+  | "calibration_permission_recorded"
+  | "evidence_reviewed";
 
 export interface ProjectRow {
   id: string;

@@ -2,11 +2,12 @@
 
 import React, { useId, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2 } from "lucide-react";
-import type { ActualItem, EvidenceRef, ObservationItem, QueueCount } from "@/lib/project-review-queue";
+import type { ActualItem, EvidenceRef, FileItem, ObservationItem, QueueCount } from "@/lib/project-review-queue";
 import {
   ALREADY_REVIEWED,
   SELF_REVIEW_MESSAGE,
   actualReviewBody,
+  fileReviewBody,
   isSelfReview,
   observationReviewBody,
   reviewProblems,
@@ -21,7 +22,8 @@ import {
  * and no default decision: the reviewer picks verify or reject, names themselves and gives a reason. Every decision goes through the
  * existing admin routes, which check the admin cookie and refuse cross-site writes on each call, and the database enforces the
  * rest (one decision per record, never the submitter, never verified on an unverified file). This screen never marks anything
- * verified by itself.
+ * verified by itself. The "Verify file" section decides the uploaded FILES themselves: verifying one makes the server read the stored
+ * file back and check its SHA-256 against the digest recorded at upload; this screen never sends a digest.
  */
 
 /** `already`: the server said someone else had already decided it; nothing was recorded by this reviewer. */
@@ -50,13 +52,16 @@ const field = "min-h-11 w-full rounded border border-line bg-panel-2 px-3 py-2 t
 export function ProjectEvidenceReview({
   observations,
   actuals,
+  files = [],
   reviewClass,
   initialError,
   counts,
 }: {
   observations: ObservationItem[];
   actuals: ActualItem[];
-  counts?: { observations: QueueCount; actuals: QueueCount };
+  /** Uploaded files nobody has decided on yet (lib/project-review-queue.ts pendingFiles). */
+  files?: FileItem[];
+  counts?: { observations: QueueCount; actuals: QueueCount; files?: QueueCount };
   /** The one evidence class a reviewer may assign to a measured observation (lib/project-observations.ts REVIEW_CLASS). */
   reviewClass: string;
   initialError?: string | null;
@@ -67,6 +72,8 @@ export function ProjectEvidenceReview({
   const pendingAct = actuals.filter((a) => !decided.has(a.id));
   const decidedObs = observations.length - pendingObs.length;
   const decidedAct = actuals.length - pendingAct.length;
+  const pendingFil = files.filter((f) => !decided.has(f.id));
+  const decidedFil = files.length - pendingFil.length;
 
   return (
     <div className="grid gap-10">
@@ -94,6 +101,28 @@ export function ProjectEvidenceReview({
 
       {initialError ? null : (
       <>
+      <section aria-labelledby="file-h">
+        <h2 id="file-h" className="text-sm font-semibold text-ghost">
+          Verify file ({pendingFil.length})
+        </h2>
+        <p className="mt-1 max-w-3xl text-xs text-faint">
+          An uploaded file is unverified until a person decides on it. Verifying makes the server read the stored file back and check that
+          its SHA-256 is the one recorded at upload; a file that no longer matches cannot be verified. It does not read or interpret the
+          contents: you vouch that this is the document it claims to be. An observation can be verified only against a verified file.
+          Each file is decided once, with a name and a reason, and the decision cannot be changed. There is no bulk action.
+        </p>
+        <p className="mt-1 max-w-3xl text-xs text-faint">
+          The name you type is recorded as typed. The admin console has one shared password, so it is not an authenticated identity.
+        </p>
+        {counts?.files ? <CountNote c={counts.files} decidedHere={decidedFil} /> : null}
+        <div className="mt-4 grid gap-4">
+          {pendingFil.length === 0 ? <p className="text-sm text-mute">No file is awaiting a decision.</p> : null}
+          {pendingFil.map((f) => (
+            <FileCard key={f.id} item={f} onDone={(d) => setDone((x) => [...x, d])} />
+          ))}
+        </div>
+      </section>
+
       <section aria-labelledby="obs-h">
         <h2 id="obs-h" className="text-sm font-semibold text-ghost">
           Measured observations awaiting a decision ({pendingObs.length})
@@ -157,11 +186,134 @@ function EvidenceBlock({ e }: { e: EvidenceRef | null }) {
       </dl>
       {e.review_status !== "verified" ? (
         <p className="mt-2 text-xs text-mute">
-          This file is still unverified. The database refuses to verify a record whose file is unverified, and no screen in this system marks
-          a file verified, so a verify attempt will be refused for now; rejecting is always possible.
+          This file is still unverified. The database refuses to verify a record whose file is unverified, so decide the file first (the
+          "Verify file" section above); rejecting a record is always possible.
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** The one request this screen makes: a decision, posted to the route that owns it. Every card goes through here. */
+async function postDecision(url: string, payload: Record<string, unknown>): Promise<{ status: number; ok: boolean; body: any }> {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return { status: res.status, ok: res.ok, body: await res.json().catch(() => ({})) };
+}
+
+function FileCard({ item, onDone }: { item: FileItem; onDone: (d: Done) => void }) {
+  const uid = useId();
+  const [open, setOpen] = useState(false);
+  const [decision, setDecision] = useState<Decision | "">("");
+  const [reviewer, setReviewer] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!decision) {
+      setError("Choose verify or reject.");
+      return;
+    }
+    const input = { decision, reviewer, reason };
+    // A file has no submitter to compare with: the project token holder is not a named person.
+    const problems = reviewProblems(input, "");
+    if (problems.length) {
+      setError(problems[0]);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await postDecision(reviewUrl("file", item.id), fileReviewBody(input));
+      const b = res.body;
+      if (res.status === 409 && ALREADY_REVIEWED.test(String(b?.error ?? ""))) {
+        onDone({ id: item.id, decision: null, reviewer: reviewer.trim(), already: true });
+        return;
+      }
+      if (!res.ok || !b.ok) {
+        setError(res.status === 401 ? "Your admin session has ended. Sign in again; nothing was recorded." : b?.error ?? "The decision could not be saved. Nothing was recorded.");
+        return;
+      }
+      onDone({ id: item.id, decision, reviewer: reviewer.trim() });
+    } catch {
+      setError("Could not reach the server. Nothing was recorded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="rounded border border-line bg-panel-2 p-4" aria-labelledby={`${uid}-t`}>
+      <h3 id={`${uid}-t`} className="text-sm font-semibold text-ghost">
+        {item.filename}
+      </h3>
+      <p className="mt-0.5 text-xs text-faint">
+        {item.project ? `${item.project.name}${item.project.site ? ` · ${item.project.site}` : ""}${item.project.company ? ` · ${item.project.company}` : ""}` : "Project not found"}
+        {" · "}uploaded {when(item.uploaded_at)}
+      </p>
+      <dl className="mt-3 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[11rem_1fr]">
+        <Fact k="Type · size" v={`${item.media_type} · ${fmtBytes(item.byte_size)}`} />
+        <Fact k="SHA-256 at upload" v={<span className="font-mono text-xs break-all">{item.sha256}</span>} />
+        <Fact k="Category" v={item.source_category.replace(/_/g, " ")} />
+        {item.note ? <Fact k="Note" v={item.note} /> : null}
+      </dl>
+
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          className="mt-3 inline-flex min-h-11 items-center rounded border border-power/60 px-4 py-2 text-sm font-semibold text-power hover:bg-power/10 focus:outline-none focus:ring-2 focus:ring-power/60"
+        >
+          Review this file
+        </button>
+      ) : (
+        <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-line pt-4" noValidate>
+          <fieldset className="grid gap-2">
+            <legend className="text-xs text-faint">Decision (final: recorded once and not changeable)</legend>
+            <label className="flex min-h-11 items-center gap-2 text-sm text-ghost">
+              <input type="radio" name={`${uid}-d`} checked={decision === "verified"} onChange={() => setDecision("verified")} />
+              Verify — the server re-reads the stored file and checks its SHA-256
+            </label>
+            <label className="flex min-h-11 items-center gap-2 text-sm text-ghost">
+              <input type="radio" name={`${uid}-d`} checked={decision === "rejected"} onChange={() => setDecision("rejected")} />
+              Reject — the file is not what it claims to be, or cannot be relied on
+            </label>
+          </fieldset>
+          <div>
+            <label htmlFor={`${uid}-who`} className="text-xs text-faint">Your name (the person taking this decision)</label>
+            <input id={`${uid}-who`} className={field} value={reviewer} onChange={(e) => setReviewer(e.target.value)} maxLength={120} autoComplete="name" />
+            <p className="mt-1 text-[11px] text-faint">
+              Self-declared: the admin console has one shared password, so this is the name you type, recorded as typed.
+            </p>
+          </div>
+          <div>
+            <label htmlFor={`${uid}-why`} className="text-xs text-faint">Reason (required, up to 500 characters)</label>
+            <textarea id={`${uid}-why`} className={`${field} min-h-24`} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
+          </div>
+          {error ? (
+            <p role="alert" className="flex gap-2 text-sm text-flag">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              {error}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={busy}
+              className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2 text-sm font-semibold text-ink focus:outline-none focus:ring-2 focus:ring-power/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {busy ? "Recording" : "Record decision"}
+            </button>
+            <button type="button" onClick={() => setOpen(false)} className="inline-flex min-h-11 items-center rounded border border-line px-4 py-2 text-sm text-mute">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </article>
   );
 }
 
@@ -193,12 +345,8 @@ function Card({ item, onDone, reviewClass }: { item: ObservationItem | ActualIte
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(reviewUrl(item.kind, item.id), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const b = await res.json().catch(() => ({}));
+      const res = await postDecision(reviewUrl(item.kind, item.id), body);
+      const b = res.body;
       if (res.status === 409 && ALREADY_REVIEWED.test(String(b?.error ?? ""))) {
         // Decided elsewhere (another reviewer or tab): this card is stale. Drop it with an honest message; nothing was recorded here.
         onDone({ id: item.id, decision: null, reviewer: reviewer.trim(), already: true });

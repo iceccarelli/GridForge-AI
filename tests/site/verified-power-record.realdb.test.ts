@@ -94,6 +94,13 @@ async function startGateway(): Promise<string> {
       res.end(Buffer.from(await r.arrayBuffer()));
       return;
     }
+    // GET /storage/v1/object/authenticated/<ref> is how the evidence review reads a stored file back (lib/project-evidence-review.ts).
+    const rb = url.match(/^\/storage\/v1\/object\/authenticated\/(.+)$/);
+    if (rb && req.method === "GET") {
+      const o = objects.get(decodeURIComponent(rb[1]));
+      if (!o) { res.writeHead(400, { "content-type": "application/json" }).end('{"statusCode":"404","error":"not_found","code":"NoSuchKey"}'); return; }
+      res.writeHead(200, { "content-type": o.type }).end(o.bytes); return;
+    }
     const m = url.match(/^\/storage\/v1\/object\/(.+)$/);
     if (m) {
       const ref = decodeURIComponent(m[1]);
@@ -112,6 +119,10 @@ async function startGateway(): Promise<string> {
 
 const sql = async (path: string, init: RequestInit = {}) =>
   fetch(PGRST + path, { ...init, headers: { Authorization: `Bearer ${JWT}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } });
+/** Run SQL as the database owner (not through PostgREST): a fixture the row guards would otherwise refuse, e.g. a forecast stamped in the past. */
+const ownerSql = (statement: string) =>
+  spawnSync("psql", ["-h", process.env.PGHOST ?? "", "-p", process.env.PGPORT ?? "5432", "-U", process.env.PGUSER ?? "postgres",
+    "-d", process.env.GF_PG_DB ?? "gf", "-v", "ON_ERROR_STOP=1", "-q", "-c", statement], { encoding: "utf8" });
 const rows = async (table: string, q = "") => (await (await sql(`/${table}?select=*${q}`)).json()) as any[];
 
 const REQUEST = {
@@ -413,6 +424,9 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     // the engine's own number for the architecture
     const engineMW = c.result.architectures.find((a: any) => a.label === ARCH).available_MW as number;
     expect(engineMW).toBeGreaterThan(0);
+    // 0046: the database stamps a revision with its own clock, and an outcome is only judged against a forecast made BEFORE it. The
+    // measurement below is dated 2026-09-30, so this forecast is back-dated with the row guards off (what an old stored forecast looks like).
+    expect(ownerSql(`set session_replication_role = replica; update power_deployment_cases set created_at = '2026-09-01T00:00:00Z' where case_token = '${c.case_token}'`).status).toBe(0);
 
     const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
     const csv = `timestamp,kW\n2026-09-30T00:00:00,${Math.round((engineMW - 3) * 1000)}\n`;
@@ -433,7 +447,12 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     }
     expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
     expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
-    const sub = await j(await obs({ ...input, predicted_value: 12345 }));
+    // the forecast must predate the outcome: the same input dated before the forecast is refused, and writes nothing
+    expect((await obs({ ...input, observed_on: "2026-08-31" })).status).toBe(422);
+    expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    process.env.VERCEL_ENV = "production";                              // only a production deployment stamps data_origin 'production'
+    let sub;
+    try { sub = await j(await obs({ ...input, predicted_value: 12345, data_origin: "synthetic" })); } finally { delete process.env.VERCEL_ENV; }
     const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
     expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's
     expect(Number(row.delta_value)).toBeCloseTo(-3, 6);
@@ -445,6 +464,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(row.engine_provenance_digest).toMatch(/^[0-9a-f]{64}$/);
     expect(row.engine_provenance_digest).toBe(live.provenance.digest);       // the running engine's own identity, read around the assessment
     expect(row.measurement_kind).toBe("metered");
+    expect(row.data_origin).toBe("production");                           // the server's word for it, not the request body's ("synthetic" was sent)
     expect((await obs(input)).status).toBe(409);                          // same prediction, same day: once
     expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
 
@@ -457,7 +477,15 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect((await decide({ decision: "verified", evidence_class: "E6", reviewer: "J. Ortiz" })).status).toBe(422);   // E5 is the only class a reviewer assigns
     // the uploaded artifact has not been verified by anyone, so the database refuses to verify what rests on it
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: "J. Ortiz" })).status).toBe(409);
-    expect((await sql(`/project_evidence?id=eq.${evidenceId}`, { method: "PATCH", body: JSON.stringify({ review_status: "verified" }) })).status).toBe(200);
+    // 0048: a raw PATCH of the status is refused by the database, even for service_role; the file is verified only through the review route,
+    // which re-reads the stored object and confirms its digest
+    expect((await sql(`/project_evidence?id=eq.${evidenceId}`, { method: "PATCH", body: JSON.stringify({ review_status: "verified" }) })).status).toBeGreaterThanOrEqual(400);
+    const { POST: revFile } = await import("@/app/api/admin/evidence/[id]/review/route");
+    const verifyFile = (id: string) => revFile(post("/x", { decision: "verified", reviewer: "F. Keane", reason: "opened it; the digest matches" }), ctx({ id }));
+    const fileRes = await verifyFile(evidenceId);
+    expect(fileRes.status).toBe(201);
+    expect(JSON.stringify(await fileRes.json())).not.toMatch(/storage_ref|project-evidence\//);
+    expect((await verifyFile(evidenceId)).status).toBe(409);               // decided once
     // the submitter cannot review their own submission, however they write their name
     expect((await decide({ decision: "verified", evidence_class: "E5", reviewer: " a. RIVERA " })).status).toBe(403);
     expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(0);
@@ -466,7 +494,15 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz" })).status).toBe(409);
     expect(await rows("project_observation_reviews", `&project_id=eq.${proj.id}`)).toHaveLength(1);
 
+    // 0047: verified, real, forecast before the outcome, file verified: and still NOT exported until the project's owner has agreed
+    expect(await rows("calibration_ledger_rows", `&id=eq.${row.id}`)).toHaveLength(0);
     const { GET: state } = await import("@/app/api/projects/[token]/route");
+    const s0 = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
+    expect(s0.observations[0]).toMatchObject({ ledger_eligible: false });
+    expect(s0.observations[0].ledger_blockers.join(" ")).toMatch(/permission/);
+    const { POST: grant } = await import("@/app/api/admin/calibration-permissions/route");
+    const permission = (kind: string) => grant(post("/x", { project_id: proj.id, kind, granted_by_email: "owner@example.test", document_sha256: "d".repeat(64), note: "signed letter" }));
+    expect((await permission("granted")).status).toBe(201);
     const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
     expect(s.observations).toEqual([expect.objectContaining({
       state: "verified", evidence_class: "E5", reviewed_by: "J. Ortiz", ledger_eligible: true, ledger_blockers: [], measurement_kind: "metered" })]);
@@ -592,7 +628,8 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
     // the submitter cannot review it, and nothing verifies against an artifact nobody has verified
     expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "a. rivera" })).status).toBe(403);
     expect((await decide({ decision: "verified", verified_fields: ["po_date"], reviewer: "J. Ortiz" })).status).toBe(409);
-    expect((await sql(`/project_evidence?id=eq.${evidenceId}`, { method: "PATCH", body: JSON.stringify({ review_status: "verified" }) })).status).toBe(200);
+    const { POST: revFile } = await import("@/app/api/admin/evidence/[id]/review/route");
+    expect((await revFile(post("/x", { decision: "verified", reviewer: "F. Keane", reason: "opened it; the digest matches" }), ctx({ id: evidenceId }))).status).toBe(201);
     expect((await decide({ decision: "verified", verified_fields: ["dispatch_date"], reviewer: "J. Ortiz" })).status).toBe(422);
     expect((await decide({ decision: "verified", verified_fields: ["po_date", "on_site_date"], reviewer: "J. Ortiz" })).status).toBe(201);
     expect((await decide({ decision: "rejected", reviewer: "J. Ortiz", reason: "no" })).status).toBe(409);

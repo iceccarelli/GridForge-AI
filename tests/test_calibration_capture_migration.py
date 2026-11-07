@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from calibration_pg_rig import bypassing_triggers, record_permission, review_evidence
+
 ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "supabase" / "migrations"
 MIGRATION = MIGRATIONS / "0038_calibration_capture.sql"
@@ -85,13 +87,17 @@ def new_project(db, site="Dublin DC1"):
     return json.loads(out)["id"]
 
 
-def new_case(db, token=None, provenance=True, revision=1):
+def new_case(db, token=None, provenance=True, revision=1, created_at="2026-03-02T09:00:00Z"):
+    """A forecast made BEFORE the outcomes these tests report (0046: the database stamps a revision with its own clock, so the fixture
+    back-dates it with the row guards off, the way an old stored forecast would look)."""
     token = token or uuid.uuid4().hex
     prov = (f"jsonb_build_object('digest', '{DIGEST}', 'report_date', '2026-03-01', 'engine_version', 'x')"
             if provenance else "null")
     psql(db, "select gf_append_case_revision(jsonb_build_object('case_token', '" + token + "', 'revision', " + str(revision)
              + ", 'request', '{}'::jsonb, 'result', '{}'::jsonb, 'changed_fields', '[]'::jsonb, 'engine_provenance', "
              + prov + "), '" + GOOD % "btm_case_revised" + "'::jsonb)")
+    if created_at:
+        bypassing_triggers(db, f"update power_deployment_cases set created_at = '{created_at}' where case_token = '{token}' and revision = {revision}")
     return token
 
 
@@ -101,7 +107,7 @@ def new_evidence(db, project, verified=True, sha="a"):
              f" '{GOOD % 'evidence_attached'}'::jsonb)")
     eid = scalar(db, f"select id from project_evidence where project_id = '{project}' order by uploaded_at desc limit 1")
     if verified:
-        psql(db, f"update project_evidence set review_status = 'verified' where id = '{eid}'")
+        review_evidence(db, eid)       # 0048: the only way a file becomes verified is the review function, confirming the stored digest
     return eid
 
 
@@ -112,7 +118,7 @@ def obs_args(project, evidence_id, case_token, **over):
          "predicted_source": "result.architectures[\"ARCH\"].available_MW", "observed_value": 28.5,
          "observed_on": "2026-06-30", "method": "revenue-grade metering", "submitted_by": "A. Rivera",
          "evidence_id": evidence_id, "installed_attested": True, "installed_basis": "commissioning certificate",
-         "measurement_kind": "metered", "submitted_by_ref": hashlib.sha256(project.encode()).hexdigest()}
+         "measurement_kind": "metered", "data_origin": "production", "submitted_by_ref": hashlib.sha256(project.encode()).hexdigest()}
     d.update(over)
     return json.dumps({k: v for k, v in d.items() if v is not None})
 
@@ -180,7 +186,7 @@ def test_verification_is_refused_while_the_evidence_artifact_is_unverified(db):
     assert review(db, o["id"], decision="rejected", cls=None).returncode == 0
     # and a rejected artifact does not verify anything either
     _, ev2, o2 = submitted(db, evidence_verified=False)
-    psql(db, f"update project_evidence set review_status = 'rejected' where id = '{ev2}'")
+    review_evidence(db, ev2, decision="rejected")
     assert "not verified" in review(db, o2["id"]).stderr
 
 
@@ -228,7 +234,7 @@ def test_the_table_refuses_a_bad_kind_even_when_the_function_is_skipped(db):
                  " calibration_key, unit, predicted_value, predicted_source, observed_value, observed_on, method, evidence_id,"
                  " installed_attested, installed_basis, submitted_by, measurement_kind) select project_id, prediction_ref, case_token,"
                  " case_revision, architecture, calibration_key, unit, predicted_value, predicted_source, observed_value,"
-                 f" '2025-01-01', method, evidence_id, true, 'b', 'x', 'quoted' from project_observations where id = '{o['id']}'",
+                 f" '2026-07-01', method, evidence_id, true, 'b', 'x', 'quoted' from project_observations where id = '{o['id']}'",
             check=False)
     assert r.returncode != 0 and "measurement_kind" in r.stderr
 
@@ -307,8 +313,9 @@ COLUMNS = ["id", "key", "observed_value", "predicted_value", "unit", "site_ref",
 
 
 def test_a_fully_cleared_observation_is_exported_and_nothing_else_is(db):
-    _, _, good = submitted(db)
+    gproject, _, good = submitted(db)
     assert review(db, good["id"]).returncode == 0
+    record_permission(db, gproject)                     # 0047: the project's owner agreed
     rows = export_rows(db, f"id = '{good['id']}'")
     assert len(rows) == 1 and list(rows[0].keys()) == COLUMNS
     row = rows[0]
@@ -321,14 +328,17 @@ def test_a_fully_cleared_observation_is_exported_and_nothing_else_is(db):
     _, _, unreviewed = submitted(db)
     _, _, rejected = submitted(db)
     review(db, rejected["id"], decision="rejected", cls=None)
-    _, ev, flipped = submitted(db)
+    # The out-of-band edits below are what 0046/0048 now refuse, so they are made with the row guards off: the view must still hold.
+    p_flipped, ev, flipped = submitted(db)
     review(db, flipped["id"])
-    psql(db, f"update project_evidence set review_status = 'rejected' where id = '{ev}'")       # evidence withdrawn afterwards
-    _, ev2, swapped = submitted(db)
+    bypassing_triggers(db, f"update project_evidence set review_status = 'rejected' where id = '{ev}'")       # evidence withdrawn afterwards
+    p_swapped, ev2, swapped = submitted(db)
     review(db, swapped["id"])
-    psql(db, f"update project_evidence set sha256 = repeat('e', 64) where id = '{ev2}'")        # evidence replaced afterwards
-    _, _, legacy_kind = submitted(db, measurement_kind=None)
+    bypassing_triggers(db, f"update project_evidence set sha256 = repeat('e', 64) where id = '{ev2}'")        # evidence replaced afterwards
+    p_legacy, _, legacy_kind = submitted(db, measurement_kind=None)
     review(db, legacy_kind["id"])
+    for pr in (p_flipped, p_swapped, p_legacy):          # consent is given for each: the OTHER gate is what keeps them out
+        record_permission(db, pr)
     out = {r["id"] for r in export_rows(db)}
     assert good["id"] in out
     for other in (unreviewed, rejected, flipped, swapped, legacy_kind):
@@ -381,8 +391,9 @@ def test_the_exported_rows_pass_the_ledgers_own_import_policy_end_to_end(db, tmp
     from gridforge.calibration.ledger import EXPORT_SCHEMA, import_export, read_chain
     ids = []
     for site in ("Site One", "Site Two", "Site Three"):
-        _, _, o = submitted(db, site=site)
+        project, _, o = submitted(db, site=site)
         assert review(db, o["id"]).returncode == 0
+        record_permission(db, project)
         ids.append(o["id"])
     rows = [r for r in export_rows(db) if r["id"] in ids]
     assert len(rows) == 3
@@ -452,6 +463,10 @@ def test_applying_the_migration_again_changes_nothing(db):
     before = (count(db, "project_observations"), count(db, "project_observation_reviews"), len(export_rows(db)))
     psql(db, file=MIGRATION)
     psql(db, file=MIGRATION)
+    # Replaying an older migration replaces the view and the submit function with ITS definitions; the later migrations that
+    # superseded them (0046 the forecast rule, 0047 consent and origin) are replayed after it, in order, as the chain always is.
+    psql(db, file=next(MIGRATIONS.glob("0046_*.sql")))
+    psql(db, file=next(MIGRATIONS.glob("0047_*.sql")))
     assert (count(db, "project_observations"), count(db, "project_observation_reviews"), len(export_rows(db))) == before
     r = psql(db, "truncate public.project_observations cascade", check=False)
     assert r.returncode != 0 and "append-only" in r.stderr
