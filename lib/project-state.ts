@@ -9,7 +9,7 @@ import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { listComparisons } from "@/lib/project-comparisons";
 import { shareStatus } from "@/lib/project-share";
-import { ledgerBlockers, ledgerEligible, type MeasurementKind, type ObservationRow, type ReviewRow } from "@/lib/project-observations";
+import { ledgerBlockers, ledgerEligible, type MeasurementKind, type ObservationRow, type PermissionStanding, type ReviewRow } from "@/lib/project-observations";
 import {
   creds,
   getProjectByToken,
@@ -282,7 +282,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
   if (!found.ok) return found;
   const project = found.project;
 
-  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer, cmp, shr] = await Promise.all([
+  const [links, events, ev, pk, ob, rv, sa, sr, sv, cel, cer, cmp, shr, perm] = await Promise.all([
     projectLinks(project.id),
     listEvents(project.id),
     rest<EvidenceRow[]>("GET", `project_evidence?project_id=eq.${encodeURIComponent(project.id)}&select=*&order=uploaded_at.asc`),
@@ -299,6 +299,9 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     ),
     listComparisons(project.id),
     shareStatus(project.id),
+    // The standing decision of the project's owner about sharing its measurements (0047): the newest row. A store that predates the
+    // migration has no such table, which reads as "no permission on record", not as a failure of the whole record.
+    rest<{ kind: "granted" | "revoked" }[]>("GET", `calibration_permissions?scope_type=eq.project&scope_id=eq.${encodeURIComponent(project.id)}&select=kind&order=seq.desc&limit=1`),
   ]);
   if (!links.ok) return links;
   if (!events.ok) return events;
@@ -365,6 +368,7 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
     });
   }
 
+  const standing: PermissionStanding = perm.ok ? (perm.data?.[0]?.kind ?? "none") : perm.status === 404 ? "none" : "unknown";
   const reviewOf = new Map((rv.data ?? []).map((r) => [r.observation_id, r]));
   const evidenceById = new Map((ev.data ?? []).map((e) => [e.id, e]));
   const observations: ProjectState["observations"] = (ob.data ?? []).map((o) => {
@@ -386,8 +390,8 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
       evidence_class: r?.evidence_class ?? null,
       reviewed_by: r?.reviewer ?? null,
       measurement_kind: o.measurement_kind ?? null,
-      ledger_eligible: ledgerEligible(o, r, evidenceById.get(o.evidence_id)),
-      ledger_blockers: ledgerBlockers(o, r, evidenceById.get(o.evidence_id)),
+      ledger_eligible: ledgerEligible(o, r, evidenceById.get(o.evidence_id), standing),
+      ledger_blockers: ledgerBlockers(o, r, evidenceById.get(o.evidence_id), standing),
     };
   });
 

@@ -46,10 +46,17 @@ export function actualReviewBody(input: ReviewInput, verifiedFields: string[]): 
     : { decision: "rejected", reviewer: input.reviewer.trim(), reason: input.reason.trim() };
 }
 
-export const reviewUrl = (kind: "observation" | "actual", id: string): string =>
+/** POST /api/admin/evidence/{id}/review. The decision, the typed name and the reason: nothing else, and never a digest (the server computes it). */
+export function fileReviewBody(input: ReviewInput): Record<string, unknown> {
+  return { decision: input.decision, reviewer: input.reviewer.trim(), reason: input.reason.trim() };
+}
+
+export const reviewUrl = (kind: "observation" | "actual" | "file", id: string): string =>
   kind === "observation"
     ? `/api/admin/observations/${encodeURIComponent(id)}/review`
-    : `/api/admin/supplier-actuals/${encodeURIComponent(id)}/review`;
+    : kind === "actual"
+      ? `/api/admin/supplier-actuals/${encodeURIComponent(id)}/review`
+      : `/api/admin/evidence/${encodeURIComponent(id)}/review`;
 
 /** How the routes word a decision that someone else already took (a 409). The screen drops a stale card on it; tests pin both routes to it. */
 export const ALREADY_REVIEWED = /already been reviewed/i;

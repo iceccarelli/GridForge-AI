@@ -65,6 +65,20 @@ export interface ActualItem {
   evidence: EvidenceRef | null;
 }
 
+/** An uploaded file nobody has decided on yet. Never carries its storage path: the reviewer sees the digest, the server re-reads the bytes. */
+export interface FileItem {
+  kind: "file";
+  id: string;
+  project: ProjectRef | null;
+  filename: string;
+  media_type: string;
+  byte_size: number;
+  sha256: string;
+  source_category: string;
+  note: string | null;
+  uploaded_at: string;
+}
+
 /** How many of each kind the screen shows at once, how many rows one read fetches, and the most rows one load will scan. */
 export const REVIEW_SHOW_MAX = 50;
 export const REVIEW_PAGE = 100;
@@ -80,7 +94,13 @@ export interface QueueCount {
 }
 
 export type ReviewQueue =
-  | { ok: true; observations: ObservationItem[]; actuals: ActualItem[]; counts: { observations: QueueCount; actuals: QueueCount } }
+  | {
+      ok: true;
+      observations: ObservationItem[];
+      actuals: ActualItem[];
+      files: FileItem[];
+      counts: { observations: QueueCount; actuals: QueueCount; files: QueueCount };
+    }
   | { ok: false; status: number; error: string };
 
 /**
@@ -116,6 +136,37 @@ export async function pendingOf<T extends { id: string }>(
 }
 
 const uniq = <T,>(xs: T[]) => Array.from(new Set(xs));
+
+/** The columns a file row is read with. Never `*` and never `storage_ref`: that is a private object path. */
+const FILE_COLUMNS = "id,project_id,filename,media_type,byte_size,sha256,source_category,note,uploaded_at";
+type FileRow = Omit<FileItem, "kind" | "project"> & { project_id: string };
+
+/**
+ * Files still `unverified`, newest upload first with a stable order (upload time, then id), read in explicit pages and scanned up to
+ * REVIEW_SCAN_MAX rows, saying so when the scan stops early. The status is filtered by the store, so a file decided elsewhere never
+ * appears and a row cap cannot make a decided file look pending.
+ */
+export async function pendingFiles(): Promise<{ ok: true; pending: FileRow[]; truncated: boolean } | { ok: false; status: number; error: string }> {
+  const pending: FileRow[] = [];
+  for (let offset = 0; offset < REVIEW_SCAN_MAX; offset += REVIEW_PAGE) {
+    const page = await rest<FileRow[]>(
+      "GET",
+      `project_evidence?review_status=eq.unverified&select=${FILE_COLUMNS}&order=uploaded_at.desc,id.desc&limit=${REVIEW_PAGE}&offset=${offset}`
+    );
+    if (!page.ok) return { ok: false, status: 502, error: "The review queue could not be read." };
+    const rows = page.data ?? [];
+    pending.push(...rows);
+    if (rows.length < REVIEW_PAGE) return { ok: true, pending, truncated: false };
+  }
+  return { ok: true, pending, truncated: pending.length >= REVIEW_SCAN_MAX };
+}
+
+export function fileItem(f: FileRow, project: ProjectRef | null): FileItem {
+  return {
+    kind: "file", id: f.id, project, filename: f.filename, media_type: f.media_type, byte_size: Number(f.byte_size), sha256: f.sha256,
+    source_category: f.source_category, note: f.note ?? null, uploaded_at: f.uploaded_at,
+  };
+}
 
 export function observationItem(o: ObservationRow, project: ProjectRef | null, evidence: EvidenceRef | null): ObservationItem {
   return {
@@ -162,17 +213,20 @@ export function actualItem(a: ActualRow, project: ProjectRef | null, evidence: E
 
 /** The newest pending observations and delivery records (REVIEW_SHOW_MAX of each), joined to their evidence files and project names. */
 export async function reviewQueue(): Promise<ReviewQueue> {
-  const [o, a] = await Promise.all([
+  const [o, a, f] = await Promise.all([
     pendingOf<ObservationRow>("project_observations", "project_observation_reviews", "observation_id"),
     pendingOf<ActualRow>("supplier_actuals", "supplier_actual_reviews", "actual_id"),
+    pendingFiles(),
   ]);
   if (!o.ok) return { ok: false, status: o.status, error: o.error };
   if (!a.ok) return { ok: false, status: a.status, error: a.error };
+  if (!f.ok) return { ok: false, status: f.status, error: f.error };
   const obs = o.pending.slice(0, REVIEW_SHOW_MAX);
   const act = a.pending.slice(0, REVIEW_SHOW_MAX);
+  const fil = f.pending.slice(0, REVIEW_SHOW_MAX);
 
   const evidenceIds = uniq([...obs.map((x) => x.evidence_id), ...act.map((x) => x.evidence_id)].filter(Boolean));
-  const projectIds = uniq([...obs.map((x) => x.project_id), ...act.map((x) => x.project_id)].filter(Boolean));
+  const projectIds = uniq([...obs.map((x) => x.project_id), ...act.map((x) => x.project_id), ...fil.map((x) => x.project_id)].filter(Boolean));
   const list = (ids: string[]) => ids.map((i) => encodeURIComponent(i)).join(",");
   const [ev, pr] = await Promise.all([
     evidenceIds.length
@@ -197,9 +251,11 @@ export async function reviewQueue(): Promise<ReviewQueue> {
     ok: true,
     observations: obs.map((x) => observationItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
     actuals: act.map((x) => actualItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
+    files: fil.map((x) => fileItem(x, prById.get(x.project_id) ?? null)),
     counts: {
       observations: { shown: obs.length, pending: o.pending.length, truncated: o.truncated },
       actuals: { shown: act.length, pending: a.pending.length, truncated: a.truncated },
+      files: { shown: fil.length, pending: f.pending.length, truncated: f.truncated },
     },
   };
 }

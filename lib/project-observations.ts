@@ -54,6 +54,37 @@ export const MEASUREMENT_KINDS = ["metered", "bms_trend", "commissioning_record"
 export type MeasurementKind = (typeof MEASUREMENT_KINDS)[number];
 export const EXPORT_SCHEMA = "gridforge/calibration-export/1";
 
+/** Where an observation's data came from (migration 0047). Only 'production' can reach the calibration ledger. */
+export const DATA_ORIGINS = ["production", "test", "synthetic", "unclassified"] as const;
+export type DataOrigin = (typeof DATA_ORIGINS)[number];
+
+/**
+ * The origin the SERVER stamps on a new observation; a request body is never read for it. 'production' only on a production
+ * deployment (Vercel sets VERCEL_ENV), 'test' everywhere else: a preview, a developer machine and the test suite share a database
+ * with no claim to be real. GRIDFORGE_DATA_ORIGIN may state 'test' or 'synthetic' explicitly (a demo or generator run against a
+ * production deployment); it can never promote a non-production deployment to production, and anything else in it is ignored.
+ */
+export function dataOrigin(env: Record<string, string | undefined> = process.env): DataOrigin {
+  const declared = env.GRIDFORGE_DATA_ORIGIN;
+  if (declared === "test" || declared === "synthetic") return declared;
+  return env.VERCEL_ENV === "production" ? "production" : "test";
+}
+
+/**
+ * The forecast must predate the outcome: the stored case revision was created before the START (00:00 UTC) of the date the
+ * measurement covers. A forecast made on the day of the measurement does not predate it. Mirrors migration 0046, which refuses the
+ * insert and which the ledger view applies again. Null when it does; otherwise why not.
+ */
+export function forecastPredatesOutcome(createdAt: unknown, observedOn: string): string | null {
+  if (typeof createdAt !== "string" || Number.isNaN(Date.parse(createdAt))) {
+    return "That case revision has no recorded creation time, so it cannot be shown to predate the outcome.";
+  }
+  if (Date.parse(createdAt) >= Date.parse(`${observedOn}T00:00:00Z`)) {
+    return "The forecast must predate the outcome: that case revision was created at or after the start of the date you measured, so it cannot be reconciled against it. Reconcile a forecast that was made before the measurement.";
+  }
+  return null;
+}
+
 export interface ObservationRow {
   id: string;
   project_id: string;
@@ -84,6 +115,8 @@ export interface ObservationRow {
   engine_provenance_digest: string | null;
   report_date: string | null;
   submitted_by_ref: string | null;
+  /** Absent on rows read from a store that predates migration 0047; such a row is never ledger-eligible. */
+  data_origin?: DataOrigin;
 }
 
 export interface ReviewRow {
@@ -182,6 +215,13 @@ export async function submitObservation(
   }
   const row = await deploymentCaseRevision(case_token, revision);
   if (!row) return { ok: false, status: 404, error: "That case revision was not found." };
+  // Calibration is only worth anything if the prediction was fixed before reality answered it (the database enforces this too).
+  const late = forecastPredatesOutcome(row.created_at, observed_on);
+  if (late) return { ok: false, status: 422, error: late };
+  // A revision written before the freeze (0046) has no digest: nothing shows its forecast was not rewritten, so it is not reported on.
+  if (typeof row.case_digest !== "string" || !/^[0-9a-f]{64}$/.test(row.case_digest)) {
+    return { ok: false, status: 422, error: "That case revision was written before forecasts were frozen (it has no case_digest), so nothing shows it was not rewritten and it cannot be reconciled. Re-run the case to make a new revision." };
+  }
 
   // The expected value comes from the engine's stored result — never from the caller.
   const archs = ((row.result as { architectures?: Record<string, unknown>[] }).architectures ?? []);
@@ -219,12 +259,17 @@ export async function submitObservation(
       // Who submitted, as far as the site can know it: the project token's hash. Stored so a review by the same
       // party can be refused; the site_ref and the prediction's engine digest are read by the database, not sent.
       submitted_by_ref: createHash("sha256").update(project.project_token).digest("hex"),
+      // Stamped by the server, never read from the request: production only on a production deployment (see dataOrigin).
+      data_origin: dataOrigin(),
     },
     p_event: ev("observation_submitted", submitted_by, {}),
   });
   if (!added.ok || !added.data) {
     if (added.ok === false && added.code === "23505") {
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
+    }
+    if (added.ok === false && added.code === "GF004") {
+      return { ok: false, status: 422, error: "The forecast was refused as the basis for this outcome: it must predate the outcome, be frozen, hold the predicted value, and the outcome cannot be dated in the future." };
     }
     if (added.ok === false && (added.code === "23502" || added.code === "23514")) {
       return { ok: false, status: 422, error: "The observation was refused: it needs its evidence artifact, the installed-architecture attestation and a measurement kind, and its values must be physical." };
@@ -319,12 +364,18 @@ export async function observationQueue(
  * Whether a reviewed observation clears every gate the ledger applies. A person still imports it.
  * Mirrors the `calibration_ledger_rows` view (migration 0038): verified, E5 only, a measurement kind, a site, the
  * engine digest of the prediction, an evidence artifact that is verified now and is the one the reviewer saw, and a
- * reviewer who is not the submitter.
+ * reviewer who is not the submitter; and (0047) a production data origin and a standing permission from the project's owner.
+ * The forecast-before-outcome rule (0046) is enforced when an observation is stored and again by the view; it is not restated here.
+ * The VIEW is the authority, this only explains it: `standing` must be read from calibration_permissions, and an absent one is
+ * treated as "no permission on record", the safe direction.
  */
+export type PermissionStanding = "granted" | "revoked" | "none" | "unknown";
+
 export function ledgerBlockers(
-  o: Pick<ObservationRow, "measurement_kind" | "site_ref" | "engine_provenance_digest" | "submitted_by">,
+  o: Pick<ObservationRow, "measurement_kind" | "site_ref" | "engine_provenance_digest" | "submitted_by" | "data_origin">,
   r: Pick<ReviewRow, "decision" | "evidence_class" | "reviewer" | "evidence_sha256"> | null | undefined,
-  evidence: { review_status: string; sha256: string } | null | undefined
+  evidence: { review_status: string; sha256: string } | null | undefined,
+  standing?: PermissionStanding
 ): string[] {
   if (!r) return ["not reviewed yet"];
   if (r.decision !== "verified") return ["rejected by the reviewer"];
@@ -339,15 +390,20 @@ export function ledgerBlockers(
   if (!evidence || evidence.review_status !== "verified") why.push("the evidence artifact is not verified");
   else if (r.evidence_sha256 && evidence.sha256 !== r.evidence_sha256) why.push("the evidence artifact changed after review");
   if (r.reviewer.trim().toLowerCase() === o.submitted_by.trim().toLowerCase()) why.push("reviewer is the submitter");
+  if (o.data_origin !== "production") why.push(`the data origin is not production (${o.data_origin ?? "not recorded"})`);
+  if (standing === "revoked") why.push("the project's permission to share its measurements was revoked");
+  else if (standing === "unknown") why.push("the project's permission record could not be read");
+  else if (standing !== "granted") why.push("no permission from the project's owner to share its measurements is on record");
   return why;
 }
 
 export function ledgerEligible(
   o: Parameters<typeof ledgerBlockers>[0],
   r: Parameters<typeof ledgerBlockers>[1],
-  evidence: Parameters<typeof ledgerBlockers>[2]
+  evidence: Parameters<typeof ledgerBlockers>[2],
+  standing?: PermissionStanding
 ): boolean {
-  return ledgerBlockers(o, r, evidence).length === 0;
+  return ledgerBlockers(o, r, evidence, standing).length === 0;
 }
 
 export interface CalibrationExportRow {

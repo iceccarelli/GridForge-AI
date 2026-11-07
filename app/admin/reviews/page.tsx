@@ -48,6 +48,7 @@ export default async function EvidenceReviewPage() {
       <ProjectEvidenceReview
         observations={q.ok ? q.observations : []}
         actuals={q.ok ? q.actuals : []}
+        files={q.ok ? q.files : []}
         counts={q.ok ? q.counts : undefined}
         reviewClass={REVIEW_CLASS}
         initialError={q.ok ? null : q.error}

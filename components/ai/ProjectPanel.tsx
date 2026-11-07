@@ -209,7 +209,9 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
       ))}
       <p className="text-faint">
         Not part of the accuracy record until a reviewer other than the submitter verifies it as E5 against a verified
-        evidence artifact and a person imports it into the calibration ledger.
+        evidence artifact, the project&apos;s owner has agreed to share its measurements, it was recorded on a production
+        deployment, and a person imports it into the calibration ledger. Observations recorded before origin was tracked
+        stay unclassified and are not exported; whether to attest their origin later is a decision for the owner.
       </p>
       {options.length === 0 ? (
         <p className="text-faint">Unknown — no attached architecture holds a positive predicted firm MW to compare with.</p>
