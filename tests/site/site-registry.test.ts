@@ -167,12 +167,14 @@ describe("the allowance", () => {
       expect(hits()).toBe(0);
       const limit = RATE_POLICIES.registry_write.limit;
       let last: Response | null = null;
-      for (let i = 0; i < limit + 1; i++) last = await postOrg("busy@registry.example", `10.9.${Math.floor(i / 200)}.${i % 200}`, { name: `O${i}` });   // a different address each time
+      for (let i = 0; i < limit + 1; i++) last = await postOrg("busy@registry.example", "10.9.9.9", { name: `O${i}` });   // one address, one account
       expect(last!.status).toBe(429);
       expect(last!.headers.get("retry-after")).toBeTruthy();
       expect(last!.headers.get("cache-control")).toBe("no-store");
-      // the address is not what is counted: another person behind the SAME address as the exhausted one is unaffected
+      // the address is not what is counted: a colleague behind the SAME address as the exhausted account is unaffected (an office behind a NAT)
       expect((await postOrg("colleague@registry.example", "10.9.9.9", { name: "Mine" })).status).toBe(201);
+      // and the exhausted account is exhausted from any other address too
+      expect((await postOrg("busy@registry.example", "10.77.7.7", { name: "Elsewhere" })).status).toBe(429);
       expect(db.rows("rate_limit_windows").every((r) => r.bucket !== "registry_account")).toBe(true);
     } finally {
       restore();
