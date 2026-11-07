@@ -64,7 +64,12 @@ function watch(page, label) {
   });
   page.on("pageerror", (e) => entry.consoleErrors.push(`pageerror: ${String(e).slice(0, 200)}`));
   page.on("requestfailed", (r) => entry.failed.push(`${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ""}`));
-  page.on("response", (r) => { if (r.status() >= 400) entry.bad.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`); });
+  page.on("response", async (r) => {
+    if (r.status() < 400) return;
+    // For the form's own endpoint also keep the (PII-free) refusal, so a failure says why.
+    const why = new URL(r.url()).pathname === "/api/contact" ? ` ${(await r.text().catch(() => "")).slice(0, 160)}` : "";
+    entry.bad.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}${why}`);
+  });
   page.on("request", (r) => {
     if (r.url().endsWith("/api/csp-report")) {
       try {
