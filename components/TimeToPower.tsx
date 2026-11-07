@@ -65,7 +65,7 @@ export function TimeToPower() {
     setCaptionOn(true);
   }, []);
 
-  // The first change to an input stops the reel for good, mid-glide included.
+  // The first actual CHANGE to an input value stops the reel for good, mid-glide included. (Knob calls this only when the value differs.)
   const nudge = useCallback(() => {
     cancelGlide();
     setCustom(true);
@@ -245,7 +245,7 @@ export function TimeToPower() {
           {SCENARIOS.map((_, i) => (
             <button
               key={i}
-              onClick={() => { nudge(); setCustom(false); setSceneIdx(i); applyScenario(i); }}
+              onClick={() => { cancelGlide(); dispatch({ type: "scenario_selected" }); setCustom(false); setSceneIdx(i); applyScenario(i); }}
               aria-label={"Scenario " + (i + 1)}
               className="h-1.5 rounded-full transition-all"
               style={{
@@ -333,8 +333,12 @@ function Knob({ label, value, unit, min, max, step, onChange, fixed = 0, assumpt
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
-        onPointerDown={onNudge}
-        onChange={(e) => { onNudge?.(); onChange(Number(e.target.value)); }}
+        onChange={(e) => {
+          // Only a value that actually changed is an edit: a press on the thumb that moves nothing leaves the reel alone.
+          const next = Number(e.target.value);
+          if (next !== value) onNudge?.();
+          onChange(next);
+        }}
         className="w-full accent-[#00E5FF] cursor-pointer"
         aria-label={label}
       />

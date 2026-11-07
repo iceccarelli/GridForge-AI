@@ -131,8 +131,16 @@ async function reelJourney(browser, width, height, reduced, ipTail) {
   await page.keyboard.press("Space");
   await pauseBtn.waitFor({ timeout: 5_000 });
   await page.waitForFunction((c) => document.querySelector('[data-testid="ttp-caption"]')?.textContent !== c, c1, { timeout: 20_000 }).then(() => check(true, `[${tag}] Play (keyboard) resumes it`), () => check(false, `[${tag}] Play resumes it`));
-  // The visitor changes an input: the reel stops for good and never overwrites it.
+  // A bare press on a slider that changes nothing, and a scenario dot, do NOT stop the reel for good.
   const cap = page.getByRole("slider", { name: "Capacity" });
+  await cap.dispatchEvent("pointerdown");
+  check(await pauseBtn.isVisible() && (await page.getByText("Autoplay stopped").count()) === 0, `[${tag}] a pointer press that changes no value leaves the reel running`);
+  await page.getByRole("button", { name: "Scenario 3" }).click();
+  check(await playBtn.isVisible() && (await rangeValue(page, "Capacity")) === "50", `[${tag}] a scenario dot applies that scenario and pauses (Play is offered), it does not stop autoplay for good`);
+  await playBtn.focus();
+  await page.keyboard.press("Enter");
+  await pauseBtn.waitFor({ timeout: 5_000 });
+  // The visitor changes an input: the reel stops for good and never overwrites it.
   await cap.focus();
   await page.keyboard.press("End");
   const mine = await rangeValue(page, "Capacity");

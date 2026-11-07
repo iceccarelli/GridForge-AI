@@ -47,6 +47,11 @@ describe("autoplayReducer", () => {
     expect(run("paused", { type: "play" })).toBe("playing");
     expect(run("paused", { type: "mount", reduced: true }, { type: "play" })).toBe("playing");
   });
+  it("choosing a scenario dot only pauses the reel (Play resumes it); it is a selection, not an edit, and never un-stops a stopped one", () => {
+    expect(run("playing", { type: "scenario_selected" })).toBe("paused");
+    expect(run("paused", { type: "scenario_selected" }, { type: "play" })).toBe("playing");
+    expect(run("stopped", { type: "scenario_selected" })).toBe("stopped");
+  });
   it("the first change to an input stops the reel for good: no later Play, mount or media change restarts it", () => {
     const stopped = run("playing", { type: "user_adjusted" });
     expect(stopped).toBe("stopped");
@@ -82,7 +87,12 @@ describe("the component no longer resumes over the visitor's inputs", () => {
     expect(src).toMatch(/prefersReducedMotion\(/);
     expect(src).toMatch(/useReducer\(autoplayReducer/);
   });
-  it("every input change goes through the stop-for-good path", () => {
+  it("only an input whose value actually changed goes through the stop-for-good path; a bare press and a scenario dot do not", () => {
     expect(src).toMatch(/user_adjusted/);
+    expect(src).toMatch(/if \(next !== value\) onNudge\?\.\(\)/);
+    expect(src).not.toMatch(/onPointerDown/);
+    const dot = /onClick=\{\(\) => \{ cancelGlide\(\);.*?applyScenario\(i\); \}\}/.exec(src)?.[0] ?? "";
+    expect(dot).toContain('dispatch({ type: "scenario_selected" })');
+    expect(dot).not.toMatch(/nudge\(/);
   });
 });
