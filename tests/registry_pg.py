@@ -130,3 +130,64 @@ def new_site(db, actor, org, name=None, origin="synthetic", country="DE"):
 
 def new_hall(db, actor, site, label=None):
     return ok(db, "gf_create_hall", p_actor=actor, p_site=site, p_label=label or f"Hall {uuid.uuid4().hex[:6]}")["hall_id"]
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Fixtures for what OTHER migrations own (projects, their evidence, a purchased engagement's files, supplier records, observations).
+# Every test builds them through these functions and never with its own INSERT, so when those tables change (a new column, a new rule,
+# a new path to create a reviewed file) there is ONE place to change.
+# --------------------------------------------------------------------------------------------------------------------------
+
+def seed_project(db, name="Hall project"):
+    token = f"tok-{uuid.uuid4().hex}"
+    pid = scalar(db, f"insert into projects (project_token, project_name) values ('{token}', {q(name)}) returning id")
+    return pid, token
+
+
+def seed_project_event(db, project_id, event_type, occurred_at=None, actor="engineer@a.example", payload=None):
+    at = "now()" if occurred_at is None else q(occurred_at)
+    psql(db, "insert into project_events (project_id, event_type, occurred_at, actor, payload) "
+             f"values ('{project_id}', '{event_type}', {at}, '{actor}', {q(json.dumps(payload or {}))}::jsonb)")
+
+
+def seed_evidence(db, project_id, review="verified", filename="agreement.pdf", storage_ref="project-evidence/x/y"):
+    return scalar(db, "insert into project_evidence (project_id, filename, media_type, sha256, byte_size, storage_ref, review_status) "
+                      f"values ('{project_id}', {q(filename)}, 'application/pdf', '{uuid.uuid4().hex * 2}', 100, {q(storage_ref)}, '{review}') returning id")
+
+
+def seed_intake_file(db, buyer_email):
+    d = scalar(db, f"insert into deliverables (token, kind, status, email) values ('{uuid.uuid4().hex}', 'density_screen', 'awaiting_intake', {q(buyer_email)}) returning id")
+    return scalar(db, "insert into intake_evidence_files (deliverable_id, filename, media_type, sha256, byte_size, storage_ref) "
+                      f"values ('{d}', 'letter.pdf', 'application/pdf', '{uuid.uuid4().hex * 2}', 100, 'project-evidence/x/z') returning id")
+
+
+def seed_package(db, project_id, supplier="Acme Power"):
+    pkg = scalar(db, "insert into procurement_packages (package_token, project_id, case_token, case_revision, architecture, spec_summary, response_template, "
+                     f"document_md, document_html) values ('pkg-{uuid.uuid4().hex}', '{project_id}', 'c', 1, 'A', '{{}}', '{{}}', 'm', 'h') returning id")
+    resp = scalar(db, f"insert into procurement_responses (package_id, project_id, supplier, response) values ('{pkg}', '{project_id}', {q(supplier)}, '{{}}') returning id")
+    psql(db, f"update procurement_packages set selected_supplier = {q(supplier)}, selected_response_id = '{resp}', selected_by = 'x', selected_at = now() where id = '{pkg}'")
+    return pkg, resp
+
+
+def seed_supplier_actual(db, project_id, package_id, response_id, evidence_id, supersedes=None, supplier="Acme Power", **dates):
+    cols = ", ".join(dates)
+    vals = ", ".join(f"'{v}'" for v in dates.values())
+    return scalar(db, "insert into supplier_actuals (project_id, package_id, selected_response_id, supplier, case_token, case_revision, architecture, quoted_snapshot, "
+                      f"evidence_id, method, submitted_by, supersedes_id, {cols}) values ('{project_id}', '{package_id}', '{response_id}', {q(supplier)}, 'c', 1, 'A', '{{}}', "
+                      f"'{evidence_id}', 'delivery note', 'x@a.example', {q(supersedes)}, {vals}) returning id")
+
+
+def seed_actual_review(db, actual_id, project_id, verified_fields):
+    arr = "array[" + ", ".join(q(f) for f in verified_fields) + "]"
+    psql(db, f"insert into supplier_actual_reviews (actual_id, project_id, decision, verified_fields, reviewer) values ('{actual_id}', '{project_id}', 'verified', {arr}, 'r@desk.example')")
+
+
+def seed_observation(db, project_id, evidence_id, observed_on="2026-03-01", observed=11.0, review_class=None):
+    oid = scalar(db, "insert into project_observations (project_id, prediction_ref, case_token, case_revision, architecture, calibration_key, unit, predicted_value, "
+                     "predicted_source, observed_value, observed_on, method, evidence_id, installed_attested, installed_basis, submitted_by) "
+                     f"values ('{project_id}', 'power_deployment_case:c:r1:A', 'c', 1, 'A', 'btm.firm_MW', 'MW', 12.5, 'engine', {observed}, '{observed_on}', 'meter', "
+                     f"'{evidence_id}', true, 'commissioning sheet', 'x@a.example') returning id")
+    if review_class:
+        psql(db, "insert into project_observation_reviews (observation_id, project_id, decision, evidence_class, reviewer) "
+                 f"values ('{oid}', '{project_id}', 'verified', '{review_class}', 'reviewer@desk.example')")
+    return oid

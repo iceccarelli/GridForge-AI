@@ -318,3 +318,64 @@ def test_the_functions_are_not_executable_by_public(db):
     for f in REGISTRY_RPCS:
         acl = scalar(db, f"select coalesce(proacl::text, '') from pg_proc where oid = 'public.{f}'::regprocedure")
         assert not re.search(r"(^|[{,])=X", acl), (f, acl)       # an entry with an empty grantee is PUBLIC
+
+
+# ====================================================================================================================
+# Rework: names, what a member is told about being added, listings that carry their halls, writes that return what they wrote
+# ====================================================================================================================
+
+BIDI = ["‮evil", "a‪b", "x⁦y", "x⁩", "‏name", "x‎y", "؜x"]
+
+
+@pytest.mark.parametrize("name", BIDI)
+def test_a_name_with_a_bidirectional_control_is_refused_everywhere(db, team, name):
+    a, _ = team
+    assert reason(db, "gf_create_org", p_actor=OWNER, p_name=name) == "invalid_name"
+    assert reason(db, "gf_create_site", p_actor=OWNER, p_org=a, p_name=name, p_country="DE", p_data_origin="test") == "invalid_name"
+    s = new_site(db, OWNER, a)
+    assert reason(db, "gf_create_hall", p_actor=OWNER, p_site=s, p_label=name) == "invalid_label"
+    refused(db, f"insert into organisations (name, created_by) values ({q(name)}, '{OWNER}')", "violates check")
+    refused(db, f"insert into sites (org_id, name, data_origin, created_by) values ('{a}', {q(name)}, 'test', '{OWNER}')", "violates check")
+    refused(db, f"insert into halls (site_id, label, created_by) values ('{s}', {q(name)}, '{OWNER}')", "violates check")
+
+
+def test_leading_and_trailing_no_break_spaces_are_stripped_and_a_name_of_only_spaces_is_empty(db, team):
+    a, _ = team
+    nbsp, emsp = "\u00a0", "\u2003"
+    site = ok(db, "gf_create_site", p_actor=OWNER, p_org=a, p_name=f"{nbsp}{emsp} North campus {nbsp}", p_country="DE", p_data_origin="test")["site_id"]
+    assert scalar(db, f"select name from sites where id = '{site}'") == "North campus"
+    assert reason(db, "gf_create_site", p_actor=OWNER, p_org=a, p_name=f"{nbsp}{nbsp}", p_country="DE", p_data_origin="test") == "invalid_name"
+    assert reason(db, "gf_create_site", p_actor=OWNER, p_org=a, p_name="north campus", p_country="DE", p_data_origin="test") == "name_taken"   # the stripped name collides
+    refused(db, f"insert into sites (org_id, name, data_origin, created_by) values ('{a}', {q(nbsp + 'padded')}, 'test', '{OWNER}')", "violates check")
+
+
+def test_my_orgs_tells_a_member_who_added_them_and_when_and_gives_the_row_they_can_leave_by(db, team):
+    a, _ = team
+    mine = next(o for o in ok(db, "gf_my_orgs", p_actor=VIEWER)["orgs"] if o["id"] == a)
+    assert mine["role"] == "viewer" and mine["added_by"] == OWNER and mine["added_at"] and mine["member_id"]
+    owner_view = next(o for o in ok(db, "gf_my_orgs", p_actor=OWNER)["orgs"] if o["id"] == a)
+    assert owner_view["added_by"] == OWNER                                  # the creator added themselves
+    ok(db, "gf_org_remove_member", p_actor=VIEWER, p_org=a, p_member=mine["member_id"])   # and leaving is always allowed
+    assert a not in [o["id"] for o in ok(db, "gf_my_orgs", p_actor=VIEWER)["orgs"]]
+
+
+def test_the_site_listing_carries_each_sites_halls_in_one_call_and_nobody_elses(db, team):
+    a, b = team
+    s1, s2 = new_site(db, OWNER, a, name="Alpha"), new_site(db, OWNER, a, name="Beta")
+    h1, h2 = new_hall(db, OWNER, s1, "Hall 2"), new_hall(db, OWNER, s1, "Hall 1")
+    sb = new_site(db, OTHER, b)
+    hb = new_hall(db, OTHER, sb, "Secret")
+    sites = {s["id"]: s for s in ok(db, "gf_list_sites", p_actor=VIEWER)["sites"]}
+    assert [h["label"] for h in sites[s1]["halls"]] == ["Hall 1", "Hall 2"]
+    assert sites[s2]["halls"] == []
+    assert sb not in sites and hb not in str(sites)
+    one = {s["id"]: s for s in ok(db, "gf_list_sites", p_actor=VIEWER, p_org=a)["sites"]}
+    assert [h["id"] for h in one[s1]["halls"]] == [h2, h1]          # ordered by label: Hall 1 (h2) then Hall 2 (h1)
+
+
+def test_creating_a_site_or_a_hall_returns_what_was_created(db, team):
+    a, _ = team
+    r = ok(db, "gf_create_site", p_actor=OWNER, p_org=a, p_name="  Returned  ", p_country="ie", p_data_origin="production")
+    assert r["site"] == {**r["site"], "id": r["site_id"], "org_id": a, "name": "Returned", "country": "IE", "data_origin": "production"}
+    h = ok(db, "gf_create_hall", p_actor=OWNER, p_site=r["site_id"], p_label=" H ")
+    assert h["hall"]["label"] == "H" and h["hall"]["site_id"] == r["site_id"] and h["hall"]["id"] == h["hall_id"]

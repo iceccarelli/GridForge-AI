@@ -46,7 +46,11 @@ def test_the_numbers_belong_to_this_stream_and_no_applied_migration_is_edited():
         sql = FILES[n].read_text()
         altered = re.findall(r"alter\s+table\s+(?:public\.)?(\w+)\s+(?!enable row level security)(\w+)", sql, re.I)
         for table, verb in altered:
-            assert (table, verb.lower()) in {("projects", "add")}, (n, table, verb)
+            assert (table, verb.lower()) in {("projects", "add"), ("project_events", "drop"), ("project_events", "add")}, (n, table, verb)
+    # the one existing constraint it rebuilds is rebuilt as a UNION read from the catalog, never as a fixed list that could drop another migration's type
+    sql50 = FILES["0050"].read_text()
+    assert "pg_get_constraintdef" in sql50 and "project_attached_to_hall" in sql50 and "project_detached_from_hall" in sql50
+    assert not re.search(r"check \(event_type in \('project_created'", sql50)
 
 
 def test_every_function_in_the_three_files_is_closed_to_public_and_the_api_roles_by_name():

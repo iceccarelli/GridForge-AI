@@ -11,7 +11,8 @@ import re
 import uuid
 
 import pytest
-from registry_pg import add_member, call, drop_database, make_database, needs_db, new_hall, new_org, new_site, ok, psql, refused, scalar
+from registry_pg import (add_member, call, drop_database, make_database, needs_db, new_hall, new_org, new_site, ok, psql, refused, scalar, seed_actual_review,
+                         seed_evidence, seed_observation, seed_package, seed_project, seed_project_event, seed_supplier_actual)
 
 pytestmark = needs_db
 
@@ -39,42 +40,26 @@ class World:
         self.hall_b = new_hall(db, self.other, new_site(db, self.other, self.org_b))
 
     def project(self, hall, actor):
-        token = f"{SECRET}-{uuid.uuid4().hex}"
-        pid = scalar(self.db, f"insert into projects (project_token, project_name) values ('{token}', 'Hall project') returning id")
+        pid, token = seed_project(self.db, "Hall project")
+        psql(self.db, f"update projects set project_token = '{SECRET}-{uuid.uuid4().hex}' where id = '{pid}'")
+        token = scalar(self.db, f"select project_token from projects where id = '{pid}'")
         ok(self.db, "gf_attach_project_to_hall", p_actor=actor, p_hall=hall, p_project_token=token)
         return pid
 
     def event(self, pid, etype, at, actor="engineer@a.example"):
-        psql(self.db, "insert into project_events (project_id, event_type, occurred_at, actor, payload) "
-                      f"values ('{pid}', '{etype}', '{at}', '{actor}', '{{\"case_token\": \"{SECRET}\"}}')")
+        seed_project_event(self.db, pid, etype, at, actor, {"case_token": SECRET})
 
     def evidence(self, pid):
-        return scalar(self.db, "insert into project_evidence (project_id, filename, media_type, sha256, byte_size, storage_ref) "
-                               f"values ('{pid}', 'bill.pdf', 'application/pdf', '{uuid.uuid4().hex * 2}', 10, 'project-evidence/{SECRET}') returning id")
+        return seed_evidence(self.db, pid, "verified", "bill.pdf", f"project-evidence/{SECRET}")
 
     def package(self, pid):
-        pkg = scalar(self.db, "insert into procurement_packages (package_token, project_id, case_token, case_revision, architecture, spec_summary, "
-                              f"response_template, document_md, document_html) values ('{SECRET}-{uuid.uuid4().hex}', '{pid}', 'c', 1, 'A', '{{}}', '{{}}', 'm', 'h') returning id")
-        resp = scalar(self.db, f"insert into procurement_responses (package_id, project_id, supplier, response) values ('{pkg}', '{pid}', 'Acme Power', '{{}}') returning id")
-        psql(self.db, f"update procurement_packages set selected_supplier = 'Acme Power', selected_response_id = '{resp}', selected_by = 'x', selected_at = now() where id = '{pkg}'")
-        return pkg, resp
+        return seed_package(self.db, pid)
 
     def actual(self, pid, pkg, resp, ev, supersedes=None, **dates):
-        cols = ", ".join(dates)
-        vals = ", ".join(f"'{v}'" for v in dates.values())
-        return scalar(self.db, "insert into supplier_actuals (project_id, package_id, selected_response_id, supplier, case_token, case_revision, architecture, "
-                               f"quoted_snapshot, evidence_id, method, submitted_by, supersedes_id, {cols}) values ('{pid}', '{pkg}', '{resp}', 'Acme Power', 'c', 1, 'A', "
-                               f"'{{}}', '{ev}', 'delivery note', 'x@a.example', {'null' if not supersedes else repr(str(supersedes))}, {vals}) returning id")
+        return seed_supplier_actual(self.db, pid, pkg, resp, ev, supersedes, **dates)
 
     def observation(self, pid, ev, observed_on="2026-03-01", observed=11.0, review=None):
-        oid = scalar(self.db, "insert into project_observations (project_id, prediction_ref, case_token, case_revision, architecture, calibration_key, unit, "
-                              "predicted_value, predicted_source, observed_value, observed_on, method, evidence_id, installed_attested, installed_basis, submitted_by) "
-                              f"values ('{pid}', 'power_deployment_case:c:r1:A', 'c', 1, 'A', 'btm.firm_MW', 'MW', 12.5, 'engine', {observed}, '{observed_on}', 'meter', "
-                              f"'{ev}', true, 'commissioning sheet', 'x@a.example') returning id")
-        if review:
-            psql(self.db, "insert into project_observation_reviews (observation_id, project_id, decision, evidence_class, reviewer) "
-                          f"values ('{oid}', '{pid}', 'verified', '{review}', 'reviewer@desk.example')")
-        return oid
+        return seed_observation(self.db, pid, ev, observed_on, observed, review)
 
     def timeline(self, actor=None, hall=None, **kw):
         return call(self.db, "gf_hall_timeline", p_actor=actor or self.viewer, p_hall=hall or self.hall, **kw)
@@ -104,7 +89,7 @@ def populated(w):
 def test_the_timeline_unions_inputs_project_log_supplier_dates_and_observations_in_time_order(w):
     populated(w)
     events = w.timeline()["events"]
-    assert {e["kind"] for e in events} == {"input_recorded", "project_event", "supplier_date", "observation"}
+    assert {e["kind"] for e in events} == {"input_recorded", "project_event", "supplier_date", "observation", "project_attached"}
     times = [e["occurred_at"] for e in events]
     assert times == sorted(times, reverse=True)                       # newest first
     assert [e["subject"] for e in events if e["kind"] == "supplier_date"] == ["on_site_date", "po_date"]
@@ -125,7 +110,7 @@ def test_every_event_says_what_kind_of_thing_it_is_and_what_stands_behind_it(w):
     sup = by_kind["supplier_date"]
     assert sup["origin"] == "vendor" and "supplier" in sup["basis"].lower() and "unreviewed" in sup["basis"].lower()
     obs = by_kind["observation"]
-    assert obs["origin"] == "observed" and obs["evidence_class"] is None and "unreviewed" in obs["basis"].lower()
+    assert obs["origin"] == "submitted" and obs["evidence_class"] is None and "unreviewed" in obs["basis"].lower()    # not "observed": that word needs a file on an input
 
 
 def test_a_reviewed_observation_and_a_reviewed_supplier_date_say_so(w):
@@ -134,7 +119,7 @@ def test_a_reviewed_observation_and_a_reviewed_supplier_date_say_so(w):
     w.observation(pid, ev, review="E5")
     pkg, resp = w.package(pid)
     actual = w.actual(pid, pkg, resp, ev, po_date="2026-02-10", dispatch_date="2026-03-01")
-    psql(w.db, f"insert into supplier_actual_reviews (actual_id, project_id, decision, verified_fields, reviewer) values ('{actual}', '{pid}', 'verified', array['po_date'], 'r@desk.example')")
+    seed_actual_review(w.db, actual, pid, ["po_date"])
     events = w.timeline()["events"]
     obs = next(e for e in events if e["kind"] == "observation")
     assert obs["evidence_class"] == "E5" and "verified" in obs["basis"].lower() and "unreviewed" not in obs["basis"].lower()
@@ -181,13 +166,13 @@ def test_a_halls_timeline_holds_only_that_halls_projects_and_inputs(w):
     w.event(mine, "project_created", "2026-01-10T09:00:00Z")
     w.event(sibling, "evidence_attached", "2026-01-11T09:00:00Z")
     w.event(mine, "evidence_attached", "2026-01-12T09:00:00Z")
-    subjects = [e["subject"] for e in w.timeline()["events"]]
+    subjects = [e["subject"] for e in w.timeline()["events"] if e["kind"] == "project_event"]
     assert subjects == ["evidence_attached", "project_created"]
     assert all(e["project_id"] == mine for e in w.timeline()["events"])
-    assert len(w.timeline(hall=w.hall2)["events"]) == 1
+    assert len([e for e in w.timeline(hall=w.hall2)["events"] if e["kind"] == "project_event"]) == 1
     loose = scalar(w.db, f"insert into projects (project_token, project_name) values ('{uuid.uuid4().hex}', 'unattached') returning id")
     w.event(loose, "project_created", "2026-01-13T09:00:00Z")
-    assert len(w.timeline()["events"]) == 2
+    assert len([e for e in w.timeline()["events"] if e["kind"] == "project_event"]) == 2
 
 
 def test_a_member_of_one_organisation_cannot_read_the_timeline_of_another(w):
@@ -234,20 +219,12 @@ def test_the_answer_is_bounded_and_says_when_it_was_cut(w):
     for i in range(7):
         w.event(pid, "evidence_attached", f"2026-01-{10 + i}T09:00:00Z")
     out = w.timeline(p_limit=3)
-    assert len(out["events"]) == 3 and out["truncated"] is True and out["events"][0]["occurred_at"].startswith("2026-01-16")
+    assert len(out["events"]) == 3 and out["truncated"] is True and out["events"][1]["occurred_at"].startswith("2026-01-16") and out["next_cursor"]   # [0] is the attachment, made now
     out = w.timeline(p_limit=50)
-    assert len(out["events"]) == 7 and out["truncated"] is False
-    assert len(w.timeline(p_limit=100000)["events"]) == 7                     # an absurd limit is clamped, not obeyed
+    assert len(out["events"]) == 8 and out["truncated"] is False             # seven log lines and the attachment
+    assert len(w.timeline(p_limit=100000)["events"]) == 8                     # an absurd limit is clamped, not obeyed
     assert len(w.timeline(p_limit=0)["events"]) == 1                          # and a silly one raised to the minimum
-
-
-def test_a_page_before_a_time_continues_where_the_last_one_stopped(w):
-    pid = w.project(w.hall, w.owner)
-    for i in range(5):
-        w.event(pid, "evidence_attached", f"2026-01-{10 + i}T09:00:00Z")
-    first = w.timeline(p_limit=2)
-    second = w.timeline(p_limit=2, p_before=first["events"][-1]["occurred_at"])
-    assert [e["occurred_at"][:10] for e in first["events"] + second["events"]] == ["2026-01-14", "2026-01-13", "2026-01-12", "2026-01-11"]
+    assert out["next_cursor"] is None
 
 
 # ---------------------------------------------------------------------------------------------------------- read-only and privileges
@@ -257,9 +234,102 @@ def test_the_view_is_read_only_and_closed_to_the_api_roles(db):
     assert "security_invoker=true" in scalar(db, "select reloptions::text from pg_class where oid = 'public.hall_timeline'::regclass")
     for role in ("anon", "authenticated"):
         assert scalar(db, f"select has_table_privilege('{role}', 'public.hall_timeline', 'select')") == "f", role
-        assert scalar(db, f"select has_function_privilege('{role}', 'public.gf_hall_timeline(text, uuid, integer, timestamptz)', 'execute')") == "f", role
+        assert scalar(db, f"select has_function_privilege('{role}', 'public.gf_hall_timeline(text, uuid, integer, text)', 'execute')") == "f", role
     assert scalar(db, "select has_table_privilege('service_role', 'public.hall_timeline', 'select')") == "t"
     assert scalar(db, "select has_table_privilege('service_role', 'public.hall_timeline', 'insert,update,delete')") == "f"
-    acl = scalar(db, "select coalesce(proacl::text, '') from pg_proc where oid = 'public.gf_hall_timeline(text, uuid, integer, timestamptz)'::regprocedure")
+    acl = scalar(db, "select coalesce(proacl::text, '') from pg_proc where oid = 'public.gf_hall_timeline(text, uuid, integer, text)'::regprocedure")
     assert not re.search(r"(^|[{,])=X", acl), acl
     refused(db, "set role anon; select * from public.hall_timeline", "permission denied")
+
+
+# ====================================================================================================================
+# Rework: attachments and detachments on the timeline, and paging that cannot skip an event
+# ====================================================================================================================
+
+def test_attaching_and_detaching_are_events_of_the_hall_and_detaching_stops_the_projects_log(w):
+    pid = w.project(w.hall, w.owner)
+    w.event(pid, "project_created", "2026-01-10T09:00:00Z")
+    ev = w.timeline()["events"]
+    kinds = [e["kind"] for e in ev]
+    assert "project_attached" in kinds and kinds.count("project_event") == 1
+    assert not [e for e in ev if e["subject"] == "project_attached_to_hall"]        # the project's own log line is not shown twice
+    ok(w.db, "gf_detach_project_from_hall", p_actor=w.owner, p_hall=w.hall, p_project=pid)
+    ev = w.timeline()["events"]
+    assert sorted(e["kind"] for e in ev) == ["project_attached", "project_detached"]    # the log is gone; the fact of both stays
+    assert all(e["origin"] == "recorded" and e["basis"] for e in ev)
+    assert SECRET not in json.dumps(ev)
+    w.event(pid, "evidence_attached", "2026-05-01T09:00:00Z")                          # later activity of the detached project never reappears here
+    assert len(w.timeline()["events"]) == 2
+
+
+def test_a_project_attached_to_another_hall_after_detaching_shows_there_not_here(w):
+    pid = w.project(w.hall, w.owner)
+    w.event(pid, "project_created", "2026-01-10T09:00:00Z")
+    token = scalar(w.db, f"select project_token from projects where id = '{pid}'")
+    ok(w.db, "gf_detach_project_from_hall", p_actor=w.owner, p_hall=w.hall, p_project=pid)
+    ok(w.db, "gf_attach_project_to_hall", p_actor=w.owner, p_hall=w.hall2, p_project_token=token)
+    assert "project_event" in [e["kind"] for e in w.timeline(hall=w.hall2)["events"]]
+    assert "project_event" not in [e["kind"] for e in w.timeline()["events"]]
+
+
+def _walk(w, limit, hall=None):
+    seen, cursor, pages = [], None, 0
+    while True:
+        kw = dict(p_limit=limit) if cursor is None else dict(p_limit=limit, p_cursor=cursor)
+        page = w.timeline(hall=hall, **kw)
+        seen += [(e["occurred_at"], e["source_table"], e["source_id"], e["subject"]) for e in page["events"]]
+        pages += 1
+        assert pages < 500
+        if not page["truncated"]:
+            assert page["next_cursor"] is None
+            return seen, pages
+        assert isinstance(page["next_cursor"], str) and page["next_cursor"]
+        cursor = page["next_cursor"]
+
+
+@pytest.mark.parametrize("limit", [1, 2, 3, 7])
+def test_walking_the_whole_timeline_by_cursor_yields_every_event_exactly_once_even_with_equal_timestamps(w, limit):
+    pid = w.project(w.hall, w.owner)
+    # twelve log rows with THE SAME timestamp, written in one transaction, and four a microsecond apart
+    psql(w.db, "; ".join(f"insert into project_events (project_id, event_type, occurred_at, actor) values ('{pid}', 'evidence_attached', '2026-02-01T09:00:00.000000Z', 'x')" for _ in range(12)))
+    for i in range(4):
+        psql(w.db, f"insert into project_events (project_id, event_type, occurred_at, actor) values ('{pid}', 'evidence_attached', '2026-02-02T09:00:00.00000{i}Z', 'x')")
+    psql(w.db, f"insert into project_events (project_id, event_type, actor) select '{pid}', 'evidence_attached', 'x' from generate_series(1, 5)")    # now(): one transaction, one clock
+    ev = w.evidence(pid)
+    pkg, resp = w.package(pid)
+    w.actual(pid, pkg, resp, ev, po_date="2026-02-01", dispatch_date="2026-02-01", on_site_date="2026-02-01")   # three rows, same instant, same source id
+    total = scalar(w.db, f"select count(*) from hall_timeline where hall_id = '{w.hall}'")
+    seen, pages = _walk(w, limit)
+    assert len(seen) == int(total) and len(set(seen)) == len(seen), (len(seen), total)
+    assert pages == -(-int(total) // limit)
+    assert {r[1:] for r in seen} == {r[1:] for r in scalar_rows(w, w.hall)}
+
+
+def scalar_rows(w, hall):
+    out = psql(w.db, "select to_char(occurred_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') || '+00:00', source_table, source_id, subject "
+                     f"from hall_timeline where hall_id = '{hall}'").stdout.strip().splitlines()
+    return [tuple(r.split("|")) for r in out]
+
+
+def test_the_order_is_total_and_stable_the_same_walk_twice_gives_the_same_sequence(w):
+    pid = w.project(w.hall, w.owner)
+    psql(w.db, "; ".join(f"insert into project_events (project_id, event_type, occurred_at, actor) values ('{pid}', 'evidence_attached', '2026-02-01T09:00:00Z', 'x')" for _ in range(9)))
+    assert _walk(w, 2)[0] == _walk(w, 2)[0] == _walk(w, 4)[0]
+
+
+def test_the_cursor_is_built_by_the_database_keeps_microseconds_and_is_passed_back_verbatim(w):
+    pid = w.project(w.hall, w.owner)
+    for i in range(3):
+        psql(w.db, f"insert into project_events (project_id, event_type, occurred_at, actor) values ('{pid}', 'evidence_attached', '2026-02-02T09:00:00.12345{i}Z', 'x')")
+    page = w.timeline(p_limit=2)                                     # the attachment (made now) and the newest log line
+    cur = json.loads(page["next_cursor"])
+    assert cur["occurred_at"].endswith(".123452Z") or ".123452" in cur["occurred_at"]       # microsecond precision, not a millisecond Date round-trip
+    assert set(cur) == {"occurred_at", "source_table", "source_id", "subject"}
+    nxt = w.timeline(p_limit=1, p_cursor=page["next_cursor"])
+    assert nxt["events"][0]["occurred_at"].startswith("2026-02-02T09:00:00.123451")
+
+
+@pytest.mark.parametrize("cursor", ["", "not json", "[]", "{}", '{"occurred_at": "nope", "source_table": "x", "source_id": "y", "subject": "z"}',
+                                    '{"occurred_at": "2026-01-01T00:00:00Z", "source_table": "x", "source_id": "not-a-uuid", "subject": "z"}'])
+def test_a_cursor_that_is_not_one_of_ours_is_refused_not_a_crash(w, cursor):
+    assert w.timeline(p_cursor=cursor) == {"ok": False, "reason": "invalid_cursor"}

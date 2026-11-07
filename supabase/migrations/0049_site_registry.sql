@@ -26,6 +26,20 @@
 -- four tables are created with RLS on and no policies (service role only, like every table that holds a customer's material: 0015,
 -- 0020, 0027, 0040, 0044); TRUNCATE is revoked from the service role and guarded for everyone else (0040).
 --
+-- OPERATOR NOTES (owner decisions, not defaults this file can make):
+--   * Locks. Everything here is `create ... if not exists` / `create or replace` on NEW objects, so nothing waits on a busy table. Even so, run it in a
+--     session with `set lock_timeout = '5s';` (a statement that cannot get its lock then fails fast instead of queueing behind long transactions and
+--     blocking everything behind it); re-running is safe.
+--   * Personal data. Email addresses are written to append-only tables (organisation_members.email / added_by / removed_by, sites.created_by,
+--     halls.created_by, organisations.created_by, and, in 0050, hall_inputs.recorded_by and attachment rows). Rows are never deleted and TRUNCATE is
+--     refused, so a request to erase a person cannot be met by deleting rows. Whether and how to honour erasure (pseudonymising these columns by an
+--     operator, behind a documented procedure) is the owner's decision; nothing here decides it.
+--   * A sole owner. An organisation always keeps one active owner (the last one cannot be removed). If that one person loses their sign-in
+--     address, nobody can administer the organisation: a person with database access would have to add an owner. That is deliberate (no back door in
+--     the application); recovering it is an owner decision.
+--   * Membership has no acceptance step: an owner adds an address and that address's holder is a member when they next sign in with it. The
+--     application therefore shows every member who added them and offers "leave" (gf_my_orgs returns added_by and the membership id).
+--
 -- Named gf_org_add_member / gf_org_remove_member, not gf_add_member / gf_remove_member: 0027 already owns gf_remove_member(text, uuid)
 -- for subscription seats, and two PostgREST-visible functions of one name differing only by argument types invite a call to the wrong one.
 
@@ -39,6 +53,25 @@ language sql immutable as $$
               then lower(btrim(p)) end
 $$;
 
+-- Characters a name may never contain, whatever the database locale decides [[:cntrl:]] means: C0/C1 controls, zero-width characters and the
+-- left-to-right / right-to-left marks and overrides (a name that renders as another name), the BOM, and the line and paragraph separators.
+create or replace function public.gf_registry_text_bad(p text) returns boolean
+language sql immutable as $$
+  select p ~ '[[:cntrl:]\u200b-\u200f\u061c\u202a-\u202e\u2060-\u2069\ufeff\u2028\u2029]'
+$$;
+
+-- A name with the whitespace taken off both ends, ASCII and Unicode alike (no-break space, en/em spaces, ideographic space...).
+create or replace function public.gf_registry_trim(p text) returns text
+language sql immutable as $$
+  select regexp_replace(coalesce(p, ''), '^[[:space:]\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+|[[:space:]\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+$', '', 'g')
+$$;
+
+-- What every name, label and the like must satisfy: 1..120 characters, already trimmed, no control or bidirectional character.
+create or replace function public.gf_registry_name_ok(p text) returns boolean
+language sql immutable as $$
+  select p is not null and length(p) between 1 and 120 and p = public.gf_registry_trim(p) and not public.gf_registry_text_bad(p)
+$$;
+
 create or replace function public.gf_registry_rank(p_role text) returns int
 language sql immutable as $$
   select case p_role when 'owner' then 3 when 'editor' then 2 when 'viewer' then 1 else 0 end
@@ -49,7 +82,7 @@ $$;
 -- ---------------------------------------------------------------------------
 create table if not exists public.organisations (
   id uuid primary key default gen_random_uuid(),
-  name text not null check (name = btrim(name) and length(name) between 1 and 120 and name !~ '[[:cntrl:]]'),
+  name text not null check (public.gf_registry_name_ok(name)),
   created_by text not null check (created_by = lower(btrim(created_by)) and position('@' in created_by) > 1 and length(created_by) <= 254),
   created_at timestamptz not null default now()
 );
@@ -77,7 +110,7 @@ create index if not exists organisation_members_email_idx on public.organisation
 create table if not exists public.sites (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organisations (id),
-  name text not null check (name = btrim(name) and length(name) between 1 and 120 and name !~ '[[:cntrl:]]'),
+  name text not null check (public.gf_registry_name_ok(name)),
   country text check (country ~ '^[A-Z]{2}$'),
   -- Required and without a default: whoever creates a site says what kind of data it holds.
   data_origin text not null check (data_origin in ('production', 'test', 'synthetic')),
@@ -91,7 +124,7 @@ create unique index if not exists sites_org_name_uq on public.sites (org_id, low
 create table if not exists public.halls (
   id uuid primary key default gen_random_uuid(),
   site_id uuid not null references public.sites (id),
-  label text not null check (label = btrim(label) and length(label) between 1 and 120 and label !~ '[[:cntrl:]]'),
+  label text not null check (public.gf_registry_name_ok(label)),
   created_by text not null check (created_by = lower(btrim(created_by)) and position('@' in created_by) > 1),
   created_at timestamptz not null default now(),
   -- The pair a project's (site_id, hall_id) must name together (0050), so a project cannot point at a hall of another site.
@@ -211,11 +244,11 @@ create or replace function public.gf_create_org(p_actor text, p_name text) retur
 language plpgsql as $$
 declare
   a text := public.gf_registry_email(p_actor);
-  n text := btrim(coalesce(p_name, ''));
+  n text := public.gf_registry_trim(p_name);
   o public.organisations;
 begin
   if a is null then return jsonb_build_object('ok', false, 'reason', 'invalid_actor'); end if;
-  if length(n) not between 1 and 120 or n ~ '[[:cntrl:]]' then return jsonb_build_object('ok', false, 'reason', 'invalid_name'); end if;
+  if not public.gf_registry_name_ok(n) then return jsonb_build_object('ok', false, 'reason', 'invalid_name'); end if;
   -- One person does not register organisations without bound. Serialised per person so two requests cannot both take the last place.
   perform pg_advisory_xact_lock(hashtextextended('gf_create_org:' || a, 0));
   if (select count(*) from public.organisations where created_by = a) >= 20 then
@@ -237,7 +270,8 @@ declare a text := public.gf_registry_email(p_actor);
 begin
   if a is null then return jsonb_build_object('ok', false, 'reason', 'invalid_actor'); end if;
   return jsonb_build_object('ok', true, 'orgs', coalesce((
-    select jsonb_agg(jsonb_build_object('id', o.id, 'name', o.name, 'role', m.role, 'created_at', o.created_at) order by lower(o.name), o.id)
+    select jsonb_agg(jsonb_build_object('id', o.id, 'name', o.name, 'role', m.role, 'created_at', o.created_at, 'member_id', m.id, 'added_by', m.added_by,
+                                        'added_at', m.added_at) order by lower(o.name), o.id)
       from public.organisation_members m join public.organisations o on o.id = m.org_id
      where m.email = a and m.removed_at is null), '[]'::jsonb));
 end
@@ -310,12 +344,12 @@ create or replace function public.gf_create_site(p_actor text, p_org uuid, p_nam
 language plpgsql as $$
 declare
   g text := public.gf_org_access(p_org, p_actor, 'editor');
-  n text := btrim(coalesce(p_name, ''));
+  n text := public.gf_registry_trim(p_name);
   c text := case when p_country is null then null else upper(btrim(p_country)) end;
   s public.sites;
 begin
   if g <> 'ok' then return jsonb_build_object('ok', false, 'reason', g); end if;
-  if length(n) not between 1 and 120 or n ~ '[[:cntrl:]]' then return jsonb_build_object('ok', false, 'reason', 'invalid_name'); end if;
+  if not public.gf_registry_name_ok(n) then return jsonb_build_object('ok', false, 'reason', 'invalid_name'); end if;
   if c is not null and c !~ '^[A-Z]{2}$' then return jsonb_build_object('ok', false, 'reason', 'invalid_country'); end if;
   if p_data_origin is null or p_data_origin not in ('production', 'test', 'synthetic') then
     return jsonb_build_object('ok', false, 'reason', 'invalid_data_origin');
@@ -328,7 +362,9 @@ begin
   exception when unique_violation then
     return jsonb_build_object('ok', false, 'reason', 'name_taken');
   end;
-  return jsonb_build_object('ok', true, 'site_id', s.id);
+  return jsonb_build_object('ok', true, 'site_id', s.id,
+    'site', jsonb_build_object('id', s.id, 'org_id', s.org_id, 'name', s.name, 'country', s.country, 'data_origin', s.data_origin,
+                               'created_by', s.created_by, 'created_at', s.created_at, 'halls', '[]'::jsonb));
 end
 $$;
 
@@ -347,7 +383,10 @@ begin
   end if;
   return jsonb_build_object('ok', true, 'sites', coalesce((
     select jsonb_agg(jsonb_build_object('id', s.id, 'org_id', s.org_id, 'org_name', o.name, 'name', s.name, 'country', s.country,
-                                        'data_origin', s.data_origin, 'created_by', s.created_by, 'created_at', s.created_at)
+                                        'data_origin', s.data_origin, 'created_by', s.created_by, 'created_at', s.created_at,
+                                        'halls', coalesce((select jsonb_agg(jsonb_build_object('id', h.id, 'site_id', h.site_id, 'label', h.label, 'created_by', h.created_by,
+                                                                                               'created_at', h.created_at) order by lower(h.label), h.id)
+                                                             from public.halls h where h.site_id = s.id), '[]'::jsonb))
                      order by lower(o.name), lower(s.name), s.id)
       from public.sites s
       join public.organisations o on o.id = s.org_id
@@ -361,13 +400,13 @@ language plpgsql as $$
 declare
   s public.sites;
   g text;
-  l text := btrim(coalesce(p_label, ''));
+  l text := public.gf_registry_trim(p_label);
   h public.halls;
 begin
   select * into s from public.sites where id = p_site;
   g := public.gf_org_access(s.org_id, p_actor, 'editor');          -- a null org (no such site) answers not_found
   if g <> 'ok' then return jsonb_build_object('ok', false, 'reason', g); end if;
-  if length(l) not between 1 and 120 or l ~ '[[:cntrl:]]' then return jsonb_build_object('ok', false, 'reason', 'invalid_label'); end if;
+  if not public.gf_registry_name_ok(l) then return jsonb_build_object('ok', false, 'reason', 'invalid_label'); end if;
   perform 1 from public.sites where id = s.id for update;
   if (select count(*) from public.halls where site_id = s.id) >= 200 then return jsonb_build_object('ok', false, 'reason', 'limit'); end if;
   begin
@@ -375,7 +414,8 @@ begin
   exception when unique_violation then
     return jsonb_build_object('ok', false, 'reason', 'label_taken');
   end;
-  return jsonb_build_object('ok', true, 'hall_id', h.id);
+  return jsonb_build_object('ok', true, 'hall_id', h.id,
+    'hall', jsonb_build_object('id', h.id, 'site_id', h.site_id, 'label', h.label, 'created_by', h.created_by, 'created_at', h.created_at));
 end
 $$;
 
@@ -435,6 +475,9 @@ begin
 
   for f in select unnest(array[
       'public.gf_registry_email(text)',
+      'public.gf_registry_text_bad(text)',
+      'public.gf_registry_trim(text)',
+      'public.gf_registry_name_ok(text)',
       'public.gf_registry_rank(text)',
       'public.gf_org_role(uuid, text)',
       'public.gf_org_access(uuid, text, text)',
