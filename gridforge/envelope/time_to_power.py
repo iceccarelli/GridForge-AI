@@ -85,6 +85,7 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
     out = TimeToPower(racks_now=lad.initial.max_racks if lad.initial else 0,
                       max_racks=lad.final.max_racks if lad.final else 0)
     elapsed = 0.0
+    kit_sets_time = False        # True while the assumed kit's lead time (not a relief's) is what the elapsed time is
     seen_racks = out.racks_now
     if lad.unassessed_banks or not lad.converged:
         # An undeclared transformer or UPS bank was never timed, and a ladder that stopped on its step budget never reached the ceiling,
@@ -100,6 +101,7 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
             out.complete = False            # no lead time to give: no date, and none is invented
         else:
             elapsed = kit.value
+            kit_sets_time = True
             out.critical_item, out.critical_weeks = ASSUMED_CDU_KIT_ITEM, kit.value
             if out.racks_now > 0:
                 out.points.append(EnergisationPoint(kit.value, out.racks_now, ASSUMED_CDU_KIT_LABEL, "thermal"))
@@ -113,11 +115,17 @@ def schedule(lad: HeadroomLadder) -> TimeToPower:
         lead = st.lead_time_weeks.value if st.lead_time_weeks is not None else 0.0
         if lead > elapsed:
             elapsed = lead
+            kit_sets_time = False
             out.critical_item = st.binding_name
             out.critical_weeks = lead
         if st.racks_after > seen_racks:
             seen_racks = st.racks_after
-            out.points.append(EnergisationPoint(elapsed, seen_racks, st.binding_name, st.domain))
+            if kit_sets_time and lead < elapsed:
+                # The racks this relief unlocks are energised when the kit arrives, not when the relief is done: naming the relief at the
+                # kit's week would claim a lead time it does not have.
+                out.points.append(EnergisationPoint(elapsed, seen_racks, ASSUMED_CDU_KIT_LABEL, "thermal"))
+            else:
+                out.points.append(EnergisationPoint(elapsed, seen_racks, st.binding_name, st.domain))
     return out
 
 

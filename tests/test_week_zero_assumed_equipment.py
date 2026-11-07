@@ -277,3 +277,29 @@ def test_quoting_every_step_lead_time_does_not_remove_the_assumption_while_the_k
             if st.lead_time_weeks is not None:
                 st.lead_time_weeks = V(st.lead_time_weeks.value, "weeks", "quoted lead time", CUSTOMER)
         assert date_basis(res.ladder).basis == basis
+
+
+# --- where the floor (not a relief) sets a point's time, the label does not name a relief with a shorter lead time ---------------------------------
+def test_a_point_set_by_the_kit_is_labelled_as_the_kit_not_as_a_quicker_relief():
+    r = _scenario(REFERENCE, "hybrid_dlc")
+    ttp = schedule(r.ladder)
+    first = ttp.points[0]
+    # Base b649b3e: (24, 7, 'Residual air load removal per rack'): that relief's own lead time is 20 weeks (the 24 was the tap-off's); the racks
+    # are energised when the kit arrives, at 26.
+    assert (first.weeks, first.racks, first.unlocked_by, first.domain) == (CDU_KIT_WEEKS, 7, ASSUMED_CDU_KIT_LABEL, "thermal")
+    residual = next(s for s in r.ladder.taken_steps if s.binding_id == "residual_air_removal")
+    assert residual.lead_time_weeks.value == 20 < CDU_KIT_WEEKS
+
+
+@pytest.mark.parametrize("hall", HALLS)
+def test_no_point_names_a_relief_that_is_quicker_than_the_week_it_is_dated_at_when_the_kit_sets_that_week(hall):
+    intake = load_document(_doc(hall))
+    for r in run_all(intake.context, intake.scenarios):
+        lad = r.ladder
+        if not lad.assumed_cdu_kit or lad.final.max_racks == 0:
+            continue
+        for p in schedule(lad).points:
+            if p.weeks != CDU_KIT_WEEKS or p.unlocked_by == ASSUMED_CDU_KIT_LABEL:
+                continue
+            named = [s.lead_time_weeks.value for s in lad.taken_steps if s.binding_name == p.unlocked_by]
+            assert named and max(named) >= CDU_KIT_WEEKS, (hall, r.spec.id, p)
