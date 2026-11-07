@@ -19,8 +19,10 @@ export const dynamic = "force-dynamic";
 // commercial path at all yet. All computed from lib/capability-registry.ts,
 // the single cross-layer map every layer's own tests (product parity, MCP
 // catalogue parity) keep honest independently. This is what ties those
-// per-layer checks together into one operator-facing report, per
-// docs/07_DELIVERY_RUNBOOK.md's "system-integrity audit."
+// per-layer checks together into one operator-facing report. It counts and
+// lists what the registry says; whether each named endpoint, tool, command
+// and page really exists is checked against the code by
+// scripts/capability-audit.mjs (run by tests/site/capability-registry-fields.test.ts).
 export async function GET() {
   const store = await cookies();
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {

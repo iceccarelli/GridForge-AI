@@ -25,6 +25,11 @@ be compared line for line. Local and CI run this same script, the same digest fu
 default endpoint; the only inputs that can differ are the base URL (argument or GRIDFORGE_API_URL, named in the output when it is not
 the default), the state of the working tree (reported), and WHEN the check runs relative to a deploy.
 
+WARNINGS (never change the exit status): if the live engine lists endpoints that the committed snapshot lib/engine-deployed.json does not,
+the snapshot is stale: it understates what is deployed, and the capability registry (which may only call a route "live" if the snapshot
+lists it) understates it with it. It is printed as a WARNING, put under "warnings" in --json and in the Markdown summary. This is not
+drift (the engine is not behind the repository) and the script never edits the snapshot: the owner refreshes it after a deploy.
+
 Exit status: 0 no drift, 1 drift, 2 the engine could not be read (or --require-clean-tree was not met).
 """
 from __future__ import annotations
@@ -45,6 +50,7 @@ from gridforge.api.server import ROUTES, VERSION  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = "https://gridforge-engine.fly.dev"
 TOOLS_JSON = ROOT / "public" / "reference" / "tools.json"
+SNAPSHOT_JSON = ROOT / "lib" / "engine-deployed.json"
 
 # Display order and heading for each group of differences.
 GROUPS = [
@@ -134,6 +140,54 @@ def tool_drift(served: set[str], tools: dict) -> list[str]:
     return problems
 
 
+def snapshot_staleness(live_endpoints, snapshot_endpoints) -> list[str]:
+    """Warnings (never drift) when the committed snapshot and the LIVE engine's endpoint lists disagree. Pure: no I/O.
+
+    `live_endpoints` is the `endpoints` list of the deployed /v1/version; `snapshot_endpoints` is the `endpoints` list of
+    lib/engine-deployed.json. The cases, each said in words:
+      * either is not a list of strings: the comparison is impossible, and that is reported (never passed as fine);
+      * the live list is empty: it says so (an engine that serves nothing is not a reason to say the snapshot is current);
+      * the live set has endpoints the snapshot lacks: the snapshot is STALE (a strict superset when it lacks only those);
+      * the live set is a strict subset (the snapshot lists something the engine no longer serves): said, with the routes named;
+      * the sets are equal: nothing is reported."""
+    def names(v):
+        return {e for e in v if isinstance(e, str)} if isinstance(v, list) else None
+    live, snap = names(live_endpoints), names(snapshot_endpoints)
+    if live is None:
+        return ["snapshot check skipped: the live /v1/version has no endpoints list to compare"]
+    if snap is None:
+        return ["snapshot check skipped: lib/engine-deployed.json has no endpoints list to compare"]
+    if not live:
+        return ["snapshot check skipped: the live /v1/version lists no endpoints at all, so there is nothing to compare "
+                f"lib/engine-deployed.json's {len(snap)} endpoint{'s' if len(snap) != 1 else ''} with"]
+    extra, gone = sorted(live - snap), sorted(snap - live)
+    plural = lambda n: f"{n} endpoint{'s' if n != 1 else ''}"  # noqa: E731
+    if extra:
+        relation = "a strict superset of" if not gone else "different from (neither a superset nor a subset of)"
+        msg = (f"lib/engine-deployed.json is STALE: the live engine serves {plural(len(live))}, the snapshot lists {len(snap)} "
+               f"(the live set is {relation} the snapshot). Served but not in the snapshot: {', '.join(extra)}. "
+               "The capability registry may only call a route 'live' when the snapshot lists it, so it understates what is deployed. "
+               "This is not drift and the exit status is unchanged; the owner refreshes the snapshot from /v1/version after a deploy "
+               "(this script does not edit it).")
+        if gone:
+            msg += f" Listed by the snapshot but no longer served: {', '.join(gone)}."
+        return [msg]
+    if gone:
+        return [f"lib/engine-deployed.json lists {plural(len(gone))} the live engine no longer serves: {', '.join(gone)} "
+                f"(the live set of {len(live)} is a strict subset of the snapshot's {len(snap)}). The registry may be calling a retired route "
+                "'live'. This is not drift and the exit status is unchanged; the owner refreshes the snapshot from /v1/version."]
+    return []
+
+
+def read_snapshot_endpoints(path: Path = SNAPSHOT_JSON):
+    """The `endpoints` list of the committed snapshot, or None when it cannot be read."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return data.get("endpoints") if isinstance(data, dict) else None
+
+
 def drift(deployed: dict, tools: dict | None = None) -> list[str]:
     """Flat list of differences (grouped order); [] means no drift."""
     grouped = drift_grouped(deployed, tools)
@@ -172,9 +226,10 @@ def digest_line(deployed: dict, tree: tuple[str, list[str]] | None) -> str:
 
 
 def render_text(base: str, grouped: dict[str, list[str]], deployed: dict | None = None,
-                tree: tuple[str, list[str]] | None = None) -> str:
+                tree: tuple[str, list[str]] | None = None, warnings: list[str] | None = None) -> str:
     total = sum(len(v) for v in grouped.values())
     extra = [digest_line(deployed, tree)] if deployed is not None else []
+    extra += [f"WARNING (not drift, exit status unchanged): {w}" for w in warnings or []]
     if tree and tree[0] == "dirty":
         extra.append("note: uncommitted changes under gridforge/ (" + ", ".join(tree[1][:5]) + ("..." if len(tree[1]) > 5 else "")
                      + "). The digest above is of your working files; CI hashes the committed tree.")
@@ -193,10 +248,12 @@ def render_text(base: str, grouped: dict[str, list[str]], deployed: dict | None 
     return "\n".join(lines)
 
 
-def render_markdown(base: str, grouped: dict[str, list[str]]) -> str:
+def render_markdown(base: str, grouped: dict[str, list[str]], warnings: list[str] | None = None) -> str:
     total = sum(len(v) for v in grouped.values())
+    warn = ["", "**Warning (not drift; the exit status is unchanged)**", *[f"- {w}" for w in warnings or []], ""] if warnings else []
     if not total:
-        return f"### Engine drift: none\n\n`{base}` serves every route, unit rate, code digest and tool name in this repository.\n"
+        return (f"### Engine drift: none\n\n`{base}` serves every route, unit rate, code digest and tool name in this repository.\n"
+                + "\n".join(warn) + ("\n" if warn else ""))
     lines = [f"### Engine drift: {total} difference(s)", "",
              f"`{base}` does **not** match this repository. Do not sell or announce the routes below until it is redeployed.", ""]
     for key, title in GROUPS:
@@ -206,7 +263,7 @@ def render_markdown(base: str, grouped: dict[str, list[str]]) -> str:
             lines.append("")
     lines += ["**The one operator action:** run the `deploy-engine` workflow (Actions, deploy-engine, Run workflow, type `DEPLOY`).",
               "It needs the repository secret `FLY_API_TOKEN` (`fly tokens create deploy -a gridforge-engine`).", ""]
-    return "\n".join(lines)
+    return "\n".join(lines + warn)
 
 
 def fetch_json(url: str) -> dict:
@@ -214,10 +271,12 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
-def main(argv: list[str] | None = None, fetch=None, tree=None) -> int:
-    """`fetch(url) -> dict` and `tree() -> (state, changed)` are injectable so tests need no network and no git state."""
+def main(argv: list[str] | None = None, fetch=None, tree=None, snapshot_endpoints=None) -> int:
+    """`fetch(url) -> dict`, `tree() -> (state, changed)` and `snapshot_endpoints() -> list | None` are injectable so tests need no
+    network, no git state and do not depend on the committed snapshot."""
     fetch = fetch or fetch_json
     tree = tree or tree_state
+    snapshot_endpoints = snapshot_endpoints or read_snapshot_endpoints
     args = list(sys.argv[1:] if argv is None else argv)
     as_json = False
     require_clean = False
@@ -286,6 +345,8 @@ def main(argv: list[str] | None = None, fetch=None, tree=None) -> int:
     grouped = drift_grouped(deployed, tools)
     if tools_error:
         grouped["tools"].append(tools_error)
+    # Not drift: the snapshot the registry is held to may lag the engine. Reported, never counted, never changes the exit status.
+    warnings = snapshot_staleness(deployed.get("endpoints"), snapshot_endpoints())
 
     if snap_path:
         write_snapshot(snap_path, snapshot(deployed, base))
@@ -296,12 +357,13 @@ def main(argv: list[str] | None = None, fetch=None, tree=None) -> int:
         print(json.dumps({"base": base, "ok": total == 0, "repo_version": VERSION, "deployed_version": deployed.get("version"),
                           "repo_code_sha256": code_sha256(), "deployed_code_sha256": live_prov.get("code_sha256"),
                           "tree": state[0], "count": total, "differences": {k: v for k, v in grouped.items() if v},
+                          "warnings": warnings,
                           "operator_step": None if total == 0 else OPERATOR_STEP}, indent=2))
     else:
-        print(render_text(base, grouped, deployed, state))
+        print(render_text(base, grouped, deployed, state, warnings))
     if summary_path:
         with open(summary_path, "a") as fh:
-            fh.write(render_markdown(base, grouped))
+            fh.write(render_markdown(base, grouped, warnings))
     return 0 if total == 0 else 1
 
 
