@@ -590,7 +590,9 @@ export function ProjectPanel({
 
   const load = useCallback(async () => {
     if (!projectToken) return;
-    setLoaded({ kind: "loading" });
+    // A refresh after a save keeps what is on screen until the new read lands: replacing the panel with "loading" would unmount
+    // the form that was just used, and with it the confirmation it was about to show. The first read (nothing yet) still loads.
+    setLoaded((cur) => (cur.kind === "ready" ? cur : { kind: "loading" }));
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectToken)}`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
@@ -608,6 +610,8 @@ export function ProjectPanel({
   }, [projectToken]);
 
   useEffect(() => {
+    // A different project (or none): nothing of the previous one stays on screen while this one is read.
+    setLoaded({ kind: "loading" });
     void load();
   }, [load]);
 
