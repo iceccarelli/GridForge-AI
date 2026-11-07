@@ -9,17 +9,16 @@ name: stress-harness
 # locked dependencies and runs `pytest -m product` against this tree. No secrets, no network calls to the deployed engine,
 # nothing deployed or written. Both repositories are public, so the default token is enough.
 #
-# Its own workflow, like engine-drift and production-smoke, so a regression is visible (red) without blocking unrelated
-# pull requests. A red run means one of two things, and the log says which:
+# Its own workflow, like engine-drift and production-smoke, so its result is a separate, named check: `stress`.
+# The pull_request trigger has NO path filter, on purpose: a repository can make `stress` REQUIRED in branch protection, and a required
+# check that a path filter kept from running never reports, so a website-only pull request would wait for ever and be unmergeable. It runs
+# on every pull request (it is offline and takes minutes). Whether it IS required is a repository setting, not this file. A red run means
+# one of two things, and the log says which:
 #   * a behaviour the harness pins has regressed in this change; or
 #   * this change FIXED a gap the harness still marks as an expected failure (a strict xfail turns into XPASS). That is good
 #     news: update the harness to turn the test into a regression test, then re-run.
 on:
   pull_request:
-    paths:
-      - 'gridforge/**'
-      - 'examples/**'
-      - '.github/workflows/stress-harness.yml'
   workflow_dispatch:
     inputs:
       harness_ref:
