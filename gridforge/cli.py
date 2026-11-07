@@ -1151,8 +1151,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="the BTM Power Deployment Assessment: architectures (grid/BESS/"
                             "generation) compared under a real load profile and a real "
                             "contingency test, each priced and dated where declared")
-    s.add_argument("request", help="a deployment request JSON file — see "
-                                   "docs/07_DELIVERY_RUNBOOK.md for the shape")
+    s.add_argument("request", help="a deployment request JSON file (the same body the "
+                                   "Power Deployment Assessment endpoint accepts)")
     s.add_argument("-o", "--out")
     s.set_defaults(func=cmd_power_deploy_assess)
 

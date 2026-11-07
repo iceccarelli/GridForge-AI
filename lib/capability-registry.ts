@@ -194,6 +194,8 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     deliverable: "Technical specification + response schedule + bid comparison",
     status: "commercial",
     production_status: "live",
+    notes:
+      "The buyer may choose the relief the specification is written for (intake `constraint`, validated against the engine's 13 constraint ids and the relief list for the hall; recorded in _gridforge.spec_request; a resubmission replaces it). Absent means the engine chooses.",
   },
   {
     capability_id: "procurement_bids",
@@ -513,7 +515,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     mcp_tool: null,
     cli_command: null,
     web_route: "/workspace",
-    workspace_action: "ProjectPanel (?project=<token>)",
+    workspace_action: "ProjectPanel (?project=<token>) incl. evidence upload",
     database_record:
       "projects, project_links, project_evidence, project_events (append-only, trigger-enforced)",
     entitlement:
@@ -524,6 +526,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "unverified",
     notes:
+      "Evidence files are attached from the project panel (stored unverified); observations and supplier delivery records are reviewed at /admin/reviews (admin cookie). No screen verifies evidence files yet, so a review can currently only reject. " +
       "Unpriced by design: a workflow and data layer, not a product. No checkout, SKU or " +
       "entitlement exists for it. Calibration: project_links reserves a typed slot " +
       "(calibration_observation + prediction_ref) but nothing writes one and the calibration " +
