@@ -79,11 +79,16 @@ def test_client_portal_uses_the_real_dashboard_route():
     assert '"anonymous"' in dashboard
 
 
-def test_navbar_desktop_exposes_client_portal_and_free_check_and_paid_cta():
+def test_navbar_desktop_exposes_sign_in_and_free_check_and_paid_cta():
+    # The client portal is no longer a bare header link beside a second "Sign in": both account entry points are one "Sign in" menu
+    # (SIGN_IN_LINKS in lib/nav.ts), each labelled by what it opens, with the portal's first item built from CLIENT_PORTAL_LINK so its
+    # destination is still the real /dashboard route. (Changed from asserting CLIENT_PORTAL_LINK in the navbar source; the portal is still
+    # reachable from the header, through the menu.)
     navbar = read("components/Navbar.tsx")
-    assert "CLIENT_PORTAL_LINK" in navbar
+    assert "SIGN_IN_LINKS" in navbar
     assert "QUALIFY_LINK" in navbar
     assert "DENSITY_SCREEN_CTA" in navbar
+    assert "...CLIENT_PORTAL_LINK" in NAV_TS, "the portal item of the Sign in menu must be built from CLIENT_PORTAL_LINK"
 
 
 def test_mobile_menu_closes_on_escape_and_has_no_dead_controls():

@@ -2,13 +2,69 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Menu, X, ArrowRight } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Menu, X, ArrowRight, ChevronDown } from "lucide-react";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
-import { NAV_LINKS, QUALIFY_LINK, CLIENT_PORTAL_LINK } from "@/lib/nav";
+import { NAV_LINKS, QUALIFY_LINK, SIGN_IN_LABEL, SIGN_IN_LINKS, OPEN_SCOPING_AGENT_EVENT, paidCtaAllowed } from "@/lib/nav";
+
+/**
+ * One "Sign in" control for the two places an account lives. Each item says what it opens, and no destination is changed. A disclosure
+ * (a button that shows a short list of links), not an ARIA menu: while closed its links are not in the tab order, and Escape or a click
+ * outside closes it.
+ */
+function SignInMenu() {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        button.current?.focus();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
+  return (
+    <div ref={wrap} className="relative">
+      <button
+        ref={button}
+        type="button"
+        aria-expanded={open}
+        aria-controls="sign-in-menu"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap text-sm font-medium text-mute transition-colors hover:text-white"
+      >
+        {SIGN_IN_LABEL} <ChevronDown size={14} aria-hidden />
+      </button>
+      {open && (
+        <ul id="sign-in-menu" className="absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-panel p-1.5 shadow-[0_16px_40px_-16px_rgba(0,0,0,0.9)]">
+          {SIGN_IN_LINKS.map((l) => (
+            <li key={l.href}>
+              <Link href={l.href} onClick={() => setOpen(false)} className="block min-h-11 rounded-lg px-3 py-2 hover:bg-white/5">
+                <span className="block text-sm font-semibold text-ghost">{l.label}</span>
+                <span className="block text-xs leading-snug text-mute">{l.note}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function Navbar() {
   const router = useRouter();
+  const showPaid = paidCtaAllowed(usePathname());
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -96,25 +152,19 @@ export function Navbar() {
             </div>
 
             <div className="flex items-center gap-4">
-              <Link
-                href={CLIENT_PORTAL_LINK.href}
-                className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
-              >
-                {CLIENT_PORTAL_LINK.label}
+              <Link href={QUALIFY_LINK.href} className="btn-primary btn-shape whitespace-nowrap">
+                {QUALIFY_LINK.label} <ArrowRight size={15} aria-hidden />
               </Link>
-              <Link
-                href={QUALIFY_LINK.href}
-                className="text-mute hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
-              >
-                {QUALIFY_LINK.label}
-              </Link>
-              <button
-                onClick={() => commissionDensityScreen({ context: "navbar" })}
-                className="btn-primary px-5 py-2.5 rounded-full text-sm flex items-center gap-2 whitespace-nowrap"
-                title={DENSITY_SCREEN_CTA}
-              >
-                {DENSITY_SCREEN_CTA} <ArrowRight size={15} />
-              </button>
+              {showPaid && (
+                <button
+                  onClick={() => commissionDensityScreen({ context: "navbar" })}
+                  className="btn-tertiary hidden whitespace-nowrap min-[1320px]:inline-flex"
+                  title={DENSITY_SCREEN_CTA}
+                >
+                  {DENSITY_SCREEN_CTA}
+                </button>
+              )}
+              <SignInMenu />
             </div>
           </div>
 
@@ -156,30 +206,44 @@ export function Navbar() {
                 )
               )}
               <div className="pt-4 border-t border-line flex flex-col gap-3">
+                <Link
+                  href={QUALIFY_LINK.href}
+                  onClick={() => setIsOpen(false)}
+                  className="btn-primary btn-shape btn-shape-lg w-full"
+                >
+                  {QUALIFY_LINK.label}
+                </Link>
+                {showPaid && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      commissionDensityScreen({ context: "mobile-nav" });
+                    }}
+                    className="btn-tertiary w-full"
+                  >
+                    {DENSITY_SCREEN_CTA}
+                  </button>
+                )}
+                <div className="border-t border-line pt-3">
+                  <div className="data mb-1 text-[10px] uppercase tracking-[0.14em] text-faint">{SIGN_IN_LABEL}</div>
+                  {SIGN_IN_LINKS.map((l) => (
+                    <Link key={l.href} href={l.href} onClick={() => setIsOpen(false)} className="block min-h-11 py-1.5">
+                      <span className="block text-base text-ghost/90">{l.label}</span>
+                      <span className="block text-xs leading-snug text-mute">{l.note}</span>
+                    </Link>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     setIsOpen(false);
-                    commissionDensityScreen({ context: "mobile-nav" });
+                    window.dispatchEvent(new Event(OPEN_SCOPING_AGENT_EVENT));
                   }}
-                  className="btn-primary w-full py-3.5 rounded-xl text-base text-center"
+                  className="min-h-11 text-left text-base text-ghost/90 hover:text-white"
                 >
-                  {DENSITY_SCREEN_CTA}
+                  Ask the scoping assistant (AI)
                 </button>
-                <Link
-                  href={QUALIFY_LINK.href}
-                  onClick={() => setIsOpen(false)}
-                  className="btn-ghost w-full py-3 rounded-xl text-base border border-line text-center"
-                >
-                  {QUALIFY_LINK.label}
-                </Link>
-                <Link
-                  href={CLIENT_PORTAL_LINK.href}
-                  onClick={() => setIsOpen(false)}
-                  className="text-center text-xs text-mute hover:text-white transition-colors py-3"
-                >
-                  {CLIENT_PORTAL_LINK.label}
-                </Link>
               </div>
             </div>
           </div>

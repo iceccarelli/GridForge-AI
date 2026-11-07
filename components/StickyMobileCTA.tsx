@@ -1,6 +1,6 @@
 "use client";
 
-// Mobile-only sticky buy bar.
+// Mobile-only sticky bar: the free check is the filled (primary) button, the paid screen the outlined one.
 //
 // Past the hero, a phone-width visitor had no persistent path to either CTA —
 // the navbar's two buttons live inside a hamburger menu once scrolled. This bar
@@ -66,15 +66,12 @@ export function StickyMobileCTA() {
       className="lg:hidden fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/95 backdrop-blur px-3 pt-2.5 flex items-center gap-2"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}
     >
-      <Link
-        href={QUALIFY_LINK.href}
-        className="flex-1 text-center rounded-lg border border-line py-2.5 text-[13px] font-medium text-ghost"
-      >
+      <Link href={QUALIFY_LINK.href} className="btn-primary btn-shape min-h-11 flex-[1.15] px-3 text-[13px] leading-tight">
         {QUALIFY_LINK.label}
       </Link>
       <button
         onClick={() => commissionDensityScreen({ context: "sticky-mobile" })}
-        className="flex-1 rounded-lg bg-power py-2.5 text-[13px] font-semibold text-ink"
+        className="btn-secondary btn-shape min-h-11 flex-1 px-3 text-[13px] leading-tight"
       >
         {SCREEN.name} — {eurFromCents(SCREEN.amountCents)}
       </button>

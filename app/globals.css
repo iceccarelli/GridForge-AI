@@ -9,6 +9,8 @@
   --line: #1e2942;
   --power: #00e5ff;
   --queue: #ffb020;
+  /* One corner radius for every call to action (the home hero, header, sections, footer, sticky bar). */
+  --radius-btn: 0.75rem;
 }
 
 * {
@@ -151,6 +153,52 @@ body :where(p, li, dd, dt, h1, h2, h3, h4, h5, a, button, label, summary, figcap
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* One shape and weight for the site's calls to action, so a button does not change character from page to page. Combine with a colour
+   treatment: btn-primary (filled: the action we most want), btn-secondary (outline) or btn-tertiary (text). Colour carries the hierarchy,
+   shape does not. The free path uses the primary treatment: amber (--queue) means "delay / warning" and is never a button colour.
+   In the components layer so a utility on the element (px-3, text-[13px], min-h-11) still wins. */
+@layer components {
+  .btn-shape {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: var(--radius-btn);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+  }
+  .btn-shape-lg {
+    min-height: 3rem;
+    padding-inline: 1.5rem;
+    font-size: 1rem;
+  }
+  .btn-tertiary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.25rem;
+    border-radius: var(--radius-btn);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25;
+    color: rgba(245, 247, 250, 0.88);
+    text-decoration: underline;
+    text-decoration-color: rgba(245, 247, 250, 0.35);
+    text-underline-offset: 4px;
+    transition: color 0.2s ease, text-decoration-color 0.2s ease;
+  }
+  .btn-tertiary:hover {
+    color: #ffffff;
+    text-decoration-color: #00e5ff;
+  }
+}
+
 /* ===== Form fields ===== */
 .field {
   max-width: 100%;
@@ -197,6 +245,21 @@ body :where(p, li, dd, dt, h1, h2, h3, h4, h5, a, button, label, summary, figcap
 .display {
   letter-spacing: -0.045em;
   line-height: 0.98;
+}
+
+/* The H1 of the page family (pricing, products, intelligence, observatory, qualify and the other inner pages): one scale, one weight, one
+   letter-spacing. The home page keeps its own larger .display scale. */
+.page-title {
+  font-size: 1.875rem;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  color: #f5f7fa;
+}
+@media (min-width: 640px) {
+  .page-title {
+    font-size: 2.5rem;
+  }
 }
 
 .section-title {

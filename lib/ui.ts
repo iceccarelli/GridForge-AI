@@ -20,6 +20,7 @@
 // repository has already paid for that once.
 
 import { toast } from "sonner";
+import { LAST_CHECKOUT_KEY } from "@/lib/checkout-return-key";
 import { PRODUCTS, type ProductId } from "@/lib/products";
 
 const SCREEN = PRODUCTS.density_screen;
@@ -94,6 +95,13 @@ export async function startCommission(
             ? "Checkout is not live on this deployment yet — email us and we will invoice."
             : (body?.error ?? "Could not start checkout."),
       };
+    }
+    // Remember which product is being sent to Stripe, so a cancelled return can offer the way back to its page (components/
+    // CheckoutCancelledBanner.tsx). A catalogue id only, in sessionStorage (this tab, this visit); it changes nothing about the checkout.
+    try {
+      window.sessionStorage.setItem(LAST_CHECKOUT_KEY, product);
+    } catch {
+      /* storage blocked: the notice then offers the general list */
     }
     window.location.href = body.url as string;
     return { ok: true };

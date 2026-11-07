@@ -10,6 +10,8 @@ import { BackgroundReel } from "@/components/BackgroundReel";
 import { ScopingAgent } from "@/components/ScopingAgent";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { SiteChrome } from "@/components/SiteChrome";
+import { CheckoutReturnNotice } from "@/components/CheckoutReturnNotice";
+import { Suspense } from "react";
 
 // Self-hosted fonts (no build-time network dependency on Google Fonts —
 // more robust on Vercel, and the files ship in the repo).
@@ -107,6 +109,10 @@ export default function RootLayout({
             Skip to the main content
           </a>
           <Navbar />
+          {/* "Checkout cancelled — nothing was charged" after Stripe sends a visitor back (/qualify?purchase=cancelled, /pricing?deposit=cancelled). */}
+          <Suspense fallback={null}>
+            <CheckoutReturnNotice />
+          </Suspense>
           <BackgroundReel />
         </SiteChrome>
         <main id="main-content" tabIndex={-1} className="relative pb-16 outline-none lg:pb-0">

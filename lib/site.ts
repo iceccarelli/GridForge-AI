@@ -255,7 +255,7 @@ export const FAQ = [
   },
   {
     q: "What can I actually buy today?",
-    a: "Fixed-fee engagements, each priced before we start (the Study and the Portfolio Screen are booked with a deposit against a fee agreed at scoping). Most halls begin with the Density Screen: one hall, five working days from a complete intake: what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
+    a: "Fixed-fee engagements, each priced before we start (the Study and the Portfolio Screen are booked with a deposit against a fee agreed at scoping). The Density Screen is the first paid step: one hall, five working days from a complete intake: what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
   },
   {
     q: "Do you sell or install equipment?",

@@ -4,7 +4,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import Page from "@/app/page";
-import { glance } from "@/components/home/Hero";
+import { AUDIENCE, DIFFERENCE, FREE_NOTE, H1, PAID_LABEL, SAMPLE_LABEL, SUB } from "@/components/home/Hero";
+import { QUALIFY_LINK } from "@/lib/nav";
 import { FAQ } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { homeSource } from "./_home";
@@ -68,32 +69,38 @@ describe("the homepage is a Server Component with client islands only where the 
 });
 
 describe("the first screen answers the seven buyer questions, from the catalogue", () => {
-  it("states who, which decision, what is needed, what is received, what to buy, what is free and why to trust it", () => {
-    expect(glance().map((g) => g.k)).toEqual(["Who it is for", "The decision", "What we need", "What you get", "Buy now", "Free now", "Why trust it"]);
+  // The old assertion pinned the seven keys of the "At a glance" panel (glance()). That panel is replaced by the worked result and the
+  // sentences below, which answer the same seven questions in text that is on screen at 390 x 844 and 1440 x 900 (Chromium proves the
+  // "on screen" part: tests/e2e/first-screen-journey.mjs). Here: each question has its answer in the rendered page, once.
+  const text = () => renderToStaticMarkup(React.createElement(Page)).replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  it("states who (audience), which decision (H1), what is needed, what is received, what to try, what makes it different and the next step", () => {
+    const t = text();
+    for (const [q, s] of Object.entries({ audience: AUDIENCE, decision: H1, dataNeeded: FREE_NOTE, whatYouReceive: SUB, tryNow: QUALIFY_LINK.label, difference: DIFFERENCE, nextStep: SAMPLE_LABEL })) {
+      expect(t, q).toContain(s);
+    }
   });
 
   it("the paid offer's price and turnaround are the catalogue's, never typed", () => {
-    const buy = glance().find((g) => g.k === "Buy now")!.v;
-    expect(buy).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
-    expect(buy).toContain(`${PRODUCTS.density_screen.turnaroundDays} working days from a complete intake`);
+    expect(PAID_LABEL).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
+    expect(PAID_LABEL).toContain(`${PRODUCTS.density_screen.turnaroundDays} days`);
     expect(homeSource()).not.toMatch(/[€]\s?\d|\bEUR\s?\d/);
   });
 
   it("says what the free path does with the numbers and what it does not require", () => {
     const html = renderToStaticMarkup(React.createElement(Page)).replace(/&#x27;/g, "'");
-    expect(html).toContain("no card, no call");
+    expect(html).toContain("no card, no account");
     expect(html).toContain("/legal/privacy");
-    expect(html).toContain("directional");
+    expect(html).toContain("Directional");
   });
 });
 
 describe("the rendered homepage", () => {
   const html = renderToStaticMarkup(React.createElement(Page));
 
-  it("has exactly one h1 and keeps the line the brand is built on", () => {
+  it("has exactly one h1, and it is the owner's question: how many racks can the hall power, and what unlocks more", () => {
     expect(html.match(/<h1/g)).toHaveLength(1);
-    expect(html).toContain("isn&#x27;t chips.");
-    expect(html).toMatch(/It&#x27;s power\./);
+    expect(html).toContain("How many AI racks can your hall really power — and what unlocks more?");
   });
 
   it("carries every anchor the section navigation and the header point at, in reading order", () => {

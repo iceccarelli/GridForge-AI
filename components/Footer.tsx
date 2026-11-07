@@ -5,7 +5,8 @@ import { Linkedin, Github } from "lucide-react";
 import { Logo } from "@/components/Navbar";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { SITE } from "@/lib/site";
-import { FOOTER_GROUPS, QUALIFY_LINK } from "@/lib/nav";
+import { usePathname } from "next/navigation";
+import { FOOTER_GROUPS, QUALIFY_LINK, paidCtaAllowed } from "@/lib/nav";
 
 // X (Twitter) glyph — lucide's Twitter icon is the old bird; use the wordmark.
 function XIcon({ size = 16 }: { size?: number }) {
@@ -30,6 +31,7 @@ const socials = [
 ].filter((s) => s.href);
 
 export function Footer() {
+  const showPaid = paidCtaAllowed(usePathname());
   return (
     <footer className="bg-[#060912] border-t border-line pt-16 pb-10">
       <div className="max-w-7xl mx-auto px-6">
@@ -93,14 +95,18 @@ export function Footer() {
             <span className="text-mute">{SITE.baseLocation}</span>
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5">
-            <FooterLink href={QUALIFY_LINK.href}>{QUALIFY_LINK.label} →</FooterLink>
-            <button
-              onClick={() => commissionDensityScreen({ context: "footer" })}
-              className="btn-primary min-h-11 px-5 py-2.5 rounded-full text-sm text-left sm:whitespace-nowrap"
-              title={DENSITY_SCREEN_CTA}
-            >
-              {DENSITY_SCREEN_CTA}
-            </button>
+            <Link href={QUALIFY_LINK.href} className="btn-primary btn-shape min-h-11 sm:whitespace-nowrap">
+              {QUALIFY_LINK.label}
+            </Link>
+            {showPaid && (
+              <button
+                onClick={() => commissionDensityScreen({ context: "footer" })}
+                className="btn-tertiary min-h-11 sm:whitespace-nowrap"
+                title={DENSITY_SCREEN_CTA}
+              >
+                {DENSITY_SCREEN_CTA}
+              </button>
+            )}
           </div>
         </div>
 

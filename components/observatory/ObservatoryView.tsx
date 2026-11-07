@@ -16,7 +16,7 @@ export function ObservatoryView({ fileState, contextState, now }: { fileState: F
       {/* The skip link is the site's own (app/layout.tsx, before the navigation); this page is short enough not to need a second. */}
       <header className="mb-8 max-w-3xl">
         <p className="eyebrow">GridForge Observatory</p>
-        <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-5xl">What limits an AI hall, stage by stage</h1>
+        <h1 className="page-title mt-3">What limits an AI hall, stage by stage</h1>
         <p className="mt-4 text-base text-mute sm:text-lg">
           An invented hall, followed from the grid connection to the rack. The same engine that powers the free qualifier says which stage binds, how many racks it allows, and what
           each way of relieving it does to rack count, time and cost. Every engine figure carries its evidence class; the hall&apos;s own inputs and the rack rows carry plain basis tags.
