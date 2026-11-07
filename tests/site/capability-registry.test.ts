@@ -141,12 +141,10 @@ describe("the capabilities the registry used to omit", () => {
     expect(c.rest_endpoint).toBe("/v1/calibration/residuals");
     expect(c.production_status).toBe("unverified");
     expect(c.notes).toMatch(/2026-11-06/);
-    expect(c.notes).toMatch(/lists 23 and is stale/);
+    expect(c.notes).toMatch(/lists all 24 endpoints/);
     expect(c.notes).toMatch(/production state is unverified/);
-    expect(c.notes).not.toMatch(/lists 23 endpoints without it/);
-    // The snapshot is not edited by this change: it records only what was actually read from the deployed engine.
-    expect(snapshot.endpoints).not.toContain("/v1/calibration/residuals");
-    expect(snapshot.endpoints).toHaveLength(23);
+    expect(snapshot.endpoints).toContain("/v1/calibration/residuals");
+    expect(snapshot.endpoints).toHaveLength(24);
   });
 
   it("states the calibration gate as the view alone, names its two admin routes and tables, and says the migrations are not applied", () => {

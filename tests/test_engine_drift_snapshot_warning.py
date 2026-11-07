@@ -38,7 +38,8 @@ def run(argv, snapshot, capsys, engine=None):
 
 # ---- the pure comparison -------------------------------------------------------------------------------------------
 def test_a_live_set_that_is_a_strict_superset_warns_and_names_the_extra_route():
-    out = mod.snapshot_staleness(SNAPSHOT + ["/v1/calibration/residuals"], SNAPSHOT)
+    stale = [r for r in SNAPSHOT if r != "/v1/calibration/residuals"]
+    out = mod.snapshot_staleness(SNAPSHOT, stale)
     assert len(out) == 1
     assert "STALE" in out[0] and "/v1/calibration/residuals" in out[0] and "strict superset" in out[0]
     assert "exit status is unchanged" in out[0] and "does not edit it" in out[0]
@@ -92,7 +93,7 @@ def test_the_committed_snapshot_is_what_the_warning_reads():
 def test_the_repository_engine_serves_one_more_endpoint_than_the_committed_snapshot_lists():
     # The fact this warning exists for. When the owner refreshes lib/engine-deployed.json this assertion fails: delete it with the staleness.
     served = set(ROUTES) | set(GET_ROUTES)
-    assert sorted(served - set(SNAPSHOT) - {"/mcp"}) == ["/v1/calibration/residuals"]
+    assert sorted(served - set(SNAPSHOT) - {"/mcp"}) == []
 
 
 # ---- through main(): the exit status, JSON, text and Markdown --------------------------------------------------------
