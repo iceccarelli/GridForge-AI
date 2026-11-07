@@ -21,10 +21,13 @@ export const runtime = "nodejs";
  */
 export async function GET(req: Request) {
   const { token, deprecatedQuery } = tokenForRead(req);
-  return sealPortalResponse(await readUsage(req, token), "/api/usage", deprecatedQuery);
+  let found = false;
+  const res = await readUsage(req, token, () => { found = true; });
+  // Marked (and logged) as deprecated only when the query token opened a REAL account, so a junk ?token= cannot fill the log.
+  return sealPortalResponse(res, "/api/usage", deprecatedQuery && found);
 }
 
-async function readUsage(req: Request, token: string): Promise<Response> {
+async function readUsage(req: Request, token: string, onAccount: () => void): Promise<Response> {
   if (!token) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
   const g = await guardRequest(req, "usage_read");
   if (g.denied) return g.denied;
@@ -32,6 +35,7 @@ async function readUsage(req: Request, token: string): Promise<Response> {
   const acct = await accountByToken(token);
   if (acct === "error") return NextResponse.json({ ok: false, error: "Usage is unavailable just now." }, { status: 503 });
   if (!acct) return NextResponse.json({ ok: false, error: "Unknown account" }, { status: 404 });
+  onAccount();
 
   const month = utcMonth(new Date());
   const [net, events, settlements, alerts, cursor, reversals] = await Promise.all([

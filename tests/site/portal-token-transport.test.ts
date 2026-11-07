@@ -115,6 +115,24 @@ describe("/api/keys", () => {
     const res = await (await keys()).POST(req("/api/keys", { method: "POST", body: { token: TOKEN } }));
     expect((await res.json()).issued).toBe(true);
   });
+  it("POST has the same precedence as GET: a good Authorization header wins over a stale token in the body, and a bad header is not rescued by a good body", async () => {
+    const { POST } = await keys();
+    const stale = await POST(req("/api/keys", { method: "POST", bearer: TOKEN, body: { token: "stale-or-someone-elses" } }));
+    expect((await stale.json()).issued).toBe(true);
+    const bad = await POST(req("/api/keys", { method: "POST", bearer: "not-a-token", body: { token: TOKEN } }));
+    expect(bad.status).toBe(404);
+  });
+  it("a junk ?token= is a plain 404: no Deprecation header and no deprecation log line, so it cannot fill the log", async () => {
+    for (const path of ["/api/keys?token=junk-junk-junk", "/api/usage?token=junk-junk-junk"]) {
+      logs.length = 0;
+      const mod = path.startsWith("/api/keys") ? await keys() : await usage();
+      const res = await mod.GET(req(path));
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("deprecation"), path).toBeNull();
+      expect(res.headers.get("cache-control")).toMatch(/no-store/);
+      expect(logs.filter((l) => /deprecated/i.test(l)), path).toEqual([]);
+    }
+  });
   it("POST never takes the token from the query string: that form never worked and must not start to", async () => {
     const res = await (await keys()).POST(req(`/api/keys?token=${TOKEN}`, { method: "POST", body: {} }));
     expect(res.status).toBe(404);

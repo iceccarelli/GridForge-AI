@@ -28,7 +28,9 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   // Authorization: Bearer <token>. The query form still works for one release and is marked deprecated (lib/portal-token.ts).
   const { token, deprecatedQuery } = tokenForRead(req);
-  return sealPortalResponse(await readAccount(token), "/api/keys", deprecatedQuery);
+  const res = await readAccount(token);
+  // Marked (and logged) as deprecated only when the query token opened a REAL account, so a junk ?token= cannot fill the log.
+  return sealPortalResponse(res, "/api/keys", deprecatedQuery && res.status === 200);
 }
 
 async function readAccount(token: string): Promise<Response> {
@@ -89,8 +91,9 @@ async function mintOrRotate(req: Request): Promise<Response> {
   } catch {
     /* empty body means "issue if I have none" */
   }
-  // The token comes from the body or the Authorization header. It is never read from the query string on a write.
-  const token = typeof body.token === "string" && body.token ? body.token : bearerToken(req);
+  // Same precedence as GET: when the request carries an Authorization header the token is read from it ALONE (a stale `token` left in the body
+  // cannot override a caller's explicit credential); only without that header is the body's `token` used. Never from the query string on a write.
+  const token = req.headers.has("authorization") ? bearerToken(req) : typeof body.token === "string" ? body.token : "";
   const rotate = body.rotate === true;
 
   // Admitted once the body has been read, before anything is minted or rotated.
