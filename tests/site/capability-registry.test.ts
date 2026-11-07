@@ -161,7 +161,7 @@ describe("the capabilities the registry used to omit", () => {
     expect(c.entitlement).toContain("POST /api/admin/evidence/[id]/review");
     expect(c.database_record).toMatch(/calibration_permissions \(0047\)/);
     expect(c.database_record).toMatch(/project_evidence_reviews \(0048\)/);
-    expect(c.notes).toMatch(/0046-0048 .* and 0052 .* are written and NOT applied/s);
+    expect(c.notes).toMatch(/0046-0048[\s\S]*and 0052[\s\S]*are written and NOT applied/);
     for (const route of ["app/api/admin/calibration-permissions/route.ts", "app/api/admin/evidence/[id]/review/route.ts"]) {
       expect(fs.existsSync(path.join(process.cwd(), route)), route).toBe(true);
     }
