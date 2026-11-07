@@ -11,21 +11,32 @@
 -- being shared into a ledger that is published, and nothing said whether an observation came from a real deployment or from a demo, a
 -- test or a generator. The importer trusts the view, so the VIEW is the single gate; this migration puts both conditions in it.
 --
---   A. calibration_permissions: an append-only log of consent. One row per decision: kind 'granted' or 'revoked'; a revocation is a NEW
---      row, nothing is ever updated or deleted or truncated. scope_type is 'project' for now (scope_id is the project's id). Each row
---      names the e-mail address of the person who gave or withdrew the permission, the SHA-256 of the signed document that evidences it
---      (a revocation names its own document), when it was recorded and a note. The latest row (highest seq: a clock can repeat inside one
---      transaction, a sequence cannot) is the standing decision. A revocation needs a standing grant to revoke. The address is the
---      customer's, typed by an administrator who recorded a document the administrator holds: it is a record, not an authentication.
+-- REPLAY ORDER. This migration REPLACES calibration_ledger_rows and gf_submit_observation. Re-running it (or 0038 or 0046) AFTER a later
+-- migration of this family (0048 holds the final view with every gate) silently replaces them with an older and weaker definition.
+-- Migrations are applied once, in order (scripts/apply-migration.py gate 2). tests/test_calibration_final_gate.py reads the FINAL view and
+-- function from a database built by the whole chain and fails if any gate is missing.
+--
+--   A. calibration_permissions: an append-only log of consent. One row per decision: kind 'granted' or 'revoked'; a revocation is a NEW row,
+--      nothing is ever updated or deleted or truncated. scope_type is 'project' for now (scope_id is the project's id). Each row names the
+--      e-mail address of the person who gave or withdrew the permission, the SHA-256 of the signed document that evidences it (a revocation
+--      names its own document), when it was recorded and a note. The latest row (highest seq: a clock can repeat inside one transaction, a
+--      sequence cannot) is the standing decision. A revocation needs a standing grant to revoke.
+--      WHAT THIS IS NOT: an ASSERTION-ONLY record. The system does not hold, open or verify the document: the digest is whatever the
+--      administrator typed (a digest of 64 identical characters is refused as an obvious placeholder, nothing more). The address is not
+--      authenticated, and the administrator who records the row is not identified: the admin console has one shared password. Revoking
+--      stops FUTURE exports only. It does not recall rows already imported by `gridforge calibrate import`, which keeps no link back to
+--      this table.
 --   B. gf_record_calibration_permission(p, p_event): the only supported writer; service_role only (0020's pattern). The history event
 --      carries the document digest and the kind, never the e-mail address.
---   C. project_observations.data_origin: 'production', 'test', 'synthetic' or 'unclassified' (NOT NULL, default 'unclassified'). A row
---      that nobody classified is never treated as production. Observations are append-only, so the origin is set once, at submission,
---      by the server (lib/project-observations.ts: production only on a production deployment); a caller's request body is never read
---      for it. Rows stored before this migration are 'unclassified' and are therefore not exported: nothing is back-filled and nothing
---      is invented. Adding a NOT NULL column with a constant default is a catalogue change in PostgreSQL 11+, not a table rewrite.
---   D. calibration_ledger_rows: every 0046 condition, plus data_origin = 'production' and a project whose LATEST permission row is a
---      grant. Every column, the column order and the privileges are unchanged.
+--   C. project_observations.data_origin: 'production', 'test', 'synthetic' or 'unclassified' (NOT NULL, default 'unclassified'). A row that
+--      nobody classified is never treated as production. Observations are append-only, so the origin is set once, at submission, by the
+--      server (lib/project-observations.ts: production only on a production deployment); a caller's request body is never read for it.
+--      Rows stored before this migration are 'unclassified' and are therefore NOT exported: nothing is back-filled and nothing is invented.
+--      Whether a past observation was real is a question for the owner: a reviewed, append-only ORIGIN ATTESTATION step (a named person
+--      vouching, with a reason, that an observation came from a real deployment) is a deliberate FUTURE decision, not built here. Adding a
+--      NOT NULL column with a constant default is a catalogue change in PostgreSQL 11+, not a table rewrite.
+--   D. calibration_ledger_rows: every 0046 condition, plus data_origin = 'production' and a project whose LATEST permission row is a grant.
+--      Every column, the column order and the privileges are unchanged.
 --
 -- Additive and idempotent. RLS on, no policies (service role only), like every table that holds a customer's material.
 
@@ -62,7 +73,7 @@ create table if not exists public.calibration_permissions (
   granted_by_email text not null
     check (length(granted_by_email) between 3 and 254 and granted_by_email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
   granted_at timestamptz not null default now(),
-  document_sha256 text not null check (document_sha256 ~ '^[0-9a-f]{64}$'),
+  document_sha256 text not null check (document_sha256 ~ '^[0-9a-f]{64}$' and document_sha256 !~ '^(.)\1{63}$'),
   note text check (note is null or length(note) <= 1000)
 );
 
@@ -222,6 +233,9 @@ where r.decision = 'verified'
   and lower(btrim(r.reviewer)) <> lower(btrim(o.submitted_by))
   and c.created_at is not null
   and c.created_at < (o.observed_on::timestamp at time zone 'UTC')
+  and c.case_digest is not null
+  and c.case_digest = encode(sha256(convert_to(jsonb_build_object('request', c.request, 'result', c.result)::text, 'UTF8')), 'hex')
+  and o.predicted_value = public.gf_forecast_predicted_mw(c.result, o.architecture)
   and o.data_origin = 'production'
   and exists (
     select 1 from public.calibration_permissions cp

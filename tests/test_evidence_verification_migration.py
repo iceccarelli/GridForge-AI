@@ -181,6 +181,64 @@ def test_the_status_cannot_move_a_second_time_even_through_the_function_flag(db)
     assert status(db, eid) == "verified"
 
 
+INSERT_REVIEW = ("insert into project_evidence_reviews (evidence_id, project_id, decision, reviewer, reason, sha256_confirmed)"
+                 " values ('{eid}', '{project}', 'verified', 'x', 'y', '{sha}')")
+
+
+def test_a_service_role_caller_cannot_write_a_decision_row_even_with_the_right_digest(db):
+    """gf_review_evidence is the sole writer: a forged or pre-seeded decision row is refused for the API role, whatever privileges it holds."""
+    project, eid = unverified_file(db)
+    r = as_service_role(db, INSERT_REVIEW.format(eid=eid, project=project, sha=HEX("a")))
+    assert r.returncode != 0 and "written only by gf_review_evidence" in r.stderr, r.stderr
+    assert count(db, "project_evidence_reviews", f"evidence_id = '{eid}'") == 0
+
+
+def test_a_decision_row_seeded_by_the_owner_still_cannot_be_turned_into_a_status_by_the_api_role(db):
+    project, eid = unverified_file(db)
+    psql(db, INSERT_REVIEW.format(eid=eid, project=project, sha=HEX("a")))                  # the owner connection: the stated bypass
+    r = as_service_role(db, f"select set_config('gridforge.evidence_review', '{eid}', true); update project_evidence set review_status = 'verified' where id = '{eid}'")
+    assert r.returncode != 0 and "gf_review_evidence" in r.stderr, r.stderr
+    assert status(db, eid) == "unverified"
+
+
+def test_the_decision_function_is_security_definer_with_a_pinned_search_path_and_only_the_service_role_may_run_it(db):
+    row = scalar(db, "select prosecdef::text || '|' || coalesce(array_to_string(proconfig, ','), '') from pg_proc where proname = 'gf_review_evidence'")
+    assert row.startswith("true|") and "search_path=public, pg_temp" in row, row
+    assert scalar(db, "select has_function_privilege('service_role', 'public.gf_review_evidence(jsonb, jsonb)', 'execute')") == "t"
+    for role in ("anon", "authenticated"):
+        assert scalar(db, f"select has_function_privilege('{role}', 'public.gf_review_evidence(jsonb, jsonb)', 'execute')") == "f", role
+
+
+def test_direct_insert_on_the_decision_table_is_revoked_from_every_api_role_by_the_migration_itself():
+    """Checked on a database built by the chain ALONE, with Supabase's default ACLs in place beforehand (so the revoke has a grant to take away)
+    and without the rig's blanket grant afterwards (what scripts/realdb-up.sh does)."""
+    from calibration_pg_rig import drop_database, make_database
+    name = make_database(regrant=False, supabase_default_acls=True)
+    try:
+        for role in ("service_role", "anon", "authenticated"):
+            for priv in ("insert", "update", "delete", "truncate"):
+                assert scalar(name, f"select has_table_privilege('{role}', 'public.project_evidence_reviews', '{priv}')") == "f", (role, priv)
+        assert scalar(name, "select has_table_privilege('service_role', 'public.project_evidence_reviews', 'select')") == "t"
+        project, eid = unverified_file(name)
+        r = as_service_role(name, INSERT_REVIEW.format(eid=eid, project=project, sha=HEX("a")))
+        assert r.returncode != 0 and "permission denied" in r.stderr
+        assert call(name, good(eid), runner=as_service_role).returncode == 0                  # ...while the function works for the same role
+        assert status(name, eid) == "verified"
+    finally:
+        drop_database(name)
+
+
+def test_the_evidence_table_has_a_truncate_guard_and_cannot_be_truncated(db):
+    unverified_file(db)
+    assert scalar(db, "select count(*) from pg_trigger where tgrelid = 'public.project_evidence'::regclass and tgname = 'project_evidence_no_truncate'"
+                      " and tgenabled = 'O' and (tgtype & 32) = 32") == "1"                       # a statement-level BEFORE TRUNCATE trigger
+    for sql in ("truncate public.project_evidence", "truncate public.project_evidence cascade"):
+        assert psql(db, sql, check=False).returncode != 0, sql
+    r = psql(db, "truncate public.project_evidence cascade", check=False)
+    assert "append-only" in r.stderr
+    assert count(db, "project_evidence") >= 1
+
+
 @pytest.mark.parametrize("assignment", ["sha256 = repeat('e', 64)", "filename = 'other.csv'", "storage_ref = 'b/elsewhere'",
                                         "project_id = (select id from projects where id <> project_evidence.project_id limit 1)",
                                         "media_type = 'application/pdf'", "byte_size = 11", "uploaded_at = now() - interval '1 day'",

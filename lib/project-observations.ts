@@ -218,6 +218,10 @@ export async function submitObservation(
   // Calibration is only worth anything if the prediction was fixed before reality answered it (the database enforces this too).
   const late = forecastPredatesOutcome(row.created_at, observed_on);
   if (late) return { ok: false, status: 422, error: late };
+  // A revision written before the freeze (0046) has no digest: nothing shows its forecast was not rewritten, so it is not reported on.
+  if (typeof row.case_digest !== "string" || !/^[0-9a-f]{64}$/.test(row.case_digest)) {
+    return { ok: false, status: 422, error: "That case revision was written before forecasts were frozen (it has no case_digest), so nothing shows it was not rewritten and it cannot be reconciled. Re-run the case to make a new revision." };
+  }
 
   // The expected value comes from the engine's stored result — never from the caller.
   const archs = ((row.result as { architectures?: Record<string, unknown>[] }).architectures ?? []);
@@ -265,7 +269,7 @@ export async function submitObservation(
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
     }
     if (added.ok === false && added.code === "GF004") {
-      return { ok: false, status: 422, error: "The forecast must predate the outcome: that case revision was not made before the date you measured." };
+      return { ok: false, status: 422, error: "The forecast was refused as the basis for this outcome: it must predate the outcome, be frozen, hold the predicted value, and the outcome cannot be dated in the future." };
     }
     if (added.ok === false && (added.code === "23502" || added.code === "23514")) {
       return { ok: false, status: 422, error: "The observation was refused: it needs its evidence artifact, the installed-architecture attestation and a measurement kind, and its values must be physical." };

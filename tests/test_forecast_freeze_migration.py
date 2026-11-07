@@ -123,12 +123,24 @@ def test_a_revision_written_by_the_real_function_still_emits_its_events_and_keep
 
 # ---------------------------------------------------------------------------------------------- C. the clock is the database's
 
-@pytest.mark.parametrize("when", ["now() - interval '3 days'", "now() + interval '3 days'", "'2020-01-01T00:00:00Z'::timestamptz"])
-def test_a_revision_cannot_be_inserted_with_a_back_dated_or_future_timestamp(db, when):
+@pytest.mark.parametrize("when", ["now() - interval '3 days'", "now() + interval '3 days'", "'2020-01-01T00:00:00Z'::timestamptz",
+                                   "now() - interval '2 minutes'", "now() + interval '2 minutes'"])
+def test_a_timestamp_sent_with_a_revision_is_discarded_there_is_no_tolerance_window(db, when):
     t = uuid.uuid4().hex
-    r = psql(db, f"insert into power_deployment_cases (case_token, revision, request, result, created_at) values ('{t}', 1, '{{}}', '{{}}', {when})", check=False)
-    assert r.returncode != 0 and "assigned by the database" in r.stderr, r.stderr
-    assert count(db, "power_deployment_cases", f"case_token = '{t}'") == 0
+    psql(db, f"insert into power_deployment_cases (case_token, revision, request, result, created_at) values ('{t}', 1, '{{}}', '{{}}', {when})")
+    # the database clock, not the caller's value: within a second of now() at the time of the check
+    assert scalar(db, f"select abs(extract(epoch from clock_timestamp() - created_at)) < 5 from power_deployment_cases where case_token = '{t}'") == "t"
+
+
+def test_the_stored_timestamp_is_the_statement_clock_not_the_transaction_start(db):
+    """clock_timestamp() moves inside one transaction: two inserts a moment apart do not share a created_at."""
+    a, b = uuid.uuid4().hex, uuid.uuid4().hex
+    psql(db, "begin;"
+             f"insert into power_deployment_cases (case_token, revision, request, result) values ('{a}', 1, '{{}}', '{{}}');"
+             "select pg_sleep(0.05);"
+             f"insert into power_deployment_cases (case_token, revision, request, result) values ('{b}', 1, '{{}}', '{{}}');"
+             "commit")
+    assert scalar(db, f"select (select created_at from power_deployment_cases where case_token = '{b}') > (select created_at from power_deployment_cases where case_token = '{a}')") == "t"
 
 
 def test_a_revision_inserted_without_a_timestamp_gets_the_databases_own(db):
@@ -205,6 +217,51 @@ def test_observations_written_before_the_rule_are_not_rewritten_by_it(db):
     r = psql(db, f"update project_observations set method = 'x' where id = '{o['id']}'", check=False)
     assert r.returncode != 0 and "append-only" in r.stderr
     assert count(db, "project_observations", f"id = '{o['id']}'") == 1
+
+
+def test_an_outcome_dated_in_the_future_is_refused(db):
+    t = new_case(db, created_at="2026-03-02T09:00:00Z")
+    _, _, r = submit(db, case_token=t, evidence_verified=False, on="2999-01-01")
+    assert r.returncode != 0 and "cannot be dated in the future" in r.stderr, r.stderr
+    # today (UTC) is not the future; but a forecast made today cannot predate it
+    _, _, today = submit(db, case_token=t, evidence_verified=False, on=scalar(db, "select (clock_timestamp() at time zone 'UTC')::date"))
+    assert today.returncode == 0, today.stderr
+
+
+def test_the_predicted_value_must_be_the_number_the_stored_forecast_holds(db):
+    t = new_case(db, created_at="2026-03-02T09:00:00Z")
+    for wrong in (31, 29.999999, 0.001, 12.5):                    # 12.5 is another architecture's number
+        _, _, r = submit(db, case_token=t, evidence_verified=False, predicted_value=wrong)
+        assert r.returncode != 0 and "predicted value must be the number the stored forecast holds" in r.stderr, wrong
+    assert count(db, "project_observations", f"case_token = '{t}'") == 0
+    _, _, ok = submit(db, case_token=t, evidence_verified=False, predicted_value=30)
+    assert ok.returncode == 0, ok.stderr
+    _, _, other = submit(db, case_token=t, evidence_verified=False, architecture="OTHER", predicted_value=12.5,
+                         prediction_ref=f"power_deployment_case:{t}:r1:OTHER")
+    assert other.returncode == 0, other.stderr
+
+
+@pytest.mark.parametrize("result", ['{}', '{"architectures": []}', '{"architectures": "x"}', '{"architectures": [{"label": "ARCH"}]}',
+                                    '{"architectures": [{"label": "ARCH", "available_MW": "30"}]}',
+                                    '{"architectures": [{"label": "NOT-ARCH", "available_MW": 30}]}'])
+def test_a_forecast_that_holds_no_number_for_the_architecture_cannot_be_reported_on(db, result):
+    t = new_case(db, created_at="2026-03-02T09:00:00Z", result=result)
+    _, _, r = submit(db, case_token=t, evidence_verified=False)
+    assert r.returncode != 0 and ("predicted value must be" in r.stderr or "invalid input" in r.stderr), (result, r.stderr)
+
+
+def test_the_first_architecture_with_a_label_is_the_one_the_application_reads(db):
+    t = new_case(db, created_at="2026-03-02T09:00:00Z",
+                 result='{"architectures": [{"label": "ARCH", "available_MW": 30}, {"label": "ARCH", "available_MW": 99}]}')
+    assert submit(db, case_token=t, evidence_verified=False, predicted_value=99)[2].returncode != 0
+    assert submit(db, case_token=t, evidence_verified=False, predicted_value=30)[2].returncode == 0
+
+
+def test_a_forecast_written_before_the_freeze_has_no_digest_and_cannot_be_reported_on(db):
+    t = new_case(db, created_at="2026-03-02T09:00:00Z")
+    bypassing_triggers(db, f"update power_deployment_cases set case_digest = null where case_token = '{t}'")    # what a pre-0046 row looks like
+    _, _, r = submit(db, case_token=t, evidence_verified=False)
+    assert r.returncode != 0 and "predates the forecast freeze" in r.stderr, r.stderr
 
 
 # ---------------------------------------------------------------------------------------------- E. housekeeping

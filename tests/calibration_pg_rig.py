@@ -7,6 +7,9 @@ digest is a SYNTHETIC fixture.
 Needs a reachable PostgreSQL (`psql` plus PG* variables, or GRIDFORGE_TEST_PG_URL). Skipped, loudly, where there is none: a skip is a
 gap in what was checked, not a pass. GRIDFORGE_REQUIRE_DB=1 turns the skip into a failure.
 
+GRIDFORGE_MIGRATIONS_DIR=<dir> replays the migrations from another directory (used to run a new test against an EARLIER version of 0046-0048
+and watch it fail); the tests that open a migration file by number read it from there too.
+
 GRIDFORGE_MIGRATIONS_UPTO=NNNN stops the replay after migration NNNN. It exists only to show a test FAILING on the base the change
 started from (set it to 0045); the tests are written for the full chain.
 
@@ -23,7 +26,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-MIGRATIONS = ROOT / "supabase" / "migrations"
+MIGRATIONS = Path(os.environ["GRIDFORGE_MIGRATIONS_DIR"]) if os.environ.get("GRIDFORGE_MIGRATIONS_DIR") else ROOT / "supabase" / "migrations"
 BASE = os.environ.get("GRIDFORGE_TEST_PG_URL", "")
 REQUIRED = os.environ.get("GRIDFORGE_REQUIRE_DB") == "1"
 UPTO = os.environ.get("GRIDFORGE_MIGRATIONS_UPTO", "9999")
@@ -34,6 +37,9 @@ skip_without_db = pytest.mark.skipif(NO_DB and not REQUIRED, reason="no PostgreS
 DIGEST = "c" * 64
 GOOD = '{"event_type": "%s", "actor": "someone", "payload": {}}'
 HEX = lambda ch: ch * 64  # noqa: E731
+# A document digest that is not an obvious placeholder (0047 refuses 64 identical characters).
+DOC = lambda tag: hashlib.sha256(f"document-{tag}".encode()).hexdigest()  # noqa: E731
+FORECAST_RESULT = '{"architectures": [{"label": "ARCH", "available_MW": 30}, {"label": "OTHER", "available_MW": 12.5}]}'
 
 
 def _cmd(db):
@@ -72,7 +78,10 @@ def bypassing_triggers(db, sql, check=True):
     return psql(db, "set session_replication_role = replica; " + sql, check=check)
 
 
-def make_database():
+def make_database(regrant=True, supabase_default_acls=False):
+    """A database with the whole chain applied. `supabase_default_acls` first sets what a Supabase project has before any user migration:
+    default privileges that hand ALL on every new public table to anon, authenticated and service_role (see 0040), so that a REVOKE in a
+    migration actually has something to take away."""
     name = f"gf_{uuid.uuid4().hex[:10]}"
     psql("postgres", f"create database {name}")
     psql(name, "create extension if not exists pgcrypto")
@@ -81,10 +90,17 @@ def make_database():
     for role, extra in (("anon", ""), ("authenticated", ""), ("service_role", " bypassrls")):
         psql("postgres", f"do $$ begin if not exists (select 1 from pg_roles where rolname = '{role}') "
                          f"then create role {role} nologin{extra}; end if; end $$")
+    if supabase_default_acls:
+        psql(name, "alter default privileges in schema public grant all on tables to anon, authenticated, service_role;"
+                   "alter default privileges in schema public grant all on sequences to anon, authenticated, service_role")
     for f in sorted(MIGRATIONS.glob("*.sql")):
         if f.name[:4] <= UPTO:
             psql(name, file=f)
+    if not regrant:
+        return name
     # What scripts/realdb-up.sh does after the migrations, minus TRUNCATE (0040 withholds it and the guards stop the owner anyway).
+    # It hands INSERT on every table back to service_role, so the tests of the guards run with the privilege PRESENT: the triggers, not
+    # the revoke in the migration, are what they exercise (the revoke itself is checked on a database built without this step).
     psql(name, "grant usage on schema public to anon, service_role;"
                "grant select, insert, update, delete on all tables in schema public to service_role;"
                "grant usage on all sequences in schema public to service_role")
@@ -116,7 +132,7 @@ def new_project(db, site="Dublin DC1"):
     return json.loads(out)["id"]
 
 
-def new_case(db, token=None, created_at=None, request="{}", result="{}", revision=1):
+def new_case(db, token=None, created_at=None, request="{}", result=FORECAST_RESULT, revision=1):
     """A forecast: one case revision through the real function. `created_at` (an ISO instant) back-dates it the only way possible
     after 0046, with the row guards off: the production path always stamps the revision with the database's own clock."""
     token = token or uuid.uuid4().hex
@@ -190,7 +206,7 @@ def review(db, oid, decision="verified", cls="E5", reviewer="J. Ortiz"):
 
 def record_permission(db, project, kind="granted", email="owner@example.test", doc=None, note="signed", check=True):
     p = {"scope_type": "project", "scope_id": project, "kind": kind, "granted_by_email": email,
-         "document_sha256": doc or HEX("d"), "note": note}
+         "document_sha256": doc or DOC("default"), "note": note}
     return psql(db, f"select gf_record_calibration_permission('{json.dumps(p)}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb)",
                 check=check)
 

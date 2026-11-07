@@ -1,15 +1,17 @@
 // Server-only: the one place an evidence file becomes verified or rejected (migration 0048).
 //
 // A file is verified only after THIS server has read the stored object back from the private bucket and computed its SHA-256; that digest,
-// not anything a browser sent, is what the database compares with the digest recorded at upload (gf_review_evidence refuses a mismatch). A
-// reviewer's decision is recorded once, with a name and a reason, and cannot be changed. The name is the text the reviewer typed under one
-// shared admin password: recorded as typed, not an authenticated identity.
+// not anything a browser sent, is what is passed to the database, which compares the CLAIMED digest with the one recorded at upload
+// (gf_review_evidence refuses a mismatch). The database never sees the bytes, so it cannot tell that this route really hashed them: the
+// hash is route-computed. What a verification therefore establishes is that the bytes in the private bucket are unchanged since upload.
+// The reviewer is vouching for the file's provenance and relevance, which this code does not inspect. A decision is recorded once, with a
+// name and a reason, and cannot be changed. The name is the text the reviewer typed under one shared admin password: recorded as typed,
+// not an authenticated identity.
 //
 // What a caller gets back is a whitelist: the decision and the digest. The file's storage path and the service credentials that read it
 // never leave this module.
 
 import crypto from "node:crypto";
-import { storeFault } from "@/lib/safe-log";
 import { creds, ev, rest, rpc, STORE_UNCONFIGURED, EVIDENCE_BUCKET, EVIDENCE_MAX_BYTES, type Result } from "@/lib/projects";
 import { missingFunction } from "@/lib/calibration-permissions";
 
@@ -31,6 +33,42 @@ const REF = new RegExp(`^${EVIDENCE_BUCKET}/[0-9a-f-]{36}/[0-9a-f]{64}-[A-Za-z0-
 
 export const ALREADY_REVIEWED_MESSAGE = "This file has already been reviewed: a decision is recorded once and is final.";
 
+/** The longest the read-back may take, headers and body together. */
+export const READ_BACK_TIMEOUT_MS = 20_000;
+const ERROR_BODY_MAX = 2048;
+
+/** At most `max` bytes of a response body as text; the rest is cancelled unread. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.byteLength;
+      if (total >= max) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } catch {
+    return "";
+  }
+  return Buffer.concat(chunks).subarray(0, max).toString("utf8");
+}
+
+function parseErrorBody(text: string): { code?: unknown; error?: unknown; statusCode?: unknown } {
+  try {
+    const j = JSON.parse(text);
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+
 type ReadBack =
   | { ok: true; sha256: string; bytes: number }
   | { ok: false; kind: "missing" | "unavailable" | "too_large" };
@@ -46,16 +84,22 @@ export async function hashStoredObject(ref: string): Promise<ReadBack> {
   const { "Content-Type": _json, ...auth } = c.headers;
   void _json;
   try {
-    const res = await fetch(`${c.url}/storage/v1/object/authenticated/${ref}`, { headers: auth, cache: "no-store" });
+    const res = await fetch(`${c.url}/storage/v1/object/authenticated/${ref}`, {
+      headers: auth,
+      cache: "no-store",
+      signal: AbortSignal.timeout(READ_BACK_TIMEOUT_MS),
+    });
     if (res.status === 404 || res.status === 400) {
-      // Supabase Storage answers a missing object with HTTP 400 and the real status in the body.
-      const body = (await res.clone().json().catch(() => ({}))) as { code?: unknown; error?: unknown; statusCode?: unknown };
+      // Supabase Storage answers a missing object with HTTP 400 and the real status in the body. Only the first 2 KB of an error body is read.
+      const body = parseErrorBody(await readCapped(res, ERROR_BODY_MAX));
       if (body.code === "NoSuchKey" || (body.code === undefined && (res.status === 404 || String(body.statusCode) === "404") && body.error === "not_found")) {
         return { ok: false, kind: "missing" };
       }
     }
     if (!res.ok || !res.body) {
-      console.error("[GridForge] evidence read-back failed:", await storeFault(res));
+      // The status only: an error body is neither read nor logged.
+      console.error(`[GridForge] evidence read-back failed: HTTP ${res.status}`);
+      void res.body?.cancel().catch(() => undefined);
       return { ok: false, kind: "unavailable" };
     }
     const hash = crypto.createHash("sha256");

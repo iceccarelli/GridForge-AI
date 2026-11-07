@@ -71,8 +71,13 @@ export function installProjectRpcs(db: PostgrestFake): void {
     if (!["production", "test", "synthetic", "unclassified"].includes(origin)) throw new PgError("23514", "project_observations_data_origin_check", 400);
     // 0046: the forecast must predate the outcome (created before 00:00 UTC of the observed date), and must exist.
     const fc: any = db.rows("power_deployment_cases").find((x) => x.case_token === p.case_token && x.revision === p.case_revision);
-    if (!fc || typeof fc.created_at !== "string" || Date.parse(fc.created_at) >= Date.parse(`${p.observed_on}T00:00:00Z`)) {
+    if (!fc || typeof fc.created_at !== "string" || typeof fc.case_digest !== "string" || Date.parse(fc.created_at) >= Date.parse(`${p.observed_on}T00:00:00Z`)) {
       throw new PgError("GF004", "the forecast must predate the outcome", 400);
+    }
+    if (p.observed_on > new Date().toISOString().slice(0, 10)) throw new PgError("GF004", "the outcome cannot be dated in the future", 400);
+    const own = (fc.result?.architectures ?? []).find((a: any) => a.label === p.architecture);
+    if (!(typeof own?.available_MW === "number" && own.available_MW === p.predicted_value)) {
+      throw new PgError("GF004", "the predicted value must be the number the stored forecast holds", 400);
     }
     // The database, not the caller, derives the site reference (site label only) and reads the prediction's engine
     // digest from the case revision.

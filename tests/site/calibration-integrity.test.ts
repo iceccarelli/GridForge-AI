@@ -34,6 +34,9 @@ const PROJECT = U(1), FILE_A = U(2), FILE_B = U(3), OTHER_PROJECT = U(9);
 const BYTES = new TextEncoder().encode("timestamp,kW\n2026-09-30T00:00:00,33000\n");
 const DIGEST = createHash("sha256").update(BYTES).digest("hex");
 const STORAGE_REF = `project-evidence/${PROJECT}/${DIGEST}-meter.csv`;
+const DOC_A = createHash("sha256").update("signed letter A").digest("hex");      // a document digest, not a placeholder
+const DOC_B = createHash("sha256").update("signed letter B").digest("hex");
+const DOC_C = createHash("sha256").update("signed letter C").digest("hex");
 const SECRET_TOKEN = "SECRET-PROJECT-TOKEN-0048";
 const SERVICE_KEY = "sb_secret_test_key_0048";
 
@@ -70,7 +73,7 @@ const permRoute = () => import("@/app/api/admin/calibration-permissions/route");
 const fileRoute = () => import("@/app/api/admin/evidence/[id]/review/route");
 
 const goodPermission = (over: Record<string, unknown> = {}) => ({
-  project_id: PROJECT, kind: "granted", granted_by_email: "Owner@Example.TEST", document_sha256: "d".repeat(64), note: "signed letter of 2026-10-01", ...over,
+  project_id: PROJECT, kind: "granted", granted_by_email: "Owner@Example.TEST", document_sha256: DOC_A, note: "signed letter of 2026-10-01", ...over,
 });
 const goodDecision = (over: Record<string, unknown> = {}) => ({ decision: "verified", reviewer: "F. Keane", reason: "opened the file; it is the meter export", ...over });
 
@@ -100,12 +103,12 @@ describe("POST /api/admin/calibration-permissions", () => {
     const r = await (await permRoute()).POST(post("/x", goodPermission()));
     expect(r.status).toBe(201);
     const b = await r.json();
-    expect(b.permission).toMatchObject({ scope_type: "project", scope_id: PROJECT, kind: "granted", granted_by_email: "owner@example.test", document_sha256: "d".repeat(64), note: "signed letter of 2026-10-01" });
+    expect(b.permission).toMatchObject({ scope_type: "project", scope_id: PROJECT, kind: "granted", granted_by_email: "owner@example.test", document_sha256: DOC_A, note: "signed letter of 2026-10-01" });
     expect(db.rows("calibration_permissions")).toHaveLength(1);
     const ev = db.rows("project_events").filter((e) => e.event_type === "calibration_permission_recorded");
     expect(ev).toHaveLength(1);
     expect(JSON.stringify(ev[0])).not.toContain("owner@example.test");
-    expect(ev[0].payload).toMatchObject({ kind: "granted", document_sha256: "d".repeat(64) });
+    expect(ev[0].payload).toMatchObject({ kind: "granted", document_sha256: DOC_A });
   });
 
   it("supports revoking: a revocation is a new row, and there must be a grant to revoke", async () => {
@@ -113,9 +116,9 @@ describe("POST /api/admin/calibration-permissions", () => {
     const { POST } = await permRoute();
     expect((await POST(post("/x", goodPermission({ kind: "revoked" })))).status).toBe(409);       // nothing to revoke yet
     expect((await POST(post("/x", goodPermission()))).status).toBe(201);
-    expect((await POST(post("/x", goodPermission({ kind: "revoked", document_sha256: "e".repeat(64), note: "owner withdrew by e-mail" })))).status).toBe(201);
+    expect((await POST(post("/x", goodPermission({ kind: "revoked", document_sha256: DOC_B, note: "owner withdrew by e-mail" })))).status).toBe(201);
     expect((await POST(post("/x", goodPermission({ kind: "revoked" })))).status).toBe(409);       // already revoked
-    expect((await POST(post("/x", goodPermission({ document_sha256: "f".repeat(64) })))).status).toBe(201);   // a new grant is a new row
+    expect((await POST(post("/x", goodPermission({ document_sha256: DOC_C })))).status).toBe(201);   // a new grant is a new row
     expect(db.rows("calibration_permissions").map((r) => r.kind)).toEqual(["granted", "revoked", "granted"]);
   });
 
@@ -126,6 +129,7 @@ describe("POST /api/admin/calibration-permissions", () => {
       { document_sha256: "xyz" }, { document_sha256: "a".repeat(63) }, { document_sha256: 5 }, { document_sha256: undefined },
       { granted_by_email: "not-an-address" }, { granted_by_email: "" }, { granted_by_email: undefined }, { granted_by_email: "a".repeat(250) + "@x.test" },
       { kind: "maybe" }, { kind: undefined }, { project_id: "not-a-uuid" }, { project_id: undefined }, { note: "x".repeat(1001) }, { note: 5 },
+      { document_sha256: "0".repeat(64) }, { document_sha256: "a".repeat(64) },                // a placeholder, not a document digest
       { scope_type: "organisation" }, { surprise: true }, { id: U(77) }, { granted_at: "2020-01-01T00:00:00Z" },
     ];
     for (const over of bad) {
@@ -162,6 +166,17 @@ describe("POST /api/admin/calibration-permissions", () => {
     expect(r.status).toBe(502);
     expect((await r.json()).error).toMatch(/Nothing was recorded/);
     expect(db.rows("calibration_permissions")).toHaveLength(0);
+  });
+
+  it("says in every response that it is an assertion: the digest is not verified and the administrator is not identified", async () => {
+    signIn();
+    const b = await (await (await permRoute()).POST(post("/x", goodPermission()))).json();
+    expect(b.notice).toMatch(/assertion/);
+    expect(b.notice).toMatch(/does not verify the document digest/);
+    expect(b.notice).toMatch(/one shared admin password/);
+    expect(b.notice).toMatch(/not recalled/);
+    const src = readFileSync("app/api/admin/calibration-permissions/route.ts", "utf8");
+    expect(src).toMatch(/ASSERTION-ONLY/);
   });
 
   it("never returns a project token or a credential", async () => {
@@ -247,6 +262,63 @@ describe("POST /api/admin/evidence/[id]/review", () => {
     expect(db.rows("project_evidence_reviews")).toHaveLength(0);
   });
 
+  it("the read-back has a deadline, never reads an error body past 2 KB, and logs a status only", async () => {
+    signIn();
+    const seen: { signal?: AbortSignal | null }[] = [];
+    const real = globalThis.fetch;
+    const huge = new Uint8Array(5_000_000).fill(120);
+    let pulled = 0;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes("/storage/v1/object/authenticated/")) return real(input, init);
+      seen.push({ signal: init?.signal });
+      const stream = new ReadableStream<Uint8Array>({
+        pull(c) { pulled += 65536; c.enqueue(huge.subarray(0, 65536)); if (pulled > 4_000_000) c.close(); },
+      });
+      return Promise.resolve(new Response(stream, { status: 400 }));        // an error whose body is enormous and is not JSON
+    }) as typeof fetch;
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { logs.push(a.join(" ")); });
+    try {
+      const r = await (await fileRoute()).POST(post("/x", goodDecision()), ctx(FILE_A));
+      expect(r.status).toBe(502);
+      expect(seen).toHaveLength(1);
+      expect(seen[0].signal).toBeInstanceOf(AbortSignal);                   // a deadline is passed to fetch
+      expect(pulled).toBeLessThan(1_000_000);                                // the 5 MB body was not read
+      expect(logs.join("\n")).toMatch(/HTTP 400/);
+      expect(logs.join("\n")).not.toMatch(/xxxx/);                          // no body in the log
+    } finally {
+      spy.mockRestore();
+      globalThis.fetch = real;
+    }
+  });
+
+  it("a read-back that never answers is abandoned at the deadline and nothing is recorded", async () => {
+    signIn();
+    const real = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes("/storage/v1/object/authenticated/")) return real(input, init);
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")));
+      });
+    }) as typeof fetch;
+    const { READ_BACK_TIMEOUT_MS } = await import("@/lib/project-evidence-review");
+    expect(READ_BACK_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(READ_BACK_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+    const asked: number[] = [];
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    AbortSignal.timeout = ((ms: number) => { asked.push(ms); return realTimeout(30); }) as typeof AbortSignal.timeout;      // the deadline, shortened for the test
+    try {
+      const r = await (await fileRoute()).POST(post("/x", goodDecision()), ctx(FILE_A));
+      expect(asked).toEqual([READ_BACK_TIMEOUT_MS]);
+      expect(r.status).toBe(502);
+      expect((await r.json()).error).toMatch(/Nothing was recorded/);
+      expect(db.rows("project_evidence_reviews")).toHaveLength(0);
+    } finally {
+      AbortSignal.timeout = realTimeout;
+      globalThis.fetch = real;
+    }
+  });
+
   it("decides once: a second decision, in either direction, is 409 'already been reviewed'", async () => {
     signIn();
     const { POST } = await fileRoute();
@@ -300,7 +372,7 @@ describe("POST /api/admin/evidence/[id]/review", () => {
 
   it("verifying a file lets an observation resting on it be verified, and a rejected file never does", async () => {
     signIn();
-    db.seed("power_deployment_cases", [{ case_token: "c1", revision: 1, request: {}, result: {}, changed_fields: [], created_at: "2026-03-02T09:00:00Z" }]);
+    db.seed("power_deployment_cases", [{ case_token: "c1", revision: 1, request: {}, result: {}, changed_fields: [], created_at: "2026-03-02T09:00:00Z", case_digest: "b".repeat(64) }]);
     const mk = (n: number, ev: string) => db.insertRow("project_observations", {
       id: U(500 + n), project_id: PROJECT, prediction_ref: `power_deployment_case:c1:r1:A${n}`, case_token: "c1", case_revision: 1, architecture: `A${n}`,
       calibration_key: "btm.firm_MW", unit: "MW", predicted_value: 30, observed_value: 28, observed_on: "2026-09-30", method: "m", evidence_id: ev,
@@ -439,12 +511,31 @@ describe("the Verify file section of /admin/reviews", () => {
     expect(html).toMatch(/one shared password/);
     expect(html).toMatch(/not an authenticated identity/);
     expect(html).toMatch(/server read the stored file back/);
+    expect(html).toMatch(/stored bytes are unchanged since upload/);
+    expect(html).toMatch(/does not open the file/);                         // it claims no inspection the screen cannot offer
+    expect(html).toMatch(/no way to withdraw a mistaken verdict/);
+    expect(html).not.toMatch(/you (have )?(inspected|opened|read) the (file|document)/i);
     const src = readFileSync("components/ProjectEvidenceReview.tsx", "utf8");
     expect(src).not.toMatch(/approve all|verify all|bulk approve|auto-?verif/i);
     expect(src.match(/useState<Decision \| "">\(""\)/g)!.length).toBeGreaterThanOrEqual(2);       // both kinds of card start with nothing chosen
     expect(src.match(/fetch\(/g)).toHaveLength(1);                                                // one request per record, through one function
     expect(src).not.toMatch(/sha256_confirmed|storage_ref/);
     void React;
+  });
+
+  it("the project panel and the export route say what the gate does not do (unclassified rows, no withdrawal, no recall)", () => {
+    const panel = readFileSync("components/ai/ProjectPanel.tsx", "utf8");
+    expect(panel).toMatch(/recorded before origin was tracked\s+stay unclassified and are not exported/);
+    expect(panel).toMatch(/decision for the owner/);
+    const exp = readFileSync("app/api/admin/calibration-export/route.ts", "utf8");
+    expect(exp).toMatch(/does not recall a row already imported/);
+    expect(exp).toMatch(/no withdrawal of a mistaken verdict/);
+    expect(exp).not.toMatch(/traceable to permission/i);
+    const env = readFileSync(".env.example", "utf8");
+    expect(env).toMatch(/GRIDFORGE_DATA_ORIGIN/);
+    expect(env).toMatch(/can only LOWER the claim/);
+    expect(env).toMatch(/non-Vercel host/);
+    expect(env).toMatch(/MUST set it/);
   });
 
   it("is unreachable without the admin cookie", async () => {

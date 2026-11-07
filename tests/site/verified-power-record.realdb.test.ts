@@ -501,7 +501,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(s0.observations[0]).toMatchObject({ ledger_eligible: false });
     expect(s0.observations[0].ledger_blockers.join(" ")).toMatch(/permission/);
     const { POST: grant } = await import("@/app/api/admin/calibration-permissions/route");
-    const permission = (kind: string) => grant(post("/x", { project_id: proj.id, kind, granted_by_email: "owner@example.test", document_sha256: "d".repeat(64), note: "signed letter" }));
+    const permission = (kind: string) => grant(post("/x", { project_id: proj.id, kind, granted_by_email: "owner@example.test", document_sha256: crypto.createHash("sha256").update("signed letter").digest("hex"), note: "signed letter" }));
     expect((await permission("granted")).status).toBe(201);
     const s = await j(await state(new Request(siteUrl("/x")), ctx({ token: made.project_token })));
     expect(s.observations).toEqual([expect.objectContaining({

@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from calibration_pg_rig import (
-    GOOD, HEX, as_anon, as_service_role, count, database_fixture, export_rows, new_project, psql, record_permission, review, scalar,
+    DOC, GOOD, as_anon, as_service_role, count, database_fixture, export_rows, new_project, psql, record_permission, review, scalar,
     skip_without_db, submit, submitted,
 )
 
@@ -36,9 +36,9 @@ def eligible_observation(db, **kw):
 
 def test_a_permission_is_recorded_with_who_what_and_when(db):
     project = new_project(db)
-    out = json.loads(record_permission(db, project, email="  Owner@Example.TEST ", doc=HEX("1"), note=" signed 2026-10-01 ").stdout)
+    out = json.loads(record_permission(db, project, email="  Owner@Example.TEST ", doc=DOC("1"), note=" signed 2026-10-01 ").stdout)
     assert out["scope_type"] == "project" and out["scope_id"] == project and out["kind"] == "granted"
-    assert out["granted_by_email"] == "owner@example.test" and out["document_sha256"] == HEX("1") and out["note"] == "signed 2026-10-01"
+    assert out["granted_by_email"] == "owner@example.test" and out["document_sha256"] == DOC("1") and out["note"] == "signed 2026-10-01"
     assert out["granted_at"] and out["seq"] >= 1
     ev = scalar(db, f"select count(*) from project_events where project_id = '{project}' and event_type = 'calibration_permission_recorded'")
     assert ev == "1"
@@ -46,21 +46,22 @@ def test_a_permission_is_recorded_with_who_what_and_when(db):
 
 def test_the_history_event_carries_the_document_digest_but_not_the_email_address(db):
     project = new_project(db)
-    record_permission(db, project, email="private@example.test", doc=HEX("2"))
+    record_permission(db, project, email="private@example.test", doc=DOC("2"))
     payload = scalar(db, f"select payload::text from project_events where project_id = '{project}' and event_type = 'calibration_permission_recorded'")
-    assert HEX("2") in payload and "private@example.test" not in payload
+    assert DOC("2") in payload and "private@example.test" not in payload
 
 
 @pytest.mark.parametrize("over,needle", [
     ({"document_sha256": "xyz"}, "document_sha256"), ({"document_sha256": "a" * 63}, "document_sha256"),
     ({"document_sha256": "A" * 64}, "document_sha256"), ({"document_sha256": None}, "document_sha256"),
+    ({"document_sha256": "0" * 64}, "document_sha256"), ({"document_sha256": "a" * 64}, "document_sha256"),   # a placeholder, not a digest
     ({"granted_by_email": ""}, "granted_by_email"), ({"granted_by_email": "not-an-address"}, "granted_by_email"),
     ({"granted_by_email": None}, "granted_by_email"), ({"granted_by_email": "a b@example.test"}, "granted_by_email"),
     ({"kind": "maybe"}, "kind"), ({"scope_type": "organisation"}, "scope_type"), ({"note": "x" * 1001}, "note"),
 ])
 def test_an_incomplete_or_malformed_permission_is_refused(db, over, needle):
     project = new_project(db)
-    p = {"scope_type": "project", "scope_id": project, "kind": "granted", "granted_by_email": "o@example.test", "document_sha256": HEX("d")}
+    p = {"scope_type": "project", "scope_id": project, "kind": "granted", "granted_by_email": "o@example.test", "document_sha256": DOC("default")}
     p.update(over)
     p = {k: v for k, v in p.items() if v is not None}
     r = psql(db, f"select gf_record_calibration_permission('{json.dumps(p)}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb)", check=False)
@@ -92,10 +93,10 @@ def test_a_revocation_is_a_new_row_and_needs_something_to_revoke(db):
     nothing = record_permission(db, project, kind="revoked", check=False)
     assert nothing.returncode != 0 and "nothing to revoke" in nothing.stderr
     record_permission(db, project)
-    assert record_permission(db, project, kind="revoked", doc=HEX("3")).returncode == 0
+    assert record_permission(db, project, kind="revoked", doc=DOC("3")).returncode == 0
     again = record_permission(db, project, kind="revoked", check=False)
     assert again.returncode != 0 and "nothing to revoke" in again.stderr                        # already revoked
-    assert record_permission(db, project, kind="granted", doc=HEX("4")).returncode == 0         # a new grant after a revocation is a new row
+    assert record_permission(db, project, kind="granted", doc=DOC("4")).returncode == 0         # a new grant after a revocation is a new row
     assert scalar(db, f"select string_agg(kind, ',' order by seq) from calibration_permissions where scope_id = '{project}'") == "granted,revoked,granted"
 
 
@@ -103,8 +104,8 @@ def test_the_order_is_a_sequence_not_a_clock(db):
     """Two rows written in one transaction share now(); the latest is the highest seq, not the latest timestamp."""
     project = new_project(db)
     psql(db, "begin;"
-             f"select gf_record_calibration_permission('{json.dumps({'scope_type': 'project', 'scope_id': project, 'kind': 'granted', 'granted_by_email': 'a@b.cc', 'document_sha256': HEX('a')})}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb);"
-             f"select gf_record_calibration_permission('{json.dumps({'scope_type': 'project', 'scope_id': project, 'kind': 'revoked', 'granted_by_email': 'a@b.cc', 'document_sha256': HEX('b')})}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb);"
+             f"select gf_record_calibration_permission('{json.dumps({'scope_type': 'project', 'scope_id': project, 'kind': 'granted', 'granted_by_email': 'a@b.cc', 'document_sha256': DOC('a')})}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb);"
+             f"select gf_record_calibration_permission('{json.dumps({'scope_type': 'project', 'scope_id': project, 'kind': 'revoked', 'granted_by_email': 'a@b.cc', 'document_sha256': DOC('b')})}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb);"
              "commit")
     assert scalar(db, f"select kind from calibration_permissions where scope_id = '{project}' order by seq desc limit 1") == "revoked"
     assert scalar(db, f"select count(distinct granted_at) from calibration_permissions where scope_id = '{project}'") == "1"
@@ -112,7 +113,7 @@ def test_the_order_is_a_sequence_not_a_clock(db):
 
 def test_only_the_service_role_can_use_the_function_and_the_table(db):
     project = new_project(db)
-    p = json.dumps({"scope_type": "project", "scope_id": project, "kind": "granted", "granted_by_email": "o@example.test", "document_sha256": HEX("d")})
+    p = json.dumps({"scope_type": "project", "scope_id": project, "kind": "granted", "granted_by_email": "o@example.test", "document_sha256": DOC("default")})
     call = f"select gf_record_calibration_permission('{p}'::jsonb, '{GOOD % 'calibration_permission_recorded'}'::jsonb)"
     for role in ("anon", "authenticated"):
         r = psql(db, f"set role {role}; {call}", check=False)
@@ -180,9 +181,9 @@ def test_revoking_removes_the_project_from_the_export_and_a_regrant_restores_it(
     project, o = eligible_observation(db)
     record_permission(db, project)
     assert len(export_rows(db, f"id = '{o['id']}'")) == 1
-    record_permission(db, project, kind="revoked", doc=HEX("5"))
+    record_permission(db, project, kind="revoked", doc=DOC("5"))
     assert export_rows(db, f"id = '{o['id']}'") == []
-    record_permission(db, project, kind="granted", doc=HEX("6"))
+    record_permission(db, project, kind="granted", doc=DOC("6"))
     assert len(export_rows(db, f"id = '{o['id']}'")) == 1
 
 

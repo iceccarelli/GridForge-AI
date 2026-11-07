@@ -36,7 +36,7 @@ beforeEach(() => {
   db.uniqueKeys.set("project_links", [["project_id", "object_type", "object_id"]]);
   installProjectRpcs(db);
   db.seed("power_deployment_cases", [{
-    case_token: CASE, revision: 1, email: null, request: {}, changed_fields: [], created_at: "2026-03-02T09:00:00Z",
+    case_token: CASE, revision: 1, email: null, request: {}, changed_fields: [], created_at: "2026-03-02T09:00:00Z", case_digest: "b".repeat(64),
     engine_provenance: { digest: "c".repeat(64), report_date: "2026-03-01", engine_version: "test" },
     result: { capacity: { target_MW: 35, grid_firm_MW: 10, gap_MW: 25 }, architectures: [
       { label: ARCH, status: "pass", available_MW: 36.4, margin_MW: 1.4, rfq_ready: true, readiness_gates: [] },
@@ -208,6 +208,25 @@ describe("submitting an observation", () => {
     const r = await submit(p.token, good(p.id));
     expect(r.res.status).toBe(422);
     expect(r.body.error).toMatch(/no recorded creation time/);
+  });
+
+  it("refuses a case revision written before the freeze (no case_digest): nothing shows its forecast was not rewritten", async () => {
+    const p = await project();
+    (db.rows("power_deployment_cases")[0] as any).case_digest = null;
+    const r = await submit(p.token, good(p.id));
+    expect(r.res.status).toBe(422);
+    expect(r.body.error).toMatch(/no case_digest/);
+    expect(db.rows("project_observations")).toHaveLength(0);
+  });
+
+  it("the database's own binding of the prediction to the frozen forecast is mirrored: a different number is refused", async () => {
+    const p = await project();
+    (db.rows("power_deployment_cases")[0] as any).result.architectures[0].available_MW = 40;     // the stored result no longer says 36.4
+    const stored = db.rows("project_observations").length;
+    // the route reads the prediction from the same stored result, so it follows the edit; a caller cannot force another number through it
+    const ok = await submit(p.token, good(p.id, { predicted_value: 36.4 }));
+    expect(ok.res.status).toBe(201);
+    expect((db.rows("project_observations")[stored] as any).predicted_value).toBe(40);
   });
 
   it("maps the database's own refusal of a late forecast (GF004) to the same 422", async () => {

@@ -94,7 +94,7 @@ def new_case(db, token=None, provenance=True, revision=1, created_at="2026-03-02
     prov = (f"jsonb_build_object('digest', '{DIGEST}', 'report_date', '2026-03-01', 'engine_version', 'x')"
             if provenance else "null")
     psql(db, "select gf_append_case_revision(jsonb_build_object('case_token', '" + token + "', 'revision', " + str(revision)
-             + ", 'request', '{}'::jsonb, 'result', '{}'::jsonb, 'changed_fields', '[]'::jsonb, 'engine_provenance', "
+             + ", 'request', '{}'::jsonb, 'result', '{\"architectures\": [{\"label\": \"ARCH\", \"available_MW\": 30}]}'::jsonb, 'changed_fields', '[]'::jsonb, 'engine_provenance', "
              + prov + "), '" + GOOD % "btm_case_revised" + "'::jsonb)")
     if created_at:
         bypassing_triggers(db, f"update power_deployment_cases set created_at = '{created_at}' where case_token = '{token}' and revision = {revision}")
@@ -243,12 +243,22 @@ def test_the_table_refuses_a_bad_kind_even_when_the_function_is_skipped(db):
     ({"unit": "kW"}, "unit_mw"), ({"unit": "mw"}, "unit_mw"),
     ({"observed_value": 0}, "value_sane"), ({"observed_value": -1}, "observed_value_check"),
     ({"observed_value": 10001}, "value_sane"), ({"observed_value": "NaN"}, "value_sane"),
-    ({"observed_value": "Infinity"}, "value_sane"), ({"predicted_value": "NaN"}, "value_sane"),
+    ({"observed_value": "Infinity"}, "value_sane"), ({"predicted_value": "NaN"}, "predicted value must be the number the stored forecast holds"),   # 0046 refuses it first
     ({"observed_value": 1e15}, "value_sane"),
 ])
 def test_a_wrong_unit_or_a_non_physical_number_is_refused(db, over, needle):
     _, _, r = submit(db, **over)
     assert r.returncode != 0 and needle in r.stderr, (over, r.stderr)
+
+
+def test_the_table_itself_still_refuses_a_nan_prediction_when_the_forecast_rule_is_off(db):
+    """The CHECK 0038 added is the second line behind 0046's forecast binding: with row triggers off it alone must refuse."""
+    project = new_project(db)
+    ev = new_evidence(db, project)
+    case = new_case(db)
+    r = bypassing_triggers(db, f"select gf_submit_observation('{obs_args(project, ev, case, predicted_value='NaN')}'::jsonb,"
+                               f" '{GOOD % 'observation_submitted'}'::jsonb)", check=False)
+    assert r.returncode != 0 and "value_sane" in r.stderr, r.stderr
 
 
 def test_a_physical_value_at_the_edges_is_accepted(db):
@@ -464,9 +474,10 @@ def test_applying_the_migration_again_changes_nothing(db):
     psql(db, file=MIGRATION)
     psql(db, file=MIGRATION)
     # Replaying an older migration replaces the view and the submit function with ITS definitions; the later migrations that
-    # superseded them (0046 the forecast rule, 0047 consent and origin) are replayed after it, in order, as the chain always is.
+    # superseded them (0046 the forecast rule, 0047 consent and origin, 0048 evidence verdicts) are replayed after it, in order, as the chain always is.
     psql(db, file=next(MIGRATIONS.glob("0046_*.sql")))
     psql(db, file=next(MIGRATIONS.glob("0047_*.sql")))
+    psql(db, file=next(MIGRATIONS.glob("0048_*.sql")))
     assert (count(db, "project_observations"), count(db, "project_observation_reviews"), len(export_rows(db))) == before
     r = psql(db, "truncate public.project_observations cascade", check=False)
     assert r.returncode != 0 and "append-only" in r.stderr

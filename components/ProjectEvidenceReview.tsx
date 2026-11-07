@@ -107,9 +107,11 @@ export function ProjectEvidenceReview({
         </h2>
         <p className="mt-1 max-w-3xl text-xs text-faint">
           An uploaded file is unverified until a person decides on it. Verifying makes the server read the stored file back and check that
-          its SHA-256 is the one recorded at upload; a file that no longer matches cannot be verified. It does not read or interpret the
-          contents: you vouch that this is the document it claims to be. An observation can be verified only against a verified file.
-          Each file is decided once, with a name and a reason, and the decision cannot be changed. There is no bulk action.
+          its SHA-256 still equals the one recorded at upload; a file that no longer matches cannot be verified. That check establishes one
+          thing: the stored bytes are unchanged since upload. This screen does not open the file and the system never reads or interprets its
+          contents, so by verifying you vouch, on what you know of its source (the name, type, size and digest shown), that it is the document
+          it claims to be. An observation can be verified only against a verified file. Each file is decided once, with a name and a reason,
+          and the decision cannot be changed: there is no way to withdraw a mistaken verdict. There is no bulk action.
         </p>
         <p className="mt-1 max-w-3xl text-xs text-faint">
           The name you type is recorded as typed. The admin console has one shared password, so it is not an authenticated identity.
@@ -274,11 +276,11 @@ function FileCard({ item, onDone }: { item: FileItem; onDone: (d: Done) => void 
             <legend className="text-xs text-faint">Decision (final: recorded once and not changeable)</legend>
             <label className="flex min-h-11 items-center gap-2 text-sm text-ghost">
               <input type="radio" name={`${uid}-d`} checked={decision === "verified"} onChange={() => setDecision("verified")} />
-              Verify — the server re-reads the stored file and checks its SHA-256
+              Verify — the server checks the stored bytes still match the digest from upload, and I vouch for what the file is
             </label>
             <label className="flex min-h-11 items-center gap-2 text-sm text-ghost">
               <input type="radio" name={`${uid}-d`} checked={decision === "rejected"} onChange={() => setDecision("rejected")} />
-              Reject — the file is not what it claims to be, or cannot be relied on
+              Reject — I do not vouch for this file, or it cannot be relied on
             </label>
           </fieldset>
           <div>
