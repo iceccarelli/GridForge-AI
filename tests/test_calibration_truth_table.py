@@ -14,6 +14,8 @@ All 128 combinations are built ONCE, through the real functions, in a database o
 go false, including by out-of-band edits the guards would refuse, applied with row triggers off so the VIEW is shown to hold on its own).
 The view must return exactly one row for the one combination where all seven hold and none for the other 127. Further tests cover the
 conditions that are about the forecast row itself (a revision with no digest, a revision whose content no longer matches its digest).
+The eighth condition (0052: the project is not sitting in a test or synthetic site) is a truth table of its own in tests/test_site_origin_gate.py,
+because it needs the site registry (0049/0050).
 Every value is a SYNTHETIC fixture.
 """
 import itertools

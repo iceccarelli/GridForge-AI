@@ -1,6 +1,6 @@
 """The FINAL calibration gate, read back from a database built by the whole migration chain.
 
-0046, 0047 and 0048 each replace calibration_ledger_rows, and 0038, 0047 each define gf_submit_observation. The definition that governs is
+0046, 0047, 0048 and 0052 each replace calibration_ledger_rows, and 0038, 0047 each define gf_submit_observation. The definition that governs is
 whichever ran last, so a reordered migration, a replay of an older one, or a later migration that redefines the view from an old copy would
 silently weaken the gate without any behavioural test noticing (those build fixtures that happen to satisfy the missing condition). This
 reads what the database ACTUALLY holds at the end of the chain (pg_get_viewdef, pg_get_functiondef, pg_proc, pg_trigger) and fails if any
@@ -36,6 +36,11 @@ VIEW_GATES = {
     "production origin": r"o\.data_origin = 'production'::text",
     "the project's LATEST permission is a grant":
         r"calibration_permissions cp.*cp\.kind = 'granted'::text AND cp\.seq = .*max\(c2\.seq\).*calibration_permissions c2",
+    # 0052: an OPEN attachment (no detachment) to a site that is anything but production keeps the observation out
+    "the project is not in a non-production site (an open attachment)":
+        r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
+        r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text "
+        r"AND NOT \(EXISTS \( SELECT 1 FROM hall_project_detachments hpd WHERE hpd\.attachment_id = hpa\.id\)\)\)\)",
 }
 VIEW_COLUMNS = ["id", "key", "observed_value", "predicted_value", "unit", "site_ref", "measurement_kind", "evidence_sha256",
                 "engine_provenance_digest", "report_date", "observed_on", "method", "evidence_class", "reviewed_by", "reviewed_at"]
@@ -75,11 +80,11 @@ def test_the_final_state_of_the_chain_holds_every_gate(db):
 
 
 def test_the_migrations_that_define_the_view_run_in_the_order_the_header_notes_say():
-    """0046 < 0047 < 0048 define the view; the governing one is the last, and it is 0048. A fourth definition in the family would be a new
-    deliberate decision that must update this test, not an accident."""
+    """0046 < 0047 < 0048 < 0052 define the view; the governing one is the last, and it is 0052. A further definition in the family would be a
+    new deliberate decision that must update this test, not an accident."""
     holders = [f.name[:4] for f in sorted(MIGRATIONS.glob("*.sql")) if "create or replace view public.calibration_ledger_rows" in f.read_text()]
-    assert holders == ["0038", "0046", "0047", "0048"], holders
-    for f in sorted(MIGRATIONS.glob("004[678]_*.sql")):
+    assert holders == ["0038", "0046", "0047", "0048", "0052"], holders
+    for f in [*sorted(MIGRATIONS.glob("004[678]_*.sql")), *sorted(MIGRATIONS.glob("0052_*.sql"))]:
         assert "REPLAY ORDER" in f.read_text(), f.name
 
 
@@ -105,3 +110,27 @@ def test_replaying_0046_or_0047_last_is_reported_as_gaps(older):
         assert any("a verified decision row" in g for g in gaps), gaps          # 0048's condition is gone from the view
     finally:
         drop_database(name)
+
+
+def test_replaying_0048_after_0052_drops_the_site_origin_gate_and_is_reported():
+    """0052 replaced 0048's view with 0048's text plus one condition. Replay order matters: 0048 run AFTER 0052 puts the older definition back, and the
+    reader must name exactly that gap (and no other), so the order cannot be broken without a test failing."""
+    name = make_database()
+    try:
+        assert final_gaps(name) == []
+        psql(name, file=next(MIGRATIONS.glob("0048_*.sql")))
+        assert final_gaps(name) == ["view: the project is not in a non-production site (an open attachment)"]
+        psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))          # and replaying 0052 afterwards restores it
+        assert final_gaps(name) == []
+    finally:
+        drop_database(name)
+
+
+def test_the_gate_reader_reports_the_site_origin_gate_when_an_older_view_is_replayed_last():
+    for older in ("0038", "0046", "0047"):
+        name = make_database()
+        try:
+            psql(name, file=next(MIGRATIONS.glob(f"{older}_*.sql")))
+            assert any("non-production site" in g for g in final_gaps(name)), older
+        finally:
+            drop_database(name)
