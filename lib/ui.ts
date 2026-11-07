@@ -20,6 +20,7 @@
 // repository has already paid for that once.
 
 import { toast } from "sonner";
+import { rememberCheckout } from "@/lib/checkout-return-key";
 import { PRODUCTS, type ProductId } from "@/lib/products";
 
 const SCREEN = PRODUCTS.density_screen;
@@ -95,6 +96,9 @@ export async function startCommission(
             : (body?.error ?? "Could not start checkout."),
       };
     }
+    // Remember which product is being sent to Stripe, so a cancelled return can offer the way back to its page (components/
+    // CheckoutCancelledBanner.tsx). A catalogue id and a time, in sessionStorage (this tab, this visit); it changes nothing about the checkout.
+    rememberCheckout(product);
     window.location.href = body.url as string;
     return { ok: true };
   } catch {

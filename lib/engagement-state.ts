@@ -88,6 +88,9 @@ export interface DepositTerms {
   timing: string;
 }
 
+/** Where a deposit's working days start. The one wording, read by depositTerms below and by the home page's service cards (lib/site.ts). */
+export const DEPOSIT_CLOCK_START = "from a complete intake and the scoping call";
+
 /**
  * What a deposit states, exactly, from the catalogue. Returns null for a kind that is not a deposit (the caller then says
  * nothing rather than guess). Every figure is read from lib/products.ts; nothing is typed here.
@@ -112,7 +115,7 @@ export function depositTerms(kind: string): DepositTerms | null {
     credit:
       `The deposit is credited in full against the agreed fee; the balance is the agreed fee less the deposit.${alsoCredited}`,
     timing:
-      `The ${p.turnaroundDays} working days quoted for it count from a complete intake and the scoping call, not from payment. ` +
+      `The ${p.turnaroundDays} working days quoted for it count ${DEPOSIT_CLOCK_START}, not from payment. ` +
       `A delivery date is committed when the scope is agreed, and it is recorded against your deposit.`,
   };
 }

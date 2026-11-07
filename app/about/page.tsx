@@ -45,7 +45,7 @@ export default function AboutPage() {
         ]}
       />
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">About</p>
-      <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{SITE.name}</h1>
+      <h1 className="page-title mt-3">{SITE.name}</h1>
       <p className="mt-3 text-lg text-mute">{SITE.tagline}</p>
 
       <section className="mt-10" aria-labelledby="what-h">

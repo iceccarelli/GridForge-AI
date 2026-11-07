@@ -37,7 +37,7 @@ export interface Audience {
   situation: string[];
   /** The decision the work informs. */
   decision: string;
-  /** What this buyer typically already holds, so the first step is small. */
+  /** What this buyer may already hold, so the first step is small. */
   alreadyHave: string[];
   /** The constraints most likely to decide this buyer's answer, by public slug, and why for them specifically. */
   constraints: { slug: string; why: string }[];
@@ -60,8 +60,8 @@ export const AUDIENCES: Audience[] = [
     headline: "The megawatts are contracted. What stops them becoming AI compute?",
     situation: [
       "A hall designed for air-cooled racks in single-digit kilowatts is being asked to take liquid-cooled racks that draw an order of magnitude more. The grid agreement says how much power the site may import; it does not say how much of that can be delivered to a rack position.",
-      "The limit is rarely the one people name. It is usually a component between the transformer and the rack, such as a tap-off unit, a busway run or a UPS block, and the person who knows the rating is not the person asked for the density commitment.",
-      "Nobody in the building tends to have the binding constraint in writing, so a commitment to a customer is made on a total-kilowatt figure that says nothing about whether one position can be fed.",
+      "Which limit binds first? It may be a component between the transformer and the rack, such as a tap-off unit, a busway run or a UPS block, and the person who knows that rating may not be the person asked for the density commitment.",
+      "Is the binding constraint in writing? If it is not, a commitment to a customer rests on a total-kilowatt figure, which says nothing about whether one position can be fed.",
     ],
     decision: "Whether this hall is worth a full densification study, which constraint the study should start with, and what to tell a prospective tenant today.",
     alreadyHave: [
@@ -72,7 +72,7 @@ export const AUDIENCES: Audience[] = [
     constraints: [
       { slug: "rack-feed-tapoff-rating", why: "It binds at the first rack, not at scale, and is the item an operator is least likely to have checked." },
       { slug: "busway-ampacity", why: "Higher-rated tap-offs do nothing if the busway behind them cannot carry the current." },
-      { slug: "transformer-capacity", why: "It often sets the date for the whole retrofit, because its lead time is the longest on the ladder." },
+      { slug: "transformer-capacity", why: "It can set the date for the whole retrofit when its lead time is the longest on the ladder." },
     ],
     path: [
       { kind: "qualifier", why: "Seven numbers you already know, free, to see which constraint is likely to bind before spending anything." },
@@ -97,7 +97,7 @@ export const AUDIENCES: Audience[] = [
     summary: "You sell capacity to tenants who now ask for density your halls were not built for, and need a number you can defend.",
     headline: "A tenant has asked for liquid-cooled racks. Which of your halls can honestly say yes?",
     situation: [
-      "Colocation vacancy in the large European markets is low, so the question from a prospective AI tenant is rarely whether you have space. It is whether the space can be fed and cooled at the density they plan, and by when.",
+      "Where vacancy is low, the question from a prospective AI tenant moves from whether you have space to whether the space can be fed and cooled at the density they plan, and by when.",
       "Operators carry many halls of different vintages. A hall-by-hall answer built on each site's own assumptions makes the portfolio impossible to compare, and the hall that looks best on total kilowatts is not always the one that can host the racks soonest.",
       "A commitment made to a tenant is a commercial one. A figure that is wrong in either direction costs something: overpromise and you carry the penalty, underpromise and the tenant signs elsewhere.",
     ],
@@ -212,7 +212,7 @@ export const AUDIENCES: Audience[] = [
     summary: "You are underwriting a hall or a portfolio and need to know how much of the stated capacity is useful AI compute, and on what evidence.",
     headline: "The asset is described in megawatts. How many of them can run AI racks, and how sure is anyone?",
     situation: [
-      "A data-centre asset is usually described by contracted power. For an AI thesis the relevant number is the compute the hall can host, which depends on constraints the seller's description does not mention.",
+      "A data-centre asset may be described by its contracted power. For an AI thesis the relevant number is the compute the hall can host, which depends on constraints that description may not mention.",
       "Underwriting needs the answer and the confidence in it. A figure that rests on a library default is not the same as one built from the seller's measured data, and a diligence note that does not separate them is hiding the variance that matters.",
       "A portfolio view needs one methodology across assets. Ranking halls by figures prepared under different assumptions compares the assumptions, not the halls.",
     ],
@@ -250,7 +250,7 @@ export const AUDIENCES: Audience[] = [
     headline: "Read the method, check the equations, and run it yourself before you rely on a number.",
     situation: [
       "A screening result is only as useful as your ability to reproduce it. The relations behind each constraint are published with their inputs and a worked example, so you can recompute a result by hand and see where you disagree.",
-      "The engine takes inputs a client rarely has complete. What matters to an engineer is that every gap is named, every default is labelled an assumption, and the result carries the weakest evidence class that went into it, so you know what to measure.",
+      "The engine takes inputs a client may not have complete. What matters to an engineer is that every gap is named, every default is labelled an assumption, and the result carries the weakest evidence class that went into it, so you know what to measure.",
       "The engine runs with no dependencies on the standard library, so it can be reviewed and run in an air-gapped environment, and exposes the same solve as an API and an MCP endpoint for tooling you already have.",
     ],
     decision: "Whether the method is sound enough to use as a screening tool, where it disagrees with your own calculation, and what to measure to close the gap.",

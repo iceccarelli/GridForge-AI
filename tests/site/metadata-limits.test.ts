@@ -25,13 +25,6 @@ export const DESCRIPTION_MAX = 160;
  * touch. The list is checked in the other direction too: an entry whose page is now inside the limits fails, so the list cannot rot.
  */
 export const EXCEPTIONS: Record<string, string> = {
-  // Owned by stream W1 (home, layout, qualifier), which this stream was told not to edit. The home title is the root layout's default
-  // (65) and the qualifier's title is 66 once the site name is added. Remove each entry when W1 shortens it; the test below fails if one
-  // is left behind after the page is inside the limits.
-  "/": "Home title is the root layout default (65 characters); owned by the home/layout stream.",
-  "/qualify": "Qualifier title is 66 characters once the site name is added; owned by the home/layout stream.",
-  // Not in this stream's page list; its description is 177 characters.
-  "/power/compare": "Description is 177 characters; the page is owned by another stream.",
 };
 
 type Meta = { title?: unknown; description?: unknown };

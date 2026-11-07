@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
+import { QUALIFY_LINK } from "@/lib/nav";
 import { pageImages } from "@/lib/page-cards";
 import { PowerDeployCaseForm } from "@/components/PowerDeployCaseForm";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
@@ -72,7 +73,7 @@ export default async function PowerDeployPage() {
         <NotYetAvailable
           what="The BTM power deployment assessment"
           unreadable={state === "unknown"}
-          alternative={{ href: "/qualify", label: "Run the free capacity check instead" }}
+          alternative={{ href: QUALIFY_LINK.href, label: QUALIFY_LINK.label }}
         />
       )}
     </div>

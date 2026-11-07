@@ -9,6 +9,9 @@ import { QUALIFY_LINK } from "@/lib/nav";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+/** What the strip under the conversation says once the assistant has recorded the visitor's details. Facts only: no tier, no verdict. */
+export const LEAD_CAPTURED_LABEL = "Captured: your project details";
+
 const GREETING: Msg = {
   role: "assistant",
   content:
@@ -131,18 +134,18 @@ export default function ScopingAgentPanel({ open, onClose }: { open: boolean; on
 
           {lead && (
             <div className="border-t border-line px-4 py-3 bg-power/[0.04]">
+              {/* A neutral statement of fact. The tier is our own internal score; it is never shown to the person as a verdict on their site,
+                  because the assistant has established no such thing. */}
+              <div className="data text-[10px] uppercase tracking-[0.12em] text-mute mb-1.5" data-testid="lead-captured">
+                {LEAD_CAPTURED_LABEL}
+              </div>
               {lead.tier === "hot" ? (
-                <>
-                  <div className="data text-[10px] uppercase tracking-[0.12em] text-power mb-1.5">
-                    Your site qualifies · priority
-                  </div>
-                  <button
-                    onClick={() => commissionDensityScreen({ context: "scoping-agent-hot" })}
-                    className="w-full rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all"
-                  >
-                    {DENSITY_SCREEN_CTA} <ArrowRight size={14} />
-                  </button>
-                </>
+                <button
+                  onClick={() => commissionDensityScreen({ context: "scoping-agent-hot" })}
+                  className="w-full rounded-lg bg-power text-ink px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2 hover:bg-power/90 transition-all"
+                >
+                  {DENSITY_SCREEN_CTA} <ArrowRight size={14} />
+                </button>
               ) : lead.tier === "warm" ? (
                 <button
                   onClick={() => commissionDensityScreen({ context: "scoping-agent-warm" })}

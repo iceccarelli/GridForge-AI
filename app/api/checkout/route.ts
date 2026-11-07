@@ -341,7 +341,10 @@ export async function POST(req: Request) {
         : `${origin}/?deposit=success&session_id={CHECKOUT_SESSION_ID}`,
       // A buyer who came from a shared project page has no use for the qualifier, and the link is a credential that does
       // not belong in a URL Stripe stores: they return to the price list.
-      cancel_url: product && !fromBuyerLink ? `${origin}/qualify?purchase=cancelled` : `${origin}/pricing?deposit=cancelled`,
+      // `product.id` is the validated catalogue record's id (selectProduct above refuses anything else), so it is safe in the URL; it lets the
+      // cancelled-return notice (components/CheckoutCancelledBanner.tsx) offer the way back to the product page the buyer left. The notice
+      // validates it against the catalogue again and never prints it.
+      cancel_url: product && !fromBuyerLink ? `${origin}/qualify?purchase=cancelled&product=${product.id}` : `${origin}/pricing?deposit=cancelled`,
     });
 
     // Stripe returned a hosted-page URL. This is NOT a payment (nothing is charged until the buyer pays on Stripe's page, and the

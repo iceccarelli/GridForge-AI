@@ -16,9 +16,16 @@ export const metadata: Metadata = {
   openGraph: {
     ...OG_BASE,
     url: "/",
-    title: "Time to Power — Power-Capacity Intelligence for AI Infrastructure",
+    title: "Time to Power — AI rack capacity for existing halls",
     description:
-      "The bottleneck isn't chips — it's power. A Density Screen tells you what binds one hall, how many racks it carries, and the inputs nobody has measured.",
+      "How many AI racks can your hall power, and what unlocks more? Evidence-graded capacity analysis for existing halls: the limit that binds first, what relieves it, and the evidence behind every figure.",
+  },
+  // The card type is repeated because a page's own twitter object replaces the layout's; the text is the same as Open Graph's.
+  twitter: {
+    card: "summary_large_image",
+    title: "Time to Power — AI rack capacity for existing halls",
+    description:
+      "How many AI racks can your hall power, and what unlocks more? Evidence-graded capacity analysis for existing halls: the limit that binds first, what relieves it, and the evidence behind every figure.",
   },
 };
 

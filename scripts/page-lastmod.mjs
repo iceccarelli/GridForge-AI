@@ -46,8 +46,8 @@ export function routeSources() {
     ? readdirSync(path.join(ROOT, "public/reference/constraints")).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
     : [];
   const routes = {
-    "/": ["app/page.tsx", ...homeComponents(), "lib/products.ts", "lib/site.ts", "lib/market-evidence.ts", "lib/audiences.ts", "lib/rack-math.ts"],
-    "/qualify": ["app/qualify/page.tsx"],
+    "/": ["app/page.tsx", ...homeComponents(), "lib/products.ts", "lib/site.ts", "lib/market-evidence.ts", "lib/audiences.ts", "lib/rack-math.ts", "lib/worked-result.ts", "public/reference/model_pack.json"],
+    "/qualify": ["app/qualify/page.tsx", "lib/worked-result.ts", "public/reference/model_pack.json"],
     "/reference": ["app/reference/page.tsx", "lib/reference-docs.ts", "public/reference/model_pack.json", "public/reference/calibration.json"],
     "/constraints": ["app/constraints/page.tsx", "public/reference/constraints.json", "lib/constraints.ts"],
     "/platforms": ["app/platforms/page.tsx", "public/reference/platforms.json"],

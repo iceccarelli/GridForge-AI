@@ -13,6 +13,7 @@ import { figureCitation, marketFigure, verificationLabel } from "@/lib/market-ev
 import { QUALIFY_LINK } from "@/lib/nav";
 import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
 import { MARKET_STATS, SITE, TECH, serviceCards } from "@/lib/site";
+import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 
 const SPINE = [
   { icon: Building2, label: "SITE", body: "The hall you already have: racks, cooling, busway, transformer, grid connection. The facts, assembled once." },
@@ -29,7 +30,7 @@ export function Problem() {
       <div className="mx-auto max-w-7xl px-6">
         <div className="eyebrow eyebrow-queue mb-3">HOW THE ANSWER IS BUILT</div>
         <h2 className="section-title max-w-2xl">
-          Nobody in the building can say<br />what stops the next rack. This does.
+          Know what stops the next rack,<br />and have it in writing.
         </h2>
 
         <ol className="mt-10 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
@@ -56,8 +57,8 @@ export function Problem() {
         <div className="mt-14 grid items-center gap-10 lg:grid-cols-2">
           <div className="max-w-xl">
             <p className="text-lg leading-relaxed text-mute">
-              The grid connection is already yours. What stops the next rack (busway, transformer, cooling, floor loading) is rarely the
-              constraint people expect, and today nobody in the building has it in writing.
+              The grid connection is already yours. What stops the next rack (busway, transformer, cooling, floor loading) is one of thirteen
+              constraints, and it is worth having the answer, and the evidence behind it, in writing.
             </p>
             <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-7">
               {MARKET_STATS.map((s) => {
@@ -106,34 +107,34 @@ export function Proof() {
           inputs and are labelled as planning estimates.
         </p>
       </div>
-      <LazyIsland which="liveConsole" minHeight={420} label="The live market view loads as you scroll to it." />
+      {/* Reserved heights are the rendered heights measured in Chromium at 360/390 (base), 768 (md) and 1280/1440 (lg) px wide:
+          live console 1639/1069/1022, comparator 1081/686/618, planner 949/737/719, insights 260 (all bands). */}
+      <LazyIsland which="liveConsole" minHeight={{ base: 1660, md: 1090, lg: 1040 }} label="The live market view loads as you scroll to it." />
       <div className="mb-10 mt-14">
         <div className="eyebrow mb-3">QUANTIFY THE GAP</div>
         <h3 className="section-title">What is an unrelieved constraint costing you?</h3>
       </div>
-      <LazyIsland which="comparator" minHeight={520} label="The comparison tool loads as you scroll to it." />
+      <LazyIsland which="comparator" minHeight={{ base: 1100, md: 700, lg: 630 }} label="The comparison tool loads as you scroll to it." />
       <div className="mt-14">
-        <LazyIsland which="timeToPower" minHeight={480} label="The time-to-power planner loads as you scroll to it." />
+        <LazyIsland which="timeToPower" minHeight={{ base: 960, md: 750, lg: 730 }} label="The time-to-power planner loads as you scroll to it." />
       </div>
     </section>
   );
 }
 
 export function Qualifier() {
+  // The one statement about a hall that this page makes is about OUR synthetic reference hall, read from the engine's committed output.
+  const limit = referenceLimitSentence(loadWorkedResult());
   return (
     <section id="qualify" className="mx-auto max-w-5xl px-6 py-28 sm:py-32">
       <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end">
         <div className="max-w-xl">
           <div className="eyebrow mb-3 text-power">RUN IT ON YOUR OWN HALL</div>
-          <h2 className="section-title-hero">
-            Most halls don&rsquo;t fail on cooling.
-            <br />
-            They fail on a 63&nbsp;A tap-off.
-          </h2>
+          <h2 className="section-title-hero">Which limit binds first in your hall?</h2>
         </div>
         <p className="max-w-sm text-mute">
-          Thirteen constraints decide how much AI compute an existing hall can carry. One binds first, and it is rarely the one people
-          expect. Seven numbers you already know, and the engine tells you which: free, no contact details.
+          {limit} Yours may differ, which is what the check is for: thirteen constraints decide how much AI compute an existing hall can
+          carry, and seven numbers you already know show which one binds first. Free, no contact details.
         </p>
       </div>
       <div className="grid items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -143,7 +144,7 @@ export function Qualifier() {
             <BindingConstraintInsightsFallback />
           </noscript>
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Link href={QUALIFY_LINK.href} className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink">
+            <Link href={QUALIFY_LINK.href} className="btn-primary btn-shape">
               {QUALIFY_LINK.label} <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
             <span className="font-mono text-[11px] text-faint">

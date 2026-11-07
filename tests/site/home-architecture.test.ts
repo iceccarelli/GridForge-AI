@@ -4,7 +4,6 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import Page from "@/app/page";
-import { glance } from "@/components/home/Hero";
 import { FAQ } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { homeSource } from "./_home";
@@ -67,33 +66,77 @@ describe("the homepage is a Server Component with client islands only where the 
   });
 });
 
-describe("the first screen answers the seven buyer questions, from the catalogue", () => {
-  it("states who, which decision, what is needed, what is received, what to buy, what is free and why to trust it", () => {
-    expect(glance().map((g) => g.k)).toEqual(["Who it is for", "The decision", "What we need", "What you get", "Buy now", "Free now", "Why trust it"]);
+describe("the first screen answers the buyer's questions, in reading order, from the catalogue and the committed data", () => {
+  // The first version of this block pinned the seven keys of the old "At a glance" panel. Then it compared each constant with the page that
+  // renders it, which proves nothing. These check STRUCTURE and MEANING: the order a reader meets the answers in, what each answer must
+  // contain to answer its question, and that the trust answer is read from the calibration record and is not faint small print.
+  const hero = async () => {
+    const { Hero } = await import("@/components/home/Hero");
+    return renderToStaticMarkup(React.createElement(Hero)).replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+  };
+  const plain = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  it("meets the audience, then the decision, then what you receive, then the three actions, then what is needed, who we are and the trust line", async () => {
+    const t = plain(await hero());
+    const { FIRST_SCREEN, trustLine } = await import("@/components/home/Hero");
+    const order = [FIRST_SCREEN.audience, FIRST_SCREEN.decision, FIRST_SCREEN.whatYouReceive, FIRST_SCREEN.tryNow, FIRST_SCREEN.nextStep, FIRST_SCREEN.buyNow, FIRST_SCREEN.dataNeeded, FIRST_SCREEN.difference, trustLine()];
+    let at = -1;
+    for (const part of order) {
+      const i = t.indexOf(part);
+      expect(i, part.slice(0, 40)).toBeGreaterThan(at);
+      at = i;
+    }
   });
 
-  it("the paid offer's price and turnaround are the catalogue's, never typed", () => {
-    const buy = glance().find((g) => g.k === "Buy now")!.v;
-    expect(buy).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
-    expect(buy).toContain(`${PRODUCTS.density_screen.turnaroundDays} working days from a complete intake`);
+  it("each answer says what its question asks for", async () => {
+    const { FIRST_SCREEN } = await import("@/components/home/Hero");
+    expect(FIRST_SCREEN.audience).toMatch(/operators/);
+    expect(FIRST_SCREEN.audience).toMatch(/investors/);
+    expect(FIRST_SCREEN.audience).toMatch(/engineers/);
+    expect(FIRST_SCREEN.decision).toMatch(/^How many AI racks.*\?$/);
+    expect(FIRST_SCREEN.dataNeeded).toMatch(/\b7 numbers\b/);
+    expect(FIRST_SCREEN.dataNeeded).toMatch(/no card/);
+    expect(FIRST_SCREEN.whatYouReceive).toMatch(/limit that binds first/);
+    expect(FIRST_SCREEN.whatYouReceive).toMatch(/evidence behind every figure/);
+    expect(FIRST_SCREEN.difference).toMatch(/sell no equipment/);
+    expect(FIRST_SCREEN.buyNow).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
+    expect(FIRST_SCREEN.buyNow).toContain(`${PRODUCTS.density_screen.turnaroundDays} days`);
+    expect(new Set(Object.values(FIRST_SCREEN)).size).toBe(Object.keys(FIRST_SCREEN).length); // no two questions share one answer
+  });
+
+  it("the trust answer is on the first screen, is read from the calibration record, and is readable (12 px or larger, not the faint tone)", async () => {
+    const cal = JSON.parse(fs.readFileSync("public/reference/calibration.json", "utf8"));
+    const html = await hero();
+    const m = /<p class="([^"]*)"[^>]*data-testid="trust-line">([^<]*)<\/p>/.exec(html);
+    expect(m, "a trust line in the hero").not.toBeNull();
+    expect(m![2]).toMatch(/Pilot-stage and founder-led/);
+    expect(m![2]).toContain(cal.observations === 0 ? "calibration ledger is empty: 0 reconciled observations" : `${cal.observations} reconciled observations`);
+    expect(m![1]).toMatch(/\btext-xs\b/); // 12px
+    expect(m![1]).not.toMatch(/text-faint|text-\[1[01]px\]|text-\[\d(px)?\]/);
+    expect(cal.state).toBe("uncalibrated");
+  });
+
+  it("the paid offer's price and turnaround are the catalogue's, never typed", async () => {
+    const { PAID_LABEL } = await import("@/components/home/Hero");
+    expect(PAID_LABEL).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
+    expect(PAID_LABEL).toContain(`${PRODUCTS.density_screen.turnaroundDays} days`);
     expect(homeSource()).not.toMatch(/[€]\s?\d|\bEUR\s?\d/);
   });
 
   it("says what the free path does with the numbers and what it does not require", () => {
     const html = renderToStaticMarkup(React.createElement(Page)).replace(/&#x27;/g, "'");
-    expect(html).toContain("no card, no call");
+    expect(html).toContain("no card, no account");
     expect(html).toContain("/legal/privacy");
-    expect(html).toContain("directional");
+    expect(html).toContain("Directional");
   });
 });
 
 describe("the rendered homepage", () => {
   const html = renderToStaticMarkup(React.createElement(Page));
 
-  it("has exactly one h1 and keeps the line the brand is built on", () => {
+  it("has exactly one h1, and it is the owner's question: how many racks can the hall power, and what unlocks more", () => {
     expect(html.match(/<h1/g)).toHaveLength(1);
-    expect(html).toContain("isn&#x27;t chips.");
-    expect(html).toMatch(/It&#x27;s power\./);
+    expect(html).toContain("How many AI racks can your hall power — and what unlocks more?");
   });
 
   it("carries every anchor the section navigation and the header point at, in reading order", () => {
