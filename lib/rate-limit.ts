@@ -83,6 +83,12 @@ export const RATE_POLICIES = {
   team_invite_account: { bucket: "team_invite_account", limit: 20, windowSeconds: HOUR },
   /** POST /api/team/invitation (preview, accept, decline): per caller address. A secret is 256 bits; this bounds noise, not guessing. */
   team_redeem: { bucket: "team_redeem", limit: 60, windowSeconds: HOUR },
+  /** GET /api/orgs, /api/sites, /api/halls/...: reads of the site and hall registry (0049-0051) by a signed-in, VERIFIED member. A page load is about five. Per caller address... */
+  registry_read: { bucket: "registry_read", limit: 600, windowSeconds: HOUR },
+  /** POST (and DELETE) on the same routes: each writes an append-only row. 120 an hour is a team entering a hall's figures, not a loop. Per caller address... */
+  registry_write: { bucket: "registry_write", limit: 120, windowSeconds: HOUR },
+  /** ...and per VERIFIED account across reads and writes, so one member cannot multiply the allowance by changing address. */
+  registry_account: { bucket: "registry_account", limit: 1200, windowSeconds: HOUR },
   /** POST /api/audit: records an enquiry, mails the desk, pings Slack and may mail the address typed in the form. */
   audit: { bucket: "audit", limit: 10, windowSeconds: HOUR },
   /** POST /api/qualify/[token]/follow-up: each first request mails the desk and an address the caller typed. */

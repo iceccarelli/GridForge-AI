@@ -142,7 +142,7 @@ begin
 
   return jsonb_build_object(
     'ok', true,
-    'hall', jsonb_build_object('id', h.id, 'label', h.label, 'site_name', s.name, 'data_origin', s.data_origin),
+    'hall', jsonb_build_object('id', h.id, 'label', h.label, 'site_name', s.name, 'org_id', s.org_id, 'data_origin', s.data_origin),
     'truncated', n > lim,
     'events', case when n > lim then (select coalesce(jsonb_agg(e order by ord), '[]'::jsonb)
                                         from jsonb_array_elements(rows) with ordinality as t(e, ord) where ord <= lim)
