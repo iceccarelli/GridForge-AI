@@ -89,6 +89,70 @@ describe("the deploy window and the store being down", () => {
   });
 });
 
+describe("the route layer's own membership check, with a database that misbehaves", () => {
+  // A defence in depth: these make the DATABASE answer for an organisation the caller is not in, as if a function had lost its role check, and
+  // show the route refuses to pass it on.
+  const hallOf = (org: string) => ({ id: "h1", label: "Secret hall", site_id: "s1", site_name: "Secret site", org_id: org, data_origin: "production", country: null });
+  const stranger = "someone@registry.example";
+  async function withBrokenDb(setup: (db: PostgrestFake) => void, run: () => Promise<Response>) {
+    const db = fakeDb();
+    db.rpcs.set("gf_my_orgs", () => ({ ok: true, orgs: [{ id: "mine", name: "Mine", role: "viewer", created_at: "2026-01-01T00:00:00Z" }] }));
+    setup(db);
+    const { restore } = installWithAuth(db);
+    try { return await run(); } finally { restore(); }
+  }
+  const id = "00000000-0000-4000-8000-0000000000aa";
+  const headers = { ...bearerFor(stranger), "x-forwarded-for": "10.2.2.2" };
+
+  it("inputs of a hall of another organisation are a 403 with none of its data", async () => {
+    const r = await withBrokenDb((db) => db.rpcs.set("gf_hall_inputs", () => ({ ok: true, hall: hallOf("theirs"), inputs: [{ id: "i", field_path: "grid.x", value: 987, unit: null, evidence_class: "E1", origin: "assumed", as_of: "2026-01-01", recorded_by: "a@b.example", recorded_at: "2026-01-01", supersedes_id: null, superseded: false, source: null }] })), async () => {
+      const { GET } = await import("@/app/api/halls/[id]/inputs/route");
+      return GET(new Request(siteUrl(`/api/halls/${id}/inputs`), { headers }), { params: Promise.resolve({ id }) });
+    });
+    expect(r.status).toBe(403);
+    expect(JSON.stringify(await r.json())).not.toMatch(/Secret|987/);
+  });
+
+  it("the halls of a site of another organisation are a 403", async () => {
+    const r = await withBrokenDb((db) => db.rpcs.set("gf_list_halls", () => ({ ok: true, site: { id: "s1", org_id: "theirs", name: "Secret site", country: null, data_origin: "production" }, halls: [{ id: "h", site_id: "s1", label: "Secret hall", created_by: "a@b.example", created_at: "2026-01-01" }] })), async () => {
+      const { GET } = await import("@/app/api/sites/[id]/halls/route");
+      return GET(new Request(siteUrl(`/api/sites/${id}/halls`), { headers }), { params: Promise.resolve({ id }) });
+    });
+    expect(r.status).toBe(403);
+    expect(JSON.stringify(await r.json())).not.toMatch(/Secret/);
+  });
+
+  it("the timeline of a hall of another organisation is a 403", async () => {
+    const r = await withBrokenDb((db) => db.rpcs.set("gf_hall_timeline", () => ({ ok: true, hall: { id: "h1", label: "Secret hall", site_name: "Secret site", org_id: "theirs", data_origin: "production" }, truncated: false, events: [] })), async () => {
+      const { GET } = await import("@/app/api/halls/[id]/timeline/route");
+      return GET(new Request(siteUrl(`/api/halls/${id}/timeline`), { headers }), { params: Promise.resolve({ id }) });
+    });
+    expect(r.status).toBe(403);
+    expect(JSON.stringify(await r.json())).not.toMatch(/Secret/);
+  });
+
+  it("the roster of another organisation is a 403", async () => {
+    const r = await withBrokenDb((db) => db.rpcs.set("gf_org_members", () => ({ ok: true, members: [{ id: "m", email: "secret@theirs.example", role: "owner", added_by: "x@y.example", added_at: "2026-01-01" }] })), async () => {
+      const { GET } = await import("@/app/api/orgs/[id]/members/route");
+      return GET(new Request(siteUrl(`/api/orgs/${id}/members`), { headers }), { params: Promise.resolve({ id }) });
+    });
+    expect(r.status).toBe(403);
+    expect(JSON.stringify(await r.json())).not.toMatch(/secret@theirs/);
+  });
+
+  it("an answer that carries a project token or a storage location is never passed on: responses are built field by field", async () => {
+    const r = await withBrokenDb((db) => db.rpcs.set("gf_hall_timeline", () => ({
+      ok: true, truncated: false, hall: { id: "h1", label: "Hall", site_name: "Site", org_id: "mine", data_origin: "test", project_token: "LEAK-1" },
+      events: [{ hall_id: "h1", occurred_at: "2026-01-01T00:00:00Z", kind: "project_event", subject: "x", summary: "s", origin: "recorded", evidence_class: null, basis: "b", actor: "a@b.example", project_id: null, superseded: false, source_table: "project_events", source_id: "e", payload: { case_token: "LEAK-2" }, storage_ref: "LEAK-3" }],
+    })), async () => {
+      const { GET } = await import("@/app/api/halls/[id]/timeline/route");
+      return GET(new Request(siteUrl(`/api/halls/${id}/timeline`), { headers }), { params: Promise.resolve({ id }) });
+    });
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(await r.json())).not.toMatch(/LEAK/);
+  });
+});
+
 describe("the allowance", () => {
   it("writes are counted per caller address; the limit-th+1 write is a 429 with Retry-After, and a refused (invalid) request spends nothing", async () => {
     const db = fakeDb();
