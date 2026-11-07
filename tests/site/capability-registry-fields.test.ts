@@ -286,8 +286,9 @@ describe("each kind of wrong field makes the audit fail (mutation checks)", () =
     caught({ registry: inEntry(REGISTRY, "cost_evidence_runs", 'production_status: "unverified"', 'production_status: "live"') }, /cost_evidence_runs: production_status: marked live but its rest_endpoint is null/);
     caught({ registry: inEntry(REGISTRY, "intelligence_team", 'production_status: "unverified"', 'production_status: "live"') }, /intelligence_team: production_status: marked live but its rest_endpoint is null/);
     // a concrete route the snapshot lacks is not live either
-    const snap = JSON.parse(DEPLOYED); const withoutResiduals = { ...snap, endpoints: snap.endpoints.filter((e: string) => e !== "/v1/calibration/residuals") };
-    caught({ deployed: JSON.stringify(withoutResiduals), registry: inEntry(REGISTRY, "calibration_capture", 'production_status: "unverified"', 'production_status: "live"') }, /calibration_capture: production_status: marked live but \/v1\/calibration\/residuals is not in lib\/engine-deployed.json/);
+    const snapWithout = JSON.parse(fs.readFileSync(path.join(ROOT, "lib/engine-deployed.json"), "utf8"));
+    snapWithout.endpoints = snapWithout.endpoints.filter((e: string) => e !== "/v1/calibration/residuals");
+    caught({ deployed: JSON.stringify(snapWithout), registry: inEntry(REGISTRY, "calibration_capture", 'production_status: "unverified"', 'production_status: "live"') }, /calibration_capture: production_status: marked live but \/v1\/calibration\/residuals is not in lib\/engine-deployed\.json/);
   });
 
   it("M7c not_deployed cannot be claimed without a concrete absent route", () => {
