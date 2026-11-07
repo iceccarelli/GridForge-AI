@@ -259,8 +259,10 @@ case "$VOLUME_STATE" in
 esac
 grep -q "\[mounts\]" fly.toml || warn "fly.toml has no [mounts] section — the volume will not attach."
 
-# PERSISTED-FORMAT AND FIRST-BOOT FACTS (checked by reading `git diff 79a83d5..653fabcf -- gridforge/`; 79a83d5 is the engine that was live
-# when this was written, 653fabcf the main it was compared with; re-check with the same diff if the live commit is different).
+# PERSISTED-FORMAT AND FIRST-BOOT FACTS (read from `git diff 79a83d5..653fabcf -- gridforge/`). 79a83d5 is the engine the committed owner report
+# said was live (code digest 73e35ca725d0...); that is NOT verified from here. The "live digest == ... : yes/no" line in the deploy workflow's
+# rollback-anchors summary confirms it before the deploy changes anything. This analysis is pinned to 653fabcf: if gridforge/ changes before
+# the deploy, re-run the same diff and re-read every line below.
 #
 # State the engine keeps on /data, and whether the newer code changed how it is written or read (a rollback to 79a83d5 can read all of it):
 #   usage counter  GRIDFORGE_USAGE_FILE            unchanged   (gridforge/api/metering.py not in the diff)

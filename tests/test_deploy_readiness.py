@@ -41,64 +41,45 @@ def index_of(name, label):
     return [n for n, _ in steps(name)].index(next(n for n, _ in steps(name) if n.startswith(label)))
 
 
-# ---- rollback anchors ---------------------------------------------------------------------------------------------------
-def test_the_anchor_step_runs_before_the_deploy_and_after_flyctl_is_installed():
+# ---- rollback anchors: structure only; what the steps DO is executed in tests/test_deploy_workflow_exec.py -------------------------------
+def test_the_anchor_steps_run_between_flyctl_setup_and_the_deploy_and_the_upload_follows_them():
     order = [n for n, _ in steps("deploy-engine.yml")]
-    a = index_of("deploy-engine.yml", "Record rollback anchors (read-only)")
-    d = index_of("deploy-engine.yml", "Deploy (never changes a credential")
     f = next(i for i, n in enumerate(order) if n.startswith("uses: superfly/flyctl-actions/setup-flyctl"))
-    assert f < a < d, order
+    reads = index_of("deploy-engine.yml", "Read Fly state for the rollback anchors")
+    anchors = index_of("deploy-engine.yml", "Record rollback anchors (read-only)")
+    upload = index_of("deploy-engine.yml", "Upload the rollback anchors")
+    d = index_of("deploy-engine.yml", "Deploy (never changes a credential")
+    assert f < reads < anchors < upload < d, order
 
 
-def test_the_anchor_step_records_the_three_files_raw_and_changes_nothing():
-    t = step("deploy-engine.yml", "Record rollback anchors (read-only)")
-    assert 'flyctl releases --app "$FLY_APP" --json > releases-before.json || true' in t
-    assert 'flyctl machines list --app "$FLY_APP" --json > machines-before.json || true' in t
-    assert "python3 scripts/check-engine-drift.py --write-snapshot engine-before.json" in t
-    commands = re.sub(r"<<'EOF'.*?\n\s*EOF\n", "\n", t, flags=re.S)       # the summary text may name commands; only what RUNS counts
-    assert "fly deploy" not in commands
-    for mutating in ("flyctl deploy", "secrets set", "scale", "destroy", "volumes create", "apps create", "--bootstrap", "deploy-engine.sh",
-                     "machines stop", "machines start", "machines update", "machines clone"):
-        assert mutating not in commands, f"the read-only anchor step runs {mutating!r}"
-    assert len(re.findall(r"\bflyctl\b", commands)) == 2, "the anchor step may call flyctl exactly twice (releases, machines list)"
-    # flyctl output is stored as printed: no shell parsing of it
-    assert not re.search(r"(jq|python3? -c|grep|sed|awk)[^\n]*(releases|machines)-before", t)
-
-
-def test_a_drift_exit_of_one_is_tolerated_but_an_unreadable_engine_stops_the_deploy():
-    t = step("deploy-engine.yml", "Record rollback anchors (read-only)")
-    assert "|| rc=$?" in t and '"$rc" -ge 2' in t and "exit 1" in t
-    assert "No rollback anchor" in t
-
-
-def test_the_anchors_are_uploaded_as_engine_before_even_when_the_run_fails():
+def test_the_upload_is_gated_on_the_anchor_step_having_run_and_publishes_only_the_reduced_files():
     t = step("deploy-engine.yml", "Upload the rollback anchors")
-    assert "uses: actions/upload-artifact@v4" in t and "name: engine-before" in t
-    assert "if: ${{ !cancelled() }}" in t
-    for f in ("engine-before.json", "releases-before.json", "machines-before.json"):
-        assert f in t
-    assert index_of("deploy-engine.yml", "Upload the rollback anchors") < index_of("deploy-engine.yml", "Deploy (never changes a credential")
+    assert "if: ${{ !cancelled() && steps.anchors.conclusion != 'skipped' }}" in t
+    assert "id: anchors" in step("deploy-engine.yml", "Record rollback anchors (read-only)")
+    assert "uses: actions/upload-artifact@v4" in t and "retention-days: 14" in t
+    assert "name: engine-before-${{ github.run_id }}-${{ github.run_attempt }}" in t
+    paths = re.search(r"path: \|\n((?:            .*\n?)+)", t).group(1).split()
+    assert paths == ["engine-before.json", "anchors.json"], "the repository is public: raw flyctl output must never be uploaded"
+    assert "-before.json" not in t.replace("engine-before.json", "")
 
 
-def test_the_summary_gives_the_verification_command_and_the_volume_caveat_without_inventing_a_rollback_command():
-    t = step("deploy-engine.yml", "Record rollback anchors (read-only)")
-    assert "GITHUB_STEP_SUMMARY" in t
-    assert "python3 scripts/check-engine-drift.py --baseline engine-before.json" in t
-    assert "redeploy the previous image recorded in `releases-before.json`" in t
-    assert "confirm with `fly deploy --help` on your flyctl version" in t
-    assert "does NOT roll back the volume data" in t
-    for invented in ("releases rollback", "fly rollback", "flyctl rollback", "deploy --image", "--rollback"):
-        assert invented not in t, f"the workflow asserts a rollback command that was not verified: {invented!r}"
+def test_the_deployed_snapshot_artifact_is_named_per_run_and_expires():
+    t = step("deploy-engine.yml", "Keep the deployed-engine snapshot")
+    assert "name: engine-deployed-${{ github.run_id }}-${{ github.run_attempt }}" in t and "retention-days: 14" in t
 
 
-def test_the_last_step_asserts_exactly_one_machine_and_fails_when_it_cannot_tell():
+def test_the_fly_token_is_scoped_to_the_two_flyctl_reads_in_the_anchor_steps():
+    assert "FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}" in step("deploy-engine.yml", "Read Fly state for the rollback anchors")
+    assert "FLY_API_TOKEN" not in step("deploy-engine.yml", "Record rollback anchors (read-only)")
+    assert "FLY_API_TOKEN" not in step("deploy-engine.yml", "Upload the rollback anchors")
+
+
+def test_the_last_step_is_the_one_machine_assertion():
     names = [n for n, _ in steps("deploy-engine.yml")]
     assert names[-1].startswith("Exactly one machine must exist after the deploy"), names
     t = step("deploy-engine.yml", "Exactly one machine must exist after the deploy")
     assert "steps.deploy.conclusion != 'skipped'" in t and "!cancelled()" in t
-    assert "len(rows) != 1" in t and t.count("raise SystemExit(1)") >= 3
     assert "|| true" not in t and "continue-on-error" not in t
-    assert "machines list" in t
 
 
 def test_the_deploy_script_still_fails_the_run_on_a_wrong_machine_count():
@@ -124,17 +105,34 @@ def trigger(name, key):
     return m.group(1) + "\n" + m.group(2)
 
 
-def job_names(name, job):
+def job_body(name, job):
     text = "\n".join(code_lines((WF / name).read_text()))
     m = re.search(rf"^  {job}:\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)", text, re.S | re.M)
     assert m, f"{name}: job {job} not found"
     return m.group(1)
 
 
-def test_package_build_has_no_pull_request_path_filter_so_it_can_be_required():
+NARROWING = ("paths", "paths-ignore", "branches", "branches-ignore", "types", "tags")
+
+
+def narrowing(body):
+    """The keys in a trigger body that narrow when it fires."""
+    return [k for k in NARROWING if re.search(rf"^\s*{k}\s*:", body, re.M)]
+
+
+def test_package_build_has_no_pull_request_narrowing_at_all_so_it_can_be_required():
     body = trigger("package.yml", "pull_request")
-    assert "paths" not in body and "branches" not in body, body
+    assert narrowing(body) == [], f"pull_request narrows on {narrowing(body)}: a required check would not report on every PR\n{body}"
+    assert body.strip() == "", body
     assert "workflow_dispatch" in on_block("package.yml")
+
+
+def test_the_narrowing_check_catches_paths_branches_types_and_the_ignore_forms():
+    """The check above is only worth having if it fails when it should."""
+    for key, body in (("paths", "\n    paths: ['gridforge/**']\n"), ("branches", "\n    branches: [main]\n"), ("types", "\n    types: [opened]\n"),
+                      ("paths-ignore", "\n    paths-ignore: ['docs/**']\n"), ("branches-ignore", "\n    branches-ignore: [x]\n")):
+        assert narrowing(body) == [key], (key, narrowing(body))
+    assert narrowing("\n") == []
 
 
 def test_package_push_keeps_its_path_filter():
@@ -142,22 +140,26 @@ def test_package_push_keeps_its_path_filter():
 
 
 def test_package_publishes_the_checks_named_build_with_the_matrix_value():
-    job = job_names("package.yml", "build")
+    job = job_body("package.yml", "build")
     assert not re.search(r"^    name:", job, re.M), "a job name override would change the required check name"
     versions = re.search(r"python-version: \[([^\]]+)\]", job).group(1)
     published = [f"build ({v})" for v in re.findall(r"'(3\.\d+)'", versions)]
     assert published == ["build (3.11)", "build (3.12)", "build (3.13)"]
 
 
-def test_stress_has_no_pull_request_path_filter_so_it_can_be_required():
+def test_stress_is_advisory_it_keeps_its_path_filter_and_the_header_says_not_to_require_it():
+    """`stress` floats the harness's main and goes red (XPASS) on a pull request that fixes a gap the harness pins, so requiring it would
+    deadlock exactly the pull requests that fix gaps. It stays path-filtered and non-required, and the header must say so."""
     body = trigger("stress-harness.yml", "pull_request")
-    assert "paths" not in body and "branches" not in body, body
+    assert "paths:" in body and "'gridforge/**'" in body and "'examples/**'" in body and "'.github/workflows/stress-harness.yml'" in body
     on = on_block("stress-harness.yml")
     assert "workflow_dispatch:" in on and "harness_ref:" in on, "the manual run and its input must stay"
+    header = "\n".join(ln for ln in (WF / "stress-harness.yml").read_text().splitlines() if ln.startswith("#"))
+    assert "ADVISORY, NOT A REQUIRED CHECK" in header and "XPASS" in header and "deadlock" in header and "do not add `stress` to branch protection" in header
 
 
 def test_stress_publishes_the_check_named_stress():
-    job = job_names("stress-harness.yml", "stress")
+    job = job_body("stress-harness.yml", "stress")
     assert not re.search(r"^    name:", job, re.M)
     assert "matrix" not in job
 
@@ -165,7 +167,7 @@ def test_stress_publishes_the_check_named_stress():
 def test_no_other_workflow_publishes_a_check_that_could_be_mistaken_for_a_required_one():
     """publish-pypi.yml also has a job id `build`, but it is manual only and has no matrix, so it publishes `build`, never `build (3.x)`."""
     assert "pull_request" not in on_block("publish-pypi.yml") and "workflow_dispatch:" in on_block("publish-pypi.yml")
-    assert "matrix" not in job_names("publish-pypi.yml", "build")
+    assert "matrix" not in job_body("publish-pypi.yml", "build")
     for f in sorted(WF.glob("*.yml")):
         if f.name != "stress-harness.yml":
             assert not re.search(r"^  stress:\n", "\n".join(code_lines(f.read_text())), re.M), f"{f.name} also publishes `stress`"
