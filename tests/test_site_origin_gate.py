@@ -156,3 +156,16 @@ def test_replaying_0052_is_harmless(reg):
     psql(reg.db, file=next(MIGRATIONS.glob("0052_*.sql")))
     assert scalar(reg.db, "select pg_get_viewdef('public.calibration_ledger_rows'::regclass, true)") == before
     assert reg.exported(oid) and not reg.exported(blocked)
+
+
+def test_0052_passes_the_sanctioned_appliers_destructive_gate_and_says_it_is_not_applied():
+    import importlib.util
+
+    from calibration_pg_rig import ROOT
+    spec = importlib.util.spec_from_file_location("apply_migration", ROOT / "scripts" / "apply-migration.py")
+    applier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(applier)
+    f = next(MIGRATIONS.glob("0052_*.sql"))
+    assert applier.destructive_statements(f.read_text()) == []
+    assert "WRITTEN, NOT APPLIED" in f.read_text()[:2500] and "REPLAY ORDER" in f.read_text()
+    assert len(list(MIGRATIONS.glob("0052_*.sql"))) == 1
