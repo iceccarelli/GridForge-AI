@@ -755,7 +755,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-07), lists all 24 endpoints including /v1/calibration/residuals; " +
       "Nothing here writes the ledger by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. " +
       "The site-side capture needs 0017 and 0038, plus 0046-0048 (forecast freeze, consent and origin, file verification) " +
-      "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); no real observation is recorded as having passed review in production.",
+      "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); no real observation is recorded as having passed review in production. " +
+      "The public account of the six gates and their limits, with the live residual status, is /evidence#ledger-gates (generated from lib/calibration-gates.ts and pinned to the final view by tests/site/calibration-gates.test.ts); " +
+      "/admin/reviews shows every gate for each observation as met, not met or cannot be read. With no approved record the residual report says uncalibrated, n_records 0.",
   },
   {
     capability_id: "site_hall_registry",

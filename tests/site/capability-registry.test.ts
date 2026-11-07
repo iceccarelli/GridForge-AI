@@ -165,6 +165,16 @@ describe("the capabilities the registry used to omit", () => {
     }
   });
 
+  it("points to the public gate account and the admin checklist, which exist, and keeps saying uncalibrated while n_records is 0", () => {
+    const c = cap("calibration_capture");
+    expect(c.notes).toContain("/evidence#ledger-gates");
+    expect(c.notes).toContain("/admin/reviews shows every gate for each observation as met, not met or cannot be read");
+    expect(c.notes).toContain("uncalibrated, n_records 0");
+    for (const f of ["lib/calibration-gates.ts", "tests/site/calibration-gates.test.ts", "app/admin/reviews/page.tsx"]) {
+      expect(fs.existsSync(path.join(process.cwd(), f)), f).toBe(true);
+    }
+  });
+
   it("describes the site and hall registry honestly: declared, not verified; not a billing entity; unapplied migrations; never live", () => {
     const c = cap("site_hall_registry");
     expect(c.production_status).toBe("unverified");

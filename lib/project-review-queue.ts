@@ -7,7 +7,9 @@
 // vouch for, who submitted them, and the evidence file's name, type, size and SHA-256 (enough to find and check the file).
 
 import { rest } from "@/lib/pgrest";
-import type { ObservationRow } from "@/lib/project-observations";
+import { exportChecklists } from "@/lib/calibration-gate-inputs";
+import type { GateResult } from "@/lib/calibration-gates";
+import type { ObservationRow, ReviewRow } from "@/lib/project-observations";
 import { VERIFIABLE_FIELDS, type ActualRow } from "@/lib/supplier-reality";
 
 export interface EvidenceRef {
@@ -43,6 +45,13 @@ export interface ObservationItem {
   submitted_by: string;
   submitted_at: string;
   evidence: EvidenceRef | null;
+  /** Every gate the calibration export view enforces, read for this observation (lib/project-observations.ts ledgerGateChecklist). Absent when it was not computed. */
+  gates?: GateResult[];
+}
+
+/** An observation a reviewer has already verified, shown read-only with what still stands between it and the export. */
+export interface VerifiedItem extends ObservationItem {
+  review: { reviewer: string; reviewed_at: string; evidence_class: string | null };
 }
 
 export interface ActualItem {
@@ -83,6 +92,10 @@ export interface FileItem {
 export const REVIEW_SHOW_MAX = 50;
 export const REVIEW_PAGE = 100;
 export const REVIEW_SCAN_MAX = 5000;
+/** How many already-verified observations the checklist section lists (newest review first). */
+export const VERIFIED_SHOW_MAX = 50;
+/** How many of the most recently submitted observations are searched for verified ones. */
+export const VERIFIED_SCAN = 100;
 
 export interface QueueCount {
   /** Items on screen. */
@@ -100,6 +113,8 @@ export type ReviewQueue =
       actuals: ActualItem[];
       files: FileItem[];
       counts: { observations: QueueCount; actuals: QueueCount; files: QueueCount };
+      /** Verified observations with their export checklist; null when they could not be read (never an empty list standing in for that). */
+      verified: VerifiedItem[] | null;
     }
   | { ok: false; status: number; error: string };
 
@@ -225,8 +240,26 @@ export async function reviewQueue(): Promise<ReviewQueue> {
   const act = a.pending.slice(0, REVIEW_SHOW_MAX);
   const fil = f.pending.slice(0, REVIEW_SHOW_MAX);
 
-  const evidenceIds = uniq([...obs.map((x) => x.evidence_id), ...act.map((x) => x.evidence_id)].filter(Boolean));
-  const projectIds = uniq([...obs.map((x) => x.project_id), ...act.map((x) => x.project_id), ...fil.map((x) => x.project_id)].filter(Boolean));
+  // Observations a reviewer has already verified, listed read-only with the export checklist: a verified observation is where a missing
+  // permission or file decision actually blocks the export. They are looked for among the VERIFIED_SCAN newest SUBMITTED observations
+  // (a review is asked for by the ids in hand, as for the pending queue, never as one capped list of reviews), and a failed read is
+  // `null`, never an empty list standing in for it.
+  const recent = await rest<ObservationRow[]>("GET", `project_observations?select=*&order=submitted_at.desc,id.desc&limit=${VERIFIED_SCAN}`);
+  const recentReviews = recent.ok && (recent.data ?? []).length
+    ? await rest<ReviewRow[]>("GET", `project_observation_reviews?observation_id=in.(${(recent.data ?? []).map((r) => encodeURIComponent(r.id)).join(",")})&select=*`)
+    : null;
+  const verifiedReviews: ReviewRow[] | null = !recent.ok ? null : (recent.data ?? []).length === 0 ? [] : recentReviews && recentReviews.ok
+    ? (recentReviews.data ?? [])
+        .filter((r) => r.decision === "verified")
+        .sort((x, y) => (x.reviewed_at < y.reviewed_at ? 1 : x.reviewed_at > y.reviewed_at ? -1 : 0))
+        .slice(0, VERIFIED_SHOW_MAX)
+    : null;
+  const verifiedIds = new Set((verifiedReviews ?? []).map((r) => r.observation_id));
+  const recentRows: ObservationRow[] = recent.ok ? (recent.data ?? []) : [];
+  const verifiedRows: ObservationRow[] | null = verifiedReviews === null ? null : recentRows.filter((o) => verifiedIds.has(o.id));
+
+  const evidenceIds = uniq([...obs.map((x) => x.evidence_id), ...act.map((x) => x.evidence_id), ...(verifiedRows ?? []).map((x) => x.evidence_id)].filter(Boolean));
+  const projectIds = uniq([...obs.map((x) => x.project_id), ...act.map((x) => x.project_id), ...fil.map((x) => x.project_id), ...(verifiedRows ?? []).map((x) => x.project_id)].filter(Boolean));
   const list = (ids: string[]) => ids.map((i) => encodeURIComponent(i)).join(",");
   const [ev, pr] = await Promise.all([
     evidenceIds.length
@@ -247,9 +280,32 @@ export async function reviewQueue(): Promise<ReviewQueue> {
 
   const evById = new Map((ev.data ?? []).map((e) => [e.id, { filename: e.filename, media_type: e.media_type, byte_size: Number(e.byte_size), sha256: e.sha256, review_status: e.review_status, source_category: e.source_category } as EvidenceRef]));
   const prById = new Map((pr.data ?? []).map((p) => [p.id, { name: p.project_name, site: p.site_label, company: p.company } as ProjectRef]));
+
+  // The export checklist for each pending and each verified observation: the same function the project panel's blockers come from,
+  // fed the file decision, site history, permission and forecast read here. It never fails the queue; a gate it cannot read says so.
+  const reviewByObs = new Map((verifiedReviews ?? []).map((r) => [r.observation_id, r]));
+  const subjects = [
+    ...obs.map((observation) => ({ observation, review: null, evidence: evById.get(observation.evidence_id) ?? null })),
+    ...(verifiedRows ?? []).map((observation) => ({ observation, review: reviewByObs.get(observation.id) ?? null, evidence: evById.get(observation.evidence_id) ?? null })),
+  ];
+  const checklists = await exportChecklists(subjects);
+  const withGates = (o: ObservationRow): ObservationItem => ({
+    ...observationItem(o, prById.get(o.project_id) ?? null, evById.get(o.evidence_id) ?? null),
+    gates: checklists.get(o.id),
+  });
+
+  const verified: VerifiedItem[] | null = verifiedRows === null
+    ? null
+    : verifiedRows
+        .flatMap((o) => {
+          const review = reviewByObs.get(o.id);
+          return review ? [{ ...withGates(o), review: { reviewer: review.reviewer, reviewed_at: review.reviewed_at, evidence_class: review.evidence_class } }] : [];
+        })
+        .sort((x, y) => (x.review.reviewed_at < y.review.reviewed_at ? 1 : x.review.reviewed_at > y.review.reviewed_at ? -1 : 0));
+
   return {
     ok: true,
-    observations: obs.map((x) => observationItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
+    observations: obs.map(withGates),
     actuals: act.map((x) => actualItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
     files: fil.map((x) => fileItem(x, prById.get(x.project_id) ?? null)),
     counts: {
@@ -257,5 +313,6 @@ export async function reviewQueue(): Promise<ReviewQueue> {
       actuals: { shown: act.length, pending: a.pending.length, truncated: a.truncated },
       files: { shown: fil.length, pending: f.pending.length, truncated: f.truncated },
     },
+    verified,
   };
 }

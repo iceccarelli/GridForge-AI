@@ -72,6 +72,20 @@ async function readPack(): Promise<Pack | null> {
   }
 }
 
+interface CalibrationSnapshot {
+  state: string;
+  observations: number;
+}
+
+async function readCalibrationSnapshot(): Promise<CalibrationSnapshot | null> {
+  try {
+    const c = JSON.parse(await fs.readFile(path.join(process.cwd(), "public", "reference", "calibration.json"), "utf8")) as Partial<CalibrationSnapshot>;
+    return typeof c.state === "string" && typeof c.observations === "number" ? { state: c.state, observations: c.observations } : null;
+  } catch {
+    return null;
+  }
+}
+
 const eur = (n: number) =>
   new Intl.NumberFormat("en-IE", {
     style: "currency",
@@ -91,6 +105,7 @@ const DOCS = [
 
 export default async function ReferencePage() {
   const pack = await readPack();
+  const calibration = await readCalibrationSnapshot();
   const best = pack?.scenarios?.reduce((a, b) =>
     b.after_ladder.racks > a.after_ladder.racks ? b : a
   );
@@ -313,6 +328,20 @@ export default async function ReferencePage() {
             ) : null}
           </div>
         </div>
+      </section>
+
+      <section className="mt-10 rounded border border-line bg-panel-2 p-6" aria-labelledby="calibration-h">
+        <h2 id="calibration-h" className="text-lg font-semibold text-ghost">Calibration: what these figures have and have not been checked against</h2>
+        <p className="mt-2 max-w-3xl text-sm text-mute">
+          {calibration
+            ? calibration.observations === 0
+              ? `Uncalibrated: the committed calibration record holds ${calibration.observations} reconciled observations. `
+              : `The committed calibration record is "${calibration.state}" with ${calibration.observations} reconciled observation${calibration.observations === 1 ? "" : "s"}. `
+            : "The calibration record could not be read here, so no claim about it is made. "}
+          Every figure in these documents is modelled, on invented inputs. How a real site&rsquo;s measurement could ever count toward calibration,
+          and the live status of the engine&rsquo;s residual report, are set out on{" "}
+          <Link href="/evidence#ledger-gates" className="text-power underline">the evidence page</Link>.
+        </p>
       </section>
 
       <section className="mt-10 flex flex-wrap items-center gap-4 rounded border border-line bg-panel-2 p-6">

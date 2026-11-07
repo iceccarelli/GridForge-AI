@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useId, useState } from "react";
-import { CircleAlert, CircleCheck, Loader2 } from "lucide-react";
-import type { ActualItem, EvidenceRef, FileItem, ObservationItem, QueueCount } from "@/lib/project-review-queue";
+import { CircleAlert, CircleCheck, CircleHelp, CircleX, Loader2 } from "lucide-react";
+import { STATUS_LABEL, blockingGates, type GateResult } from "@/lib/calibration-gates";
+import type { ActualItem, EvidenceRef, FileItem, ObservationItem, QueueCount, VerifiedItem } from "@/lib/project-review-queue";
 import {
   ALREADY_REVIEWED,
   SELF_REVIEW_MESSAGE,
@@ -47,12 +48,17 @@ const when = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toISOString().replace("T", " ").slice(0, 16) + "Z";
 };
+/** Mirrors VERIFIED_SHOW_MAX in lib/project-review-queue.ts (a server module this client component must not import); a test pins them equal. */
+export const VERIFIED_SHOWN = 50;
+/** Mirrors VERIFIED_SCAN in lib/project-review-queue.ts. */
+export const VERIFIED_SCAN = 100;
 const field = "min-h-11 w-full rounded border border-line bg-panel-2 px-3 py-2 text-sm text-ghost focus:border-power/60 focus:outline-none focus:ring-2 focus:ring-power/60";
 
 export function ProjectEvidenceReview({
   observations,
   actuals,
   files = [],
+  verified,
   reviewClass,
   initialError,
   counts,
@@ -62,6 +68,8 @@ export function ProjectEvidenceReview({
   /** Uploaded files nobody has decided on yet (lib/project-review-queue.ts pendingFiles). */
   files?: FileItem[];
   counts?: { observations: QueueCount; actuals: QueueCount; files?: QueueCount };
+  /** Observations already verified, with their export checklist. `null`: they could not be read. Undefined: not supplied, section hidden. */
+  verified?: VerifiedItem[] | null;
   /** The one evidence class a reviewer may assign to a measured observation (lib/project-observations.ts REVIEW_CLASS). */
   reviewClass: string;
   initialError?: string | null;
@@ -159,9 +167,90 @@ export function ProjectEvidenceReview({
           ))}
         </div>
       </section>
+
+      {verified === undefined ? null : (
+        <section aria-labelledby="ver-h">
+          <h2 id="ver-h" className="text-sm font-semibold text-ghost">
+            Verified observations: what still blocks the export {verified ? `(${verified.length})` : ""}
+          </h2>
+          <p className="mt-1 max-w-3xl text-xs text-faint">
+            Read-only. The calibration export view applies every gate listed on each record; a verification alone does not make a row
+            exportable. Each gate is read from its own record: one that could not be read is shown as such and never as met. Nothing here
+            imports anything, and the export view, not this list, decides. Among the {VERIFIED_SCAN} most recently submitted observations, the {VERIFIED_SHOWN} most recently verified are shown.
+          </p>
+          <div className="mt-4 grid gap-4">
+            {verified === null ? (
+              <p role="alert" className="text-sm text-flag">The verified observations could not be read, so no checklist is shown.</p>
+            ) : verified.length === 0 ? (
+              <p className="text-sm text-mute">No observation has been verified.</p>
+            ) : (
+              verified.map((v) => <VerifiedCard key={v.id} item={v} />)
+            )}
+          </div>
+        </section>
+      )}
       </>
       )}
     </div>
+  );
+}
+
+const STATUS_ICON = {
+  met: <CircleCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-verified" />,
+  not_met: <CircleX aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-flag" />,
+  unreadable: <CircleHelp aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-mute" />,
+} as const;
+
+/**
+ * Every gate the calibration export view enforces, for one observation: met, not met or cannot be read, with the reason. The status is
+ * written out as a word as well as shown by an icon. A gate that could not be read is a blocker, like one that is not met.
+ */
+export function GateChecklist({ gates, label }: { gates: readonly GateResult[]; label: string }) {
+  const blocking = blockingGates(gates);
+  return (
+    <details open className="rounded border border-line bg-ink/40 p-3 text-sm">
+      <summary className="cursor-pointer text-xs font-semibold text-ghost focus:outline-none focus:ring-2 focus:ring-power/60">
+        {blocking.length === 0
+          ? "Export gates: every gate read and met here (the export view still decides)"
+          : `Export gates: ${blocking.length} of ${gates.length} blocking the export`}
+      </summary>
+      <ul aria-label={label} className="mt-2 grid gap-2">
+        {gates.map((g) => (
+          <li key={g.id} className="flex gap-2">
+            {STATUS_ICON[g.status]}
+            <span className="min-w-0">
+              <span className="text-ghost">{g.title}</span>
+              <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
+                {STATUS_LABEL[g.status]}
+                {g.partial ? " · checked in part" : ""}
+              </span>
+              <span className="block text-xs text-mute">{g.reason}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function VerifiedCard({ item }: { item: VerifiedItem }) {
+  const uid = useId();
+  return (
+    <article className="rounded border border-line bg-panel-2 p-4" aria-labelledby={`${uid}-t`}>
+      <h3 id={`${uid}-t`} className="text-sm font-semibold text-ghost">
+        {item.metric} · {item.architecture}
+      </h3>
+      <p className="mt-0.5 text-xs text-faint">
+        {item.project ? `${item.project.name}${item.project.site ? ` · ${item.project.site}` : ""}${item.project.company ? ` · ${item.project.company}` : ""}` : "Project not found"}
+        {" · "}predicted {item.predicted_value} {item.unit}, reported {item.observed_value} {item.unit} on {item.observed_on}
+      </p>
+      <p className="mt-0.5 text-xs text-faint">
+        Verified as {item.review.evidence_class ?? "no class"} by {item.review.reviewer} (a typed name) on {when(item.review.reviewed_at)}
+      </p>
+      <div className="mt-3">
+        {item.gates ? <GateChecklist gates={item.gates} label="Export gates" /> : <p className="text-sm text-mute">The export gates were not read for this record.</p>}
+      </div>
+    </article>
   );
 }
 
@@ -260,6 +349,10 @@ function FileCard({ item, onDone }: { item: FileItem; onDone: (d: Done) => void 
         <Fact k="Category" v={item.source_category.replace(/_/g, " ")} />
         {item.note ? <Fact k="Note" v={item.note} /> : null}
       </dl>
+      <p className="mt-2 text-xs text-faint">
+        Calibration export: an observation citing this file reaches the export only while this file has a decision of verified. A
+        rejected or undecided file keeps it out, and the decision cannot be changed.
+      </p>
 
       {!open ? (
         <button
@@ -404,6 +497,12 @@ function Card({ item, onDone, reviewClass }: { item: ObservationItem | ActualIte
       <div className="mt-3">
         <EvidenceBlock e={item.evidence} />
       </div>
+
+      {item.kind === "observation" && item.gates ? (
+        <div className="mt-3">
+          <GateChecklist gates={item.gates} label="Export gates" />
+        </div>
+      ) : null}
 
       {!open ? (
         <button

@@ -1,0 +1,160 @@
+/**
+ * The list of calibration gates in code (lib/calibration-gates.ts) is pinned to the database view that actually enforces them, so the public
+ * page and the administrator's checklist cannot say something the view does not.
+ *
+ * Two independent anchors:
+ *   1. tests/test_calibration_final_gate.py: the keys of VIEW_GATES, which that test reads back out of a database built by the whole chain.
+ *   2. the SQL of the migration that holds the FINAL view: every condition's `sql` fragment must appear in it.
+ * The same files also pin the residual-report schema constants to the Python that produces the report.
+ */
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import {
+  GATE_COUNT,
+  GATE_COUNT_WORD,
+  LEDGER_GATES,
+  LEDGER_LIMITS,
+  PUBLISHED_VARIABLES,
+  RESIDUAL_CELL_FIELDS,
+  RESIDUAL_REQUIREMENTS,
+  RESIDUAL_TOP_FIELDS,
+  RESIDUAL_VARIABLE_FIELDS,
+  RESIDUALS_SCHEMA,
+  VIEW_CONDITIONS,
+  VIEW_CONDITION_COUNT,
+  WITHHELD_VARIABLES,
+  conditionsOf,
+  type ViewCondition,
+} from "@/lib/calibration-gates";
+import { CalibrationTransparency } from "@/components/CalibrationTransparency";
+
+const ROOT = process.cwd();
+const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
+const flat = (s: string) => s.replace(/\s+/g, " ").toLowerCase();
+const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&rsquo;/g, "'").replace(/\s+/g, " ").trim();
+
+/** The keys of the VIEW_GATES dict in the Python test, in order. */
+function pythonViewGateKeys(): string[] {
+  const src = read("tests/test_calibration_final_gate.py");
+  const start = src.indexOf("VIEW_GATES = {");
+  const end = src.indexOf("\n}\n", start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return [...src.slice(start, end).matchAll(/^ {4}"([^"]+)":/gm)].map((m) => m[1]);
+}
+
+/** What differs between the Python test's keys and a list of conditions; empty when they are the same set, each once. */
+function drift(conditions: readonly ViewCondition[], keys: string[]): string[] {
+  const labels = conditions.map((c) => c.label);
+  const out: string[] = [];
+  for (const k of keys) if (!labels.includes(k)) out.push(`in the view test, not in code: ${k}`);
+  for (const l of labels) if (!keys.includes(l)) out.push(`in code, not in the view test: ${l}`);
+  if (new Set(labels).size !== labels.length) out.push("duplicate label in code");
+  return out;
+}
+
+describe("the gate list in code is the final view's, not a copy that can drift", () => {
+  it("has exactly the conditions tests/test_calibration_final_gate.py asserts of the final view", () => {
+    const keys = pythonViewGateKeys();
+    expect(keys.length).toBeGreaterThanOrEqual(18);
+    expect(drift(VIEW_CONDITIONS, keys)).toEqual([]);
+    expect(VIEW_CONDITION_COUNT).toBe(keys.length);
+  });
+
+  it("the drift check bites: a condition removed from, or added to, the code list is reported", () => {
+    const keys = pythonViewGateKeys();
+    expect(drift(VIEW_CONDITIONS.slice(1), keys)).toEqual([`in the view test, not in code: ${VIEW_CONDITIONS[0].label}`]);
+    expect(drift([...VIEW_CONDITIONS, { label: "an invented gate", group: "production_origin", sql: "x" }], keys)).toEqual(["in code, not in the view test: an invented gate"]);
+    expect(drift(VIEW_CONDITIONS, [...keys, "a gate someone added to the view"])).toEqual(["in the view test, not in code: a gate someone added to the view"]);
+  });
+
+  it("every condition's SQL fragment appears in the migration that holds the FINAL view, and that migration is the last one that defines it", () => {
+    const dir = path.join(ROOT, "supabase", "migrations");
+    const holders = readdirSync(dir).filter((f) => f.endsWith(".sql") && read(`supabase/migrations/${f}`).includes("create or replace view public.calibration_ledger_rows")).sort();
+    const final = holders[holders.length - 1];
+    // A later migration that redefines the view is a new decision: it must update this list (and the Python test), not slip by.
+    expect(final.slice(0, 4)).toBe("0052");
+    const sql = flat(read(`supabase/migrations/${final}`));
+    for (const c of VIEW_CONDITIONS) expect(sql, c.label).toContain(c.sql.toLowerCase());
+  });
+
+  it("states the real number of gates: six, each with at least one view condition, plus the record's shape", () => {
+    expect(GATE_COUNT).toBe(6);
+    expect(GATE_COUNT_WORD).toBe("six");
+    expect(LEDGER_GATES.map((g) => g.id)).toEqual(["independent_review", "frozen_forecast", "production_origin", "owner_permission", "file_decision", "never_test_site"]);
+    for (const g of LEDGER_GATES) expect(conditionsOf(g.id).length, g.id).toBeGreaterThan(0);
+    expect(conditionsOf("record_shape").length).toBe(4);
+    const grouped = LEDGER_GATES.reduce((n, g) => n + conditionsOf(g.id).length, 0) + conditionsOf("record_shape").length;
+    expect(grouped).toBe(VIEW_CONDITION_COUNT);
+  });
+
+  it("the six gates carry the conditions the task names, in the view's own terms", () => {
+    const labels = (id: Parameters<typeof conditionsOf>[0]) => conditionsOf(id).map((c) => c.label);
+    expect(labels("independent_review")).toEqual(expect.arrayContaining(["reviewer is not the submitter", "reviewed as E5 only"]));
+    expect(labels("frozen_forecast")).toEqual(expect.arrayContaining(["the forecast predates the outcome", "the forecast still matches its digest", "the prediction is the forecast's own number"]));
+    expect(labels("production_origin")).toEqual(["production origin"]);
+    expect(labels("owner_permission")).toEqual(["the project's LATEST permission is a grant"]);
+    expect(labels("file_decision")).toContain("a verified decision row whose confirmed digest equals the stored one");
+    expect(labels("never_test_site")).toEqual(["the project was never filed under a non-production site"]);
+  });
+});
+
+describe("the residual-report schema in code is the engine's", () => {
+  const records = read("gridforge/calibration/records.py");
+  const residuals = read("gridforge/calibration/residuals.py");
+
+  it("lists the variables the public report carries, with the units the engine records, and the ones it withholds", () => {
+    const block = records.slice(records.indexOf("VARIABLES: dict"), records.indexOf("SUBSYSTEMS"));
+    const all = [...block.matchAll(/^ {4}"(\w+)": \("(\w+)", "([^"]+)"/gm)].map((m) => ({ name: m[1], subsystem: m[2], unit: m[3] }));
+    const withheld = [...(residuals.match(/WITHHELD_FROM_PUBLIC[^=]*=\s*frozenset\(\{([^}]*)\}\)/)?.[1] ?? "").matchAll(/"(\w+)"/g)].map((m) => m[1]);
+    expect(withheld.sort()).toEqual([...WITHHELD_VARIABLES].sort());
+    expect(PUBLISHED_VARIABLES).toEqual(all.filter((v) => !withheld.includes(v.name)));
+  });
+
+  it("names the schema, the thresholds and the fields of the report, the variable block and the residual cell", () => {
+    expect(residuals).toContain(`PUBLIC_SCHEMA = "${RESIDUALS_SCHEMA}"`);
+    expect(residuals).toContain(`MIN_APPROVED_OBSERVATIONS = ${RESIDUAL_REQUIREMENTS.min_approved_observations_per_variable}`);
+    expect(residuals).toContain(`MIN_DISTINCT_SITES = ${RESIDUAL_REQUIREMENTS.min_distinct_sites_per_variable}`);
+    const publicReport = residuals.slice(residuals.indexOf("def public_report"), residuals.indexOf("def disclosure_summary"));
+    const ret = publicReport.slice(publicReport.lastIndexOf("return {"));
+    expect([...ret.matchAll(/^ {8}"(\w+)":/gm)].map((m) => m[1])).toEqual([...RESIDUAL_TOP_FIELDS]);
+    const stats = residuals.slice(residuals.indexOf("def _stats"), residuals.indexOf("def _grouped"));
+    expect([...stats.matchAll(/^ {8}"(\w+)":/gm)].map((m) => m[1])).toEqual(RESIDUAL_CELL_FIELDS.map((f) => f.field));
+    const variable = residuals.slice(residuals.indexOf("def _variable_block"), residuals.indexOf("def subsystem_statement"));
+    const named = [...variable.matchAll(/(?:^ {8}"(\w+)":|block\["(\w+)"\] =)/gm)].map((m) => m[1] ?? m[2]);
+    // by_configuration is keyed by free text a submitter typed: the engine builds it and never publishes it (_public_variable drops it).
+    expect(residuals).toMatch(/_public_variable[\s\S]*?"by_configuration"[\s\S]*?"interval_coverage"\)/);
+    expect(named.filter((n) => n !== "by_configuration")).toEqual([...RESIDUAL_VARIABLE_FIELDS]);
+  });
+});
+
+describe("the public panel renders the typed list", () => {
+  const html = renderToStaticMarkup(React.createElement(CalibrationTransparency, { live: { status: "unreadable", reason: "unreachable" } }));
+  const t = text(html);
+
+  it("shows every gate's rule and its limit, in order, and the shared limits", () => {
+    let at = -1;
+    for (const g of LEDGER_GATES) {
+      const i = t.indexOf(text(g.title));
+      expect(i, g.id).toBeGreaterThan(at);
+      at = i;
+      expect(t).toContain(text(g.rule));
+      expect(t).toContain(text(g.limit));
+    }
+    for (const l of LEDGER_LIMITS) expect(t).toContain(text(l));
+    expect(t).toContain(`applies ${GATE_COUNT_WORD} gates`);
+    expect(t).toContain(`${VIEW_CONDITION_COUNT} conditions`);
+  });
+
+  it("states the limits the owner asked to be plain", () => {
+    expect(t).toMatch(/outcome date is the submitter's declaration/);
+    expect(t).toMatch(/An assertion, not authentication/);
+    expect(t).toMatch(/A verdict is final/);
+    expect(t).toMatch(/not recalled/);
+    expect(t).toMatch(/unclassified/);
+    expect(t).toMatch(/not accurate/);
+  });
+});
