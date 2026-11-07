@@ -16,7 +16,7 @@ export interface ExtractedLead {
   email: string;
 }
 
-const EXTRACT_SYSTEM = `Extract structured lead data from this sales conversation between a prospect and the GridForge scoping engineer. Return ONLY a JSON object, no prose, no markdown fences.
+const EXTRACT_SYSTEM = `Extract structured lead data from this sales conversation between a prospect and the GridForge scoping assistant (an AI). Return ONLY a JSON object, no prose, no markdown fences.
 
 Schema:
 {

@@ -136,7 +136,7 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
     `Thank you — we have your request.\n\n` +
     `Your read for ${where} showed ${q.racks_as_found ?? "an unspecified number of"} racks ` +
     `deployable as found, bound first by ${q.binding_constraint}. ` +
-    `One of our engineers will follow up on that read directly.\n\n` +
+    `We will look at that read ourselves; we make no promise about when we will reply.\n\n` +
     `That read is a free, directional indication. The next engineering step is the ` +
     `${screen.name}: ${screen.description}\n\n` +
     `${eurFromCents(screen.amountCents)}, ${screen.turnaroundDays} working days, and it credits ` +

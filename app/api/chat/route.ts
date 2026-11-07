@@ -1,4 +1,5 @@
 import { siteUrl } from "@/lib/site";
+import { agentConfirmationText } from "@/lib/agent-mail";
 import { noticeLeadLost, storeLead } from "@/lib/lead-store";
 import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
@@ -157,11 +158,7 @@ export async function POST(req: Request) {
                 to: leadEmail,
                 replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
                 subject: `Time to Power — your ${extracted.capacity} site scoping`,
-                text:
-                  `Thank you for scoping your site with our engineer.\n\n` +
-                  `${next}\n\n` +
-                  `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
-                  `— Time to Power`,
+                text: agentConfirmationText(next),
               });
           } catch (err) {
             console.error("[GridForge] agent lead confirmation error:", err);
