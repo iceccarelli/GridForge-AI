@@ -203,14 +203,16 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
           <Row k="Installed (attested by)" v={`${o.submitted_by} — ${o.installed_basis}`} />
           <Row k="Measured by" v={o.measurement_kind ?? "Not recorded"} />
           {o.state !== "submitted" && (
-            <Row k="Ledger" v={o.ledger_eligible ? "Eligible — a person imports it" : `Not eligible — ${o.ledger_blockers.join("; ")}`} />
+            <Row k="Ledger" v={o.ledger_eligible ? "Passes the checks listed here — the export view makes the final decision, then a person imports it" : `Not eligible — ${o.ledger_blockers.join("; ")}`} />
           )}
         </div>
       ))}
       <p className="text-faint">
         Not part of the accuracy record until a reviewer other than the submitter verifies it as E5 against a verified
         evidence artifact, the project&apos;s owner has agreed to share its measurements, it was recorded on a production
-        deployment, and a person imports it into the calibration ledger. Observations recorded before origin was tracked
+        deployment, and a person imports it into the calibration ledger. The export view also requires a recorded file decision
+        and that the project has never been filed under a test or synthetic site; this panel does not check those two.
+        Observations recorded before origin was tracked
         stay unclassified and are not exported; whether to attest their origin later is a decision for the owner.
       </p>
       {options.length === 0 ? (

@@ -11,6 +11,10 @@
 -- outcome still reached the calibration ledger view. Calibration is only worth anything if the prediction was fixed before reality
 -- answered it.
 --
+-- WHAT THE TIME RULE PROVES, and what it does not. observed_on is typed by the submitter. The database guarantees that the forecast was stored,
+-- unaltered, before the DECLARED date of the outcome (and that the outcome date is not in the future); it cannot show that the measurement
+-- itself was taken after the forecast. That rests on the submitter and on the reviewer who verifies the evidence file.
+--
 -- REPLAY ORDER. 0046, 0047 and 0048 each REPLACE calibration_ledger_rows; the definition that governs is the LAST one applied (0048's, which
 -- holds every gate). Re-running an older migration of this family (or 0038) after a later one silently replaces the view, and for 0038 also
 -- gf_submit_observation, with an OLDER and weaker definition. Migrations are applied once, in order (scripts/apply-migration.py gate 2 refuses

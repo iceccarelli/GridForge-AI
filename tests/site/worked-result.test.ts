@@ -61,14 +61,19 @@ describe("the worked-result panel agrees with model_pack.json", () => {
     expect(t).not.toMatch(/customer (site|hall) (of|at)|trusted by|your hall carries/i);
   });
 
-  it("shows, under each of the two reached scenarios, its relief steps, capex interval and time interval, from the file and labelled assumed", async () => {
+  it("shows, under each of the two reached scenarios, its relief steps, capex (a lower bound when incomplete) and time interval, from the file and labelled assumed", async () => {
     const t = await panelText();
     for (const id of ["full_dlc", "full_dlc_btm"]) {
       const sc = scenario(id);
       const steps = sc.ladder.filter((l: { taken: boolean }) => l.taken).length;
       const m = (n: number) => `€${(n / 1e6).toFixed(1)}M`;
       const iv = sc.time_to_power.date_record.date_interval_weeks;
-      expect(t, id).toContain(`${steps} relief steps · capex ${m(sc.economics.capex_total_eur.low)}–${m(sc.economics.capex_total_eur.high)} · ${iv.low}–${iv.high} weeks to full capacity · assumed (E0)`);
+      // the engine marks the total complete or not: a complete one is a range, an incomplete one is a lower bound over the priced lines
+      const capex = sc.economics.capex_complete === true
+        ? `capex ${m(sc.economics.capex_total_eur.low)}–${m(sc.economics.capex_total_eur.high)}`
+        : `capex at least ${m(sc.economics.capex_total_eur.value)} (priced lines only)`;
+      expect(t, id).toContain(`${steps} relief steps · ${capex} · ${iv.low}–${iv.high} weeks to full capacity (longest single lead time) · assumed (E0)`);
+      if (sc.economics.capex_complete !== true) expect(t, id).not.toContain(m(sc.economics.capex_total_eur.high));
       // the numbers shown really are the file's: none of the shown capex/time figures is the point value alone
       expect(sc.economics.capex_total_eur.evidence).toMatch(/^E0/);
       expect(sc.time_to_power.date_record.evidence_class).toBe("E0");
@@ -176,6 +181,26 @@ describe("the first-screen trust line", () => {
     expect(calibrationLine(c)).toContain(cal.observations === 0 ? "ledger is empty" : "holds");
   });
   it("scenarioDetailLine words one step in the singular", () => {
-    expect(scenarioDetailLine({ steps: 1, capexLowEur: 1_000_000, capexHighEur: 2_000_000, weeksLow: 4, weeksHigh: 8 }, "E0")).toBe(`1 relief step · capex \u20ac${"1.0M"}–\u20ac${"2.0M"} · 4–8 weeks to full capacity · assumed (E0)`);
+    expect(scenarioDetailLine({ steps: 1, capexValueEur: 1_500_000, capexLowEur: 1_000_000, capexHighEur: 2_000_000, capexComplete: true, weeksLow: 4, weeksHigh: 8 }, "E0")).toBe(`1 relief step · capex \u20ac${"1.0M"}–\u20ac${"2.0M"} · 4–8 weeks to full capacity (longest single lead time) · assumed (E0)`);
+  });
+  it("an incomplete capex is a lower bound: 'at least', no upper bound, and the file's own flag decides", () => {
+    const line = scenarioDetailLine({ steps: 8, capexValueEur: 6_220_000, capexLowEur: 3_108_000, capexHighEur: 12_432_000, capexComplete: false, weeksLow: 104, weeksHigh: 216 }, "E0");
+    expect(line).toContain("capex at least \u20ac6.2M (priced lines only)");
+    expect(line).not.toMatch(/12\.4M|3\.1M/);
+  });
+  it("every shown scenario of the committed pack that the engine marks incomplete renders as a lower bound", () => {
+    const pack = JSON.parse(fs.readFileSync(path.join(ROOT, "public/reference/model_pack.json"), "utf8"));
+    const w = loadWorkedResult();
+    for (const [id, detail] of [["full_dlc", w.afterLadderDetail], ["full_dlc_btm", w.onSiteSupplyDetail]] as const) {
+      const econ = pack.scenarios.find((s: any) => s.id === id).economics;
+      expect(detail.capexComplete, id).toBe(econ.capex_complete);
+      const line = scenarioDetailLine(detail, w.evidenceCode);
+      if (econ.capex_complete === false) expect(line, id).toMatch(/capex at least \u20ac[\d.]+M \(priced lines only\)/);
+    }
+  });
+  it("the build throws when the file does not say whether the capex is complete", () => {
+    const pack = JSON.parse(fs.readFileSync(path.join(ROOT, "public/reference/model_pack.json"), "utf8"));
+    delete pack.scenarios.find((s: any) => s.id === "full_dlc").economics.capex_complete;
+    expect(() => buildWorkedResult(pack)).toThrow(/capex_complete/);
   });
 });

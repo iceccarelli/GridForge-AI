@@ -25,7 +25,7 @@ interface PackScenario {
   as_found: { racks: number; binding: string; binding_name: string; basis?: string };
   ladder?: { taken?: boolean }[];
   after_ladder: { racks: number; it_load_kW?: Figure };
-  economics?: { decision_grade?: boolean; cost_basis_mix?: Record<string, { label?: string }>; capex_total_eur?: { low?: number | null; high?: number | null } | null };
+  economics?: { decision_grade?: boolean; capex_complete?: boolean; unpriced_components?: unknown[]; cost_basis_mix?: Record<string, { label?: string }>; capex_total_eur?: { value?: number | null; low?: number | null; high?: number | null } | null };
   time_to_power?: { date_record?: { date_interval_weeks?: { low?: number; high?: number }; evidence_class?: string | null } };
 }
 export interface ModelPack {
@@ -46,8 +46,12 @@ const ARCHITECTURE_WORDS: Record<string, string> = {
 /** What it takes to reach a scenario's rack count, from the same scenario record: steps taken, total capex interval, time interval. */
 export interface ScenarioDetail {
   steps: number;
+  /** The engine's total over the lines that HAVE a price. When capexComplete is false it is a lower bound, and no upper bound exists. */
+  capexValueEur: number;
   capexLowEur: number;
   capexHighEur: number;
+  /** economics.capex_complete: false when a cost the scenario needs has no price (the file's `unpriced_components`). */
+  capexComplete: boolean;
   weeksLow: number;
   weeksHigh: number;
 }
@@ -57,6 +61,8 @@ function detailOf(s: PackScenario): ScenarioDetail {
   const iv = need(s.time_to_power?.date_record?.date_interval_weeks, `time_to_power.date_record.date_interval_weeks on scenario "${s.id}"`);
   return {
     steps: need(s.ladder, `ladder on scenario "${s.id}"`).filter((l) => l.taken).length,
+    capexValueEur: need(capex.value, `capex value on scenario "${s.id}"`),
+    capexComplete: need(s.economics?.capex_complete, `economics.capex_complete on scenario "${s.id}"`),
     capexLowEur: need(capex.low, `capex low on scenario "${s.id}"`),
     capexHighEur: need(capex.high, `capex high on scenario "${s.id}"`),
     weeksLow: need(iv.low, `date interval low on scenario "${s.id}"`),
@@ -141,9 +147,15 @@ export function loadWorkedResult(root: string = process.cwd()): WorkedResult {
 const racks = (n: number) => `${n} ${n === 1 ? "rack" : "racks"}`;
 const eurM = (n: number) => `€${(n / 1_000_000).toFixed(1)}M`;
 
-/** "<n> relief steps · capex <low>–<high> · <weeks> weeks to full capacity · assumed (E0)": the cost and time behind a rack count, all from the file. */
+/**
+ * "<n> relief steps · capex <...> · <weeks> weeks to full capacity · assumed (E0)": the cost and time behind a rack count, all from the file.
+ * A capex the engine marks incomplete is a LOWER BOUND over the priced lines and is shown as "at least", never as a range (the repo's
+ * convention in components/observatory/format.ts viewCapex). The weeks are the longest single lead time: the file assumes the reliefs run in
+ * parallel and says a chain of works would take longer.
+ */
 export function scenarioDetailLine(d: ScenarioDetail, evidenceCode: string): string {
-  return `${d.steps} relief ${d.steps === 1 ? "step" : "steps"} · capex ${eurM(d.capexLowEur)}–${eurM(d.capexHighEur)} · ${d.weeksLow}–${d.weeksHigh} weeks to full capacity · assumed (${evidenceCode})`;
+  const capex = d.capexComplete ? `capex ${eurM(d.capexLowEur)}–${eurM(d.capexHighEur)}` : `capex at least ${eurM(d.capexValueEur)} (priced lines only)`;
+  return `${d.steps} relief ${d.steps === 1 ? "step" : "steps"} · ${capex} · ${d.weeksLow}–${d.weeksHigh} weeks to full capacity (longest single lead time) · assumed (${evidenceCode})`;
 }
 
 /** The panel's sentences, in reading order. The component renders exactly these, and the test compares them with the JSON. */

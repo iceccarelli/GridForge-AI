@@ -744,7 +744,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "a frozen forecast made before the outcome that still holds the predicted value, a production data origin, and a project whose latest recorded permission is a grant " +
       "(and which has never been filed under a non-production site, migration 0052). The permission is an assertion recorded by an administrator (the document digest is not verified " +
       "and the administrator is not identified). Revoking a permission stops future exports; it does not recall rows already imported by `gridforge calibrate import`. " +
-      "A verdict is final: there is no withdrawal. Observations recorded before origin tracking stay unclassified and are not exported.",
+      "The forecast rule compares the stored forecast with the outcome date the submitter declared, not with when the measurement was taken. A verdict is final: there is no withdrawal. Observations recorded before origin tracking stay unclassified and are not exported.",
     stripe_product_or_price: "none",
     deliverable: "Aggregate residual statistics (n_records, per-subsystem); an export file for `gridforge calibrate import`",
     status: "free",
