@@ -218,3 +218,16 @@ def test_the_diff_and_the_loader_share_one_parser():
 def test_an_unchanged_class_is_still_not_a_change(base):
     d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E4"), _with_evidence(base, "grid.contracted_MW", 10.5, " e4"))
     assert d.evidence_changes == [] and not d.material
+
+
+def test_the_diff_reads_a_canonical_enum_name_as_the_same_class_as_its_code(base):
+    assert declared_evidence_for({"a": {"value": 1, "evidence": " e5_customer_data "}}) == {"a": "E5"}
+    d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E5_CUSTOMER_DATA"), _with_evidence(base, "grid.contracted_MW", 10.5, "e5"))
+    assert d.evidence_changes == [] and not d.material           # one class, two spellings: not a change
+    d = diff(_with_evidence(base, "grid.contracted_MW", 10.5, "E5_CUSTOMER_DATA"), _with_evidence(base, "grid.contracted_MW", 10.5, "E4_EXPERIMENTAL"))
+    assert d.evidence_changes == ["grid.contracted_MW"] and d.material
+
+
+def declared_evidence_for(doc):
+    import gridforge.change as change
+    return change.declared_evidence(doc)
