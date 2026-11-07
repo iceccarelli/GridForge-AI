@@ -43,7 +43,9 @@ export default async function PowerDeployPage() {
     <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
         data={[
-          webPageJsonLd("/power/deploy", DEPLOY_TITLE, DEPLOY_DESCRIPTION),
+          // The WebPage describes an assessment the visitor can run; while the deployed engine does not serve it the page says it is not
+          // available yet, and structured data must not say otherwise. The breadcrumb is true either way.
+          ...(state === "available" ? [webPageJsonLd("/power/deploy", DEPLOY_TITLE, DEPLOY_DESCRIPTION)] : []),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
             { name: "BTM power deployment", path: "/power/deploy" },

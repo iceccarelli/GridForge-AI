@@ -22,6 +22,7 @@ import { SITE_URL } from "@/lib/site";
 
 const ROOT = process.cwd();
 const REF = path.join(ROOT, "public", "reference");
+const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/&#x27;|&apos;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&[lr]dquo;/g, '"').replace(/\s+/g, " ");
 const read = (f: string) => fs.readFileSync(path.join(REF, f), "utf8");
 const head = (name: string) => {
   const h = read(`${name}.html`);
@@ -140,6 +141,15 @@ describe("the documents are findable", () => {
     expect(html).toContain('href="/reference/density_screen.html"');
     expect(html.indexOf("/reference/density_screen.html")).toBeLessThan(html.indexOf("/reference/envelope_study.html"));
     expect(html).toMatch(/The next step: the Envelope Study/);
+    // The Study's model-pack figures and photo sit under the Study heading, not inside the Density Screen section.
+    expect(html.indexOf("Figures from the Envelope Study model pack")).toBeGreaterThan(html.indexOf("The next step: the Envelope Study"));
+    // What the sample is, said accurately: the data request is a section, not the end of the document, and the buyer reads a fragment in the portal.
+    const t = text(html);
+    expect(t).not.toMatch(/most halls|ends with the list of inputs|the only thing added/i);
+    expect(t).toContain("is the data request");
+    expect(html).toContain('href="/reference/density_screen.html#data-request"');
+    expect(t).toMatch(/inside their private deliverable page/);
+    expect(t).toMatch(/synthetic stamp is the only content added to it/);
     expect(html).toContain('href="/products/density-screen"');
     expect(html).toContain('href="/products/envelope-study"');
     // The documents carry their own way back, so they open in the same tab.

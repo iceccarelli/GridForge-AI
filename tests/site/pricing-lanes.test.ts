@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { FULL_ENGINE, stubEngine } from "./engine-stub";
 import ThreePaths from "@/components/ThreePaths";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
+import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { INTELLIGENCE_PLANS, INTELLIGENCE_PLAN_IDS } from "@/lib/products";
 import { eurMonth } from "@/lib/subscriptions";
 
@@ -55,6 +56,13 @@ describe("/pricing", () => {
     expect(section).toContain('href="/intelligence"');
     // The plan name 'Developer' is shared with the API audience; the section says whose plans these are instead of renaming anything.
     expect(text(section)).toMatch(/plan names below belong to this dashboard; API plans are on the developers page/);
+  });
+
+  it("says Intelligence's production state is unverified exactly while the capability registry does", async () => {
+    const h = await pricing();
+    const unverified = CAPABILITY_REGISTRY.filter((c) => c.family === "intelligence").every((c) => c.production_status === "unverified");
+    expect(h.includes('data-testid="intelligence-unverified"')).toBe(unverified);
+    if (unverified) expect(text(h)).toMatch(/not yet verified this subscription end to end in production/);
   });
 
   it("has a one-line 'Which one do I need?' linking the free check, Density Screen, Envelope Study, API and Hall Watch", async () => {

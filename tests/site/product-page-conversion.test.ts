@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import ProductPageRoute from "@/app/products/[slug]/page";
 import { AUDIENCES } from "@/lib/audiences";
+import { depositTerms } from "@/lib/engagement-state";
 import { PRODUCT_PAGES, audiencesForProduct, beforeYouBuy, productForPage, turnaroundText } from "@/lib/product-pages";
 import { REFERENCE_DOCUMENTS } from "@/lib/reference-docs";
 
@@ -55,11 +56,30 @@ describe.each(PRODUCT_PAGES.map((p) => [p.slug, p] as const))("/products/%s", (s
     expect(h.includes("Read it for your role")).toBe(audiences.length > 0);
   });
 
-  it("states turnaround with its basis, from the catalogue", async () => {
+  it("states turnaround with its basis, from the catalogue, in the words the deposit receipt uses", async () => {
     const rows = beforeYouBuy(page);
     expect(rows.find((r) => r.label === "Turnaround")?.text).toBe(turnaroundText(p));
     expect(turnaroundText(p)).toContain(String(p.turnaroundDays));
+    const deposit = depositTerms(p.kind);
+    if (deposit) {
+      // One wording, not two: "from a complete intake and the scoping call, not from payment".
+      expect(turnaroundText(p)).toBe(deposit.timing);
+      expect(turnaroundText(p)).toMatch(/count from a complete intake and the scoping call, not from payment/);
+      for (const line of page.flow) expect(line).not.toMatch(/counted from the scoping call/);
+    }
     expect(text(await html(slug))).toContain(turnaroundText(p));
+  });
+
+  it("labels the second button for what it opens: 'the sample deliverable' only where there is one", async () => {
+    const h = await html(slug);
+    const actions = h.slice(h.indexOf('data-testid="product-actions"'), h.indexOf("Try the free capacity check first"));
+    if (page.sample) {
+      expect(actions).toContain(">See the sample deliverable<");
+    } else {
+      expect(actions).toContain(">See the sample deliverables<");
+      expect(actions).not.toContain(">See the sample deliverable<");
+      expect(actions).toContain('href="/reference"');
+    }
   });
 
   it("claims a named reviewer only for the products an engine endpoint generates and an engineer releases", () => {
@@ -75,8 +95,11 @@ describe.each(PRODUCT_PAGES.map((p) => [p.slug, p] as const))("/products/%s", (s
     const rows = beforeYouBuy(page);
     expect(rows.find((r) => r.label === "Not included")?.items).toEqual(page.limits);
     const terms = rows.find((r) => r.label === "Terms")!;
+    // A neutral link. Checkout has no terms consent and /legal/terms is a template the owner has not finalised, so the page must not say
+    // a purchase is subject to them, or what they provide.
     expect(terms.link).toEqual({ href: "/legal/terms", label: "Read the terms" });
-    expect(terms.text).toBe("Your purchase is subject to our terms.");
+    expect(terms.text).toBe("");
+    expect(JSON.stringify(rows)).not.toMatch(/subject to|governed by|bound by|agree to our terms/i);
     expect(await html(slug)).toContain('href="/legal/terms"');
   });
 
@@ -102,7 +125,9 @@ describe("the Density Screen's data request is the sample's list of what it had 
   it("is linked from the block, and the sample really has that section", () => {
     const page = PRODUCT_PAGES.find((p) => p.slug === "density-screen")!;
     const row = beforeYouBuy(page).find((r) => r.label === "What we need from you")!;
-    expect(row.link?.href).toBe("/reference/density_screen.html");
+    expect(row.link?.href).toBe("/reference/density_screen.html#data-request");
     expect(fs.readFileSync(path.join(process.cwd(), "public/reference/density_screen.md"), "utf8")).toContain("What we had to assume");
+    // The anchor really is on that section's heading in the published page.
+    expect(fs.readFileSync(path.join(process.cwd(), "public/reference/density_screen.html"), "utf8")).toMatch(/<h2 id='data-request'>4\. What we had to assume/);
   });
 });

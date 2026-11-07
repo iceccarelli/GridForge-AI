@@ -13,12 +13,16 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 import { INTELLIGENCE_PLANS, PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
 import { PLANS, eurMonth, seatLine } from "@/lib/subscriptions";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { callableRates } from "@/lib/payg-pricing";
 import { engineServes } from "@/lib/engine-capabilities";
 import { estimateEndpointServed, readToolRatesWithAvailability } from "@/lib/tool-rates";
 
 const PRICING_TITLE = "Pricing: free check, API, engagements";
 const PRICING_DESCRIPTION = `A free capacity check, a metered API with a free allowance, engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen, and a market intelligence subscription.`;
+
+// True while every Intelligence plan is recorded in the capability registry with an unverified production state.
+const INTELLIGENCE_UNVERIFIED = CAPABILITY_REGISTRY.filter((c) => c.family === "intelligence").every((c) => c.production_status === "unverified");
 
 // The engagements, named as a buyer says them (the catalogue names the deposits "... — deposit").
 const short = (id: keyof typeof PRODUCTS) => PRODUCTS[id].name.replace(/ — deposit$/, "").replace(/^Capacity & Density /, "");
@@ -103,8 +107,8 @@ export default async function PricingPage() {
               Every engagement is a named deliverable, not retainer hours. The Density Screen and the Procurement
               Specification are priced at checkout. The Envelope Study and the Portfolio Screen start with a deposit: the
               fee is then agreed with you in writing, within the band shown, before any work starts, and the deposit is
-              credited in full against it. Hall Watch is billed every quarter. Most halls begin with the Density Screen,
-              which credits in full against the study it usually leads to.
+              credited in full against it. Hall Watch is billed every quarter. The first paid step is the Density Screen,
+              which credits in full against the Envelope Study.
             </p>
             <EngagementLadder />
           </section>
@@ -151,6 +155,13 @@ export default async function PricingPage() {
               The plan names below belong to this dashboard; API plans are on the{" "}
               <Link href="/developers#plans" className="text-power underline">developers page</Link>.
             </p>
+            {/* Shown while the capability registry records Intelligence's production state as unverified (tests/site/pricing-lanes.test.ts
+                keeps the two in step). /intelligence says the ranking is modelled; it does not say this. */}
+            {INTELLIGENCE_UNVERIFIED ? (
+              <p className="mt-3 max-w-3xl text-sm text-faint" data-testid="intelligence-unverified">
+                We have not yet verified this subscription end to end in production. The ranking is modelled, not a verified-site portfolio.
+              </p>
+            ) : null}
             <ul className="mt-5 grid gap-4 md:grid-cols-3">
               {PLANS.map((plan) => (
                 <li key={plan.id} className="panel flex flex-col p-5" data-testid={`intelligence-plan-${plan.id}`}>

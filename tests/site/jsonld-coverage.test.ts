@@ -7,7 +7,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { FULL_ENGINE, stubEngine } from "./engine-stub";
+import { FULL_ENGINE, STALE_ENGINE, stubEngine } from "./engine-stub";
 import { SITE_URL } from "@/lib/site";
 
 // The observatory's view, scenario loader and live feeds belong to other tests; here only the page's own structured data matters.
@@ -59,6 +59,22 @@ describe.each(CASES)("%s", (route, load, types) => {
     for (const banned of ["aggregaterating", "ratingvalue", '"review"', "reviewcount", "sameas", '"license"', '"customer', "testimonial"]) {
       expect(blob, banned).not.toContain(banned);
     }
+  });
+});
+
+describe("/power/deploy structured data follows the deployed engine", () => {
+  it("describes the assessment only while the engine serves it; the breadcrumb is true either way", async () => {
+    const run = async (routes: string[]) => {
+      const stop = stubEngine(routes);
+      try {
+        const page = (await import("@/app/power/deploy/page")).default;
+        return ld(renderToStaticMarkup(await page())).map((d) => d["@type"]).sort();
+      } finally {
+        stop();
+      }
+    };
+    expect(await run(FULL_ENGINE)).toEqual(["BreadcrumbList", "WebPage"]);
+    expect(await run(STALE_ENGINE)).toEqual(["BreadcrumbList"]);
   });
 });
 

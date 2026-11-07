@@ -5,7 +5,7 @@ import { CommissionScreen } from "@/components/CommissionScreen";
 import { breadcrumbJsonLd, engagementOfferJsonLd } from "@/lib/jsonld";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { pageTitleKeeping } from "@/lib/meta";
-import { PRODUCT_PAGES, audiencesForProduct, beforeYouBuy, productForPage, productPageBySlug, turnaroundText } from "@/lib/product-pages";
+import { PRODUCT_PAGES, audiencesForProduct, beforeYouBuy, productForPage, productPageBySlug } from "@/lib/product-pages";
 import { OG_BASE, siteUrl } from "@/lib/site";
 import { eurFromCents, priceLine } from "@/lib/products";
 
@@ -94,7 +94,8 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
             href={page.sample?.href ?? "/reference"}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-power/50 px-5 py-2.5 text-sm font-semibold text-power hover:bg-power/10"
           >
-            See the sample deliverable
+            {/* Only a product with its own sample says "the sample deliverable"; the others point at the set, and the block below says none is published for them. */}
+            {page.sample ? "See the sample deliverable" : "See the sample deliverables"}
           </Link>
           <Link
             href={QUALIFY_LINK.href}
@@ -147,7 +148,6 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
         <section className="mt-10" aria-labelledby="flow-h">
           <h2 id="flow-h" className="text-xl font-semibold text-ghost">How it works</h2>
           <List items={page.flow} />
-          <p className="mt-3 text-sm text-faint">Turnaround: {turnaroundText(p)}.</p>
         </section>
 
         {audiences.length ? (

@@ -253,8 +253,11 @@ def test_the_published_density_screen_is_what_a_buyer_receives(monkeypatch, tmp_
     callout = f"<div class='callout warning'>{escape(SYNTHETIC)}</div>"
     assert published.count(callout) == 1
     body = lambda t: t[t.index("<div class='wrap'>"):]  # noqa: E731 - everything after the site bar is the document itself
-    # The public copy wraps the document in one <main> landmark (scripts/build-reference.sh); nothing inside it is touched.
-    unwrapped = body(published).replace(callout, "", 1).replace("</main></body>", "</body>", 1)
+    # The public copy wraps the document in one <main> landmark and gives the assumptions heading an id so the data request can be linked
+    # (scripts/build-reference.sh); nothing else inside it is touched.
+    assert published.count("<h2 id='data-request'>4. What we had to assume") == 1
+    unwrapped = (body(published).replace(callout, "", 1).replace("</main></body>", "</body>", 1)
+                 .replace("<h2 id='data-request'>", "<h2>", 1))
     assert unwrapped == body(page), (
         "public/reference/density_screen.html differs from the screen handler's document beyond the synthetic stamp.")
     assert md.startswith("# Density Screen"), "the screen handler no longer returns a Density Screen"

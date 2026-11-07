@@ -59,8 +59,8 @@ export default function ThreePaths() {
           <h3 className="mt-2 text-lg font-semibold text-ghost">A fixed fee, a named deliverable</h3>
           <p className="mt-2 flex-1 text-sm text-mute">
             When you need a senior engineer to review a hall, not an API response. The fee is fixed before work starts:
-            at checkout, or agreed in writing after a deposit for the Study and the Portfolio Screen. Produced and reviewed by a person. Most halls begin with the {screen.name}, from{" "}
-            {eurFromCents(screen.amountCents)}, which credits in full against the study it usually leads to. API
+            at checkout, or agreed in writing after a deposit for the Study and the Portfolio Screen. Produced and reviewed by a person. The first paid step is the {screen.name}, from{" "}
+            {eurFromCents(screen.amountCents)}, which credits in full against the Envelope Study. API
             responses are screening output and never carry an engineer&apos;s sign-off.
           </p>
           <Link href="/pricing#engagements" className={cta}>

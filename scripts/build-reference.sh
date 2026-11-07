@@ -49,6 +49,11 @@ old_md = f"> **{SCREEN_STAMP}**"
 old_html = f"<div class='callout warning'>{_html.escape(SCREEN_STAMP)}</div>"
 assert md.count(old_md) == 1 and page.count(old_html) == 1, "the screening stamp moved: the synthetic stamp has nowhere to go"
 md = md.replace(old_md, f"> **{SYNTHETIC_STAMP}**\n\n{old_md}")
+# The assumptions section IS the data request (lib/products.ts: "a data request you can send to your own engineers verbatim"); the
+# product page and /reference link straight to it, so the heading gets an id. Nothing else in the body changes.
+heading = "<h2>4. What we had to assume"
+assert page.count(heading) == 1, "the assumptions section moved: the data-request anchor has nowhere to go"
+page = page.replace(heading, "<h2 id='data-request'>4. What we had to assume", 1)
 page = page.replace(old_html, f"<div class='callout warning'>{_html.escape(SYNTHETIC_STAMP)}</div>{old_html}")
 (out / "density_screen.md").write_text(md if md.endswith("\n") else md + "\n")
 (out / "density_screen.html").write_text(page)
@@ -114,9 +119,9 @@ SYNTH = "Synthetic reference hall, not a customer asset."
 # The title is the page's own, not the engine's document title, which is long and names the invented campus; the document keeps its
 # engine title as its heading. Every description says the data is synthetic.
 PAGES = {
-    "density_screen.html": ("Density Screen sample: synthetic reference hall", "The Density Screen as a buyer receives it: what binds, racks as found and after the ladder, the date. " + SYNTH),
-    "envelope_study.html": ("Envelope Study sample: synthetic reference hall", "The full Envelope Study: binding constraint, headroom ladder, time to power, evidence class on every number. " + SYNTH),
-    "board_summary.html": ("Board summary sample: synthetic reference hall", "The board summary of the reference Envelope Study: the answer, what binds, the date and the evidence. " + SYNTH),
+    "density_screen.html": ("Density Screen sample: synthetic reference hall", "Density Screen: what binds, racks as found and after the ladder, time to power (assumed lead times, not a date). " + SYNTH),
+    "envelope_study.html": ("Envelope Study sample: synthetic reference hall", "Envelope Study: binding constraint, headroom ladder, time to power, an evidence class per headline figure. " + SYNTH),
+    "board_summary.html": ("Board summary sample: synthetic reference hall", "The board summary of the reference Envelope Study: the answer, what binds, time to power and the evidence. " + SYNTH),
     "proposal.html": ("Density Screen proposal sample: synthetic hall", "The Density Screen proposal, opening with a real finding on a synthetic hall. " + SYNTH),
     "specification.html": ("Procurement specification sample: synthetic hall", "A tender-ready specification for one relief, with its supplier response schedule. " + SYNTH),
     "walkthrough.html": ("Walkthrough deck sample: synthetic reference hall", "The client walkthrough deck for the reference Envelope Study, slide by slide. " + SYNTH),

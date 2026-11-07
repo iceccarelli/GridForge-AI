@@ -11,9 +11,9 @@ import { QUALIFY_LINK } from "@/lib/nav";
 import { EvidenceBoundary } from "@/components/diagrams/EvidenceBoundary";
 import { MARKET_EVIDENCE, isPublishable, verificationLabel } from "@/lib/market-evidence";
 
-const TITLE = "Evidence classes E0 to E7 for every number";
+const TITLE = "Evidence classes E0 to E7: headline figures";
 const DESCRIPTION =
-  "Every figure carries an evidence class from E0 (assumed) to E7 (observed in operation); arithmetic takes the weakest input. The calibration status is stated.";
+  "Every headline figure carries an evidence class from E0 (assumed) to E7 (observed in operation); arithmetic takes the weakest input. Calibration status stated.";
 
 export const metadata: Metadata = {
   title: TITLE,

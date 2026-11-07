@@ -10,7 +10,7 @@ const DESCRIPTION = `Engagements for owners of existing AI data halls: the ${eur
   PRODUCTS.density_screen.amountCents
 )} Density Screen, Envelope Study, Procurement Specification, Portfolio Screen, Hall Watch.`;
 
-const OG_DESCRIPTION = "Fixed-fee engineering engagements for the owner of an existing AI data hall. Each page states what you receive, what we need from you and what it is not.";
+const OG_DESCRIPTION = "Engineering engagements for the owner of an existing AI data hall. Each page states what you receive, what we need from you and what is not included.";
 
 export const metadata: Metadata = {
   title: "Engineering engagements for AI data halls",
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", images: pageImages("products") },
   openGraph: {
     ...OG_BASE,
-    images: pageImages("products"), title: "Engagements — fixed-fee capacity and density engineering", description: OG_DESCRIPTION, url: "/products" },
+    images: pageImages("products"), title: "Engagements — capacity and density engineering", description: OG_DESCRIPTION, url: "/products" },
 };
 
 export default function ProductsIndex() {
@@ -37,8 +37,8 @@ export default function ProductsIndex() {
         <div className="eyebrow text-power mb-4">Engagements</div>
         <h1 className="text-4xl font-semibold tracking-tight text-ghost">Five engagements, each priced before you start</h1>
         <p className="mt-5 text-[17px] leading-relaxed text-mute">
-          Each is a named deliverable, not retainer hours. The Envelope Study and the Portfolio Screen are opened with a deposit, and the fee is agreed with you in writing before work starts. Most halls begin with the Density Screen, which credits
-          in full against the study it usually leads to. Not sure? Run the{" "}
+          Each is a named deliverable, not retainer hours. The Envelope Study and the Portfolio Screen are opened with a deposit, and the fee is agreed with you in writing, within its band, before work starts; the deposit is credited in full against it. The first paid step is the Density Screen, which credits
+          in full against the Envelope Study. Not sure? Run the{" "}
           <Link href="/qualify" className="text-power underline">free capacity check</Link> first.
         </p>
         <ul className="mt-10 space-y-5">
