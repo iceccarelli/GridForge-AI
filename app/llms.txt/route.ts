@@ -52,7 +52,7 @@ export async function GET() {
     u === 0 ? "free" : `${u} unit${u === 1 ? "" : "s"}${perHall ? " per hall" : ""}`;
   const callableTools = catalogue.filter((r) => serves(r.endpoint));
   const callableOps = callableTools
-    .map((r) => `- \`${r.name}\` — POST ${ENGINE}${r.endpoint} — ${r.tier === "public" ? "free, no key" : `needs a key — ${unitText(r.units, isPerHall(r))}`}`)
+    .map((r) => `- \`${r.name}\` — POST ${ENGINE}${r.endpoint} — ${unitText(r.units, isPerHall(r))} — ${r.tier === "public" ? "no key" : "needs a key"}`)
     .join("\n");
   // An operation the deployed engine does not serve is left out entirely: this file is read by agents that act on it, and
   // an unpriced, uncallable line is still a line they may try. (The human pages list such rows as "not yet available".)
@@ -165,7 +165,7 @@ Free reads, all on ${ENGINE}:
 
 ${discoveryLines || "- none (the deployed engine could not be read)"}
 
-${mcpParagraph}Retries: ${idempotencyStatement()}
+${mcpParagraph}Retries: ${idempotencyStatement({ estimator: serves("/v1/estimate") })}
 
 Refusals (a refused or failed call is not charged): ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}.
 

@@ -297,7 +297,7 @@ export default async function DevelopersPage() {
             Send your key as <span className="font-mono text-ghost">{cat?.auth.header ?? "X-API-Key"}: &lt;key&gt;</span> or{" "}
             <span className="font-mono text-ghost">Authorization: Bearer &lt;key&gt;</span>. The free operations need no key.
           </li>
-          <li data-testid="idempotency-statement">{idempotencyStatement()}</li>
+          <li data-testid="idempotency-statement">{idempotencyStatement({ estimator: state("/v1/estimate") === "available" })}</li>
           <li>A rejected or failed call is not charged. These are the refusals you can meet:</li>
         </ul>
         <dl className="mt-3 max-w-3xl divide-y divide-line/60 rounded border border-line bg-panel-2 text-sm">

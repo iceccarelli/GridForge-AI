@@ -51,10 +51,13 @@ export const MAX_MCP_BATCH: number = honesty.engine_constants.max_mcp_batch;
  * The guarantee is about billing and about the answer, not about the work: a retry is never charged again and is answered with the same
  * result, but the engine may recompute it (it is deterministic) when the stored copy is no longer in memory.
  */
-export function idempotencyStatement(): string {
+export function idempotencyStatement(opts: { estimator?: boolean } = {}): string {
+  const estimator = opts.estimator ?? true;
   return (
     `Send an Idempotency-Key header (at most ${IDEMPOTENCY_KEY_MAX_CHARS} characters; a longer one is refused with 400) on a POST, or on an /mcp tools/call. ` +
-    `It takes effect only on a request that carries a valid API key, and never on /v1/estimate: a keyless call to a free operation is not deduplicated. ` +
+    (estimator
+      ? `It takes effect only on a request that carries a valid API key, and never on /v1/estimate: a keyless call to a free operation is not deduplicated. `
+      : `It takes effect only on a request that carries a valid API key: a keyless call to a free operation is not deduplicated. `) +
     `The key is scoped to your account and to the endpoint, so the same string on another endpoint is a different request. ` +
     `For ${IDEMPOTENCY_WINDOW_HOURS} hours after the first successful answer, a retry with the same key and an identical body is answered with that first result and is not charged again; ` +
     `the replay carries X-GridForge-Idempotent-Replay: true and X-GridForge-Units: 0. ` +

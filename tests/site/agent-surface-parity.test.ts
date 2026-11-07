@@ -257,7 +257,7 @@ describe("/llms.txt parity with the deployed engine", () => {
     const stop = stubEngine(FULL_ENGINE);
     try {
       const body = (await (await GET()).text()).replace(/\s+/g, " ");
-      expect(body).toContain(idempotencyStatement());
+      expect(body).toContain(idempotencyStatement({ estimator: true }));
       // header name, scope, window, replay signal, conflict and the narrower facts
       const statement = idempotencyStatement().replace(/\s+/g, " ");
       for (const needed of [
