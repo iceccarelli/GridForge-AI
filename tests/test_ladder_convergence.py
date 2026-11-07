@@ -242,3 +242,24 @@ def test_the_largest_hall_the_loader_admits_is_refused_by_name_within_a_small_bu
     assert r.stdout.split() == ["screen", "refused", "True", "study", "refused", "True", "compare", "refused", "True"], r.stdout
     assert wall < 15, wall
     assert resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024 < 400            # ru_maxrss is KiB on Linux
+
+
+# --- a partial ladder is never decision-grade and never a complete capex ----------------------------------------------------------------------
+def test_a_partial_ladder_has_an_incomplete_capex_a_limitation_and_is_not_decision_grade(tiny_cap):
+    from gridforge.economics.model import evaluate
+    ctx = _btm_context(load_document(scaled("dublin", 150)))
+    lad = ladder(ctx, allow_partial=True)
+    assert lad.converged is False
+    econ = evaluate(lad.final, lad, ctx.cluster.utilisation)
+    assert econ.capex_complete is False
+    assert econ.converged is False
+    assert "the ladder did not converge: the capex and dates are lower bounds" in econ.limitations
+    assert econ.decision_grade is False
+
+
+def test_a_converged_ladder_has_no_such_limitation():
+    from gridforge.economics.model import evaluate
+    ctx = _btm_context(load_document(_doc("dublin")))
+    lad = ladder(ctx)
+    econ = evaluate(lad.final, lad, ctx.cluster.utilisation)
+    assert econ.converged is True and not any("did not converge" in x for x in econ.limitations)
