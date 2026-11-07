@@ -245,9 +245,20 @@ LADDER_STEP_FLOOR = 200
 #: Rungs allowed per MW of hall size (see ``ladder_step_budget``). Measured on the shipped intakes scaled up, a rung adds about
 #: 1 / 1.2 to 1 / 1.5 MW, so 3 per MW leaves a margin of more than two.
 LADDER_STEPS_PER_MW = 3.0
-#: The most rungs one request may demand. A rung costs a context copy and a solve (about 2 to 3 ms), so this bounds one ladder at about
-#: ten seconds. It is a bound on the work, not an engineering claim: a hall that needs more is refused by name (LadderDidNotConverge).
-LADDER_STEP_CAP = 4000
+#: The most rungs one request may demand: a deterministic bound on the work (no clock is read: the engine stays reproducible). Measured on the
+#: largest hall the loader admits (50,000 positions, 5,000 MVA, 5,000 MW of behind-the-meter capacity; Python 3.13, one core), a rung costs
+#: 1.2 to 2 ms and 0.1 MB, growing with depth:
+#:     rungs   200    400    600    800    1,200  2,000   4,000
+#:     CPU s   0.36   0.70   1.20   1.63   2.49   4.25    9.80     (full_dlc_btm, the widest scenario; hybrid/full DLC run ~10% quicker)
+#:     RSS MB  33     48     62     77     106    165     312
+#: A request runs up to three liquid ladders, so 600 rungs bound a request at about 3.5 s of CPU and well under 100 MB. The provenance chain
+#: deepens by about one level per rung (the capex total adds each rung's price to the last), and its digest is recursive: /v1/screen, /study
+#: and /compare raised RecursionError (a 500) at about 1,000 rungs, so the cap must stay well under the interpreter's recursion limit
+#: (tests/test_ladder_convergence.py pins both). 600 answers halls up to roughly 450 MW of firm supply plus behind-the-meter capacity in the
+#: widest scenario; a hall that needs more is refused by name (LadderDidNotConverge, 422) and must be split into one request per hall.
+LADDER_STEP_CAP = 600
+#: Rungs per MW of hall size actually needed, measured worst case (see above): the supported scale the refusal states.
+LADDER_STEPS_PER_MW_MEASURED = 1.3
 
 #: The intake fields that set how many rungs a hall needs, named in the refusal so the caller knows what to split or re-check.
 _SIZE_FIELDS = "hall.positions_available, grid.firm_capacity_MVA, grid.contracted_MW and btm_options.capacity_MW"
@@ -340,7 +351,9 @@ def ladder(ctx: EnvelopeContext, max_steps: int | None = None, *, allow_partial:
     if not converged:
         why = (f"the headroom ladder was still finding reliefs after {max_steps} steps, at {res.max_racks} rack(s) "
                f"(from {out.initial.max_racks} as found), so the capacity reached is not the ceiling. The size of the hall sets the number of "
-               f"steps: check {_SIZE_FIELDS}, or split the site into one request per hall")
+               f"steps: check {_SIZE_FIELDS}, or split the site into one request per hall. "
+               f"Supported scale: a hall that needs at most {LADDER_STEP_CAP} steps, which is about "
+               f"{int(LADDER_STEP_CAP / LADDER_STEPS_PER_MW_MEASURED // 10 * 10)} MW of firm supply plus behind-the-meter capacity")
         if not allow_partial:
             raise LadderDidNotConverge(why)
         out.converged = False
