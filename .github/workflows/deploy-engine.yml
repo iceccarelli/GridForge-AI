@@ -9,8 +9,15 @@ name: deploy-engine
 # What it does, in order:
 #   1. confirm == DEPLOY, and the FLY_API_TOKEN secret exists (fails fast, names the fix, never prints the token)
 #   2. the engine test suite
-#   3. scripts/deploy-engine.sh  (no --bootstrap: a deploy never creates, rotates or overwrites a credential)
-#   4. scripts/check-engine-drift.py against the live engine; the job fails if ANY drift remains
+#   3. rollback anchors, read-only, BEFORE anything changes: what the live engine reports (engine-before.json, written by the drift script
+#      even when it differs from this repository), flyctl's raw `releases` and `machines list` output (kept on the runner only: the repository
+#      is public) and a reduced anchors.json built from them (whitelisted fields). Both JSON files are uploaded for 14 days as the artifact
+#      `engine-before-<run id>-<attempt>`. The run STOPS here if the anchors would be meaningless (engine unreadable or degenerate, empty or
+#      unparseable flyctl output) or if two or more machines exist; the boolean input allow_no_baseline overrides all but the machine count.
+#   4. scripts/deploy-engine.sh  (no --bootstrap: a deploy never creates, rotates or overwrites a credential)
+#   5. scripts/check-engine-drift.py against the live engine; the job fails if ANY drift remains
+#   6. exactly one machine must exist afterwards (the deploy script checks it and exits 1 on any other count; this step asserts it again,
+#      independently, and also fails when the list cannot be read)
 #
 # Topology rule (see fly.toml): ONE machine, ONE volume. usage, ledger and revocations are local state. The script deploys with
 # --ha=false and fails if it finds anything other than exactly one machine mounting the volume. Never scale to 2.
@@ -21,6 +28,11 @@ on:
         description: 'Type the word DEPLOY to deploy the engine to production (gridforge-engine.fly.dev)'
         required: true
         type: string
+      allow_no_baseline:
+        description: 'Deploy even though no usable rollback baseline could be recorded (the live engine unreadable, empty flyctl output, no machine yet). Default false: the run stops before the deploy instead. Never skips the DEPLOY confirmation or the one-machine checks.'
+        required: false
+        type: boolean
+        default: false
 
 # Two deploys must never overlap, and a running deploy must never be cancelled half way (a cancelled flyctl deploy can
 # leave a machine mid-update).
@@ -81,6 +93,204 @@ jobs:
       - name: Record the flyctl version used
         run: flyctl version
 
+      # Two read-only flyctl calls, and nothing else holds the Fly token in this step. flyctl's output format varies between versions, so the
+      # raw output is kept exactly as printed (and never parsed in shell). It stays on the runner: this repository is public, so only the
+      # reduced anchors.json built in the next step is ever uploaded. `|| true`: whether the reads were usable is judged in the next step.
+      - name: Read Fly state for the rollback anchors (read-only)
+        id: fly_reads
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl releases --app "$FLY_APP" --json > releases-before.json || true
+          flyctl machines list --app "$FLY_APP" --json > machines-before.json || true
+
+      # The drift script exits 1 when the live engine differs from this repository (expected: that is why we are deploying) and still writes
+      # the snapshot; exit 2, or no snapshot, means the live engine could not be read. Anything that would make the anchors meaningless stops
+      # the run BEFORE the deploy: an unreadable or degenerate engine reply, empty or unparseable flyctl output, and a machine count other than
+      # one. allow_no_baseline (default false) overrides all of that except two or more machines; it never skips the confirm gate, and the
+      # one-machine check after the deploy always runs.
+      - name: Record rollback anchors (read-only)
+        id: anchors
+        env:
+          ALLOW_NO_BASELINE: ${{ inputs.allow_no_baseline }}
+        run: |
+          rc=0
+          python3 scripts/check-engine-drift.py --write-snapshot engine-before.json || rc=$?
+          unreadable=""
+          if [ "$rc" -ge 2 ] || [ ! -s engine-before.json ]; then
+            unreadable="the live engine could not be read (the drift check exited $rc and wrote no snapshot)"
+          fi
+          python3 - "$unreadable" <<'PY'
+          import datetime, json, os, sys
+
+          PINNED = "73e35ca725d045c6c8328e97bcc761c919c9869ed0eedb05a25544ddd224626c"   # the code digest of 79a83d5, per the committed owner report
+          allow = os.environ.get("ALLOW_NO_BASELINE", "false").strip().lower() == "true"
+          app = os.environ.get("FLY_APP", "")
+          unreadable = sys.argv[1] if len(sys.argv) > 1 else ""
+          now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+          def load(path):
+              """(parsed, None) or (None, why). Empty and unparseable are different from absent, and none of them is a baseline."""
+              try:
+                  text = open(path).read()
+              except (OSError, ValueError):
+                  return None, "missing or unreadable"
+              if not text.strip():
+                  return None, "empty"
+              try:
+                  return json.loads(text), None
+              except (ValueError, RecursionError) as exc:
+                  return None, f"not JSON ({type(exc).__name__})"
+
+
+          def text(v):
+              return v if isinstance(v, str) and len(v) <= 300 else None
+
+
+          engine_problems, fly_problems, hard = [], [], []
+
+          # 1. what the live engine reported
+          snap = None
+          if unreadable:
+              engine_problems.append(unreadable)
+          else:
+              snap, why = load("engine-before.json")
+              if why:
+                  engine_problems.append(f"engine-before.json is {why}")
+                  snap = None
+              elif not isinstance(snap, dict):
+                  engine_problems.append("engine-before.json is not a JSON object")
+                  snap = None
+              else:
+                  if not (isinstance(snap.get("version"), str) and snap["version"].strip()):
+                      engine_problems.append("the engine reported no version")
+                  eps = snap.get("endpoints")
+                  if not (isinstance(eps, list) and eps):
+                      engine_problems.append("the engine reported no endpoints")
+                  if not (isinstance(snap.get("code_sha256"), str) and snap["code_sha256"].strip()):
+                      engine_problems.append("the engine published no code digest")
+
+          # 2. what Fly reported (kept on the runner as flyctl printed it; only anchors.json, a reduced copy, is ever uploaded)
+          def as_list(data, key):
+              rows = data.get(key) if isinstance(data, dict) else data
+              return rows if isinstance(rows, list) else None
+
+
+          mdata, why = load("machines-before.json")
+          rows = None
+          if why:
+              fly_problems.append(f"machines-before.json is {why}")
+          else:
+              rows = as_list(mdata, "machines")
+              if rows is None:
+                  fly_problems.append("machines-before.json is not a list of machines")
+          rdata, why = load("releases-before.json")
+          rel = None
+          if why:
+              fly_problems.append(f"releases-before.json is {why}")
+          else:
+              rel = as_list(rdata, "releases")
+              if rel is None:
+                  fly_problems.append("releases-before.json is not a list of releases")
+              elif not rel:
+                  fly_problems.append("releases-before.json lists no release")
+          if rows is not None:
+              if len(rows) >= 2:
+                  hard.append(f"{len(rows)} machines exist before the deploy: a deploy updates every existing machine, and usage, ledger and revocations are local "
+                              "state, so exactly one machine may mount the volume. Remove the extra machine(s) with flyctl first; no override covers this")
+              elif len(rows) == 0:
+                  fly_problems.append("no machine exists (a first deploy to an app that does not exist yet has nothing to roll back to)")
+
+          # 3. the reduced copy that is safe to publish: whitelisted fields only
+          def reduce_ref(v):
+              if isinstance(v, str):
+                  return text(v)
+              if isinstance(v, dict):
+                  return {k: text(v.get(k)) for k in ("registry", "repository", "tag", "digest")}
+              return None
+
+
+          machines = []
+          for m in rows or []:
+              if not isinstance(m, dict):
+                  continue
+              cfg = m.get("config") if isinstance(m.get("config"), dict) else {}
+              mounts = [x for x in (cfg.get("mounts") or []) if isinstance(x, dict)] if isinstance(cfg.get("mounts"), list) else []
+              machines.append({"id": text(m.get("id")), "region": text(m.get("region")), "state": text(m.get("state")),
+                               "image": text(cfg.get("image")), "image_ref": reduce_ref(m.get("image_ref")),
+                               "mounts": len(mounts), "volume_ids": [text(x.get("volume")) for x in mounts if text(x.get("volume"))]})
+          releases = []
+          for r in rel or []:
+              if isinstance(r, dict):
+                  pick = lambda *ks: next((r[k] for k in ks if k in r), None)  # noqa: E731
+                  ver = pick("Version", "version")
+                  releases.append({"version": ver if isinstance(ver, (int, str)) and not isinstance(ver, bool) else None,
+                                   "image_ref": reduce_ref(pick("ImageRef", "image_ref", "imageRef"))})
+          with open("anchors.json", "w") as fh:
+              json.dump({"schema": "gridforge/rollback-anchors/1", "app": app, "recorded_at": now, "machine_count": len(rows) if rows is not None else None,
+                         "machines": machines, "releases": releases}, fh, indent=2, sort_keys=True)
+              fh.write("\n")
+
+          # 4. the verdict
+          problems = engine_problems + fly_problems
+          if engine_problems and allow:
+              with open("engine-before.json", "w") as fh:
+                  json.dump({"unreadable": True, "reason": "; ".join(engine_problems), "recorded_at": now}, fh, indent=2, sort_keys=True)
+                  fh.write("\n")
+              snap = None
+          live = snap.get("code_sha256") if isinstance(snap, dict) and not engine_problems else None
+          digest_line = (f"live digest == {PINNED} (the digest of 79a83d5): "
+                         + ("yes" if live == PINNED else "no" + (f" (live {live[:12]})" if live else " (no usable baseline, so the live digest is unknown)")))
+
+          run_id, attempt = os.environ.get("GITHUB_RUN_ID", "<run id>"), os.environ.get("GITHUB_RUN_ATTEMPT", "<attempt>")
+          lines = ["### Rollback anchors (recorded before the deploy)", "",
+                   digest_line, "",
+                   f"Artifact `engine-before-{run_id}-{attempt}` (kept 14 days; this repository is public, so it holds only a reduced copy):",
+                   "`engine-before.json` (what the live engine reported) and `anchors.json` (whitelisted fields only: per machine its id, region, state, image",
+                   "reference and volume ids; per release its version and image reference). flyctl's raw output stays on the runner and is not uploaded.", "",
+                   "**To roll back, start from the image reference** in `anchors.json` (`config.image` / `image_ref` of `fly machines list --json`): redeploy the",
+                   "previous image recorded there. The exact flyctl invocation is not asserted here: confirm with `fly deploy --help` on your flyctl version.",
+                   "`engine-before.json` alone cannot restore anything; it only lets you check afterwards that the engine is what it was:", "",
+                   "```", "python3 scripts/check-engine-drift.py --baseline engine-before.json", "```", "",
+                   "Exit 0 means the same code digest, version, endpoints and unit rates as before this deploy; 1 lists what differs; 2 means the baseline or",
+                   "the engine could not be read (and a baseline recorded from another URL is refused).", "",
+                   "**A code rollback does NOT roll back the volume data.** Usage, ledger, revocations, cost and calibration files on `/data` keep whatever",
+                   "the newer engine wrote. Keep exactly one machine mounting the one volume while rolling back.", ""]
+          if allow:
+              lines += ["**`allow_no_baseline` was set.** " + ("This run is proceeding WITHOUT a verified baseline: " + "; ".join(problems) + "." if problems
+                        else "Nothing needed it: the baseline below is complete."),
+                        "With no baseline, `--baseline` cannot verify a rollback (engine-before.json then says `unreadable`). The override does not skip the",
+                        "`confirm == DEPLOY` gate, a machine count of two or more, or the one-machine check after the deploy.", ""]
+          elif problems or hard:
+              lines += ["**Stopped before the deploy:** " + "; ".join(problems + hard) + ".", ""]
+          with open(os.environ.get("GITHUB_STEP_SUMMARY") or os.devnull, "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+
+          if hard:
+              print("::error title=Wrong machine count::" + "; ".join(hard) + ". Nothing was deployed.")
+              raise SystemExit(1)
+          if problems and not allow:
+              print("::error title=No usable rollback baseline::" + "; ".join(problems) + ". Nothing was deployed. To deploy anyway, run the workflow again with allow_no_baseline set; "
+                    "the rollback then cannot be verified with --baseline.")
+              raise SystemExit(1)
+          if problems:
+              print("::warning title=Deploying WITHOUT a rollback baseline::" + "; ".join(problems) + ". allow_no_baseline is set, so this deploy proceeds; "
+                    "a rollback cannot be verified against engine-before.json.")
+          print("rollback anchors recorded" + (" (override in force)" if problems else ""))
+          PY
+
+      - name: Upload the rollback anchors
+        if: ${{ !cancelled() && steps.anchors.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-before-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            engine-before.json
+            anchors.json
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Deploy (never changes a credential; one machine, one volume)
         id: deploy
         env:
@@ -96,6 +306,33 @@ jobs:
         if: ${{ !cancelled() && steps.deploy.conclusion != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: engine-deployed
+          name: engine-deployed-${{ github.run_id }}-${{ github.run_attempt }}
           path: engine-deployed.json
+          retention-days: 14
           if-no-files-found: ignore
+
+      # The topology rule, asserted on its own: exactly one machine. The deploy script already exits 1 on any other count (which fails the
+      # Deploy step); this reads the list again and ALSO fails when it cannot be read, because an unread list proves nothing.
+      - name: Exactly one machine must exist after the deploy
+        if: ${{ !cancelled() && steps.deploy.conclusion != 'skipped' }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl machines list --app "$FLY_APP" --json > machines-after.json
+          python3 - machines-after.json <<'PY'
+          import json, sys
+          try:
+              rows = json.load(open(sys.argv[1]))
+          except Exception as exc:
+              print(f"::error title=Machine count unreadable::flyctl output could not be parsed ({exc}); confirm with `fly machines list` that exactly one machine exists")
+              raise SystemExit(1)
+          if isinstance(rows, dict):
+              rows = rows.get("machines")
+          if not isinstance(rows, list):
+              print("::error title=Machine count unreadable::flyctl output is not a list of machines; confirm with `fly machines list`")
+              raise SystemExit(1)
+          if len(rows) != 1:
+              print(f"::error title=Wrong machine count::{len(rows)} machines exist; usage, ledger and revocations are local state, so exactly one machine may mount the volume. Destroy the extra machine(s) with flyctl; do not add capacity.")
+              raise SystemExit(1)
+          print("OK: exactly one machine")
+          PY

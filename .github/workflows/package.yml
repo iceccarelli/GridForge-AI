@@ -3,12 +3,17 @@ name: package
 # The engine is what gets sold, so the thing that ships must be the thing that was tested. This builds the wheel and sdist, checks them,
 # installs the wheel into a clean environment away from the source tree, runs a real screen with it, and proves the installed engine has
 # the same code digest as the repository's. It never publishes and uses no credential.
+#
+# The pull_request trigger has NO path filter, on purpose. The check this job publishes is `build (3.11)`, `build (3.12)` and `build (3.13)`
+# (the job name plus its matrix value), and a repository can make them REQUIRED in branch protection. A required check that a path filter
+# kept from running never reports, so the pull request waits for ever: a website-only change would be unmergeable. Running on every pull
+# request costs a few minutes; a merge that can never complete costs more. (Whether the checks ARE required is a repository setting, not
+# this file.) The push trigger keeps its path filter: nothing waits on a push to main.
 on:
   push:
     branches: [main]
     paths: ['gridforge/**', 'pyproject.toml', 'docs/pypi-readme.md', 'scripts/check-package.py', 'tests/test_packaging.py', '.github/workflows/package.yml', '.github/workflows/publish-pypi.yml']
   pull_request:
-    paths: ['gridforge/**', 'pyproject.toml', 'docs/pypi-readme.md', 'scripts/check-package.py', 'tests/test_packaging.py', '.github/workflows/package.yml', '.github/workflows/publish-pypi.yml']
   workflow_dispatch:
 
 permissions:

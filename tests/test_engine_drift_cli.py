@@ -292,9 +292,9 @@ def test_deploy_workflow_is_manual_only_confirmed_serialised_and_gated():
 def test_deploy_workflow_step_order_and_credential_preflight():
     code = "\n".join(code_lines(wf_text("deploy-engine.yml")))
     at = {k: code.index(k) for k in ("CONFIRM", "actions/checkout", "pytest", "setup-flyctl", "bash scripts/deploy-engine.sh",
-                                     "scripts/check-engine-drift.py")}
+                                     "scripts/check-engine-drift.py --write-snapshot engine-deployed.json")}
     assert at["CONFIRM"] < at["actions/checkout"] < at["pytest"] < at["setup-flyctl"] < at["bash scripts/deploy-engine.sh"] \
-        < at["scripts/check-engine-drift.py"], at
+        < at["scripts/check-engine-drift.py --write-snapshot engine-deployed.json"], at
     preflight = code[:at["actions/checkout"]]
     assert '"DEPLOY"' in preflight and "exit 1" in preflight
     assert "Add repository secret FLY_API_TOKEN (fly tokens create deploy -a gridforge-engine)" in preflight

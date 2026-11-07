@@ -259,6 +259,36 @@ case "$VOLUME_STATE" in
 esac
 grep -q "\[mounts\]" fly.toml || warn "fly.toml has no [mounts] section — the volume will not attach."
 
+# PERSISTED-FORMAT AND FIRST-BOOT FACTS (read from `git diff 79a83d5..653fabcf -- gridforge/`). 79a83d5 is the engine the committed owner report
+# said was live (code digest 73e35ca725d0...); that is NOT verified from here. The "live digest == ... : yes/no" line in the deploy workflow's
+# rollback-anchors summary confirms it before the deploy changes anything. This analysis is pinned to 653fabcf: if gridforge/ changes before
+# the deploy, re-run the same diff and re-read every line below.
+#
+# State the engine keeps on /data, and whether the newer code changed how it is written or read (a rollback to 79a83d5 can read all of it):
+#   usage counter  GRIDFORGE_USAGE_FILE            unchanged   (gridforge/api/metering.py not in the diff)
+#   ledger         GRIDFORGE_LEDGER_FILE           unchanged   (gridforge/api/ledger.py not in the diff; no ledger event field added)
+#   revocations    GRIDFORGE_REVOKED_FILE          unchanged   (gridforge/api/keys.py not in the diff)
+#   cost evidence  GRIDFORGE_COST_FILE costs.json  unchanged   (gridforge/api/costs.py, gridforge/costs.py, gridforge/data/ not in the diff)
+#   calibration    GRIDFORGE_CALIBRATION_RECORDS   unchanged   (gridforge/calibration/ not in the diff; fly.toml does not set the variable)
+#   idempotency    in memory only                  not state   (nothing is written; a restart empties it, as before)
+# None is INCOMPATIBLE and none is changed-compatible: no persisted format changed. The 20 changed files are the intake loader/schema, the
+# envelope/power/thermal/economics models, reporting text and api/server.py (rate-limit identity, discovery limiter, secret check).
+# What DID change is behaviour on input: the loader now refuses an `evidence` that is not exactly E0..E7 or a canonical name, and refuses
+# an `installed` key on cdus/transformers/ups/btm_options. A request body stored elsewhere (not on /data) and replayed may now be refused.
+#
+# New environment, and what the engine does on Fly at first boot with fly.toml and the Dockerfile as committed:
+#   GRIDFORGE_TRUSTED_PROXY_HOPS, GRIDFORGE_TRUSTED_IP_HEADER: neither is set by fly.toml or the Dockerfile. The platform sets FLY_APP_NAME,
+#     so the engine takes hops=1 and trusts Fly-Client-IP (then the last X-Forwarded-For entry, then the socket peer) as the rate-limit
+#     identity. Off Fly both default to "ignore forwarding headers". That Fly's proxy always overwrites Fly-Client-IP is Fly's documented
+#     behaviour; it was NOT verified from here, so after the deploy check that two different clients get separate allowances.
+#   GRIDFORGE_ENFORCE_SECRET_STRENGTH: not set anywhere, so a weak secret is only a WARNING on stderr at `serve` (it names the variable
+#     and its length, never the value) and the engine starts. GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET are checked for >= 24 characters.
+#     GRIDFORGE_KEY_SECRET minted by this script's --bootstrap is 64 hex characters; the live length of either secret is not readable from
+#     here, so look for the WARNING in `fly logs` after the deploy. Nothing else at startup reads a secret's length. Set ENFORCE=1 only once
+#     the logs show no WARNING (with it set, a short secret makes the container exit 2 before binding and the deploy fails its health check).
+#   GRIDFORGE_RATE_LIMIT=60 (fly.toml, overriding the Dockerfile's 30) now also bounds /health, /v1/version and /v1/tools through a separate,
+#     larger limiter (10x, at least 600 per minute), so the post-deploy checks below cannot trip it.
+#
 summary() {
   cat <<EOF
 
@@ -287,7 +317,7 @@ To rotate deliberately (this script never will):
   …then paste the same value into Vercel as GRIDFORGE_API_KEY.
 
 Database migrations are applied one at a time, in filename order, behind safety gates:
-  python3 scripts/apply-migration.py <number>      (see docs/10_PAYG_LAUNCH_CHECKLIST.md)
+  python3 scripts/apply-migration.py <number>      (the script's own header describes the gates)
 ────────────────────────────────────────────────────────────────────────
 EOF
 }
