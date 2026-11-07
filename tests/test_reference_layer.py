@@ -227,6 +227,42 @@ def test_the_published_platform_library_matches_the_engine():
         "public/reference/platforms.json is stale. Run scripts/build-reference.sh.")
 
 
+def test_the_published_density_screen_is_what_a_buyer_receives(monkeypatch, tmp_path):
+    """public/reference/density_screen.{md,html} must be the document /v1/screen returns at the client tier (what lib/deliverables.ts
+    stores for a purchase), with ONLY the engine's own synthetic-data stamp added above the screening stamp. Compared against a fresh
+    call of the real handler, so a screen that has drifted from the engine, or a re-skinned study, fails here."""
+    from html import escape
+
+    from gridforge.api.server import handle_screen
+    from gridforge.api.tiers import Tier
+    from gridforge.reporting.study import WATERMARK as SYNTHETIC
+
+    monkeypatch.setenv("GRIDFORGE_REPORT_DATE", "2026-09-14")
+    monkeypatch.setenv("GRIDFORGE_CALIBRATION_RECORDS", str(tmp_path / "none.jsonl"))
+    intake = json.loads((ROOT / "examples" / "intake" / "reference_hall.json").read_text())
+
+    md = handle_screen({"intake": intake, "format": "md"}, Tier.CLIENT)["document"]
+    published_md = (REFERENCE / "density_screen.md").read_text()
+    stamp = f"> **{SYNTHETIC}**\n\n"
+    assert published_md.count(stamp) == 1, "the synthetic stamp is missing from density_screen.md"
+    assert published_md.replace(stamp, "", 1).rstrip("\n") == md.rstrip("\n"), (
+        "public/reference/density_screen.md is not the document the screen handler returns. Run scripts/build-reference.sh.")
+
+    page = handle_screen({"intake": intake, "format": "html"}, Tier.CLIENT)["document_full"]
+    published = (REFERENCE / "density_screen.html").read_text()
+    callout = f"<div class='callout warning'>{escape(SYNTHETIC)}</div>"
+    assert published.count(callout) == 1
+    body = lambda t: t[t.index("<div class='wrap'>"):]  # noqa: E731 - everything after the site bar is the document itself
+    # The public copy wraps the document in one <main> landmark and gives the assumptions heading an id so the data request can be linked
+    # (scripts/build-reference.sh); nothing else inside it is touched.
+    assert published.count("<h2 id='data-request'>4. What we had to assume") == 1
+    unwrapped = (body(published).replace(callout, "", 1).replace("</main></body>", "</body>", 1)
+                 .replace("<h2 id='data-request'>", "<h2>", 1))
+    assert unwrapped == body(page), (
+        "public/reference/density_screen.html differs from the screen handler's document beyond the synthetic stamp.")
+    assert md.startswith("# Density Screen"), "the screen handler no longer returns a Density Screen"
+
+
 def test_the_cli_emits_both_payloads(tmp_path):
     for which, expected in (("constraints", "constraints"), ("platforms", "platforms")):
         out = tmp_path / f"{which}.json"

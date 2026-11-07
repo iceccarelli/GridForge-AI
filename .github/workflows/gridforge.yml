@@ -296,6 +296,21 @@ jobs:
           assert t['values'], 'no response fields in the published template'
           print('published specification ok')
           "
+      - name: The published Density Screen is the buyer's document, stamped synthetic, and loads nothing from a third party
+        run: |
+          python - <<'PY'
+          import pathlib
+          ref = pathlib.Path('public/reference')
+          for n in ('density_screen.html', 'density_screen.md'):
+              t = (ref / n).read_text()
+              assert 'NOT A CUSTOMER ASSET' in t, f'{n}: no synthetic stamp'
+              assert 'SCREENING OPINION' in t, f'{n}: not the screening document a buyer receives'
+          for f in ref.glob('*.html'):
+              t = f.read_text()
+              assert 'fonts.googleapis' not in t and 'fonts.gstatic' not in t, f'{f.name}: third-party font request'
+              assert 'Back to the sample deliverables' in t, f'{f.name}: dead end'
+          print('published Density Screen ok')
+          PY
       - name: The published pack must declare itself synthetic
         run: |
           python -c "

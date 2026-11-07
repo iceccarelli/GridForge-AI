@@ -3,6 +3,7 @@ import { QuestionList } from "@/components/QuestionList";
 import { constraintQuestions } from "@/lib/qa";
 import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
+import { fitText, pageTitle } from "@/lib/meta";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, Calculator } from "lucide-react";
@@ -51,8 +52,9 @@ export async function generateMetadata({
   const c = await constraintBySlug(slug);
   if (!c) return { title: "Constraint not found" };
   return {
-    title: `${c.name} — what it limits and what relieves it`,
-    description: `${c.headline} ${c.limits}`.slice(0, 300),
+    // Fitted, not sliced: a constraint's name and headline come from the engine's reference and some are long.
+    title: pageTitle(`${c.name} — what it limits and relieves`, `${c.name}: limits and relief`, c.name),
+    description: fitText(`${c.headline} ${c.limits}`),
     alternates: { canonical: `/constraints/${c.slug}` },
     openGraph: {
     ...OG_BASE,

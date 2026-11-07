@@ -7,11 +7,13 @@ import { platformLibrary } from "@/lib/constraints";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { pageablePlatforms } from "@/lib/platform-pages";
+import { PageJsonLd } from "@/components/PageJsonLd";
+import { breadcrumbJsonLd, collectionPageJsonLd, datasetJsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
-  title: "AI rack platforms — power, liquid fraction, flow and floor loading",
+  title: "AI rack power, flow and floor loading",
   description:
-    "Published rack power, liquid capture fraction, residual air load, technology-loop flow and floor loading for the AI platforms a retrofit has to carry — and the platforms we deliberately do not list, because the manufacturer has not published a rack power.",
+    "Published rack power, liquid fraction, residual air, flow and floor loading for AI platforms, and the platforms left out for want of a published power.",
   alternates: { canonical: "/platforms" },
   twitter: { card: "summary_large_image", images: pageImages("platforms") },
   openGraph: {
@@ -42,8 +44,28 @@ export default async function PlatformsPage() {
     );
   }
 
+  const pages = pageablePlatforms(lib.platforms);
+  const DESCRIPTION = typeof metadata.description === "string" ? metadata.description : "";
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      <PageJsonLd
+        data={[
+          collectionPageJsonLd(
+            "/platforms",
+            "AI rack platform library",
+            DESCRIPTION,
+            pages.map((p) => ({ name: p.name, path: `/platforms/${p.id}`, description: "Manufacturer-published rack power, liquid fraction, flow and floor loading." })),
+          ),
+          datasetJsonLd("/platforms", "AI rack platform library", "Published rack power, liquid capture fraction, residual air, flow and floor loading per platform, with sources. Vendor-published figures, not measurements.", {
+            path: "/reference/platforms.json",
+            format: "application/json",
+          }),
+          breadcrumbJsonLd([
+            { name: "Time to Power", path: "/" },
+            { name: "Platforms", path: "/platforms" },
+          ]),
+        ]}
+      />
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
           Platform library

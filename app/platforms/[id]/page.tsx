@@ -10,6 +10,7 @@ import { breadcrumbJsonLd } from "@/lib/jsonld";
 import { PLATFORM_CONSTRAINT_SLUGS, derive, pageablePlatforms } from "@/lib/platform-pages";
 import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { QUALIFY_LINK } from "@/lib/nav";
+import { fitText, pageTitle } from "@/lib/meta";
 
 export const dynamicParams = false;
 
@@ -26,14 +27,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const p = (await pageable()).find((x) => x.id === id);
   if (!p) return {};
-  const title = `${p.name} — rack power, liquid fraction, flow and floor loading`;
-  const description = `${p.name}: ${p.rack_kW} kW per rack, ${(p.liquid_fraction * 100).toFixed(0)}% captured by liquid, ${p.residual_air_kW} kW residual air, ${p.flow_l_per_min_per_rack} l/min, ${p.floor_loading_kg_per_m2.toLocaleString("en-IE")} kg/m². Published figures with sources, and what an existing hall has to carry.`;
+  const heading = `${p.name}: rack power and floor loading`;
+  const description = fitText(`${p.name}: ${p.rack_kW} kW per rack, ${(p.liquid_fraction * 100).toFixed(0)}% captured by liquid, ${p.residual_air_kW} kW residual air, ${p.flow_l_per_min_per_rack} l/min, ${p.floor_loading_kg_per_m2.toLocaleString("en-IE")} kg/m². Published figures, with sources.`);
   return {
-    title,
+    title: pageTitle(heading, `${p.name} rack power`),
     description,
     alternates: { canonical: `/platforms/${id}` },
     openGraph: {
-    ...OG_BASE, title, description, url: `/platforms/${id}` },
+    ...OG_BASE, title: heading, description, url: `/platforms/${id}` },
   };
 }
 

@@ -248,3 +248,48 @@ export function webPageJsonLd(path: string, name: string, description: string) {
     isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: SITE.name, url: SITE_URL },
   };
 }
+
+/**
+ * A page that is a set of documents or pages (the sample deliverables, the platform library). `parts` are real URLs of this site; each is
+ * described only by its name and what the page itself says of it. Nothing here claims a rating, a review or a customer.
+ */
+export function collectionPageJsonLd(
+  path: string,
+  name: string,
+  description: string,
+  parts: { name: string; path: string; description?: string; format?: string }[],
+) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name,
+    description,
+    url: siteUrl(path),
+    isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: SITE.name, url: SITE_URL },
+    hasPart: parts.map((x) => ({
+      "@type": "CreativeWork",
+      name: x.name,
+      url: siteUrl(x.path),
+      ...(x.description ? { description: x.description } : {}),
+      ...(x.format ? { encodingFormat: x.format } : {}),
+      isAccessibleForFree: true,
+    })),
+  };
+}
+
+/**
+ * A published data file as a Dataset: where it is, in what format, who publishes it, and the caveat the page carries. No licence is
+ * stated because none has been chosen for the data (an invented one would be a legal claim), and no measurement is implied.
+ */
+export function datasetJsonLd(path: string, name: string, description: string, file: { path: string; format: string }) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    name,
+    description,
+    url: siteUrl(path),
+    isAccessibleForFree: true,
+    creator: orgRef(),
+    distribution: [{ "@type": "DataDownload", encodingFormat: file.format, contentUrl: siteUrl(file.path) }],
+  };
+}

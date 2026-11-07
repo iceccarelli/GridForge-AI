@@ -9,7 +9,7 @@ import { QUALIFY_LINK } from "@/lib/nav";
 
 const TITLE = "About Time to Power — who is behind it, what it does and how to reach us";
 const DESCRIPTION =
-  "Time to Power is a founder-led engineering practice for existing AI data halls: the constraint that binds first, what relieves it, what that costs and when. What we sell, what we do not, where we are and how to contact us.";
+  "Time to Power is a founder-led engineering practice for existing AI data halls. What we sell and what we do not, where we are and how to reach us.";
 
 export const metadata: Metadata = {
   title: "About",
@@ -73,7 +73,8 @@ export default function AboutPage() {
         <h2 id="sell-h" className="text-xl font-semibold text-ghost">What we sell, and what we do not</h2>
         <ul className="mt-3 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-mute">
           <li>
-            Fixed-fee engineering engagements and metered software, each priced before you start:{" "}
+            Engineering engagements and metered software, each priced before you start (the Envelope Study and the Portfolio Screen
+            start with a deposit, and the fee is agreed in writing, within its band, before work starts):{" "}
             <Link href="/products" className="text-power underline">engagements</Link>,{" "}
             <Link href="/pricing" className="text-power underline">pricing</Link>,{" "}
             <Link href="/developers" className="text-power underline">machine interface</Link>.

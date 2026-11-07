@@ -75,7 +75,7 @@ function FeaturedRung({
               Turnaround
             </dt>
             <dd className="mt-1 text-sm text-ghost">
-              {product.turnaroundDays} working days{product.opensBandCents ? ", counted from the scoping call, not from payment" : ""}
+              {product.turnaroundDays} working days{product.opensBandCents ? ", counted from a complete intake and the scoping call, not from payment" : ""}
             </dd>
           </div>
           <div className="col-span-2">
@@ -147,11 +147,11 @@ export function EngagementLadder() {
         <div className="max-w-xl">
           <div className="eyebrow mb-2 text-power">Capacity engineering — buy today</div>
           <h2 className="text-2xl font-semibold tracking-tight">
-            Fixed fee, named artefact, no hourly billing.
+            Named artefact, fee set before work starts, no hourly billing.
           </h2>
         </div>
         <p className="max-w-sm text-[14px] text-mute">
-          Start where your question is. Most halls start with the screen, because it costs less
+          Start where your question is. The first paid step is the screen, because it costs less
           than the meeting you would otherwise have about whether to have a meeting.
         </p>
       </div>
