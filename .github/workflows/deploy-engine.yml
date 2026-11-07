@@ -9,8 +9,13 @@ name: deploy-engine
 # What it does, in order:
 #   1. confirm == DEPLOY, and the FLY_API_TOKEN secret exists (fails fast, names the fix, never prints the token)
 #   2. the engine test suite
-#   3. scripts/deploy-engine.sh  (no --bootstrap: a deploy never creates, rotates or overwrites a credential)
-#   4. scripts/check-engine-drift.py against the live engine; the job fails if ANY drift remains
+#   3. rollback anchors, read-only, BEFORE anything changes: what the live engine reports (engine-before.json, written by the drift script
+#      even when it differs from this repository), and flyctl's raw `releases` and `machines list` output (releases-before.json,
+#      machines-before.json; stored as flyctl printed them, never parsed in shell). Uploaded as the artifact `engine-before`.
+#   4. scripts/deploy-engine.sh  (no --bootstrap: a deploy never creates, rotates or overwrites a credential)
+#   5. scripts/check-engine-drift.py against the live engine; the job fails if ANY drift remains
+#   6. exactly one machine must exist afterwards (the deploy script checks it and exits 1 on any other count; this step asserts it again,
+#      independently, and also fails when the list cannot be read)
 #
 # Topology rule (see fly.toml): ONE machine, ONE volume. usage, ledger and revocations are local state. The script deploys with
 # --ha=false and fails if it finds anything other than exactly one machine mounting the volume. Never scale to 2.
@@ -81,6 +86,53 @@ jobs:
       - name: Record the flyctl version used
         run: flyctl version
 
+      - name: Record rollback anchors (read-only)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Nothing here changes anything: two flyctl reads and one GET. flyctl's output format varies between versions, so the raw
+          # output is kept exactly as printed (an empty file means flyctl could not answer; the step log has its error) and never parsed here.
+          flyctl releases --app "$FLY_APP" --json > releases-before.json || true
+          flyctl machines list --app "$FLY_APP" --json > machines-before.json || true
+          # The drift script exits 1 when the live engine differs from this repository (expected: that is why we are deploying) and still
+          # writes the snapshot. Exit 2 means the live engine could not be read: there is then no "before" to roll back to, so stop.
+          rc=0
+          python3 scripts/check-engine-drift.py --write-snapshot engine-before.json || rc=$?
+          if [ "$rc" -ge 2 ] || [ ! -s engine-before.json ]; then
+            echo "::error title=No rollback anchor::The live engine could not be read, so engine-before.json was not written. Nothing was deployed."
+            exit 1
+          fi
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### Rollback anchors (recorded before the deploy)
+
+          Artifact `engine-before`: `engine-before.json` (what the live engine reported), `releases-before.json` and `machines-before.json`
+          (flyctl's raw output; empty means flyctl could not answer).
+
+          To roll back: redeploy the previous image recorded in `releases-before.json`, then run the baseline check.
+          The exact flyctl invocation is not asserted here: confirm with `fly deploy --help` on your flyctl version.
+
+          ```
+          python3 scripts/check-engine-drift.py --baseline engine-before.json
+          ```
+
+          Exit 0 means the engine reports the code digest, version, endpoints and unit rates it reported before this deploy. Exit 1 lists
+          what differs; exit 2 means the baseline or the engine could not be read.
+
+          **A code rollback does NOT roll back the volume data.** Usage, ledger, revocations, cost and calibration files on `/data` keep
+          whatever the newer engine wrote. Keep exactly one machine mounting the one volume while rolling back.
+          EOF
+
+      - name: Upload the rollback anchors
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-before
+          path: |
+            engine-before.json
+            releases-before.json
+            machines-before.json
+          if-no-files-found: warn
+
       - name: Deploy (never changes a credential; one machine, one volume)
         id: deploy
         env:
@@ -99,3 +151,29 @@ jobs:
           name: engine-deployed
           path: engine-deployed.json
           if-no-files-found: ignore
+
+      # The topology rule, asserted on its own: exactly one machine. The deploy script already exits 1 on any other count (which fails the
+      # Deploy step); this reads the list again and ALSO fails when it cannot be read, because an unread list proves nothing.
+      - name: Exactly one machine must exist after the deploy
+        if: ${{ !cancelled() && steps.deploy.conclusion != 'skipped' }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl machines list --app "$FLY_APP" --json > machines-after.json
+          python3 - machines-after.json <<'PY'
+          import json, sys
+          try:
+              rows = json.load(open(sys.argv[1]))
+          except Exception as exc:
+              print(f"::error title=Machine count unreadable::flyctl output could not be parsed ({exc}); confirm with `fly machines list` that exactly one machine exists")
+              raise SystemExit(1)
+          if isinstance(rows, dict):
+              rows = rows.get("machines")
+          if not isinstance(rows, list):
+              print("::error title=Machine count unreadable::flyctl output is not a list of machines; confirm with `fly machines list`")
+              raise SystemExit(1)
+          if len(rows) != 1:
+              print(f"::error title=Wrong machine count::{len(rows)} machines exist; usage, ledger and revocations are local state, so exactly one machine may mount the volume. Destroy the extra machine(s) with flyctl; do not add capacity.")
+              raise SystemExit(1)
+          print("OK: exactly one machine")
+          PY

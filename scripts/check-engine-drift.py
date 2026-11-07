@@ -2,6 +2,7 @@
 """Read-only: does the DEPLOYED engine serve what this repository says it serves?
 
     python3 scripts/check-engine-drift.py [BASE_URL] [--json] [--write-snapshot PATH] [--summary-file PATH]
+    python3 scripts/check-engine-drift.py [BASE_URL] --baseline FILE [--json] [--summary-file PATH]
 
 The version string does not move on every change, so "version 0.9.0" proves nothing about
 which routes exist. This compares the repo's ROUTES, UNIT_COST, code digest, ledger flag and
@@ -17,6 +18,13 @@ the exact operator step is printed. Nothing is hidden or softened: every asserti
                          Written even when there is drift (it records what IS deployed);
                          never written when /v1/version could not be read.
   --summary-file PATH    append a Markdown summary (CI: $GITHUB_STEP_SUMMARY)
+  --baseline FILE        ROLLBACK CHECK. Instead of comparing the live engine with this repository, compare it with a snapshot that
+                         --write-snapshot wrote earlier (the deploy workflow keeps one as engine-before.json): code_sha256, version,
+                         the endpoint set and the unit rates. Exit 0 identical, 1 different (every difference listed), 2 the baseline
+                         file or the live engine could not be read (nothing was verified). This is how a rollback is checked: the code
+                         is back to what it was if, and only if, this exits 0. It is a GET against /v1/version and reads one local file;
+                         it does not look at the repository, so it cannot be combined with --write-snapshot or --require-clean-tree.
+                         It says nothing about the /data volume: a code rollback does not roll back usage, ledger or revocation data.
   --require-clean-tree   exit 2 unless every file under gridforge/ is committed and unmodified. The code digest hashes the files that are
                          on disk; CI hashes a clean checkout. On a dirty tree the two can disagree, so this says so instead of guessing.
 
@@ -31,6 +39,7 @@ lists it) understates it with it. It is printed as a WARNING, put under "warning
 drift (the engine is not behind the repository) and the script never edits the snapshot: the owner refreshes it after a deploy.
 
 Exit status: 0 no drift, 1 drift, 2 the engine could not be read (or --require-clean-tree was not met).
+With --baseline: 0 identical to the baseline, 1 different, 2 the baseline or the engine could not be read.
 """
 from __future__ import annotations
 
@@ -188,6 +197,78 @@ def read_snapshot_endpoints(path: Path = SNAPSHOT_JSON):
     return data.get("endpoints") if isinstance(data, dict) else None
 
 
+BASELINE_KEYS = ("version", "endpoints", "unit_rates", "code_sha256")
+
+
+def load_baseline(path: str) -> dict:
+    """The snapshot --write-snapshot wrote, validated. Raises ValueError (with a reason a person can act on) when the file is missing,
+    is not JSON, is not an object, or lacks the fields a comparison needs. A baseline that cannot be read never means "identical"."""
+    try:
+        text = Path(path).read_text()
+    except OSError as exc:
+        raise ValueError(f"baseline file {path} cannot be read ({type(exc).__name__}: {exc})") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"baseline file {path} is not valid JSON ({exc})") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"baseline file {path} is not a JSON object")
+    missing = [k for k in BASELINE_KEYS if k not in data]
+    if missing:
+        raise ValueError(f"baseline file {path} lacks {', '.join(missing)}: it is not a snapshot written by --write-snapshot")
+    eps, rates, sha = data["endpoints"], data["unit_rates"], data["code_sha256"]
+    if not isinstance(eps, list) or not all(isinstance(e, str) for e in eps):
+        raise ValueError(f"baseline file {path}: endpoints must be a list of strings")
+    if not isinstance(rates, dict):
+        raise ValueError(f"baseline file {path}: unit_rates must be an object")
+    if sha is not None and not isinstance(sha, str):
+        raise ValueError(f"baseline file {path}: code_sha256 must be a string or null")
+    return data
+
+
+def baseline_differences(baseline: dict, live: dict) -> list[str]:
+    """Every difference between a baseline snapshot and the live engine's snapshot (both in the shape `snapshot()` returns). Pure: no I/O.
+
+    [] means identical on code_sha256, version, the endpoint set and the unit rates. Order is stable (digest, version, endpoints, rates)."""
+    out: list[str] = []
+    b_sha, l_sha = baseline.get("code_sha256"), live.get("code_sha256")
+    if b_sha != l_sha:
+        out.append(f"code digest: baseline {str(b_sha)[:12] if b_sha else 'none published'}, live {str(l_sha)[:12] if l_sha else 'none published'}")
+    if baseline.get("version") != live.get("version"):
+        out.append(f"version: baseline {baseline.get('version')!r}, live {live.get('version')!r}")
+    b_eps, l_eps = set(baseline.get("endpoints") or []), set(live.get("endpoints") or [])
+    for e in sorted(b_eps - l_eps):
+        out.append(f"endpoint {e}: in the baseline, not served live")
+    for e in sorted(l_eps - b_eps):
+        out.append(f"endpoint {e}: served live, not in the baseline")
+    b_rates = baseline.get("unit_rates") if isinstance(baseline.get("unit_rates"), dict) else {}
+    l_rates = live.get("unit_rates") if isinstance(live.get("unit_rates"), dict) else {}
+    for path in sorted(set(b_rates) | set(l_rates)):
+        if b_rates.get(path) != l_rates.get(path):
+            out.append(f"unit rate for {path}: baseline {b_rates.get(path)!r}, live {l_rates.get(path)!r}")
+    return out
+
+
+def render_baseline_text(base: str, baseline: dict, diffs: list[str], path: str) -> str:
+    when = baseline.get("fetched_at") or "an unknown time"
+    head = [f"{base}: compared with baseline {path} (recorded {when} from {baseline.get('base') or 'an unknown engine'})."]
+    if baseline.get("base") and str(baseline["base"]).rstrip("/") != base:
+        head.append(f"note: the baseline was recorded from {baseline['base']}, not {base}.")
+    if not diffs:
+        return "\n".join([*head, "IDENTICAL: code digest, version, endpoints and unit rates match the baseline.",
+                          "This says nothing about the /data volume: a code rollback does not roll back usage, ledger or revocation data."])
+    return "\n".join([*head, f"DIFFERENT from the baseline ({len(diffs)}):", *[f"  - {d}" for d in diffs]])
+
+
+def render_baseline_markdown(base: str, baseline: dict, diffs: list[str], path: str) -> str:
+    if not diffs:
+        return (f"### Rollback check: identical to the baseline\n\n`{base}` matches `{path}` on code digest, version, endpoints and unit rates. "
+                "Volume data (usage, ledger, revocations) is not covered by a code rollback.\n")
+    return "\n".join([f"### Rollback check: {len(diffs)} difference(s) from the baseline", "",
+                      f"`{base}` does **not** match `{path}` (recorded {baseline.get('fetched_at') or 'at an unknown time'}).", "",
+                      *[f"- {d}" for d in diffs], ""])
+
+
 def drift(deployed: dict, tools: dict | None = None) -> list[str]:
     """Flat list of differences (grouped order); [] means no drift."""
     grouped = drift_grouped(deployed, tools)
@@ -271,6 +352,41 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
+def run_baseline(base: str, baseline_path: str, fetch, as_json: bool, summary_path: str | None) -> int:
+    """--baseline: 0 identical, 1 different, 2 the baseline or the live engine could not be read. GET /v1/version only."""
+    def unreadable(msg: str) -> int:
+        if as_json:
+            print(json.dumps({"base": base, "mode": "baseline", "ok": False, "error": msg, "differences": [], "count": 0}, indent=2))
+        else:
+            print(msg)
+        if summary_path:
+            with open(summary_path, "a") as fh:
+                fh.write(f"### Rollback check: unreadable\n\n{msg}\n")
+        return 2
+
+    try:
+        baseline = load_baseline(baseline_path)
+    except ValueError as exc:
+        return unreadable(f"{exc}. Nothing was verified.")
+    try:
+        deployed = fetch(base + "/v1/version")
+        if not isinstance(deployed, dict):
+            raise ValueError("/v1/version is not a JSON object")
+    except Exception as exc:  # noqa: BLE001 - an unreadable engine is reported, never swallowed into "identical"
+        return unreadable(f"{base}: could not read /v1/version ({type(exc).__name__}: {exc}). Nothing was verified.")
+    diffs = baseline_differences(baseline, snapshot(deployed, base))
+    if as_json:
+        print(json.dumps({"base": base, "mode": "baseline", "ok": not diffs, "baseline_file": baseline_path,
+                          "baseline_fetched_at": baseline.get("fetched_at"), "baseline_base": baseline.get("base"),
+                          "count": len(diffs), "differences": diffs}, indent=2))
+    else:
+        print(render_baseline_text(base, baseline, diffs, baseline_path))
+    if summary_path:
+        with open(summary_path, "a") as fh:
+            fh.write(render_baseline_markdown(base, baseline, diffs, baseline_path))
+    return 1 if diffs else 0
+
+
 def main(argv: list[str] | None = None, fetch=None, tree=None, snapshot_endpoints=None) -> int:
     """`fetch(url) -> dict`, `tree() -> (state, changed)` and `snapshot_endpoints() -> list | None` are injectable so tests need no
     network, no git state and do not depend on the committed snapshot."""
@@ -280,7 +396,7 @@ def main(argv: list[str] | None = None, fetch=None, tree=None, snapshot_endpoint
     args = list(sys.argv[1:] if argv is None else argv)
     as_json = False
     require_clean = False
-    snap_path = summary_path = None
+    snap_path = summary_path = baseline_path = None
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -289,13 +405,15 @@ def main(argv: list[str] | None = None, fetch=None, tree=None, snapshot_endpoint
             as_json = True
         elif a == "--require-clean-tree":
             require_clean = True
-        elif a in ("--write-snapshot", "--summary-file"):
+        elif a in ("--write-snapshot", "--summary-file", "--baseline"):
             if i + 1 >= len(args):
                 print(f"{a} needs a path", file=sys.stderr)
                 return 2
             i += 1
             if a == "--write-snapshot":
                 snap_path = args[i]
+            elif a == "--baseline":
+                baseline_path = args[i]
             else:
                 summary_path = args[i]
         elif a in ("-h", "--help"):
@@ -312,6 +430,12 @@ def main(argv: list[str] | None = None, fetch=None, tree=None, snapshot_endpoint
     if from_env and base != DEFAULT_BASE:
         # CI runs without GRIDFORGE_API_URL, so a local run that has it set is not checking the same engine as CI. Say so.
         print(f"note: base URL taken from GRIDFORGE_API_URL ({base}); CI checks {DEFAULT_BASE}", file=sys.stderr)
+    if baseline_path is not None:
+        if snap_path or require_clean:
+            print("--baseline compares the live engine with a file, not with this repository: it cannot be combined with "
+                  "--write-snapshot or --require-clean-tree", file=sys.stderr)
+            return 2
+        return run_baseline(base, baseline_path, fetch, as_json, summary_path)
     state = tree()
     if require_clean and state[0] != "clean":
         msg = (f"--require-clean-tree: working tree under gridforge/ is {state[0]}"
