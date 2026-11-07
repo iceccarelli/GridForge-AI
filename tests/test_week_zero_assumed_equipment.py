@@ -303,3 +303,21 @@ def test_no_point_names_a_relief_that_is_quicker_than_the_week_it_is_dated_at_wh
                 continue
             named = [s.lead_time_weeks.value for s in lad.taken_steps if s.binding_name == p.unlocked_by]
             assert named and max(named) >= CDU_KIT_WEEKS, (hall, r.spec.id, p)
+
+
+# --- the combined case: an undeclared bank AND an assumed kit AND racks as found ---------------------------------------------------------------
+def test_with_an_undeclared_bank_and_an_assumed_kit_no_first_rack_date_is_given_and_the_record_says_why():
+    d = copy.deepcopy(DUBLIN)
+    d.pop("transformers")
+    r = _scenario(d, "hybrid_dlc")
+    ttp = schedule(r.ladder)
+    assert r.ladder.initial.max_racks > 0 and r.ladder.assumed_cdu_kit and list(r.ladder.unassessed_banks) == ["transformers"]
+    assert ttp.complete is False and ttp.weeks_to_first_rack is None and ttp.weeks_to_full is None      # the f064f59 rule: incomplete => no date
+    rec = date_record(r.ladder, ttp)
+    assert rec["status"] == "lead_time_missing" and "not declared: transformers" in rec["missing_inputs"]
+    assert "NO date is given here" in rec["limitation"] and "not declared: transformers" in rec["limitation"]
+    assert "first-rack date rests on it" not in rec["limitation"]                  # the kit-only claim is not made
+    row = _row(d, "hybrid_dlc")["time_to_power"]
+    assert row["status"] == "lead_time_missing" and row["first_rack_weeks"] is None and row["weeks"] is None
+    # and the kit-only case says what it says
+    assert "first-rack date rests on it" in date_record(_scenario(DUBLIN, "hybrid_dlc").ladder)["limitation"]

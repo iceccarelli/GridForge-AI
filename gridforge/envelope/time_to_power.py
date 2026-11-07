@@ -387,9 +387,13 @@ def date_record(ladder: HeadroomLadder, ttp: TimeToPower | None = None, document
                        "against a written quotation.")
     elif src == LEAD_SOURCE_LIBRARY:
         limitation += f" The lead time that sets the date is a {LEAD_SOURCE_LABELS[src]}, not the customer's figure."
-    if ttp.floored_by_cdu_kit:
-        limitation += (" No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake declares no CDUs, "
-                       "so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.")
+    if ttp.floored_by_cdu_kit and ladder.unassessed_banks:
+        limitation += (" The CDU kit is assumed, so no rack is dated earlier than the library CDU lead time; but NO date is given here, because "
+                       "not declared: " + ", ".join(ladder.unassessed_banks) + " (the reliefs those banks would need are neither priced nor "
+                       "timed, so any date would be a lower bound). A date is only given for the CDU kit alone when every bank is declared.")
+    elif ttp.floored_by_cdu_kit:
+        limitation += (" No rack is dated earlier than the library CDU lead time, and the first-rack date rests on it (an assumption: the intake "
+                       "declares no CDUs, so the scenario assumes a kit); the kit's commissioning and the conversion works are not in the schedule.")
     return {
         "status": status,
         "controlling_component": controlling,
