@@ -117,8 +117,9 @@ try {
     await s.ctx.close();
     const u = await session(1440, 900, `unv:unconfirmed-${uid()}@journey.example`, "unconfirmed");
     await u.page.goto(SITE + "/account/sites");
-    await u.page.getByRole("alert").first().waitFor({ timeout: 15000 });
-    check("an unconfirmed address is told to confirm and sees no data", /Confirm your email/.test(await u.page.getByRole("alert").first().innerText()));
+    const confirm = u.page.locator("[role=alert]", { hasText: "Confirm your email" });
+    await confirm.waitFor({ timeout: 15000 }).catch(() => {});
+    check("an unconfirmed address is told to confirm and sees no data", (await confirm.count()) === 1 && (await u.page.locator("table").count()) === 0);
     await u.ctx.close();
   }
 
@@ -169,7 +170,7 @@ try {
     await page.getByLabel("Field", { exact: true }).fill("grid.firm_capacity_MVA");
     await page.getByLabel("Origin").selectOption("measured");
     await page.getByLabel("Value", { exact: true }).fill("40");
-    await page.getByLabel("Unit (optional)").fill("MVA");
+    check(at("choosing a field fills in its usual unit"), (await page.getByLabel("Unit (optional)").inputValue()) === "MVA");
     await page.getByRole("button", { name: "Record figure" }).click();
     const alert2 = page.locator("[role=alert]", { hasText: "needs a source file" });
     await alert2.first().waitFor({ timeout: 5000 });
@@ -188,7 +189,9 @@ try {
     check(at("recording over a field says it will replace it"), await page.getByText("Your entry will replace it; the earlier figure stays in the history.").isVisible());
     await page.getByLabel("Value", { exact: true }).fill("42");
     await page.getByRole("button", { name: "Record a correction" }).click();
-    await page.locator("tbody tr", { hasText: "42 MVA" }).waitFor({ timeout: 15000 });
+    await page.locator("tbody tr", { hasText: "42 MVA" }).waitFor({ timeout: 15000 }).catch(async () => {
+      console.log("  correction did not appear; alerts:", JSON.stringify(await page.locator("[role=alert]").allInnerTexts()));
+    });
     check(at("the correction is current and the old figure is no longer in the current table"), (await page.locator("tbody tr", { hasText: "40 MVA" }).count()) === 0);
     await page.locator("ol li", { hasText: "40 MVA" }).waitFor({ timeout: 15000 });
     check(at("the timeline keeps the replaced figure, marked as replaced"), /replaced by a later figure/.test(await page.locator("ol li", { hasText: "40 MVA" }).innerText()));

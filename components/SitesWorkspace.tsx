@@ -363,6 +363,14 @@ export function RecordInput({ hall, current, onDone }: { hall: Hall; current: In
   const capped = ORIGINS_CAPPED_AT_E3.includes(origin);
   const needsSource = ORIGINS_NEEDING_A_SOURCE.includes(origin);
 
+  /** Choosing a field fills in its usual unit (or the unit of the figure it would replace), so a correction does not silently lose it. */
+  function onPath(next: string) {
+    setPath(next);
+    const p = next.trim();
+    const known = current.find((i) => i.fieldPath === p)?.unit ?? EXPECTED_HALL_FIELDS.find((x) => x.path === p)?.unit ?? "";
+    if (known && origin !== "missing") setUnit(known);
+  }
+
   function onOrigin(o: Origin) {
     setOrigin(o);
     if (o === "missing") { setValue(""); setUnit(""); setCls("E0"); setSrcKind("none"); setSrcId(""); }
@@ -406,7 +414,7 @@ export function RecordInput({ hall, current, onDone }: { hall: Hall; current: In
     <form onSubmit={submit} noValidate aria-labelledby="record-title" className="mt-8 rounded-lg border border-line p-4 grid gap-3 sm:grid-cols-2 items-start">
       <h3 id="record-title" className="sm:col-span-2 text-sm font-semibold">Record a figure</h3>
       <Field id="rec-path" label="Field" hint={replaces ? `This field already has a value (${valueText(replaces)}). Your entry will replace it; the earlier figure stays in the history.` : "An intake path. Pick one or type your own."}>
-        <input id="rec-path" list="rec-paths" className={fieldBox} value={path} onChange={(e) => setPath(e.target.value)} aria-describedby="rec-path-hint" aria-required="true" autoComplete="off" />
+        <input id="rec-path" list="rec-paths" className={fieldBox} value={path} onChange={(e) => onPath(e.target.value)} aria-describedby="rec-path-hint" aria-required="true" autoComplete="off" />
         <datalist id="rec-paths">{EXPECTED_HALL_FIELDS.map((x) => <option key={x.path} value={x.path}>{x.label}</option>)}</datalist>
       </Field>
       <Field id="rec-origin" label="Origin" hint={ORIGIN_MEANING[origin]}>
