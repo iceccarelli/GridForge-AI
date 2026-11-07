@@ -16,10 +16,13 @@ export interface HeaderRule {
 }
 
 /**
- * API routes that take a bearer token in a header or body (and, for one more release, a query string). Their path has no token segment, so the
- * pattern is the exact route: Next matches `/api/keys` and nothing under it. Responses are never cached, never sent as a referrer and never indexed.
+ * API routes that take, mint or return a bearer credential (the account portal token, a newly minted API key, or a link that opens a portal)
+ * without it appearing in their own path. /api/keys and /api/usage are exact patterns (Next matches that route and nothing under it);
+ * /api/payg/* (enable and card return a Stripe Checkout link and set the return cookie, cap returns a newly minted key, return redirects to
+ * the portal) and /api/billing/* (the Stripe billing portal link and its return) use the same ":path*" prefix style as the token pages.
+ * Responses are never cached, never sent as a referrer and never indexed.
  */
-export const TOKEN_API_ROUTES = ["/api/keys", "/api/usage"] as const;
+export const TOKEN_API_ROUTES = ["/api/keys", "/api/usage", "/api/payg/:path*", "/api/billing/:path*"] as const;
 
 /** The route patterns whose path contains a bearer token, then the API routes that authenticate with one. */
 export const TOKEN_ROUTES = [

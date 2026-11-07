@@ -6,6 +6,8 @@
  *
  * Stand-ins: the in-memory PostgREST fake and the pay-as-you-go harness. No live Stripe, Supabase or engine call is made.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import { siteUrl } from "@/lib/site";
@@ -167,8 +169,21 @@ describe("the real header configuration covers both routes", () => {
       expect(h["X-Robots-Tag"], p).toMatch(/noindex/);
     }
   });
+  it("every route that mints or returns a key or a portal link is covered: /api/payg/* and /api/billing/*, discovered from the source tree", () => {
+    const handlers = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? handlers(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name)] : []));
+    const paths = [...handlers("app/api/payg"), ...handlers("app/api/billing")].map((f) => "/" + path.relative("app", path.dirname(f)).split(path.sep).join("/"));
+    expect(paths).toEqual(expect.arrayContaining(["/api/payg/cap", "/api/payg/enable", "/api/payg/card", "/api/billing/portal"]));
+    for (const p of paths) {
+      const h = served(p);
+      expect(h["Cache-Control"], p).toMatch(/no-store/);
+      expect(h["Referrer-Policy"], p).toBe("no-referrer");
+      expect(h["X-Robots-Tag"], p).toMatch(/noindex/);
+    }
+  });
   it("the patterns are exact: they do not spill onto a sibling route, and the other token routes still match their tokens", () => {
     expect(served("/api/keys-other")["Cache-Control"]).toBeUndefined();
+    expect(served("/api/paygx")["Cache-Control"]).toBeUndefined();
+    expect(served("/api/billing-other/x")["Cache-Control"]).toBeUndefined();
     expect(served("/api/chat")["Cache-Control"]).toBeUndefined();
     expect(served("/q/abc123")["Cache-Control"]).toMatch(/no-store/);
   });
