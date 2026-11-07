@@ -248,3 +248,27 @@ def test_a_supplied_figure_changes_no_other_constraint():
         ca = {c.id: (c.racks, c.basis) for c in ra.envelope.constraints if c.id != "busway_ampacity"}
         cb = {c.id: (c.racks, c.basis) for c in rb.envelope.constraints if c.id != "busway_ampacity"}
         assert ca == cb
+
+
+# --- the deck slide "What nobody has measured yet" shows the first eight gaps: the new optional row must not displace any of them ------------------
+GAPS_BASE = json.loads((ROOT / "tests" / "golden_gaps_b649b3e.json").read_text(encoding="utf-8"))       # [label, assumed, where from], base b649b3e7
+
+
+@pytest.mark.parametrize("name", ["dublin_hall", "london_hall", "nordic_hall", "reference_hall"])
+def test_the_first_eight_gaps_of_every_example_are_the_base_ones_and_the_new_row_is_last(name):
+    intake = load(ROOT / "examples" / "intake" / f"{name}.json")
+    got = [[g.label, g.fallback_description, g.how_to_get_it] for g in intake.report.gaps]
+    assert got[:8] == (GAPS_BASE[name] + [got[-1]])[:8]               # what the slide shows: every base gap keeps its place; a short list gains the row
+    assert all(g in got[:8] for g in GAPS_BASE[name][:8])
+    assert got[:-1] == GAPS_BASE[name]                                # and nothing else moved: the base list, then the new row
+    assert intake.report.gaps[-1].path == PATH
+
+
+def test_the_deck_slide_lists_the_same_first_eight_inputs_as_base():
+    from gridforge.reporting.deck import build as build_deck
+    for name in ("nordic_hall", "reference_hall"):                    # the two halls that have more than eight gaps with the new row
+        intake = load(ROOT / "examples" / "intake" / f"{name}.json")
+        results = run_all(intake.context, intake.scenarios)
+        deck = build_deck(intake, results)
+        slide = next(s for s in deck.slides if s.kicker == "Evidence")
+        assert [row[0] for row in slide.table[1]] == [g[0] for g in GAPS_BASE[name][:8]]

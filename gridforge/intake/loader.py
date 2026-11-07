@@ -1179,6 +1179,9 @@ def _load_document(doc: dict) -> Intake:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
 
+    # The optional busway-load row goes LAST in the ledger: the deck's "What nobody has measured yet" slide shows the first eight gaps, and a
+    # newer optional input must not displace the long-standing ones from it (tests/test_existing_load_input.py pins the first eight).
+    r.report.gaps.sort(key=lambda g: g.path == existing_busway_path)       # stable: only that row moves, and only to the end
     scenarios = _scenario_set(doc.get("scenarios"))
     return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)
