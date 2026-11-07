@@ -55,11 +55,14 @@ def _num(raw: Any, what: str = "value") -> float:
     return v
 
 
-def _declared_evidence(path: str, raw: Any) -> EvidenceClass:
+def declared_evidence_class(path: str, raw: Any) -> EvidenceClass:
     """The evidence class a client declares for a figure: exactly E0..E7 (case-insensitive, surrounding whitespace ignored), nothing else.
 
     Reading only the first two characters made "E10" an E1, "E39" an E3 and "E1 (measured)" an E1, so a client could attest to a class it
-    never named; a bare 0, false or [] was dropped as "nothing declared". Anything that is not exactly a class is refused by field."""
+    never named; a bare 0, false or [] was dropped as "nothing declared". Anything that is not exactly a class is refused by field.
+
+    The ONE parser of a declared class: ``change.declared_evidence`` (the diff's evidence fingerprint) calls it too, so the loader and the diff
+    cannot disagree about what a class is."""
     if isinstance(raw, str):
         found = _EVIDENCE_BY_NAME.get(raw.strip().upper())
         if found is not None:
@@ -403,7 +406,7 @@ class _Reader:
                 raise IntakeError(f"{path}.{what} must be text, not {type(val).__name__}")
         declared = None
         if raw.get("evidence") is not None:      # JSON null = not declared; ANYTHING else, falsy or not, is a claim and must be a class
-            declared = _declared_evidence(path, raw["evidence"])
+            declared = declared_evidence_class(path, raw["evidence"])
             # A client can attest to their own data, never to our validation: E6/E7 are
             # earned by the calibration ledger, not by writing them into an intake.
             if declared > EvidenceClass.E5_CUSTOMER_DATA:

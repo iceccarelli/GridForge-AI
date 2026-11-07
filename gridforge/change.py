@@ -25,7 +25,7 @@ from typing import Any
 from .costs import library
 from .envelope.solver import rack_evidence
 from .envelope.time_to_power import full_capacity_band, schedule, schedule_complete
-from .intake.loader import load_document
+from .intake.loader import declared_evidence_class, load_document
 from .scenario.objective import Objective, pick_recommended
 from .scenario.run import ScenarioResult, run_all
 
@@ -50,8 +50,8 @@ def declared_evidence(doc: Any, prefix: str = "") -> dict[str, str]:
     out: dict[str, str] = {}
     if isinstance(doc, dict):
         if "value" in doc:
-            if doc.get("evidence"):
-                out[prefix] = str(doc["evidence"]).upper()[:2]
+            if doc.get("evidence") is not None:      # the loader's own strict parser: " e3 " is E3, "E10" and 0 are refused, not read as "E1" / nothing
+                out[prefix] = declared_evidence_class(prefix, doc["evidence"]).short
             return out
         for k, v in doc.items():
             out.update(declared_evidence(v, f"{prefix}.{k}" if prefix else k))
