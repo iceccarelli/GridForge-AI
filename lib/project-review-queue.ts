@@ -7,8 +7,8 @@
 // vouch for, who submitted them, and the evidence file's name, type, size and SHA-256 (enough to find and check the file).
 
 import { rest } from "@/lib/pgrest";
-import { observationQueue, type ObservationRow } from "@/lib/project-observations";
-import { supplierActualQueue, VERIFIABLE_FIELDS, type ActualRow } from "@/lib/supplier-reality";
+import type { ObservationRow } from "@/lib/project-observations";
+import { VERIFIABLE_FIELDS, type ActualRow } from "@/lib/supplier-reality";
 
 export interface EvidenceRef {
   filename: string;
@@ -65,9 +65,55 @@ export interface ActualItem {
   evidence: EvidenceRef | null;
 }
 
+/** How many of each kind the screen shows at once, how many rows one read fetches, and the most rows one load will scan. */
+export const REVIEW_SHOW_MAX = 50;
+export const REVIEW_PAGE = 100;
+export const REVIEW_SCAN_MAX = 5000;
+
+export interface QueueCount {
+  /** Items on screen. */
+  shown: number;
+  /** Items awaiting a decision among the rows scanned. */
+  pending: number;
+  /** True when the scan stopped at REVIEW_SCAN_MAX: older records were not examined, so `pending` is a floor. */
+  truncated: boolean;
+}
+
 export type ReviewQueue =
-  | { ok: true; observations: ObservationItem[]; actuals: ActualItem[] }
+  | { ok: true; observations: ObservationItem[]; actuals: ActualItem[]; counts: { observations: QueueCount; actuals: QueueCount } }
   | { ok: false; status: number; error: string };
+
+/**
+ * The records of one kind that have no decision yet, newest first, with a STABLE order (saved time, then id) and an explicit
+ * page size. Whether a record is decided is asked of the review table for exactly the ids in hand, never inferred from a
+ * capped list of reviews: a row cap on either table (PostgREST's own default is 1000) therefore cannot make a decided record
+ * look pending. The scan is bounded (REVIEW_SCAN_MAX) and says so when it stops early.
+ */
+export async function pendingOf<T extends { id: string }>(
+  table: string,
+  reviewTable: string,
+  foreignKey: string
+): Promise<{ ok: true; pending: T[]; truncated: boolean } | { ok: false; status: number; error: string }> {
+  const pending: T[] = [];
+  let scanned = 0;
+  for (let offset = 0; offset < REVIEW_SCAN_MAX; offset += REVIEW_PAGE) {
+    const page = await rest<T[]>("GET", `${table}?select=*&order=submitted_at.desc,id.desc&limit=${REVIEW_PAGE}&offset=${offset}`);
+    if (!page.ok) return { ok: false, status: 502, error: "The review queue could not be read." };
+    const rows = page.data ?? [];
+    if (rows.length) {
+      const decided = await rest<Record<string, string>[]>(
+        "GET",
+        `${reviewTable}?${foreignKey}=in.(${rows.map((r) => encodeURIComponent(r.id)).join(",")})&select=${foreignKey}`
+      );
+      if (!decided.ok) return { ok: false, status: 502, error: "The review queue could not be read." };
+      const done = new Set((decided.data ?? []).map((d) => d[foreignKey]));
+      for (const r of rows) if (!done.has(r.id)) pending.push(r);
+    }
+    scanned += rows.length;
+    if (rows.length < REVIEW_PAGE) return { ok: true, pending, truncated: false };
+  }
+  return { ok: true, pending, truncated: scanned >= REVIEW_SCAN_MAX };
+}
 
 const uniq = <T,>(xs: T[]) => Array.from(new Set(xs));
 
@@ -114,13 +160,16 @@ export function actualItem(a: ActualRow, project: ProjectRef | null, evidence: E
   };
 }
 
-/** The pending observations and delivery records, joined to their evidence files and project names. */
+/** The newest pending observations and delivery records (REVIEW_SHOW_MAX of each), joined to their evidence files and project names. */
 export async function reviewQueue(): Promise<ReviewQueue> {
-  const [o, a] = await Promise.all([observationQueue("pending"), supplierActualQueue("pending")]);
+  const [o, a] = await Promise.all([
+    pendingOf<ObservationRow>("project_observations", "project_observation_reviews", "observation_id"),
+    pendingOf<ActualRow>("supplier_actuals", "supplier_actual_reviews", "actual_id"),
+  ]);
   if (!o.ok) return { ok: false, status: o.status, error: o.error };
   if (!a.ok) return { ok: false, status: a.status, error: a.error };
-  const obs = o.items.map((i) => i.observation);
-  const act = a.items.map((i) => i.actual);
+  const obs = o.pending.slice(0, REVIEW_SHOW_MAX);
+  const act = a.pending.slice(0, REVIEW_SHOW_MAX);
 
   const evidenceIds = uniq([...obs.map((x) => x.evidence_id), ...act.map((x) => x.evidence_id)].filter(Boolean));
   const projectIds = uniq([...obs.map((x) => x.project_id), ...act.map((x) => x.project_id)].filter(Boolean));
@@ -148,5 +197,9 @@ export async function reviewQueue(): Promise<ReviewQueue> {
     ok: true,
     observations: obs.map((x) => observationItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
     actuals: act.map((x) => actualItem(x, prById.get(x.project_id) ?? null, evById.get(x.evidence_id) ?? null)),
+    counts: {
+      observations: { shown: obs.length, pending: o.pending.length, truncated: o.truncated },
+      actuals: { shown: act.length, pending: a.pending.length, truncated: a.truncated },
+    },
   };
 }

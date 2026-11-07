@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminToken } from "@/lib/admin";
 import { siteUrl } from "@/lib/site";
 import {
+  ALREADY_REVIEWED,
   SELF_REVIEW_MESSAGE,
   actualReviewBody,
   isSelfReview,
@@ -214,3 +215,81 @@ describe("the page", () => {
     void React;
   });
 });
+
+describe("the queue is bounded, stable, and never shows a decided item as pending", () => {
+  async function queue() {
+    const { reviewQueue } = await import("@/lib/project-review-queue");
+    return reviewQueue();
+  }
+  const day = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 3_600_000).toISOString();
+  const obsRow = (i: number) => ({
+    id: U(1000 + i), project_id: PROJECT, prediction_ref: "x", case_token: "c", case_revision: 1, architecture: `Arch ${i}`, calibration_key: "btm.firm_MW", unit: "MW",
+    predicted_value: 1, observed_value: 1, observed_on: "2026-01-01", method: "m", evidence_id: EVID_OK, installed_basis: "b", submitted_by: "S", submitted_at: day(i), delta_pct: 0,
+  });
+
+  it("shows the newest REVIEW_SHOW_MAX and says 'Showing N of M' when there are more", async () => {
+    const { REVIEW_SHOW_MAX } = await import("@/lib/project-review-queue");
+    db.tables.set("project_observations", Array.from({ length: 130 }, (_, i) => ({ ...obsRow(i) })));
+    db.tables.set("project_observation_reviews", []);
+    const q = await queue();
+    if (!q.ok) throw new Error(q.error);
+    expect(q.observations).toHaveLength(REVIEW_SHOW_MAX);
+    expect(q.counts.observations).toEqual({ shown: REVIEW_SHOW_MAX, pending: 130, truncated: false });
+    expect(q.observations[0].architecture).toBe("Arch 129"); // newest first, stable
+    signIn();
+    const { default: Page } = await import("@/app/admin/reviews/page");
+    const html = renderToStaticMarkup(await Page());
+    expect(html).toContain(`Showing ${REVIEW_SHOW_MAX} of 130 awaiting a decision, newest first`);
+  });
+
+  it("a decided item is never pending, even when it sits beyond the first page of rows", async () => {
+    // 130 rows (> one 100-row page); the 120 newest are decided, so only the 10 oldest are pending.
+    db.tables.set("project_observations", Array.from({ length: 130 }, (_, i) => ({ ...obsRow(i) })));
+    db.tables.set("project_observation_reviews", Array.from({ length: 120 }, (_, k) => ({ id: U(5000 + k), observation_id: U(1000 + 129 - k), project_id: PROJECT, decision: "rejected", reviewer: "Z", reviewed_at: day(500) })));
+    const q = await queue();
+    if (!q.ok) throw new Error(q.error);
+    expect(q.observations.map((o) => o.architecture).sort()).toEqual(Array.from({ length: 10 }, (_, i) => `Arch ${i}`).sort());
+    expect(q.counts.observations).toMatchObject({ pending: 10, shown: 10 });
+    // decidedness is asked of the review table for the ids in hand, never from one capped list of reviews
+    const reviewReads = db.calls.filter((c) => c.method === "GET" && c.url.includes("project_observation_reviews"));
+    expect(reviewReads.length).toBeGreaterThan(0);
+    for (const r of reviewReads) expect(decodeURIComponent(r.url)).toContain("observation_id=in.(");
+  });
+
+  it("says so when the scan hit its ceiling", async () => {
+    const { REVIEW_SCAN_MAX } = await import("@/lib/project-review-queue");
+    db.tables.set("project_observations", Array.from({ length: REVIEW_SCAN_MAX + 20 }, (_, i) => ({ ...obsRow(i), id: U(100000 + i) })));
+    db.tables.set("project_observation_reviews", []);
+    const q = await queue();
+    if (!q.ok) throw new Error(q.error);
+    expect(q.counts.observations.truncated).toBe(true);
+    expect(q.counts.observations.pending).toBe(REVIEW_SCAN_MAX);
+    signIn();
+    const { default: Page } = await import("@/app/admin/reviews/page");
+    expect(renderToStaticMarkup(await Page())).toMatch(/of at least 5000 awaiting a decision/);
+  }, 60_000);
+
+  it("both routes word 'already decided' the way the screen recognises it", async () => {
+    signIn();
+    db.uniqueKeys.set("supplier_actual_reviews", [["actual_id"]]);
+    db.tables.get("project_evidence")!.find((e) => e.id === EVID_UNVER)!.review_status = "verified";
+    const o = actReject();
+    const first = await (await obsRoute()).POST(post("/x", observationReviewBody({ decision: "rejected", reviewer: "J. Ortiz", reason: "r" }, "E5")), ctx(OBS));
+    const second = await (await obsRoute()).POST(post("/x", observationReviewBody({ decision: "rejected", reviewer: "J. Ortiz", reason: "r" }, "E5")), ctx(OBS));
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toMatch(ALREADY_REVIEWED);
+    await o();
+    const a2 = await (await actRoute()).POST(post("/x", actualReviewBody({ decision: "rejected", reviewer: "J. Ortiz", reason: "r" }, [])), ctx(ACT));
+    expect(a2.status).toBe(409);
+    expect((await a2.json()).error).toMatch(ALREADY_REVIEWED);
+  });
+});
+
+/** First rejection of the seeded delivery record, so the second one is the duplicate. */
+function actReject() {
+  return async () => {
+    const r = await (await actRoute()).POST(post("/x", actualReviewBody({ decision: "rejected", reviewer: "J. Ortiz", reason: "r" }, [])), ctx(ACT));
+    expect(r.status).toBe(201);
+  };
+}

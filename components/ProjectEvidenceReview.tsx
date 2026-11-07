@@ -2,8 +2,9 @@
 
 import React, { useId, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2 } from "lucide-react";
-import type { ActualItem, EvidenceRef, ObservationItem } from "@/lib/project-review-queue";
+import type { ActualItem, EvidenceRef, ObservationItem, QueueCount } from "@/lib/project-review-queue";
 import {
+  ALREADY_REVIEWED,
   SELF_REVIEW_MESSAGE,
   actualReviewBody,
   isSelfReview,
@@ -23,7 +24,21 @@ import {
  * verified by itself.
  */
 
-type Done = { id: string; decision: Decision; reviewer: string };
+/** `already`: the server said someone else had already decided it; nothing was recorded by this reviewer. */
+type Done = { id: string; decision: Decision | null; reviewer: string; already?: boolean };
+
+/** "Showing N of M": said whenever the screen is not showing everything awaiting a decision. */
+function CountNote({ c, decidedHere }: { c: QueueCount; decidedHere: number }) {
+  const left = Math.max(0, c.pending - decidedHere);
+  if (left <= c.shown - decidedHere && !c.truncated) return null;
+  return (
+    <p className="mt-2 text-xs text-mute" role="note">
+      Showing {Math.max(0, c.shown - decidedHere)} of {c.truncated ? `at least ${left}` : left} awaiting a decision, newest first.
+      Decide these, then reload to bring in the next ones.
+      {c.truncated ? " Only the newest records were examined; older ones are not counted here." : ""}
+    </p>
+  );
+}
 
 const fmtBytes = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const when = (iso: string) => {
@@ -37,9 +52,11 @@ export function ProjectEvidenceReview({
   actuals,
   reviewClass,
   initialError,
+  counts,
 }: {
   observations: ObservationItem[];
   actuals: ActualItem[];
+  counts?: { observations: QueueCount; actuals: QueueCount };
   /** The one evidence class a reviewer may assign to a measured observation (lib/project-observations.ts REVIEW_CLASS). */
   reviewClass: string;
   initialError?: string | null;
@@ -48,6 +65,8 @@ export function ProjectEvidenceReview({
   const decided = new Set(done.map((d) => d.id));
   const pendingObs = observations.filter((o) => !decided.has(o.id));
   const pendingAct = actuals.filter((a) => !decided.has(a.id));
+  const decidedObs = observations.length - pendingObs.length;
+  const decidedAct = actuals.length - pendingAct.length;
 
   return (
     <div className="grid gap-10">
@@ -64,7 +83,9 @@ export function ProjectEvidenceReview({
             <p key={d.id} className="flex items-start gap-2">
               <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-verified" />
               <span>
-                Recorded: {d.decision} by {d.reviewer}. It is final and no longer in this queue.
+                {d.already
+                  ? "This record had already been decided by someone else, so nothing was recorded from you. It has been removed from your queue."
+                  : `Recorded: ${d.decision} by ${d.reviewer}. It is final and no longer in this queue.`}
               </span>
             </p>
           ))}
@@ -82,6 +103,7 @@ export function ProjectEvidenceReview({
           {reviewClass} (the only class a reviewer assigns) and adds nothing to the calibration ledger: importing a verified observation into
           it is a separate, deliberate step.
         </p>
+        {counts ? <CountNote c={counts.observations} decidedHere={decidedObs} /> : null}
         <div className="mt-4 grid gap-4">
           {pendingObs.length === 0 ? <p className="text-sm text-mute">Nothing is awaiting a decision.</p> : null}
           {pendingObs.map((o) => (
@@ -98,6 +120,7 @@ export function ProjectEvidenceReview({
           What a selected supplier actually did, against what it quoted. Verifying names exactly which facts you vouch for. It changes no
           cost, ranking or calibration figure.
         </p>
+        {counts ? <CountNote c={counts.actuals} decidedHere={decidedAct} /> : null}
         <div className="mt-4 grid gap-4">
           {pendingAct.length === 0 ? <p className="text-sm text-mute">Nothing is awaiting a decision.</p> : null}
           {pendingAct.map((a) => (
@@ -176,6 +199,11 @@ function Card({ item, onDone, reviewClass }: { item: ObservationItem | ActualIte
         body: JSON.stringify(body),
       });
       const b = await res.json().catch(() => ({}));
+      if (res.status === 409 && ALREADY_REVIEWED.test(String(b?.error ?? ""))) {
+        // Decided elsewhere (another reviewer or tab): this card is stale. Drop it with an honest message; nothing was recorded here.
+        onDone({ id: item.id, decision: null, reviewer: reviewer.trim(), already: true });
+        return;
+      }
       if (!res.ok || !b.ok) {
         setError(res.status === 401 ? "Your admin session has ended. Sign in again; nothing was recorded." : b?.error ?? "The decision could not be saved. Nothing was recorded.");
         return;
