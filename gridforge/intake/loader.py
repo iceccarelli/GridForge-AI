@@ -28,6 +28,9 @@ from ..validation import EvidenceClass, Quantity, Source
 from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport, SuppliedSource
 
 _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
+#: The canonical enum names (E0_ASSUMPTION ... E7_DEPLOYED), read from the enum: our own model pack and reference files carry them, so a client who
+#: re-submits a value from them must be understood.
+_EVIDENCE_BY_CANONICAL = {e.name: e for e in EvidenceClass}
 
 
 class IntakeError(ValueError):
@@ -56,7 +59,8 @@ def _num(raw: Any, what: str = "value") -> float:
 
 
 def declared_evidence_class(path: str, raw: Any) -> EvidenceClass:
-    """The evidence class a client declares for a figure: exactly E0..E7 (case-insensitive, surrounding whitespace ignored), nothing else.
+    """The evidence class a client declares for a figure: a bare code E0..E7 or exactly one of the eight canonical enum names (E0_ASSUMPTION ...
+    E7_DEPLOYED, the spelling our own model pack emits), case-insensitive, surrounding whitespace ignored; nothing else.
 
     Reading only the first two characters made "E10" an E1, "E39" an E3 and "E1 (measured)" an E1, so a client could attest to a class it
     never named; a bare 0, false or [] was dropped as "nothing declared". Anything that is not exactly a class is refused by field.
@@ -64,11 +68,15 @@ def declared_evidence_class(path: str, raw: Any) -> EvidenceClass:
     The ONE parser of a declared class: ``change.declared_evidence`` (the diff's evidence fingerprint) calls it too, so the loader and the diff
     cannot disagree about what a class is."""
     if isinstance(raw, str):
-        found = _EVIDENCE_BY_NAME.get(raw.strip().upper())
+        key = raw.strip().upper()
+        found = _EVIDENCE_BY_NAME.get(key)
+        if found is None:                       # (EvidenceClass is an IntEnum and E0 is 0: test for None, never for truth)
+            found = _EVIDENCE_BY_CANONICAL.get(key)
         if found is not None:
             return found
     raise IntakeError(f"{path}: declared evidence {raw!r} is not an evidence class; "
-                      f"use exactly one of {', '.join(_EVIDENCE_BY_NAME)} (nothing else is read as a class, and null means not declared)")
+                      f"use exactly one of {', '.join(_EVIDENCE_BY_NAME)} or a canonical name ({', '.join(_EVIDENCE_BY_CANONICAL)}); nothing else is read "
+                      f"as a class, and null means not declared")
 
 
 def _int(raw: Any, what: str = "value") -> int:
