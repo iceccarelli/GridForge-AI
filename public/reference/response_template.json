@@ -197,6 +197,12 @@
         "label": "Discount rate",
         "unit": "",
         "assumed": "no value (none: the lifecycle value is undiscounted) (E0)"
+      },
+      {
+        "path": "lv.existing_busway_load_kW",
+        "label": "Load already on the busway",
+        "unit": "kW",
+        "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) (E0)"
       }
     ]
   },

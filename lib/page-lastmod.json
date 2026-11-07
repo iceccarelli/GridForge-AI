@@ -2,8 +2,8 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-11-03",
-      "hash": "350cc810e66c308cfe6af59a50cdeba739b5f4a7d9d3d23adf852874895e18a8"
+      "lastmod": "2026-11-07",
+      "hash": "9e4a40378bc788eb8bbf394396aca5b8931a69a8b952012000458d45e5fc8824"
     },
     "/about": {
       "lastmod": "2026-11-03",
@@ -66,8 +66,8 @@
       "hash": "d368f1d55b2aa56ce15ce8b6f09b8b963cd3dd102fc2aa0eaebb55ef1bf73b7d"
     },
     "/contact": {
-      "lastmod": "2026-11-03",
-      "hash": "c8f26b167718a5a19d69de9d0f852ce5a450f749752d77c665191f2fc7524e76"
+      "lastmod": "2026-11-07",
+      "hash": "1f71c035aedeb0f6174c9ca9ebf5474cdc8e6dfdf4a5f7b73a5f8d96c3f5713b"
     },
     "/developers": {
       "lastmod": "2026-11-05",
@@ -110,8 +110,8 @@
       "hash": "8990570e462e17ceec447752b50b411ca41146a34ce6f98168ca3de09dfeab76"
     },
     "/guides/nameplate-vs-useful-compute": {
-      "lastmod": "2026-11-05",
-      "hash": "458ec64572058134333fa5c6f7068663aa889ccbff1521abf3632750434eedfc"
+      "lastmod": "2026-11-07",
+      "hash": "d82149e0281018518c9fff0a44fd32e8c7504f2f7b1c0dd8094ae0b4a062a36f"
     },
     "/intelligence": {
       "lastmod": "2026-11-05",
@@ -134,8 +134,8 @@
       "hash": "975cfc009e607eb0620a7f7ee19169354810dd15963f4ec782be5c389934827d"
     },
     "/observatory": {
-      "lastmod": "2026-11-06",
-      "hash": "958dca756b334f7f687172e0497b1774706a507a345f954418d8beb6f68c8b64"
+      "lastmod": "2026-11-07",
+      "hash": "4e9093860f2262922a30e4020ad52c293def5e5f0ff14990e2610ecefdc5b9ea"
     },
     "/platforms": {
       "lastmod": "2026-11-05",
@@ -190,8 +190,8 @@
       "hash": "dc4ad9a62ed57ff444ee0cbe87c29bc27a013fdddccaa6729bea25258aa0bbd4"
     },
     "/reference": {
-      "lastmod": "2026-11-05",
-      "hash": "d5888553a96fa6e25b42a5ada84627ba1ef071c1c5784572246e83de23c8bd7a"
+      "lastmod": "2026-11-07",
+      "hash": "b95478afaab9d4e2f65915e70160025f71d505e3a785a26951f477aa3c53ef74"
     }
   }
 }

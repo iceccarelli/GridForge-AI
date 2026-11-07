@@ -73,6 +73,7 @@ Inputs to the capacity model that were assumed rather than supplied (each is an 
 - Rear-door heat exchanger capacity per rack (thermal.rdhx.capacity_kW_per_rack; kW): not supplied: assumed 60 [20–80] kW (E0)
 - All-in grid electricity price (economics.electricity_eur_per_MWh; EUR/MWh): not supplied: assumed library placeholder of 140 EUR/MWh (E0)
 - Discount rate (economics.discount_rate): not supplied: assumed no value (none: the lifecycle value is undiscounted) (E0)
+- Load already on the busway (lv.existing_busway_load_kW; kW): not supplied: assumed 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) (E0)
 
 ## 3. Technical requirements
 
