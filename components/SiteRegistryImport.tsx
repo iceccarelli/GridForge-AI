@@ -38,6 +38,9 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => { mounted.current = false; cancelled.current = true; }, []);
+  // A new preview, and then the report, take focus once they are on the page, so a keyboard user lands on what to read next.
+  useEffect(() => { if (preview) previewHead.current?.focus(); }, [preview]);
+  useEffect(() => { if (report) reportHead.current?.focus(); }, [report]);
   useEffect(() => {
     if (waitUntil === null) return;
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -69,7 +72,6 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
       if (!cur.body?.ok || !Array.isArray(cur.body.inputs)) { f.fail((cur.body?.error ?? "Could not read the hall's current figures.") + " Nothing was previewed or written."); return; }
       if (!mounted.current) return;
       setPreview(buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: new Date().toISOString().slice(0, 10) }));
-      setTimeout(() => previewHead.current?.focus(), 0);
     } catch {
       f.fail("Could not read the file or reach the server. Nothing was written.");
     } finally {
@@ -102,7 +104,6 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
     const inputs = result.written.map((w) => w.input).filter((x): x is RegistryInput => x !== null);
     if (inputs.length) onWritten(inputs);
     if (fileInput.current) fileInput.current.value = "";
-    setTimeout(() => reportHead.current?.focus(), 0);
   }
 
   const c = preview?.counts;

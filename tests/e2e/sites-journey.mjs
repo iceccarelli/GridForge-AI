@@ -5,7 +5,11 @@
  *
  * MANUAL: no CI job runs this file (Playwright is not a project dependency). What it proves: the page renders for a verified session, a person can
  * create an organisation, a site, a hall and record a figure by keyboard alone, errors are announced in role=alert, unrecorded fields read "missing",
- * the page does not overflow sideways, and nothing throws in the console. What it does NOT prove: Supabase Auth itself (the session is a stand-in:
+ * the page does not overflow sideways, and nothing throws in the console. It also drives the hall's EXPORT (JSON and CSV downloads, read back from disk),
+ * IMPORT (template, a bounded file, the mandatory preview with rejected rows and their reasons, nothing written before the keyboard-operated confirm, the
+ * report, a second identical import writing nothing) and the "what changed" diff (two points and one field's steps; a claim is back-dated in the real
+ * database with psql for this, so the PG* variables must point at the database behind PostgREST), then runs axe (WCAG 2 A/AA) with those panels open.
+ * What it does NOT prove: Supabase Auth itself (the session is a stand-in:
  * the bearer `tok:<email>` verifies as that address, `unv:<email>` as an unconfirmed one), or a deployment.
  *
  *   # 1. a fresh database and PostgREST (a PostgreSQL superuser in PG*; see scripts/realdb-up.sh)
@@ -17,7 +21,7 @@
  *
  * Exit codes: 0 all passed, 1 a check failed, 2 the browser or the stack could not run (nothing was driven).
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -207,6 +211,131 @@ try {
     check(at("the field's history lists the replaced figure and the current one"), /40 MVA/.test(histText) && /replaced by a later figure/.test(histText) && /42 MVA/.test(histText) && /current/.test(histText), histText.replace(/\s+/g, " ").slice(0, 700));
     check(at("opening the history moves focus to its heading"), await hist.evaluate((el) => el === document.activeElement));
     await page.getByRole("button", { name: "Close history" }).click();
+
+    // ---- EXPORT: three downloads, read back from disk
+    const download = async (name) => {
+      const [d] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.getByRole("button", { name }).click()]);
+      return { name: d.suggestedFilename(), text: fs.readFileSync(await d.path(), "utf8") };
+    };
+    const figs = await download("Download CSV: current figures");
+    check(at("export: the figures CSV carries the declaration, the columns, the figure with its declared origin and class, and who recorded it"),
+      /declaration of the person who recorded each figure/.test(figs.text) && /field_path,value,unit,declared_origin,declared_class,as_of,source_file_name/.test(figs.text)
+      && /grid\.firm_capacity_mva,42,MVA,assumed,E1,/.test(figs.text) && figs.text.includes(me) && /^gridforge-hall-a1-figures-\d{4}-\d\d-\d\d\.csv$/.test(figs.name), figs.name + " " + figs.text.slice(0, 300));
+    await page.locator("[role=status]", { hasText: "Downloaded gridforge-hall-a1-figures" }).waitFor({ timeout: 5000 });
+    check(at("export: the download is announced in a status region"), true);
+    const rec = await download("Download JSON (figures and timeline)");
+    const recDoc = JSON.parse(rec.text.replace(/^﻿/, ""));
+    check(at("export: the JSON record has the declaration, the replaced figure's id, a complete timeline, and no storage reference or token"),
+      /declaration of the person who recorded/.test(recDoc.declaration) && recDoc.timelineComplete === true && recDoc.timeline.length >= 2 && typeof recDoc.currentInputs[0].supersedesId === "string"
+      && recDoc.currentInputs[0].declaredOrigin === "assumed" && !/storage|token|sha256/i.test(rec.text), rec.text.slice(0, 300));
+    const tlc = await download("Download CSV: timeline");
+    check(at("export: the timeline CSV is oldest first and keeps the replaced figure"), /replaced_by_later_figure/.test(tlc.text) && /grid\.firm_capacity_mva = 40 MVA/.test(tlc.text) && tlc.text.indexOf("= 40 MVA") < tlc.text.indexOf("= 42 MVA"));
+
+    // ---- IMPORT: template, refusals before the preview, the preview, the confirm, the report
+    const tpl = await download("Download CSV template");
+    check(at("import: the template lists the expected fields with their units and no figures"), /holds no real data/.test(tpl.text) && /grid\.firm_capacity_mva,,MVA,,,,,/.test(tpl.text) && (tpl.text.match(/^[a-z0-9_.]+,,/gm) || []).length === 8);
+    const importAlert = page.locator("section[aria-labelledby=import-title] [role=alert]");
+    await page.locator("#import-file").setInputFiles({ name: "huge.csv", mimeType: "text/csv", buffer: Buffer.alloc(300 * 1024, "a") });
+    await importAlert.filter({ hasText: "256 KB" }).waitFor({ timeout: 5000 });
+    check(at("import: a file over 256 KB is refused before it is read, in an alert that takes focus"), await importAlert.evaluate((el) => el === document.activeElement));
+    await page.locator("#import-file").setInputFiles({ name: "bad.csv", mimeType: "text/csv", buffer: Buffer.from("field_path,origin,class,as_of,notes\nx,assumed,E0,2026-01-01,hi\n") });
+    await importAlert.filter({ hasText: "Unknown column" }).waitFor({ timeout: 5000 });
+    check(at("import: an unknown column refuses the whole file by name"), (await page.locator("tbody tr[data-status]").count()) === 0);
+    const importCsv = [
+      "field_path,value,unit,origin,class,as_of,source_kind,source_id",
+      "GRID.firm_capacity_MVA,44,MVA,assumed,E1,2026-10-01,,",
+      "grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,",
+      "hall.floor_loading_kpa,12,kPa,assumed,E5,2026-10-01,,",
+      "grid.firm_capcity_mva,9,MVA,assumed,E0,2026-10-01,,",
+      "\"=cmd|' /C calc'!A0\",1,,assumed,E0,2026-10-01,,",
+      "hall.rack_positions,100,,measured,E3,2026-10-01,,",
+    ].join("\n");
+    const serverInputs = () => page.evaluate(async (hallLabel) => {
+      const key = Object.keys(localStorage).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+      const h = { Authorization: "Bearer " + JSON.parse(localStorage.getItem(key)).access_token };
+      const sites = await (await fetch("/api/sites", { headers: h })).json();
+      const hall = sites.sites.flatMap((x) => x.halls).find((x) => x.label === hallLabel).id;
+      return { ...(await (await fetch(`/api/halls/${hall}/inputs`, { headers: h })).json()), hallId: hall };
+    }, "Hall A1");
+    await page.locator("#import-file").setInputFiles({ name: "figures.csv", mimeType: "text/csv", buffer: Buffer.from(importCsv) });
+    const previewTitle = page.locator("#import-preview-title");
+    await previewTitle.waitFor({ timeout: 15000 });
+    check(at("import: the preview heading takes focus and says nothing has been written"), (await previewTitle.evaluate((el) => el === document.activeElement)) && /nothing has been written yet/.test(await previewTitle.innerText()));
+    const statuses = await page.locator("section[aria-labelledby=import-title] tbody tr[data-status]").evaluateAll((trs) => trs.map((t) => t.getAttribute("data-status")));
+    check(at("import: every row has a status: replaces, new, three rejected"), JSON.stringify(statuses) === JSON.stringify(["supersede", "new", "rejected", "rejected", "rejected", "rejected"]), JSON.stringify(statuses));
+    const previewText = await page.locator("section[aria-labelledby=import-title]").innerText();
+    check(at("import: the summary counts add up"), /6 rows: 1 new, 1 replacing a current figure, 0 unchanged, 4 rejected/.test(previewText.replace(/\s+/g, " ")), previewText.replace(/\s+/g, " ").slice(0, 400));
+    check(at("import: the class cap, the unknown path, the hostile path and the missing source are rejected with their reason BEFORE anything is sent"),
+      /cannot claim a class above E3; E5 is refused/.test(previewText) && /not a field this registry knows/.test(previewText) && /not a dotted path/.test(previewText) && /measured figure needs a source file/.test(previewText));
+    check(at("import: a supersede names what it replaces and says the earlier figure stays"), /Replaces: 42 MVA, declared assumed, declared class E1.*earlier figure stays in the history/s.test(previewText));
+    const before = await serverInputs();
+    check(at("import: previewing wrote nothing"), before.inputs.length === 1 && before.inputs[0].value === 42, JSON.stringify(before.inputs.map((i) => i.fieldPath)));
+    const confirmBtn = page.locator("#import-confirm");
+    check(at("import: the confirm is disabled until the replacement is acknowledged"), await confirmBtn.isDisabled());
+    await page.locator("#import-confirm-replace").focus();
+    await page.keyboard.press("Space");
+    check(at("import: the acknowledgement is operated by keyboard and enables the confirm"), (await page.locator("#import-confirm-replace").isChecked()) && (await confirmBtn.isEnabled()));
+    await confirmBtn.focus();
+    await page.keyboard.press("Enter");
+    const reportTitle = page.locator("#import-report-title");
+    await reportTitle.waitFor({ timeout: 30000 });
+    check(at("import: the report says it finished and takes focus"), /Import finished/.test(await reportTitle.innerText()) && (await reportTitle.evaluate((el) => el === document.activeElement)));
+    await page.locator("tbody tr", { hasText: "44 MVA" }).waitFor({ timeout: 15000 });
+    await page.locator("tbody tr", { hasText: "30 MW" }).waitFor({ timeout: 15000 });
+    const after = await serverInputs();
+    check(at("import: the figures table shows exactly the written rows, and the server holds exactly them"),
+      after.inputs.length === 2 && after.inputs.find((i) => i.fieldPath === "grid.firm_capacity_mva")?.value === 44 && after.inputs.find((i) => i.fieldPath === "grid.contracted_mw")?.origin === "assumed", JSON.stringify(after.inputs.map((i) => [i.fieldPath, i.value])));
+    const reportText = await page.locator("section[aria-labelledby=import-title]").innerText();
+    check(at("import: the report counts what was written"), /2 figures written to Hall A1/.test(reportText.replace(/\s+/g, " ")));
+    await page.locator("#import-file").setInputFiles({ name: "figures.csv", mimeType: "text/csv", buffer: Buffer.from(importCsv) });
+    await previewTitle.waitFor({ timeout: 15000 });
+    const again = (await page.locator("section[aria-labelledby=import-title]").innerText()).replace(/\s+/g, " ");
+    check(at("import: the same file again writes nothing: two rows are unchanged and the confirm says there is nothing to write"), /2 unchanged, 4 rejected/.test(again) && (await confirmBtn.isDisabled()) && /Nothing to write/.test(again), again.slice(0, 300));
+    await page.getByRole("button", { name: "Discard this preview" }).click();
+
+    // ---- DIFF: back-date the first claim in the real database so the history spans two days, then compare
+    try {
+      execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", process.env.GF_PG_DB || "gf", "-c",
+        `set session_replication_role = replica; update hall_inputs set created_at = timestamp with time zone '2026-09-01 10:00:00+00' where supersedes_id is null and field_path = 'grid.firm_capacity_mva' and hall_id = '${after.hallId}';`], { stdio: "pipe" });
+      check(at("diff setup: the first claim was back-dated in the database"), true);
+    } catch (e) { check(at("diff setup: the first claim was back-dated in the database (psql)"), false, String(e.message).slice(0, 200)); }
+    await page.getByRole("button", { name: "Show what changed" }).click();
+    await page.locator("#diff-from").waitFor({ timeout: 15000 });
+    const diffOptions = await page.locator("#diff-from option").allInnerTexts();
+    check(at("diff: the points are the days something was recorded, plus the start; now is the later point"), diffOptions.some((o) => /2026-09-01/.test(o)) && diffOptions.some((o) => /Before the first recorded figure/.test(o)), diffOptions.join(" | "));
+    check(at("diff: the earlier point defaults to the previous day"), (await page.locator("#diff-from").inputValue()) === "2026-09-01");
+    await page.locator("#diff-summary").waitFor({ timeout: 5000 });
+    const diffText = (await page.locator("#diff-body").innerText()).replace(/\s+/g, " ");
+    check(at("diff: capacity is listed as changed, contracted as added, each with the evidence it rests on"),
+      /1 changed, 1 added, 0 withdrawn, 0 that cannot be told, 0 unchanged/.test(diffText) && /value: 40 MVA → (to )?44 MVA/.test(diffText) && /Rests on: declared assumed E1, no file cited → declared assumed E1, no file cited/.test(diffText)
+      && /Rests on: no figure → declared assumed E1, no file cited/.test(diffText), diffText.slice(0, 700));
+    const diffSection = (await page.locator("section[aria-labelledby=diff-title]").innerText()).replace(/\s+/g, " ");
+    check(at("diff: it never calls a change an improvement, says it is not a recalculated capacity, and says file status is the live one"), !/improv|better|saving/i.test(diffSection) && /not a recalculated capacity result/.test(diffSection) && /its status now/.test(diffSection));
+    await page.locator("#diff-to").selectOption("2026-09-01");
+    await page.locator("#diff-from").selectOption("now").catch(() => {});
+    const bad = page.locator("#diff-body [role=alert]", { hasText: "Choose an earlier point first" });
+    check(at("diff: a later 'from' than 'to' is refused in an alert"), (await bad.count()) === 1);
+    await page.locator("#diff-to").selectOption("now");
+    await page.locator("#diff-from").selectOption("2026-09-01");
+    await page.getByLabel("One field's successive values").check();
+    await page.locator("#diff-field").selectOption("grid.firm_capacity_mva");
+    await page.locator("#diff-body ol li").first().waitFor({ timeout: 10000 });
+    const steps = await page.locator("#diff-body ol > li").allInnerTexts();
+    check(at("diff: one field's steps are first recorded, then each correction, each with what it rests on"), steps.length === 3 && /First recorded/.test(steps[0]) && /Correction/.test(steps[1]) && steps.every((x) => /Rests on:/.test(x)), steps.join(" || ").replace(/\s+/g, " ").slice(0, 500));
+    await page.getByLabel("Two points in time").check();
+
+    // ---- accessibility with every new panel open: axe, the keyboard path to the file input, and no sideways scroll
+    const toFile = await tabTo(page, "import-file", 400);
+    check(at("keyboard reaches the import file input"), toFile > 0, `tabs: ${toFile}`);
+    const axePath = path.join(ROOT, "node_modules", "axe-core", "axe.min.js");
+    if (fs.existsSync(axePath)) {
+      await page.addScriptTag({ content: fs.readFileSync(axePath, "utf8") });
+      const axe = await page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } })).violations.map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0].target.join(" ")}`));
+      check(at("axe: no WCAG 2 A/AA violation with export, import (after a report) and the diff open"), axe.length === 0, axe.join(" | ").slice(0, 600));
+    } else check(at("axe-core is installed"), false, "node_modules/axe-core/axe.min.js is missing");
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(at("no sideways scroll of the page with the new panels open"), wide <= 1, `overflow ${wide}px`);
+    await shot(page, `sites-panels-${width}`);
 
     // more than a page of events: the page says older events are not shown, and "Load older" brings every one exactly once
     const made = await page.evaluate(async () => {
