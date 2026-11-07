@@ -44,6 +44,20 @@ describe("the Report-Only header", () => {
     // a path or query never reaches the header
     expect(cspReportOnly({ GRIDFORGE_API_URL: "https://engine.example.test/some/path?x=1" })).not.toMatch(/some\/path|x=1/);
   });
+  it("only a plain host (letters, digits, dots, hyphens, optional port) is accepted, before AND after percent-decoding; wildcards, quotes and encoded separators are refused", () => {
+    const base = cspReportOnly({}).split(";").length;
+    for (const bad of ["https://a.com%3Bscript-src", "https://a.com%3bscript-src", "https://a.com'", "https://*.a.com", "https://a.com%0A", "https://a.com\n", "https://a.com%0Ascript-src%20*", "https://a.com%2C%20https://b.com", "https://user@a.com", "https://a.com%40b.com", "https://[::1]", "https://a_b.com", "https://a.com:99999x", "https://%61.com", "https://a.com%2"]) {
+      const p = cspReportOnly({ GRIDFORGE_API_URL: bad, NEXT_PUBLIC_SUPABASE_URL: bad });
+      expect(p, bad).toBe(cspReportOnly({}));
+      expect(p.split(";").length, bad).toBe(base);
+    }
+  });
+  it("a good host still yields its origin only, with its port, lower-cased scheme, and a path or query dropped", () => {
+    const c = (v: string) => directives(cspReportOnly({ GRIDFORGE_API_URL: v })).get("connect-src")!;
+    expect(c("https://Engine.Example.test:8443/v1?x=1#f")).toContain("https://engine.example.test:8443");
+    expect(c("HTTP://127.0.0.1:8111")).toContain("http://127.0.0.1:8111");
+    expect(c("https://abc.supabase.co")).toContain("https://abc.supabase.co");
+  });
   it("a hostile or malformed setting cannot inject a directive or a header break", () => {
     for (const bad of ["https://a.test; script-src *", "https://a.test\r\nSet-Cookie: x=1", "javascript:alert(1)", "not a url", "ftp://x.test", "https://a.test, https://b.test"]) {
       const p = cspReportOnly({ GRIDFORGE_API_URL: bad, NEXT_PUBLIC_SUPABASE_URL: bad });

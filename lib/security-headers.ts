@@ -40,12 +40,24 @@ export const TOKEN_ROUTES = [
 /** The engine the pricing page's cost estimator calls from the browser when GRIDFORGE_API_URL is not set (the same default the page uses). */
 const DEFAULT_ENGINE_ORIGIN = "https://gridforge-engine.fly.dev";
 
-/** The origin of a configured URL, or null. A value with whitespace, `;` or `,` is refused outright so a setting can never add a directive or break a header. */
+/**
+ * The origin of a configured URL, or null. Only a plain host is accepted: letters, digits, dots and hyphens, then an optional :port, and
+ * the same must hold AFTER percent-decoding (so `a.com%3Bscript-src` is refused, not decoded into a directive). No wildcard, no user-info, no
+ * IPv6 literal, no whitespace, quote, `;` or `,`. Anything else is ignored, so a setting can never add a source, a directive or break a header.
+ */
 function originOf(value: string | undefined): string | null {
-  if (!value || /[\s;,]/.test(value)) return null;
+  const m = value ? /^(https?):\/\/([^/?#]*)(?:[/?#]|$)/i.exec(value) : null;
+  if (!m) return null;
+  let host: string;
   try {
-    const u = new URL(value);
-    return u.protocol === "https:" || u.protocol === "http:" ? u.origin : null;
+    host = decodeURIComponent(m[2]);
+  } catch {
+    return null;
+  }
+  const PLAIN = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+  if (!PLAIN.test(m[2]) || !PLAIN.test(host)) return null;
+  try {
+    return new URL(`${m[1].toLowerCase()}://${host}`).origin;
   } catch {
     return null;
   }
