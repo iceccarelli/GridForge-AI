@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-MIGRATIONS = ROOT / "supabase" / "migrations"
+# GRIDFORGE_MIGRATIONS_DIR replays another directory (as in calibration_pg_rig.py): how a test is shown FAILING against a mutated migration.
+MIGRATIONS = Path(os.environ["GRIDFORGE_MIGRATIONS_DIR"]) if os.environ.get("GRIDFORGE_MIGRATIONS_DIR") else ROOT / "supabase" / "migrations"
 BASE = os.environ.get("GRIDFORGE_TEST_PG_URL", "")
 REQUIRED = os.environ.get("GRIDFORGE_REQUIRE_DB") == "1"
 NO_DB = shutil.which("psql") is None or not (BASE or os.environ.get("PGHOST"))
