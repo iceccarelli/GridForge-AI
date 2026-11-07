@@ -128,7 +128,7 @@ export function defineRegistryScenarios(backend: Backend): void {
     const sha = uid().repeat(7).slice(0, 64).padEnd(64, "a");
     const e = await rest<any[]>("POST", "project_evidence", {
       project_id: projectId, filename: "connection-agreement.pdf", media_type: "application/pdf", sha256: sha,
-      byte_size: 100, storage_ref: `project-evidence/${SECRET}`,
+      byte_size: 100, storage_ref: `project-evidence/${SECRET}`, review_status: "unverified",
     });
     expect(e.ok, JSON.stringify(e)).toBe(true);
     const id = (e as any).data[0].id as string;

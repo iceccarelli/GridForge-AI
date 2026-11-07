@@ -9,12 +9,16 @@ import { RATE_POLICIES } from "@/lib/rate-limit";
 import { PostgrestFake } from "./postgrest-fake";
 import { installWithAuth, bearerFor } from "./auth-fake";
 import { installRegistryRpcs } from "./site-registry-rpc-fake";
+import { installProjectRpcs } from "./project-rpc-fake";
 import { defineRegistryScenarios } from "./site-registry-scenarios";
 
 function fakeDb(): PostgrestFake {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
   const db = new PostgrestFake();
+  // The project file decision (0048) is another migration's function; the registry scenarios seed files through it, as production does.
+  installProjectRpcs(db);
+  db.createTable("project_evidence_reviews");
   installRegistryRpcs(db);
   return db;
 }
