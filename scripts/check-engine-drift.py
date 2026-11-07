@@ -21,8 +21,11 @@ the exact operator step is printed. Nothing is hidden or softened: every asserti
   --baseline FILE        ROLLBACK CHECK. Instead of comparing the live engine with this repository, compare it with a snapshot that
                          --write-snapshot wrote earlier (the deploy workflow keeps one as engine-before.json): code_sha256, version,
                          the endpoint set and the unit rates. Exit 0 identical, 1 different (every difference listed), 2 the baseline
-                         file or the live engine could not be read (nothing was verified). This is how a rollback is checked: the code
-                         is back to what it was if, and only if, this exits 0. It is a GET against /v1/version and reads one local file;
+                         file or the live engine could not be read, or the baseline was recorded from a different base URL (nothing was
+                         verified). The code digest only counts when at least one side publishes one: if BOTH publish none, "identical"
+                         rests on version, endpoints and unit rates alone, and the output says so. A baseline that says the engine was
+                         `unreadable` when it was recorded, or holds NaN/Infinity, is malformed. A --summary-file that cannot be written
+                         is exit 2. It is a GET against /v1/version and reads one local file;
                          it does not look at the repository, so it cannot be combined with --write-snapshot or --require-clean-tree.
                          It says nothing about the /data volume: a code rollback does not roll back usage, ledger or revocation data.
   --require-clean-tree   exit 2 unless every file under gridforge/ is committed and unmodified. The code digest hashes the files that are
@@ -197,7 +200,11 @@ def read_snapshot_endpoints(path: Path = SNAPSHOT_JSON):
     return data.get("endpoints") if isinstance(data, dict) else None
 
 
-BASELINE_KEYS = ("version", "endpoints", "unit_rates", "code_sha256")
+BASELINE_KEYS = ("version", "endpoints", "unit_rates", "code_sha256", "base")
+
+
+def _reject_constant(name: str):
+    raise ValueError(f"{name} is not valid in a snapshot")
 
 
 def load_baseline(path: str) -> dict:
@@ -205,14 +212,19 @@ def load_baseline(path: str) -> dict:
     is not JSON, is not an object, or lacks the fields a comparison needs. A baseline that cannot be read never means "identical"."""
     try:
         text = Path(path).read_text()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(f"baseline file {path} cannot be read ({type(exc).__name__}: {exc})") from exc
     try:
-        data = json.loads(text)
+        data = json.loads(text, parse_constant=_reject_constant)      # NaN != NaN would be a difference that can never be cleared
+    except RecursionError as exc:
+        raise ValueError(f"baseline file {path} is nested too deeply to be a snapshot") from exc
     except ValueError as exc:
         raise ValueError(f"baseline file {path} is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
         raise ValueError(f"baseline file {path} is not a JSON object")
+    if data.get("unreadable") is True:
+        raise ValueError(f"baseline file {path} records that the engine could not be read when it was written "
+                         f"({data.get('reason') or 'no reason given'}): there is no baseline to compare with")
     missing = [k for k in BASELINE_KEYS if k not in data]
     if missing:
         raise ValueError(f"baseline file {path} lacks {', '.join(missing)}: it is not a snapshot written by --write-snapshot")
@@ -223,6 +235,8 @@ def load_baseline(path: str) -> dict:
         raise ValueError(f"baseline file {path}: unit_rates must be an object")
     if sha is not None and not isinstance(sha, str):
         raise ValueError(f"baseline file {path}: code_sha256 must be a string or null")
+    if not isinstance(data["base"], str) or not data["base"].strip():
+        raise ValueError(f"baseline file {path}: base must be the URL the snapshot was recorded from")
     return data
 
 
@@ -249,20 +263,25 @@ def baseline_differences(baseline: dict, live: dict) -> list[str]:
     return out
 
 
-def render_baseline_text(base: str, baseline: dict, diffs: list[str], path: str) -> str:
+def digest_basis(baseline: dict, live_sha) -> str:
+    """What "identical" rests on: with no code digest on EITHER side it rests on version, endpoints and unit rates only, and must say so."""
+    if baseline.get("code_sha256") is None and live_sha is None:
+        return "version, endpoints and unit rates (NEITHER side publishes a code digest, so the code itself is not compared)"
+    return "code digest, version, endpoints and unit rates"
+
+
+def render_baseline_text(base: str, baseline: dict, diffs: list[str], path: str, live_sha=None) -> str:
     when = baseline.get("fetched_at") or "an unknown time"
-    head = [f"{base}: compared with baseline {path} (recorded {when} from {baseline.get('base') or 'an unknown engine'})."]
-    if baseline.get("base") and str(baseline["base"]).rstrip("/") != base:
-        head.append(f"note: the baseline was recorded from {baseline['base']}, not {base}.")
+    head = [f"{base}: compared with baseline {path} (recorded {when} from {baseline.get('base')})."]
     if not diffs:
-        return "\n".join([*head, "IDENTICAL: code digest, version, endpoints and unit rates match the baseline.",
+        return "\n".join([*head, f"IDENTICAL on {digest_basis(baseline, live_sha)}.",
                           "This says nothing about the /data volume: a code rollback does not roll back usage, ledger or revocation data."])
     return "\n".join([*head, f"DIFFERENT from the baseline ({len(diffs)}):", *[f"  - {d}" for d in diffs]])
 
 
-def render_baseline_markdown(base: str, baseline: dict, diffs: list[str], path: str) -> str:
+def render_baseline_markdown(base: str, baseline: dict, diffs: list[str], path: str, live_sha=None) -> str:
     if not diffs:
-        return (f"### Rollback check: identical to the baseline\n\n`{base}` matches `{path}` on code digest, version, endpoints and unit rates. "
+        return (f"### Rollback check: identical to the baseline\n\n`{base}` matches `{path}` on {digest_basis(baseline, live_sha)}. "
                 "Volume data (usage, ledger, revocations) is not covered by a code rollback.\n")
     return "\n".join([f"### Rollback check: {len(diffs)} difference(s) from the baseline", "",
                       f"`{base}` does **not** match `{path}` (recorded {baseline.get('fetched_at') or 'at an unknown time'}).", "",
@@ -352,38 +371,57 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
+def _append(path: str, text: str) -> str | None:
+    """Append to a summary file; the reason it could not be written, or None."""
+    try:
+        with open(path, "a") as fh:
+            fh.write(text)
+    except (OSError, ValueError) as exc:
+        return f"could not write --summary-file {path} ({type(exc).__name__}: {exc})"
+    return None
+
+
 def run_baseline(base: str, baseline_path: str, fetch, as_json: bool, summary_path: str | None) -> int:
-    """--baseline: 0 identical, 1 different, 2 the baseline or the live engine could not be read. GET /v1/version only."""
-    def unreadable(msg: str) -> int:
+    """--baseline: 0 identical, 1 different, 2 the baseline or the live engine could not be read, the baseline came from another base URL, or the
+    summary file could not be written. GET /v1/version only."""
+    def unreadable(msg: str, extra: dict | None = None) -> int:
         if as_json:
-            print(json.dumps({"base": base, "mode": "baseline", "ok": False, "error": msg, "differences": [], "count": 0}, indent=2))
+            print(json.dumps({"base": base, "mode": "baseline", "ok": False, "error": msg, "differences": [], "count": 0, **(extra or {})}, indent=2))
         else:
             print(msg)
         if summary_path:
-            with open(summary_path, "a") as fh:
-                fh.write(f"### Rollback check: unreadable\n\n{msg}\n")
+            err = _append(summary_path, f"### Rollback check: unreadable\n\n{msg}\n")
+            if err:
+                print(err, file=sys.stderr)
         return 2
 
     try:
         baseline = load_baseline(baseline_path)
     except ValueError as exc:
         return unreadable(f"{exc}. Nothing was verified.")
+    if str(baseline["base"]).rstrip("/") != base:
+        return unreadable(f"the baseline {baseline_path} was recorded from {baseline['base']}, not from {base}: it says nothing about this engine. "
+                          "Nothing was verified.", {"baseline_base": baseline["base"], "baseline_file": baseline_path})
     try:
         deployed = fetch(base + "/v1/version")
         if not isinstance(deployed, dict):
             raise ValueError("/v1/version is not a JSON object")
     except Exception as exc:  # noqa: BLE001 - an unreadable engine is reported, never swallowed into "identical"
         return unreadable(f"{base}: could not read /v1/version ({type(exc).__name__}: {exc}). Nothing was verified.")
-    diffs = baseline_differences(baseline, snapshot(deployed, base))
+    live = snapshot(deployed, base)
+    diffs = baseline_differences(baseline, live)
     if as_json:
         print(json.dumps({"base": base, "mode": "baseline", "ok": not diffs, "baseline_file": baseline_path,
                           "baseline_fetched_at": baseline.get("fetched_at"), "baseline_base": baseline.get("base"),
+                          "digest_compared": not (baseline.get("code_sha256") is None and live.get("code_sha256") is None),
                           "count": len(diffs), "differences": diffs}, indent=2))
     else:
-        print(render_baseline_text(base, baseline, diffs, baseline_path))
+        print(render_baseline_text(base, baseline, diffs, baseline_path, live.get("code_sha256")))
     if summary_path:
-        with open(summary_path, "a") as fh:
-            fh.write(render_baseline_markdown(base, baseline, diffs, baseline_path))
+        err = _append(summary_path, render_baseline_markdown(base, baseline, diffs, baseline_path, live.get("code_sha256")))
+        if err:
+            print(err + ". The comparison above stands, but the summary was not written.", file=sys.stderr)
+            return 2
     return 1 if diffs else 0
 
 

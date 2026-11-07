@@ -123,10 +123,16 @@ def test_a_missing_baseline_file_exits_two_without_contacting_the_engine(tmp_pat
     ("{not json", "not valid JSON"),
     ("[1, 2]", "not a JSON object"),
     ("{}", "lacks"),
-    ('{"version": "1", "endpoints": "x", "unit_rates": {}, "code_sha256": null}', "endpoints must be a list of strings"),
-    ('{"version": "1", "endpoints": [1], "unit_rates": {}, "code_sha256": null}', "endpoints must be a list of strings"),
-    ('{"version": "1", "endpoints": [], "unit_rates": [], "code_sha256": null}', "unit_rates must be an object"),
-    ('{"version": "1", "endpoints": [], "unit_rates": {}, "code_sha256": 5}', "code_sha256 must be a string or null"),
+    ('{"version": "1", "endpoints": "x", "unit_rates": {}, "code_sha256": null, "base": "http://engine.test"}', "endpoints must be a list of strings"),
+    ('{"version": "1", "endpoints": [1], "unit_rates": {}, "code_sha256": null, "base": "http://engine.test"}', "endpoints must be a list of strings"),
+    ('{"version": "1", "endpoints": [], "unit_rates": [], "code_sha256": null, "base": "http://engine.test"}', "unit_rates must be an object"),
+    ('{"version": "1", "endpoints": [], "unit_rates": {}, "code_sha256": 5, "base": "http://engine.test"}', "code_sha256 must be a string or null"),
+    ('{"version": "1", "endpoints": [], "unit_rates": {}, "code_sha256": null}', "lacks base"),
+    ('{"version": "1", "endpoints": [], "unit_rates": {}, "code_sha256": null, "base": ""}', "base must be the URL"),
+    ('{"version": "1", "endpoints": [], "unit_rates": {"/v1/x": NaN}, "code_sha256": null, "base": "http://engine.test"}', "NaN is not valid in a snapshot"),
+    ('{"version": "1", "endpoints": [], "unit_rates": {"/v1/x": Infinity}, "code_sha256": null, "base": "http://engine.test"}', "Infinity is not valid in a snapshot"),
+    ('{"unreadable": true, "reason": "the live engine could not be read", "recorded_at": "2026-11-07T00:00:00Z"}', "there is no baseline to compare with"),
+    ("[" * 100000, "nested too deeply"),
     ("", "not valid JSON"),
 ])
 def test_a_malformed_baseline_exits_two(tmp_path, capsys, text, why):
@@ -148,11 +154,83 @@ def test_a_non_object_version_document_exits_two(tmp_path, capsys):
     assert rc == 2 and "not a JSON object" in out
 
 
-def test_a_baseline_from_another_engine_is_noted(tmp_path, capsys):
+def test_a_baseline_from_another_base_url_exits_two_without_contacting_the_engine(tmp_path, capsys):
     path = tmp_path / "b.json"
     mod.write_snapshot(str(path), mod.snapshot(live(), "http://other.test"))
-    rc, out = run(tmp_path, capsys, live(), baseline=str(path))
-    assert rc == 0 and "recorded from http://other.test, not http://engine.test" in out
+    called = []
+    rc = mod.main([BASE, "--baseline", str(path)], fetch=lambda u: called.append(u))
+    out = capsys.readouterr().out
+    assert rc == 2 and not called
+    assert "recorded from http://other.test, not from http://engine.test" in out and "Nothing was verified" in out
+
+
+def test_a_base_url_that_differs_only_by_a_trailing_slash_is_the_same_engine(tmp_path, capsys):
+    path = tmp_path / "b.json"
+    mod.write_snapshot(str(path), mod.snapshot(live(), BASE + "/"))
+    rc = mod.main([BASE, "--baseline", str(path)], fetch=fetch_of(live()))
+    assert rc == 0, capsys.readouterr().out
+
+
+def test_a_baseline_from_another_base_url_is_reported_in_json(tmp_path, capsys):
+    path = tmp_path / "b.json"
+    mod.write_snapshot(str(path), mod.snapshot(live(), "http://other.test"))
+    rc = mod.main([BASE, "--baseline", str(path), "--json"], fetch=fetch_of(live()))
+    doc = json.loads(capsys.readouterr().out)
+    assert rc == 2 and doc["ok"] is False and doc["baseline_base"] == "http://other.test" and "recorded from" in doc["error"]
+
+
+def test_both_digests_missing_is_identical_only_on_version_endpoints_and_rates_and_says_so(tmp_path, capsys):
+    none = live(provenance={})
+    path = write_baseline(tmp_path, none)
+    rc = mod.main([BASE, "--baseline", path], fetch=fetch_of(none))
+    out = capsys.readouterr().out
+    assert rc == 0 and "IDENTICAL on version, endpoints and unit rates" in out and "NEITHER side publishes a code digest" in out
+    assert "IDENTICAL on code digest" not in out
+    rc = mod.main([BASE, "--baseline", path, "--json"], fetch=fetch_of(none))
+    assert json.loads(capsys.readouterr().out)["digest_compared"] is False
+    s = tmp_path / "s.md"
+    mod.main([BASE, "--baseline", path, "--summary-file", str(s)], fetch=fetch_of(none))
+    assert "NEITHER side publishes a code digest" in s.read_text()
+
+
+def test_with_a_digest_on_both_sides_the_digest_is_named_as_compared(tmp_path, capsys):
+    rc, out = run(tmp_path, capsys, live())
+    assert rc == 0 and "IDENTICAL on code digest, version, endpoints and unit rates" in out
+    rc, out = run(tmp_path, capsys, live(), "--json")
+    assert json.loads(out)["digest_compared"] is True
+
+
+def test_an_unwritable_summary_file_is_exit_two_with_a_message_not_a_traceback(tmp_path, capsys):
+    bad = tmp_path / "no-such-dir" / "summary.md"
+    rc = mod.main([BASE, "--baseline", write_baseline(tmp_path), "--summary-file", str(bad)], fetch=fetch_of(live()))
+    cap = capsys.readouterr()
+    assert rc == 2 and "could not write --summary-file" in cap.err and str(bad) in cap.err
+    assert "IDENTICAL" in cap.out, "the comparison itself is still printed"
+    # also when the comparison found a difference (it must not be exit 1), and when the engine is unreadable
+    rc = mod.main([BASE, "--baseline", write_baseline(tmp_path), "--summary-file", str(bad)], fetch=fetch_of(live(version="9")))
+    assert rc == 2
+    rc = mod.main([BASE, "--baseline", write_baseline(tmp_path), "--summary-file", str(bad)], fetch=fetch_of(OSError("down")))
+    cap = capsys.readouterr()
+    assert rc == 2 and "could not write --summary-file" in cap.err
+
+
+def test_a_summary_path_that_is_a_directory_is_also_exit_two(tmp_path, capsys):
+    rc = mod.main([BASE, "--baseline", write_baseline(tmp_path), "--summary-file", str(tmp_path)], fetch=fetch_of(live()))
+    assert rc == 2 and "could not write --summary-file" in capsys.readouterr().err
+
+
+def test_a_baseline_with_non_utf8_bytes_exits_two(tmp_path, capsys):
+    p = tmp_path / "b.json"
+    p.write_bytes(b"\xff\xfe\x00 not utf-8")
+    rc = mod.main([BASE, "--baseline", str(p)], fetch=lambda u: None)
+    assert rc == 2 and "Nothing was verified" in capsys.readouterr().out
+
+
+def test_the_cli_exits_two_not_one_with_a_traceback_on_a_deeply_nested_baseline(tmp_path):
+    p = tmp_path / "deep.json"
+    p.write_text("[" * 200000)
+    r = subprocess.run([sys.executable, "-B", str(SCRIPT), BASE, "--baseline", str(p)], capture_output=True, text=True, cwd=tmp_path)
+    assert r.returncode == 2 and "Traceback" not in r.stderr and "nested too deeply" in r.stdout
 
 
 # ---- json, summary, option rules --------------------------------------------------------------------------------------
