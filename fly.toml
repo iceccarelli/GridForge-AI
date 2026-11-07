@@ -27,6 +27,11 @@ primary_region = "ams"
 
 [env]
   GRIDFORGE_RATE_LIMIT = "60"
+  # Caller identity for the rate limiter: on Fly (FLY_APP_NAME is set by the platform) the engine trusts the Fly-Client-IP header and counts
+  # one X-Forwarded-For hop; anywhere else a forwarding header is ignored unless GRIDFORGE_TRUSTED_PROXY_HOPS / GRIDFORGE_TRUSTED_IP_HEADER
+  # say a proxy of ours wrote it. Nothing to set here.
+  # GRIDFORGE_ENFORCE_SECRET_STRENGTH = "1"  # NOT set: makes `serve` refuse to start when GRIDFORGE_ADMIN_KEY or GRIDFORGE_KEY_SECRET is
+  #   shorter than 24 characters (by default it only logs a WARNING). The owner sets it once the live secrets are confirmed long enough.
   # Browser origins allowed to call the KEYED API cross-origin (credentials are X-API-Key / Authorization headers, never
   # cookies, so this decides only which pages may read responses). Unset, the engine defaults to the site (these two).
   # For a preview deployment add its origin: "https://timetopower.ai,https://www.timetopower.ai,https://<preview>.vercel.app".

@@ -194,36 +194,69 @@ def test_the_limiter_off_leaves_discovery_off_too(base, monkeypatch):
     assert set(codes(base, 40, lambda i: {}, method="GET", path="/health")) == {200}
 
 
-# --- weak secrets --------------------------------------------------------------------------------------------------------------------------
+# --- weak secrets: warn by default, refuse only when enforced ----------------------------------------------------------------------------
 @pytest.mark.parametrize("name", ["GRIDFORGE_ADMIN_KEY", "GRIDFORGE_KEY_SECRET"])
 @pytest.mark.parametrize("value", ["x", "admin", "a" * 23, " " + "b" * 22 + " "])
 def test_a_short_secret_is_reported_by_name_and_length_never_by_value(name, value):
-    msgs = S.weak_secrets({name: value})
+    msgs, refuse = S.check_secret_strength({name: value})
     assert len(msgs) == 1 and name in msgs[0] and "at least 24" in msgs[0]
+    assert refuse is False                                              # the default is a warning, not an outage
 
 
 def test_the_message_never_contains_the_secret():
-    msgs = S.weak_secrets({"GRIDFORGE_ADMIN_KEY": "Zq9-rotate-me"})
+    msgs, _ = S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": "Zq9-rotate-me"})
     assert len(msgs) == 1 and "Zq9" not in msgs[0] and "13 characters" in msgs[0]
 
 
+@pytest.mark.parametrize("flag, refuse", [("1", True), ("0", False), ("", False), ("true", False), (" 1 ", True)])
+def test_only_the_enforce_flag_turns_the_warning_into_a_refusal(flag, refuse):
+    msgs, got = S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": "short", "GRIDFORGE_ENFORCE_SECRET_STRENGTH": flag})
+    assert len(msgs) == 1 and got is refuse
+
+
+def test_the_enforce_argument_overrides_the_environment():
+    assert S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": "short"}, enforce=True)[1] is True
+    assert S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": "short", "GRIDFORGE_ENFORCE_SECRET_STRENGTH": "1"}, enforce=False)[1] is False
+
+
 @pytest.mark.parametrize("value", ["a" * 24, "0123456789abcdef0123456789abcdef", "openssl-rand-hex-32-style-string-ok"])
-def test_a_24_character_secret_is_accepted(value):
-    assert S.weak_secrets({"GRIDFORGE_ADMIN_KEY": value, "GRIDFORGE_KEY_SECRET": value}) == []
+def test_a_24_character_secret_is_accepted_even_when_enforced(value):
+    assert S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": value, "GRIDFORGE_KEY_SECRET": value, "GRIDFORGE_ENFORCE_SECRET_STRENGTH": "1"}) == ([], False)
 
 
 def test_unset_and_empty_secrets_are_not_weak_they_mean_the_surface_is_off():
-    assert S.weak_secrets({}) == [] and S.weak_secrets({"GRIDFORGE_ADMIN_KEY": "", "GRIDFORGE_KEY_SECRET": ""}) == []
+    assert S.check_secret_strength({}) == ([], False)
+    assert S.check_secret_strength({"GRIDFORGE_ADMIN_KEY": "", "GRIDFORGE_KEY_SECRET": ""}, enforce=True) == ([], False)
 
 
-def test_serve_refuses_to_start_with_a_weak_secret_before_binding_anything(monkeypatch, capsys):
+class _Bound(Exception):
+    pass
+
+
+def _refuse_to_bind(monkeypatch):
+    def fake(*a, **k):
+        raise _Bound
+    monkeypatch.setattr(S, "ThreadingHTTPServer", fake)          # serve() never blocks in these tests: it stops where it would bind
+
+
+def test_serve_warns_and_carries_on_by_default(monkeypatch, capsys):
+    _refuse_to_bind(monkeypatch)
     monkeypatch.setenv("GRIDFORGE_ADMIN_KEY", "short")
-    monkeypatch.delenv("GRIDFORGE_KEY_SECRET", raising=False)
-    with pytest.raises(SystemExit) as e:
+    monkeypatch.delenv("GRIDFORGE_ENFORCE_SECRET_STRENGTH", raising=False)
+    with pytest.raises(_Bound):                                   # it got as far as binding
         S.serve("127.0.0.1", 0)
-    assert e.value.code == 2
     err = capsys.readouterr().err
-    assert "GRIDFORGE_ADMIN_KEY is 5 characters" in err and "short" not in err.replace("GRIDFORGE_ADMIN_KEY is 5 characters", "")
+    assert "WARNING" in err and "GRIDFORGE_ADMIN_KEY is 5 characters" in err and "Refusing" not in err
+    assert "short" not in err.replace("GRIDFORGE_ADMIN_KEY is 5 characters", "").replace("should", "")
+
+
+def test_serve_refuses_before_binding_only_when_enforced(monkeypatch, capsys):
+    _refuse_to_bind(monkeypatch)
+    monkeypatch.setenv("GRIDFORGE_ADMIN_KEY", "short")
+    monkeypatch.setenv("GRIDFORGE_ENFORCE_SECRET_STRENGTH", "1")
+    with pytest.raises(SystemExit) as e:                          # not _Bound: it stopped before binding
+        S.serve("127.0.0.1", 0)
+    assert e.value.code == 2 and "Refusing to start" in capsys.readouterr().err
 
 
 def test_make_server_for_tests_and_embedders_is_not_gated(monkeypatch):

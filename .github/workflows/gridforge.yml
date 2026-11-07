@@ -447,7 +447,9 @@ jobs:
           "
       - name: A self-serve key the engine has never seen works
         env:
-          GRIDFORGE_KEY_SECRET: ci-selfserve-secret
+          # A CI fixture, not a secret: 24+ characters because the engine warns (and, with GRIDFORGE_ENFORCE_SECRET_STRENGTH=1, refuses to
+          # start) on a shorter signing secret.
+          GRIDFORGE_KEY_SECRET: ci-selfserve-fixture-not-a-secret-0123
         run: |
           # No GRIDFORGE_API_KEYS at all: every key was issued elsewhere.
           python -m gridforge serve --port 8082 &

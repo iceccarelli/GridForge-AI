@@ -54,7 +54,10 @@ the identity is the socket peer unless the operator says otherwise:
     GRIDFORGE_DISCOVERY_RATE_LIMIT requests per minute per caller on /health, /v1/version and /v1/tools, which cost almost nothing but are
                                    still bounded (default: ten times GRIDFORGE_RATE_LIMIT, at least 600; follows the main limiter off).
 An address that does not parse is not an identity: the socket peer is used instead. IPv6 callers are counted per /64.
-GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET, when set, must be at least 24 characters or `serve` refuses to start (MIN_SECRET_CHARS).
+GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET, when set, should be at least 24 characters (MIN_SECRET_CHARS). `serve` logs a WARNING naming the
+variable and its length (never the value) and carries on, so a deployment whose secrets are older than this check does not go down.
+    GRIDFORGE_ENFORCE_SECRET_STRENGTH   set to 1: `serve` refuses to start (exit 2) on a secret shorter than that. Set it once the live secrets
+                                        are confirmed long enough; the check itself is `check_secret_strength`.
 """
 from __future__ import annotations
 
@@ -299,8 +302,20 @@ def weak_secrets(env=None) -> list[str]:
     for name in SECRET_ENV_NAMES:
         val = (env.get(name) or "").strip()
         if val and len(val) < MIN_SECRET_CHARS:
-            out.append(f"{name} is {len(val)} characters; it must be at least {MIN_SECRET_CHARS}. Generate one with `openssl rand -hex 32`.")
+            out.append(f"{name} is {len(val)} characters; it should be at least {MIN_SECRET_CHARS}. Generate one with `openssl rand -hex 32`.")
     return out
+
+
+def check_secret_strength(env=None, enforce: bool | None = None) -> tuple[list[str], bool]:
+    """(messages, refuse): the weak secrets in ``env`` and whether startup must be refused because of them. Pure: it reads only its arguments.
+
+    ``enforce`` None reads GRIDFORGE_ENFORCE_SECRET_STRENGTH from ``env`` (refuse only when it is "1"). Default is to warn and continue: an outage
+    caused by a secret that has worked for months is a worse failure than a short secret that is reported on every start."""
+    env = os.environ if env is None else env
+    if enforce is None:
+        enforce = (env.get("GRIDFORGE_ENFORCE_SECRET_STRENGTH") or "").strip() == "1"
+    msgs = weak_secrets(env)
+    return msgs, bool(msgs) and bool(enforce)
 
 
 def _api_keys() -> set[str]:
@@ -2082,13 +2097,11 @@ def install_signal_handlers() -> None:
 
 
 def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover - entry point
-    weak = weak_secrets()
-    if weak:
-        # Before anything is bound: a deployment with a guessable operator or signing secret must not come up looking healthy.
-        print("gridforge: refusing to start with a weak secret:", file=sys.stderr)
-        for line in weak:
-            print(f"  - {line}", file=sys.stderr)
-        raise SystemExit(2)
+    weak, refuse = check_secret_strength()
+    for line in weak:
+        print(f"gridforge: WARNING: {line}" + (" Refusing to start (GRIDFORGE_ENFORCE_SECRET_STRENGTH=1)." if refuse else ""), file=sys.stderr)
+    if refuse:
+        raise SystemExit(2)          # before anything is bound
     httpd = ThreadingHTTPServer((host, port), Handler)
     keys = _api_keys()
     print(f"gridforge {VERSION} listening on http://{host}:{port}")
