@@ -104,39 +104,39 @@ describe("the route layer's own membership check, with a database that misbehave
   const id = "00000000-0000-4000-8000-0000000000aa";
   const headers = { ...bearerFor(stranger), "x-forwarded-for": "10.2.2.2" };
 
-  it("inputs of a hall of another organisation are a 403 with none of its data", async () => {
+  it("inputs of a hall of another organisation are a 404 with none of its data", async () => {
     const r = await withBrokenDb((db) => db.rpcs.set("gf_hall_inputs", () => ({ ok: true, hall: hallOf("theirs"), inputs: [{ id: "i", field_path: "grid.x", value: 987, unit: null, evidence_class: "E1", origin: "assumed", as_of: "2026-01-01", recorded_by: "a@b.example", recorded_at: "2026-01-01", supersedes_id: null, superseded: false, source: null }] })), async () => {
       const { GET } = await import("@/app/api/halls/[id]/inputs/route");
       return GET(new Request(siteUrl(`/api/halls/${id}/inputs`), { headers }), { params: Promise.resolve({ id }) });
     });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     expect(JSON.stringify(await r.json())).not.toMatch(/Secret|987/);
   });
 
-  it("the halls of a site of another organisation are a 403", async () => {
+  it("the halls of a site of another organisation are a 404", async () => {
     const r = await withBrokenDb((db) => db.rpcs.set("gf_list_halls", () => ({ ok: true, site: { id: "s1", org_id: "theirs", name: "Secret site", country: null, data_origin: "production" }, halls: [{ id: "h", site_id: "s1", label: "Secret hall", created_by: "a@b.example", created_at: "2026-01-01" }] })), async () => {
       const { GET } = await import("@/app/api/sites/[id]/halls/route");
       return GET(new Request(siteUrl(`/api/sites/${id}/halls`), { headers }), { params: Promise.resolve({ id }) });
     });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     expect(JSON.stringify(await r.json())).not.toMatch(/Secret/);
   });
 
-  it("the timeline of a hall of another organisation is a 403", async () => {
+  it("the timeline of a hall of another organisation is a 404", async () => {
     const r = await withBrokenDb((db) => db.rpcs.set("gf_hall_timeline", () => ({ ok: true, hall: { id: "h1", label: "Secret hall", site_name: "Secret site", org_id: "theirs", data_origin: "production" }, truncated: false, events: [] })), async () => {
       const { GET } = await import("@/app/api/halls/[id]/timeline/route");
       return GET(new Request(siteUrl(`/api/halls/${id}/timeline`), { headers }), { params: Promise.resolve({ id }) });
     });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     expect(JSON.stringify(await r.json())).not.toMatch(/Secret/);
   });
 
-  it("the roster of another organisation is a 403", async () => {
+  it("the roster of another organisation is a 404", async () => {
     const r = await withBrokenDb((db) => db.rpcs.set("gf_org_members", () => ({ ok: true, members: [{ id: "m", email: "secret@theirs.example", role: "owner", added_by: "x@y.example", added_at: "2026-01-01" }] })), async () => {
       const { GET } = await import("@/app/api/orgs/[id]/members/route");
       return GET(new Request(siteUrl(`/api/orgs/${id}/members`), { headers }), { params: Promise.resolve({ id }) });
     });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     expect(JSON.stringify(await r.json())).not.toMatch(/secret@theirs/);
   });
 
@@ -154,21 +154,46 @@ describe("the route layer's own membership check, with a database that misbehave
 });
 
 describe("the allowance", () => {
-  it("writes are counted per caller address; the limit-th+1 write is a 429 with Retry-After, and a refused (invalid) request spends nothing", async () => {
+  const postOrg = (who: string, ip: string, body: unknown) =>
+    import("@/app/api/orgs/route").then(({ POST }) =>
+      POST(new Request(siteUrl("/api/orgs"), { method: "POST", headers: { ...bearerFor(who), "x-forwarded-for": ip, "content-type": "application/json" }, body: JSON.stringify(body) })));
+
+  it("writes are counted per VERIFIED ACCOUNT: the limit+1-th is a 429 with Retry-After from any address, a refused (invalid) request spends nothing, and a colleague on the same address is not locked out", async () => {
     const db = fakeDb();
     const { restore } = installWithAuth(db);
     try {
-      const { POST } = await import("@/app/api/orgs/route");
-      const post = (body: unknown) => POST(new Request(siteUrl("/api/orgs"), { method: "POST", headers: { ...bearerFor("busy@registry.example"), "x-forwarded-for": "10.9.9.9", "content-type": "application/json" }, body: JSON.stringify(body) }));
-      for (let i = 0; i < 30; i++) expect((await post({ nope: 1 })).status).toBe(400);      // invalid: free
+      for (let i = 0; i < 30; i++) expect((await postOrg("busy@registry.example", "10.9.9.9", { nope: 1 })).status).toBe(400);      // invalid: free
       const hits = () => db.rows("rate_limit_windows").filter((r) => r.bucket === "registry_write").reduce((n, r) => n + (r.hits as number), 0);
       expect(hits()).toBe(0);
       const limit = RATE_POLICIES.registry_write.limit;
       let last: Response | null = null;
-      for (let i = 0; i < limit + 1; i++) last = await post({ name: `O${i}` });
+      for (let i = 0; i < limit + 1; i++) last = await postOrg("busy@registry.example", `10.9.${Math.floor(i / 200)}.${i % 200}`, { name: `O${i}` });   // a different address each time
       expect(last!.status).toBe(429);
       expect(last!.headers.get("retry-after")).toBeTruthy();
       expect(last!.headers.get("cache-control")).toBe("no-store");
+      // the address is not what is counted: another person behind the SAME address as the exhausted one is unaffected
+      expect((await postOrg("colleague@registry.example", "10.9.9.9", { name: "Mine" })).status).toBe(201);
+      expect(db.rows("rate_limit_windows").every((r) => r.bucket !== "registry_account")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("one write and one read each cost a small, fixed number of store requests (no N+3 fan-out)", async () => {
+    const db = fakeDb();
+    const { restore } = installWithAuth(db);
+    try {
+      const who = "counter@registry.example";
+      const countFor = async (run: () => Promise<Response>) => { const before = db.calls.length; const r = await run(); expect(r.status).toBeLessThan(300); return db.calls.length - before; };
+      const created = await postOrg(who, "10.8.8.8", { name: "Counted" });
+      const org = (await created.json()).org.id as string;
+      const post = (path: string, body: unknown, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).POST(new Request(siteUrl(path), { method: "POST", headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8", "content-type": "application/json" }, body: JSON.stringify(body) }), ctx);
+      expect(await countFor(post("/api/sites", { orgId: org, name: "S", dataOrigin: "test" }, () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(2);          // the allowance and the write
+      const get = (path: string, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).GET(new Request(siteUrl(path), { headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8" } }), ctx);
+      const sites = await (await get("/api/sites", () => import("@/app/api/sites/route"))()).json();
+      expect(sites.sites[0].halls).toEqual([]);                                   // halls travel inside the site list
+      expect(await countFor(get("/api/sites", () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(3);                // the allowance, the list, the membership check
+      expect(await countFor(get("/api/orgs", () => import("@/app/api/orgs/route")))).toBeLessThanOrEqual(2);
     } finally {
       restore();
     }
@@ -187,9 +212,9 @@ describe("the allowance", () => {
     }
   });
 
-  it("the new policies exist with the documented bounds", () => {
+  it("the policies exist with the documented bounds, and the old address-keyed account policy is gone", () => {
     expect(RATE_POLICIES.registry_read).toEqual({ bucket: "registry_read", limit: 600, windowSeconds: 3600 });
     expect(RATE_POLICIES.registry_write).toEqual({ bucket: "registry_write", limit: 120, windowSeconds: 3600 });
-    expect(RATE_POLICIES.registry_account).toEqual({ bucket: "registry_account", limit: 1200, windowSeconds: 3600 });
+    expect("registry_account" in RATE_POLICIES).toBe(false);
   });
 });

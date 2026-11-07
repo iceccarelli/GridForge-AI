@@ -25,7 +25,7 @@ import { creds, rpc } from "@/lib/pgrest";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 import {
-  DATA_ORIGINS, EVIDENCE_CLASS_CODES, FIELD_PATH_PATTERN, ORIGINS, ORIGINS_CAPPED_AT_E3, ORIGINS_NEEDING_A_SOURCE, ROLES,
+  DATA_ORIGINS, EVIDENCE_CLASS_CODES, FIELD_PATH_PATTERN, ORIGINS, ORIGINS_CAPPED_AT_E3, ORIGINS_NEEDING_A_SOURCE, ROLES, UNIT_PATTERN,
 } from "@/lib/site-registry-fields";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,9 +64,9 @@ export async function registryCaller(req: Request): Promise<Caller> {
 
 /** Count this request against the caller's allowance (after the door and after the body is known to be well-formed). null = admitted. */
 export async function admit(req: Request, caller: { email: string }, kind: "read" | "write"): Promise<NextResponse | null> {
-  const g = await guardRequest(req, kind === "read" ? "registry_read" : "registry_write", {
-    account: { verifiedEmail: caller.email, policy: "registry_account" },
-  });
+  // Counted per VERIFIED ACCOUNT, not per address: the caller was identified first, and an office behind one NAT must not lock itself out.
+  const policy = kind === "read" ? "registry_read" : "registry_write";
+  const g = await guardRequest(req, policy, { account: { verifiedEmail: caller.email, policy }, accountOnly: true });
   if (g.denied) g.denied.headers.set("Cache-Control", "no-store");
   return g.denied;
 }
@@ -91,7 +91,13 @@ export async function readBody<S extends z.ZodType>(req: Request, schema: S): Pr
 
 // --------------------------------------------------------------------------------------------------------------- schemas
 
-const name = (what: string) => z.string().trim().min(1, `${what} is required.`).max(120, `${what} is at most 120 characters.`).refine((v) => !/[\u0000-\u001f\u007f]/.test(v), `${what} has a control character.`);
+/** Same rule as the database's gf_registry_name_ok: trimmed of Unicode whitespace, 1..120 characters, no control, zero-width or bidirectional character. */
+const BAD_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u061c\u202a-\u202e\u2060-\u2069\ufeff\u2028\u2029]/;
+const EDGE_SPACE = /^[\s\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+|[\s\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+$/g;
+const name = (what: string) =>
+  z.string().transform((v) => v.replace(EDGE_SPACE, "")).pipe(
+    z.string().min(1, `${what} is required.`).max(120, `${what} is at most 120 characters.`).refine((v) => !BAD_CHARS.test(v), `${what} has a control or direction-changing character.`)
+  );
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date as YYYY-MM-DD.").refine((v) => {
   const d = new Date(`${v}T00:00:00Z`);
@@ -116,13 +122,16 @@ export const SiteBody = z.strictObject({
 
 export const HallBody = z.strictObject({ label: name("The hall label") });
 
+export const CursorQuery = z.string().min(2).max(600);
+
 export const AttachBody = z.strictObject({ projectToken: z.string().trim().min(8, "Paste the project's link token.").max(200) });
 
 export const InputBody = z
   .strictObject({
-    fieldPath: z.string().max(120).regex(FIELD_PATH_PATTERN, "Use an intake path such as grid.firm_capacity_MVA."),
+    // Stored lower case: two spellings are one field.
+    fieldPath: z.string().trim().max(120).transform((v) => v.toLowerCase()).pipe(z.string().regex(FIELD_PATH_PATTERN, "Use a dotted path such as grid.firm_capacity_mva.")),
     value: z.union([z.number(), z.string().min(1).max(200), z.boolean()]).nullable(),
-    unit: z.string().min(1).max(24).nullable().optional(),
+    unit: z.string().min(1).max(24).regex(UNIT_PATTERN, "That unit has a character a unit cannot have.").nullable().optional(),
     evidenceClass: z.enum(EVIDENCE_CLASS_CODES),
     origin: z.enum(ORIGINS),
     projectEvidenceId: id.nullable().optional(),
@@ -145,16 +154,21 @@ export const InputBody = z
     if (sources > 1) add("projectEvidenceId", "Cite one source file, not two.");
     if (ORIGINS_NEEDING_A_SOURCE.includes(b.origin) && sources !== 1) add("origin", `A ${b.origin} figure needs a source file.`);
     if (ORIGINS_CAPPED_AT_E3.includes(b.origin) && b.evidenceClass > "E3") add("evidenceClass", `An ${b.origin} figure cannot claim a class above E3.`);
+    if (b.origin === "vendor" && sources === 0 && b.evidenceClass > "E3") add("evidenceClass", "A vendor figure with no file behind it cannot claim a class above E3.");
+    if (b.intakeEvidenceFileId && !b.projectEvidenceId && b.evidenceClass > "E3") add("evidenceClass", "A purchased engagement's file is not reviewable, so it supports a declared class of E3 at most.");
   });
 
 // --------------------------------------------------------------------------------------------------------------- the database's answers
 
 type Answer = { ok: true; data: Record<string, any> } | { ok: false; response: NextResponse };
 
+const NOT_FOUND: [number, string] = [404, "No such item."];
+
 const REFUSALS: Record<string, [number, string]> = {
   invalid_actor: [401, "Sign in again."],
-  not_found: [404, "No such item."],
-  not_a_member: [403, "You are not a member of that organisation."],
+  not_found: NOT_FOUND,
+  // Not being a member of an organisation is answered EXACTLY as the organisation not existing: a stranger learns nothing from the difference.
+  not_a_member: NOT_FOUND,
   forbidden: [403, "Your role in that organisation does not allow this."],
   invalid_name: [400, "That name is not valid."],
   invalid_label: [400, "That label is not valid."],
@@ -162,34 +176,38 @@ const REFUSALS: Record<string, [number, string]> = {
   invalid_data_origin: [400, "Say whether this site holds production, test or synthetic data."],
   invalid_role: [400, "That role is not valid."],
   invalid_email: [400, "Enter a valid email address."],
+  invalid_cursor: [400, "That page marker is not valid. Start again from the newest."],
   name_taken: [409, "That name is already used in this organisation."],
   label_taken: [409, "That label is already used at this site."],
   already_member: [409, "That person is already a member."],
   last_owner: [409, "An organisation always needs an owner. Add another owner first."],
   limit: [409, "A limit on the number of items has been reached."],
+  field_limit: [409, "A hall holds at most 500 different fields."],
+  correction_limit: [409, "This field already has 50 recorded values and corrections, the most one field holds."],
   field_already_recorded: [409, "This field already has a recorded value. Record a correction that replaces it."],
   superseded: [409, "Someone corrected this figure first. Reload and try again."],
-  source_not_in_hall: [422, "That file does not belong to a project attached to this hall."],
+  // ONE answer for a file or an earlier figure that cannot be used, whether it does not exist, is not this hall's, or belongs to someone else.
+  invalid_reference: [422, "That file or earlier figure cannot be used for this hall."],
   source_rejected: [422, "That file was reviewed and rejected, so it cannot be cited."],
-  source_not_yours: [422, "That file belongs to an engagement bought by someone else."],
-  unknown_reference: [422, "A file or a figure you referred to does not exist."],
   project_not_found: [404, "No project has that link token."],
-  project_in_other_hall: [409, "That project already belongs to a hall."],
+  project_in_other_hall: [409, "That project already belongs to a hall. It has to be detached from it first."],
+  not_attached: [404, "That project is not attached to this hall."],
 };
 
 const CONSTRAINTS: Record<string, string> = {
   hall_inputs_origin_source: "A measured, observed or quoted figure needs a source file.",
   hall_inputs_missing_shape: "A missing input has no value, no source and class E0; any other input needs a value.",
   hall_inputs_assumed_class: "An assumed or modelled figure cannot claim an evidence class above E3.",
+  hall_inputs_vendor_class: "A vendor figure with no file behind it cannot claim a class above E3.",
+  hall_inputs_unreviewed_source: "A declared class above E3 needs a project file that has been reviewed and verified. Declare E3 or lower until then.",
   hall_inputs_one_source: "Cite one source file, not two.",
-  hall_inputs_field_path: "Use an intake path such as grid.firm_capacity_MVA.",
+  hall_inputs_field_path: "Use a dotted path such as grid.firm_capacity_mva.",
   hall_inputs_value_shape: "The value must be a finite number, a short text or true/false.",
-  hall_inputs_unit: "A unit belongs only to a number, and is at most 24 characters.",
+  hall_inputs_unit: "That unit has a character a unit cannot have, or belongs to a value that is not a number.",
   hall_inputs_evidence_class: "The evidence class must be E0 to E7.",
   hall_inputs_origin: "That origin is not one of the seven.",
   hall_inputs_as_of: "That date is too old to be a figure's date.",
   hall_inputs_as_of_future: "A figure cannot be as of a date in the future.",
-  hall_inputs_supersedes_scope: "A correction must replace a figure of the same hall and the same field.",
 };
 
 /** One database call. A transport failure, a missing function (migration not applied) and a malformed answer are all a 503. */
@@ -199,7 +217,8 @@ async function ask(fn: string, args: Record<string, unknown>): Promise<Answer> {
   const d = r.data;
   if (!d || typeof d !== "object" || typeof d.ok !== "boolean") return { ok: false, response: refuse(503, UNAVAILABLE) };
   if (d.ok) return { ok: true, data: d };
-  const reason = String(d.reason ?? "");
+  let reason = String(d.reason ?? "");
+  if (reason === "not_a_member") reason = "not_found";          // the same answer, reason included
   if (reason === "invalid_input") {
     return { ok: false, response: refuse(400, CONSTRAINTS[String(d.constraint ?? "")] ?? "Some fields are not valid.", { reason }) };
   }
@@ -217,7 +236,7 @@ async function memberOrgIds(actor: string): Promise<Out<Set<string>>> {
 async function inMyOrgs<T>(actor: string, orgId: string, value: T): Promise<Out<T>> {
   const mine = await memberOrgIds(actor);
   if (!mine.ok) return mine;
-  if (!mine.value.has(orgId)) return { ok: false, response: refuse(403, REFUSALS.not_a_member[1], { reason: "not_a_member" }) };
+  if (!mine.value.has(orgId)) return { ok: false, response: refuse(NOT_FOUND[0], NOT_FOUND[1], { reason: "not_found" }) };
   return { ok: true, value };
 }
 
@@ -227,9 +246,10 @@ const rows = <T>(v: unknown, f: (x: any) => T): T[] => (Array.isArray(v) ? v.map
 
 type Out<T> = { ok: true; value: T } | { ok: false; response: NextResponse };
 
-export interface OrgView { id: string; name: string; role: string; createdAt: string }
+/** `addedBy`/`addedAt`/`memberId`: who added the caller to this organisation, when, and the membership row they can leave by (no acceptance step exists). */
+export interface OrgView { id: string; name: string; role: string; createdAt: string; memberId?: string; addedBy?: string; addedAt?: string }
 export interface MemberView { id: string; email: string; role: string; addedBy: string; addedAt: string }
-export interface SiteView { id: string; orgId: string; orgName?: string; name: string; country: string | null; dataOrigin: string; createdBy?: string; createdAt?: string }
+export interface SiteView { id: string; orgId: string; orgName?: string; name: string; country: string | null; dataOrigin: string; createdBy?: string; createdAt?: string; halls?: HallView[] }
 export interface HallView { id: string; siteId: string; label: string; createdBy: string; createdAt: string }
 export interface InputView {
   id: string; fieldPath: string; value: number | string | boolean | null; unit: string | null; evidenceClass: string; origin: string; asOf: string;
@@ -241,13 +261,17 @@ export interface TimelineEventView {
   actor: string; projectId: string | null; superseded: boolean; sourceTable: string; sourceId: string;
 }
 
-const orgView = (o: any): OrgView => ({ id: o.id, name: o.name, role: o.role, createdAt: o.created_at });
+const orgView = (o: any): OrgView => ({
+  id: o.id, name: o.name, role: o.role, createdAt: o.created_at,
+  ...(o.member_id ? { memberId: o.member_id, addedBy: o.added_by, addedAt: o.added_at } : {}),
+});
 const memberView = (m: any): MemberView => ({ id: m.id, email: m.email, role: m.role, addedBy: m.added_by, addedAt: m.added_at });
+const hallView = (h: any): HallView => ({ id: h.id, siteId: h.site_id, label: h.label, createdBy: h.created_by, createdAt: h.created_at });
 const siteView = (s: any): SiteView => ({
   id: s.id, orgId: s.org_id, ...(s.org_name !== undefined ? { orgName: s.org_name } : {}), name: s.name, country: s.country ?? null, dataOrigin: s.data_origin,
   ...(s.created_by !== undefined ? { createdBy: s.created_by, createdAt: s.created_at } : {}),
+  ...(Array.isArray(s.halls) ? { halls: s.halls.map(hallView) } : {}),
 });
-const hallView = (h: any): HallView => ({ id: h.id, siteId: h.site_id, label: h.label, createdBy: h.created_by, createdAt: h.created_at });
 const inputView = (i: any): InputView => ({
   id: i.id, fieldPath: i.field_path, value: i.value ?? null, unit: i.unit ?? null, evidenceClass: i.evidence_class, origin: i.origin, asOf: i.as_of,
   recordedBy: i.recorded_by, recordedAt: i.recorded_at, supersedesId: i.supersedes_id ?? null, superseded: Boolean(i.superseded),
@@ -290,7 +314,7 @@ export async function listSites(actor: string, org: string | null): Promise<Out<
 export async function createSite(actor: string, b: z.infer<typeof SiteBody>) {
   return done(
     await ask("gf_create_site", { p_actor: actor, p_org: b.orgId, p_name: b.name, p_country: b.country || null, p_data_origin: b.dataOrigin }),
-    (d) => ({ id: String(d.site_id) })
+    (d) => ({ id: String(d.site_id), site: siteView(d.site) })
   );
 }
 export async function listHalls(actor: string, site: string) {
@@ -298,7 +322,7 @@ export async function listHalls(actor: string, site: string) {
   return r.ok ? inMyOrgs(actor, r.value.site.orgId, r.value) : r;
 }
 export async function createHall(actor: string, site: string, b: z.infer<typeof HallBody>) {
-  return done(await ask("gf_create_hall", { p_actor: actor, p_site: site, p_label: b.label }), (d) => ({ id: String(d.hall_id) }));
+  return done(await ask("gf_create_hall", { p_actor: actor, p_site: site, p_label: b.label }), (d) => ({ id: String(d.hall_id), hall: hallView(d.hall) }));
 }
 export async function recordInput(actor: string, hall: string, b: z.infer<typeof InputBody>) {
   return done(
@@ -307,23 +331,28 @@ export async function recordInput(actor: string, hall: string, b: z.infer<typeof
       p_origin: b.origin, p_project_evidence: b.projectEvidenceId ?? null, p_intake_evidence: b.intakeEvidenceFileId ?? null, p_as_of: b.asOf,
       p_supersedes: b.supersedes ?? null,
     }),
-    (d) => ({ id: String(d.id) })
+    (d) => ({ id: String(d.id), input: inputView(d.input) })
   );
 }
-export async function hallInputs(actor: string, hall: string, history: boolean) {
-  const r = done(await ask("gf_hall_inputs", { p_actor: actor, p_hall: hall, p_history: history }), (d) => ({
+export async function hallInputs(actor: string, hall: string, opts: { history: boolean; field?: string | null; limit?: number }) {
+  const r = done(await ask("gf_hall_inputs", { p_actor: actor, p_hall: hall, p_history: opts.history, p_field: opts.field ?? null, p_limit: opts.limit ?? 500 }), (d) => ({
+    truncated: Boolean(d.truncated),
     hall: { id: d.hall.id, label: d.hall.label, siteId: d.hall.site_id, siteName: d.hall.site_name, orgId: d.hall.org_id, dataOrigin: d.hall.data_origin, country: d.hall.country ?? null },
     inputs: rows(d.inputs, inputView),
   }));
   return r.ok ? inMyOrgs(actor, r.value.hall.orgId, r.value) : r;
 }
-export async function hallTimeline(actor: string, hall: string, limit: number, before: string | null) {
-  const r = done(await ask("gf_hall_timeline", { p_actor: actor, p_hall: hall, p_limit: limit, p_before: before }), (d) => ({
+export async function hallTimeline(actor: string, hall: string, limit: number, cursor: string | null) {
+  const r = done(await ask("gf_hall_timeline", { p_actor: actor, p_hall: hall, p_limit: limit, p_cursor: cursor }), (d) => ({
+    nextCursor: typeof d.next_cursor === "string" ? d.next_cursor : null,
     hall: { id: d.hall.id, label: d.hall.label, siteName: d.hall.site_name, orgId: d.hall.org_id, dataOrigin: d.hall.data_origin },
     truncated: Boolean(d.truncated),
     events: rows(d.events, eventView),
   }));
   return r.ok ? inMyOrgs(actor, r.value.hall.orgId, r.value) : r;
+}
+export async function detachProject(actor: string, hall: string, project: string) {
+  return done(await ask("gf_detach_project_from_hall", { p_actor: actor, p_hall: hall, p_project: project }), () => ({}));
 }
 export async function attachProject(actor: string, hall: string, b: z.infer<typeof AttachBody>) {
   return done(await ask("gf_attach_project_to_hall", { p_actor: actor, p_hall: hall, p_project_token: b.projectToken }), (d) => ({

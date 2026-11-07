@@ -41,15 +41,19 @@ export const DATA_ORIGIN_MEANING: Record<DataOrigin, string> = {
 /** The intake's own paths: the figures a hall record is expected to hold before anything is concluded from it. A path with no recorded
  *  input is shown as "missing", never left blank. */
 export const EXPECTED_HALL_FIELDS: { path: string; label: string; unit: string }[] = [
-  { path: "grid.firm_capacity_MVA", label: "Firm connection capacity", unit: "MVA" },
-  { path: "grid.contracted_MW", label: "Contracted capacity", unit: "MW" },
-  { path: "grid.current_site_peak_MW", label: "Current site peak", unit: "MW" },
+  { path: "grid.firm_capacity_mva", label: "Firm connection capacity", unit: "MVA" },
+  { path: "grid.contracted_mw", label: "Contracted capacity", unit: "MW" },
+  { path: "grid.current_site_peak_mw", label: "Current site peak", unit: "MW" },
   { path: "hall.net_white_space_m2", label: "Net white space", unit: "m2" },
-  { path: "hall.floor_loading_kPa", label: "Floor loading", unit: "kPa" },
-  { path: "hall.design_density_kW_per_rack", label: "Design density", unit: "kW/rack" },
+  { path: "hall.floor_loading_kpa", label: "Floor loading", unit: "kPa" },
+  { path: "hall.design_density_kw_per_rack", label: "Design density", unit: "kW/rack" },
   { path: "hall.rack_positions", label: "Rack positions", unit: "" },
-  { path: "thermal.plant.chilled_water_capacity_kW", label: "Chilled-water capacity", unit: "kW" },
+  { path: "thermal.plant.chilled_water_capacity_kw", label: "Chilled-water capacity", unit: "kW" },
 ];
 
-/** Same shape as the database's hall_inputs_field_path check (0050) and the intake's paths. */
-export const FIELD_PATH_PATTERN = /^[a-z][A-Za-z0-9_]*(\[[0-9]{1,3}\])?(\.[a-z][A-Za-z0-9_]*(\[[0-9]{1,3}\])?){0,5}$/;
+/** Same shape as the database's hall_inputs_field_path check (0050): lower-case dotted, with optional list indexes. The intake's own paths read the same
+ *  once lower-cased (grid.firm_capacity_MVA is stored as grid.firm_capacity_mva), so two spellings are one field. */
+export const FIELD_PATH_PATTERN = /^[a-z][a-z0-9_]*(\[[0-9]{1,3}\])?(\.[a-z][a-z0-9_]*(\[[0-9]{1,3}\])?){0,5}$/;
+
+/** Same alphabet as the database's hall_inputs_unit check: letters, digits, % / . _ ^ * + ( ) space -, and the signs micro, degree, superscript 2 and 3, middle dot, ohm. */
+export const UNIT_PATTERN = /^[A-Za-z0-9%/._^*+() \u00b5\u00b0\u00b2\u00b3\u00b7\u03a9-]+$/;

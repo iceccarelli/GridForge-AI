@@ -177,11 +177,11 @@ try {
     check(at("a measured figure without a source file is refused in an alert"), true);
     await page.getByLabel("Origin").selectOption("assumed");
     check(at("an assumed figure is not offered a class above E3"), await page.locator('#rec-class option[value="E5"]').isDisabled());
-    await page.getByLabel("Evidence class (your declaration)").selectOption("E1");
+    await page.getByLabel("Declared evidence class (your declaration)").selectOption("E1");
     await page.getByRole("button", { name: "Record figure" }).click();
     await page.locator("tbody tr", { hasText: "40 MVA" }).waitFor({ timeout: 15000 });
     const row = await page.locator("tbody tr", { hasText: "40 MVA" }).innerText();
-    check(at("the figure is recorded with origin, class, date and recorder"), /assumed/.test(row) && /E1/.test(row) && /20\d\d-\d\d-\d\d/.test(row) && row.includes(me), row.replace(/\s+/g, " "));
+    check(at("the figure is recorded with origin, class, date and recorder"), /declared assumed/.test(row) && /E1/.test(row) && /20\d\d-\d\d-\d\d/.test(row) && row.includes(me), row.replace(/\s+/g, " "));
     check(at("an assumed figure is not shown as measured"), !/measured|verified/i.test(row));
 
     // a correction replaces it and says so
@@ -196,11 +196,70 @@ try {
     await page.locator("ol li", { hasText: "40 MVA" }).waitFor({ timeout: 15000 });
     check(at("the timeline keeps the replaced figure, marked as replaced"), /replaced by a later figure/.test(await page.locator("ol li", { hasText: "40 MVA" }).innerText()));
 
+    // the history of a field is one click away and keeps the replaced figure
+    await page.getByRole("button", { name: "History of grid.firm_capacity_mva" }).click();
+    const hist = page.locator("#history-title");
+    await hist.waitFor({ timeout: 10000 });
+    await page.locator("section[aria-labelledby=history-title] li", { hasText: "40 MVA" }).waitFor({ timeout: 10000 });
+    const histText = await page.locator("section[aria-labelledby=history-title]").innerText();
+    check(at("the field's history lists the replaced figure and the current one"), /40 MVA/.test(histText) && /replaced by a later figure/.test(histText) && /42 MVA/.test(histText) && /current/.test(histText), histText.replace(/\s+/g, " ").slice(0, 200));
+    check(at("opening the history moves focus to its heading"), await hist.evaluate((el) => el === document.activeElement));
+    await page.getByRole("button", { name: "Close history" }).click();
+
+    // more than a page of events: the page says older events are not shown, and "Load older" brings every one exactly once
+    const made = await page.evaluate(async () => {
+      const key = Object.keys(localStorage).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+      const tok = JSON.parse(localStorage.getItem(key)).access_token;
+      const h = { Authorization: "Bearer " + tok, "Content-Type": "application/json" };
+      const sites = await (await fetch("/api/sites", { headers: h })).json();
+      const hall = sites.sites[0].halls[0].id;
+      let ok = 0;
+      for (let i = 0; i < 33; i++) {
+        const r = await fetch(`/api/halls/${hall}/inputs`, { method: "POST", headers: h, body: JSON.stringify({ fieldPath: `bulk.f${i}`, value: i, evidenceClass: "E1", origin: "assumed", asOf: "2026-01-01" }) });
+        if (r.status === 201) ok++;
+      }
+      return ok;
+    });
+    check(at("33 more figures were recorded (setup)"), made === 33, String(made));
+    await page.reload();
+    await page.getByRole("button", { name: "Hall A1" }).click();
+    await page.locator("ol li").first().waitFor({ timeout: 15000 });
+    check(at("a full page of events says older ones are not shown"), await page.getByText(/Older events are not shown\. This is the newest 30\./).isVisible());
+    const firstPage = await page.locator("main ol li, ol li").count();
+    const load = page.getByRole("button", { name: "Load older events" });
+    await load.focus();
+    await page.keyboard.press("Enter");
+    await page.getByText(/Older events are not shown/).waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+    const total = await page.locator("ol li").count();
+    check(at("Load older (by keyboard) brings the rest and the notice goes away"), total > firstPage && (await page.getByText(/Older events are not shown/).count()) === 0, `${firstPage} -> ${total}`);
+    const texts = await page.locator("ol li").allInnerTexts();
+    check(at("no event is shown twice"), new Set(texts.map((t) => t.replace(/\s+/g, " "))).size === texts.length, `${texts.length} items`);
+
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(at("no sideways scroll of the page"), overflow <= 1, `overflow ${overflow}px`);
     await shot(page, `sites-${width}`);
     check(at("no console errors"), errors.length === 0, errors.join(" | ").slice(0, 400));
     await ctx.close();
+  }
+  // ---- a person who was ADDED to an organisation is told by whom and can leave
+  {
+    const boss = `boss-${uid()}@journey.example`, guest = `guest-${uid()}@journey.example`;
+    const site = async (who, path, method = "GET", body) => (await fetch(SITE + path, { method, headers: { Authorization: `Bearer tok:${who}`, "x-forwarded-for": "198.51.100.77", ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })).json();
+    const org = (await site(boss, "/api/orgs", "POST", { name: `Boss org ${uid()}` })).org.id;
+    await site(boss, `/api/orgs/${org}/members`, "POST", { email: guest, role: "viewer" });
+    const g = await session(1440, 900, `tok:${guest}`, "guest");
+    g.page.on("dialog", (d) => d.accept());
+    await g.page.goto(SITE + "/account/sites");
+    const note = g.page.getByRole("group", { name: /You were added to/ });
+    await note.waitFor({ timeout: 20000 });
+    const noteText = await note.innerText();
+    check("an added member is told who added them and that they did not have to accept", noteText.includes(boss) && /did not have to accept/.test(noteText), noteText.replace(/\s+/g, " ").slice(0, 160));
+    await g.page.getByRole("button", { name: /^Leave / }).click();
+    await note.waitFor({ state: "detached", timeout: 15000 });
+    const mine = await site(guest, "/api/orgs");
+    check("leaving removes the organisation at once, on the server too", mine.ok && mine.orgs.length === 0);
+    check("no console errors for the added member", g.errors.length === 0, g.errors.join(" | ").slice(0, 300));
+    await g.ctx.close();
   }
   await browser.close();
 } catch (err) {

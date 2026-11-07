@@ -21,6 +21,6 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return serveWrite(req, SiteBody, async (email, body) => {
     const r = await createSite(email, body);
-    return r.ok ? reply({ ok: true, site: r.value }, 201) : r.response;
+    return r.ok ? reply({ ok: true, site: r.value.site }, 201) : r.response;
   });
 }

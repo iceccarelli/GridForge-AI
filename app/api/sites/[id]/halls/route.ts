@@ -19,6 +19,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const site = pathId(raw);
     if (!site.ok) return site.response;
     const r = await createHall(email, site.id, body);
-    return r.ok ? reply({ ok: true, hall: r.value }, 201) : r.response;
+    return r.ok ? reply({ ok: true, hall: r.value.hall }, 201) : r.response;
   });
 }

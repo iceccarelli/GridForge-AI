@@ -15,14 +15,18 @@ import {
 // The workspace behind /account/sites. Presentation only: every list and table is the server's answer, and every action is re-checked there
 // (the address is verified, membership and role are checked by the route and again inside the database). Hiding a button protects nothing.
 
-type Org = { id: string; name: string; role: "owner" | "editor" | "viewer" };
-type Site = { id: string; orgId: string; orgName?: string; name: string; country: string | null; dataOrigin: DataOrigin };
+type Org = { id: string; name: string; role: "owner" | "editor" | "viewer"; memberId?: string; addedBy?: string; addedAt?: string };
 type Hall = { id: string; siteId: string; label: string };
+type Site = { id: string; orgId: string; orgName?: string; name: string; country: string | null; dataOrigin: DataOrigin; halls?: Hall[] };
 type Input = {
   id: string; fieldPath: string; value: number | string | boolean | null; unit: string | null; evidenceClass: string; origin: Origin; asOf: string; recordedBy: string;
+  superseded?: boolean; recordedAt?: string;
   source: { kind: string; id: string; filename: string | null; reviewStatus: string | null } | null;
 };
-type Event = { occurredAt: string; kind: string; summary: string; origin: string; evidenceClass: string | null; basis: string; superseded: boolean };
+type Event = {
+  occurredAt: string; kind: string; summary: string; origin: string; evidenceClass: string | null; basis: string; superseded: boolean; projectId?: string | null;
+  sourceTable?: string; sourceId?: string; subject?: string;
+};
 
 type Phase = "loading" | "unconfirmed" | "unavailable" | "ready";
 type Msg = { ok: boolean; text: string } | null;
@@ -79,23 +83,16 @@ export default function SitesWorkspace() {
   const [email, setEmail] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [halls, setHalls] = useState<Record<string, Hall[]>>({});
   const [hallId, setHallId] = useState<string | null>(null);
 
+  // Two requests load the page: the organisations, and the sites WITH their halls. After a write the page updates from the write's own answer.
   const load = useCallback(async () => {
     try {
-      const o = await api("/api/orgs");
-      if (o.status === 401) { router.replace("/account/login"); return; }
-      if (o.status === 403) { setPhase("unconfirmed"); return; }
-      if (!o.body.ok) { setPhase("unavailable"); return; }
-      const s = await api("/api/sites");
-      if (!s.body.ok) { setPhase("unavailable"); return; }
-      const byId: Record<string, Hall[]> = {};
-      await Promise.all((s.body.sites as Site[]).map(async (x) => {
-        const h = await api(`/api/sites/${x.id}/halls`);
-        byId[x.id] = h.body.ok ? h.body.halls : [];
-      }));
-      setOrgs(o.body.orgs); setSites(s.body.sites); setHalls(byId); setPhase("ready");
+      const [o, s] = await Promise.all([api("/api/orgs"), api("/api/sites")]);
+      if (o.status === 401 || s.status === 401) { router.replace("/account/login"); return; }
+      if (o.status === 403 || s.status === 403) { setPhase("unconfirmed"); return; }
+      if (!o.body.ok || !s.body.ok) { setPhase("unavailable"); return; }
+      setOrgs(o.body.orgs); setSites(s.body.sites); setPhase("ready");
     } catch { setPhase("unavailable"); }
   }, [router]);
 
@@ -108,6 +105,20 @@ export default function SitesWorkspace() {
       void load();
     }).catch(() => setPhase("unavailable"));
   }, [router, load]);
+
+  const addedOrg = (o: { id: string; name: string }) => setOrgs((prev) => [...prev, { id: o.id, name: o.name, role: "owner" as const, addedBy: email?.toLowerCase() }].sort((x, y) => x.name.localeCompare(y.name)));
+  const addedSite = (site: Site) => setSites((prev) => [...prev, { ...site, halls: site.halls ?? [] }]);
+  const addedHall = (hall: Hall) => setSites((prev) => prev.map((x) => (x.id === hall.siteId ? { ...x, halls: [...(x.halls ?? []), hall].sort((a, b) => a.label.localeCompare(b.label)) } : x)));
+  async function leave(org: Org) {
+    if (!org.memberId || !window.confirm(`Leave ${org.name}? You lose access to its sites, halls and figures at once.`)) return null;
+    const r = await api(`/api/orgs/${org.id}/members?id=${org.memberId}`, { method: "DELETE" }).catch(() => null);
+    if (!r) return "Could not reach the server. Nothing was changed.";
+    if (!r.body.ok) return r.body.error ?? "That did not work.";
+    setOrgs((prev) => prev.filter((x) => x.id !== org.id));
+    setSites((prev) => prev.filter((x) => x.orgId !== org.id));
+    setHallId(null);
+    return null;
+  }
 
   if (phase === "loading") return <div className="flex justify-center pt-24" role="status" aria-label="Loading"><Loader2 className="animate-spin text-power" /></div>;
 
@@ -128,7 +139,7 @@ export default function SitesWorkspace() {
 
   const roleIn = (orgId: string) => orgs.find((o) => o.id === orgId)?.role;
   const canWrite = (orgId: string) => ["owner", "editor"].includes(roleIn(orgId) ?? "");
-  const selectedHall = hallId ? Object.values(halls).flat().find((h) => h.id === hallId) : undefined;
+  const selectedHall = hallId ? sites.flatMap((x) => x.halls ?? []).find((h) => h.id === hallId) : undefined;
   const selectedSite = selectedHall ? sites.find((s) => s.id === selectedHall.siteId) : undefined;
 
   return (
@@ -144,12 +155,13 @@ export default function SitesWorkspace() {
         </p>
       </section>
 
-      <NewOrg onDone={load} />
+      <NewOrg onCreated={addedOrg} />
 
       {orgs.length === 0 && <p className="text-mute text-[13px] mb-8">You are not in an organisation yet. Create one above; you become its owner and can add the people you work with.</p>}
 
       {orgs.map((o) => (
         <section key={o.id} aria-labelledby={`org-${o.id}`} className="mb-10">
+          {o.addedBy && o.addedBy !== email?.toLowerCase() && <AddedNotice org={o} onLeave={leave} />}
           <h2 id={`org-${o.id}`} className="text-xl font-semibold tracking-tight">{o.name} <span className="data text-[10px] uppercase text-faint align-middle">your role: {o.role}</span></h2>
           <ul className="mt-4 space-y-4">
             {sites.filter((s) => s.orgId === o.id).map((s) => (
@@ -157,25 +169,25 @@ export default function SitesWorkspace() {
                 <h3 className="font-semibold">{s.name} <span className="data text-[10px] uppercase text-faint">{s.country ?? "no country"}</span></h3>
                 <p className="data text-[10px] text-faint mt-0.5" title={DATA_ORIGIN_MEANING[s.dataOrigin]}>Data kind: {s.dataOrigin}. {DATA_ORIGIN_MEANING[s.dataOrigin]}</p>
                 <ul className="flex flex-wrap gap-2 mt-3" aria-label={`Halls at ${s.name}`}>
-                  {(halls[s.id] ?? []).map((h) => (
+                  {(s.halls ?? []).map((h) => (
                     <li key={h.id}>
                       <button type="button" onClick={() => setHallId(h.id)} aria-pressed={hallId === h.id}
                         className={`rounded-lg border px-3 py-1.5 text-[13px] ${hallId === h.id ? "border-power text-power" : "border-line text-mute hover:text-white"}`}>{h.label}</button>
                     </li>
                   ))}
-                  {(halls[s.id] ?? []).length === 0 && <li className="text-mute text-[13px]">No halls yet.</li>}
+                  {(s.halls ?? []).length === 0 && <li className="text-mute text-[13px]">No halls yet.</li>}
                 </ul>
-                {canWrite(o.id) && <NewHall site={s} onDone={load} />}
+                {canWrite(o.id) && <NewHall site={s} onCreated={addedHall} />}
               </li>
             ))}
             {sites.filter((s) => s.orgId === o.id).length === 0 && <li className="text-mute text-[13px]">No sites yet.</li>}
           </ul>
-          {canWrite(o.id) ? <NewSite org={o} onDone={load} /> : <p className="text-mute text-[13px] mt-3">You can read this organisation&apos;s registry. Only an editor or owner can change it.</p>}
+          {canWrite(o.id) ? <NewSite org={o} onCreated={addedSite} /> : <p className="text-mute text-[13px] mt-3">You can read this organisation&apos;s registry. Only an editor or owner can change it.</p>}
         </section>
       ))}
 
       {selectedHall && selectedSite && (
-        <HallPanel key={selectedHall.id} hall={selectedHall} site={selectedSite} canWrite={canWrite(selectedSite.orgId)} />
+        <HallPanel key={selectedHall.id} hall={selectedHall} site={selectedSite} canWrite={canWrite(selectedSite.orgId)} isOwner={roleIn(selectedSite.orgId) === "owner"} />
       )}
     </>
   );
@@ -183,7 +195,28 @@ export default function SitesWorkspace() {
 
 // ------------------------------------------------------------------------------------------------- forms
 
-export function NewOrg({ onDone }: { onDone: () => Promise<void> }) {
+/** Tells a person they were ADDED to an organisation (there is no acceptance step) and lets them leave. */
+export function AddedNotice({ org, onLeave }: { org: Org; onLeave: (o: Org) => Promise<string | null> }) {
+  const f = useForm();
+  async function go() {
+    f.setBusy(true); f.setMsg(null);
+    const err = await onLeave(org);
+    f.setBusy(false);
+    if (err) f.fail(err);
+  }
+  return (
+    <div className="mb-3 rounded-lg border border-line bg-panel px-4 py-3 text-[13px]" role="group" aria-label={`You were added to ${org.name}`}>
+      <p className="text-mute">
+        Added by <span className="text-white">{org.addedBy}</span> to <span className="text-white">{org.name}</span>{org.addedAt ? ` on ${org.addedAt.slice(0, 10)}` : ""} as {org.role}.
+        You did not have to accept; you can see what they record here, and you can leave at any time.
+      </p>
+      <button type="button" onClick={go} disabled={f.busy} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-[13px] text-mute hover:text-white disabled:opacity-40">Leave {org.name}</button>
+      <Alert msg={f.msg} forwardRef={f.alertRef} />
+    </div>
+  );
+}
+
+export function NewOrg({ onCreated }: { onCreated: (o: { id: string; name: string }) => void }) {
   const f = useForm();
   const [name, setName] = useState("");
   async function submit(e: React.FormEvent) {
@@ -193,7 +226,7 @@ export function NewOrg({ onDone }: { onDone: () => Promise<void> }) {
     const r = await api("/api/orgs", { method: "POST", body: { name } }).catch(() => null);
     f.setBusy(false);
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
-    if (r.body.ok) { setName(""); f.setMsg({ ok: true, text: "Organisation created. You are its owner." }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
+    if (r.body.ok) { setName(""); f.setMsg({ ok: true, text: "Organisation created. You are its owner." }); onCreated(r.body.org); } else f.fail(r.body.error ?? "That did not work.");
   }
   return (
     <form onSubmit={submit} noValidate aria-labelledby="new-org-title" className="mb-8 flex flex-wrap items-end gap-3">
@@ -205,7 +238,7 @@ export function NewOrg({ onDone }: { onDone: () => Promise<void> }) {
   );
 }
 
-export function NewSite({ org, onDone }: { org: Org; onDone: () => Promise<void> }) {
+export function NewSite({ org, onCreated }: { org: Org; onCreated: (s: Site) => void }) {
   const f = useForm();
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
@@ -219,7 +252,7 @@ export function NewSite({ org, onDone }: { org: Org; onDone: () => Promise<void>
     const r = await api("/api/sites", { method: "POST", body: { orgId: org.id, name, country: country.trim() || null, dataOrigin } }).catch(() => null);
     f.setBusy(false);
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
-    if (r.body.ok) { setName(""); setCountry(""); setDataOrigin(""); f.setMsg({ ok: true, text: "Site added." }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
+    if (r.body.ok) { setName(""); setCountry(""); setDataOrigin(""); f.setMsg({ ok: true, text: "Site added." }); onCreated({ ...r.body.site, orgName: org.name }); } else f.fail(r.body.error ?? "That did not work.");
   }
   const p = `new-site-${org.id}`;
   return (
@@ -240,7 +273,7 @@ export function NewSite({ org, onDone }: { org: Org; onDone: () => Promise<void>
   );
 }
 
-export function NewHall({ site, onDone }: { site: Site; onDone: () => Promise<void> }) {
+export function NewHall({ site, onCreated }: { site: Site; onCreated: (h: Hall) => void }) {
   const f = useForm();
   const [label, setLabel] = useState("");
   async function submit(e: React.FormEvent) {
@@ -250,7 +283,7 @@ export function NewHall({ site, onDone }: { site: Site; onDone: () => Promise<vo
     const r = await api(`/api/sites/${site.id}/halls`, { method: "POST", body: { label } }).catch(() => null);
     f.setBusy(false);
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
-    if (r.body.ok) { setLabel(""); f.setMsg({ ok: true, text: "Hall added." }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
+    if (r.body.ok) { setLabel(""); f.setMsg({ ok: true, text: "Hall added." }); onCreated(r.body.hall); } else f.fail(r.body.error ?? "That did not work.");
   }
   return (
     <form onSubmit={submit} noValidate aria-label={`Add a hall to ${site.name}`} className="mt-4 flex flex-wrap items-end gap-3">
@@ -263,29 +296,76 @@ export function NewHall({ site, onDone }: { site: Site; onDone: () => Promise<vo
 
 // ------------------------------------------------------------------------------------------------- one hall
 
-function HallPanel({ hall, site, canWrite }: { hall: Hall; site: Site; canWrite: boolean }) {
+const PAGE = 30;
+
+function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; canWrite: boolean; isOwner: boolean }) {
   const [inputs, setInputs] = useState<Input[] | null>(null);
   const [events, setEvents] = useState<Event[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [older, setOlder] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [error, setError] = useState<string | null>(null);
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const loadTimeline = useCallback(async () => {
     try {
-      const [i, t] = await Promise.all([api(`/api/halls/${hall.id}/inputs`), api(`/api/halls/${hall.id}/timeline?limit=30`)]);
-      if (!i.body.ok) { setError(i.body.error ?? "Could not load this hall."); return; }
-      setError(null); setInputs(i.body.inputs); setEvents(t.body.ok ? t.body.events : []);
-    } catch { setError("Could not reach the server."); }
+      const t = await api(`/api/halls/${hall.id}/timeline?limit=${PAGE}`);
+      if (t.body.ok) { setEvents(t.body.events); setNextCursor(t.body.truncated ? t.body.nextCursor : null); } else setEvents((e) => e ?? []);
+    } catch { setEvents((e) => e ?? []); }
   }, [hall.id]);
-  useEffect(() => { void refresh(); }, [refresh]);
+
+  // On opening a hall: its current figures and the newest page of its timeline. Nothing else is reloaded afterwards except the timeline's first page.
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const [i] = await Promise.all([api(`/api/halls/${hall.id}/inputs`), loadTimeline()]);
+        if (!on) return;
+        if (!i.body.ok) { setError(i.body.error ?? "Could not load this hall."); return; }
+        setError(null); setInputs(i.body.inputs);
+      } catch { if (on) setError("Could not reach the server."); }
+    })();
+    return () => { on = false; };
+  }, [hall.id, loadTimeline]);
+
+  /** The write's own answer updates the table; only the timeline's first page is fetched again. */
+  function recorded(input: Input) {
+    setInputs((prev) => [...(prev ?? []).filter((x) => x.fieldPath !== input.fieldPath), input].sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)));
+    void loadTimeline();
+  }
+
+  async function loadOlder() {
+    if (!nextCursor) return;
+    setOlder({ busy: true, error: null });
+    try {
+      const t = await api(`/api/halls/${hall.id}/timeline?limit=${PAGE}&cursor=${encodeURIComponent(nextCursor)}`);
+      if (!t.body.ok) { setOlder({ busy: false, error: t.body.error ?? "Could not load older events." }); return; }
+      setEvents((e) => [...(e ?? []), ...t.body.events]);
+      setNextCursor(t.body.truncated ? t.body.nextCursor : null);
+      setOlder({ busy: false, error: null });
+    } catch { setOlder({ busy: false, error: "Could not reach the server." }); }
+  }
+
+  async function detach(projectId: string): Promise<string | null> {
+    if (!window.confirm("Detach this project from the hall? Its log stops appearing here; the attachment and this detachment stay in the history.")) return null;
+    const r = await api(`/api/halls/${hall.id}/projects?project=${projectId}`, { method: "DELETE" }).catch(() => null);
+    if (!r) return "Could not reach the server. Nothing was changed.";
+    if (!r.body.ok) return r.body.error ?? "That did not work.";
+    await loadTimeline();
+    return null;
+  }
 
   return (
     <section aria-labelledby="hall-title" className="rounded-[var(--radius)] border border-line bg-panel p-6">
       <h2 id="hall-title" className="text-xl font-semibold tracking-tight">{hall.label} <span className="data text-[10px] uppercase text-faint align-middle">at {site.name} · {site.dataOrigin} data</span></h2>
       {error && <p role="alert" className="text-red-400 text-[13px] mt-3">{error}</p>}
       {inputs === null && !error && <Loader2 className="animate-spin text-power mt-4" size={18} aria-label="Loading" />}
-      {inputs && <InputsTable inputs={inputs} />}
-      {inputs && canWrite && <RecordInput hall={hall} current={inputs} onDone={refresh} />}
-      {canWrite && <AttachProject hall={hall} onDone={refresh} />}
-      {events && <Timeline events={events} />}
+      {inputs && <InputsTable inputs={inputs} onHistory={setHistoryFor} />}
+      {inputs && historyFor && <FieldHistory hall={hall} path={historyFor} onClose={() => setHistoryFor(null)} />}
+      {inputs && canWrite && <RecordInput hall={hall} current={inputs} onRecorded={recorded} />}
+      {canWrite && <AttachProject hall={hall} onDone={loadTimeline} />}
+      {events && (
+        <Timeline events={events} more={nextCursor !== null} onOlder={loadOlder} older={older} onDetach={isOwner ? detach : undefined} />
+      )}
     </section>
   );
 }
@@ -295,13 +375,21 @@ function valueText(i: Input): string {
   return `${String(i.value)}${i.unit ? " " + i.unit : ""}`;
 }
 
-function sourceText(i: Input): string {
-  if (!i.source) return i.origin === "missing" ? "none (missing)" : "no file cited";
-  const review = i.source.reviewStatus === "verified" ? "file reviewed" : i.source.reviewStatus === "rejected" ? "file rejected" : i.source.reviewStatus === "unverified" ? "file not yet reviewed" : "no review status";
-  return `${i.source.filename ?? "a file"} (${review})`;
+/** What the origin cell says: a figure's origin is the recorder's declaration, so it reads "declared measured", not "measured". */
+export function originText(o: Origin): string {
+  return o === "missing" ? "missing" : `declared ${o}`;
 }
 
-export function InputsTable({ inputs }: { inputs: Input[] }) {
+export function sourceText(i: Input): string {
+  if (!i.source) return i.origin === "missing" ? "none (missing)" : "no file cited";
+  const name = i.source.filename ?? "a file";
+  // A purchased engagement's file has no review step at all; a project file has a live review status.
+  if (i.source.kind === "intake_evidence") return `${name} (file not reviewable)`;
+  const review = i.source.reviewStatus === "verified" ? "file reviewed and verified" : i.source.reviewStatus === "rejected" ? "file rejected" : "file not yet reviewed";
+  return `${name} (${review})`;
+}
+
+export function InputsTable({ inputs, onHistory }: { inputs: Input[]; onHistory?: (path: string) => void }) {
   const byPath = new Map(inputs.map((i) => [i.fieldPath, i]));
   const expected = EXPECTED_HALL_FIELDS.map((f) => ({ path: f.path, label: f.label, input: byPath.get(f.path) ?? null }));
   const others = inputs.filter((i) => !EXPECTED_HALL_FIELDS.some((f) => f.path === i.fieldPath)).map((i) => ({ path: i.fieldPath, label: "", input: i }));
@@ -310,21 +398,24 @@ export function InputsTable({ inputs }: { inputs: Input[] }) {
     <div className="mt-5 overflow-x-auto">
       <table className="w-full min-w-[44rem] text-left border-collapse">
         <caption className="text-left text-mute text-[12px] mb-2">
-          Current figures. Origin and evidence class are declared by the person who recorded the figure, not verified by this page.
+          Current figures. Origin and class are declared by the person who recorded the figure, not verified by this page.
         </caption>
         <thead>
           <tr className="border-b border-line text-faint data text-[10px] uppercase">
-            {["Field", "Value", "Origin", "Evidence class", "As of", "Source", "Recorded by"].map((h) => <th key={h} scope="col" className="px-3 py-2 font-normal">{h}</th>)}
+            {["Field", "Value", "Origin", "Declared class", "As of", "Source", "Recorded by"].map((h) => <th key={h} scope="col" className="px-3 py-2 font-normal">{h}</th>)}
           </tr>
         </thead>
         <tbody className="divide-y divide-line/60">
           {[...expected, ...others].map(({ path, label, input: i }) => (
             <tr key={path}>
-              <th scope="row" className={`${cell} font-normal text-white`}>{label ? <>{label}<span className="block data text-[10px] text-faint">{path}</span></> : path}</th>
+              <th scope="row" className={`${cell} font-normal text-white`}>
+                {label ? <>{label}<span className="block data text-[10px] text-faint">{path}</span></> : path}
+                {i && onHistory && <button type="button" onClick={() => onHistory(path)} aria-label={`History of ${path}`} className="block mt-1 text-[11px] text-mute underline hover:text-white">History</button>}
+              </th>
               {i ? (
                 <>
                   <td className={`${cell} ${i.origin === "missing" ? "text-queue" : "text-white"}`}>{valueText(i)}</td>
-                  <td className={cell}>{i.origin}</td>
+                  <td className={cell}>{originText(i.origin)}</td>
                   <td className={cell}>{i.evidenceClass} <span className="text-faint">({CLASS_NAME[i.evidenceClass] ?? "?"})</span></td>
                   <td className={cell}>{i.asOf}</td>
                   <td className={cell}>{sourceText(i)}</td>
@@ -348,7 +439,46 @@ export function InputsTable({ inputs }: { inputs: Input[] }) {
   );
 }
 
-export function RecordInput({ hall, current, onDone }: { hall: Hall; current: Input[]; onDone: () => Promise<void> }) {
+/** Every claim ever made about ONE field, newest first: a correction never overwrites, so the earlier figures are here. */
+export function FieldHistory({ hall, path, onClose }: { hall: Hall; path: string; onClose: () => void }) {
+  const [rows, setRows] = useState<Input[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const head = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    let on = true;
+    setRows(null); setError(null);
+    api(`/api/halls/${hall.id}/inputs?history=1&field=${encodeURIComponent(path)}`).then((r) => {
+      if (!on) return;
+      if (!r.body.ok) { setError(r.body.error ?? "Could not load the history."); return; }
+      setRows(r.body.inputs); setTruncated(Boolean(r.body.truncated));
+      setTimeout(() => head.current?.focus(), 0);
+    }).catch(() => on && setError("Could not reach the server."));
+    return () => { on = false; };
+  }, [hall.id, path]);
+  return (
+    <section aria-labelledby="history-title" className="mt-5 rounded-lg border border-line p-4">
+      <h3 id="history-title" ref={head} tabIndex={-1} className="text-sm font-semibold outline-none">History of {path}</h3>
+      {error && <p role="alert" className="text-red-400 text-[13px] mt-2">{error}</p>}
+      {!rows && !error && <Loader2 className="animate-spin text-power mt-2" size={16} aria-label="Loading" />}
+      {rows && (
+        <ol className="mt-2 divide-y divide-line/60 text-[13px]">
+          {rows.map((i) => (
+            <li key={i.id} className="py-2">
+              <span className={i.superseded ? "text-faint line-through" : "text-white"}>{valueText(i)}</span>{" "}
+              <span className="text-mute">{originText(i.origin)} · declared class {i.evidenceClass} · as of {i.asOf} · {sourceText(i)} · recorded by {i.recordedBy}</span>
+              {i.superseded ? <span className="data text-[10px] text-faint"> · replaced by a later figure</span> : <span className="data text-[10px] text-power"> · current</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {truncated && <p className="data text-[10px] text-faint mt-2">Older claims of this field are not shown.</p>}
+      <button type="button" onClick={onClose} className="mt-3 text-[12px] text-mute underline hover:text-white">Close history</button>
+    </section>
+  );
+}
+
+export function RecordInput({ hall, current, onRecorded }: { hall: Hall; current: Input[]; onRecorded: (i: Input) => void }) {
   const f = useForm();
   const today = new Date().toISOString().slice(0, 10);
   const [path, setPath] = useState("");
@@ -403,7 +533,7 @@ export function RecordInput({ hall, current, onDone }: { hall: Hall; current: In
     if (r.body.ok) {
       f.setMsg({ ok: true, text: replaces ? "Correction recorded. The earlier figure stays in the history." : "Figure recorded." });
       setValue(""); setUnit(""); setSrcId(""); setSrcKind("none");
-      await onDone();
+      if (r.body.input) onRecorded(r.body.input);
     } else {
       const issue = Array.isArray(r.body.issues) && r.body.issues[0] ? ` ${r.body.issues[0].field}: ${r.body.issues[0].message}` : "";
       f.fail((r.body.error ?? "That did not work.") + issue);
@@ -426,7 +556,7 @@ export function RecordInput({ hall, current, onDone }: { hall: Hall; current: In
         <input id="rec-value" className={fieldBox} value={value} onChange={(e) => setValue(e.target.value)} disabled={origin === "missing"} aria-describedby="rec-value-hint" inputMode="decimal" autoComplete="off" />
       </Field>
       <Field id="rec-unit" label="Unit (optional)"><input id="rec-unit" className={fieldBox} value={unit} onChange={(e) => setUnit(e.target.value)} disabled={origin === "missing"} maxLength={24} autoComplete="off" /></Field>
-      <Field id="rec-class" label="Evidence class (your declaration)" hint={origin === "missing" ? "A missing input is class E0." : capped ? "An assumed or modelled figure cannot claim a class above E3." : "What has been done to this number. Declared by you, not checked here."}>
+      <Field id="rec-class" label="Declared evidence class (your declaration)" hint={origin === "missing" ? "A missing input is class E0." : capped ? "An assumed or modelled figure cannot claim a class above E3." : "What has been done to this number. Declared by you, not checked here. Above E3 needs a reviewed and verified project file."}>
         <select id="rec-class" className={fieldBox} value={cls} onChange={(e) => setCls(e.target.value)} disabled={origin === "missing"} aria-describedby="rec-class-hint">
           {EVIDENCE_CLASSES.map((c) => <option key={c.code} value={c.code} disabled={capped && c.code > "E3"}>{c.code} · {c.verb}</option>)}
         </select>
@@ -467,24 +597,55 @@ export function AttachProject({ hall, onDone }: { hall: Hall; onDone: () => Prom
   );
 }
 
-export function Timeline({ events }: { events: Event[] }) {
+export function Timeline({ events, more, onOlder, older, onDetach }: {
+  events: Event[]; more?: boolean; onOlder?: () => void; older?: { busy: boolean; error: string | null }; onDetach?: (projectId: string) => Promise<string | null>;
+}) {
+  const f = useForm();
+  const olderRef = useRef<HTMLButtonElement>(null);
+  // Newest first, so the first attach/detach line seen for a project says whether it is attached NOW (as far as the loaded events show).
+  const attachedNow = new Set<string>();
+  const seen = new Set<string>();
+  for (const e of events) {
+    if (!e.projectId || seen.has(e.projectId) || !["project_attached", "project_detached"].includes(e.kind)) continue;
+    seen.add(e.projectId);
+    if (e.kind === "project_attached") attachedNow.add(e.projectId);
+  }
+  async function detach(id: string) {
+    f.setBusy(true); f.setMsg(null);
+    const err = onDetach ? await onDetach(id) : null;
+    f.setBusy(false);
+    if (err) f.fail(err);
+  }
   return (
     <div className="mt-8">
       <h3 className="text-sm font-semibold mb-2">Timeline</h3>
       {events.length === 0 ? <p className="text-mute text-[13px]">Nothing has happened at this hall yet.</p> : (
         <ol className="divide-y divide-line/60 rounded-lg border border-line">
           {events.map((e, n) => (
-            <li key={n} className="px-4 py-3 text-[13px]">
+            <li key={`${e.sourceTable ?? ""}${e.sourceId ?? ""}${e.subject ?? ""}${n}`} className="px-4 py-3 text-[13px]">
               <div className="flex flex-wrap items-baseline gap-x-3">
                 <time dateTime={e.occurredAt} className="data text-[10px] text-faint">{day(e.occurredAt)}</time>
                 <span className={e.superseded ? "text-faint line-through" : "text-white"}>{e.summary}</span>
                 {e.superseded && <span className="data text-[10px] text-faint">replaced by a later figure</span>}
+                {onDetach && e.kind === "project_attached" && e.projectId && attachedNow.has(e.projectId) && (
+                  <button type="button" disabled={f.busy} onClick={() => void detach(e.projectId as string)} className="text-[11px] text-mute underline hover:text-white disabled:opacity-40">Detach this project</button>
+                )}
               </div>
-              <p className="data text-[10px] text-faint mt-0.5">{e.origin}{e.evidenceClass ? ` · ${e.evidenceClass}` : ""} · {e.basis}</p>
+              <p className="data text-[10px] text-faint mt-0.5">{e.origin}{e.evidenceClass ? ` · declared class ${e.evidenceClass}` : ""} · {e.basis}</p>
             </li>
           ))}
         </ol>
       )}
+      {more && (
+        <div className="mt-3" role="group" aria-label="Older events">
+          <p className="text-mute text-[12px]" id="older-note">Older events are not shown. This is the newest {events.length}.</p>
+          <button ref={olderRef} type="button" onClick={onOlder} disabled={older?.busy} aria-describedby="older-note" className="mt-2 rounded-lg border border-line px-3 py-1.5 text-[13px] text-mute hover:text-white disabled:opacity-40">
+            {older?.busy ? <Loader2 size={14} className="animate-spin" /> : "Load older events"}
+          </button>
+          <p role="alert" className={older?.error ? "text-red-400 text-[13px] mt-2" : "sr-only"}>{older?.error ?? ""}</p>
+        </div>
+      )}
+      <Alert msg={f.msg} forwardRef={f.alertRef} />
     </div>
   );
 }
