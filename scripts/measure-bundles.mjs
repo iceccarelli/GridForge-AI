@@ -4,8 +4,10 @@
 //   NODE_PATH=/opt/node-tools/node_modules node scripts/measure-bundles.mjs [--base URL] [--routes /a,/b] > measured.json
 // Mobile viewport (375 px), cold cache, no scrolling, wait for network idle. Bytes are transferred (encoded) bytes as the browser
 // reports them over the wire, split by resource type. These are lab bytes for comparing builds; they are not Core Web Vitals and say
-// nothing about field performance.
+// nothing about field performance. Next's link PREFETCH traffic is aborted (scripts/perf-prefetch-filter.mjs): whether it finished before
+// "networkidle" depended on machine load and made the same build measure differently from run to run.
 import { createRequire } from "node:module";
+import { isPrefetchRequest } from "./perf-prefetch-filter.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -52,6 +54,10 @@ function arg(name, fallback) {
 async function measureRoute(browser, base, route) {
   const context = await browser.newContext({ viewport: { width: 375, height: 800 }, deviceScaleFactor: 1, isMobile: true });
   const page = await context.newPage();
+  await context.route("**/*", (route) => {
+    const r = route.request();
+    return isPrefetchRequest({ url: r.url(), headers: r.headers() }) ? route.abort() : route.continue();
+  });
   const cdp = await context.newCDPSession(page);
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });

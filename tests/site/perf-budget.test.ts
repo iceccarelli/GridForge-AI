@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { isPrefetchRequest } from "../../scripts/perf-prefetch-filter.mjs";
 
 // Per-route first-load JavaScript budget (transferred kB, 375 px mobile viewport, cold cache, production build).
 //
@@ -15,6 +16,13 @@ import { describe, expect, it } from "vitest";
 // step (it starts the production server and sets PERF_BASE_URL); the one earlier step that runs the whole suite (`npm test`, before there
 // is a build to measure) says so explicitly with PERF_BUDGET_DEFERRED=1, and tests/test_ops_ci_workflow.py pins both. These are lab
 // bytes, not Core Web Vitals.
+//
+// WHAT IS MEASURED: the page's own first load. Next's <Link> PREFETCH traffic (RSC fetches carrying `next-router-prefetch`) is aborted by
+// scripts/measure-bundles.mjs, because whether those fetches, and the client chunks they pull in, finished before "networkidle" depended on
+// machine load: one build measured 157.7 kB and 188.6 kB for /pricing on different runs. With prefetch blocked the figures are identical
+// run to run (checked under idle, 4 busy CPU hogs and a single pinned niced CPU). A real visitor prefetches more than this; the number
+// is for comparing builds. A plain RSC navigation (e.g. /account redirecting to /account/login) is NOT blocked: aborting it makes Next
+// reload the page and double-count it.
 
 export type LiveDecision = "run" | "skip" | "fail";
 
@@ -52,6 +60,25 @@ describe("the committed per-route JavaScript budget", () => {
     expect(block, "DEFAULT_ROUTES not found in scripts/measure-bundles.mjs").not.toBeNull();
     const measured = [...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
     expect([...measured].sort()).toEqual(Object.keys(budget.routes).sort());
+  });
+
+  it("the measurement blocks link prefetch (and only prefetch), so a figure does not depend on machine load", () => {
+    const base = { accept: "*/*", rsc: "1", "next-router-state-tree": "%5B%22%22%5D", "next-url": "/pricing" };
+    // aborted: the App Router's prefetch fetches, however the header is cased, and browser-level prefetch hints
+    expect(isPrefetchRequest({ url: "http://x/qualify?_rsc=abc", headers: { ...base, "next-router-prefetch": "1" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/?_rsc=abc", headers: { ...base, "Next-Router-Prefetch": "1" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/a", headers: { Purpose: "prefetch" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/a", headers: { "Sec-Purpose": "prefetch;prerender" } })).toBe(true);
+    // kept: the document, the page's own scripts, styles, fonts and images, and a real client navigation
+    expect(isPrefetchRequest({ url: "http://x/pricing", headers: { accept: "text/html" } })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/_next/static/chunks/app/pricing/page-1.js", headers: { accept: "*/*" } })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/_next/static/css/a.css", headers: {} })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/account/login?_rsc=abc", headers: base })).toBe(false); // /account's own redirect
+    expect(isPrefetchRequest({ url: "not a url", headers: {} })).toBe(false);
+    // and the measurement script is wired to it
+    const script = fs.readFileSync("scripts/measure-bundles.mjs", "utf8");
+    expect(script).toContain('import { isPrefetchRequest } from "./perf-prefetch-filter.mjs"');
+    expect(script).toMatch(/route\.abort\(\)/);
   });
 
   it("decides the live comparison from the environment: CI may defer it only by saying so, never by omission", () => {

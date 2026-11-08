@@ -36,28 +36,40 @@ def test_the_two_licence_copies_are_byte_identical():
     assert a == b, "app/fonts/OFL.txt and public/reference/fonts/OFL.txt differ; they are one notice in two places"
 
 
-def test_the_notice_starts_with_the_copyright_lines_and_the_ofl_header():
+#: The copyright statements EXACTLY as the upstream repositories give them (rsms/inter LICENSE.txt, JetBrains/JetBrainsMono OFL.txt,
+#: fetched 2026-11-08). Neither upstream declares a Reserved Font Name, so there is no such line to carry.
+INTER_COPYRIGHT = "Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)"
+JETBRAINS_COPYRIGHT = "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)"
+
+
+def test_the_notice_opens_by_naming_both_families_and_their_upstream_repositories():
     text = _ofl(FONT_DIRS[0]).decode("utf-8")
-    lines = text.splitlines()
-    assert lines[0].startswith("Copyright "), "the notice must open with the copyright statement"
-    head = "\n".join(lines[:8])
-    assert "This Font Software is licensed under the SIL Open Font License, Version 1.1." in head
-    assert "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007" in text
-    for section in ("PREAMBLE", "DEFINITIONS", "TERMINATION", "DISCLAIMER"):
-        assert section in text, f"the licence text lost its {section} section"
-    assert "PERMISSION" in text and "CONDITIONS" in text
+    head = "\n".join(text.splitlines()[:12])
+    assert text.startswith("Font licences\n")
+    for needle in ("Inter", "JetBrains Mono", "SIL Open Font License, Version 1.1",
+                   "https://github.com/rsms/inter", "https://github.com/JetBrains/JetBrainsMono"):
+        assert needle in head, f"the preface no longer says: {needle}"
     assert text.endswith("\n"), "a trailing newline keeps the file diff-clean"
     assert "\r" not in text, "CRLF line endings"
 
 
-def test_the_notice_carries_a_copyright_line_for_every_font_family_shipped():
+def test_each_family_carries_its_upstream_copyright_line_and_the_whole_canonical_licence():
     text = _ofl(FONT_DIRS[0]).decode("utf-8")
-    copyright_lines = [ln for ln in text.splitlines() if ln.startswith("Copyright ")]
-    assert len(copyright_lines) >= len(FAMILIES), copyright_lines
-    for prefix, (family, marker) in FAMILIES.items():
-        hits = [ln for ln in copyright_lines if marker in ln]
-        assert hits, f"no copyright line for {family} (expected one containing {marker!r}); lines: {copyright_lines}"
-        assert re.search(r"\b20\d\d\b", hits[0]), f"the {family} copyright line has no year: {hits[0]}"
+    lines = text.splitlines()
+    assert lines.count(INTER_COPYRIGHT) == 1 and lines.count(JETBRAINS_COPYRIGHT) == 1, "a copyright line differs from upstream"
+    sections = re.split(r"^={80}\n(INTER|JETBRAINS MONO)\n={80}\n", text, flags=re.M)
+    assert sections[1::2] == ["INTER", "JETBRAINS MONO"], sections[1::2]
+    for body, copyright_line in zip(sections[2::2], (INTER_COPYRIGHT, JETBRAINS_COPYRIGHT)):
+        assert body.lstrip().startswith(copyright_line), "each section opens with its family's own copyright line"
+        assert "This Font Software is licensed under the SIL Open Font License, Version 1.1." in body
+        assert "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007" in body
+        for section in ("PREAMBLE", "DEFINITIONS", "TERMINATION", "DISCLAIMER"):
+            assert section in body, f"{section} missing from a licence body"
+        # The canonical OFL 1.1 wording. An MIT-style paragraph ("copy, modify, merge, publish, distribute, and/or sell") and
+        # "DEALINGS IN THE SOFTWARE" were what the first hand-written notice carried, and that misstated the licence.
+        assert "to use, study, copy, merge, embed, modify,\nredistribute, and sell modified and unmodified copies of the Font\nSoftware" in body
+        assert "OTHER DEALINGS IN THE FONT SOFTWARE." in body
+        assert "publish, distribute, and/or sell" not in body and "DEALINGS IN THE SOFTWARE" not in body.replace("FONT SOFTWARE", "")
 
 
 def test_only_the_families_the_notice_covers_are_shipped():
