@@ -2,9 +2,12 @@ import { AttachBody, attachProject, detachProject, pathId, reply, serveWrite } f
 
 export const runtime = "nodejs";
 
-// POST { projectToken } -> an editor or owner of the hall's organisation attaches an existing project to the hall. The project's link token is
-// the proof that the caller may do so (it is the credential for that engagement) and is never returned. A project belongs to at most one hall,
-// for good. Attaching it makes its history, supplier dates and observations appear on the hall's timeline.
+// POST { projectToken, confirmNonProductionSite? } -> an authenticated editor or owner of the hall's organisation attaches an existing project to
+// the hall. The project's link token is the proof of which project (it is the credential for that engagement) and is never returned; it is NOT
+// enough on its own: the caller must also hold the role. A project belongs to at most one hall, for good. Attaching it makes its history, supplier
+// dates and observations appear on the hall's timeline. When the hall's site is test or synthetic the attachment permanently keeps the project's
+// observations out of the shared calibration ledger (0052), so the request is refused with 422, before anything is written, unless
+// confirmNonProductionSite is exactly true (see attachProject in lib/sites.ts).
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const raw = (await ctx.params).id;
   return serveWrite(req, AttachBody, async (email, body) => {

@@ -27,7 +27,7 @@
 import { sendMail, notifyOperator, type MailResult } from "@/lib/mail";
 import { SITE_URL } from "@/lib/site";
 import { keyLife } from "@/lib/api-access";
-import { creds } from "@/lib/projects";
+import { creds, rest } from "@/lib/projects";
 import { inviteToken } from "@/lib/team-token";
 import { PAYG, eurText, utcMonth } from "@/lib/payg";
 import { capUsedUnits, usageNet } from "@/lib/payg-usage";
@@ -832,5 +832,134 @@ async function sendDirect(kind: NotificationKind, subjectId: string, discriminat
   } catch (e) {
     const why = e instanceof Blocked ? e.category : e instanceof NotApplicable ? "not_applicable" : "record unreadable";
     console.error(`[GridForge] ${kind} email NOT sent for record ${subjectId}: ${why}`);
+  }
+}
+
+// ---------------------------------------------------------------- operator notice: a project attached from another domain
+//
+// A project's link token is the credential for attaching it to a hall (0050), so the only thing that ties the person attaching to the
+// project is who they are. When the project's own purchase record names a buyer whose email DOMAIN differs from the domain of the
+// authenticated person attaching it, the OPERATOR (LEAD_TO_EMAIL, the owner's own address; never a customer) is told, once.
+//
+// What the notice contains: the two DOMAINS, the project id, the hall id and the time. Never an email address (the redactor would strip
+// one anyway), never the link token. It is a signal for a person to look at, not a finding: a consultant attaching a client's project
+// from the consultancy's domain is the ordinary case.
+//
+// It can never block or fail the attach: every failure is caught and logged by category. It is silent when the operator address is not
+// configured (no lookup, no log). It is deduplicated per project per UTC day, so it cannot be used to spam the operator.
+
+/**
+ * Domains that anyone can register an address in. A free-mail address says nothing about which organisation a person belongs to, so a
+ * buyer on one domain and an attacher on another is no signal when EITHER side is in this list. A small list on purpose: it is a noise
+ * filter, not an allow-list, and a domain missing from it only costs the operator one extra notice a day for a project.
+ */
+export const FREE_MAIL_DOMAINS: readonly string[] = [
+  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com", "icloud.com", "me.com",
+  "mac.com", "aol.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "web.de", "mail.com", "zoho.com",
+  "yandex.com", "fastmail.com", "hey.com", "tutanota.com", "tuta.io", "t-online.de", "freenet.de", "orange.fr", "wanadoo.fr", "free.fr",
+  "libero.it", "qq.com", "163.com", "naver.com",
+];
+/** Country variants of the big free providers (hotmail.co.uk, outlook.de, live.nl, yahoo.co.uk ...). */
+const FREE_MAIL_FAMILY = /^(hotmail|outlook|live|yahoo|msn)\.[a-z]{2,3}(\.[a-z]{2})?$/;
+
+/** The lower-cased domain of an address, or null when it does not look like one. Nothing else of the address is kept. */
+export function emailDomain(email: unknown): string | null {
+  if (typeof email !== "string") return null;
+  const at = email.trim().lastIndexOf("@");
+  if (at < 1) return null;
+  const domain = email.trim().slice(at + 1).toLowerCase().replace(/\.$/, "");
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain) && domain.length <= 253 ? domain : null;
+}
+
+export function isFreeMailDomain(domain: string): boolean {
+  return FREE_MAIL_DOMAINS.includes(domain) || FREE_MAIL_FAMILY.test(domain);
+}
+
+/** The same organisation as far as a domain can say: equal, or one is a subdomain of the other (mail.acme.example / acme.example). */
+function sameOrganisationDomain(a: string, b: string): boolean {
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+/**
+ * The first buyer domain (sorted, so the answer is deterministic) that is a real signal against the attacher's domain, or null.
+ * No signal when either side is a free-mail domain, when a domain cannot be read, or when they are the same organisation.
+ */
+export function crossDomainSignal(actorEmail: string, buyerEmails: readonly unknown[]): { actorDomain: string; buyerDomain: string } | null {
+  const actorDomain = emailDomain(actorEmail);
+  if (!actorDomain || isFreeMailDomain(actorDomain)) return null;
+  const buyers = [...new Set(buyerEmails.map(emailDomain).filter((d): d is string => !!d))].sort();
+  for (const buyerDomain of buyers) {
+    if (isFreeMailDomain(buyerDomain) || sameOrganisationDomain(actorDomain, buyerDomain)) continue;
+    return { actorDomain, buyerDomain };
+  }
+  return null;
+}
+
+/** Per-process memory of the notices sent today (a second line behind the durable check; a new process starts empty). */
+const attachNoticeDay = new Map<string, string>();
+/** For tests only. */
+export function resetAttachNoticeMemory(): void { attachNoticeDay.clear(); }
+
+const q = encodeURIComponent;
+const NOTICE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Every buyer address the project's own records carry: paid engagements (deposits) and purchased deliverables. null = a read failed. */
+async function projectBuyerEmails(projectId: string): Promise<string[] | null> {
+  const out: string[] = [];
+  const deposits = await rest<{ email: string | null }[]>("GET", `engagement_deposits?project_id=eq.${q(projectId)}&select=email&limit=50`);
+  if (!deposits.ok) return deposits.status === 404 ? out : null;          // 404: the table does not exist here; nothing to compare, not a failure
+  for (const d of deposits.data ?? []) if (d.email) out.push(d.email);
+  const links = await rest<{ object_id: string }[]>("GET", `project_links?project_id=eq.${q(projectId)}&object_type=eq.deliverable&select=object_id&limit=50`);
+  if (!links.ok) return links.status === 404 ? out : null;
+  const ids = [...new Set((links.data ?? []).map((l) => l.object_id).filter((id) => NOTICE_UUID.test(String(id))))];
+  if (ids.length) {
+    const rows = await rest<{ email: string | null }[]>("GET", `deliverables?id=in.(${ids.map(q).join(",")})&select=email&limit=50`);
+    if (!rows.ok) return rows.status === 404 ? out : null;
+    for (const r of rows.data ?? []) if (r.email) out.push(r.email);
+  }
+  return out;
+}
+
+export type AttachNoticeOutcome = "sent" | "not_configured" | "no_signal" | "already_noticed" | "unavailable";
+
+/**
+ * Tell the operator, at most once per project per UTC day, that a project was attached by someone on a different (non free-mail) domain
+ * than the one its purchase record carries. Call it AFTER a new attachment was recorded. Never throws.
+ */
+export async function noticeCrossDomainAttach(a: { projectId: string; hallId: string; actorEmail: string; now?: Date }): Promise<AttachNoticeOutcome> {
+  try {
+    // Silent when the operator address is not configured: no lookups and no log line.
+    if (!process.env.LEAD_TO_EMAIL) return "not_configured";
+    if (!NOTICE_UUID.test(a.projectId) || !NOTICE_UUID.test(a.hallId)) return "unavailable";
+    const now = a.now ?? new Date();
+    const day = now.toISOString().slice(0, 10);
+    if (attachNoticeDay.get(a.projectId) === day) return "already_noticed";
+
+    const actorDomain = emailDomain(a.actorEmail);
+    if (!actorDomain || isFreeMailDomain(actorDomain)) return "no_signal";
+    const buyers = await projectBuyerEmails(a.projectId);
+    if (!buyers) { console.error("[GridForge] attach notice: the project's purchase record could not be read; no notice sent"); return "unavailable"; }
+    const signal = crossDomainSignal(a.actorEmail, buyers);
+    if (!signal) return "no_signal";
+
+    // Durable dedupe, from the project's own log: the attachment we just made wrote ONE project_attached_to_hall event. If the log holds
+    // another within the last day, a notice was already possible today and this is not the first. If the log cannot be read we cannot show
+    // that, so we say nothing (a missed notice is better than a repeated one).
+    const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    const recent = await rest<{ id: string }[]>("GET", `project_events?project_id=eq.${q(a.projectId)}&event_type=eq.project_attached_to_hall&occurred_at=gte.${q(since)}&select=id&limit=3`);
+    if (!recent.ok) { console.error("[GridForge] attach notice: the project's log could not be read; no notice sent"); return "unavailable"; }
+    if ((recent.data ?? []).length > 1) { attachNoticeDay.set(a.projectId, day); return "already_noticed"; }
+
+    attachNoticeDay.set(a.projectId, day);
+    await notifyOperator(
+      "A project was attached to a hall from a different email domain",
+      `The person who attached it is on ${signal.actorDomain}; the project's purchase record is for ${signal.buyerDomain}. ` +
+        `Project id ${a.projectId}, hall id ${a.hallId}, at ${now.toISOString()}. ` +
+        "This is a signal to look at, not a finding: a consultancy attaching a client's project is ordinary."
+    );
+    return "sent";
+  } catch {
+    console.error("[GridForge] attach notice failed unexpectedly; the attachment itself was not affected");
+    return "unavailable";
   }
 }

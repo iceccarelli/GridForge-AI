@@ -358,7 +358,7 @@ function HallPanel({ hall, site, canWrite, isOwner, onImportRunning }: { hall: H
       {inputs && <SiteRegistryExport hall={hall} api={api} />}
       {inputs && canWrite && <RecordInput hall={hall} current={inputs} onRecorded={recorded} />}
       {inputs && canWrite && <SiteRegistryImport hall={hall} api={api} onWritten={imported} onSynced={synced} onRunning={onImportRunning} />}
-      {canWrite && <AttachProject hall={hall} onDone={loadTimeline} />}
+      {canWrite && <AttachProject hall={hall} dataOrigin={site.dataOrigin} onDone={loadTimeline} />}
       {events && (
         <Timeline events={events} more={nextCursor !== null} onOlder={loadOlder} older={older} onDetach={isOwner ? detach : undefined} />
       )}
@@ -555,23 +555,46 @@ export function RecordInput({ hall, current, onRecorded }: { hall: Hall; current
   );
 }
 
-export function AttachProject({ hall, onDone }: { hall: Hall; onDone: () => Promise<void> }) {
+/** What attaching a project to a site that is not production does for good. Shown in full, before the box can be ticked. */
+export const NON_PRODUCTION_ATTACH_WARNING =
+  "Attaching a project to a test or synthetic site PERMANENTLY excludes that project's observations from the shared calibration ledger. " +
+  "Detaching it later does not undo this. Attach real data to a production site instead.";
+
+/** Anything but exactly "production" asks for the confirmation, so a value this page does not know fails safe. */
+export const attachNeedsConfirmation = (dataOrigin: string): boolean => dataOrigin !== "production";
+/** The attach button: busy, or a non-production site whose permanent consequence has not been ticked. */
+export const attachDisabled = (busy: boolean, dataOrigin: string, confirmed: boolean): boolean => busy || (attachNeedsConfirmation(dataOrigin) && !confirmed);
+
+export function AttachProject({ hall, dataOrigin, onDone }: { hall: Hall; dataOrigin: DataOrigin; onDone: () => Promise<void> }) {
   const f = useForm();
   const [token, setToken] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const needsConfirm = attachNeedsConfirmation(dataOrigin);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (token.trim().length < 8) return f.fail("Paste the project's link token.");
+    if (needsConfirm && !confirmed) return f.fail("Tick the box to confirm: this site is not production, and the attachment is permanent for the calibration ledger.");
     f.setBusy(true); f.setMsg(null);
-    const r = await api(`/api/halls/${hall.id}/projects`, { method: "POST", body: { projectToken: token.trim() } }).catch(() => null);
+    const r = await api(`/api/halls/${hall.id}/projects`, { method: "POST", body: { projectToken: token.trim(), ...(needsConfirm ? { confirmNonProductionSite: true } : {}) } }).catch(() => null);
     f.setBusy(false);
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
-    if (r.body.ok) { setToken(""); f.setMsg({ ok: true, text: r.body.alreadyAttached ? `${r.body.projectName} was already attached.` : `${r.body.projectName} attached. Its history now appears below.` }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
+    if (r.body.ok) { setToken(""); setConfirmed(false); f.setMsg({ ok: true, text: r.body.alreadyAttached ? `${r.body.projectName} was already attached.` : `${r.body.projectName} attached. Its history now appears below.` }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
   }
   return (
     <form onSubmit={submit} noValidate aria-labelledby="attach-title" className="mt-6 flex flex-wrap items-end gap-3">
       <h3 id="attach-title" className="basis-full text-sm font-semibold">Attach a project</h3>
       <div className="flex-1 min-w-[14rem]"><Field id="attach-token" label="Project link token" hint="A project belongs to one hall, for good."><input id="attach-token" type="password" className={fieldBox} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" aria-describedby="attach-token-hint" /></Field></div>
-      <button type="submit" disabled={f.busy} className={button}>{f.busy ? <Loader2 size={14} className="animate-spin" /> : "Attach project"}</button>
+      <button type="submit" disabled={attachDisabled(f.busy, dataOrigin, confirmed)} className={button}>{f.busy ? <Loader2 size={14} className="animate-spin" /> : "Attach project"}</button>
+      {needsConfirm && (
+        <div id="attach-nonprod" role="group" aria-labelledby="attach-nonprod-title" className="basis-full rounded-[var(--radius)] border-2 border-red-500/60 bg-red-500/10 p-3">
+          <p id="attach-nonprod-title" className="text-[13px] font-semibold text-red-300">This is a {dataOrigin} site. This cannot be undone.</p>
+          <p className="text-[13px] mt-1">{NON_PRODUCTION_ATTACH_WARNING}</p>
+          <label htmlFor="attach-confirm" className="mt-2 flex items-start gap-2 text-[13px]">
+            <input id="attach-confirm" type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} aria-describedby="attach-nonprod-title" className="mt-0.5" />
+            <span>I understand that attaching this project permanently excludes its observations from the calibration ledger.</span>
+          </label>
+        </div>
+      )}
       <div className="basis-full"><Alert msg={f.msg} forwardRef={f.alertRef} /></div>
     </form>
   );
