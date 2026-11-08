@@ -116,7 +116,7 @@ export function TtpSaveToProject({ compare, defaultName }: { compare: Record<str
               <label className="flex items-start gap-2 text-sm text-mute">
                 <input type="checkbox" className="mt-1" checked={useQuotations} onChange={(e) => setUseQuotations(e.target.checked)} />
                 <span>
-                  Price it on this project&apos;s accepted supplier quotations. Only quotations a named reviewer has accepted count; anything they do not cover stays a
+                  Price it on this project&apos;s accepted supplier quotations. Only quotations a reviewer has accepted (the reviewer&apos;s name is typed text under a shared admin password, not a verified identity) count; anything they do not cover stays a
                   library estimate, and the buyer page says which is which. If none applies, nothing is saved.
                 </span>
               </label>
