@@ -66,12 +66,18 @@ async function measureRoute(browser, base, route) {
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   const types = new Map();
+  const urls = new Map();
+  const scripts = [];
   const bytes = { js: 0, css: 0, image: 0, font: 0, document: 0, other: 0 };
   let requests = 0;
-  cdp.on("Network.responseReceived", (e) => types.set(e.requestId, e.type));
+  cdp.on("Network.responseReceived", (e) => {
+    types.set(e.requestId, e.type);
+    urls.set(e.requestId, e.response.url);
+  });
   cdp.on("Network.loadingFinished", (e) => {
     requests += 1;
     const t = types.get(e.requestId);
+    if (t === "Script") scripts.push({ path: new URL(urls.get(e.requestId) || "http://x/").pathname, kb: Math.round((e.encodedDataLength / 1024) * 10) / 10 });
     const k =
       t === "Script" ? "js" : t === "Stylesheet" ? "css" : t === "Image" ? "image" : t === "Font" ? "font" : t === "Document" ? "document" : "other";
     bytes[k] += e.encodedDataLength;
@@ -95,6 +101,8 @@ async function measureRoute(browser, base, route) {
     font_kb: kb(bytes.font),
     document_kb: kb(bytes.document),
     other_kb: kb(bytes.other),
+    // Which scripts made up js_kb, largest first: so an over-budget route says WHAT it loaded, not only how much.
+    scripts: scripts.sort((a, b) => b.kb - a.kb),
   };
 }
 

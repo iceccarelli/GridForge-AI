@@ -150,11 +150,12 @@ describe("the committed per-route JavaScript budget", () => {
         maxBuffer: 16 * 1024 * 1024,
         timeout: 540_000,
       });
-      const measured = JSON.parse(out).measured as { route: string; status: number; js_kb: number }[];
+      const measured = JSON.parse(out).measured as { route: string; status: number; js_kb: number; scripts?: { path: string; kb: number }[] }[];
       expect(measured.map((m) => m.route).sort()).toEqual(routes.sort());
       const over = measured
         .filter((m) => m.js_kb > budget.routes[m.route])
-        .map((m) => `${m.route}: ${m.js_kb} kB > budget ${budget.routes[m.route]} kB (over by ${Math.round((m.js_kb - budget.routes[m.route]) * 10) / 10} kB)`);
+        .map((m) => `${m.route}: ${m.js_kb} kB > budget ${budget.routes[m.route]} kB (over by ${Math.round((m.js_kb - budget.routes[m.route]) * 10) / 10} kB); scripts: ` +
+            (m.scripts ?? []).map((x) => `${x.path.replace("/_next/static/chunks/", "")} ${x.kb}`).join(", "));
       expect(over).toEqual([]);
       for (const m of measured) expect(m.status, m.route).toBe(200);
     },
