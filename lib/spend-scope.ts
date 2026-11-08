@@ -15,9 +15,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * public   an anonymous or low-trust caller, identified only by the (pseudonymised) address the request came from.
  * customer a holder of a token issued by a purchase, or a verified subscriber: still metered, against a separate budget so
  *          anonymous traffic cannot starve paying customers' fulfilment.
+ * registry a verified member of a registry organisation asking for the engine's diff of a hall's recorded figures (POST /api/halls/[id]/diff):
+ *          the OPERATOR's units are spent, so it has a small budget of its own and never touches the customer or public buckets, whoever is asking.
  * trusted  an operator or scheduled job already authenticated by a secret. Not metered here.
  */
-export type SpendClass = "public" | "customer" | "trusted";
+export type SpendClass = "public" | "customer" | "registry" | "trusted";
 
 /** Why trusted work is allowed to spend. A closed list: adding a reason is a reviewed code change, not a string typo. */
 export type TrustedReason = "admin-session" | "cron-secret";

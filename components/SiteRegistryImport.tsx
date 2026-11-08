@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Alert, button, fieldBox, quietButton, useForm } from "@/components/SiteRegistryParts";
 import { saveTextFile } from "@/components/site-registry-download";
+import EngineDiffRun, { type PointBody } from "@/components/SiteRegistryEngineDiff";
 import {
   IMPORT_COLUMNS, IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, WRITES_PER_HOUR, buildPreview, importTemplateCsv, importTemplateJson, parseImport, replacesText, runImport, sniffFormat, writeOrder,
-  type ImportReport, type Preview, type RowPlan,
+  type ImportReport, type Preview, type RawRow, type RowPlan,
 } from "@/lib/site-registry-import";
 import type { RegistryApi, RegistryInput } from "@/lib/site-registry-model";
 
@@ -33,6 +34,8 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
   const f = useForm();
   const [fileName, setFileName] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  /** The rows as the file gave them: what "Run the engine on this preview" sends, so the server judges them by the import's own rules again. */
+  const [rawRows, setRawRows] = useState<RawRow[] | null>(null);
   const [okReplace, setOkReplace] = useState(false);
   const [okFlagged, setOkFlagged] = useState(false);
   const [announce, setAnnounce] = useState("");
@@ -69,7 +72,7 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
     return () => window.removeEventListener("beforeunload", guard);
   }, [running]);
 
-  const reset = () => { setPreview(null); setOkReplace(false); setOkFlagged(false); setAnnounce(""); setReport(null); setProgress(null); setWaitUntil(null); f.setMsg(null); };
+  const reset = () => { setPreview(null); setRawRows(null); setOkReplace(false); setOkFlagged(false); setAnnounce(""); setReport(null); setProgress(null); setWaitUntil(null); f.setMsg(null); };
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -86,6 +89,7 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
       const cur = await api(`/api/halls/${hall.id}/inputs`);
       if (!cur.body?.ok || !Array.isArray(cur.body.inputs)) { f.fail((cur.body?.error ?? "Could not read the hall's current figures.") + " Nothing was previewed or written."); return; }
       if (!mounted.current) return;
+      setRawRows(parsed.rows);
       setPreview(buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: new Date().toISOString().slice(0, 10) }, parsed.commentLines));
     } catch {
       f.fail("Could not read the file or reach the server. Nothing was written.");
@@ -134,6 +138,7 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
 
   const c = preview?.counts;
   const canConfirm = Boolean(preview && c && c.writes > 0 && (c.supersede === 0 || okReplace) && (c.flagged === 0 || okFlagged) && !running);
+  const proposed = proposedFor(preview, rawRows);
   const waiting = waitUntil !== null ? Math.max(0, Math.ceil((waitUntil - now) / 1000)) : null;
 
   return (
@@ -171,6 +176,9 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
             <p className="text-[13px] text-queue mt-1">The registry allows {WRITES_PER_HOUR} writes an hour for your account and this import has {c.writes}. It will wait out short pauses and otherwise stop and say when to continue.</p>
           )}
           <PreviewTable rows={preview.rows} />
+          <EngineDiffRun api={api} hallId={hall.id} from={{ now: true }} to={proposed} idPrefix="engine-import" title="What the engine makes of this preview" buttonLabel="Run the engine on this preview"
+            blocked={running ? "Wait for the import to finish or stop it." : proposed === null ? "Nothing in this preview would be written, so there is nothing to ask the engine about." : null}
+            intro={<>Asks the engine what the rows above would do to the hall&apos;s capacity envelope, compared with the figures now. Nothing is written: this is a question, and the import is still yours to confirm below.{preview.counts.rejected > 0 ? ` ${preview.counts.rejected} row${preview.counts.rejected === 1 ? " the preview rejects is" : "s the preview rejects are"} left out of this run.` : ""}</>} />
 
           <div className="mt-4">
             {c.supersede > 0 && (
@@ -212,6 +220,18 @@ export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onR
       {report && <ReportView report={report} headRef={reportHead} hallLabel={hall.label} />}
     </section>
   );
+}
+
+/** The rows of the file that the preview did not reject, as the engine route takes them (it judges them again). null when there are none. */
+function proposedFor(preview: Preview | null, raw: RawRow[] | null): PointBody | null {
+  if (!preview || !raw) return null;
+  const rejected = new Set(preview.rows.filter((p) => p.status === "rejected").map((p) => p.n));
+  const rows = raw.filter((r) => !rejected.has(r.n)).map((r) => {
+    const cells: Record<string, string | number | boolean | null> = {};
+    for (const [k, v] of Object.entries(r.cells)) if (v === null || ["string", "number", "boolean"].includes(typeof v)) cells[k] = v as string | number | boolean | null;
+    return { n: r.n, fromCsv: r.fromCsv, cells };
+  });
+  return rows.length ? { proposed: rows } : null;
 }
 
 /** Every row of a preview. The wrapper scrolls sideways on a narrow screen, so it is a focusable, named region (a keyboard user can scroll it). */
