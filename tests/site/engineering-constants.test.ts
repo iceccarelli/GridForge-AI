@@ -13,8 +13,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ConstraintReference, PlatformEntry } from "@/lib/constraints";
 import { ENGINEERING_ASSUMPTIONS_NOTE, engineeringAssumptionDefinition } from "@/lib/definitions";
-import { LEAD_TIME_SOURCE_LABELS, assumptionsForConstraint, engineeringAssumptions, impliedDeltaTK, physicsFlowPerKW, transformerDefaultIsNotMarketEvidence } from "@/lib/engineering-constants";
-import { formatLeadTime, leadTimeSourceLabel } from "@/lib/date-basis";
+import { assumptionsForConstraint, classWithWord, engineeringAssumptions, impliedDeltaTK, physicsFlowPerKW, transformerDefaultIsNotMarketEvidence } from "@/lib/engineering-constants";
+import { formatLeadTime } from "@/lib/date-basis";
 import { MARKET_EVIDENCE, PUBLISHABLE_FIGURES, marketFigure } from "@/lib/market-evidence";
 import K from "@/lib/engineering-constants.json";
 
@@ -121,7 +121,11 @@ describe("each statement says what the code does, with the engine's class", () =
     expect(a.overriddenBy).toContain("neither a typed lead time nor a quotation raises a lead time above E0 today");
     expect(a.overriddenBy).toContain(`±${n(Math.round(t.supplied_band_fraction * 100))}%`);
     expect(a.overriddenBy).not.toMatch(/\bE[3-5]\b.{0,40}(lead time|quotation)|(lead time|quotation).{0,40}raised to E[3-5]/i);
-    expect(a.appliesWhere).toMatch(/HV\/MV transformer bank/);
+    expect(a.appliesWhere).toMatch(/power transformer bank/);
+    // with no bank declared the constraint does not limit and takes no lead time; the 160 is NOT a fallback inside it (the engine test pins what is true)
+    expect(a.appliesWhere).toContain("With no transformer bank declared the constraint does not limit and takes no lead time");
+    expect(a.appliesWhere).toContain(`the intake report still lists the ${n(t.default_weeks)} weeks placeholder as a gap`);
+    expect(a.appliesWhere).not.toMatch(/fallback/i);
     expect(a.notes.join(" ")).toContain("assumed lead time, not a date");
     // the published catalogue range is named as a separate thing, with its own figures read from the published file
     const r = published.transformerIndicativeRange!;
@@ -145,7 +149,12 @@ describe("each statement says what the code does, with the engine's class", () =
     // absent inputs are said to be assumed, supplied ones carry the engine's class
     expect(a.overriddenBy).toContain(`${n(r.installed_tapoff_default_A)} A tap-off`);
     expect(a.overriddenBy).toContain("both class E0");
-    expect(a.overriddenBy).toContain(`class ${r.installed_tapoff_supplied_class} as supplied`);
+    expect(a.overriddenBy).toContain(`carry class ${r.installed_tapoff_supplied_class} by default`);
+    expect(a.overriddenBy).toContain("a client may declare a lower class in the object form of the field");
+    expect(all).toContain("multiplied by √3 when the feed is single-phase");
+    // the derating statement names BOTH deratings and says neither is applied to tap-off ratings
+    expect(all).toContain(`The busway utilisation limit (default ${r.busway_utilisation_default}, class ${r.busway_utilisation_default_class}) scales busway capacity, and a transformer derating factor (default ${r.transformer_derating_default}, class ${r.transformer_derating_default_class}; ${r.transformer_derating_supplied_class} when the client gives one) scales transformer capacity; neither is applied to tap-off ratings`);
+    expect(all).not.toContain("The only derating in the electrical chain");
   });
 
   it("hydraulic flow: the rack count is E0, the step is capped at E2, and a pump curve without pipework resistance is not given a stronger class", () => {
@@ -153,10 +162,17 @@ describe("each statement says what the code does, with the engine's class", () =
     const h = K.hydraulic_flow;
     expect(a.evidenceClass).toContain("E0 (assumed) for the rack count");
     expect(a.evidenceClass).toContain(`capped at ${h.step_class_cap}`);
-    expect(a.overriddenBy).toContain(`${h.pump_flow_supplied_class} as supplied`);
+    expect(a.overriddenBy).toContain(`${h.pump_flow_supplied_class} by default when supplied`);
     expect(a.overriddenBy).toContain(`so the rack count is ${h.result_class} whatever the pumped-flow evidence is`);
     expect(a.notes.join(" ")).toContain("A pump curve without the pipework resistance does not establish how much flow the loop delivers");
-    expect(a.notes.join(" ")).toContain("do not agree");
+    // the disagreement is computed from the published platforms, in both directions: the generic rack sits BELOW the 10 K behind the constant, the GB300 above it
+    const rises = lib.platforms.map((p) => ({ name: p.name, dT: impliedDeltaTK(p.rack_kW * p.liquid_fraction, p.flow_l_per_min_per_rack) })).sort((x, y) => x.dT - y.dT);
+    expect(rises[0].dT).toBeLessThan(h.screening_delta_T_K);
+    expect(rises[rises.length - 1].dT).toBeGreaterThan(h.screening_delta_T_K);
+    const f = (v: number) => (Math.round(v * 10) / 10).toLocaleString("en-IE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    expect(a.notes.join(" ")).toContain(`rises from about ${f(rises[0].dT)} K (${rises[0].name}) to ${f(rises[rises.length - 1].dT)} K (${rises[rises.length - 1].name}), against the ${n(h.screening_delta_T_K)} K behind the reference constant`);
+    expect(a.notes.join(" ")).toContain("they do not agree with each other or with it");
+    expect(a.notes.join(" ")).not.toContain("a larger temperature rise than the reference constant");
     // per-platform flows are computed from the published library, not typed
     for (const p of lib.platforms) {
       expect(a.value).toContain(`${p.name}: ${n(p.flow_l_per_min_per_rack)} l/min`);
@@ -182,7 +198,13 @@ describe("each statement says what the code does, with the engine's class", () =
     expect(a.overriddenBy).toContain(`held at ${K.firm_quote_without_validity_class}`);
     expect(a.overriddenBy).toContain("an expired quotation is ignored");
     expect(a.overriddenBy).toContain("no intake field overrides the PUE");
-    expect(a.appliesWhere).toContain("does not change the relief's price, lead time or the PUE");
+    // the relief switches the model to the plant's design supply temperature (E0); the 6 K approach it records is never read afterwards
+    expect(a.appliesWhere).toContain("Taking this relief switches the model to the existing plant's design supply temperature, held as an assumed figure (E0) because a trim chiller's capacity is not modelled");
+    expect(a.appliesWhere).toContain("it therefore clears the gate only where that supply temperature is already at or below what the loop needs");
+    expect(a.appliesWhere).toContain(`The dry-cooler approach it records (${n(x.dry_cooler_approach_K)} K) is not read afterwards`);
+    expect(a.appliesWhere).not.toContain("is the one that clears it");
+    expect(notes).toContain(`installs a default dry-cooler approach of ${n(x.full_dlc_default_dry_cooler_approach_K)} K (band ${n(x.full_dlc_default_dry_cooler_approach_band_K[0])}–${n(x.full_dlc_default_dry_cooler_approach_band_K[1])} K, class ${x.full_dlc_default_dry_cooler_approach_class}) when the intake gives none`);
+    expect(notes).toContain("a cited source does not raise the class");
     // the cost class is the engine's E0, not a stronger one
     expect(a.evidenceClass).not.toMatch(/E1 \(modelled\)/);
   });
@@ -290,22 +312,16 @@ describe("a labelled engine assumption is never conflated with a reported market
     expect(users.map((f) => path.relative(ROOT, f))).toEqual(["lib/market-evidence.ts"]);
   });
 
-  it("date-basis keeps the engine's lead-time source beside the class and never guesses one", () => {
+  it("date-basis prints a lead time with its class only, and says an E0 one is assumed", () => {
     expect(formatLeadTime(160, "E0")).toBe("160 wk lead (E0, assumed)");
-    expect(formatLeadTime(160, "E0", "library_placeholder")).toBe("160 wk lead (E0, assumed), library placeholder");
-    expect(formatLeadTime(100, "E0", "customer_supplied_unverified")).toBe("100 wk lead (E0, assumed), customer-supplied (unverified)");
-    expect(formatLeadTime(100, "E0", "something_else")).toBe("100 wk lead (E0, assumed)");
-    expect(formatLeadTime(100, "E0", undefined)).toBe("100 wk lead (E0, assumed)");
-    expect(leadTimeSourceLabel(null)).toBeNull();
-    expect(leadTimeSourceLabel("toString")).toBeNull();
-    for (const [k, v] of Object.entries(LEAD_TIME_SOURCE_LABELS)) expect(leadTimeSourceLabel(k)).toBe(v);
+    expect(formatLeadTime(100, "E5")).toBe("100 wk lead (E5)");
+    expect(formatLeadTime(100, null)).toBe("100 wk lead (evidence class not stated)");
   });
 
-  it("the source labels are the engine's own", () => {
-    const py = read("gridforge/envelope/time_to_power.py");
-    for (const [k, v] of Object.entries(LEAD_TIME_SOURCE_LABELS)) {
-      expect(py).toContain(`"${v}"`);
-      expect(py).toContain(`"${k}"`);
-    }
+  it("the classes are spoken in the engine's own words, including the client's 'not measured or surveyed by us'", () => {
+    const py = read("gridforge/validation/evidence.py");
+    expect(py).toContain("supplied by the client (not measured or surveyed by us)");
+    expect(classWithWord("E5")).toBe("E5 (supplied by the client (not measured or surveyed by us))");
+    expect(classWithWord("E0")).toBe("E0 (assumed)");
   });
 });

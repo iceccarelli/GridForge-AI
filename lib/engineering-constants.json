@@ -23,6 +23,10 @@
     "site_power_factor_default_band": [0.95, 0.99],
     "site_power_factor_supplied_class": "E3",
     "busway_utilisation_default": 0.8,
+    "busway_utilisation_default_class": "E0",
+    "transformer_derating_default": 0.9,
+    "transformer_derating_default_class": "E0",
+    "transformer_derating_supplied_class": "E3",
     "relief_tapoff_A": 400,
     "relief_tapoff_class": "E0",
     "relief_cost_eur_per_rack": 6000,
@@ -55,6 +59,9 @@
     "dry_cooler_approach_K": 6,
     "dry_cooler_approach_band_K": [4, 8],
     "dry_cooler_approach_class": "E0",
+    "full_dlc_default_dry_cooler_approach_K": 10,
+    "full_dlc_default_dry_cooler_approach_band_K": [8, 12],
+    "full_dlc_default_dry_cooler_approach_class": "E0",
     "plant_uprate_factor": 1.5,
     "plant_uprate_cost_reference_eur": 900000,
     "plant_uprate_cost_reference_kW": 3400,
@@ -62,10 +69,22 @@
     "plant_uprate_lead_band_weeks": [30, 70],
     "pue_class": "E0",
     "pue_by_architecture": {
-      "retained_air": { "value": 1.45, "band": [1.35, 1.6] },
-      "rdhx": { "value": 1.35, "band": [1.28, 1.45] },
-      "hybrid_dlc": { "value": 1.3, "band": [1.22, 1.4] },
-      "full_dlc": { "value": 1.2, "band": [1.15, 1.28] }
+      "retained_air": {
+        "value": 1.45,
+        "band": [1.35, 1.6]
+      },
+      "rdhx": {
+        "value": 1.35,
+        "band": [1.28, 1.45]
+      },
+      "hybrid_dlc": {
+        "value": 1.3,
+        "band": [1.22, 1.4]
+      },
+      "full_dlc": {
+        "value": 1.2,
+        "band": [1.15, 1.28]
+      }
     }
   },
   "cost_basis_classes": {
@@ -78,5 +97,10 @@
   },
   "firm_quote_without_validity_class": "E3",
   "expired_quote_class": "E1",
-  "cost_band_factor_by_class": { "E0": [0.5, 2.0], "E1": [0.5, 2.0], "E3": [0.7, 1.5], "E5": [0.8, 1.3] }
+  "cost_band_factor_by_class": {
+    "E0": [0.5, 2.0],
+    "E1": [0.5, 2.0],
+    "E3": [0.7, 1.5],
+    "E5": [0.8, 1.3]
+  }
 }

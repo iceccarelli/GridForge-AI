@@ -205,7 +205,7 @@ def test_every_intelligence_tier_is_priced_and_ordered():
 # Display names only. The keys (developer, team, enterprise), the product ids, the prices and the Stripe metadata are what billing reads, and they
 # do not change when a name does. tests/site/definitions.test.ts holds the same rule over the navigation, the audiences and the OpenAPI operation ids.
 
-INTELLIGENCE_DISPLAY_NAMES = {"developer": "Solo", "team": "Team", "enterprise": "Organisation"}
+INTELLIGENCE_DISPLAY_NAMES = {"developer": "Solo", "team": "Team", "enterprise": "Unlimited"}
 
 
 def test_intelligence_display_names_are_pinned_and_the_keys_are_untouched():
@@ -230,7 +230,7 @@ def test_no_intelligence_plan_name_is_the_name_of_something_the_engine_sells():
     site = {p["name"].lower() for p in ts_products().values()}
     for name in INTELLIGENCE_DISPLAY_NAMES.values():
         assert name.lower() not in engine | site
-        assert not re_words(name, ("developer", "developers", "platform", "platforms", "screen", "enterprise"))
+        assert not re_words(name, ("developer", "developers", "platform", "platforms", "screen", "enterprise", "organisation", "organization"))
 
 
 def re_words(name: str, words: tuple[str, ...]) -> list[str]:

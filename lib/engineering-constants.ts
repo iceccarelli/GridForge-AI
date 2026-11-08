@@ -24,7 +24,7 @@ const weeks = (v: number) => `${n(v)} weeks`;
 const eur = (v: number) => `${n(v)} EUR`;
 const pct = (v: number) => `${n(Math.round(v * 100))}%`;
 /** "E0 (assumed)": the class and the engine's own word for it (gridforge/validation/evidence.py). */
-const CLASS_WORD: Record<string, string> = { E0: "assumed", E1: "modelled", E2: "simulated", E3: "estimated", E5: "supplied by the client" };
+const CLASS_WORD: Record<string, string> = { E0: "assumed", E1: "modelled", E2: "simulated", E3: "estimated", E5: "supplied by the client (not measured or surveyed by us)" };
 export const classWithWord = (c: string) => `${c} (${CLASS_WORD[c] ?? "see /evidence"})`;
 
 /** What the library says about its feed currents (gridforge/compute/library.py): where one is derived from the rack's power it says so, and asks for an OEM drawing. */
@@ -87,13 +87,14 @@ function transformerLeadTime(p: PublishedInputs): EngineeringAssumption {
     classCode: t.default_class,
     evidenceClass: classWithWord(t.default_class),
     appliesWhere:
-      "The library placeholder for the lead time of replacing or uprating the HV/MV transformer bank, used when the intake gives no transformer replacement lead time. " +
-      "The loader records it as a gap, not as something the client said, and the slowest bank sets the date. The same figure is the fallback inside the transformer constraint when no bank is declared.",
+      "The library placeholder for the lead time of replacing or uprating the power transformer bank, used when the intake gives no transformer replacement lead time. " +
+      "The loader records it as a gap, not as something the client said, and the slowest bank sets the date. " +
+      `With no transformer bank declared the constraint does not limit and takes no lead time, although the intake report still lists the ${weeks(t.default_weeks)} placeholder as a gap.`,
     overriddenBy:
       `A lead time typed into the intake replaces it. It is used as typed, with a band of ±${pct(t.supplied_band_fraction)} around the typed value, and is labelled customer-supplied (unverified). ` +
       `It stays class ${t.supplied_class}: the engine has no way to check a figure against a written manufacturer or DSO quotation, so neither a typed lead time nor a quotation raises a lead time above ${t.supplied_class} today.`,
     notes: [
-      `A time-to-power figure that rests on this lead time is labelled "assumed lead time, not a date" with class ${t.default_class}, and is never shown without that label.`,
+      `A time-to-power figure that rests on this lead time is labelled "assumed lead time, not a date" with class ${t.default_class}. The site prints such a figure only through one formatter (lib/date-basis.ts), which always attaches that label.`,
       "This is a library assumption. It is not a market figure and not derived from press or analyst reporting; the market-evidence register keeps its own, separate entry for reported transformer lead times, which is unverified and is not shown on any page.",
       published
         ? `The constraint reference publishes a different, indicative relief lead time for transformer capacity (${published.low}–${published.high} weeks, European retrofits). It is a catalogue range; the engine's own default carries the band above.`
@@ -116,23 +117,36 @@ function rackFeed(p: PublishedInputs): EngineeringAssumption {
     headline: `a comparison of the rack's required current with the stated rating at ${pct(r.rating_fraction_compared)}, with no continuous-load derating`,
     value:
       `A current comparison, not a power formula: required current (A) = the platform's library feed current at ${n(r.library_feed_voltage_V)} V three-phase × (${n(r.library_feed_voltage_V)} V ÷ the hall's busway voltage), ` +
-      `times √3 again when the feed is single-phase. The rack can be fed when the required current is no more than the installed tap-off rating (A), compared at ${pct(r.rating_fraction_compared)} of the rating.` +
+      `multiplied by √3 when the feed is single-phase. The rack can be fed when the required current is no more than the installed tap-off rating (A), compared at ${pct(r.rating_fraction_compared)} of the rating.` +
       library,
     classCode: r.library_feed_current_class,
     evidenceClass: classWithWord(r.library_feed_current_class),
     appliesWhere:
       "The rack feed gate: a hall whose installed tap-offs are rated below what one rack draws fits no rack, whatever else is true. It binds at the first rack, not at scale.",
     overriddenBy:
-      `The installed tap-off rating, the busway voltage and the phase count come from the intake and carry class ${r.installed_tapoff_supplied_class} as supplied (the client's figure, not checked by us). ` +
+      `The installed tap-off rating, the busway voltage and the phase count come from the intake. The rating and the voltage carry class ${r.installed_tapoff_supplied_class} by default (the client's figure, not checked by us; a client may declare a lower class in the object form of the field). ` +
       `When they are absent the library assumes a ${n(r.installed_tapoff_default_A)} A tap-off (band ${range(r.installed_tapoff_default_band_A)} A) and ${n(r.voltage_default_V)} V, both class E0, and records each as a gap. ` +
       "The platform's feed current has no intake field: it is the library figure for the platform chosen. A relief that buys higher-rated tap-offs is priced from the cost library, and an accepted supplier quotation for that line replaces the library price.",
     notes: [
       `No continuous-load derating factor is applied to the tap-off rating: the engine uses the stated rating, at ${pct(r.rating_fraction_compared)}, without a derating for continuous load, ambient temperature or grouping. This is a known open point, not a settled position.`,
-      `The only derating in the electrical chain is the busway's own utilisation limit (default ${r.busway_utilisation_default}, class E0, or the figure the client gives), which scales busway capacity, not tap-off ratings. Busway capacity per run is (√3 for three-phase, 1 for single-phase) × voltage × installed ampacity × that utilisation limit × the site power factor ÷ 1,000 kW.`,
-      `The site power factor (default ${r.site_power_factor_default}, band ${range(r.site_power_factor_default_band)}, class E0 when absent; ${r.site_power_factor_supplied_class} when supplied) enters the busway capacity, the transformer capacity and the grid conversion from MVA to MW. It does not enter the tap-off check.`,
+      `The busway utilisation limit (default ${r.busway_utilisation_default}, class ${r.busway_utilisation_default_class}) scales busway capacity, and a transformer derating factor (default ${r.transformer_derating_default}, class ${r.transformer_derating_default_class}; ${r.transformer_derating_supplied_class} when the client gives one) scales transformer capacity; neither is applied to tap-off ratings. Busway capacity per run is (√3 for three-phase, 1 for single-phase) × voltage × installed ampacity × that utilisation limit × the site power factor ÷ 1,000 kW.`,
+      `The site power factor (default ${r.site_power_factor_default}, band ${range(r.site_power_factor_default_band)}, class E0 when absent; ${r.site_power_factor_supplied_class} by default when supplied) enters the busway capacity, the transformer capacity and the grid conversion from MVA to MW. It does not enter the tap-off check.`,
       `The relief assumes tap-offs of ${n(r.relief_tapoff_A)} A (kept as declared where the installed rating is already at least that), at ${eur(r.relief_cost_eur_per_rack)} per rack and ${weeks(r.relief_lead_weeks)} (band ${range(r.relief_lead_band_weeks)} weeks), all class ${r.relief_tapoff_class}.`,
     ],
   };
+}
+
+/** The platform flows against the reference constant, built from the published platforms: it never says which way they differ without computing it. */
+function flowAgreement(plats: NonNullable<PublishedInputs["platforms"]>): string {
+  const h = data.hydraulic_flow;
+  const rises = plats.map((x) => ({ name: x.name, dT: impliedDeltaTK(x.rack_kW * x.liquid_fraction, x.flow_l_per_min_per_rack) })).sort((a, b) => a.dT - b.dT);
+  if (rises.length < 2) return "The library's platform flows and its reference constant are separate assumptions held with bands; they are not reconciled with each other.";
+  const lo = rises[0];
+  const hi = rises[rises.length - 1];
+  return (
+    `The library's flows do not agree: the platform figures imply rises from about ${oneDecimal(lo.dT)} K (${lo.name}) to ${oneDecimal(hi.dT)} K (${hi.name}), against the ${n(h.screening_delta_T_K)} K behind the reference constant; ` +
+    "they do not agree with each other or with it. The constraint follows the platform figures. They are held as assumptions with bands, and should be read that way."
+  );
 }
 
 // --- 3. hydraulic flow ----------------------------------------------------------------------------------------------------------------------
@@ -157,13 +171,13 @@ function hydraulicFlow(p: PublishedInputs): EngineeringAssumption {
     appliesWhere:
       "Every architecture with a liquid circuit, rear-door heat exchangers included, as one of the engine's constraints. It is a comparison of two flows: it does not model pipework resistance, pump head or the plant's own temperature rise.",
     overriddenBy:
-      `The pumped flow is the client's figure (${h.pump_flow_supplied_class} as supplied: pump curves and a pipe schedule are the evidence asked for); when absent the library assumes ${n(h.pump_flow_default_l_per_min)} l/min at class E0. ` +
+      `The pumped flow is the client's figure (${h.pump_flow_supplied_class} by default when supplied: pump curves and a pipe schedule are the evidence asked for); when absent the library assumes ${n(h.pump_flow_default_l_per_min)} l/min at class E0. ` +
       `The flow per rack is the library's for the platform chosen, with a band, and has no intake field, so the rack count is ${h.result_class} whatever the pumped-flow evidence is. ` +
       `Even with every input at a firmer class, the code caps this step at ${h.step_class_cap}, and no pipework or pump-head model sits behind it.`,
     notes: [
       "A pump curve without the pipework resistance does not establish how much flow the loop delivers. The engine does not model pressure drop, pipe size or available head at screening level, and says a hydraulic model is required before design.",
       `The ${twoDecimals(h.screening_flow_l_per_min_per_kW)} l/min per kW constant (a ${n(h.screening_delta_T_K)} K rise, band ${range(h.screening_flow_band_l_per_min_per_kW)}, class E0) is a documented reference only: no constraint uses it. A heat balance at ${n(h.screening_delta_T_K)} K gives ${twoDecimals(physicsFlowPerKW())} l/min per kW.`,
-      "The library's own descriptions of liquid flow do not agree: the platform figures above imply a larger temperature rise than the reference constant, and the constraint follows the platform figures. They are held as assumptions with bands, and should be read that way.",
+      flowAgreement(plats),
       `The relief uprates pumps and secondary pipework by a factor of ${h.pump_uprate_factor} on the pumped flow, priced per l/min added from a library placeholder (${eur(h.relief_cost_reference_eur)} for ${n(h.relief_cost_reference_l_per_min)} l/min added), at ${weeks(h.relief_lead_weeks)} (band ${range(h.relief_lead_band_weeks)} weeks), class E0.`,
     ],
   };
@@ -188,19 +202,24 @@ function heatRejection(): EngineeringAssumption {
     headline: `a flat ${eur(x.trim_chiller_eur)} trim-chiller lump and a fixed PUE for each cooling architecture, neither responding to the climate`,
     value:
       `Adiabatic assist plus trim chiller: one fixed lump of ${eur(x.trim_chiller_eur)} per hall (band ${range([lump[0] * x.trim_chiller_eur, lump[1] * x.trim_chiller_eur])} EUR), ${weeks(x.trim_chiller_lead_weeks)} (band ${range(x.trim_chiller_lead_band_weeks)} weeks). ` +
-      `Taking it sets a dry-cooler approach of ${n(x.dry_cooler_approach_K)} K (band ${range(x.dry_cooler_approach_band_K)} K), unless the hall's is already lower. ` +
+      `Taking it records a dry-cooler approach of ${n(x.dry_cooler_approach_K)} K (band ${range(x.dry_cooler_approach_band_K)} K) where the hall's is not already lower, which the model does not read afterwards. ` +
       `Chilled-water plant uprate: +${pct(x.plant_uprate_factor - 1)} of capacity, priced at ${eur(x.plant_uprate_cost_reference_eur)} for ${n(x.plant_uprate_cost_reference_kW)} kW added, ${weeks(x.plant_uprate_lead_weeks)} (band ${range(x.plant_uprate_lead_band_weeks)} weeks). ` +
       `PUE by architecture: ${arch.map(([label, k]) => `${label} ${twoDecimals(pue[k].value)} (band ${twoDecimals(pue[k].band[0])}–${twoDecimals(pue[k].band[1])})`).join("; ")}.`,
     classCode: x.trim_chiller_class,
     evidenceClass: `${classWithWord(x.trim_chiller_class)}: a library default (a published benchmark would be ${cb.published_benchmark}; none is in the bundled library)`,
     appliesWhere:
-      "The achievable-water-temperature gate: when the facility water the plant or the dry coolers can supply is warmer than the cold-plate loop needs, this relief is the one that clears it. The design dry-bulb decides whether the gate passes; it does not change the relief's price, lead time or the PUE.",
+      "The achievable-water-temperature gate. For full direct-to-chip with dry coolers the achievable temperature is the design dry-bulb plus the dry-cooler approach. " +
+      "Taking this relief switches the model to the existing plant's design supply temperature, held as an assumed figure (E0) because a trim chiller's capacity is not modelled; " +
+      `it therefore clears the gate only where that supply temperature is already at or below what the loop needs. The dry-cooler approach it records (${n(x.dry_cooler_approach_K)} K) is not read afterwards, ` +
+      "and the design dry-bulb is not read once the relief is taken. The relief's price, lead time and the PUE do not depend on the climate.",
     overriddenBy:
       `A supplier quotation entered as accepted cost evidence (a firm_quote, class ${cb.firm_quote}) replaces the library price for that line when it carries a validity date and has not expired; without a validity date it is held at ${data.firm_quote_without_validity_class}, and an expired quotation is ignored. ` +
       `A budgetary quote is class ${cb.budgetary_quote}. The quotation changes the cost, not the PUE: no intake field overrides the PUE, which is the library figure for the architecture (the sensitivity analysis varies it).`,
     notes: [
-      "The trim chiller is a flat lump: the price is not scaled with hall size or with the heat it must reject, and no trim-chiller power is added. Dry coolers have no cost line of their own; they enter only as the approach temperature used for the achievable water temperature.",
+      "The trim chiller is a flat lump: the price is not scaled with hall size or with the heat it must reject, and no trim-chiller power is added. Dry coolers have no cost line of their own; they enter only as the approach temperature used for the achievable water temperature before the relief is taken.",
+      `A full direct-to-chip scenario installs a default dry-cooler approach of ${n(x.full_dlc_default_dry_cooler_approach_K)} K (band ${range(x.full_dlc_default_dry_cooler_approach_band_K)} K, class ${x.full_dlc_default_dry_cooler_approach_class}) when the intake gives none.`,
       "PUE is a fixed library figure for the cooling architecture. It is not recomputed for the site's climate, free-cooling hours, the achievable water temperature or any chiller's power, so the IT headroom it divides into is not climate-adjusted. The bands are the only allowance for climate.",
+      "The PUE entries cite sources (an Uptime Institute survey for retained air and rear-door, vendor modelling material for the two direct-to-chip cases), yet the library holds each as an assumption of class " + x.pue_class + ": a cited source does not raise the class.",
       "Water use by adiabatic assist is not modelled; the relief carries a note to check permits and water-use targets.",
     ],
   };
@@ -224,11 +243,3 @@ export function transformerDefaultIsNotMarketEvidence(): string {
     "It is not derived from this reporting and is not supported by it, and this reporting is not shown on any page."
   );
 }
-
-/** The engine's evidence classes for a lead time that a reader might take for a stronger one. */
-export const LEAD_TIME_SOURCE_LABELS = {
-  customer_supplied_unverified: "customer-supplied (unverified)",
-  library_placeholder: "library placeholder",
-  missing: "missing",
-  not_determined: "source not determined",
-} as const;

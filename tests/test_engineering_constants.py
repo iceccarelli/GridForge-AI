@@ -15,11 +15,11 @@ import pytest
 
 from examples.reference_site import SCENARIOS, build_context
 from gridforge import costs
-from gridforge.common import CUSTOMER, DEPLOYED, ESTIMATED, V
+from gridforge.common import ASSUMED, CUSTOMER, DEPLOYED, ESTIMATED, V
 from gridforge.compute.library import PLATFORMS
 from gridforge.costs import BAND_BY_EVIDENCE, COST_EVIDENCE, CostEntry, cost_overlay
 from gridforge.envelope.solver import solve
-from gridforge.intake.loader import load_document
+from gridforge.intake.loader import IntakeError, _high_temp_loop, load_document
 from gridforge.power.constraints import LIBRARY_FEED_VOLTAGE_V, RELIEF_TAPOFF_A, rack_feed_current_at, rack_feed_tapoff
 from gridforge.scenario import run
 from gridforge.thermal import constraints as thermal_constraints
@@ -84,11 +84,29 @@ def test_a_lead_time_the_customer_types_is_still_class_e0_with_a_band_around_its
     assert _band(lead) == pytest.approx([100 * (1 - t["supplied_band_fraction"]), 100 * (1 + t["supplied_band_fraction"])])
 
 
-def test_no_declared_evidence_class_lifts_a_lead_time_above_e0():
+def test_a_lead_time_cannot_be_given_a_declared_class_at_all():
+    """The object form (value plus the engine's `evidence` key) exists for other fields; for a lead time it is refused outright, so no declared
+    class can lift one above E0."""
     doc = _doc()
-    doc["transformers"][0]["replacement_lead_time_weeks"] = {"value": 100, "evidence_class": "E5"}
-    with pytest.raises(ValueError):
+    doc["transformers"][0]["replacement_lead_time_weeks"] = {"value": 100, "evidence": "E5"}
+    with pytest.raises(IntakeError) as err:
         load_document(doc)
+    assert str(err.value) == "power transformer lead time is a dict, which is not a number"
+
+
+def test_with_no_transformer_bank_the_constraint_does_not_limit_and_takes_no_lead_time_but_the_gap_is_still_listed():
+    """The 160 weeks is NOT a fallback inside the transformer constraint: with transformers=[] it returns unbounded with no relief, so the
+    placeholder in power/constraints.py is unreachable from an intake. The intake report still lists the placeholder as a gap."""
+    doc = _doc()
+    doc["transformers"] = []
+    intake = load_document(doc)
+    res = _constraint(solve(intake.context), "transformer_capacity")
+    assert res.max_racks.value == float("inf") and res.relief is None
+    assert res.basis == "no transformers declared"
+    gap = next(g for g in intake.report.gaps if g.path == "transformers.replacement_lead_time_weeks")
+    t = K["transformer_lead_time"]
+    lo, hi = t["default_band_weeks"]
+    assert f"library placeholder of {t['default_weeks']} weeks (band {lo}-{hi})" in gap.fallback_description
 
 
 def test_the_dated_figure_built_from_the_reference_hall_is_labelled_assumed_even_with_a_typed_160():
@@ -170,6 +188,32 @@ def test_the_defaults_used_when_the_inputs_are_absent_and_the_classes_when_they_
     assert _klass(p.lv.tapoff_max_A) == r["installed_tapoff_supplied_class"]
     assert _klass(p.lv.voltage_V) == r["voltage_supplied_class"]
     assert _klass(p.grid.power_factor) == r["site_power_factor_supplied_class"]
+
+
+def test_the_two_deratings_in_the_chain_are_the_busways_and_the_transformers_and_neither_touches_the_tapoff():
+    """Not 'the only derating is the busway's': the transformer bank has its own derating factor (default 0.9, E0; E3 when the client gives one)."""
+    r = K["rack_feed"]
+    doc = _doc()
+    del doc["transformers"][0]["derating_factor"]
+    doc["lv"].pop("busway_utilisation_limit", None)
+    p = load_document(doc).context.power
+    tx = p.transformers[0].derating_factor
+    assert (tx.value, _klass(tx)) == (r["transformer_derating_default"], r["transformer_derating_default_class"])
+    assert (p.lv.busway_utilisation_limit.value, _klass(p.lv.busway_utilisation_limit)) == (r["busway_utilisation_default"], r["busway_utilisation_default_class"])
+    doc["transformers"][0]["derating_factor"] = 0.85
+    given = load_document(doc).context.power.transformers[0].derating_factor
+    assert (given.value, _klass(given)) == (0.85, r["transformer_derating_supplied_class"])
+    # the transformer's factor scales transformer capacity ...
+    base = build_context()
+    from gridforge.power.constraints import transformer_capacity
+    before = transformer_capacity(base).max_racks.value
+    base.power.transformers[0].derating_factor = V(0.45, "1", "derating under test", CUSTOMER)
+    assert transformer_capacity(base).max_racks.value < before
+    # ... and neither factor changes the tap-off verdict or its stated basis
+    ctx = build_context()
+    reference = rack_feed_tapoff(ctx).basis
+    ctx.power.transformers[0].derating_factor = V(0.1, "1", "derating under test", CUSTOMER)
+    assert rack_feed_tapoff(ctx).basis == reference and rack_feed_tapoff(ctx).racks == rack_feed_tapoff(build_context()).racks
 
 
 def test_the_tapoff_relief_rating_price_and_lead_time():
@@ -303,6 +347,79 @@ def test_neither_the_pue_nor_the_trim_chiller_price_responds_to_the_climate(dryb
     assert res.context.pue.value == K["heat_rejection"]["pue_by_architecture"]["full_dlc"]["value"]
     steps = [s for s in res.ladder.steps if s.binding_id == "tcs_supply_achievable" and s.taken]
     assert steps and steps[0].capex_eur.value == K["heat_rejection"]["trim_chiller_eur"]
+
+
+def _tcs_step(plant_supply_C: float, drybulb: float, architecture_id: str = "s4_full"):
+    scenario = next(s for s in SCENARIOS if s.id == architecture_id)
+    ctx = build_context()
+    ctx.site.design_drybulb_C = V(drybulb, "degC", "design dry-bulb under test", ESTIMATED, band=(drybulb - 2, drybulb + 2))
+    ctx.thermal.plant.design_supply_C = V(plant_supply_C, "degC", "plant supply under test", CUSTOMER)
+    res = run(ctx, scenario)
+    steps = [s for s in res.ladder.steps if s.binding_id == "tcs_supply_achievable"]
+    assert len(steps) == 1
+    return ctx, steps[0]
+
+
+@pytest.mark.parametrize("drybulb", (20, 45))
+def test_the_trim_chiller_relief_clears_the_gate_only_where_the_plants_own_supply_already_meets_the_requirement(drybulb):
+    """Once the relief is taken the 'achievable' temperature is the plant's existing design supply temperature relabelled as an assumption
+    (E0), not a chiller's output: a plant supplying above what the loop needs leaves the step untaken, one at or below takes it, and the
+    design dry-bulb plays no part either way."""
+    ctx, above = _tcs_step(28.0, drybulb)
+    required = ctx.thermal.tcs_target_supply_C.value - ctx.thermal.cdu_approach_K.value
+    assert 28.0 > required > 7.0
+    assert above.taken is False and above.racks_before == 0 and above.racks_after == 0
+    _, below = _tcs_step(7.0, drybulb)
+    assert below.taken is True and below.racks_before == 0 and below.racks_after > 0
+
+
+def test_after_the_relief_neither_the_dry_bulb_nor_the_approach_it_sets_is_read():
+    from gridforge.thermal.constraints import tcs_supply_achievable
+    outcomes = set()
+    for drybulb in (10, 60):
+        for approach in (1.0, 50.0):
+            ctx = build_context()
+            ctx.architecture = Architecture.FULL_DLC
+            ctx.thermal.trim_chiller_installed = True
+            ctx.site.design_drybulb_C = V(drybulb, "degC", "dry-bulb under test", ESTIMATED)
+            ctx.thermal.plant.dry_cooler_approach_K = V(approach, "K", "approach under test", ESTIMATED)
+            res = tcs_supply_achievable(ctx)
+            outcomes.add((res.racks, res.basis))
+            assert res.max_racks.prov.evidence.short == "E0"      # held as an assumed figure: a trim chiller's capacity is not modelled
+    assert len(outcomes) == 1
+
+
+def test_before_the_relief_a_full_dlc_hall_with_dry_coolers_uses_dry_bulb_plus_the_approach():
+    from gridforge.thermal.constraints import tcs_supply_achievable
+    ctx = build_context()
+    ctx.architecture = Architecture.FULL_DLC
+    ctx.thermal.trim_chiller_installed = False
+    ctx.thermal.plant.dry_cooler_approach_K = V(6.0, "K", "approach under test", ESTIMATED)
+    required = ctx.thermal.tcs_target_supply_C.value - ctx.thermal.cdu_approach_K.value
+    ctx.site.design_drybulb_C = V(required - 6.0 - 5.0, "degC", "cool dry-bulb under test", ESTIMATED)
+    cool = tcs_supply_achievable(ctx)
+    ctx.site.design_drybulb_C = V(required - 6.0 + 5.0, "degC", "hot dry-bulb under test", ESTIMATED)
+    hot = tcs_supply_achievable(ctx)
+    assert "dry coolers at design dry-bulb" in cool.basis and "dry coolers at design dry-bulb" in hot.basis
+    assert cool.racks > 0 and hot.racks == 0
+
+
+def test_a_full_dlc_scenario_installs_a_default_dry_cooler_approach_when_the_intake_gives_none():
+    x = K["heat_rejection"]
+    ctx = load_document(_doc()).context
+    assert ctx.thermal.plant.dry_cooler_approach_K is None
+    q = _high_temp_loop(ctx).thermal.plant.dry_cooler_approach_K
+    assert (q.value, _band(q), _klass(q)) == (x["full_dlc_default_dry_cooler_approach_K"], x["full_dlc_default_dry_cooler_approach_band_K"], x["full_dlc_default_dry_cooler_approach_class"])
+    given = load_document(_doc()).context
+    given.thermal.plant.dry_cooler_approach_K = V(7.0, "K", "client approach", CUSTOMER)
+    assert _high_temp_loop(given).thermal.plant.dry_cooler_approach_K.value == 7.0           # a figure the client gave is kept
+
+
+def test_the_pue_entries_cite_sources_yet_are_held_as_e0_assumptions():
+    for arch, q in PUE_BY_ARCHITECTURE.items():
+        assert q.prov.sources, arch
+        assert _klass(q) == "E0", arch
+        assert q.prov.evidence <= ASSUMED
 
 
 # ------------------------------------------------------------------------------------------------------ cost evidence classes

@@ -52,5 +52,5 @@ export function engineeringAssumptionDefinition(a: Pick<EngineeringAssumption, "
 
 /** One line for the top of the section that lists them. */
 export const ENGINEERING_ASSUMPTIONS_NOTE =
-  "These are the engine's own library assumptions, each with the class it is labelled with, where it applies and what replaces it. Each is read from the engine's code and published files " +
-  "and checked against them by test; where the code does something other than a common description of it, this page says what the code does.";
+  "These are the engine's own library assumptions, each with the class it is labelled with, where it applies and what replaces it. The numbers, bands and classes are drift-tested against the engine's code and published files; " +
+  "the prose around them is reviewed against the code, and where the code does something other than a common description of it, this page says what the code does.";

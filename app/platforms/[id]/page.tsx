@@ -74,14 +74,14 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
           dataset,
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
-            { name: "AI rack platforms", path: "/platforms" },
+            { name: "Rack library", path: "/platforms" },
             { name: p.name, path: `/platforms/${p.id}` },
           ]),
         ]}
       />
       <nav aria-label="Breadcrumb" className="mb-4 text-[12px] text-faint">
         <Link href="/" className="hover:text-power">Home</Link> /{" "}
-        <Link href="/platforms" className="hover:text-power">Platforms</Link> / <span className="text-mute">{p.name}</span>
+        <Link href="/platforms" className="hover:text-power">Rack library</Link> / <span className="text-mute">{p.name}</span>
       </nav>
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Rack library · {p.status}</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">

@@ -353,7 +353,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
   {
     capability_id: "intelligence_enterprise",
     family: "intelligence",
-    name: "GridForge Intelligence — Organisation",
+    name: "GridForge Intelligence — Unlimited",
     description: "Access to the live intelligence dashboard for any number of seats; the billing owner invites and removes members.",
     intelligence_plan_id: "enterprise",
     engine_capability: "n/a",
@@ -795,7 +795,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     name: "Intelligence team seats",
     description:
       "The billing owner invites and removes members; an accepted invitation gives that person the plan's access. Seats are Solo 1, " +
-      "Team 5, Organisation unlimited, counting the owner (INTELLIGENCE_PLANS[plan].seats in lib/products.ts).",
+      "Team 5, Unlimited (no cap), counting the owner (INTELLIGENCE_PLANS[plan].seats in lib/products.ts).",
     engine_capability: "n/a -- lib/team.ts over the database functions gf_invite_member / gf_accept_invitation (0027)",
     rest_endpoint: null,
     mcp_tool: null,

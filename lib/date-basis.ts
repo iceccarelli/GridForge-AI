@@ -18,8 +18,6 @@
 //
 // Pure: no React, no fetch. tests/site/date-basis.test.ts pins every string below.
 
-import { LEAD_TIME_SOURCE_LABELS } from "@/lib/engineering-constants";
-
 export type DateBasis = "none" | "assumed" | "supported";
 
 /** The additive keys as they arrive; any of them may be missing from an older engine or a stored result. */
@@ -146,28 +144,13 @@ export function formatSetsTheDate(
 }
 
 /**
- * Where a lead time came from, as the engine reports it (`lead_time_source` on a dated result; gridforge/envelope/time_to_power.py). The
- * engine labels every lead time it uses E0 today, whichever of these it is: a library placeholder, a figure the customer typed, or neither.
- * None of them is a market figure and none is a quotation, and this is where the site keeps a labelled engine assumption apart from a
- * reported number (lib/market-evidence.ts) so the two can never be read as one.
- */
-export type LeadTimeSource = keyof typeof LEAD_TIME_SOURCE_LABELS;
-
-/** The engine's own wording for a source, or null when it is missing or not one the engine names (never guessed from the number). */
-export function leadTimeSourceLabel(source: unknown): string | null {
-  return typeof source === "string" && Object.prototype.hasOwnProperty.call(LEAD_TIME_SOURCE_LABELS, source)
-    ? LEAD_TIME_SOURCE_LABELS[source as LeadTimeSource]
-    : null;
-}
-
-/**
  * One item's lead time ("transformer capacity: 160 wk"). It is a lead time, not a date, but it still wears its evidence
- * class, and an E0 one says it is an assumption. With the engine's `lead_time_source` it also says whether it is the library's
- * placeholder or the customer's figure; with no source it says nothing about where it came from.
+ * class, and an E0 one says it is an assumption. The engine labels every lead time it uses E0 today, whether it is its own library
+ * placeholder or a figure the customer typed; neither is a quotation and neither is a market figure (lib/market-evidence.ts keeps
+ * reported numbers apart, and lib/engineering-constants.ts states what the engine assumes).
  */
-export function formatLeadTime(weeks: number, evidenceClass: string | null | undefined, source?: unknown): string {
+export function formatLeadTime(weeks: number, evidenceClass: string | null | undefined): string {
   const cls = text(evidenceClass);
   const tail = cls ? (/^E0\b/.test(cls) ? ` (${cls}, assumed)` : ` (${cls})`) : " (evidence class not stated)";
-  const from = leadTimeSourceLabel(source);
-  return `${weeks.toLocaleString("en-IE")} wk lead${tail}${from ? `, ${from}` : ""}`;
+  return `${weeks.toLocaleString("en-IE")} wk lead${tail}`;
 }
