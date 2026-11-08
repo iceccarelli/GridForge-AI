@@ -24,6 +24,8 @@ interface Row {
 }
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
+/** The row's scheme when the visitor has not chosen one. It is not sent; the engine then assumes its own default (ENGINE_LIBRARY_DEFAULTS.redundancy). */
+const REDUNDANCY_UNSTATED = `Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy})`;
 
 /**
  * The form before the visitor types. Power factor, busway runs and LV voltage start EMPTY: the engine's library defaults are shown as
@@ -31,7 +33,7 @@ const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
  * and the engine then treated them as customer data and dropped them from the named assumptions.
  */
 export const EMPTY_FORM: Record<string, string> = {
-  siteName: "", hallId: "", metro: "", country: "", buildYear: "", floorType: "raised_floor",
+  siteName: "", hallId: "", metro: "", country: "", buildYear: "", floorType: "",
   dso: "", firmCapacityMVA: "", contractedMW: "", currentPeakMW: "", currentItLoadMW: "",
   powerFactor: "", queueNote: "",
   buswayAmpacityA: "", buswayRuns: "", tapoffMaxA: "", voltageV: "",
@@ -39,7 +41,7 @@ export const EMPTY_FORM: Record<string, string> = {
   clearHeightM: "", aislePitchM: "", designDensityKWPerRack: "",
   plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "", existingFlowLPerMin: "", existingNonItHeatKW: "",
   residualAirKWPerRack: "", designDrybulbC: "",
-  platform: "gb300_nvl72", utilisation: "0.75",
+  platform: "gb300_nvl72", utilisation: "",
   constraint: "",
 };
 
@@ -55,10 +57,10 @@ export function intakePayload(
     ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, confirmed.includes(k) ? undefined : clean(v)])),
     transformers: transformers
       .filter((r) => r.rating !== "" && r.units !== "")
-      .map((r) => ({ id: r.id, unit_rating_MVA: r.rating, units: r.units, redundancy: r.redundancy })),
+      .map((r) => ({ id: r.id, unit_rating_MVA: r.rating, units: r.units, ...(r.redundancy ? { redundancy: r.redundancy } : {}) })),
     ups: ups
       .filter((r) => r.rating !== "" && r.units !== "")
-      .map((r) => ({ id: r.id, unit_rating_kW: r.rating, units: r.units, redundancy: r.redundancy })),
+      .map((r) => ({ id: r.id, unit_rating_kW: r.rating, units: r.units, ...(r.redundancy ? { redundancy: r.redundancy } : {}) })),
   };
 }
 
@@ -114,9 +116,9 @@ export function EngagementIntake({
   };
 
   const [transformers, setTransformers] = useState<Row[]>([
-    { id: "TX-1", rating: "", units: "", redundancy: "N+1" },
+    { id: "TX-1", rating: "", units: "", redundancy: "" },
   ]);
-  const [ups, setUps] = useState<Row[]>([{ id: "UPS-1", rating: "", units: "", redundancy: "N+1" }]);
+  const [ups, setUps] = useState<Row[]>([{ id: "UPS-1", rating: "", units: "", redundancy: "" }]);
 
   useEffect(() => {
     let alive = true;
@@ -206,6 +208,7 @@ export function EngagementIntake({
               setList(list.map((x, j) => (j === i ? { ...x, redundancy: e.target.value } : x)))
             }
           >
+            <option value="">{REDUNDANCY_UNSTATED}</option>
             {REDUNDANCY.map((o) => (
               <option key={o}>{o}</option>
             ))}
@@ -223,7 +226,7 @@ export function EngagementIntake({
       <button
         type="button"
         onClick={() =>
-          setList([...list, { id: `${label}-${list.length + 1}`, rating: "", units: "", redundancy: "N+1" }])
+          setList([...list, { id: `${label}-${list.length + 1}`, rating: "", units: "", redundancy: "" }])
         }
         className="inline-flex min-h-11 w-fit items-center gap-2 rounded border border-line px-3 py-1.5 text-sm text-mute hover:text-ghost"
       >
@@ -297,6 +300,7 @@ export function EngagementIntake({
         <Field label="Build year"><input className={inputCls} type="number" value={f.buildYear} onChange={set("buildYear")} /></Field>
         <Field label="Floor">
           <select className={inputCls} value={f.floorType} onChange={set("floorType")}>
+            <option value="">{`Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.floorType.replace("_", " ")})`}</option>
             <option value="raised_floor">Raised floor</option>
             <option value="slab">Slab</option>
           </select>
@@ -347,7 +351,7 @@ export function EngagementIntake({
             <option value="generic_dlc_50">Generic DLC rack, 50 kW</option>
           </select>
         </Field>
-        <Field label="Annual utilisation" hint="A fraction between 0.1 and 1."><input className={inputCls} type="number" step="0.05" min="0.1" max="1" value={f.utilisation} onChange={set("utilisation")} /></Field>
+        <Field label="Annual utilisation" hint={`A fraction between 0.1 and 1. It sets the annual energy and its cost, not what the hall can carry. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.utilisation} and names it as an assumption.`}><input className={inputCls} type="number" step="0.05" min="0.1" max="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.utilisation}`} value={f.utilisation} onChange={set("utilisation")} /></Field>
       </Section>
 
       <div>

@@ -43,7 +43,8 @@ export const transformerSchema = z.object({
   id: z.string().trim().max(40).default("TX"),
   unit_rating_MVA: num(500),
   units: z.coerce.number().int().min(1).max(40),
-  redundancy: z.enum(["N", "N+1", "N+2", "2N"]).default("N+1"),
+  // Optional with no default: a scheme the visitor did not pick is not sent as theirs (the engine then assumes N+1 itself; see ENGINE_LIBRARY_DEFAULTS.redundancy).
+  redundancy: z.enum(["N", "N+1", "N+2", "2N"]).optional(),
   replacement_lead_time_weeks: num(520).optional(),
 });
 
@@ -51,7 +52,7 @@ export const upsSchema = z.object({
   id: z.string().trim().max(40).default("UPS"),
   unit_rating_kW: num(5000),
   units: z.coerce.number().int().min(1).max(60),
-  redundancy: z.enum(["N", "N+1", "N+2", "2N"]).default("N+1"),
+  redundancy: z.enum(["N", "N+1", "N+2", "2N"]).optional(),
 });
 
 /**
@@ -92,6 +93,11 @@ export const ENGINE_LIBRARY_DEFAULTS = {
   buswayRuns: 6,
   voltageV: 400,
   powerFactor: 0.97,
+  /** compute.utilisation: the annual average fraction of rack power drawn. Moves the annual energy and its cost only, not any capacity limit. */
+  utilisation: 0.75,
+  /** hall.floor_type and the transformer / UPS redundancy: the engine assumes these silently (no named gap), so the forms say so beside the field. */
+  floorType: "raised_floor",
+  redundancy: "N+1",
 } as const;
 
 /** The form's hint for one of the three, in the visitor's words. */
@@ -104,7 +110,8 @@ const baseShape = {
   metro: z.string().trim().max(80).optional(),
   country: z.string().trim().max(80).optional(),
   buildYear: z.coerce.number().int().min(1960).max(2035).optional(),
-  floorType: z.enum(["raised_floor", "slab"]).default("raised_floor"),
+  // Optional with no default: the engine's own default is a raised floor (ENGINE_LIBRARY_DEFAULTS.floorType); a hall that did not say is not sent as raised.
+  floorType: z.enum(["raised_floor", "slab"]).optional(),
 
   // grid — the ceiling on everything downstream
   dso: z.string().trim().max(80).optional(),
@@ -151,7 +158,8 @@ const baseShape = {
 
   // compute
   platform: z.enum(["gb300_nvl72", "gb200_nvl72", "generic_dlc_50"]).default("gb300_nvl72"),
-  utilisation: z.coerce.number().min(0.1).max(1).default(0.75),
+  // Optional with no default: the engine records a supplied utilisation as an estimate (E3), counts it in completeness and drops its named gap.
+  utilisation: z.coerce.number().min(0.1).max(1).optional(),
 
   // schedules
   transformers: z.array(transformerSchema).max(20).default([]),
@@ -371,9 +379,9 @@ export function toIntakeDocument(i: ScreenIntake, company?: string): Record<stri
         ? { residual_air_capacity_kW_per_rack: i.residualAirKWPerRack }
         : {}),
     },
-    compute: { platform: i.platform, utilisation: i.utilisation },
-    transformers: i.transformers,
-    ups: i.ups,
+    compute: compact({ platform: i.platform, utilisation: i.utilisation }),
+    transformers: i.transformers?.map((t) => compact(t)),
+    ups: i.ups?.map((u) => compact(u)),
     scenarios: ["retained_air", "rdhx", "hybrid_dlc", "full_dlc", "full_dlc_btm"],
   });
 }

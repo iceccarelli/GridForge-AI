@@ -33,6 +33,8 @@ const ROOT = path.resolve(__dirname, "../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const THREE = ["buswayRuns", "voltageV", "powerFactor"] as const;
+/** The three above plus the annual utilisation: the four figures the old forms always sent, pre-filled, as if the visitor had supplied them. */
+const FOUR = [...THREE, "utilisation"] as const;
 
 const HALL = {
   siteName: "Honest Hall", hallId: "H1", contractedMW: 12, currentPeakMW: 7.4, currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63,
@@ -46,7 +48,8 @@ describe("the schema: the three are optional, with no default", () => {
       const r = schema.safeParse({ ...HALL, firmCapacityMVA: 15, floorLoadingKPa: 12, plantCapacityKW: 6000 });
       expect(r.success, JSON.stringify(r)).toBe(true);
       if (!r.success) continue;
-      for (const k of THREE) expect(r.data[k], k).toBeUndefined();
+      for (const k of FOUR) expect(r.data[k], k).toBeUndefined();
+      expect(r.data.floorType).toBeUndefined();
       const doc = toIntakeDocument(r.data as never) as { lv: Record<string, unknown>; grid: Record<string, unknown> };
       expect(Object.keys(doc.lv).sort()).toEqual(["busway_ampacity_A", "tapoff_max_A"]);
       expect("power_factor" in doc.grid).toBe(false);
@@ -69,7 +72,7 @@ describe("the schema: the three are optional, with no default", () => {
 
   it("the schemas keep their .shape (other code reads it) and it lists the three, optional", () => {
     for (const schema of [screenIntakeSchema, engagementIntakeSchema]) {
-      for (const k of THREE) {
+      for (const k of [...FOUR, "floorType"] as const) {
         expect(k in schema.shape, k).toBe(true);
         expect(schema.shape[k].safeParse(undefined).success, k).toBe(true);
       }
@@ -87,19 +90,23 @@ describe("the engine's library defaults are shown, never submitted", () => {
     expect(loader).toContain(`r.raw("lv.busway_runs", ${ENGINE_LIBRARY_DEFAULTS.buswayRuns})`);
     expect(loader).toMatch(new RegExp(`V\\(${ENGINE_LIBRARY_DEFAULTS.voltageV}, "V", "assumed LV distribution voltage", ASSUMED`));
     expect(loader).toMatch(new RegExp(`V\\(${ENGINE_LIBRARY_DEFAULTS.powerFactor}, "1", "assumed site power factor", ASSUMED`));
+    expect(loader).toMatch(new RegExp(`V\\(${ENGINE_LIBRARY_DEFAULTS.utilisation}, "1", "assumed annual average utilisation", ASSUMED`));
+    expect(loader).toContain(`r.raw("hall.floor_type", "${ENGINE_LIBRARY_DEFAULTS.floorType}")`);
+    expect(loader).toContain(`t.get("redundancy", "${ENGINE_LIBRARY_DEFAULTS.redundancy}"), "transformer"`);
+    expect(loader).toContain(`u.get("redundancy", "${ENGINE_LIBRARY_DEFAULTS.redundancy}"), "UPS"`);
     expect(LIBRARY_DEFAULT_HINT).toBe("the engine assumes 6 runs / 400 V / 0.97 until you give yours");
   });
 
   it("the engagement form starts with the three EMPTY and its payload omits them until typed", () => {
-    for (const k of THREE) expect(EMPTY_FORM[k], k).toBe("");
+    for (const k of [...FOUR, "floorType"] as const) expect(EMPTY_FORM[k], k).toBe("");
     const rows = [{ id: "TX-1", rating: "" as const, units: "" as const, redundancy: "N+1" }];
     const untouched = intakePayload({ ...EMPTY_FORM, siteName: "S", hallId: "H" }, [], rows, rows);
-    for (const k of THREE) expect(untouched[k as keyof typeof untouched], k).toBeUndefined();
+    for (const k of [...FOUR, "floorType"] as const) expect(untouched[k as keyof typeof untouched], k).toBeUndefined();
     const typed = intakePayload({ ...EMPTY_FORM, siteName: "S", hallId: "H", buswayRuns: "3", voltageV: "415", powerFactor: "0.92" }, [], rows, rows);
     expect([typed.buswayRuns, typed.voltageV, typed.powerFactor]).toEqual(["3", "415", "0.92"]);
     // a blank, or whitespace, is not a value
-    const blank = intakePayload({ ...EMPTY_FORM, buswayRuns: "  ", voltageV: "", powerFactor: " " }, [], rows, rows);
-    for (const k of THREE) expect(blank[k as keyof typeof blank], k).toBeUndefined();
+    const blank = intakePayload({ ...EMPTY_FORM, buswayRuns: "  ", voltageV: "", powerFactor: " ", utilisation: " " }, [], rows, rows);
+    for (const k of FOUR) expect(blank[k as keyof typeof blank], k).toBeUndefined();
   });
 
   it("the form shows the defaults as placeholder text and says what is assumed, in the field's own hint", () => {
@@ -176,7 +183,7 @@ const run = (docs: Record<string, unknown>) => {
   }>;
 };
 
-const PATHS = { runs: "lv.busway_runs", volts: "lv.voltage_V", pf: "grid.power_factor" } as const;
+const PATHS = { runs: "lv.busway_runs", volts: "lv.voltage_V", pf: "grid.power_factor", util: "compute.utilisation" } as const;
 
 describe.runIf(hasPython)("the engine, given the three or not (real loader, real solver)", () => {
   const templateDocs = () =>
@@ -187,11 +194,12 @@ describe.runIf(hasPython)("the engine, given the three or not (real loader, real
         const withDefaults = JSON.parse(JSON.stringify(omitted));
         withDefaults.lv = { ...withDefaults.lv, busway_runs: 6, voltage_V: 400 };
         withDefaults.grid = { ...withDefaults.grid, power_factor: 0.97 };
+        withDefaults.compute = { ...withDefaults.compute, utilisation: 0.75 };
         return [[`${p.id}:omitted`, omitted], [`${p.id}:as-before`, withDefaults]];
       })
     );
 
-  it("omitted, they are named gaps and are not counted as supplied; given at the same values they were silently counted", () => {
+  it("omitted, the four are named gaps and are not counted as supplied; given at the same values they were silently counted", () => {
     const out = run(templateDocs());
     for (const p of HALL_PRESETS) {
       const omitted = out[`${p.id}:omitted`];
@@ -211,21 +219,21 @@ describe.runIf(hasPython)("the engine, given the three or not (real loader, real
     }
   });
 
-  it("the completeness moves by exactly the three fields: each is one of the intake's counted fields", () => {
+  it("the completeness moves by exactly the four fields: each is one of the intake's counted fields", () => {
     const out = run(templateDocs());
     for (const p of HALL_PRESETS) {
       const o = out[`${p.id}:omitted`];
       const diff = out[`${p.id}:as-before`].completeness - o.completeness;
-      expect(diff, p.id).toBeCloseTo(3 / o.counted, 2);
+      expect(diff, p.id).toBeCloseTo(4 / o.counted, 2);
     }
   });
 
-  it("the honest completeness of the three reference templates: 0.484 (15 of 31 counted fields), not the 0.581 the pre-filled form reported", () => {
+  it("the honest completeness of the three reference templates: 0.452 (14 of 31 counted fields), not the 0.581 the pre-filled form reported", () => {
     // Pinned on purpose. It moves only when the engine's counted intake fields change (gridforge/intake/schema.py); then update this deliberately.
     const out = run(templateDocs());
     for (const p of HALL_PRESETS) {
       expect(out[`${p.id}:omitted`].counted, p.id).toBe(31);
-      expect(out[`${p.id}:omitted`].completeness, p.id).toBe(0.484);
+      expect(out[`${p.id}:omitted`].completeness, p.id).toBe(0.452);
       expect(out[`${p.id}:as-before`].completeness, p.id).toBe(0.581);
     }
   });
@@ -279,5 +287,91 @@ describe("the real-engine suite cannot be skipped silently where it is required"
   it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
     const g = engineAvailable(hasPython);
     expect(g.ok, g.reason).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------ the utilisation, floor type and redundancy
+describe("utilisation, floor type and redundancy are sent only when chosen", () => {
+  it("none of them is in the intake document unless given", () => {
+    const doc = toIntakeDocument(screenIntakeSchema.parse({ ...HALL, transformers: [{ unit_rating_MVA: 5, units: 2 }], ups: [{ unit_rating_kW: 800, units: 3 }] })) as any;
+    expect(doc.compute).toEqual({ platform: "gb300_nvl72" });
+    expect("floor_type" in doc.hall).toBe(false);
+    expect(doc.transformers).toEqual([{ id: "TX", unit_rating_MVA: 5, units: 2 }]);
+    expect(doc.ups).toEqual([{ id: "UPS", unit_rating_kW: 800, units: 3 }]);
+    const given = toIntakeDocument(screenIntakeSchema.parse({ ...HALL, utilisation: "0.6", floorType: "slab", transformers: [{ unit_rating_MVA: 5, units: 2, redundancy: "2N" }] })) as any;
+    expect([given.compute.utilisation, given.hall.floor_type, given.transformers[0].redundancy]).toEqual([0.6, "slab", "2N"]);
+  });
+
+  it("the form leaves each unstated and says what the engine assumes beside the field", () => {
+    const src = read("components/EngagementIntake.tsx");
+    expect(src).toContain("placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.utilisation}`}");
+    expect(src).toContain("Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.floorType");
+    expect(src).toContain("`Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy})`");
+    expect(src).not.toMatch(/utilisation: "0\.75"|redundancy: "N\+1" \}|floorType: "raised_floor"/);
+    const rows = [{ id: "TX-1", rating: 5 as const, units: 2 as const, redundancy: "" }];
+    const p = intakePayload({ ...EMPTY_FORM }, [], rows, []) as { transformers: Record<string, unknown>[] };
+    expect(p.transformers).toEqual([{ id: "TX-1", unit_rating_MVA: 5, units: 2 }]);
+    expect((intakePayload({ ...EMPTY_FORM }, [], [{ ...rows[0], redundancy: "N+2" }], []) as any).transformers[0].redundancy).toBe("N+2");
+  });
+});
+
+describe.runIf(hasPython)("what the engine does with them (real loader, real solver)", () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    project: { client: "x", reference: "r" }, site: { name: "s", design_drybulb_C: 30 },
+    hall: { id: "H", positions_available: 200, floor_loading_kPa: 15 },
+    grid: { firm_capacity_MVA: 15, contracted_MW: 12, current_site_peak_MW: 7.4, current_it_load_MW: 4.9 },
+    lv: { busway_ampacity_A: 400, tapoff_max_A: 400 },
+    thermal: { plant: { chilled_water_capacity_kW: 12000, design_supply_C: 10 } },
+    transformers: [{ unit_rating_MVA: 20, units: 2 }], ups: [{ unit_rating_kW: 5000, units: 6 }],
+    compute: { platform: "gb300_nvl72" }, scenarios: ["hybrid_dlc"], ...over,
+  });
+  it("utilisation moves no capacity limit (so it is not on the evidence ladder): racks and every constraint are identical across 0.3 / 0.75 / 1.0", () => {
+    const out = run({ a: base({ compute: { platform: "gb300_nvl72", utilisation: 0.3 } }), b: base(), c: base({ compute: { platform: "gb300_nvl72", utilisation: 1.0 } }) });
+    expect(out.a.constraints).toEqual(out.b.constraints);
+    expect(out.c.constraints).toEqual(out.b.constraints);
+    expect(out.a.racks).toEqual(out.c.racks);
+    expect(Object.values(LADDER_FAMILIES).flat().some((d) => d!.path === "compute.utilisation")).toBe(false);
+  });
+  it("a supplied utilisation is counted as supplied and its gap disappears: omitted it is a named gap", () => {
+    const out = run({ without: base(), with: base({ compute: { platform: "gb300_nvl72", utilisation: 0.75 } }) });
+    expect(out.without.gaps).toContain("compute.utilisation");
+    expect(out.with.gaps).not.toContain("compute.utilisation");
+    expect(out.with.supplied).toContain("compute.utilisation");
+    expect(out.with.completeness).toBeGreaterThan(out.without.completeness);
+  });
+  it("floor type and redundancy are silent defaults in the engine: omitted or equal to the default gives an identical result and no gap either way", () => {
+    const withN1 = base({ transformers: [{ unit_rating_MVA: 20, units: 2, redundancy: "N+1" }], ups: [{ unit_rating_kW: 5000, units: 6, redundancy: "N+1" }] });
+    const out = run({ a: base(), b: withN1, c: base({ hall: { id: "H", positions_available: 200, floor_loading_kPa: 15, floor_type: "raised_floor" } }) });
+    expect(out.a).toEqual(out.b);
+    expect(out.a).toEqual(out.c);
+    expect(out.a.gaps.some((g) => /redundancy|floor_type/.test(g))).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------ Stream D's engineering constants
+describe("this file's engine defaults equal the engineering constants document, where that document exists", () => {
+  // lib/engineering-constants.json is Stream D's (a different branch). Until it merges the file is absent here and the comparison is SKIPPED, with this
+  // reason in the test name; once present it must agree with ENGINE_LIBRARY_DEFAULTS and the ladder's supplied classes, or this fails.
+  const file = path.join(ROOT, "lib", "engineering-constants.json");
+  const present = fs.existsSync(file);
+  const find = (node: unknown, key: string): unknown => {
+    if (!node || typeof node !== "object") return undefined;
+    const o = node as Record<string, unknown>;
+    if (key in o) return o[key];
+    for (const v of Object.values(o)) { const r = find(v, key); if (r !== undefined) return r; }
+    return undefined;
+  };
+  const num = (v: unknown) => (v && typeof v === "object" && "value" in (v as object) ? (v as { value: unknown }).value : v);
+  it.skipIf(!present)(present ? "voltage, power factor and the voltage's supplied class are the same numbers in both" : "SKIPPED: lib/engineering-constants.json is not on this branch (Stream D's); compared after the merge", () => {
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(num(find(doc, "voltage_default_V"))).toBe(ENGINE_LIBRARY_DEFAULTS.voltageV);
+    expect(num(find(doc, "site_power_factor_default"))).toBe(ENGINE_LIBRARY_DEFAULTS.powerFactor);
+    const cls = num(find(doc, "voltage_supplied_class"));
+    const voltage = Object.values(LADDER_FAMILIES).flatMap((d) => d ?? []).find((d) => d.path === "lv.voltage_V")!;
+    expect(String(cls)).toMatch(new RegExp(`^${voltage.suppliedClass}\\b`));
+  });
+  it("the absent-file case is explicit, not a silent pass", () => {
+    expect(typeof present).toBe("boolean");
+    if (!present) expect(fs.existsSync(path.join(ROOT, "lib", "engagement-intake.ts"))).toBe(true);        // this branch's own constants exist and are pinned above
   });
 });
