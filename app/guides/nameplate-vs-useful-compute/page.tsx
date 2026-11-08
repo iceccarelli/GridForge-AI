@@ -10,6 +10,7 @@ import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import { pageImages } from "@/lib/page-cards";
 import { FOUNDER_ID, ORG_ID } from "@/lib/entity";
 import { OG_BASE, siteUrl } from "@/lib/site";
+import { NAMEPLATE_DEFINITION } from "@/lib/definitions";
 
 const PATH = "/guides/nameplate-vs-useful-compute";
 // The heading, the structured-data headline and the search-result title are one string, so it must fit once the site name is added (44 characters).
@@ -60,7 +61,9 @@ export default async function Guide() {
       <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{TITLE}</h1>
       <p className="mt-2 text-[13px] text-faint">Vincenzo Grimaldi · <time dateTime={PUBLISHED}>3 November 2026</time> · founder-led, pilot-stage practice</p>
 
-      <section aria-labelledby="answer-h" className="mt-8 rounded-lg border border-line bg-panel p-5">
+      <p data-definition className="mt-6 text-[16px] leading-relaxed text-ghost">{NAMEPLATE_DEFINITION}</p>
+
+      <section aria-labelledby="answer-h" className="mt-6 rounded-lg border border-line bg-panel p-5">
         <h2 id="answer-h" className="data text-[11px] tracking-[0.14em] text-power">THE SHORT ANSWER</h2>
         <p className="mt-2 text-[16px] leading-relaxed text-ghost">
           The number of AI racks an existing hall can run is the <em>smallest</em> of a series of limits, one per stage between the utility connection and the rack, plus

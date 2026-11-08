@@ -11,6 +11,7 @@ import { PLATFORM_CONSTRAINT_SLUGS, derive, pageablePlatforms } from "@/lib/plat
 import { OG_BASE, SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { fitText, pageTitle } from "@/lib/meta";
+import { PLATFORM_FIGURES_NOTE, platformDefinition } from "@/lib/definitions";
 
 export const dynamicParams = false;
 
@@ -28,7 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const p = (await pageable()).find((x) => x.id === id);
   if (!p) return {};
   const heading = `${p.name}: rack power and floor loading`;
-  const description = fitText(`${p.name}: ${p.rack_kW} kW per rack, ${(p.liquid_fraction * 100).toFixed(0)}% captured by liquid, ${p.residual_air_kW} kW residual air, ${p.flow_l_per_min_per_rack} l/min, ${p.floor_loading_kg_per_m2.toLocaleString("en-IE")} kg/m². Published figures, with sources.`);
+  const description = fitText(`${p.name}: ${p.rack_kW} kW per rack, ${(p.liquid_fraction * 100).toFixed(0)}% captured by liquid, ${p.residual_air_kW} kW residual air, ${p.flow_l_per_min_per_rack} l/min, ${p.floor_loading_kg_per_m2.toLocaleString("en-IE")} kg/m². Figures from cited sources, held as assumptions.`);
   return {
     title: pageTitle(heading, `${p.name} rack power`),
     description,
@@ -52,14 +53,14 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
     ["Technology-loop flow", `${p.flow_l_per_min_per_rack} l/min per rack`],
     ["Rack mass", `${p.rack_mass_kg.toLocaleString("en-IE")} kg on ${p.rack_footprint_m2} m²`],
     ["Floor loading", `${p.floor_loading_kg_per_m2.toLocaleString("en-IE")} kg/m²`],
-    ["Rack feed", p.rack_feed_current_A ? `${p.rack_feed_current_A} A` : "not published"],
+    ["Rack feed", p.rack_feed_current_A ? `${p.rack_feed_current_A} A (assumed, at 400 V three-phase; confirm against an OEM drawing)` : "not in the library"],
     ["Power domain", p.voltage_domain],
   ];
   const dataset = {
     "@context": "https://schema.org",
     "@type": "Dataset",
     name: `${p.name} — published rack figures`,
-    description: `Manufacturer-published rack power, liquid capture, flow, mass and floor loading for the ${p.name}, as used by the Time to Power capacity engine.`,
+    description: `Rack power, liquid capture, flow, mass and floor loading for the ${p.name} as the Time to Power capacity engine holds them: taken from the cited sources and carried as assumptions, not measurements.`,
     url: siteUrl(`/platforms/${p.id}`),
     creator: orgRef(),
     publisher: orgRef(),
@@ -86,9 +87,9 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
         What a {p.name} rack asks of an existing hall
       </h1>
-      <p className="mt-4 text-mute">
-        Each figure below is the manufacturer&rsquo;s own published value, used unchanged by the engine that screens halls. The
-        sources are listed at the end. Where a figure was not published it says so; nothing is estimated to fill a gap.
+      <p data-definition className="mt-4 text-lg text-ghost">{platformDefinition(p)}</p>
+      <p className="mt-3 text-mute">
+        {PLATFORM_FIGURES_NOTE} The engine uses them as stated. The sources are listed at the end. Where the library holds no value for a field it says so.
       </p>
 
       <dl className="mt-8 divide-y divide-line/60 rounded border border-line">

@@ -70,9 +70,10 @@ const PRIVATE_PATHS = [
 ];
 
 /**
- * The two read-only API routes the structured data and llms.txt cite as the licence/citation and per-constraint JSON
- * (lib/jsonld.ts, app/llms.txt/route.ts). "/api/" is private, so without these a crawler that obeys robots.txt could not fetch
- * what our own metadata points it at. Longest match wins, so they stay reachable while the rest of /api/ stays closed.
+ * The read-only routes that sit under a closed prefix or are machine interfaces, and that our own metadata and llms.txt point at: the
+ * citation endpoint and the per-constraint JSON (lib/jsonld.ts cites /api/cite as `citation`; llms.txt names both) and the OpenAPI
+ * description of the engine (llms.txt, /developers). "/api/" is private, so without the first two a crawler that obeys robots.txt could
+ * not fetch what we point it at. Longest match wins, so they stay reachable while the rest of /api/ stays closed.
  */
 const PUBLIC_API = ["/api/cite", "/api/constraints", "/openapi.json"];
 

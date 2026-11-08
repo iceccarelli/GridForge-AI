@@ -30,7 +30,6 @@ export function constraintCatalogueJsonLd(ref: ConstraintReference) {
     identifier: ref.schema,
     creator: ORG,
     publisher: ORG,
-    license: siteUrl("/api/cite"),
     citation: siteUrl("/api/cite"),
     variableMeasured: ref.constraints.map((c) => c.name),
     distribution: [
@@ -85,7 +84,6 @@ export function constraintRecordJsonLd(c: ConstraintDoc, ref: ConstraintReferenc
     identifier: c.id,
     creator: ORG,
     publisher: ORG,
-    license: siteUrl("/api/cite"),
     citation: siteUrl("/api/cite"),
     isPartOf: {
       "@type": "Dataset",
