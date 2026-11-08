@@ -182,6 +182,7 @@ describe("every route handler that reaches a paid provider is metered or trusted
       "app/api/power/compare/save/route.ts POST": "guarded",
       "app/api/power/deploy/cases/[token]/route.ts POST": "guarded",
       "app/api/power/deploy/cases/route.ts POST": "guarded",
+      "app/api/projects/[token]/cost-evidence/compare/route.ts POST": "guarded",
       "app/api/projects/[token]/packages/[package]/comparison/route.ts POST": "guarded",
       "app/api/projects/[token]/packages/[package]/responses/route.ts POST": "guarded",
       "app/api/projects/[token]/packages/route.ts POST": "guarded",

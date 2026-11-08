@@ -25,11 +25,25 @@ import {
  *
  * A native file input inside a labelled form: keyboard and screen-reader operable, no drag-and-drop required.
  */
-export function EvidenceUpload({ projectToken, onSaved }: { projectToken: string; onSaved: () => void }) {
+export function EvidenceUpload({
+  projectToken,
+  onSaved,
+  defaultCategory = "other",
+  heading = "ATTACH A FILE",
+  onUploaded,
+}: {
+  projectToken: string;
+  onSaved: () => void;
+  /** The category the picker starts on (a supplier quotation's document starts on "Supplier document"). The visitor can still change it. */
+  defaultCategory?: (typeof EVIDENCE_CATEGORIES)[number];
+  heading?: string;
+  /** The stored file's id and name, for a caller that wants to refer to the file just attached (the quotation form does). */
+  onUploaded?: (file: { id: string; filename: string }) => void;
+}) {
   const uid = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [category, setCategory] = useState<string>("other");
+  const [category, setCategory] = useState<string>(defaultCategory);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +85,7 @@ export function EvidenceUpload({ projectToken, onSaved }: { projectToken: string
         return;
       }
       setDone(`${body.evidence?.filename ?? file.name} was attached. It is unverified and unclassified until an administrator reviews it.`);
+      if (typeof body.evidence?.id === "string") onUploaded?.({ id: body.evidence.id, filename: String(body.evidence.filename ?? file.name) });
       setFile(null);
       setNote("");
       if (fileRef.current) fileRef.current.value = "";
@@ -84,7 +99,7 @@ export function EvidenceUpload({ projectToken, onSaved }: { projectToken: string
 
   return (
     <form onSubmit={submit} className="space-y-1.5 border-t border-line pt-3" aria-labelledby={`${uid}-h`} data-testid="evidence-upload">
-      <div id={`${uid}-h`} className="eyebrow text-[10px]">ATTACH A FILE</div>
+      <div id={`${uid}-h`} className="eyebrow text-[10px]">{heading}</div>
       <label className="block text-faint" htmlFor={`${uid}-file`}>Source file (PDF, CSV or JSON)</label>
       <input
         id={`${uid}-file`}

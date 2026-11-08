@@ -67,6 +67,8 @@ export const RATE_POLICIES = {
   project_create: { bucket: "project_create", limit: 30, windowSeconds: HOUR },
   /** POST /api/projects/[token]/evidence: an unauthenticated upload (up to EVIDENCE_MAX_BYTES) into the object store. */
   project_evidence: { bucket: "project_evidence", limit: 60, windowSeconds: HOUR },
+  /** POST /api/projects/[token]/cost-evidence: records a supplier quotation claim (a row and an event) beside an uploaded file. 30 an hour per caller address is a buyer entering a few quotations, not a loop. */
+  project_quotation: { bucket: "project_quotation", limit: 30, windowSeconds: HOUR },
   /** POST /api/intake/[token]/evidence: an upload (up to EVIDENCE_MAX_BYTES) into the object store, behind a purchase's intake token. */
   intake_evidence: { bucket: "intake_evidence", limit: 60, windowSeconds: HOUR },
   /** POST /api/chat. A scoping conversation is ~10-20 requests; each runs at most CHAT_MAX_ANTHROPIC_CALLS Anthropic calls. */

@@ -53,13 +53,16 @@ export async function acceptedQuotations(project: ProjectRow): Promise<Result<{ 
   );
   if (!links.ok) return { ok: false, status: 502, error: "The project's quotations could not be read. Nothing was saved." };
   const engagements = [...new Set((links.data ?? []).map((l) => l.object_id).filter(Boolean))];
-  if (engagements.length === 0) return { ok: true, set: { entries: [], ids: [], excluded: [] } };
-  const rows = await rest<EvidenceRow[]>(
-    "GET",
-    `cost_evidence_state?project_id=eq.${q(project.id)}&deliverable_id=in.(${engagements.map(q).join(",")})` +
-      `&state=eq.accepted&select=${COLUMNS}&order=id.asc`
-  );
-  if (!rows.ok) return { ok: false, status: 502, error: "The project's quotations could not be read. Nothing was saved." };
+  // Two kinds of accepted line belong to a project: those recorded for an engagement linked to it (0022), and those its holder attached to an
+  // uploaded document (0054: no engagement, stamped with this project). Both are read by project, never by anything the caller names.
+  const read = (scope: string) =>
+    rest<EvidenceRow[]>("GET", `cost_evidence_state?project_id=eq.${q(project.id)}&${scope}&state=eq.accepted&select=${COLUMNS}&order=id.asc`);
+  const [engagementRows, projectRows] = await Promise.all([
+    engagements.length ? read(`deliverable_id=in.(${engagements.map(q).join(",")})`) : Promise.resolve({ ok: true as const, status: 200, data: [] as EvidenceRow[] }),
+    read("deliverable_id=is.null"),
+  ]);
+  if (!engagementRows.ok || !projectRows.ok) return { ok: false, status: 502, error: "The project's quotations could not be read. Nothing was saved." };
+  const rows = { ok: true as const, data: [...(engagementRows.data ?? []), ...(projectRows.data ?? [])] };
   return { ok: true, set: eligibleQuotations(rows.data ?? []) };
 }
 

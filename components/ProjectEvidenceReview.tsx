@@ -4,6 +4,7 @@ import React, { useId, useState } from "react";
 import { CircleAlert, CircleCheck, CircleHelp, CircleX, Loader2 } from "lucide-react";
 import { STATUS_LABEL, blockingGates, type GateResult } from "@/lib/calibration-gates";
 import type { ActualItem, EvidenceRef, FileItem, ObservationItem, QueueCount, VerifiedItem } from "@/lib/project-review-queue";
+import { QuotationReview, type QueuedClaim } from "@/components/QuotationReview";
 import {
   ALREADY_REVIEWED,
   SELF_REVIEW_MESSAGE,
@@ -62,6 +63,10 @@ export function ProjectEvidenceReview({
   reviewClass,
   initialError,
   counts,
+  quotations,
+  quotationsError,
+  quotationsMore = 0,
+  quotationsMoreIsLowerBound = false,
 }: {
   observations: ObservationItem[];
   actuals: ActualItem[];
@@ -73,6 +78,13 @@ export function ProjectEvidenceReview({
   /** The one evidence class a reviewer may assign to a measured observation (lib/project-observations.ts REVIEW_CLASS). */
   reviewClass: string;
   initialError?: string | null;
+  /** Supplier quotations a project holder attached to an uploaded file, awaiting the reviewer (lib/project-quotation-claims.ts claimQueue). Undefined: section hidden. */
+  quotations?: QueuedClaim[];
+  /** Why the quotations could not be read, if they could not (shown instead of an empty queue). */
+  quotationsError?: string | null;
+  /** Pending quotations beyond the page shown (lib/project-quotation-claims.ts claimQueue). */
+  quotationsMore?: number;
+  quotationsMoreIsLowerBound?: boolean;
 }) {
   const [done, setDone] = useState<Done[]>([]);
   const decided = new Set(done.map((d) => d.id));
@@ -132,6 +144,16 @@ export function ProjectEvidenceReview({
           ))}
         </div>
       </section>
+
+      {quotations === undefined && !quotationsError ? null : (
+        <QuotationReview
+          items={quotations ?? []}
+          initialError={quotationsError}
+          more={quotationsMore}
+          moreIsLowerBound={quotationsMoreIsLowerBound}
+          decidedFiles={Object.fromEntries(done.filter((d) => d.decision).map((d) => [d.id, d.decision as "verified" | "rejected"]))}
+        />
+      )}
 
       <section aria-labelledby="obs-h">
         <h2 id="obs-h" className="text-sm font-semibold text-ghost">

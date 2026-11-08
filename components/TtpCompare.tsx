@@ -18,6 +18,7 @@ import {
   type CompareScenario,
 } from "@/lib/ttp-compare";
 import { TtpSaveToProject } from "@/components/TtpSaveToProject";
+import { QuotationEffectPanel } from "@/components/QuotationEffectPanel";
 import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 import { GridQueuePanel } from "@/components/GridQueuePanel";
@@ -418,6 +419,8 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
       {out ? <ComparisonResults out={out} cli={cli} copied={copied} onCopy={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(out.request, null, 2)); setCopied(true); } catch { setCopied(false); }
       }} /> : null}
+
+      {out && !out.synthetic ? <QuotationEffectPanel key={out.result.request_digest} compare={out.compare} base={out.result} /> : null}
 
       {out && !out.synthetic ? <TtpSaveToProject key={out.result.request_digest} compare={out.compare} defaultName={String(f.siteName ?? "").trim()} /> : null}
       {out?.synthetic ? (

@@ -7,6 +7,7 @@ import type { ProjectState } from "@/lib/project-state";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
 import { EvidenceUpload } from "@/components/ai/EvidenceUpload";
+import { QuotationSection } from "@/components/QuotationClaims";
 import { EvidenceLadderCard } from "@/components/ai/EvidenceLadderCard";
 import { evidenceLadder } from "@/lib/project-spec-relief";
 
@@ -788,6 +789,10 @@ export function ProjectPanel({
             <Comparisons state={state} projectToken={projectToken!} />
 
             <CostEvidence state={state} />
+
+            <Card title="SUPPLIER QUOTATIONS YOU HOLD">
+              <QuotationSection projectToken={projectToken!} files={state.evidence.items} onChanged={() => void load()} />
+            </Card>
 
             <Commission projectToken={projectToken!} />
 
