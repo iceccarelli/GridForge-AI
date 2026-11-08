@@ -800,6 +800,10 @@ def _declared_positions(r) -> int:
     validation then reports in its own words)."""
     try:
         v = _dig(r.doc, "hall.positions_available")   # a read, not r.raw(): reading must not record a gap
+        if isinstance(v, dict) and "value" in v:
+            # The annotated form {value, evidence, note}: the number is inside. Without unwrapping, a figure above hall.rack_positions
+            # declared assumed (or with a note) was read as "not declared" and refused where the same plain number was accepted.
+            v = v["value"]
         return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 <= v < 1e9 else 0
     except Exception:
         return 0

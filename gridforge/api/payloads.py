@@ -98,7 +98,13 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
         "notice": PUBLIC_NOTICE,
     }
     if declared_assumed:
-        out["inputs_declared_assumed"] = _declared_assumed_inputs(intake, declared_assumed)
+        rows = _declared_assumed_inputs(intake, declared_assumed)
+        out["inputs_declared_assumed"] = rows
+        # intake.completeness and required_inputs_missing count a figure that was SENT as supplied, whatever class it was declared; these two
+        # keys say how many of the supplied figures are assumptions, so a caller does not read the completeness as measured data.
+        out["intake"]["assumed_count"] = len(rows)
+        out["intake"]["assumed_count_note"] = ("completeness and required_inputs_missing count figures declared assumed as supplied; "
+                                               "assumed_count of them are assumptions (class E0), not customer data")
     return out
 
 

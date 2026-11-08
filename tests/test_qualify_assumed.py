@@ -256,3 +256,59 @@ def test_an_integer_figure_declared_assumed_is_recorded_assumed_not_as_customer_
     doc.setdefault(section, {})[key] = {"value": value, "evidence": "E0", "note": "a template value"}
     recorded = [s for s in load_document(doc).report.sourced if s.path == path]
     assert [(s.evidence, s.note) for s in recorded] == [("E0", "a template value")]
+
+
+# --- the figure-level class, not only the headline's --------------------------------------------------------------------------------
+def test_the_class_is_proved_per_figure_not_by_the_headline_evidence(base):
+    """as_found.it_load_kW.evidence is E0_ASSUMPTION for a PLAIN request too (the library's per-rack current is an assumption), so it proves nothing
+    about a declared figure. What does: the loaded quantity's class, the basis text beside the figure, and the loader's own record."""
+    plain = post(base, dict(HALL))[1]
+    declared = post(base, {**HALL, "assumed_fields": list(QUALIFY_FIELDS)})[1]
+    assert plain["as_found"]["it_load_kW"]["evidence"] == declared["as_found"]["it_load_kW"]["evidence"] == "E0_ASSUMPTION"
+    assert "63 A (E5)" in plain["as_found"]["basis"] and "63 A (E0)" in declared["as_found"]["basis"]
+    assert "inputs_declared_assumed" not in plain and len(declared["inputs_declared_assumed"]) == 7
+    from gridforge.validation import EvidenceClass
+    p, d = load_document(qualify_to_intake(dict(HALL))), load_document(qualify_to_intake({**HALL, "assumed_fields": list(QUALIFY_FIELDS)}))
+    assert [s.path for s in p.report.sourced] == []
+    assert sorted(s.path for s in d.report.sourced if s.evidence == "E0") == sorted([*QUALIFY_FIELDS.values(), "grid.firm_capacity_MVA"])
+    for q in ("tapoff_max_A", "busway_ampacity_A"):
+        assert getattr(p.context.power.lv, q).evidence is EvidenceClass.E5_CUSTOMER_DATA
+        assert getattr(d.context.power.lv, q).evidence is EvidenceClass.E0_ASSUMPTION
+    assert p.context.power.grid.contracted_MW.evidence is EvidenceClass.E5_CUSTOMER_DATA
+    assert d.context.power.grid.contracted_MW.evidence is EvidenceClass.E0_ASSUMPTION
+
+
+def test_a_declared_request_says_how_many_supplied_figures_are_assumptions(base):
+    """completeness and required_inputs_missing count a declared figure as supplied; assumed_count says so. Absent from a plain request."""
+    plain = post(base, dict(HALL))[1]["intake"]
+    declared = post(base, {**HALL, "assumed_fields": list(QUALIFY_FIELDS)})[1]["intake"]
+    assert "assumed_count" not in plain and "assumed_count_note" not in plain
+    assert declared["assumed_count"] == 7 and "count figures declared assumed as supplied" in declared["assumed_count_note"]
+    assert declared["completeness"] == plain["completeness"] and declared["required_inputs_missing"] == plain["required_inputs_missing"]
+    some = post(base, {**HALL, "assumed_fields": ["tapoff_max_A", "contracted_MW"]})[1]["intake"]
+    assert some["assumed_count"] == 2
+
+
+# --- positions above the default rack total, declared assumed or annotated ----------------------------------------------------------
+@pytest.mark.parametrize("positions", [401, 500, 1200])
+def test_positions_above_the_default_rack_total_are_accepted_declared_assumed_exactly_as_plain(base, positions):
+    """hall.rack_positions defaults to max(400, declared positions). The default read the declared number only from a plain figure, so the annotated
+    form {value, evidence, note} (which is what assumed_fields sends) was read as 0 and refused with 'more than hall.rack_positions (400)'."""
+    body = {**HALL, "positions_available": positions}
+    s1, plain = post(base, body)
+    s2, declared = post(base, {**body, "assumed_fields": ["positions_available"]})
+    assert (s1, s2) == (200, 200), (plain, declared)
+    for k in ("racks",):
+        assert declared["as_found"][k] == plain["as_found"][k]
+    assert declared["after_relief"]["racks"] == plain["after_relief"]["racks"]
+    assert declared["as_found"]["basis"] == plain["as_found"]["basis"]
+
+
+def test_an_annotated_positions_figure_in_an_intake_document_is_read_like_the_plain_number():
+    doc = qualify_to_intake(dict(HALL))
+    doc["hall"]["positions_available"] = {"value": 500, "note": "from the tenancy schedule"}
+    annotated = load_document(doc)
+    doc["hall"]["positions_available"] = 500
+    plain = load_document(doc)
+    assert annotated.context.hall.positions_available == plain.context.hall.positions_available == 500
+    assert annotated.context.hall.rack_positions == plain.context.hall.rack_positions == 500

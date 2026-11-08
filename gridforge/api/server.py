@@ -442,6 +442,9 @@ def _objective(body: dict) -> Objective:
 
 # --- handlers ----------------------------------------------------------------
 def handle_qualify(body: dict, tier: Tier) -> dict:
+    """Free qualifier. Optional `assumed_fields` (a list of the seven QUALIFY_FIELDS names) declares figures ASSUMED: they are classed E0 in the
+    result and listed in `inputs_declared_assumed`, `intake.assumed_count` says how many; completeness still counts them as supplied. A request
+    without it is answered exactly as before."""
     missing = [k for k in QUALIFY_FIELDS if body.get(k) is None]
     if len(missing) > 4:
         raise ApiError(422, "too little to say anything useful",
