@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   openGraph: {
     ...OG_BASE,
     images: pageImages("platforms"),
-    title: "AI rack platforms — what an existing hall has to carry",
+    title: "AI rack library — what an existing hall has to carry",
     description:
       "Rack power, liquid fraction, residual air, flow and floor loading. Plus what is deliberately absent and why.",
     url: "/platforms",
@@ -40,7 +40,7 @@ export default async function PlatformsPage() {
   if (!lib) {
     return (
       <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
-        <p className="text-mute">The platform library is not built on this deployment.</p>
+        <p className="text-mute">The rack library is not built on this deployment.</p>
       </div>
     );
   }
@@ -53,29 +53,29 @@ export default async function PlatformsPage() {
         data={[
           collectionPageJsonLd(
             "/platforms",
-            "AI rack platform library",
+            "AI rack library",
             DESCRIPTION,
             pages.map((p) => ({ name: p.name, path: `/platforms/${p.id}`, description: "Rack power, liquid fraction, flow and floor loading, from the cited sources." })),
           ),
-          datasetJsonLd("/platforms", "AI rack platform library", "Rack power, liquid capture fraction, residual air, flow and floor loading per platform, with the sources cited. Held in the library as assumptions with bands; not measurements.", {
+          datasetJsonLd("/platforms", "AI rack library", "Rack power, liquid capture fraction, residual air, flow and floor loading per platform, with the sources cited. Held in the library as assumptions with bands; not measurements.", {
             path: "/reference/platforms.json",
             format: "application/json",
           }),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
-            { name: "Platforms", path: "/platforms" },
+            { name: "Rack library", path: "/platforms" },
           ]),
         ]}
       />
       <header className="max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">
-          Platform library
+          Rack library
         </p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
           What an existing hall is actually being asked to carry.
         </h1>
         <p className="mt-4 text-mute">
-          {PLATFORM_FIGURES_NOTE} Vendor-sourced values are marked [V] and as such in the provenance of every study they appear in.
+          The engine calls this its platform library, and uses &ldquo;platform&rdquo; for one type of rack; it has nothing to do with the API plan of that name. {PLATFORM_FIGURES_NOTE} Vendor-sourced values are marked [V] and as such in the provenance of every study they appear in.
         </p>
       </header>
 

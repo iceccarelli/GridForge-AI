@@ -33,7 +33,7 @@ import { PAYG, eurText, utcMonth } from "@/lib/payg";
 import { capUsedUnits, usageNet } from "@/lib/payg-usage";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
-import { PRODUCT_BY_KIND, eurFromCents } from "@/lib/products";
+import { PRODUCT_BY_KIND, eurFromCents, intelligencePlanName } from "@/lib/products";
 
 export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt", "deliverable_release"] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -204,7 +204,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
           "Your free allowance is ready. Open the link below to create your key:\n\n" +
           `${SITE_URL}/api-access/${token}` +
           "\n\nThis link is the email verification: the key is only ever issued from it, and it is shown once. We do not store it.\n\n" +
-          `The allowance is ${PAYG.freeAllowanceUnits} units a month and is never invoiced. A constraint screen is 1 unit, a full solve ` +
+          `The allowance is ${PAYG.freeAllowanceUnits} units a month and is never invoiced. A screen call is 1 unit, a full solve ` +
           "is 5 and a portfolio run is 1 per hall; the free qualifier does not use the allowance. When the allowance is used up, requests " +
           "are refused with HTTP 402 (never silently charged). To go beyond it you choose to enable pay-as-you-go from the same page: " +
           `you set a hard monthly cap, a card is saved but nothing is charged when you save it, and usage is invoiced in arrears at ${eurText(PAYG.unitPriceCents)} per unit.\n\n` +
@@ -221,8 +221,8 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `${SITE_URL}/api-access/${token}` +
         "\n\nIt is shown once. We do not store it — the engine verifies it by its " +
         "signature, so there is no copy anywhere for anyone to take.\n\n" +
-        `Your allowance is ${units.toLocaleString("en-IE")} units a month. A constraint ` +
-        "screen is 1 unit, a full solve is 5, and a portfolio run is 1 per hall. The free " +
+        `Your allowance is ${units.toLocaleString("en-IE")} units a month. A screen ` +
+        "call is 1 unit, a full solve is 5, and a portfolio run is 1 per hall. The free " +
         "qualifier stays free and never touches the allowance. Rates are published at " +
         "/v1/version so you can price a job before you run it.\n\n" +
         "One thing worth reading before you integrate: every number we return carries an " +
@@ -240,7 +240,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
       to,
       subject: "Welcome to GridForge Intelligence",
       text:
-        `Your ${String(row.plan ?? "")} subscription is active.\n\n` +
+        `Your ${intelligencePlanName(row.plan) ?? "Intelligence"} subscription is active.\n\n` +
         `Sign in to your dashboard: ${SITE_URL}/account/login\n\n` +
         "— Time to Power",
     };

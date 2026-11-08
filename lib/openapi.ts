@@ -412,8 +412,8 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
     response: discoverySchema("/v1/tools"),
   },
   {
-    path: "/v1/platforms", method: "get", operationId: "platforms", auth: "none",
-    summary: "The rack platform library, short form.",
+    path: "/v1/platforms", method: "get", operationId: "rackLibrary", auth: "none",
+    summary: "The rack library (the engine's platform library), short form.",
     description:
       "The platforms in the library: id, name, status, rack_kW, gpus_per_rack. The figures are taken from the cited sources and held in the library as assumptions with bands (one entry is a generic archetype with no manufacturer); none is a measurement. Platforms whose manufacturer has not published a rack power are absent by design and listed under " +
       "`deliberately_absent` with the reason; no rack power is estimated for them. The full set of figures with sources is the site's /reference/platforms.json. Free, no key.",

@@ -13,6 +13,9 @@ import { TtpImageId } from "@/lib/ttp-images";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { constraintRecordJsonLd } from "@/lib/jsonld";
 import { constraintDefinition } from "@/lib/definitions";
+import { EngineeringAssumptions } from "@/components/EngineeringAssumptions";
+import { assumptionsForConstraint } from "@/lib/engineering-constants";
+import { platformLibrary } from "@/lib/constraints";
 
 // Constraint -> reference photograph, per time-to-power-image-pack-v1's own
 // manifest/CONSTRAINT_MAP.json. Matched by keyword against the slug/id so we
@@ -87,6 +90,11 @@ export default async function ConstraintPage({
   const c = await constraintBySlug(slug);
   if (!c) notFound();
   const ref = await constraintReference();
+  const lib = await platformLibrary();
+  const assumptions = assumptionsForConstraint(c.id, {
+    platforms: lib?.platforms ?? null,
+    transformerIndicativeRange: ref?.constraints.find((x) => x.id === "transformer_capacity")?.lead_time_weeks ?? null,
+  });
   const related = (c.see_also ?? [])
     .map((id) => ref?.constraints.find((x) => x.id === id))
     .filter((x): x is NonNullable<typeof x> => Boolean(x));
@@ -153,6 +161,8 @@ export default async function ConstraintPage({
         </h2>
         <p className="mt-3 text-mute">{c.binds_when}</p>
       </section>
+
+      <EngineeringAssumptions items={assumptions} heading="What the engine assumes here" headingLevel={2} showNote={false} />
 
       <Block title="What relieves it">{c.relief}</Block>
       <Block title="What that relief costs beyond money">{c.relief_risk}</Block>

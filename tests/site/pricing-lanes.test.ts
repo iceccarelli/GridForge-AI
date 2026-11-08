@@ -54,8 +54,9 @@ describe("/pricing", () => {
       expect(card).toMatch(/\/ month/);
     }
     expect(section).toContain('href="/intelligence"');
-    // The plan name 'Developer' is shared with the API audience; the section says whose plans these are instead of renaming anything.
-    expect(text(section)).toMatch(/plan names below belong to this dashboard; API plans are on the developers page/);
+    // The Intelligence plans were renamed (Solo, Team, Unlimited) so no plan name is shared with the API audience or the /developers page; the section still says
+    // whose plans these are, and where the API plans are (the page the navigation calls "API and MCP").
+    expect(text(section)).toMatch(/plan names below belong to this dashboard; API plans are on the API and MCP page/);
   });
 
   it("says Intelligence's production state is unverified exactly while the capability registry does", async () => {

@@ -18,7 +18,7 @@ export function constraintCard(c: ConstraintDoc): CardContent {
 
 export function platformCard(p: PlatformEntry): CardContent {
   return {
-    kicker: "Platform library · cited sources",
+    kicker: "Rack library · cited sources",
     title: p.name,
     subtitle: "What one rack asks of an existing hall: power, liquid share, flow and floor loading, from cited sources held as library assumptions.",
     facts: [`${p.rack_kW} kW per rack`, `${Math.round(p.liquid_fraction * 100)}% liquid`, `${p.flow_l_per_min_per_rack} l/min`, `${Math.round(p.floor_loading_kg_per_m2).toLocaleString("en-IE")} kg/m²`],

@@ -14,6 +14,8 @@
 //
 // "Checked" is a date, because a market figure goes stale: a later reader can see how old the check is.
 
+import { transformerDefaultIsNotMarketEvidence } from "@/lib/engineering-constants";
+
 export type Verification = "primary" | "secondary" | "qualified" | "unverified";
 export type FigureKind = "fact" | "survey" | "estimate" | "forecast";
 
@@ -116,7 +118,8 @@ export const MARKET_EVIDENCE: MarketFigure[] = [
     verification: "unverified",
     url: "",
     caveat:
-      "The earlier wording, '160+ weeks, up from 120 weeks in 2024, Data Center Knowledge 2026', could not be traced: no such article was found, and reported 2024 figures are 140 to 143 weeks, not 120. Not shown on any page until a primary source and an equipment class are read. The engine's own library range is a separate, labelled assumption.",
+      "The earlier wording, '160+ weeks, up from 120 weeks in 2024, Data Center Knowledge 2026', could not be traced: no such article was found, and reported 2024 figures are 140 to 143 weeks, not 120. Not shown on any page until a primary source and an equipment class are read. " +
+      transformerDefaultIsNotMarketEvidence(),
     checked: "2026-11-03",
   },
   {

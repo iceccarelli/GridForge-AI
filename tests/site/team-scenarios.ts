@@ -200,7 +200,7 @@ export function defineTeamScenarios(backend: Backend): void {
       expect((await invite(o, person())).status).toBe(409);
     });
 
-    it("Enterprise has no seat cap: thirteen seats and no limit reported", async () => {
+    it("The unlimited-seat plan (key enterprise) has no seat cap: thirteen seats and no limit reported", async () => {
       const o = owner();
       await subscribe(o, "enterprise");
       const guests = Array.from({ length: 12 }, () => person());
@@ -612,7 +612,7 @@ export function defineTeamScenarios(backend: Backend): void {
       expect(entitled.filter((s) => s === 200)).toHaveLength(4);
     });
 
-    it("parallel acceptances on a Developer plan seat nobody", async () => {
+    it("parallel acceptances on a one-seat plan (key developer) seat nobody", async () => {
       const o = owner();
       const sub = await subscribe(o, "enterprise");
       const guests = [person(), person(), person()];

@@ -112,7 +112,7 @@ export default function AboutPage() {
           <li><a href="/llms.txt" className="text-power underline">llms.txt</a>, an index of the site for language models</li>
           <li><a href="/openapi.json" className="text-power underline">openapi.json</a>, the engine&rsquo;s HTTP interface</li>
           <li><a href="/api/cite" className="text-power underline">/api/cite</a>, how to cite the constraint reference</li>
-          <li><Link href="/constraints" className="text-power underline">The thirteen constraints</Link> and the <Link href="/platforms" className="text-power underline">platform library</Link></li>
+          <li><Link href="/constraints" className="text-power underline">The thirteen constraints</Link> and the <Link href="/platforms" className="text-power underline">rack library</Link></li>
         </ul>
       </section>
 

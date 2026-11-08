@@ -171,7 +171,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     amountCents: 90_000, // €900 / month
     description:
       "Metered access to the engine for one team screening a portfolio it already owns. " +
-      "600 units a month: 600 constraint screens, or 120 full solves, or any mix. The free " +
+      "600 units a month: 600 screen calls, or 120 full solves, or any mix. The free " +
       "qualifier stays free and never touches the allowance.",
     deliverable:
       "A signed API key, the MCP endpoint for agents, and 600 units a month. Screening-mode " +
@@ -314,6 +314,9 @@ export function isProductId(v: unknown): v is ProductId {
 // lib/subscriptions.ts now holds only presentation — tagline, features, which tier
 // is highlighted — and reads name and price from here.
 
+// The plan ids below are keys (Stripe metadata.plan, subscriptions.plan, the seats function in migration 0027) and never change. The DISPLAY names are
+// what a buyer reads, and are chosen so that no word is used for two things on the site: "Developer" is the API's audience and /developers, and "Enterprise"
+// is also a segment of data-centre owner, so the one-seat tier reads "Solo" and the unlimited-seat tier "Unlimited". tests/site/definitions.test.ts pins them.
 export type IntelligencePlanId = "developer" | "team" | "enterprise";
 
 export interface IntelligencePlan {
@@ -333,7 +336,7 @@ export interface IntelligencePlan {
 export const INTELLIGENCE_PLANS: Record<IntelligencePlanId, IntelligencePlan> = {
   developer: {
     id: "developer",
-    name: "Developer",
+    name: "Solo",
     priceCents: 49_900,
     interval: "month",
     kind: "intelligence_subscription",
@@ -349,7 +352,7 @@ export const INTELLIGENCE_PLANS: Record<IntelligencePlanId, IntelligencePlan> = 
   },
   enterprise: {
     id: "enterprise",
-    name: "Enterprise",
+    name: "Unlimited",
     priceCents: 499_900,
     interval: "month",
     kind: "intelligence_subscription",
@@ -362,6 +365,14 @@ export const INTELLIGENCE_PLAN_IDS: IntelligencePlanId[] = [
   "team",
   "enterprise",
 ];
+
+/**
+ * What a buyer reads for an Intelligence plan key stored in the database (subscriptions.plan): the display name, never the key. A key this
+ * catalogue does not know is returned as null, so a caller shows nothing rather than a raw identifier.
+ */
+export function intelligencePlanName(plan: unknown): string | null {
+  return typeof plan === "string" && Object.prototype.hasOwnProperty.call(INTELLIGENCE_PLANS, plan) ? INTELLIGENCE_PLANS[plan as IntelligencePlanId].name : null;
+}
 
 export function isIntelligencePlanId(v: unknown): v is IntelligencePlanId {
   return typeof v === "string" && v in INTELLIGENCE_PLANS;
