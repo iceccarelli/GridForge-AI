@@ -108,7 +108,7 @@ PY
 #   3. A small site bar: a way back to the sample deliverables and the next step for the reader, so a document is not a dead end.
 # Deterministic; refuses to run twice on one file, because the directory is rebuilt from scratch above.
 mkdir -p "$OUT/fonts"
-cp app/fonts/inter-400.woff2 app/fonts/inter-500.woff2 app/fonts/inter-600.woff2 app/fonts/inter-700.woff2 \
+cp app/fonts/OFL.txt app/fonts/inter-400.woff2 app/fonts/inter-500.woff2 app/fonts/inter-600.woff2 app/fonts/inter-700.woff2 \
    app/fonts/jetbrains-mono-400.woff2 app/fonts/jetbrains-mono-500.woff2 app/fonts/jetbrains-mono-600.woff2 "$OUT/fonts/"
 python3 - "$OUT" <<'PY'
 import html, pathlib, re, sys
