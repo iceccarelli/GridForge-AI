@@ -13,6 +13,10 @@ import { z } from "zod";
 import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
 
+import { QUALIFY_ASSUMABLE, type QualifyAssumable } from "@/lib/qualify-assumed";
+export { QUALIFY_ASSUMABLE, type QualifyAssumable };
+const QUALIFY_ASSUMABLE_KEYS = Object.keys(QUALIFY_ASSUMABLE) as [QualifyAssumable, ...QualifyAssumable[]];
+
 export const qualifySchema = z.object({
   // --- the seven questions that decide the answer for almost any hall --------
   contractedMW: z.coerce.number().positive().max(2000),
@@ -28,6 +32,14 @@ export const qualifySchema = z.object({
   metro: z.string().trim().max(80).optional(),
   country: z.string().trim().max(80).optional(),
   platform: z.enum(["gb300_nvl72", "gb200_nvl72", "generic_dlc_50"]).default("gb300_nvl72"),
+  // --- figures that still hold a reference template's value: declared assumed (E0) to the engine, never sent as the visitor's own -------
+  // Each name once; a repeated name is refused here, as the engine refuses it. Only the deployed engine's own capability decides whether
+  // this is honoured (app/api/qualify/route.ts refuses it when the engine does not advertise it).
+  assumedFields: z
+    .array(z.enum(QUALIFY_ASSUMABLE_KEYS))
+    .max(QUALIFY_ASSUMABLE_KEYS.length)
+    .refine((a) => new Set(a).size === a.length, { message: "name each assumed field once" })
+    .optional(),
   // --- optional contact, so a good read can become a conversation -----------
   name: z.string().trim().max(120).optional(),
   company: z.string().trim().max(160).optional(),
@@ -82,10 +94,24 @@ export interface QualifyResult {
     recommended_engagement: string;
   };
   notice: string;
+  /** Present only when the request declared figures assumed (E0): each, with the class and note the engine recorded for it. Absent from an engine that predates it. */
+  inputs_declared_assumed?: { path: string; input: string; unit: string; value: number; evidence: string; note: string | null }[];
 }
 
-/** Map the form to the engine's /v1/qualify body. */
+/** The engine's names for the fields a request declares assumed, in the qualifier's order. Empty when it declares none. */
+export function assumedEngineFields(input: Pick<QualifyInput, "assumedFields">): string[] {
+  const named = new Set(input.assumedFields ?? []);
+  return QUALIFY_ASSUMABLE_KEYS.filter((k) => named.has(k)).map((k) => QUALIFY_ASSUMABLE[k]);
+}
+
+/**
+ * Map the form to the engine's /v1/qualify body.
+ *
+ * `assumed_fields` is in the body ONLY when the request declares at least one figure assumed: a plain request is the same body it always
+ * was, so an engine that predates the field is never sent one it would silently ignore (and so classify a template's number as customer data).
+ */
 export function toEngineBody(input: QualifyInput) {
+  const assumed = assumedEngineFields(input);
   return {
     client: input.company || "Website qualifier",
     site_name: input.siteName,
@@ -100,6 +126,7 @@ export function toEngineBody(input: QualifyInput) {
     tapoff_max_A: input.tapoffMaxA,
     plant_supply_C: input.plantSupplyC,
     positions_available: input.positionsAvailable,
+    ...(assumed.length ? { assumed_fields: assumed } : {}),
   };
 }
 
@@ -107,10 +134,18 @@ export type EngineOutcome =
   | { ok: true; result: QualifyResult }
   | { ok: false; reason: "unconfigured" | "unreachable" | "rejected"; detail: string };
 
+/**
+ * Whether this deployment can call the engine at all (the same test callEngine applies). A page that offers something only the engine can do
+ * (the reference-template selector) asks this as well as the engine's capabilities, so it is never offered where /api/qualify answers 503.
+ */
+export function engineConfigured(): boolean {
+  return Boolean(process.env.GRIDFORGE_API_URL);
+}
+
 /** Server-side only. Never expose GRIDFORGE_API_URL or the key to the browser. */
 export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
   const base = process.env.GRIDFORGE_API_URL;
-  if (!base) {
+  if (!base || !engineConfigured()) {
     return {
       ok: false,
       reason: "unconfigured",
@@ -340,7 +375,13 @@ const CARRIED_INTO_INTAKE = [
 export function intakePrefill(q: StoredQualification | null): Record<string, string> {
   if (!q?.inputs || typeof q.inputs !== "object") return {};
   const out: Record<string, string> = {};
+  // A figure the read declared assumed is a reference template's, not the buyer's: carrying it into the intake would present it as their
+  // own customer data (the carried-over panel says "treated as your measured data"). Such a read is not stored (app/api/qualify/route.ts),
+  // so this is a second lock, not the first.
+  const assumed = (q.inputs as Record<string, unknown>).assumedFields;
+  const skip = new Set(Array.isArray(assumed) ? assumed.filter((x): x is string => typeof x === "string") : []);
   for (const k of CARRIED_INTO_INTAKE) {
+    if (skip.has(k)) continue;
     const v = (q.inputs as Record<string, unknown>)[k];
     if (v === undefined || v === null || v === "") continue;
     if (typeof v === "number" && !Number.isFinite(v)) continue;

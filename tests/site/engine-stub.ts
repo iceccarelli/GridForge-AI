@@ -5,6 +5,7 @@
  *   const stop = stubEngine(STALE_ENGINE)   // an engine older than this repository (Fly before 2026-10-27)
  *   const stop = stubEngine(FULL_ENGINE)    // an engine redeployed from this repository
  *   const stop = stubEngine("down")         // /v1/version unreachable
+ *   const stop = stubEngine(FULL_ENGINE, { qualify_assumed_fields: true })   // an engine that also declares a behaviour flag in `capabilities`
  *   ... ; stop();
  */
 import { resetEngineCapabilityCache } from "@/lib/engine-capabilities";
@@ -47,14 +48,15 @@ export const FULL_ENGINE: string[] = [
   "/v1/revoke",
 ];
 
-export function stubEngine(routes: string[] | "down"): () => void {
+export function stubEngine(routes: string[] | "down", capabilities?: Record<string, unknown> | "malformed"): () => void {
   resetEngineCapabilityCache();
   const previous = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (/\/v1\/version(\?|$)/.test(url)) {
       if (routes === "down") throw new Error("engine unreachable");
-      return new Response(JSON.stringify({ version: "test", endpoints: routes, machine_interface: { mcp: "/mcp" } }), {
+      const caps = capabilities === undefined ? {} : { capabilities };
+      return new Response(JSON.stringify({ version: "test", endpoints: routes, machine_interface: { mcp: "/mcp" }, ...caps }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });

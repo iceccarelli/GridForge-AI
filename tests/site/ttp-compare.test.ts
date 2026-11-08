@@ -13,6 +13,7 @@ import { compareRequestSchema, toEngineBody, TTP_COMPARE_SCHEMA, type CompareRes
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { FOOTER_GROUPS } from "@/lib/nav";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
+import { engineAvailable } from "./_engine-guard";
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const KEY = "ttp-compare-key";
@@ -249,5 +250,12 @@ describe("the product is wired in only where it works", () => {
     const body = toEngineBody(parsed) as { intake: Record<string, unknown> };
     expect(body.intake.btm_options).toHaveLength(1);
     expect((body.intake.grid as Record<string, unknown>).contracted_MW).toBe(12);
+  });
+});
+
+describe("the real-engine tests in this file cannot be skipped silently where they are required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
   });
 });

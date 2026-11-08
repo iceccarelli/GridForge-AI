@@ -80,6 +80,7 @@ describe("every document and class on the ladder is the engine's own", () => {
       siteName: "x", hallId: "h", contractedMW: 1, currentPeakMW: 1, currentItLoadMW: 1, buswayAmpacityA: 1, tapoffMaxA: 1,
       positionsAvailable: 1, plantSupplyC: 1, firmCapacityMVA: 1, floorLoadingKPa: 1, plantCapacityKW: 1, pumpFlowLPerMin: 2,
       existingFlowLPerMin: 1, existingNonItHeatKW: 1, designDrybulbC: 1, residualAirKWPerRack: 1,
+      buswayRuns: 2, voltageV: 400, powerFactor: 0.97,
       transformers: [{ unit_rating_MVA: 1, units: 1 }], ups: [{ unit_rating_kW: 1, units: 1 }],
     });
     const basis = ladderBasisFromComparison({ intake: toIntakeDocument(all) }, { scenarios: [{ id: "a", name: "A", as_found: { binding: null }, after_ladder: { binding: null } }] })!;
@@ -111,16 +112,55 @@ describe("every document and class on the ladder is the engine's own", () => {
     expect(loader).toContain("No UPS schedule supplied: the load is treated as unprotected.");
   });
 
-  // DEFERRED, on purpose (reviewer's recommendation, to be scheduled as its own change): make busway runs, LV voltage and power factor .optional() in
-  // baseShape (lib/engagement-intake.ts) so compact() omits them unless the visitor gave them; send the engagement form's prefill only if edited; accept the
-  // new request digests; then rewrite this test to expect them absent and add the three paths to the ladder. Until then the ladder leaves them out and
-  // says, in LADDER_LIMITS and ALL_STATED_TEXT, that a comparison carries them as site defaults.
-  it("the busway runs, LV voltage and power factor are not on the ladder, because the site always sends them", () => {
-    for (const p of ["lv.busway_runs", "lv.voltage_V", "grid.power_factor"]) expect(LADDER_PATHS).not.toContain(p);
-    const doc = toIntakeDocument(screenIntakeSchema.parse({ siteName: "x", hallId: "h", contractedMW: 1, currentPeakMW: 1, currentItLoadMW: 1, buswayAmpacityA: 1, tapoffMaxA: 1, positionsAvailable: 1, plantSupplyC: 1 })) as any;
-    expect(doc.lv.busway_runs).toBe(6);
-    expect(doc.lv.voltage_V).toBe(400);
-    expect(doc.grid.power_factor).toBe(0.97);
+  // The busway runs, LV voltage and power factor are on the ladder because a request now carries them ONLY when the visitor gave them
+  // (lib/engagement-intake.ts: optional, no schema default; the form shows the engine's defaults as placeholder text). Before that change
+  // the form pre-filled 6 / 400 / 0.97 and sent them as if supplied, so a saved request could not say whether they were, and the ladder left them out.
+  it("the busway runs, LV voltage and power factor are on the ladder, under the families whose limit the engine computes from them", () => {
+    const familiesOf = (path: string) => Object.entries(LADDER_FAMILIES).filter(([, ds]) => ds!.some((d) => d.path === path)).map(([id]) => id).sort();
+    expect(familiesOf("lv.busway_runs")).toEqual(["busway_ampacity"]);
+    expect(familiesOf("lv.voltage_V")).toEqual(["busway_ampacity", "rack_feed_tapoff"]);
+    expect(familiesOf("grid.power_factor")).toEqual(["busway_ampacity", "grid_firm_capacity", "transformer_capacity"]);
+    for (const p of ["lv.busway_runs", "lv.voltage_V", "grid.power_factor"]) expect(LADDER_PATHS).toContain(p);
+    // one entry per path: a path used by two families is still one input
+    expect(new Set(LADDER_PATHS).size).toBe(LADDER_PATHS.length);
+  });
+
+  it("the three are absent from the intake document unless the visitor gave them, and present when they did", () => {
+    const given = { siteName: "x", hallId: "h", contractedMW: 1, currentPeakMW: 1, currentItLoadMW: 1, buswayAmpacityA: 1, tapoffMaxA: 1, positionsAvailable: 1, plantSupplyC: 1 };
+    const omitted = toIntakeDocument(screenIntakeSchema.parse(given)) as any;
+    expect("busway_runs" in omitted.lv).toBe(false);
+    expect("voltage_V" in omitted.lv).toBe(false);
+    expect("power_factor" in omitted.grid).toBe(false);
+    const typed = toIntakeDocument(screenIntakeSchema.parse({ ...given, buswayRuns: "6", voltageV: "400", powerFactor: "0.97" })) as any;
+    expect([typed.lv.busway_runs, typed.lv.voltage_V, typed.grid.power_factor]).toEqual([6, 400, 0.97]);
+    // and the ladder reads each as not supplied / supplied accordingly
+    const b0 = ladderBasisFromComparison({ intake: omitted }, { scenarios: [{ id: "a", name: "A", as_found: { binding: null }, after_ladder: { binding: null } }] })!;
+    const b1 = ladderBasisFromComparison({ intake: typed }, { scenarios: [{ id: "a", name: "A", as_found: { binding: null }, after_ladder: { binding: null } }] })!;
+    for (const p of ["lv.busway_runs", "lv.voltage_V", "grid.power_factor"]) {
+      expect(b0.inputs.find((i) => i.path === p)?.supplied, p).toBe(false);
+      expect(b1.inputs.find((i) => i.path === p)?.supplied, p).toBe(true);
+    }
+  });
+
+  it("a saved request made before this change, which carries 6 / 400 / 0.97 as plain numbers, is shown as supplied (it was sent as supplied) and the limits say so", () => {
+    const old = { intake: { lv: { busway_ampacity_A: 400, tapoff_max_A: 63, busway_runs: 6, voltage_V: 400 }, grid: { power_factor: 0.97 } } };
+    const b = ladderBasisFromComparison(old, { scenarios: [{ id: "a", name: "A", as_found: { binding: "busway_ampacity" }, after_ladder: { binding: null } }] })!;
+    const l = evidenceLadder(b, NO_FILES);
+    const rows = Object.fromEntries(l.rungs[0].rows.map((r) => [r.path, r]));
+    expect(rows["lv.busway_runs"]).toMatchObject({ state: "stated", classNow: "E5" });
+    expect(rows["lv.voltage_V"]).toMatchObject({ state: "stated", classNow: "E5" });
+    expect(rows["grid.power_factor"]).toMatchObject({ state: "estimated", classNow: "E3" });
+    expect(l.limits.join(" ")).toMatch(/pre-filled 6 busway runs, 400 V and a power factor of 0\.97 carries them as plain numbers, so this page reads them as supplied/);
+    // the earlier wording ("carried as site defaults") is gone: it is no longer true of a new request
+    expect(LADDER_LIMITS.join(" ")).not.toMatch(/site defaults/);
+    expect(ALL_STATED_TEXT).not.toMatch(/site defaults|busway runs, LV voltage and power factor/);
+  });
+
+  it("the new rows carry the engine's own documents and classes: runs and voltage are customer data (E5), the power factor an estimate (E3)", () => {
+    const get = (path: string) => Object.values(LADDER_FAMILIES).flatMap((d) => d ?? []).find((d) => d.path === path)!;
+    expect(get("lv.busway_runs")).toMatchObject({ suppliedClass: "E5", document: "Electrical record drawings." });
+    expect(get("lv.voltage_V")).toMatchObject({ suppliedClass: "E5", document: "Busway nameplate or the single-line diagram." });
+    expect(get("grid.power_factor")).toMatchObject({ suppliedClass: "E3", document: "Utility bills (billed power factor) or the incomer meter." });
   });
 });
 
@@ -160,8 +200,8 @@ describe("evidenceLadder", () => {
       ["binds_now", "rack_feed_tapoff", "Rack feed / tap-off rating"],
       ["binds_next", "grid_firm_capacity", "Firm supply (grid import and behind-the-meter)"],
     ]);
-    expect(l.rungs[0].rows.map((r) => r.path)).toEqual(["lv.tapoff_max_A"]);
-    expect(l.rungs[1].rows.map((r) => r.path).sort()).toEqual(["grid.contracted_MW", "grid.current_site_peak_MW", "grid.firm_capacity_MVA"]);
+    expect(l.rungs[0].rows.map((r) => r.path)).toEqual(["lv.tapoff_max_A", "lv.voltage_V"]);
+    expect(l.rungs[1].rows.map((r) => r.path).sort()).toEqual(["grid.contracted_MW", "grid.current_site_peak_MW", "grid.firm_capacity_MVA", "grid.power_factor"]);
   });
 
   it("an input that is not supplied, or declared assumed, is assumed (E0) and says what a figure would be classed", () => {
@@ -210,7 +250,9 @@ describe("evidenceLadder", () => {
 
   it("inputs that still need a document come before those already stated", () => {
     const l = evidenceLadder(basis({ bindsNow: "grid_firm_capacity", bindsNext: null, states: [missing("grid.current_site_peak_MW")] }), NO_FILES);
-    expect(l.rungs[0].rows.map((r) => r.state)).toEqual(["not_supplied", "stated", "stated"]);
+    // the power factor is an estimate-class figure (E3) even when supplied, so it still asks for a document; the E5 figures are stated and come last
+    expect(l.rungs[0].rows.map((r) => r.state)).toEqual(["estimated", "not_supplied", "stated", "stated"]);
+    expect(l.rungs[0].rows.map((r) => r.path)).toEqual(["grid.power_factor", "grid.current_site_peak_MW", "grid.firm_capacity_MVA", "grid.contracted_MW"]);
   });
 
   it("with no assumed input behind the limit, says so, and does not ask for a document to reach a class it already has", () => {

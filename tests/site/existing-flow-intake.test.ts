@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { engagementIntakeSchema, screenIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
+import { engineAvailable } from "./_engine-guard";
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -93,5 +94,12 @@ describe("the field name the website sends is the one the engine defines", () =>
     const absent = toIntakeDocument(screenIntakeSchema.parse({ ...HALL, pumpFlowLPerMin: 9000 }));
     expect(Number(read(given))).toBe(3000);
     expect(read(absent)).toBe("None");
+  });
+});
+
+describe("the real-engine tests in this file cannot be skipped silently where they are required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
   });
 });

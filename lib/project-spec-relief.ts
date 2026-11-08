@@ -102,24 +102,53 @@ const D = (
   extra: Pick<LadderInputDef, "onlyFor" | "notFor" | "cap"> = {}
 ): LadderInputDef => ({ path, label, suppliedClass, document, notProved, ...extra });
 
+// Two of the three are read by more than one limit; one record each so the families cannot disagree about the document or what it proves.
+const LV_VOLTAGE = {
+  path: "lv.voltage_V",
+  label: "LV distribution voltage",
+  document: "Busway nameplate or the single-line diagram.",
+  notProved: "the voltage at the rack end under load, or that every run is at the same voltage: a nameplate states the nominal voltage",
+};
+const POWER_FACTOR = {
+  path: "grid.power_factor",
+  label: "Site power factor",
+  document: "Utility bills (billed power factor) or the incomer meter.",
+  notProved: "the power factor at this hall's own load or in future: a billed figure is the site's average over the billing period",
+};
+
 /**
  * The inputs behind each constraint family, limited to the ones a saved comparison can carry (lib/ttp-compare.ts toIntakeDocument).
- * The number of busway runs, the LV voltage and the power factor are left out on purpose: the site sends 6 runs, 400 V and 0.97 for every
- * request whether or not the visitor knows them, so a saved request cannot say whether they were supplied. The CDU schedule and the
- * architecture's own capability have no input a saved comparison carries.
+ * The CDU schedule and the architecture's own capability have no input a saved comparison carries.
+ *
+ * Busway runs, LV voltage and site power factor are on the ladder now that a request carries them ONLY when the visitor gave them
+ * (lib/engagement-intake.ts leaves them optional, with no default; the form shows the engine's defaults as placeholder text). Each sits under
+ * the families whose limit the engine's own code computes from it (gridforge/power/constraints.py), checked by perturbing the real engine
+ * (tests/site/honest-intake-defaults.test.ts): runs scale the busway total; the voltage sets the busway kW per run AND the current a rack
+ * draws through its tap-off; the power factor converts the grid MVA, the transformer MVA and the busway kVA to kW.
+ *
+ * A request saved BEFORE that change stored the numbers the form then always sent (6 runs, 400 V, 0.97) as plain figures, and nothing rewrites
+ * or migrates a stored request. This ladder reads a saved request as it is, so such a request shows those three as SUPPLIED (the engine was
+ * sent them as supplied and treated them so): LADDER_LIMITS says that a figure may be the form's old pre-fill, not a reading from the hall.
  */
 export const LADDER_FAMILIES: Partial<Record<SpecReliefId, readonly LadderInputDef[]>> = {
   rack_feed_tapoff: [
     D("lv.tapoff_max_A", "Installed tap-off rating", "E5", "Tap-off unit nameplate.",
       "the rack-side cord or PDU rating, or that every installed unit matches the nameplate read. The current the platform needs per rack is the engine's library figure for that platform, not a reading from this hall"),
+    // The engine scales the library's rack feed current (stated at 400 V three-phase) to the hall's voltage: a lower voltage needs more current through the same tap-off.
+    D(LV_VOLTAGE.path, LV_VOLTAGE.label, "E5", LV_VOLTAGE.document, LV_VOLTAGE.notProved),
   ],
   busway_ampacity: [
     D("lv.busway_ampacity_A", "Installed busway ampacity", "E5", "Busway nameplate or the electrical record drawings.",
       "how much of the busway is already loaded (the engine subtracts that only when it is declared), or that the nameplate rating holds at the hall's ambient and grouping"),
+    D("lv.busway_runs", "Number of busway runs", "E5", "Electrical record drawings.",
+      "that every counted run reaches the white space at its full rating, or how evenly the racks are spread over them: a drawing says how many runs there are, not how each is loaded"),
+    D(LV_VOLTAGE.path, LV_VOLTAGE.label, "E5", LV_VOLTAGE.document, LV_VOLTAGE.notProved),
+    D(POWER_FACTOR.path, POWER_FACTOR.label, "E3", POWER_FACTOR.document, POWER_FACTOR.notProved),
   ],
   transformer_capacity: [
     D("transformers", "Transformer schedule", "E5", "Single-line diagram and transformer nameplates.",
       "the transformers' condition or loading history, or a replacement lead time (a lead time needs the manufacturer's or utility's written figure)"),
+    D(POWER_FACTOR.path, POWER_FACTOR.label, "E3", POWER_FACTOR.document, POWER_FACTOR.notProved),
   ],
   ups_capacity: [
     D("ups", "UPS schedule", "E5", "UPS nameplate, topology and remaining design life.",
@@ -128,6 +157,7 @@ export const LADDER_FAMILIES: Partial<Record<SpecReliefId, readonly LadderInputD
   grid_firm_capacity: [
     D("grid.firm_capacity_MVA", "Firm connection capacity", "E5", "Connection agreement with the DSO.",
       "that the capacity is free for new load today, or when any reinforcement could be energised (the engine does not date grid reinforcement)"),
+    D(POWER_FACTOR.path, POWER_FACTOR.label, "E3", POWER_FACTOR.document, POWER_FACTOR.notProved),
     D("grid.contracted_MW", "Contracted capacity", "E5", "Supply contract.",
       "the connection's physical headroom or the site's future demand"),
     D("grid.current_site_peak_MW", "Current site peak demand", "E5", "12 months of half-hourly metered data.",
@@ -186,7 +216,7 @@ function defsFor(id: string, architecture: string | null): readonly LadderInputD
 }
 
 /** Every path the ladder reads from a saved request. */
-export const LADDER_PATHS: readonly string[] = Object.values(LADDER_FAMILIES).flatMap((defs) => (defs ?? []).map((d) => d.path));
+export const LADDER_PATHS: readonly string[] = Array.from(new Set(Object.values(LADDER_FAMILIES).flatMap((defs) => (defs ?? []).map((d) => d.path))));
 
 /** What a saved request says about one input. */
 export interface LadderInputState {
@@ -329,12 +359,13 @@ export const LADDER_STEPS: readonly string[] = [
 export const LADDER_LIMITS: readonly string[] = [
   "A verified file means the stored bytes are unchanged since upload and that a reviewer judged them relevant. It does not make the engine's output calibrated: the calibration ledger holds no approved production records.",
   "A figure from a document may relax the limit, leave it as it is, or tighten it. The engine decides; this page does not estimate a gain.",
-  "A limit also rests on library factors the engine applies (such as the busway derating, PUE and the platform's current per rack) and, for the busway and tap-off limits, on busway runs, LV voltage and power factor, which a comparison carries as site defaults rather than as figures you supplied.",
+  "A limit also rests on library factors the engine applies (such as the busway derating, PUE and the platform's current per rack).",
+  "A comparison saved while the form pre-filled 6 busway runs, 400 V and a power factor of 0.97 carries them as plain numbers, so this page reads them as supplied: they were sent as supplied. In such a comparison they may be that pre-fill and not a reading from the hall. A comparison made since the form stopped pre-filling them carries them only when they were entered.",
 ];
 
 /** Said when every input this page can see is stated. It must not claim more than that. */
 export const ALL_STATED_TEXT =
-  "The inputs this page can see are stated; the limit also rests on library factors and, for the busway and tap-off limits, on busway runs, LV voltage and power factor, which a comparison carries as site defaults.";
+  "The inputs this page can see are stated; the limit also rests on library factors the engine applies.";
 
 function fileLine(f: LadderFiles): string {
   if (f.total === 0) return "No file is attached to this project yet.";

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import PaygPortal from "@/components/PaygPortal";
 import { displayUnit, quantityText } from "@/lib/quantity-text";
 import { UNAVAILABLE_MESSAGE, openBillingPortal, type FetchLike } from "@/lib/payg-client";
+import { stubEngine } from "./engine-stub";
 
 const ROOT = path.resolve(__dirname, "../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -19,7 +20,10 @@ const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g,
 describe("what is free and what is paid is said truthfully", () => {
   it("the qualifier page names the free comparison and where the paid line really is", async () => {
     const { default: Qualify } = await import("@/app/qualify/page");
-    const t = text(renderToStaticMarkup(React.createElement(Qualify)));
+    // The page now reads the deployed engine's capability flags, so it is an async server component: awaited, with the engine stubbed as unreachable.
+    const stop = stubEngine("down");
+    const t = text(renderToStaticMarkup(await Qualify()));
+    stop();
     expect(t).toContain("Where the paid line is");
     expect(t).toContain("The free qualifier shows the binding constraint and the rack count.");
     expect(t).toContain("The free Time-to-Power comparison also shows scenarios with indicative capital cost and time to full capacity, each with its evidence class");
