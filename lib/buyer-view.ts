@@ -9,7 +9,7 @@ import { buyerQuotations, publicResult, type BuyerQuotations } from "@/lib/compa
 import { listComparisons, type ComparisonRow } from "@/lib/project-comparisons";
 import { acceptedQuotations, quotationStates } from "@/lib/project-quotations";
 import { projectForShare } from "@/lib/project-share";
-import type { CompareResult } from "@/lib/ttp-compare";
+import { templateDerivedCount, type CompareResult } from "@/lib/ttp-compare";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { rest, type ProjectRow, type Result } from "@/lib/projects";
 
@@ -18,7 +18,12 @@ const q = encodeURIComponent;
 export interface BuyerAssumption {
   label: string;
   value: string;
+  /** The figure is a reference template's, marked assumed (E0) by the site on the request: not the owner's own number. */
+  assumed?: true;
 }
+
+/** The fixed words shown beside a figure the site marked assumed. */
+export const ASSUMED_TEMPLATE_LABEL = "assumed (E0), reference-template value";
 
 /**
  * The saved comparison as a buyer may hold it: the engine's answer, without the request the owner sent and without the
@@ -71,6 +76,8 @@ export interface BuyerView {
   /** Every saved comparison, newest first (at most BUYER_HISTORY_MAX), as an allow-listed line each. */
   history: BuyerHistoryEntry[];
   assumptions: BuyerAssumption[];
+  /** How many of the figures above are a reference template's, marked assumed (E0) by the site; 0 for a comparison of the owner's own hall. */
+  template_derived: number;
   engagements: { kind: string; name: string }[];
   /** Quotation lines recorded against this project's engagements, whether or not the comparison shown uses them. */
   quotations: { total: number; accepted: number } | null;
@@ -92,6 +99,7 @@ export function assumptionsOf(request: Record<string, unknown>): BuyerAssumption
   const hall = asObj(intake.hall);
   const plant = asObj(asObj(intake.thermal).plant);
   const compute = asObj(intake.compute);
+  const site = asObj(intake.site);
   const rows: [string, unknown, string][] = [
     ["Platform", typeof compute.platform === "string" && /^[a-z0-9_]{1,40}$/.test(compute.platform) ? compute.platform : undefined, ""],
     ["Contracted grid capacity", grid.contracted_MW, " MW"],
@@ -104,11 +112,24 @@ export function assumptionsOf(request: Record<string, unknown>): BuyerAssumption
     ["Floor loading", hall.floor_loading_kPa, " kPa"],
     ["Chilled-water plant capacity", plant.chilled_water_capacity_kW, " kW"],
     ["Chilled-water design supply", plant.design_supply_C, " °C"],
+    ["Pumped flow available", plant.pump_flow_capacity_l_per_min, " l/min"],
+    ["Other heat already on the plant", plant.existing_non_it_heat_kW, " kW"],
+    ["Summer design dry-bulb", site.design_drybulb_C, " °C"],
+    ["Air removal per rack position", asObj(intake.thermal).residual_air_capacity_kW_per_rack, " kW"],
   ];
+  // A figure the site marked assumed arrives as {value, evidence: "E0", note}: unwrap the number and say what it is. Any other object form is
+  // not read (only a finite number is ever shown), and the note text itself is never copied.
+  const unwrap = (v: unknown): { num: unknown; assumed: boolean } => {
+    const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    return o && typeof o.value === "number" ? { num: o.value, assumed: o.evidence === "E0" } : { num: v, assumed: false };
+  };
   // Only the platform is text, and only as a short identifier; every other input must be a finite number.
-  const out: BuyerAssumption[] = rows
-    .filter(([label, v]) => (label === "Platform" ? typeof v === "string" : typeof v === "number" && Number.isFinite(v)))
-    .map(([label, v, unit]) => ({ label, value: `${v}${unit}` }));
+  const out: BuyerAssumption[] = [];
+  for (const [label, raw, unit] of rows) {
+    const { num, assumed } = unwrap(raw);
+    if (label === "Platform" ? typeof num !== "string" : typeof num !== "number" || !Number.isFinite(num)) continue;
+    out.push({ label, value: `${num}${unit}`, ...(assumed ? { assumed: true as const } : {}) });
+  }
   const btm = Array.isArray(intake.btm_options) ? intake.btm_options : [];
   for (const o of btm.slice(0, 10)) {
     const b = asObj(o);
@@ -179,6 +200,7 @@ export async function getBuyerView(shareToken: string): Promise<Result<{ view: B
       earlier_comparisons: Math.max(0, cmp.comparisons.length - 1),
       history: historyOf(cmp.comparisons),
       assumptions: latest ? assumptionsOf(latest.request) : [],
+      template_derived: latest ? templateDerivedCount(latest.request) : 0,
       engagements,
       quotations: total > 0 ? { total, accepted: (lines.data ?? []).filter((l) => l.state === "accepted").length } : null,
       next,

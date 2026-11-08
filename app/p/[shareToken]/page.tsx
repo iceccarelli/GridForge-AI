@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { BuyerCommission } from "@/components/BuyerCommission";
-import { getBuyerView, type BuyerView } from "@/lib/buyer-view";
+import { ASSUMED_TEMPLATE_LABEL, getBuyerView, type BuyerView } from "@/lib/buyer-view";
 import type { BuyerStep } from "@/lib/buyer-path";
 import { CALIBRATION_NOTICE } from "@/lib/ai/provenance";
 import { eurFromCents } from "@/lib/products";
@@ -244,12 +244,21 @@ function Decision({ v, result: r, savedAt }: { v: BuyerView; result: CompareResu
           <p className="mt-1 text-xs text-faint">
             Entered by the project&apos;s owner and not verified by GridForge. Intake completeness {Math.round(r.intake_completeness * 100)}%; anything not entered is a library default, named in the comparison.
           </p>
+          {v.template_derived > 0 ? (
+            <p className="mt-2 text-sm text-ghost">
+              <strong>Started from a reference template.</strong> {v.template_derived} of the figures below are synthetic template values, marked assumed
+              (E0) by this site, not measurements of any hall. Replace them with the hall&apos;s own figures before relying on the result.
+            </p>
+          ) : null}
           {v.assumptions.length ? (
             <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
               {v.assumptions.map((a) => (
                 <div key={a.label} className="contents">
                   <dt className="text-mute">{a.label}</dt>
-                  <dd className="data text-right text-ghost">{a.value}</dd>
+                  <dd className="data text-right text-ghost">
+                    {a.value}
+                    {a.assumed ? <span className="block text-[11px] font-normal text-queue">{ASSUMED_TEMPLATE_LABEL}</span> : null}
+                  </dd>
                 </div>
               ))}
             </dl>
