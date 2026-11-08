@@ -117,7 +117,7 @@ export const SiteBody = z.strictObject({
   orgId: id,
   name: name("The site name"),
   country: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use a two-letter country code, for example DE.").nullable().optional(),
-  dataOrigin: z.enum(DATA_ORIGINS, { errorMap: () => ({ message: "Say whether this site holds production, test or synthetic data." }) }),
+  dataOrigin: z.enum(DATA_ORIGINS, { error: "Say whether this site holds production, test or synthetic data." }),
 });
 
 export const HallBody = z.strictObject({ label: name("The hall label") });
