@@ -507,7 +507,7 @@ export function QualifyReadout({
             Assumed, because nobody supplied it
             {template ? "" : ` · intake ${Math.round(intake.completeness * 100)}% complete`}
           </p>
-          <div className="overflow-x-auto rounded border border-line">
+          <div role="region" aria-label="Inputs the engine assumed" tabIndex={0} className="overflow-x-auto rounded border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-panel">
