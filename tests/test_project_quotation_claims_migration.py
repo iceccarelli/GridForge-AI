@@ -272,6 +272,24 @@ def test_two_reviewers_accepting_project_quotations_for_one_item_take_turns(db):
     assert n(db, f"select count(*) from cost_evidence_state where project_id='{pid}' and cost_key='cdu.addition' and state='accepted'") == 1
 
 
+def test_a_review_of_a_project_quotation_waits_for_the_per_project_per_item_lock(db):
+    """Deterministic: hold the lock the 0022 functions document (scope key + cost key) and prove the review of a project line queues behind it.
+    A null deliverable would have turned the lock into a silent no-op (a strict function called with NULL), so accepting two quotations
+    for one item could interleave."""
+    import time
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid, verified=True)))["id"]
+    holder = subprocess.Popen(_cmd(db) + ["-c", f"select pg_advisory_xact_lock(hashtextextended('project:{pid}:cdu.addition', 0)), pg_sleep(3)"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(1.0)
+    t0 = time.time()
+    psql(db, review_sql(eid))
+    waited = time.time() - t0
+    holder.communicate()
+    assert waited >= 1.5, f"the review did not wait for the lock ({waited:.2f}s)"
+    assert state(db, eid) == "accepted"
+
+
 def test_a_project_quotation_of_another_item_or_project_does_not_retire_it(db):
     a, b = project(db), project(db)
     fa, fb = file(db, a, verified=True), file(db, b, verified=True)

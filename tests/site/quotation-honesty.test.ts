@@ -89,8 +89,14 @@ describe("zero hardware margin: no quotation surface implies GridForge supplies,
     }
   );
 
-  it("states it plainly", () => {
-    expect(NO_EQUIPMENT_STATEMENT).toMatch(/sells no equipment, takes no margin on any purchase and quotes no equipment itself/);
+  it("states it plainly, and the statement itself is pinned so it cannot drift into the language it denies", () => {
+    // The statement is the one sentence every scan lets through, so it is pinned word for word and its remainder is scanned.
+    expect(NO_EQUIPMENT_STATEMENT).toBe(
+      "GridForge sells no equipment, takes no margin on any purchase and quotes no equipment itself. These are your own supplier's quotations: we " +
+        "record them, have a named person check the document and the record, and apply them to the engine's comparison for your project."
+    );
+    const remainder = NO_EQUIPMENT_STATEMENT.replace("GridForge sells no equipment, takes no margin on any purchase and quotes no equipment itself.", "");
+    expect(offences(remainder)).toEqual([]);
   });
 
   it("scans the copy in the source files too, not only what happens to render", () => {
