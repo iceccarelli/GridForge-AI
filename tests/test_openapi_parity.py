@@ -327,3 +327,101 @@ def test_get_estimate_is_a_real_free_route_with_the_documented_query(base):
     before = units_now(base)
     call(base, "/v1/estimate?endpoint=/v1/study", key=KEY, method="GET")
     assert units_now(base) == before
+
+
+# --- the free reads' response schemas are the real responses' ----------------------------------------------------------------
+DISCOVERY = json.loads((ROOT / "lib" / "openapi-discovery.json").read_text())["routes"]
+#: Keys the engine returns that the document does not list, with the reason. Empty on purpose: document a key rather than allow it here.
+UNDOCUMENTED_KEYS: dict[str, set[str]] = {}
+_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict, "null": type(None)}
+
+
+def _is(value, type_name):
+    if type_name == "integer" and isinstance(value, bool):
+        return False
+    if type_name == "number" and isinstance(value, bool):
+        return False
+    return isinstance(value, _TYPES[type_name])
+
+
+def _validate(real, schema, where, allow, problems):
+    """Every documented type matches; every `required` key is present; every returned key is documented (or explicitly allowed)."""
+    types = schema.get("type")
+    if types is not None:
+        names = types if isinstance(types, list) else [types]
+        if not any(_is(real, n) for n in names):
+            problems.append(f"{where}: expected {names}, got {type(real).__name__}")
+            return
+    if isinstance(real, dict) and "properties" in schema:
+        props = schema["properties"]
+        for name in schema.get("required", []):
+            if name not in real:
+                problems.append(f"{where}: required key {name!r} is missing from the real response")
+        for name, value in real.items():
+            if name in props:
+                _validate(value, props[name], f"{where}.{name}", allow, problems)
+            elif isinstance(schema.get("additionalProperties"), dict):
+                _validate(value, schema["additionalProperties"], f"{where}.{name}", allow, problems)
+            elif schema.get("additionalProperties") is False or "additionalProperties" not in schema:
+                if name not in allow:
+                    problems.append(f"{where}: the engine returns {name!r}, which the document does not list")
+    elif isinstance(real, dict) and isinstance(schema.get("additionalProperties"), dict):
+        for name, value in real.items():
+            _validate(value, schema["additionalProperties"], f"{where}.{name}", allow, problems)
+    elif isinstance(real, list) and "items" in schema:
+        for i, item in enumerate(real[:5]):
+            _validate(item, schema["items"], f"{where}[{i}]", allow, problems)
+
+
+def _spec(path):
+    spec = DISCOVERY[path]
+    props = dict(spec["properties"])
+    required = list(spec["required"])
+    if spec.get("includes"):
+        for f in HONESTY[spec["includes"]]:
+            props.setdefault(f, {})
+            required.append(f)
+    return {"type": "object", "properties": props, "required": required, "additionalProperties": True}
+
+
+def _check(path, real):
+    spec = _spec(path)
+    # additionalProperties must be false for the "returned but not listed" check to bite; the document keeps it open for the reader.
+    strict = dict(spec, additionalProperties=False)
+    problems: list = []
+    _validate(real, strict, path, UNDOCUMENTED_KEYS.get(path, set()), problems)
+    return problems
+
+
+@pytest.mark.parametrize("path", ["/health", "/v1/version", "/v1/tools", "/v1/platforms", "/v1/intake/template", "/v1/calibration", "/v1/calibration/residuals"])
+def test_each_free_read_matches_its_documented_schema(base, path):
+    s, _, real = call(base, path, key=None, method="GET")
+    assert s == 200
+    assert _check(path, real) == []
+
+
+def test_usage_matches_its_documented_schema_for_a_key_and_for_a_pay_as_you_go_key(base):
+    s, _, real = call(base, "/v1/usage", key=KEY, method="GET")
+    assert s == 200
+    assert _check("/v1/usage", real) == []
+    from gridforge.api.metering import KeyPlan
+    payg = METER.statement(KeyPlan(key="sk_payg_schema", label="p", monthly_quota=50, scope="payg", key_id="k1"))
+    assert "accrued_cents" in payg and "unit_price_cents" in payg
+    assert _check("/v1/usage", json.loads(json.dumps({"schema_version": "x", **payg}))) == []
+    # the pay-as-you-go-only keys are optional: absent for an ordinary key, documented for a pay-as-you-go one
+    assert "accrued_cents" not in real and "accrued_cents" not in DISCOVERY["/v1/usage"]["required"]
+
+
+def test_the_validator_bites_on_a_renamed_or_unlisted_key(base):
+    s, _, real = call(base, "/v1/usage", key=KEY, method="GET")
+    renamed = {("units_remaining_x" if k == "units_remaining" else k): v for k, v in real.items()}
+    out = _check("/v1/usage", renamed)
+    assert any("units_remaining" in p and "missing" in p for p in out) and any("units_remaining_x" in p for p in out)
+    s, _, v = call(base, "/v1/version", key=None, method="GET")
+    v2 = {("rate_limit_per_second" if k == "rate_limit_per_minute" else k): x for k, x in v.items()}
+    assert any("rate_limit_per_minute" in p for p in _check("/v1/version", v2))
+
+
+def test_the_intake_fields_in_the_qualify_and_screen_responses_are_the_documented_ones():
+    for endpoint, out in (("/v1/qualify", S.handle_qualify(QUALIFY, Tier.PUBLIC)), ("/v1/screen", S.handle_screen({"intake": DUBLIN}, Tier.CLIENT))):
+        assert sorted(out["intake"]) == sorted(HONESTY["responses"][endpoint]["intake_fields"]), endpoint

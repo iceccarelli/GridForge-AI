@@ -5,6 +5,8 @@
 
 import engineDeployed from "@/lib/engine-deployed.json";
 import honesty from "@/lib/openapi-honesty.json";
+import discovery from "@/lib/openapi-discovery.json";
+import { PER_HALL_ENDPOINTS } from "@/lib/payg-pricing";
 import { SITE_URL } from "@/lib/site";
 import { DATA_ORIGINS, EVIDENCE_CLASS_CODES, ORIGINS, ROLES } from "@/lib/site-registry-fields";
 
@@ -378,12 +380,19 @@ const bool = (description?: string) => ({ type: "boolean", ...(description ? { d
 
 const CALIBRATION_REF = { $ref: "#/components/schemas/CalibrationBlock" };
 
+/** The free reads' response schemas: property lists in lib/openapi-discovery.json, validated against the real responses by tests/test_openapi_parity.py. */
+function discoverySchema(path: string): Record<string, unknown> {
+  const spec = (discovery.routes as Record<string, { required: string[]; properties: Record<string, unknown>; includes?: string }>)[path];
+  const schema = { type: "object", required: spec.required, properties: spec.properties, additionalProperties: true };
+  return spec.includes ? { allOf: [CALIBRATION_REF, schema] } : schema;
+}
+
 const DISCOVERY_ROUTES: ExtraRoute[] = [
   {
     path: "/health", method: "get", operationId: "health", auth: "none",
     summary: "Liveness check.",
     description: "Returns {ok, service, version}. Free, no key, and bounded by a generous separate rate limit.",
-    response: obj({ ok: bool(), service: str(), version: str() }),
+    response: discoverySchema("/health"),
   },
   {
     path: "/v1/version", method: "get", operationId: "version", auth: "none",
@@ -392,14 +401,7 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
       "The engine's own statement of itself: version and provenance, the routes it serves (`endpoints`), the unit weight of every route (`unit_rates`), " +
       "the pay-as-you-go terms (`payg`: unit_price_cents, currency, min_invoice_cents, free_allowance_units, billing_rule), the Idempotency-Key rule, " +
       "the rate limit, and where the machine interfaces and the calibration record are. This is the authoritative source of every price and limit; this document states none. Free, no key.",
-    response: obj({
-      version: str(), provenance: obj({ schema: str(), engine_version: str(), code_sha256: str(), cost_library_sha256: str(), calibration_sha256: str(), digest: str(), report_date: str() }),
-      auth_configured: bool(), signed_keys: bool(), rate_limit_per_minute: int(), schema: str(), idempotency: str(), idempotency_key_max_chars: int(),
-      tier: str(), endpoints: { type: "array", items: str() }, unit_rates: { type: "object", additionalProperties: int() },
-      payg: obj({ unit_price_cents: int(), currency: str(), min_invoice_cents: int(), free_allowance_units: int(), billing_rule: str() }),
-      metering: obj({ durable: bool(), ledger_durable: bool(), over_quota_status: int(), note: str() }),
-      machine_interface: obj({ tools: str(), mcp: str(), protocolVersion: str() }), calibration: str(),
-    }),
+    response: discoverySchema("/v1/version"),
   },
   {
     path: "/v1/tools", method: "get", operationId: "tools", auth: "none",
@@ -407,12 +409,7 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
     description:
       "Returns `tools` (name, description, endpoint, method, tier, units, returns, inputSchema), `openai`, `mcp` (endpoint, protocol, protocolVersion, tools), `auth`, `payg`, " +
       "`rate_card` (every weighted route, including /v1/deck which is not a tool) and `evidence_note`. This document and the site's /reference/tools.json are generated from the same catalogue. Free, no key.",
-    response: obj({
-      tools: { type: "array", items: { type: "object" } }, openai: { type: "array", items: { type: "object" } },
-      mcp: obj({ endpoint: str(), protocol: str(), protocolVersion: str(), tools: { type: "array", items: { type: "object" } } }),
-      auth: obj({ header: str(), note: str() }), payg: obj({}), rate_card: { type: "array", items: obj({ endpoint: str(), units: int(), tool: { type: ["string", "null"] } }) },
-      evidence_note: str(),
-    }),
+    response: discoverySchema("/v1/tools"),
   },
   {
     path: "/v1/platforms", method: "get", operationId: "platforms", auth: "none",
@@ -420,13 +417,13 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
     description:
       "The platforms in the library: id, name, status, rack_kW, gpus_per_rack. The figures are taken from the cited sources and held in the library as assumptions with bands (one entry is a generic archetype with no manufacturer); none is a measurement. Platforms whose manufacturer has not published a rack power are absent by design and listed under " +
       "`deliberately_absent` with the reason; no rack power is estimated for them. The full set of figures with sources is the site's /reference/platforms.json. Free, no key.",
-    response: obj({ platforms: { type: "array", items: obj({ id: str(), name: str(), status: str(), rack_kW: { type: "number" }, gpus_per_rack: int() }) }, deliberately_absent: { type: "object", additionalProperties: str() }, note: str() }),
+    response: discoverySchema("/v1/platforms"),
   },
   {
     path: "/v1/intake/template", method: "get", operationId: "intakeTemplate", auth: "none",
     summary: "The blank intake document with every field.",
     description: "The form a sparse intake is completed from: any field left out of a request is filled from library defaults and reported as an assumption in the response. Free, no key.",
-    response: { type: "object", additionalProperties: true },
+    response: discoverySchema("/v1/intake/template"),
   },
   {
     path: "/v1/calibration", method: "get", operationId: "calibration", auth: "none",
@@ -435,7 +432,7 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
       "The accuracy record, public precisely because the answer can be \"none\": `state` is uncalibrated, indicative or calibrated, with the counts behind it (observations, sites, halls, " +
       "outputs asserted and outputs with site observations) and a `policy`. Only the published ledger is read; an observation a client supplied never reaches it. If the ledger fails its integrity check " +
       "the route answers 503 with state \"unavailable\" rather than an empty or partial record. Free, no key.",
-    response: { allOf: [CALIBRATION_REF, obj({ ledger_sources: int(), policy: str() })] },
+    response: discoverySchema("/v1/calibration"),
     extraResponses: { "503": { description: "The calibration ledger failed its integrity check and is not being served.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } } },
   },
   {
@@ -445,14 +442,14 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
       "Per subsystem and per variable: how many approved observations and distinct sites there are, the state, and how many more are still needed. A draft or rejected record changes nothing here, " +
       "not even a count; no site, hall, record id, free text or measurement is in the payload. With nothing approved it says `uncalibrated` with `n_records` 0. " +
       "A store whose hash chain is broken answers 503, never an empty or partial answer. Free, no key.",
-    response: { $ref: "#/components/schemas/ResidualReport" },
+    response: discoverySchema("/v1/calibration/residuals"),
     extraResponses: { "503": { description: "The calibration record store failed its integrity check and is not being served.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } } },
   },
   {
     path: "/v1/usage", method: "get", operationId: "usage", auth: "key",
     summary: "This key's metered usage for the current UTC month.",
     description: "The statement for the key that is sent: units used this month, by endpoint and by scope, the monthly quota and units remaining, and (pay-as-you-go keys) the accrued amount in euro cents. Answers 401 without a key. It is never itself metered.",
-    response: obj({ account: str(), key: str(), scope: str(), month: str(), units: int(), calls: int(), by_endpoint: { type: "object", additionalProperties: int() }, monthly_quota: { type: ["integer", "null"] }, units_remaining: { type: ["integer", "null"] }, unit_rates: { type: "object", additionalProperties: int() } }),
+    response: discoverySchema("/v1/usage"),
   },
 ];
 
@@ -543,8 +540,10 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
     else if (f === "provenance") properties[f] = { type: "object", description: "What produced this answer: engine version and the digests of the code, the cost library and the calibration record." };
     else if (f === "schema") properties[f] = str("The response schema id, e.g. gridforge/ttp-compare/1.");
     else if (f === "intake") {
-      properties[f] = obj({
-        completeness: { type: "number" }, can_issue_a_study: bool(), warnings: { type: "array", items: str() },
+      const intakeFields = (spec as { intake_fields?: string[] }).intake_fields ?? [];
+      const intakeProps: Record<string, unknown> = {
+        completeness: { type: "number" }, required_inputs_missing: int("How many required inputs the request left out."), can_issue_a_study: bool(),
+        warnings: { type: "array", items: str() }, recommended_engagement: str("What the engine recommends buying given how complete the intake is."),
         gaps: spec.intake_gaps
           ? {
               type: "array",
@@ -552,7 +551,8 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
               items: { $ref: "#/components/schemas/AssumptionGap" },
             }
           : { type: "array" },
-      });
+      };
+      properties[f] = obj(Object.fromEntries(intakeFields.map((k) => [k, intakeProps[k]])));
     } else if (f === "after_relief" && spec.after_relief) {
       properties[f] = obj({
         date_basis: str("What the date rests on; \"assumed\" means the item that sets it carries an assumed lead time, so it is not a date."),
@@ -575,6 +575,8 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         description: `${t.description}\n\nReturns: ${t.returns}\n\n${file.evidence_note}`,
         tags: [free ? "free" : "metered"],
         "x-gridforge-units": t.units,
+        // The weight is per hall in the request (gridforge/api/metering.py units_for), not per call.
+        ...(PER_HALL_ENDPOINTS.includes(t.endpoint) ? { "x-gridforge-units-per": "hall" } : {}),
         "x-gridforge-tier": t.tier,
         "x-gridforge-mcp-tool": t.name,
         security: free ? [] : [{ ApiKeyAuth: [] }],
@@ -734,16 +736,6 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
             path: { type: "string" }, input: { type: "string" }, unit: { type: ["string", "null"] }, required: { type: "boolean" },
             assumed: { type: "string", description: "What the engine used instead, in words." }, why_it_binds: { type: "string" }, how_to_get_it: { type: "string" },
           },
-        },
-        ResidualReport: {
-          type: "object",
-          description: "Aggregate residual statistics over approved observation records only. Nothing in it identifies a site, hall or record.",
-          required: ["schema", "state", "n_records"],
-          properties: {
-            schema: { type: "string" }, state: { type: "string" }, n_records: { type: "integer" }, n_sites: { type: "integer" }, headline: { type: "string" },
-            requirements: { type: "object" }, subsystem_states: { type: "object", additionalProperties: { type: "string" } }, subsystems: { type: "object" },
-          },
-          additionalProperties: true,
         },
         Error: {
           type: "object",

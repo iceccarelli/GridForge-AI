@@ -22,21 +22,79 @@
     "keys",
     "uncalibrated_keys"
   ],
-  "calibration_states": ["uncalibrated", "indicative", "calibrated"],
-  "assumption_gap_fields": ["path", "input", "unit", "required", "assumed", "why_it_binds", "how_to_get_it"],
-  "residual_report_fields": ["schema", "state", "n_records", "n_sites", "headline", "requirements", "subsystem_states", "subsystems"],
+  "calibration_states": [
+    "uncalibrated",
+    "indicative",
+    "calibrated"
+  ],
+  "assumption_gap_fields": [
+    "path",
+    "input",
+    "unit",
+    "required",
+    "assumed",
+    "why_it_binds",
+    "how_to_get_it"
+  ],
+  "residual_report_fields": [
+    "schema",
+    "state",
+    "n_records",
+    "n_sites",
+    "headline",
+    "requirements",
+    "subsystem_states",
+    "subsystems"
+  ],
   "responses": {
     "/v1/qualify": {
-      "top_level": ["as_found", "after_relief", "intake", "calibration", "notice"],
-      "after_relief": ["date_basis", "date_evidence_class", "date_label"],
-      "intake_gaps": true
+      "top_level": [
+        "as_found",
+        "after_relief",
+        "intake",
+        "calibration",
+        "notice"
+      ],
+      "after_relief": [
+        "date_basis",
+        "date_evidence_class",
+        "date_label"
+      ],
+      "intake_gaps": true,
+      "intake_fields": [
+        "completeness",
+        "required_inputs_missing",
+        "can_issue_a_study",
+        "gaps",
+        "warnings",
+        "recommended_engagement"
+      ]
     },
     "/v1/screen": {
-      "top_level": ["scenarios", "intake", "calibration"],
-      "intake_gaps": true
+      "top_level": [
+        "scenarios",
+        "intake",
+        "calibration"
+      ],
+      "intake_gaps": true,
+      "intake_fields": [
+        "completeness",
+        "can_issue_a_study",
+        "gaps",
+        "warnings",
+        "recommended_engagement"
+      ]
     },
     "/v1/compare": {
-      "top_level": ["schema", "scenarios", "ranking", "grade", "caveats", "request_digest", "provenance"]
+      "top_level": [
+        "schema",
+        "scenarios",
+        "ranking",
+        "grade",
+        "caveats",
+        "request_digest",
+        "provenance"
+      ]
     }
   }
 }

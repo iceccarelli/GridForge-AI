@@ -159,7 +159,9 @@ describe("OpenAPI parity with the deployed engine", () => {
     const screen = doc.paths["/v1/screen"].post.responses["200"].content["application/json"].schema.properties;
     expect(screen.calibration.$ref).toBe("#/components/schemas/CalibrationBlock");
     expect(doc.components.schemas.CalibrationBlock.properties.state.enum).toEqual(["uncalibrated", "indicative", "calibrated"]);
-    expect(doc.paths["/v1/calibration/residuals"].get.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/ResidualReport");
+    const residuals = doc.paths["/v1/calibration/residuals"].get.responses["200"].content["application/json"].schema;
+    expect(residuals.required).toEqual(expect.arrayContaining(["state", "n_records", "subsystems"]));
+    expect(residuals.properties.withheld_variables).toBeTruthy();
   });
 });
 
@@ -292,7 +294,7 @@ describe("/llms.txt parity with the deployed engine", () => {
         "JSON-RPC error -32602 with data.status 422 inside an HTTP 200",
         "it is the same bytes",
         "the same arguments in any key order",
-        "units actually charged",
+        "units actually charged for its new messages, not 0",
         "only when it keeps its ledger durably",
         "metering.ledger_durable: true",
         "date-stamped fields",
@@ -348,6 +350,9 @@ describe("every number in the prose is derived from the catalogue", () => {
     expect(base.llms).toContain(`${PAYG.freeAllowanceUnits} units a month`);
     expect(base.llms).toContain("carried forward");
     for (const c of EVIDENCE_CLASSES) expect(base.llms, c.code).toContain(`${c.code} ${c.verb}`);
+    // The two the ladder starts and ends with, as an agent reads them.
+    expect(base.llms).toContain("E0 assumed");
+    expect(base.llms).toContain("E7 observed in operation");
     expect(base.llms).toContain("answers 402");
 
     const moved = await renderWith(true);
@@ -383,6 +388,62 @@ describe("every number in the prose is derived from the catalogue", () => {
   it("the unit weights on the surfaces are the engine's (UNIT_COST), not copies", () => {
     for (const t of toolsFile.tools) expect(t.units, t.name).toBe(UNIT_COST.get(t.endpoint));
     for (const r of toolsFile.rate_card ?? []) expect(r.units, r.endpoint).toBe(UNIT_COST.get(r.endpoint));
+  });
+});
+
+describe("what /llms.txt says about calibration and the free allowance is read from the files and the catalogue", () => {
+  const calibration = JSON.parse(read("public/reference/calibration.json")) as { state: string; observations: number; sites: number; keys_asserted: number; keys_with_site_observations: number };
+
+  async function llmsWithCalibration(override?: object): Promise<string> {
+    vi.resetModules();
+    if (override) {
+      vi.doMock("node:fs", async (orig) => {
+        const real = await orig<typeof import("node:fs")>();
+        const readFile = async (f: unknown, ...rest: unknown[]) =>
+          String(f).endsWith("calibration.json") ? JSON.stringify({ ...calibration, ...override }) : (real.promises.readFile as (...a: unknown[]) => Promise<unknown>)(f, ...rest);
+        return { ...real, default: { ...real, promises: { ...real.promises, readFile } }, promises: { ...real.promises, readFile } };
+      });
+    }
+    const stop = stubEngine(FULL_ENGINE);
+    try {
+      return await (await (await import("@/app/llms.txt/route")).GET()).text();
+    } finally {
+      stop();
+      vi.doUnmock("node:fs");
+    }
+  }
+
+  it("states the published record's counts and state, and the 'not yet checked' line only while there is nothing reconciled", async () => {
+    const body = (await llmsWithCalibration()).replace(/\s+/g, " ");
+    expect(body).toContain(`${calibration.observations} reconciled site observations across ${calibration.sites} sites`);
+    expect(body).toContain(`covering ${calibration.keys_with_site_observations} of ${calibration.keys_asserted} model outputs`);
+    expect(body).toContain(`the state "${calibration.state}"`);
+    expect(calibration.observations).toBe(0); // today's fact; the next test changes the file's numbers to prove the text follows them
+    expect(body).toContain("we have not yet checked this engine against an instrumented hall");
+    expect(body).toContain("Uncalibrated: the model has not been reconciled");
+  });
+
+  it("follows the record when it changes", async () => {
+    const body = (await llmsWithCalibration({ state: "indicative", observations: 12, sites: 3, keys_with_site_observations: 4 })).replace(/\s+/g, " ");
+    expect(body).toContain('the state "indicative": 12 reconciled site observations across 3 sites, covering 4 of');
+    expect(body).not.toContain("we have not yet checked this engine");
+    expect(body).toContain('Calibration state "indicative"');
+    expect(body).not.toContain("Uncalibrated: the model has not been reconciled");
+  });
+
+  it("names the site-wide ceiling on new free accounts from the catalogue, and that the free allowance is its own scope", async () => {
+    const { PAYG } = await import("@/lib/products");
+    const body = (await llmsWithCalibration()).replace(/\s+/g, " ");
+    expect(body).toContain(`limited site-wide to ${PAYG.freeAccountsMaxPerMonth} a month`);
+    expect(body).toContain("its own key scope, counted apart from pay-as-you-go");
+  });
+});
+
+describe("the portfolio's weight is per hall", () => {
+  it("says so on /v1/portfolio and on no other operation", () => {
+    const withPer = Object.entries<any>(doc.paths).flatMap(([p, item]) => Object.values<any>(item).filter((op) => op && op["x-gridforge-units-per"]).map(() => p));
+    expect(withPer).toEqual(["/v1/portfolio"]);
+    expect(doc.paths["/v1/portfolio"].post["x-gridforge-units-per"]).toBe("hall");
   });
 });
 

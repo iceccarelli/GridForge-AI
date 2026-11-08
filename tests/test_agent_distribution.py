@@ -169,12 +169,18 @@ def test_llms_txt_teaches_the_evidence_ladder():
     """If a model is going to answer from our numbers, it has to carry the caveat
     with them. That is the whole reason to publish the file."""
     for needed in ["Do not present an E0 or E1 figure",
-                   "zero reconciled site", "never stronger than the weakest input"]:
+                   "reconciled site observations", "never stronger than the weakest input"]:
         assert needed in LLMS_FLAT, f"llms.txt does not say {needed!r}"
     # The E0..E7 legend is generated from the one table the evidence page uses (lib/evidence-classes.ts, itself parsed against the engine's
     # evidence.py by tests/site/evidence-pages.test.ts), not typed here; tests/site/agent-surface-parity.test.ts checks the rendered file.
     assert "EVIDENCE_CLASSES.map" in LLMS
+    # The counts in the calibration sentence come from the published record, not from the source text.
+    assert "reference\", \"calibration.json\"" in LLMS
     classes = (ROOT / "lib" / "evidence-classes.ts").read_text()
+    # Second guard (the first is the rendered file, tests/site/agent-surface-parity.test.ts): the table the legend is built from binds the
+    # codes to the words an agent reads, "E0 assumed" and "E7 observed in operation" among them.
+    assert re.search(r'code: "E0",[^\n]*verb: "assumed"', classes), "E0 is no longer described as assumed"
+    assert re.search(r'code: "E7",[^\n]*verb: "observed in operation"', classes), "E7 is no longer described as observed in operation"
     for verb in ["assumed", "modelled", "simulated", "estimated", "validated against test data", "field-validated", "observed in operation"]:
         assert f'verb: "{verb}"' in classes, f"the evidence table has no class described as {verb!r}"
 
