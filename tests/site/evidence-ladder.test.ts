@@ -145,6 +145,12 @@ describe("evidenceLadder", () => {
     expect(contracted).toMatchObject({ classNow: "E0", state: "assumed" });
   });
 
+  it("a declared class decides the row: E0 to E3 are assumed, E4 and above are stated", () => {
+    const rowFor = (e: string) => evidenceLadder(basis({ bindsNow: "rack_feed_tapoff", bindsNext: null, states: [declared("lv.tapoff_max_A", e)] }), NO_FILES).rungs[0].rows[0];
+    for (const e of ["E0", "E1", "E2", "E3"]) expect(rowFor(e), e).toMatchObject({ classNow: e, state: "assumed" });
+    for (const e of ["E4", "E5"]) expect(rowFor(e), e).toMatchObject({ classNow: e, state: "stated" });
+  });
+
   it("an estimate-class input stays E3 when supplied: the ladder does not pretend a typed figure becomes E5", () => {
     const l = evidenceLadder(basis({ bindsNow: "hydraulic_flow", bindsNext: null, states: [plain("thermal.plant.pump_flow_capacity_l_per_min"), missing("thermal.plant.existing_flow_l_per_min")] }), NO_FILES);
     const pump = l.rungs[0].rows.find((r) => r.path === "thermal.plant.pump_flow_capacity_l_per_min")!;

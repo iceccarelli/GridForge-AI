@@ -451,7 +451,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
       <GridQueuePanel ctx={r.grid_queue_context} />
       <RetailPricePanel ctx={r.retail_price_context} />
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" role="region" aria-label="Scenarios compared, scrollable" tabIndex={0}>
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <caption className="sr-only">Scenarios compared</caption>
           <thead>
@@ -546,7 +546,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
           </button>
           <button type="button" className="btn-ghost min-h-11 px-3 py-1.5 text-xs" onClick={onCopy}>{copied ? "Copied" : "Copy request"}</button>
         </div>
-        <code className="data block overflow-x-auto whitespace-pre text-[11px] text-faint">{cli}</code>
+        <code className="data block overflow-x-auto whitespace-pre text-[11px] text-faint" role="region" aria-label="Command to reproduce this request" tabIndex={0}>{cli}</code>
       </div>
     </section>
   );
