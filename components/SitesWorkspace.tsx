@@ -580,21 +580,26 @@ export function AttachProject({ hall, dataOrigin, onDone }: { hall: Hall; dataOr
     if (!r) return f.fail("Could not reach the server. Nothing was saved.");
     if (r.body.ok) { setToken(""); setConfirmed(false); f.setMsg({ ok: true, text: r.body.alreadyAttached ? `${r.body.projectName} was already attached.` : `${r.body.projectName} attached. Its history now appears below.` }); await onDone(); } else f.fail(r.body.error ?? "That did not work.");
   }
+  const blocked = attachDisabled(false, dataOrigin, confirmed);
   return (
     <form onSubmit={submit} noValidate aria-labelledby="attach-title" className="mt-6 flex flex-wrap items-end gap-3">
       <h3 id="attach-title" className="basis-full text-sm font-semibold">Attach a project</h3>
       <div className="flex-1 min-w-[14rem]"><Field id="attach-token" label="Project link token" hint="A project belongs to one hall, for good."><input id="attach-token" type="password" className={fieldBox} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" aria-describedby="attach-token-hint" /></Field></div>
-      <button type="submit" disabled={attachDisabled(f.busy, dataOrigin, confirmed)} className={button}>{f.busy ? <Loader2 size={14} className="animate-spin" /> : "Attach project"}</button>
       {needsConfirm && (
-        <div id="attach-nonprod" role="group" aria-labelledby="attach-nonprod-title" className="basis-full rounded-[var(--radius)] border-2 border-red-500/60 bg-red-500/10 p-3">
+        // BEFORE the button in reading order, and announced when it appears, so the consequence is read before the action is offered.
+        <div id="attach-nonprod" role="alert" className="basis-full rounded-[var(--radius)] border-2 border-red-500/60 bg-red-500/10 p-3">
           <p id="attach-nonprod-title" className="text-[13px] font-semibold text-red-300">This is a {dataOrigin} site. This cannot be undone.</p>
-          <p className="text-[13px] mt-1">{NON_PRODUCTION_ATTACH_WARNING}</p>
+          <p id="attach-nonprod-body" className="text-[13px] mt-1">{NON_PRODUCTION_ATTACH_WARNING}</p>
+          <p className="data text-[10px] text-faint mt-1">The website checks this confirmation when you attach; the calibration ledger gate is the permanent backstop behind it.</p>
           <label htmlFor="attach-confirm" className="mt-2 flex items-start gap-2 text-[13px]">
-            <input id="attach-confirm" type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} aria-describedby="attach-nonprod-title" className="mt-0.5" />
+            <input id="attach-confirm" type="checkbox" required checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} aria-describedby="attach-nonprod-title attach-nonprod-body" className="mt-0.5" />
             <span>I understand that attaching this project permanently excludes its observations from the calibration ledger.</span>
           </label>
         </div>
       )}
+      {/* aria-disabled, not disabled: Enter in the token field (or a click) still reaches the handler, which says what is missing instead of doing nothing. */}
+      <button type="submit" disabled={f.busy} aria-disabled={blocked || f.busy} aria-describedby={needsConfirm ? "attach-nonprod-title attach-nonprod-body" : undefined}
+        className={`${button}${blocked ? " opacity-40 cursor-not-allowed" : ""}`}>{f.busy ? <Loader2 size={14} className="animate-spin" /> : "Attach project"}</button>
       <div className="basis-full"><Alert msg={f.msg} forwardRef={f.alertRef} /></div>
     </form>
   );

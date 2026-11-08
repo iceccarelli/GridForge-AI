@@ -850,17 +850,30 @@ async function sendDirect(kind: NotificationKind, subjectId: string, discriminat
 
 /**
  * Domains that anyone can register an address in. A free-mail address says nothing about which organisation a person belongs to, so a
- * buyer on one domain and an attacher on another is no signal when EITHER side is in this list. A small list on purpose: it is a noise
- * filter, not an allow-list, and a domain missing from it only costs the operator one extra notice a day for a project.
+ * buyer on one domain and an attacher on another is no signal when EITHER side is in this list. It is a noise filter, not an allow-list, and
+ * it is an EXPLICIT list (country variants enumerated, no pattern): a pattern over-matches (yahoo.xyz, live.ai and msn.co are not free-mail
+ * providers) and a domain missing from the list costs the operator one extra notice a day for a project, nothing more.
  */
-export const FREE_MAIL_DOMAINS: readonly string[] = [
-  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com", "icloud.com", "me.com",
-  "mac.com", "aol.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "web.de", "mail.com", "zoho.com",
-  "yandex.com", "fastmail.com", "hey.com", "tutanota.com", "tuta.io", "t-online.de", "freenet.de", "orange.fr", "wanadoo.fr", "free.fr",
-  "libero.it", "qq.com", "163.com", "naver.com",
+const FREE_MAIL_BY_PROVIDER: Record<string, readonly string[]> = {
+  hotmail: ["com", "co.uk", "fr", "de", "it", "es", "nl", "be", "at", "ch", "ie", "se", "dk", "no", "fi", "gr", "pt", "cz", "ca", "com.au", "com.br", "co.jp", "co.il", "com.tr"],
+  outlook: ["com", "de", "fr", "it", "es", "nl", "be", "at", "ch", "ie", "dk", "cz", "pt", "sa", "jp", "com.au", "com.br"],
+  live: ["com", "co.uk", "fr", "de", "it", "nl", "se", "dk", "no", "ca", "ie", "at", "be", "com.au", "cn", "jp"],
+  yahoo: ["com", "co.uk", "fr", "de", "it", "es", "ca", "ie", "nl", "se", "dk", "no", "at", "in", "co.in", "com.au", "com.br", "com.mx", "com.ar", "co.jp"],
+  gmx: ["com", "net", "de", "at", "ch", "fr", "es", "us", "co.uk"],
+  proton: ["me"],
+  protonmail: ["com", "ch"],
+};
+const FREE_MAIL_OTHER: readonly string[] = [
+  "gmail.com", "googlemail.com", "msn.com", "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "pm.me", "web.de", "mail.com", "email.com", "zoho.com",
+  "yandex.com", "yandex.ru", "mail.ru", "bk.ru", "inbox.ru", "list.ru", "fastmail.com", "hey.com", "tutanota.com", "tuta.io", "t-online.de", "freenet.de",
+  "orange.fr", "wanadoo.fr", "free.fr", "laposte.net", "sfr.fr", "libero.it", "bluewin.ch", "comcast.net", "verizon.net", "att.net", "sbcglobal.net",
+  "bellsouth.net", "cox.net", "charter.net", "btinternet.com", "sky.com", "virginmedia.com", "talktalk.net", "qq.com", "163.com", "126.com", "naver.com", "rediffmail.com",
 ];
-/** Country variants of the big free providers (hotmail.co.uk, outlook.de, live.nl, yahoo.co.uk ...). */
-const FREE_MAIL_FAMILY = /^(hotmail|outlook|live|yahoo|msn)\.[a-z]{2,3}(\.[a-z]{2})?$/;
+export const FREE_MAIL_DOMAINS: readonly string[] = [
+  ...Object.entries(FREE_MAIL_BY_PROVIDER).flatMap(([provider, tlds]) => tlds.map((t) => `${provider}.${t}`)),
+  ...FREE_MAIL_OTHER,
+];
+const FREE_MAIL_SET: ReadonlySet<string> = new Set(FREE_MAIL_DOMAINS);
 
 /** The lower-cased domain of an address, or null when it does not look like one. Nothing else of the address is kept. */
 export function emailDomain(email: unknown): string | null {
@@ -872,10 +885,14 @@ export function emailDomain(email: unknown): string | null {
 }
 
 export function isFreeMailDomain(domain: string): boolean {
-  return FREE_MAIL_DOMAINS.includes(domain) || FREE_MAIL_FAMILY.test(domain);
+  return FREE_MAIL_SET.has(domain);
 }
 
-/** The same organisation as far as a domain can say: equal, or one is a subdomain of the other (mail.acme.example / acme.example). */
+/**
+ * The same organisation as far as a domain can say: equal, or one is a subdomain of the other (mail.acme.example / acme.example). There is NO public-suffix
+ * awareness: evil.github.io and github.io count as one organisation, and so do two unrelated tenants of a shared suffix. That is acceptable for a noise
+ * filter whose only effect is that the operator is NOT told once; it must never be used for anything that grants access.
+ */
 function sameOrganisationDomain(a: string, b: string): boolean {
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }

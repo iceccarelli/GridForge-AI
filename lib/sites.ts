@@ -364,13 +364,20 @@ export async function hallTimeline(actor: string, hall: string, limit: number, c
 export async function detachProject(actor: string, hall: string, project: string) {
   return done(await ask("gf_detach_project_from_hall", { p_actor: actor, p_hall: hall, p_project: project }), () => ({}));
 }
+/** The most the operator notice may hold an attach response. */
+export const ATTACH_NOTICE_BUDGET_MS = 3000;
+
 /** What the caller is told when they have not confirmed attaching to a site that is not production. Says plainly what is permanent. */
 export const NON_PRODUCTION_ATTACH_MESSAGE =
-  "This hall belongs to a test or synthetic site. Attaching a project to it PERMANENTLY excludes that project's observations from the " +
-  "shared calibration ledger (migration 0052): detaching the project later does not undo it. If you mean that, repeat the request with " +
+  "This hall belongs to a test or synthetic site. Attaching a project to it PERMANENTLY excludes that project's observations from the shared " +
+  "calibration ledger (the calibration ledger gate): detaching the project later does not undo it. If you mean that, repeat the request with " +
   "confirmNonProductionSite: true. If this is real data, attach the project to a production site instead.";
 
 /**
+ * THE CONFIRMATION IS ENFORCED HERE, in the website route, NOT by the database function: gf_attach_project_to_hall (0050) knows nothing of it, and a
+ * service-role caller that bypassed this module would attach without it. The backstop behind it is the ledger view (0052), which keeps the observations of
+ * a project that was ever attached to a non-production site out of the ledger whatever route attached it.
+ *
  * Attach a project to a hall. The caller must be an authenticated OWNER or EDITOR of the hall's organisation (the database checks it, and
  * the project's link token alone is not enough). When the hall's site is test or synthetic the caller must also have said
  * confirmNonProductionSite: true; without it this answers 422 BEFORE anything is written, because the attachment cannot be undone as far as
@@ -395,8 +402,17 @@ export async function attachProject(actor: string, hall: string, b: z.infer<type
     projectId: String(d.project_id), projectName: String(d.project_name), alreadyAttached: Boolean(d.already_attached),
   }));
   if (r.ok && !r.value.alreadyAttached) {
-    // Best effort and silent when notifications are not configured; it can neither delay the answer for long nor change it.
-    await noticeCrossDomainAttach({ projectId: r.value.projectId, hallId: hall, actorEmail: actor });
+    // Best effort and silent when notifications are not configured. It never changes the answer and never holds it for more than the budget: the
+    // notice does several store reads and a mail call, and a slow one must not delay (or, on a platform that stops work after the response, kill) the attach.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        noticeCrossDomainAttach({ projectId: r.value.projectId, hallId: hall, actorEmail: actor }).catch(() => undefined),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, ATTACH_NOTICE_BUDGET_MS); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   return r;
 }

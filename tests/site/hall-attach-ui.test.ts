@@ -25,13 +25,20 @@ describe("the attach form on a site that is not production", () => {
     expect(out).toContain("Detaching it later does not undo this");
     expect(out).toMatch(/<input id="attach-confirm" type="checkbox" required=""/);
     expect(out).not.toMatch(/<input id="attach-confirm"[^>]*checked/);
-    expect(out).toMatch(/aria-describedby="attach-nonprod-title"/);
+    expect(out).toMatch(/aria-describedby="attach-nonprod-title attach-nonprod-body"/);
+    expect(out).toMatch(/<div id="attach-nonprod" role="alert"/);
+    expect(out).not.toContain("migration");
+    expect(out).toContain("The website checks this confirmation when you attach");
     expect(out).toMatch(/<label for="attach-confirm"/);
   });
 
-  it.each(["test", "synthetic"] as const)("%s: the Attach button is disabled until the box is ticked", (origin) => {
+  it.each(["test", "synthetic"] as const)("%s: the Attach button is aria-disabled until the box is ticked (not disabled, so Enter still reaches the handler's message), described by the warning, and the warning comes first", (origin) => {
     const out = render(origin);
-    expect(out).toMatch(/<button type="submit" disabled=""[^>]*>Attach project<\/button>/);
+    const button = out.match(/<button type="submit"[^>]*>Attach project<\/button>/)![0];
+    expect(button).toContain('aria-disabled="true"');
+    expect(button).not.toContain('disabled=""');
+    expect(button).toContain('aria-describedby="attach-nonprod-title attach-nonprod-body"');
+    expect(out.indexOf('id="attach-nonprod"')).toBeLessThan(out.indexOf("<button type=\"submit\""));          // reading order: consequence, then action
   });
 
   it("the rules the button and the request use: only a ticked box enables it, and only a non-production site sends the confirmation", () => {
@@ -54,6 +61,7 @@ describe("the attach form on a site that is not production", () => {
     expect(NON_PRODUCTION_ATTACH_WARNING).toMatch(/PERMANENTLY excludes/);
     expect(NON_PRODUCTION_ATTACH_WARNING).toMatch(/does not undo/);
     expect(NON_PRODUCTION_ATTACH_WARNING).toMatch(/production site/);
+    expect(NON_PRODUCTION_ATTACH_WARNING).not.toMatch(/migration|0052/);
   });
 });
 
@@ -63,7 +71,9 @@ describe("the attach form on a production site", () => {
     expect(out).not.toContain("attach-confirm");
     expect(out).not.toContain("PERMANENTLY");
     expect(out).not.toContain("attach-nonprod");
-    expect(out).toMatch(/<button type="submit" class=[^>]*>Attach project<\/button>/);
+    const button = out.match(/<button type="submit"[^>]*>Attach project<\/button>/)![0];
+    expect(button).toContain('aria-disabled="false"');
+    expect(button).not.toContain("aria-describedby");
     expect(out).not.toContain('disabled=""');
   });
 });
@@ -74,7 +84,8 @@ describe("the request", () => {
     const submit = src.slice(src.indexOf("export function AttachProject"), src.indexOf("export function Timeline"));
     expect(submit.indexOf("if (needsConfirm && !confirmed) return f.fail(")).toBeGreaterThan(-1);
     expect(submit.indexOf("if (needsConfirm && !confirmed) return f.fail(")).toBeLessThan(submit.indexOf("await api("));        // the guard precedes the call
-    expect(submit).toContain("setConfirmed(false)");                                                                           // a new attachment is a new decision
+    expect(submit).toContain("setConfirmed(false)");
+    expect(submit).toContain("Tick the box to confirm");                       // the message Enter reaches while the button is aria-disabled                                                                           // a new attachment is a new decision
   });
 
   it("the workspace hands the form the site's own data origin", () => {

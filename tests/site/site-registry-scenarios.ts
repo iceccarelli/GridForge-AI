@@ -632,7 +632,8 @@ export function defineRegistryScenarios(backend: Backend): void {
             expect(r.body).toMatchObject({ ok: false, reason: "non_production_site_unconfirmed", dataOrigin: origin });
             expect(r.body.error).toMatch(/PERMANENTLY excludes/);
             expect(r.body.error).toMatch(/calibration ledger/);
-            expect(r.body.error).toMatch(/0052/);
+            expect(r.body.error).not.toMatch(/migration|0052/);          // the person is not sent to an internal number
+            expect(r.body.error).toMatch(/calibration ledger gate/);
             expect(r.body.error).toMatch(/does not undo it/);
             expect(JSON.stringify(r.body)).not.toContain(proj.token);
             expect(r.headers.get("cache-control")).toBe("no-store");

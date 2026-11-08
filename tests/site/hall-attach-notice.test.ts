@@ -9,6 +9,7 @@
  * In-memory PostgREST that mirrors migrations 0049-0051; the buyer's address comes from the project's own records (engagement_deposits.email,
  * and deliverables.email through project_links). SUPPLEMENTAL to the registry scenarios, which run the attach itself against real PostgreSQL.
  */
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
@@ -91,8 +92,11 @@ describe("the pure parts", () => {
   });
 
   it("free-mail domains: the typed list and the country variants of the big providers", () => {
-    for (const d of ["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com", "hotmail.co.uk", "outlook.de", "live.nl", "yahoo.co.uk", "web.de"]) expect(isFreeMailDomain(d), d).toBe(true);
-    for (const d of ["acme.example", "gmail.com.evil.example", "notgmail.com", "outlook.example.com", "yahoo.corp.example"]) expect(isFreeMailDomain(d), d).toBe(false);
+    for (const d of ["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me", "protonmail.com", "hotmail.co.uk", "outlook.de", "live.nl", "yahoo.co.uk", "web.de",
+      "gmx.at", "protonmail.ch", "mail.ru", "comcast.net"]) expect(isFreeMailDomain(d), d).toBe(true);
+    // an explicit list, not a pattern: a look-alike on another suffix is not a free-mail provider
+    for (const d of ["acme.example", "gmail.com.evil.example", "notgmail.com", "outlook.example.com", "yahoo.corp.example", "yahoo.xyz", "live.ai", "msn.co", "hotmail.xyz", "outlook.ai", "gmx.biz"]) expect(isFreeMailDomain(d), d).toBe(false);
+    expect(fs.readFileSync("lib/notifications.ts", "utf8")).not.toMatch(/FREE_MAIL_FAMILY/);
     expect(new Set(FREE_MAIL_DOMAINS).size).toBe(FREE_MAIL_DOMAINS.length);
     expect(FREE_MAIL_DOMAINS.every((d) => d === d.toLowerCase() && emailDomain(`x@${d}`) === d)).toBe(true);
   });
@@ -176,6 +180,30 @@ describe("attaching a project", () => {
     expect(await noticeCrossDomainAttach({ projectId: s.project.id as string, hallId: s.hall, actorEmail: s.editor, now: tomorrow })).toBe("sent");
     expect(sent).toHaveLength(2);
   });
+
+  it("the in-process memory is a layer of its own: with the log showing only ONE attach today, a second call the same day still sends nothing", async () => {
+    const s = await setup({ buyer: "buyer@acme.example" });
+    expect((await s.attach()).status).toBe(201);
+    expect(sent).toHaveLength(1);
+    // make the durable check unable to object (one attach event in the log) - only the memory can now stop a repeat
+    expect(db.rows("project_events").filter((e) => e.event_type === "project_attached_to_hall")).toHaveLength(1);
+    expect(await noticeCrossDomainAttach({ projectId: s.project.id as string, hallId: s.hall, actorEmail: s.editor })).toBe("already_noticed");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("a slow notifier never holds the attach response past its budget, and the attachment stands", async () => {
+    const mail = await import("@/lib/mail");
+    vi.spyOn(mail, "notifyOperator").mockImplementation(() => new Promise(() => {}));        // never answers
+    const { ATTACH_NOTICE_BUDGET_MS } = await import("@/lib/sites");
+    const s = await setup({ buyer: "buyer@acme.example" });
+    const started = Date.now();
+    const r = await s.attach();
+    const took = Date.now() - started;
+    expect(r.status).toBe(201);
+    expect(took).toBeLessThan(ATTACH_NOTICE_BUDGET_MS + 1500);
+    expect(took).toBeGreaterThanOrEqual(ATTACH_NOTICE_BUDGET_MS - 200);                       // it did wait for the budget, no longer
+    expect(db.rows("hall_project_attachments")).toHaveLength(1);
+  }, 15_000);
 
   it.each([
     ["the same domain", "consultant@consultancy.example", "buyer@consultancy.example"],
