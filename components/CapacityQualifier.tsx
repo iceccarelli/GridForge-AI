@@ -9,6 +9,18 @@ import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
+import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
+import {
+  HALL_PRESETS,
+  PRESET_DISCLOSURE,
+  PRESET_VALUE_CLASS,
+  QUALIFY_PRESET_KEYS,
+  isUntouchedQualifyTemplate,
+  presetById,
+  qualifyTemplateState,
+  stillTemplateQualifyValues,
+  type HallPreset,
+} from "@/lib/hall-presets";
 
 /**
  * Capacity qualifier.
@@ -24,6 +36,13 @@ import FreeAllowanceForm from "@/components/FreeAllowanceForm";
  *
  * Every figure it displays comes back from the engine with an evidence class
  * attached. Nothing here is computed in the browser.
+ *
+ * REFERENCE TEMPLATES. When the deployed engine advertises that it can label a figure as assumed (`presetsAvailable`, read from its
+ * /v1/version by the page), a visitor with no figures to hand may start from a template. Its values are synthetic and nobody measured them:
+ * a field still holding the template's value is sent as `assumedFields` and the engine classes it E0 (assumed) in the result, never E5
+ * (customer data). A field the visitor edits is theirs from then on. The disclosure stays while any value is edited, and a read that still
+ * contains a template's values is not stored or shareable and cannot be commissioned from (app/api/qualify/route.ts). Without the flag
+ * nothing of this is rendered and the form is exactly what it was.
  */
 
 interface FieldDef {
@@ -88,11 +107,32 @@ function fieldProblem(f: FieldDef, raw: string): string | null {
   return null;
 }
 
-export function CapacityQualifier() {
-  const [raw, setRaw] = useState<Raw>(() => Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw);
+/** What a result remembers about the template it started from: the label stays with the answer, whatever was edited afterwards. */
+type TemplateUsed = { name: string; assumed: number; total: number; untouched: boolean };
+
+/** Under a field a template filled in: whether the figure is still the template's (assumed) or has become the visitor's. */
+function TemplateTag({ id, preset, fieldKey, value }: { id: string; preset: HallPreset; fieldKey: string; value: string }) {
+  if (!(QUALIFY_PRESET_KEYS as readonly string[]).includes(fieldKey)) return null;
+  const still = value.trim() === preset.values[fieldKey as (typeof QUALIFY_PRESET_KEYS)[number]];
+  return (
+    <span id={id} className={`mt-1 block text-[11px] leading-snug ${still ? "text-queue" : "text-faint"}`}>
+      {still ? `Template value · assumed (${PRESET_VALUE_CLASS})` : "Your value"}
+    </span>
+  );
+}
+
+export function CapacityQualifier({ presetsAvailable = false, initialTemplateId = null }: { presetsAvailable?: boolean; initialTemplateId?: string | null } = {}) {
+  // `initialTemplateId` starts the form as if that template had been chosen (server-rendered tests only; the page never passes it).
+  const start = presetsAvailable ? presetById(initialTemplateId) : null;
+  const [templateId, setTemplateId] = useState<string | null>(start?.id ?? null);
+  const preset = presetsAvailable ? presetById(templateId) : null;
+  const [raw, setRaw] = useState<Raw>(() => ({
+    ...(Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw),
+    ...(start ? qualifyTemplateState(start).raw : {}),
+  }));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const alertRef = useRef<HTMLDivElement>(null);
-  const [platform, setPlatform] = useState<string>("gb300_nvl72");
+  const [platform, setPlatform] = useState<string>(start ? qualifyTemplateState(start).platform : "gb300_nvl72");
   const [siteName, setSiteName] = useState("");
   const [metro, setMetro] = useState("");
   const [busy, setBusy] = useState(false);
@@ -110,6 +150,29 @@ export function CapacityQualifier() {
    */
   const [qualificationId, setQualificationId] = useState<string | null>(null);
   const [qualificationToken, setQualificationToken] = useState<string | null>(null);
+  /** The template the displayed result started from (null: none, or none of its values were still the template's). */
+  const [templateUsed, setTemplateUsed] = useState<TemplateUsed | null>(null);
+  const templateStill = preset ? stillTemplateQualifyValues(preset, raw).length : 0;
+
+  const chooseTemplate = (id: string) => {
+    const p = presetById(id);
+    setResult(null);
+    setShare(null);
+    setError(null);
+    setFieldErrors({});
+    setTemplateUsed(null);
+    if (!p) {
+      // Back to the form's own starting values: choosing "no template" does not leave a template's numbers behind as if they were typed.
+      setTemplateId(null);
+      setRaw(Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw);
+      setPlatform("gb300_nvl72");
+      return;
+    }
+    const t = qualifyTemplateState(p);
+    setTemplateId(p.id);
+    setRaw((cur) => ({ ...cur, ...t.raw }));
+    setPlatform(t.platform);
+  };
 
   const set = (key: keyof Values, text: string) => {
     setRaw((v) => ({ ...v, [key]: text }));
@@ -150,11 +213,18 @@ export function CapacityQualifier() {
     setError(null);
     setResult(null);
     setShare(null);
+    setTemplateUsed(null);
+    // Only the figures that still hold the template's own value are declared assumed (E0); a figure the visitor changed is theirs.
+    const assumedFields = preset ? stillTemplateQualifyValues(preset, raw) : [];
+    const used: TemplateUsed | null =
+      preset && assumedFields.length > 0
+        ? { name: preset.name, assumed: assumedFields.length, total: QUALIFY_PRESET_KEYS.length, untouched: isUntouchedQualifyTemplate(preset, raw) }
+        : null;
     try {
       const res = await fetch("/api/qualify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, platform, siteName, metro }),
+        body: JSON.stringify({ ...values, platform, siteName, metro, ...(assumedFields.length ? { assumedFields } : {}) }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
@@ -173,6 +243,7 @@ export function CapacityQualifier() {
         return;
       }
       setResult(body.result as QualifyResult);
+      setTemplateUsed(used);
       setHeadline(String(body.headline ?? ""));
       setShare(typeof body.share === "string" ? body.share : null);
       setQualificationId(typeof body.qualificationId === "string" ? body.qualificationId : null);
@@ -202,6 +273,45 @@ export function CapacityQualifier() {
         </p>
       </div>
 
+      {presetsAvailable ? (
+        <div className="mb-5">
+          <label htmlFor="qualify-template" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+            No figures to hand? Start from a reference template
+          </label>
+          <select
+            id="qualify-template"
+            aria-describedby="qualify-template-help"
+            value={templateId ?? ""}
+            onChange={(e) => chooseTemplate(e.target.value)}
+            className="mt-1 min-h-11 w-full max-w-xl bg-panel-2 border border-line rounded px-3 py-2 text-ghost
+                       focus:outline-none focus:ring-2 focus:ring-power/60"
+          >
+            <option value="">No template — I will enter my own figures</option>
+            {HALL_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <span id="qualify-template-help" className="block mt-1 text-[11px] leading-snug text-faint">
+            A template fills the seven figures with synthetic input values, assumed ({PRESET_VALUE_CLASS}), not a customer&apos;s hall. Nothing is solved
+            until you press the button.
+          </span>
+          {preset ? (
+            <div role="status" data-testid="qualify-template-disclosure" className="mt-3 rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
+              <p>
+                <strong>{PRESET_DISCLOSURE}.</strong>
+              </p>
+              <p className="mt-1 text-mute">
+                Started from &ldquo;{preset.name}&rdquo;. {templateStill} of {QUALIFY_PRESET_KEYS.length} figures are still the template&apos;s; they are
+                sent to the engine as assumed ({PRESET_VALUE_CLASS}), and a figure you change is yours from then on. A read that still contains
+                template figures is not saved, has no share link and cannot be commissioned from.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <form onSubmit={submit} noValidate className="grid gap-5">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FIELDS.map((f) => {
@@ -223,7 +333,7 @@ export function CapacityQualifier() {
                   onChange={(e) => set(f.key, e.target.value)}
                   aria-required="true"
                   aria-invalid={err ? true : undefined}
-                  aria-describedby={err ? `qualify-${f.key}-error qualify-${f.key}-hint` : `qualify-${f.key}-hint`}
+                  aria-describedby={`${err ? `qualify-${f.key}-error ` : ""}qualify-${f.key}-hint${preset ? ` qualify-${f.key}-tag` : ""}`}
                   className={`mt-1 min-h-11 w-full bg-panel-2 border rounded px-3 py-2 font-mono text-ghost
                            focus:outline-none focus:ring-2 focus:ring-power/60 focus:border-power/60 ${err ? "border-flag" : "border-line"}`}
                 />
@@ -235,6 +345,7 @@ export function CapacityQualifier() {
                 <span id={`qualify-${f.key}-hint`} className="block mt-1 text-[11px] leading-snug text-faint">
                   {f.hint}
                 </span>
+                {preset ? <TemplateTag id={`qualify-${f.key}-tag`} preset={preset} fieldKey={f.key} value={raw[f.key]} /> : null}
               </div>
             );
           })}
@@ -326,28 +437,33 @@ export function CapacityQualifier() {
           share={share}
           qualificationId={qualificationId}
           qualificationToken={qualificationToken}
+          template={templateUsed}
         />
       ) : null}
     </div>
   );
 }
 
-function QualifyReadout({
+/** Exported so the tests render the readout from a canned engine answer; the page uses it only through CapacityQualifier. */
+export function QualifyReadout({
   result,
   headline,
   share,
   qualificationId,
   qualificationToken,
+  template,
 }: {
   result: QualifyResult;
   headline: string;
   share: string | null;
   qualificationId: string | null;
   qualificationToken: string | null;
+  template: TemplateUsed | null;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
   return (
     <div className="mt-8 animate-slide-up">
+      {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
       <p className="text-lg text-ghost leading-snug max-w-3xl">{headline}</p>
       {share ? <ShareLink href={share} /> : null}
 
@@ -388,8 +504,8 @@ function QualifyReadout({
       {intake.gaps.length ? (
         <div className="mt-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint mb-2">
-            Assumed, because nobody supplied it · intake {Math.round(intake.completeness * 100)}%
-            complete
+            Assumed, because nobody supplied it
+            {template ? "" : ` · intake ${Math.round(intake.completeness * 100)}% complete`}
           </p>
           <div className="overflow-x-auto rounded border border-line">
             <table className="w-full text-sm">
@@ -427,19 +543,24 @@ function QualifyReadout({
           <p className="text-[11px] text-faint mt-2">
             {intake.required_inputs_missing} required input
             {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer. A * marks an input the paid document requires.
+            {template ? " The figures that are still the template's are assumed too (listed above); the engine's completeness score would count them as supplied, so it is not shown for a template." : ""}
           </p>
         </div>
       ) : null}
 
-      <CommissionPanel
-        recommendation={intake.recommended_engagement}
-        summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
-        capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
-        qualificationId={qualificationId}
-        qualificationToken={qualificationToken}
+      <NextSteps
+        share={share}
+        templateDerived={template !== null}
+        commission={
+          <CommissionPanel
+            recommendation={intake.recommended_engagement}
+            summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
+            capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
+            qualificationId={qualificationId}
+            qualificationToken={qualificationToken}
+          />
+        }
       />
-
-      <NextSteps share={share} />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
     </div>
@@ -447,65 +568,87 @@ function QualifyReadout({
 }
 
 /**
- * Save and continue. Four next steps, each a real route that exists today, in the order most people want them:
- * keep this read, get the free allowance to call the engine yourself, see what running more would cost, or
- * commission the engagement. Nothing here sends the figures typed above anywhere new: the first step is the
- * permanent page this qualification already produced, and the rest are ordinary pages.
+ * Three next steps, each a real route or workflow that exists today, in the order that costs the visitor least first: compare the relief
+ * scenarios (free), get a free API key to call the engine yourself (free, no card), then the paid Density Screen. Nothing here sends the
+ * figures typed above anywhere new. The first step is an ordinary page; the second is the existing free-allowance form; the third is the
+ * existing commission flow, or, for a read that still contains a reference template's figures, the product page (a template is not a hall,
+ * so nothing is commissioned from it).
  */
-function NextSteps({ share }: { share: string | null }) {
+function NextSteps({ share, templateDerived, commission }: { share: string | null; templateDerived: boolean; commission: React.ReactNode }) {
   return (
     <section aria-labelledby="next-steps" className="mt-6 rounded border border-line bg-panel-2 p-4 sm:p-5">
       <h3 id="next-steps" className="font-mono text-[10px] uppercase tracking-[0.14em] text-power">
-        Save and continue
+        What to do next
       </h3>
       <ol className="mt-3 grid gap-4 md:grid-cols-2">
-        <li className="min-w-0">
-          <p className="text-sm font-semibold text-ghost">1. Keep this read</p>
+        <li className="min-w-0 md:col-span-2" data-next-step="compare">
+          <p className="text-sm font-semibold text-ghost">1. Compare the relief scenarios · free</p>
           <p className="mt-1 text-xs text-mute">
-            {share
-              ? "It has a permanent page, private to whoever holds the link. Open it, or copy the link above to send on."
-              : "It was not saved to a page on this deployment, so copy the figures above before you leave."}
+            The free Time-to-Power comparison puts dates and evidence classes on each option and can be saved to a project for whoever
+            approves the spend.
+            {share ? " This read also has a permanent page, private to whoever holds its link (above)." : ""}
           </p>
-          {share ? (
-            <a href={share} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
-              Open the saved page
-            </a>
-          ) : null}
-        </li>
-        <li className="min-w-0">
-          <p className="text-sm font-semibold text-ghost">2. Compare the relief options, then save a project</p>
-          <p className="mt-1 text-xs text-mute">
-            The free Time-to-Power comparison puts dates and evidence classes on each option and can be saved to a project
-            for whoever approves the spend.
-          </p>
-          <a href="/power/compare" className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
+          <a href={NEXT_STEP_HREFS.compare} className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
             Run the comparison
           </a>
         </li>
-        <li className="min-w-0 md:col-span-2">
-          <p className="text-sm font-semibold text-ghost">3. Run more halls yourself, free to start</p>
+        <li className="min-w-0 md:col-span-2" data-next-step="free-key">
+          <p className="text-sm font-semibold text-ghost">2. Get a free API key · no card</p>
           <p className="mt-1 text-xs text-mute">
-            An email address gets {PAYG.freeAllowanceUnits} units a month, no card, to call the engine from your own
-            tooling. <a href="/developers#rates" className="text-power underline">See what the next operation would cost</a>{" "}
+            An email address gets {PAYG.freeAllowanceUnits} units a month to call the engine from your own tooling.{" "}
+            <a href={NEXT_STEP_HREFS.developersRates} className="text-power underline">See what the next operation would cost</a>{" "}
             before you run it.
           </p>
           <div className="mt-3 max-w-xl">
             <FreeAllowanceForm compact heading="Get the free allowance" />
           </div>
         </li>
-        <li className="min-w-0 md:col-span-2">
-          <p className="text-sm font-semibold text-ghost">4. Commission the engagement</p>
-          <p className="mt-1 text-xs text-mute">
-            The panel above carries this read into the engagement, so the intake starts from the numbers you already
-            entered.{" "}
-            <a href="/pricing#engagements" className="text-power underline">
-              Compare the engagements
-            </a>
-            .
-          </p>
+        <li className="min-w-0 md:col-span-2" data-next-step="density-screen">
+          <p className="text-sm font-semibold text-ghost">3. The Density Screen · paid</p>
+          {templateDerived ? (
+            <p className="mt-1 text-xs text-mute">
+              This read used a reference template&apos;s figures, so there is nothing to commission from it. Run the qualifier again with your own
+              hall&apos;s figures to commission the Screen from that read, or read what it is first.{" "}
+              <a href={NEXT_STEP_HREFS.densityScreen} className="text-power underline">What the Density Screen is</a>.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-mute">
+                The engagement below carries this read into the Screen, so the intake starts from the numbers you already entered.{" "}
+                <a href={NEXT_STEP_HREFS.engagements} className="text-power underline">Compare the engagements</a>.
+              </p>
+              {commission}
+            </>
+          )}
         </li>
       </ol>
     </section>
+  );
+}
+
+/** Said above a read whose figures include a reference template's: what it is, how many figures are the template's, and what the engine recorded. */
+export function TemplateNotice({ template, recorded }: { template: TemplateUsed; recorded: NonNullable<QualifyResult["inputs_declared_assumed"]> }) {
+  return (
+    <div role="status" data-testid="qualify-template-result" className="mb-5 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost">
+      <p>
+        <strong>{PRESET_DISCLOSURE}.</strong>
+      </p>
+      <p className="mt-1 text-mute">
+        {template.untouched
+          ? `This read is for the template “${template.name}”, not for any hall: all ${template.total} figures are the template's and are classed assumed (${PRESET_VALUE_CLASS}) in the result.`
+          : `${template.assumed} of ${template.total} figures in this read are still the template's “${template.name}” and are classed assumed (${PRESET_VALUE_CLASS}) in the result; the others are yours.`}{" "}
+        It is not saved and has no share link.
+      </p>
+      {recorded.length ? (
+        <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-faint">
+          {recorded.map((r) => (
+            <li key={r.path}>
+              · {r.input}: {r.value} {r.unit} · {r.evidence} assumed
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

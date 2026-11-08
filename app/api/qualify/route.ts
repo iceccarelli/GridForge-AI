@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { engineUnavailableMessage } from "./unavailable-message";
-import { callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { assumedEngineFields, callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
 import { guardRequest, spendRefused } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 import { recordFunnelEvent } from "@/lib/funnel";
@@ -50,6 +51,21 @@ export async function POST(req: Request) {
   const g = await guardRequest(req, "qualify");
   if (g.denied) return g.denied;
   return g.run(async () => {
+    // A figure declared assumed (a reference template's value) is honoured only by an engine that says it does that. The engine ignores keys it
+    // does not know, so sending `assumed_fields` to one that predates it would return the template's number classed as customer data (E5):
+    // refuse instead, calling nothing, and say why. A plain request never reaches this check.
+    const assumed = assumedEngineFields(input);
+    if (assumed.length && !(await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG))) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Reference templates are not available yet: the capacity engine this site is connected to cannot label template values as assumed, so nothing was calculated. Enter your own figures instead.",
+          reason: "template_not_supported",
+        },
+        { status: 409 }
+      );
+    }
     // Adoption funnel, anonymous by construction: a started qualification carries NOTHING (no input, no address, no account), and a
     // completed one carries only the evidence class of the answer. The two cannot be joined to a person or to each other.
     await recordFunnelEvent("qualify_started");
@@ -57,13 +73,18 @@ export async function POST(req: Request) {
     // identity and an unreachable engine still produces a row we can come back to.
     const token = newQualificationToken();
 
+    // A read that still contains a template's values is not a hall: it is answered, and that is all. It is not stored (so it has no share link,
+    // cannot be joined to a purchase, and its numbers are never carried into an engagement intake as the buyer's own), it is not counted in the
+    // benchmark or the admin insights, and it is not counted as a completed qualification in the adoption funnel.
+    const templateDerived = assumed.length > 0;
+
     const outcome = await callEngine(input);
 
     if (!outcome.ok) {
       // Never invent a number when the engine is unavailable. Capture the enquiry
       // and say plainly what happened.
       // A refusal by the spend gate is not an engine outage and is not a lead to chase: nothing is stored for it.
-      const persisted = spendRefused()
+      const persisted = spendRefused() || templateDerived
         ? false
         : await persist(input, null, token).then(
             () => true,
@@ -82,8 +103,8 @@ export async function POST(req: Request) {
     }
 
     const evidence = /^E[0-7]/.exec(String(outcome.result?.as_found?.it_load_kW?.evidence ?? ""))?.[0];
-    await recordFunnelEvent("qualify_completed", evidence ? { evidence_class: evidence } : {});
-    const qualificationId = await persist(input, outcome.result, token).catch(() => undefined);
+    if (!templateDerived) await recordFunnelEvent("qualify_completed", evidence ? { evidence_class: evidence } : {});
+    const qualificationId = templateDerived ? undefined : await persist(input, outcome.result, token).catch(() => undefined);
     const stored = qualificationId !== undefined;
 
     return NextResponse.json({
@@ -101,6 +122,8 @@ export async function POST(req: Request) {
       // id and have another buyer's numbers seeded into their own intake.
       qualificationId: qualificationId ?? null,
       qualificationToken: stored ? token : null,
+      // Said outright so the page does not have to infer it from a missing link.
+      templateDerived,
     });
   });
 }

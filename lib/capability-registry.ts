@@ -103,6 +103,8 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     deliverable: "On-page result + optional lead capture",
     status: "free",
     production_status: "live",
+    notes:
+      "The route is live. Its `assumed_fields` input (a figure declared assumed is classed E0 in the result, never E5) exists in this repository's engine and is advertised in GET /v1/version `capabilities.qualify_assumed_fields`; the deployed engine serves it only once it is redeployed. The /qualify reference-template selector therefore appears only when the live engine advertises that flag (lib/engine-capabilities.ts), and nothing here marks the sub-feature live.",
   },
   {
     capability_id: "density_screen",
