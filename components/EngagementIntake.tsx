@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2, Plus, Trash2 } from "lucide-react";
 import { IntakeEvidence } from "@/components/IntakeEvidence";
 import { SPEC_RELIEF_CONSTRAINTS } from "@/lib/project-spec-relief";
+import { ENGINE_LIBRARY_DEFAULTS } from "@/lib/engagement-intake";
 
 /**
  * The intake a client fills in after commissioning an engagement.
@@ -23,6 +24,43 @@ interface Row {
 }
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
+
+/**
+ * The form before the visitor types. Power factor, busway runs and LV voltage start EMPTY: the engine's library defaults are shown as
+ * placeholder text only (ENGINE_LIBRARY_DEFAULTS), because a pre-filled "6" / "400" / "0.97" was submitted as if the visitor had supplied them,
+ * and the engine then treated them as customer data and dropped them from the named assumptions.
+ */
+export const EMPTY_FORM: Record<string, string> = {
+  siteName: "", hallId: "", metro: "", country: "", buildYear: "", floorType: "raised_floor",
+  dso: "", firmCapacityMVA: "", contractedMW: "", currentPeakMW: "", currentItLoadMW: "",
+  powerFactor: "", queueNote: "",
+  buswayAmpacityA: "", buswayRuns: "", tapoffMaxA: "", voltageV: "",
+  floorLoadingKPa: "", positionsAvailable: "", rackPositions: "", netWhiteSpaceM2: "",
+  clearHeightM: "", aislePitchM: "", designDensityKWPerRack: "",
+  plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "", existingFlowLPerMin: "", existingNonItHeatKW: "",
+  residualAirKWPerRack: "", designDrybulbC: "",
+  platform: "gb300_nvl72", utilisation: "0.75",
+  constraint: "",
+};
+
+/** The JSON the form posts: a blank field and a figure the buyer confirmed from a document are both left out, so the server never sees a value the buyer did not give. */
+export function intakePayload(
+  f: Record<string, string>,
+  confirmed: readonly string[],
+  transformers: readonly Row[],
+  ups: readonly Row[],
+): Record<string, unknown> {
+  const clean = (v: string) => (v.trim() === "" ? undefined : v);
+  return {
+    ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, confirmed.includes(k) ? undefined : clean(v)])),
+    transformers: transformers
+      .filter((r) => r.rating !== "" && r.units !== "")
+      .map((r) => ({ id: r.id, unit_rating_MVA: r.rating, units: r.units, redundancy: r.redundancy })),
+    ups: ups
+      .filter((r) => r.rating !== "" && r.units !== "")
+      .map((r) => ({ id: r.id, unit_rating_kW: r.rating, units: r.units, redundancy: r.redundancy })),
+  };
+}
 
 export function EngagementIntake({
   token,
@@ -48,18 +86,7 @@ export function EngagementIntake({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const [f, setF] = useState<Record<string, string>>({
-    siteName: "", hallId: "", metro: "", country: "", buildYear: "", floorType: "raised_floor",
-    dso: "", firmCapacityMVA: "", contractedMW: "", currentPeakMW: "", currentItLoadMW: "",
-    powerFactor: "0.97", queueNote: "",
-    buswayAmpacityA: "", buswayRuns: "6", tapoffMaxA: "", voltageV: "400",
-    floorLoadingKPa: "", positionsAvailable: "", rackPositions: "", netWhiteSpaceM2: "",
-    clearHeightM: "", aislePitchM: "", designDensityKWPerRack: "",
-    plantCapacityKW: "", plantSupplyC: "", plantReturnC: "", pumpFlowLPerMin: "", existingFlowLPerMin: "", existingNonItHeatKW: "",
-    residualAirKWPerRack: "", designDrybulbC: "",
-    platform: "gb300_nvl72", utilisation: "0.75",
-    constraint: "",
-  });
+  const [f, setF] = useState<Record<string, string>>(EMPTY_FORM);
   /**
    * A Density Screen may proceed without three of these.
    *
@@ -209,16 +236,7 @@ export function EngagementIntake({
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const clean = (v: string) => (v.trim() === "" ? undefined : v);
-    const payload = {
-      ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, confirmed.includes(k) ? undefined : clean(v)])),
-      transformers: transformers
-        .filter((r) => r.rating !== "" && r.units !== "")
-        .map((r) => ({ id: r.id, unit_rating_MVA: r.rating, units: r.units, redundancy: r.redundancy })),
-      ups: ups
-        .filter((r) => r.rating !== "" && r.units !== "")
-        .map((r) => ({ id: r.id, unit_rating_kW: r.rating, units: r.units, redundancy: r.redundancy })),
-    };
+    const payload = intakePayload(f, confirmed, transformers, ups);
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -301,14 +319,14 @@ export function EngagementIntake({
         <Field label="Contracted · MW" required hint="From the supply contract, not the connection nameplate."><input className={inputCls} type="number" step="0.1" value={f.contractedMW} onChange={set("contractedMW")} required /></Field>
         <Field label="Current site peak · MW" required hint="Half-hourly metered peak over the last 12 months, from the utility bills or the site meter."><input className={inputCls} type="number" step="0.1" value={f.currentPeakMW} onChange={set("currentPeakMW")} required /></Field>
         <Field label="Current IT load · MW" required hint="Protected load at the UPS output."><input className={inputCls} type="number" step="0.1" value={f.currentItLoadMW} onChange={set("currentItLoadMW")} required /></Field>
-        <Field label="Power factor" hint="From the utility bill or a power-quality meter."><input className={inputCls} type="number" step="0.01" value={f.powerFactor} onChange={set("powerFactor")} /></Field>
+        <Field label="Power factor" hint={`From the utility bill or a power-quality meter. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.powerFactor} and names it as an assumption.`}><input className={inputCls} type="number" step="0.01" min="0.7" max="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.powerFactor}`} value={f.powerFactor} onChange={set("powerFactor")} /></Field>
       </Section>
 
       <Section title="Distribution" note="400 A legacy against 800–1000 A modern is the most common hard stop.">
         <Field label="Busway ampacity · A" required hint="Rating plate on the busway, or the electrical single-line: 400 A legacy, 800 to 1000 A modern."><input className={inputCls} type="number" value={f.buswayAmpacityA} onChange={set("buswayAmpacityA")} required /></Field>
-        <Field label="Busway runs" hint="Count of separate busway runs feeding the racks."><input className={inputCls} type="number" value={f.buswayRuns} onChange={set("buswayRuns")} /></Field>
+        <Field label="Busway runs" hint={`Count of separate busway runs feeding the racks. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns} and names it as an assumption.`}><input className={inputCls} type="number" min="1" step="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns}`} value={f.buswayRuns} onChange={set("buswayRuns")} /></Field>
         <Field label="Tap-off rating · A" required hint="Rating on the tap-off boxes at the racks: the smallest that feeds a rack position."><input className={inputCls} type="number" value={f.tapoffMaxA} onChange={set("tapoffMaxA")} required /></Field>
-        <Field label="LV voltage · V" hint="Nominal distribution voltage on the single-line."><input className={inputCls} type="number" value={f.voltageV} onChange={set("voltageV")} /></Field>
+        <Field label="LV voltage · V" hint={`Nominal distribution voltage on the single-line. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.voltageV} V and names it as an assumption.`}><input className={inputCls} type="number" min="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.voltageV}`} value={f.voltageV} onChange={set("voltageV")} /></Field>
       </Section>
 
       <Section title="Cooling" note="Legacy 6–7 °C plant against a 27–32 °C loop requirement governs the scheme.">

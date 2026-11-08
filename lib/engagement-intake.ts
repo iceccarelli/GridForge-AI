@@ -75,6 +75,28 @@ export const ASSUMABLE_SOURCE: Record<AssumableField, string> = {
   plantCapacityKW: "the mechanical schedule for the chilled-water plant",
 };
 
+/**
+ * The three figures the engine falls back to when an intake leaves them out (gridforge/intake/loader.py: `lv.busway_runs`, `lv.voltage_V`,
+ * `grid.power_factor`). They are shown to the visitor as placeholder/hint text ONLY. They are never a form value and never a schema default:
+ * a value the visitor did not give must not reach the engine as if they had (the engine then classes it as supplied customer data, E5 or E3,
+ * counts the field as supplied in `intake_completeness`, and drops it from the named-assumptions list). Left out, the engine uses its own
+ * default AND names it as an assumption in the document. tests/site/honest-intake-defaults.test.ts pins these numbers to the engine's source
+ * and to a real engine run, so this table cannot drift from what the engine actually assumes.
+ *
+ * SAVED REQUESTS. A project or comparison saved before this change stored the request that was sent, and that request carries 6 runs, 400 V
+ * and 0.97 as plain numbers. Nothing here rewrites or migrates it: the evidence ladder (lib/project-spec-relief.ts) reads a saved request as
+ * it is and shows those three as SUPPLIED, because they were sent to the engine as supplied and the engine treated them so. That reading is
+ * true of what was sent; it is not a claim that the visitor measured them.
+ */
+export const ENGINE_LIBRARY_DEFAULTS = {
+  buswayRuns: 6,
+  voltageV: 400,
+  powerFactor: 0.97,
+} as const;
+
+/** The form's hint for one of the three, in the visitor's words. */
+export const LIBRARY_DEFAULT_HINT = `the engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns} runs / ${ENGINE_LIBRARY_DEFAULTS.voltageV} V / ${ENGINE_LIBRARY_DEFAULTS.powerFactor} until you give yours`;
+
 const baseShape = {
   // identity
   siteName: z.string().trim().min(1).max(120),
@@ -90,14 +112,16 @@ const baseShape = {
   contractedMW: num(2000),
   currentPeakMW: num(2000),
   currentItLoadMW: num(2000),
-  powerFactor: z.coerce.number().min(0.7).max(1).default(0.97),
+  // powerFactor, voltageV and buswayRuns are OPTIONAL with no schema default: see ENGINE_LIBRARY_DEFAULTS below. A value the
+  // visitor did not give is not parsed into 0.97 / 400 / 6 and sent as if it were theirs.
+  powerFactor: z.coerce.number().min(0.7).max(1).optional(),
   queueNote: z.string().trim().max(1200).optional(),
 
   // LV distribution — usually what actually binds
   buswayAmpacityA: num(6300),
-  buswayRuns: z.coerce.number().int().min(1).max(64).default(6),
+  buswayRuns: z.coerce.number().int().min(1).max(64).optional(),
   tapoffMaxA: num(1600),
-  voltageV: num(1000).default(400),
+  voltageV: num(1000).optional(),
 
   // hall
   floorLoadingKPa: num(100),
@@ -176,8 +200,10 @@ function plantFigureRules(
  * Everything, required. The Procurement Specification, and the safe default for
  * any product that does not say otherwise.
  */
+const engagementObject = z.object(baseShape);
+
 // Ensure .shape is accessible both at runtime and in TypeScript when wrapped in ZodEffects
-function withShape<T extends z.ZodTypeAny>(schema: T): T & { shape: typeof baseShape } {
+function withShape<S extends z.ZodRawShape, T extends z.ZodTypeAny = z.ZodTypeAny>(schema: T): T & { shape: S } {
   let cur: any = schema;
   while (cur && !cur.shape && cur._def?.schema) cur = cur._def.schema;
   if (cur?.shape && !(schema as any).shape) {
@@ -186,7 +212,7 @@ function withShape<T extends z.ZodTypeAny>(schema: T): T & { shape: typeof baseS
   return schema as any;
 }
 
-export const engagementIntakeSchema = withShape(z.object(baseShape).superRefine(plantFigureRules));
+export const engagementIntakeSchema = withShape<typeof baseShape, ReturnType<typeof engagementObject.superRefine>>(engagementObject.superRefine(plantFigureRules));
 
 /**
  * The Density Screen: the seven the free qualifier proves are enough to name what
@@ -197,16 +223,14 @@ export const engagementIntakeSchema = withShape(z.object(baseShape).superRefine(
  * Nothing below the free tier's own bar: a Screen built on fewer numbers than the
  * qualifier answers on would have no site-specific content to sell.
  */
-export const screenIntakeSchema = withShape(
-  z
-    .object({
-      ...baseShape,
-      firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
-      floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
-      plantCapacityKW: baseShape.plantCapacityKW.optional(),
-    })
-    .superRefine(plantFigureRules)
-);
+const screenShape = {
+  ...baseShape,
+  firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
+  floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
+  plantCapacityKW: baseShape.plantCapacityKW.optional(),
+};
+const screenObject = z.object(screenShape);
+export const screenIntakeSchema = withShape<typeof screenShape, ReturnType<typeof screenObject.superRefine>>(screenObject.superRefine(plantFigureRules));
 
 /**
  * The schema for a product kind.
