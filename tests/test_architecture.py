@@ -95,7 +95,7 @@ def test_no_third_party_dependencies():
     stdlib_ok = {"__future__", "argparse", "ast", "base64", "collections", "copy", "csv",
                  "contextlib", "contextvars", "dataclasses", "fcntl", "functools", "datetime", "enum", "hashlib", "hmac", "html", "http", "io", "ipaddress",
                  "json", "math", "os", "pathlib", "re", "secrets", "signal", "sys", "threading",
-                 "time", "traceback", "typing", "urllib", "zipfile"}
+                 "time", "traceback", "typing", "unicodedata", "urllib", "zipfile"}   # unicodedata: standard library; gridforge/calibration/siteref.py uses it for NFC
     bad = []
     for path in ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text())
