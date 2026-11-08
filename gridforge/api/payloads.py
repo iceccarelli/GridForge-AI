@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..calibration import accuracy_block, constraint_key
 from ..envelope.time_to_power import date_basis, schedule
 from ..intake.loader import Intake
+from ..intake.schema import FIELD_BY_PATH
 from ..power.plausibility import intake_warnings
 from ..reporting.study import Objective, _pick_recommended
 from ..scenario.run import ScenarioResult
@@ -38,13 +39,31 @@ def _gap_list(intake: Intake, *, public: bool = False) -> list[dict]:
             if not (public and g.path.startswith(_PAID_ONLY_GAP_PREFIXES))]
 
 
+def _declared_assumed_inputs(intake: Intake, paths: list[str]) -> list[dict]:
+    """The supplied figures the caller declared assumed, read back from what the LOADER recorded for them (its class and its note), not from
+    the request: so the list says what the engine actually did with each figure. Names the loader's own path and label."""
+    by_path = {src.path: src for src in intake.report.sourced}
+    rows = []
+    for path in paths:
+        src = by_path.get(path)
+        if src is None:
+            continue
+        spec = FIELD_BY_PATH.get(path)
+        rows.append({"path": path, "input": spec.label if spec else src.label, "unit": src.unit, "value": src.value, "evidence": src.evidence, "note": src.note})
+    return rows
+
+
 def qualify_payload(intake: Intake, results: list[ScenarioResult],
-                    objective: Objective = Objective.MAX_COMPUTE) -> dict:
-    """The website qualifier. Real engineering, no priced content."""
+                    objective: Objective = Objective.MAX_COMPUTE, *, declared_assumed: list[str] | None = None) -> dict:
+    """The website qualifier. Real engineering, no priced content.
+
+    `declared_assumed` names (by the loader's intake path) the qualify fields the caller declared assumed (class E0). When it is empty the response is exactly what it was
+    before the parameter existed; when it is not, `inputs_declared_assumed` is added, listing each such figure with the class the engine
+    recorded for it, and the figures are classed E0 throughout the result's own basis and evidence."""
     rec = _pick_recommended(results, objective)
     t = schedule(rec.ladder)
     plat = intake.context.cluster.platform
-    return {
+    out = {
         "platform": {"id": plat.id, "name": plat.name,
                      "rack_kW": _q(plat.rack_kW), "gpus_per_rack": plat.gpus_per_rack},
         "as_found": {
@@ -78,6 +97,9 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
         "calibration": calibration_block(results),
         "notice": PUBLIC_NOTICE,
     }
+    if declared_assumed:
+        out["inputs_declared_assumed"] = _declared_assumed_inputs(intake, declared_assumed)
+    return out
 
 
 def screen_payload(intake: Intake, results: list[ScenarioResult],

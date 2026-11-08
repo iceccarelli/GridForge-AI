@@ -136,12 +136,58 @@ QUALIFY_FIELDS = {
 }
 
 
+#: The note the engine records beside a qualify figure the caller declared assumed. The caller cannot write its own: this is the only
+#: text that reaches the loader for such a figure, so a declaration can only ever say what it is.
+QUALIFY_ASSUMED_NOTE = "Declared assumed by the caller (for example a reference-template value). It is not this hall's figure."
+#: The class a declaration can carry. It is the LOWEST class (an assumption); there is no way through this route to name any other, so a
+#: declaration can lower what a figure is claimed to be and can never raise it.
+QUALIFY_ASSUMED_CLASS = "E0"
+
+
+def qualify_assumed_fields(body: dict) -> list[str]:
+    """The seven qualify fields the caller declares ASSUMED (class E0) rather than supplied, in the order the qualifier asks them.
+
+    `assumed_fields` is optional. When present it is a list of qualify field names (QUALIFY_FIELDS keys), each at most once, each one the
+    request actually gives. Anything else is refused with a 422 that names the entry, so a typo can never quietly leave a template's number
+    classed as customer data. Absent or null is the plain request, answered exactly as before."""
+    raw = body.get("assumed_fields")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ApiError(422, f"assumed_fields must be a list of field names, not {type(raw).__name__}", allowed=list(QUALIFY_FIELDS))
+    if len(raw) > len(QUALIFY_FIELDS):
+        raise ApiError(422, f"assumed_fields lists {len(raw)} entries; there are only {len(QUALIFY_FIELDS)} qualify fields",
+                       allowed=list(QUALIFY_FIELDS))
+    seen: set[str] = set()
+    for n, name in enumerate(raw):
+        if not isinstance(name, str):
+            raise ApiError(422, f"assumed_fields[{n}] must be a field name (text), not {type(name).__name__}", allowed=list(QUALIFY_FIELDS))
+        if name not in QUALIFY_FIELDS:
+            raise ApiError(422, f"assumed_fields[{n}] {name[:60]!r} is not a qualify field", allowed=list(QUALIFY_FIELDS))
+        if name in seen:
+            raise ApiError(422, f"assumed_fields[{n}] repeats {name}; name each field once")
+        if body.get(name) is None:
+            raise ApiError(422, f"assumed_fields[{n}] names {name}, which the request does not give: only a figure that is sent can be declared assumed")
+        seen.add(name)
+    return [k for k in QUALIFY_FIELDS if k in seen]
+
+
+def _declared_assumed(value: float) -> dict:
+    """A figure in the intake loader's annotated form, declared E0. The loader reads class and note from here and nowhere else."""
+    return {"value": value, "evidence": QUALIFY_ASSUMED_CLASS, "note": QUALIFY_ASSUMED_NOTE}
+
+
 def qualify_to_intake(body: dict) -> dict:
     """Expand the short web form into a sparse intake document.
 
     Everything not asked becomes a library default and a recorded gap, which is
     exactly the list the prospect is shown at the end. The form is short because
-    the gap list is the product, not because the model is."""
+    the gap list is the product, not because the model is.
+
+    A caller that started from a reference template says so with `assumed_fields` (see qualify_assumed_fields): each named figure goes
+    to the loader as {value, evidence: "E0", note}, the loader's own annotated form, so it is classed an assumption (E0) in the result's
+    basis and evidence and never as customer data (E5). The class is fixed here; the request cannot choose it."""
+    assumed = set(qualify_assumed_fields(body))
     doc: dict = {"project": {"client": str(body.get("client") or "Website qualifier"),
                             "reference": str(body.get("reference") or "web")},
                  "site": {"name": str(body.get("site_name") or "Unnamed site"),
@@ -157,14 +203,28 @@ def qualify_to_intake(body: dict) -> dict:
         parts = path.split(".")
         for p in parts[:-1]:
             cur = cur.setdefault(p, {})
-        cur[parts[-1]] = _qualify_number(key, body[key])
+        number = _qualify_number(key, body[key])
+        cur[parts[-1]] = _declared_assumed(number) if key in assumed else number
     if body.get("firm_capacity_MVA") is not None:
         doc["grid"]["firm_capacity_MVA"] = _qualify_number("firm_capacity_MVA", body["firm_capacity_MVA"])
     elif doc.get("grid", {}).get("contracted_MW") is not None:
         # A connection is normally sized at or above the contracted figure; assume
         # parity rather than inventing headroom the site may not have.
-        doc["grid"]["firm_capacity_MVA"] = float(doc["grid"]["contracted_MW"]) / 0.97
+        contracted = doc["grid"]["contracted_MW"]
+        if "contracted_MW" in assumed:
+            # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic.
+            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97)
+        else:
+            doc["grid"]["firm_capacity_MVA"] = float(contracted) / 0.97
     return doc
+
+
+#: What this engine does beyond what its route list says (served in GET /v1/version `capabilities`). A key is True only when the code
+#: path exists AND tests/test_qualify_assumed.py proves it; remove the key rather than leave a claim the code no longer keeps.
+CAPABILITIES: dict[str, bool] = {
+    # POST /v1/qualify accepts `assumed_fields`: a figure so named is classed E0 (assumed) in the result, never E5.
+    "qualify_assumed_fields": True,
+}
 
 
 def _qualify_number(name: str, raw) -> float:
@@ -387,7 +447,7 @@ def handle_qualify(body: dict, tier: Tier) -> dict:
         raise ApiError(422, "too little to say anything useful",
                        required_at_least=list(QUALIFY_FIELDS)[:3], missing=missing)
     intake, results = _run(qualify_to_intake(body))
-    return qualify_payload(intake, results, _objective(body))
+    return qualify_payload(intake, results, _objective(body), declared_assumed=[QUALIFY_FIELDS[k] for k in qualify_assumed_fields(body)])
 
 
 def _rendered(report, results, fmt: str) -> dict:
@@ -1666,6 +1726,9 @@ class Handler(BaseHTTPRequestHandler):
                 "idempotency_key_max_chars": MAX_IDEM_KEY_CHARS,
                 "tier": self._tier().value,
                 "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
+                # Behaviour a route has that its path does not show. A site that depends on one reads it here and, from an engine that does
+                # not list it (an older deployment), hides the feature instead of sending a field that engine would silently ignore.
+                "capabilities": dict(CAPABILITIES),
                 "unit_rates": dict(sorted(UNIT_COST.items())),
                 "payg": payg_public(),
                 "metering": {

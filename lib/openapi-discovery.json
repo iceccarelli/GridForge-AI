@@ -104,6 +104,13 @@
             "type": "string"
           }
         },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Behaviour a route has that its path does not show, as named flags (for example qualify_assumed_fields: POST /v1/qualify accepts assumed_fields). A flag is present and true only when the engine does it; an engine that does not list a flag does not do it."
+        },
         "unit_rates": {
           "type": "object",
           "additionalProperties": {
