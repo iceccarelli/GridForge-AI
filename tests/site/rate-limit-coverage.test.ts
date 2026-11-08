@@ -177,6 +177,7 @@ describe("every route handler that reaches a paid provider is metered or trusted
       "app/api/deliverable/[token]/bids/route.ts POST": "customer",
       "app/api/deliverable/[token]/evidence-run/route.ts POST": "customer",
       "app/api/deliverable/[token]/quotes/route.ts POST": "customer",
+      "app/api/halls/[id]/diff/route.ts POST": "customer",
       "app/api/intake/[token]/route.ts POST": "customer",
       "app/api/power/compare/route.ts POST": "guarded",
       "app/api/power/compare/save/route.ts POST": "guarded",

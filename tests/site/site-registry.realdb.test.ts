@@ -9,6 +9,7 @@
 import http from "node:http";
 import { afterAll, describe, expect, it } from "vitest";
 import { defineRegistryScenarios } from "./site-registry-scenarios";
+import { defineEngineDiffScenarios } from "./site-registry-engine-diff-scenarios";
 
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
@@ -54,6 +55,16 @@ afterAll(() => { gateway?.close(); });
 
 describe.skipIf(!enabled)("site registry - real PostgreSQL via PostgREST", () => {
   defineRegistryScenarios({
+    async install() {
+      process.env.SUPABASE_URL = gateway ? `http://127.0.0.1:${(gateway.address() as { port: number }).port}` : await startGateway();
+      process.env.SUPABASE_SERVICE_ROLE_KEY = JWT;
+      return () => { /* the gateway outlives the test; the harness restores globalThis.fetch */ };
+    },
+  });
+});
+
+describe.skipIf(!enabled)("site registry engine-backed capacity diff - real PostgreSQL via PostgREST", () => {
+  defineEngineDiffScenarios({
     async install() {
       process.env.SUPABASE_URL = gateway ? `http://127.0.0.1:${(gateway.address() as { port: number }).port}` : await startGateway();
       process.env.SUPABASE_SERVICE_ROLE_KEY = JWT;

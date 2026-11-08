@@ -88,6 +88,12 @@ export const RATE_POLICIES = {
   registry_read: { bucket: "registry_read", limit: 600, windowSeconds: HOUR },
   /** POST/DELETE on the same routes: each writes an append-only row. 120 an hour per verified account is a team entering a hall's figures, not a loop. */
   registry_write: { bucket: "registry_write", limit: 120, windowSeconds: HOUR },
+  /** POST /api/halls/[id]/diff: each admitted run asks the engine's /v1/diff under the OPERATOR's key, which meters 2 units (EUR 4 at the published EUR 2 a unit). Counted per VERIFIED
+   *  ACCOUNT (`accountOnly`) and only for a run that reaches the engine: a refused body, a stranger's 404 and an answer of "these figures are missing" cost nothing and count nothing.
+   *  10 an hour is an engineer comparing a few points before a review, not a loop (at most EUR 40 an hour per account). */
+  registry_diff: { bucket: "registry_diff", limit: 10, windowSeconds: HOUR },
+  /** ...and per HALL per day, however many members ask: 60 runs is at most 120 units (EUR 240) a day for one hall. Charged after membership is established, so a stranger cannot spend a hall's allowance. */
+  registry_diff_hall: { bucket: "registry_diff_hall", limit: 60, windowSeconds: 86400 },
   /** POST /api/audit: records an enquiry, mails the desk, pings Slack and may mail the address typed in the form. */
   audit: { bucket: "audit", limit: 10, windowSeconds: HOUR },
   /** POST /api/qualify/[token]/follow-up: each first request mails the desk and an address the caller typed. */
