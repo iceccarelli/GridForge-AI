@@ -15,13 +15,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { screenIntakeSchema } from "@/lib/engagement-intake";
-import { ASSUMABLE_HALL_FIELDS, compareRequestSchema, toEngineBody, type CompareResult } from "@/lib/ttp-compare";
+import { ASSUMABLE_HALL_FIELDS, ASSUMED_VALUE_NOTE, compareRequestSchema, toEngineBody, type CompareResult } from "@/lib/ttp-compare";
 import {
   HALL_PRESETS,
   PRESET_DISCLOSURE,
   PRESET_VALUE_KEYS,
   editedTemplateValues,
   isUntouchedTemplate,
+  resultIsSynthetic,
   templateLoadState,
   templateSupplyUnchanged,
   presetById,
@@ -31,7 +32,7 @@ import {
 } from "@/lib/hall-presets";
 import { TtpCompare, buildCompareBody } from "@/components/TtpCompare";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
-import { ComparisonResults } from "@/components/TtpCompare";
+import { ComparisonResults, resultDownload } from "@/components/TtpCompare";
 import { engineAvailable } from "./_engine-guard";
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -160,6 +161,29 @@ describe("an untouched template is a synthetic example, whatever its labels say"
     expect(isUntouchedTemplate(p, s.form, [...s.btm, { ...s.btm[0], id: "x" }])).toBe(false);
     expect(templateSupplyUnchanged(p, s.btm)).toBe(true);
     expect(templateSupplyUnchanged(presetById("legacy_air_to_dlc")!, [])).toBe(true);
+  });
+  it("a result is synthetic while the template is untouched (labels aside), and the plain example follows its own flag", () => {
+    const s = templateLoadState(p);
+    expect(resultIsSynthetic(p, false, { ...s.form, siteName: "Renamed" }, s.btm)).toBe(true);       // even if the flag were lost
+    expect(resultIsSynthetic(p, true, { ...s.form, tapoffMaxA: "1" }, s.btm)).toBe(false);            // an edited value makes it a hall
+    expect(resultIsSynthetic(null, true, s.form, [])).toBe(true);
+    expect(resultIsSynthetic(null, false, s.form, [])).toBe(false);
+  });
+  it("the page decides whether a result is synthetic with that function, and the download goes through resultDownload (the browser journey proves the clicks)", () => {
+    const src = fs.readFileSync(path.join(ROOT, "components/TtpCompare.tsx"), "utf8");
+    expect(src).toContain("synthetic: resultIsSynthetic(preset, synthetic, f, btm),");
+    expect(src).toContain('download("ttp_compare_result.json", resultDownload(out))');
+    expect(src).toContain("const s = templateLoadState(p);");
+  });
+  it("the downloaded result starts with a template_derived header that says who made the marking; an own-hall result has none", () => {
+    const request = { intake: { lv: { tapoff_max_A: { value: 32, evidence: "E0", note: ASSUMED_VALUE_NOTE } } } };
+    const result = { schema: "gridforge/ttp-compare/1", scenarios: [] } as unknown as CompareResult;
+    const d = resultDownload({ result, request, template: { name: p.name, assumed: 1, edited: 0 } });
+    expect(Object.keys(d)[0]).toBe("template_derived");
+    expect(d.template_derived).toMatchObject({ note: PRESET_DISCLOSURE, template: p.name, values_marked_assumed_e0: 1, values_changed_by_the_user: 0 });
+    expect(JSON.stringify(d.template_derived)).toContain("carries no per-input classes");
+    expect(d.schema).toBe("gridforge/ttp-compare/1");
+    expect(Object.keys(resultDownload({ result, request }))).toEqual(["schema", "scenarios"]);
   });
   it("the page renders a loaded template with its disclosure, a tag on every value, and the 'cannot be saved' sentence", () => {
     const html = renderToStaticMarkup(React.createElement(TtpCompare, { initialTemplateId: p.id })).replace(/&#x27;/g, "'");

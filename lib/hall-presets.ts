@@ -202,3 +202,13 @@ export function templateLoadState(preset: HallPreset) {
     synthetic: true,
   };
 }
+
+/**
+ * Whether a result is a synthetic example (and so cannot be saved or shared): an untouched template always is, whatever its labels say; a form
+ * that did not start from a template is one only while the plain synthetic example is loaded unedited (`syntheticExample`).
+ */
+export function resultIsSynthetic(
+  preset: HallPreset | null, syntheticExample: boolean, form: Record<string, string | undefined>, btm: readonly SupplyText[]
+): boolean {
+  return preset ? isUntouchedTemplate(preset, form, btm) : syntheticExample;
+}

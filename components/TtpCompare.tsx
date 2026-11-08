@@ -28,8 +28,8 @@ import {
   PRESET_DISCLOSURE,
   PRESET_VALUE_CLASS,
   PRESET_VALUE_KEYS,
-  isUntouchedTemplate,
   presetById,
+  resultIsSynthetic,
   stillTemplateValues,
   templateLoadState,
   type HallPreset,
@@ -69,8 +69,13 @@ const SYNTHETIC: Fields = {
 /** What a result remembers about a reference template it started from: the label stays with the answer, whatever was edited since. */
 type TemplateUsed = { name: string; assumed: number; edited: number };
 
+/** What the "Result (JSON)" button saves: the engine's result, with a `template_derived` header first when the comparison started from a template. */
+export function resultDownload(out: { result: CompareResult; request: Record<string, unknown>; template?: TemplateUsed }): Record<string, unknown> {
+  return out.template ? { template_derived: templateDerivedNote(out.template, out.request), ...out.result } : { ...out.result };
+}
+
 /** The header a downloaded result carries when it started from a template, so a reader of the file alone can tell. */
-function templateDerivedNote(t: TemplateUsed, request: Record<string, unknown>) {
+export function templateDerivedNote(t: TemplateUsed, request: Record<string, unknown>) {
   return {
     note: PRESET_DISCLOSURE,
     template: t.name,
@@ -181,7 +186,7 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
       }
       const template = preset ? { name: preset.name, assumed: stillTemplateValues(preset, f).length, edited: PRESET_VALUE_KEYS.length - stillTemplateValues(preset, f).length } : undefined;
       // An untouched template is a synthetic example whatever its labels say; renaming it does not make it a hall.
-      setOut({ result: body.result, request: body.request, synthetic: preset ? isUntouchedTemplate(preset, f, btm) : synthetic, compare, template });
+      setOut({ result: body.result, request: body.request, synthetic: resultIsSynthetic(preset, synthetic, f, btm), compare, template });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -557,7 +562,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
           <code className="data">gridforge compare</code> returns the same numbers.
         </p>
         <div className="flex flex-wrap gap-3">
-          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", out.template ? { template_derived: templateDerivedNote(out.template, out.request), ...r } : r)}>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", resultDownload(out))}>
             <Download className="h-3.5 w-3.5" aria-hidden /> Result (JSON)
           </button>
           <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("request.json", out.request)}>
