@@ -9,6 +9,9 @@
  * IMPORT (template, a bounded file, the mandatory preview with rejected rows and their reasons, nothing written before the keyboard-operated confirm, the
  * report, a second identical import writing nothing) and the "what changed" diff (two points and one field's steps; a claim is back-dated in the real
  * database with psql for this, so the PG* variables must point at the database behind PostgREST), then runs axe (WCAG 2 A/AA) with those panels open.
+ * It also drives the ENGINE-BACKED CAPACITY DIFF (POST /api/halls/[id]/diff) against the REAL Python engine it spawns (python3 and the repository's gridforge package are needed): the panel
+ * above the field-by-field diff, its cost line before the click, no request until the click, the missing-figures answer with its "Record this figure" jump, a full run on a
+ * synthetic reference hall (axe, keyboard, overflow) and the import preview's "Run the engine on this preview" (nothing written).
  * What it does NOT prove: Supabase Auth itself (the session is a stand-in:
  * the bearer `tok:<email>` verifies as that address, `unv:<email>` as an unconfirmed one), or a deployment.
  *
@@ -68,11 +71,27 @@ const gateway = http.createServer(async (req, res) => {
 });
 await new Promise((r) => gateway.listen(AUTH_PORT, "127.0.0.1", r));
 
+// ---- the real engine, for the engine-backed capacity diff (the site reads GRIDFORGE_API_URL / GRIDFORGE_API_KEY)
+const ENGINE_KEY = "sites-journey-engine-key";
+let engineProc = null, ENGINE_URL = "";
+try {
+  engineProc = spawn("python3", ["-c", [
+    "import os", `os.environ['GRIDFORGE_API_KEYS']='${ENGINE_KEY}'`, "os.environ['GRIDFORGE_RATE_LIMIT']='0'",
+    "from gridforge.api.server import Handler, make_server", "Handler.limiter.per_minute=0", "h=make_server('127.0.0.1',0)", "print(h.server_address[1],flush=True)", "h.serve_forever()",
+  ].join("\n")], { cwd: ROOT, stdio: ["ignore", "pipe", "inherit"] });
+  ENGINE_URL = await new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error("engine did not start")), 20000);
+    engineProc.stdout.once("data", (d) => { clearTimeout(t); res(`http://127.0.0.1:${String(d).trim()}`); });
+    engineProc.once("error", rej);
+  });
+} catch (e) { console.error("sites journey: the engine could not start; the engine checks will FAIL:", e instanceof Error ? e.message : e); }
+process.on("exit", () => { try { engineProc?.kill(); } catch { /* gone */ } });
+
 const server = spawn("npx", ["next", "start", "-p", String(SITE_PORT)], {
   cwd: ROOT, stdio: "ignore", detached: true,
   env: {
     ...process.env, NODE_ENV: "production", SUPABASE_URL: AUTH, SUPABASE_SERVICE_ROLE_KEY: JWT, NEXT_PUBLIC_SUPABASE_URL: AUTH, NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-test",
-    GRIDFORGE_TRUSTED_IP_HEADER: "x-forwarded-for", RATE_LIMIT_HMAC_KEY: "sites-journey-rate-limit-key-0123456789abcdef",
+    GRIDFORGE_TRUSTED_IP_HEADER: "x-forwarded-for", GRIDFORGE_API_URL: ENGINE_URL, GRIDFORGE_API_KEY: ENGINE_KEY, RATE_LIMIT_HMAC_KEY: "sites-journey-rate-limit-key-0123456789abcdef",
   },
 });
 const stop = async () => { try { process.kill(-server.pid, "SIGTERM"); } catch { /* gone */ } gateway.close(); };
@@ -267,7 +286,7 @@ try {
     const axeFile = path.join(ROOT, "node_modules", "axe-core", "axe.min.js");
     const runAxe = async () => {
       if (!(await page.evaluate(() => Boolean(window.axe)))) await page.addScriptTag({ content: fs.readFileSync(axeFile, "utf8") });
-      return page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } })).violations.map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0].target.join(" ")}`));
+      return page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } })).violations.map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0].target.join(" ")}${v.id === "color-contrast" ? " " + (v.nodes[0].any?.[0]?.message ?? "") : ""}`));
     };
     const axeOpen = await runAxe();
     check(at("axe: no WCAG 2 A/AA violation WHILE the import preview is open"), axeOpen.length === 0, axeOpen.join(" | ").slice(0, 600));
@@ -424,6 +443,143 @@ try {
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(at("no sideways scroll of the page with the new panels open"), wide <= 1, `overflow ${wide}px`);
     await shot(page, `sites-panels-${width}`);
+
+    // ---- ENGINE-BACKED CAPACITY DIFF: the panel above the field diff, its cost before the click, nothing asked until the click; the real engine behind the site
+    {
+      const diffCalls = [];
+      page.on("request", (r) => { if (r.method() === "POST" && /\/api\/halls\/[^/]+\/diff$/.test(new URL(r.url()).pathname)) diffCalls.push(r.url()); });
+      const token = () => page.evaluate(() => { const key = Object.keys(localStorage).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token")); return JSON.parse(localStorage.getItem(key)).access_token; });
+      const openDiff = async (hallName) => {
+        await page.getByRole("button", { name: hallName }).click();
+        await page.getByRole("table").waitFor({ timeout: 15000 });
+        const toggle = page.locator("button[aria-controls=diff-body]");
+        if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+        await page.locator("#engine-diff-title").waitFor({ timeout: 15000 });
+      };
+      const norm = (t) => t.replace(/\s+/g, " ");
+
+      // a thin hall: the panel is there, above the field-by-field diff, and costs nothing until it is clicked
+      await openDiff("Hall A1");
+      const panel = page.locator("[data-testid=engine-diff]");
+      const panelText = norm(await panel.innerText());
+      check(at("engine diff: titled, labelled 'Not a measurement', and the cost and the allowance are printed before the button"),
+        /Engine capacity-envelope diff/.test(panelText) && /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(panelText) && /This runs the engine \(2 units\) — limited to 10 per hour/.test(panelText), panelText.slice(0, 400));
+      const yEngine = (await page.locator("#engine-diff-title").boundingBox()).y, yField = (await page.locator("#diff-summary").boundingBox()).y;
+      check(at("engine diff: the panel is ABOVE the field-by-field provenance diff"), yEngine < yField, `${yEngine} vs ${yField}`);
+      await page.locator("#diff-from").selectOption("start");
+      check(at("engine diff: before the first recorded figure there is no hall to ask about: the button is disabled and says why"), (await page.locator("#engine-diff-run").isDisabled()) && /Choose a day on which something was recorded/.test(await page.locator("#engine-diff-blocked").innerText()));
+      await page.locator("#diff-from").selectOption("2026-09-01");
+      check(at("engine diff: nothing was asked of the engine on page load or on choosing points"), diffCalls.length === 0 && (await page.locator("#engine-diff-run").isEnabled()));
+      await page.locator("#engine-diff-run").focus();
+      await page.keyboard.press("Enter");
+      const notRun = page.getByRole("heading", { name: "The engine was not run: figures it needs are not recorded" });
+      await notRun.waitFor({ timeout: 20000 });
+      check(at("engine diff: a click (by keyboard) asks once; the answer names what is not recorded and takes focus"), diffCalls.length === 1 && (await notRun.evaluate((el) => el === document.activeElement)));
+      const miss = norm(await panel.innerText());
+      check(at("engine diff: it names the unrecorded figures with a reason and says no units were used"), /compute\.platform/.test(miss) && /transformers\[0\]\.unit_rating_mva/.test(miss) && /hall\.positions_available/.test(miss) && /no units were used/.test(miss) && !/Engine capacity-envelope diff.*The engine's headline/.test(miss), miss.slice(0, 500));
+      await page.getByRole("button", { name: "Record compute.platform" }).click();
+      check(at("engine diff: 'Record this figure' fills the record form's field and moves focus to it"), (await page.locator("#rec-path").inputValue()) === "compute.platform" && (await page.evaluate(() => document.activeElement?.id)) === "rec-path");
+      const axeMiss = await runAxe();
+      check(at("axe: no WCAG 2 A/AA violation with the engine panel and its missing-figures list open"), axeMiss.length === 0, axeMiss.join(" | ").slice(0, 600));
+      check(at("engine diff: no sideways scroll of the page with the missing list open"), (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1);
+      await shot(page, `sites-engine-missing-${width}`);
+
+      // a full synthetic hall (the engine's own reference example, as recorded figures), with a verified file behind the ratings
+      const REF = [
+        ["grid.firm_capacity_mva", 14, "MVA", "measured", "E5", true], ["grid.contracted_mw", 12, "MW", "assumed", "E3"], ["grid.current_site_peak_mw", 7.4, "MW", "assumed", "E1"], ["grid.current_it_load_mw", 4.9, "MW", "assumed", "E1"],
+        ["grid.power_factor", 0.97, null, "assumed", "E1"], ["lv.busway_ampacity_a", 400, "A", "assumed", "E3"], ["lv.tapoff_max_a", 63, "A", "assumed", "E3"], ["lv.voltage_v", 400, "V", "assumed", "E1"], ["lv.busway_runs", 8, null, "assumed", "E1"],
+        ["lv.busway_utilisation_limit", 0.8, null, "assumed", "E1"], ["hall.floor_loading_kpa", 12, "kPa", "assumed", "E1"], ["hall.positions_available", 180, null, "assumed", "E1"], ["hall.rack_positions", 560, null, "assumed", "E1"],
+        ["hall.net_white_space_m2", 2400, "m2", "assumed", "E1"], ["hall.design_density_kw_per_rack", 8, "kW/rack", "assumed", "E1"], ["thermal.plant.chilled_water_capacity_kw", 6800, "kW", "assumed", "E1"],
+        ["thermal.plant.design_supply_c", 6, "degC", "assumed", "E1"], ["thermal.plant.design_return_c", 12, "degC", "assumed", "E1"], ["thermal.plant.pump_flow_capacity_l_per_min", 9000, "l/min", "assumed", "E1"],
+        ["compute.platform", "gb300_nvl72", null, "vendor", "E3"], ["transformers[0].unit_rating_mva", 5, "MVA", "measured", "E5", true], ["transformers[0].units", 3, null, "assumed", "E1"], ["transformers[0].redundancy", "N+1", null, "assumed", "E1"],
+        ["transformers[0].derating_factor", 0.9, null, "assumed", "E3"], ["transformers[0].replacement_lead_time_weeks", 160, "weeks", "assumed", "E1"],
+        ["ups[0].unit_rating_kw", 1200, "kW", "measured", "E5", true], ["ups[0].units", 6, null, "assumed", "E1"], ["ups[0].redundancy", "N+1", null, "assumed", "E1"], ["ups[0].step_load_capability", 0.5, null, "assumed", "E1"],
+      ];
+      const pgrest = async (method, p, body) => {
+        const r = await fetch(PGRST + p, { method, headers: { apikey: JWT, Authorization: `Bearer ${JWT}`, "content-type": "application/json", Prefer: "return=representation" }, body: body === undefined ? undefined : JSON.stringify(body) });
+        return r.json().catch(() => ({}));
+      };
+      const tok = await token();
+      const api = (p, method = "GET", body) => page.evaluate(async ([p, method, body, tok]) => {
+        const r = await fetch(p, { method, headers: { Authorization: "Bearer " + tok, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+        return { status: r.status, body: await r.json().catch(() => ({})) };
+      }, [p, method, body, tok]);
+      const siteId = (await api("/api/sites")).body.sites[0].id;
+      const hallE = (await api(`/api/sites/${siteId}/halls`, "POST", { label: "Hall E1" })).body.hall.id;
+      const ptoken = `tok-${uid()}${uid()}`;
+      const project = (await pgrest("POST", "/projects", { project_token: ptoken, project_name: "Journey build" }))[0];
+      const sha = (uid() + uid() + uid() + uid() + uid() + uid() + uid() + uid()).slice(0, 64);
+      const ev = (await pgrest("POST", "/project_evidence", { project_id: project.id, filename: "nameplate.pdf", media_type: "application/pdf", sha256: sha, byte_size: 100, storage_ref: "project-evidence/JOURNEY-SECRET", review_status: "unverified" }))[0];
+      await pgrest("POST", "/rpc/gf_review_evidence", { p: { evidence_id: ev.id, decision: "verified", reviewer: "F. Keane", reason: "checked", sha256_confirmed: sha }, p_event: { event_type: "evidence_reviewed", actor: "reviewer@desk.example", payload: {} } });
+      check(at("engine diff setup: a project is attached to the new hall"), (await api(`/api/halls/${hallE}/projects`, "POST", { projectToken: ptoken })).status === 201);
+      let recorded = 0;
+      for (const [fieldPath, value, unit, origin, evidenceClass, file] of REF) {
+        const r = await api(`/api/halls/${hallE}/inputs`, "POST", { fieldPath, value, unit, evidenceClass, origin, asOf: "2026-08-30", ...(file ? { projectEvidenceId: ev.id } : {}) });
+        if (r.status === 201) recorded++; else console.log("  could not record", fieldPath, JSON.stringify(r.body));
+      }
+      check(at("engine diff setup: the synthetic reference hall is recorded"), recorded === REF.length, `${recorded}/${REF.length}`);
+      try {
+        execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", process.env.GF_PG_DB || "gf", "-c", `set session_replication_role = replica; update hall_inputs set created_at = timestamp with time zone '2026-09-01 10:00:00+00' where hall_id = '${hallE}';`], { stdio: "pipe" });
+        check(at("engine diff setup: the claims were back-dated to 1 September"), true);
+      } catch (e) { check(at("engine diff setup: the claims were back-dated to 1 September (psql)"), false, String(e.message).slice(0, 200)); }
+      const cur = (await api(`/api/halls/${hallE}/inputs`)).body.inputs;
+      const corr = await api(`/api/halls/${hallE}/inputs`, "POST", { fieldPath: "grid.contracted_mw", value: 9, unit: "MW", evidenceClass: "E3", origin: "assumed", asOf: "2026-11-01", supersedes: cur.find((i) => i.fieldPath === "grid.contracted_mw").id });
+      check(at("engine diff setup: the contracted capacity was corrected today"), corr.status === 201);
+      const historyOf = async () => JSON.stringify((await api(`/api/halls/${hallE}/inputs?history=1&limit=500`)).body.inputs.map((i) => i.id));
+      const historyBefore = await historyOf();
+      await page.reload();
+      await openDiff("Hall E1");
+      await page.locator("#diff-from").selectOption("2026-09-01");
+      const callsBefore = diffCalls.length;
+      await page.locator("#engine-diff-run").focus();
+      await page.keyboard.press("Enter");
+      const answerHead = page.getByRole("heading", { name: "The engine's answer" });
+      await answerHead.waitFor({ timeout: 60000 }).catch(async () => console.log("  no answer; panel:", norm(await panel.innerText()).slice(0, 600)));
+      check(at("engine diff: one click made one request, and the answer takes focus"), diffCalls.length === callsBefore + 1 && (await answerHead.count()) === 1 && (await answerHead.evaluate((el) => el === document.activeElement)));
+      const ans = norm(await page.locator("[data-testid=engine-result]").innerText());
+      check(at("engine diff: the label, the headline, the rack delta with its class, the driver, the binding constraint and the weeks with what they rest on"),
+        /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(ans) && /The engine's headline:/.test(ans)
+        && /(Raises|Lowers) the rack count by \d+ \(from \d+ to \d+\), carried by class E\d\./.test(ans) && /grid\.contracted_mw/.test(ans) && /Contracted capacity/.test(ans) && /12 → (to )?9/.test(ans)
+        && /What binds first: .+ (→|to) .+ \((it holds|it moved)\)/.test(ans) && /Time to full capacity: ([+-]?\d+ wk \(.*(lead time|date).*\)|.*(no date|unverified).*)/.test(ans), ans.slice(0, 900));
+      check(at("engine diff: it says which engine build answered, and how many units it used"), /Engine \d+\.\d+\.\d+ · build [0-9a-f]{12}/.test(ans) && /2 units used/.test(ans), ans.slice(-300));
+      check(at("engine diff: it says what is held to a class by figures that carry none, and that the placeholders were the engine's"), /held to E\d because/.test(ans) && /the engine used its own placeholder for \d+ input/.test(ans));
+      check(at("engine diff: the word 'improvement' is never used"), !/improv/i.test(ans) && !/improv/i.test(await page.locator("section[aria-labelledby=diff-title]").innerText()));
+      check(at("engine diff: running it wrote nothing"), (await historyOf()) === historyBefore);
+      const driversRegion = page.locator("[role=region][aria-label='Which recorded inputs moved the rack count']");
+      check(at("engine diff: the drivers table sits in a named, focusable region"), (await driversRegion.getAttribute("tabindex")) === "0");
+      if (width < 600) {
+        const wide390 = await driversRegion.evaluate((el) => el.scrollWidth > el.clientWidth);
+        if (wide390) {
+          await driversRegion.focus(); await page.keyboard.press("ArrowRight"); await page.waitForTimeout(600);
+          check(at("engine diff: at phone width the drivers table scrolls inside its region by keyboard, not the page"), (await driversRegion.evaluate((el) => el.scrollLeft)) > 0);
+        } else check(at("engine diff: at phone width the drivers table fits"), true);
+      }
+      const axeAns = await runAxe();
+      check(at("axe: no WCAG 2 A/AA violation with the engine's answer open"), axeAns.length === 0, axeAns.join(" | ").slice(0, 600));
+      check(at("engine diff: no sideways scroll of the page with the answer open"), (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1);
+      await shot(page, `sites-engine-answer-${width}`);
+      await page.locator("#diff-from").selectOption("start");
+      check(at("engine diff: choosing other points drops the old answer"), (await page.locator("[data-testid=engine-diff] [data-testid=engine-result]").count()) === 0);
+
+      // the import preview: the effect of a pending import BEFORE it is written
+      await page.locator("#import-file").setInputFiles({ name: "pending.csv", mimeType: "text/csv", buffer: Buffer.from("field_path,value,unit,origin,class,as_of,source_kind,source_id\nhall.net_white_space_m2,1800,m2,assumed,E1,2026-11-02,,\nnot.a_field,1,,assumed,E1,2026-11-02,,\n") });
+      await page.locator("#import-preview-title").waitFor({ timeout: 15000 });
+      const runPreview = page.getByRole("button", { name: "Run the engine on this preview" });
+      const costNear = norm(await page.locator("#engine-import-cost").innerText());
+      check(at("import preview: 'Run the engine on this preview' states the cost and does nothing until clicked"), /This runs the engine \(2 units\) — limited to 10 per hour/.test(costNear) && (await runPreview.isEnabled()) && diffCalls.length === callsBefore + 1);
+      const callsMid = diffCalls.length;
+      await runPreview.focus(); await page.keyboard.press("Enter");
+      await page.locator("[data-testid=engine-import] [data-testid=engine-result]").waitFor({ timeout: 60000 }).catch(async () => console.log("  no preview answer:", norm(await page.locator("[data-testid=engine-import]").innerText()).slice(0, 600)));
+      const pv = norm(await page.locator("[data-testid=engine-import]").innerText());
+      check(at("import preview: one click, one request; the answer is about the figures with the pending import applied, and says how many rejected rows were left out"),
+        diffCalls.length === callsMid + 1 && /the figures with the pending import applied/.test(pv) && /hall\.net_white_space_m2/.test(pv) && /1 row the preview rejects is left out of this run/.test(pv) && /(Raises|Lowers|Does not change)/.test(pv), pv.slice(0, 2500));
+      await page.waitForTimeout(500);                                                              // the button fades back from its disabled state
+      const axePv = await runAxe();
+      check(at("axe: no WCAG 2 A/AA violation with the import preview and its engine answer open"), axePv.length === 0, axePv.join(" | ").slice(0, 600));
+      check(at("import preview: asking the engine wrote nothing"), (await historyOf()) === historyBefore);
+      await page.getByRole("button", { name: "Discard this preview" }).click();
+      await page.locator("[data-testid=engine-import]").waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    }
 
     // more than a page of events: the page says older events are not shown, and "Load older" brings every one exactly once
     const made = await page.evaluate(async () => {
