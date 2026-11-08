@@ -3,7 +3,8 @@ import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { LADDER_PRODUCTS, API_PRODUCTS, PAYG, eurFromCents, priceLine } from "@/lib/products";
-import { PLATFORM_FIGURES_NOTE } from "@/lib/definitions";
+import { ENGINEERING_ASSUMPTIONS_NOTE, PLATFORM_FIGURES_NOTE } from "@/lib/definitions";
+import { engineeringAssumptions } from "@/lib/engineering-constants";
 import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 import { projectLadder } from "@/lib/buyer-path";
@@ -155,6 +156,19 @@ machine description of the same operations is ${SITE}/openapi.json.
     (p) => `- ${p.name} — ${eurFromCents(p.amountCents)}/month, ${p.apiUnits?.toLocaleString("en-IE")} units`
   ).join("\n");
 
+  // The engine's reserved engineering constants: one typed source (lib/engineering-constants.ts), the platform figures and the catalogue's indicative
+  // range read from the engine's published files above, never retyped here.
+  const assumptionLines = engineeringAssumptions({
+    platforms: lib?.platforms ?? null,
+    transformerIndicativeRange: ref?.constraints.find((c) => c.id === "transformer_capacity")?.lead_time_weeks ?? null,
+  })
+    .map(
+      (a) =>
+        `- ${a.title}: ${a.value}\n  Evidence class: ${a.evidenceClass}.\n  Where it applies: ${a.appliesWhere}\n  What replaces or overrides it: ${a.overriddenBy}\n` +
+        a.notes.map((n) => `  Note: ${n}`).join("\n")
+    )
+    .join("\n");
+
   const PROJECT_PRODUCTS = projectLadder().map((p) => p.id).join(", ");
 
   const body = `# Time to Power
@@ -221,6 +235,12 @@ ${calLimit} Treat every output as planning-grade screening unless
 - Context blocks (a measured US queue statistic, a retail electricity price) sit beside the model's assumptions for comparison. They change no number and no date,
   and are not a connection time or a tariff for any particular site.
 - Synthetic examples are labelled synthetic; the worked hall is invented to demonstrate the method.
+
+## Engineering assumptions the engine uses
+
+${ENGINEERING_ASSUMPTIONS_NOTE} Browsable at ${SITE}/reference and, on each constraint it applies to, under ${SITE}/constraints.
+
+${assumptionLines}
 
 ## The thirteen constraints
 
