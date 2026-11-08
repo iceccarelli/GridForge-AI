@@ -313,6 +313,7 @@ function Comparisons({ state, projectToken }: { state: ProjectState; projectToke
           <Row k="Saved" v={when(x.saved_at)} />
           <Row k="Led on its objective" v={x.leader ?? "No scenario ranked"} />
           <Row k="Grade" v={x.grade} />
+          {x.template_derived > 0 && <Row k="Origin" v={`Started from a reference template: ${x.template_derived} values marked assumed (E0) by this site`} />}
           <Row k="Priced on" v={x.quotation_lines > 0 ? `${x.quotation_lines} accepted supplier quotation${x.quotation_lines === 1 ? "" : "s"}` : "Library cost data only"} />
           <Row k="Question / engine" v={`${x.request_digest.slice(0, 12)} · ${x.engine_version}`} />
         </div>
@@ -745,7 +746,7 @@ export function ProjectPanel({
                     verified: state.evidence.verified,
                     unverified: state.evidence.unverified,
                     rejected: state.evidence.rejected,
-                  })}
+                  }, { comparisons: state.comparisons.items.length })}
                   projectToken={projectToken!}
                 />
               ) : (

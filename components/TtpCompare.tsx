@@ -22,14 +22,16 @@ import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 import { GridQueuePanel } from "@/components/GridQueuePanel";
 import { RetailPricePanel } from "@/components/RetailPricePanel";
+import { templateDerivedCount } from "@/lib/ttp-compare";
 import {
   HALL_PRESETS,
   PRESET_DISCLOSURE,
   PRESET_VALUE_CLASS,
   PRESET_VALUE_KEYS,
+  isUntouchedTemplate,
   presetById,
-  presetFormState,
   stillTemplateValues,
+  templateLoadState,
   type HallPreset,
 } from "@/lib/hall-presets";
 
@@ -66,6 +68,17 @@ const SYNTHETIC: Fields = {
 
 /** What a result remembers about a reference template it started from: the label stays with the answer, whatever was edited since. */
 type TemplateUsed = { name: string; assumed: number; edited: number };
+
+/** The header a downloaded result carries when it started from a template, so a reader of the file alone can tell. */
+function templateDerivedNote(t: TemplateUsed, request: Record<string, unknown>) {
+  return {
+    note: PRESET_DISCLOSURE,
+    template: t.name,
+    values_marked_assumed_e0: templateDerivedCount(request),
+    values_changed_by_the_user: t.edited,
+    marked_by: "this site, on the request; the engine's result carries no per-input classes",
+  };
+}
 
 /** The body the form posts to /api/power/compare. Exported so the tests send exactly what a click-then-compare sends. */
 export function buildCompareBody(f: Fields, btm: Btm[], objective: CompareObjective, preset: HallPreset | null) {
@@ -111,17 +124,20 @@ function TemplateTag({ id, preset, fieldKey, value }: { id: string; preset: Hall
   );
 }
 
-export function TtpCompare() {
+/** `initialTemplateId` starts the form as if that template had been clicked (used by the server-rendered tests; the page never passes it). */
+export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: string | null }) {
   const uid = useId();
-  const [f, setF] = useState<Fields>({ platform: "gb300_nvl72" });
-  const [btm, setBtm] = useState<Btm[]>([]);
-  const [objective, setObjective] = useState<CompareObjective>("max_compute");
+  const start = presetById(initialTemplateId);
+  const loaded = start ? templateLoadState(start) : null;
+  const [f, setF] = useState<Fields>(loaded?.form ?? { platform: "gb300_nvl72" });
+  const [btm, setBtm] = useState<Btm[]>(loaded?.btm ?? []);
+  const [objective, setObjective] = useState<CompareObjective>(loaded?.objective ?? "max_compute");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; fields?: string[] } | null>(null);
   const [out, setOut] = useState<{ result: CompareResult; request: Record<string, unknown>; synthetic: boolean; compare: Record<string, unknown>; template?: TemplateUsed } | null>(null);
-  const [synthetic, setSynthetic] = useState(false);
+  const [synthetic, setSynthetic] = useState(loaded?.synthetic ?? false);
   // The reference template the form was started from (null: none). It stays until the form is cleared, so the disclosure survives edits.
-  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState<string | null>(loaded?.templateId ?? null);
   const preset = presetById(templateId);
   const templateStill = preset ? stillTemplateValues(preset, f).length : 0;
   const [copied, setCopied] = useState(false);
@@ -164,7 +180,8 @@ export function TtpCompare() {
         return;
       }
       const template = preset ? { name: preset.name, assumed: stillTemplateValues(preset, f).length, edited: PRESET_VALUE_KEYS.length - stillTemplateValues(preset, f).length } : undefined;
-      setOut({ result: body.result, request: body.request, synthetic, compare, template });
+      // An untouched template is a synthetic example whatever its labels say; renaming it does not make it a hall.
+      setOut({ result: body.result, request: body.request, synthetic: preset ? isUntouchedTemplate(preset, f, btm) : synthetic, compare, template });
     } catch {
       setOut(null);
       setError({ message: "Could not reach the server. Nothing was calculated; please try again." });
@@ -195,11 +212,12 @@ export function TtpCompare() {
                   templateId === p.id ? "border-power/70 bg-power/10" : "border-line bg-panel-2 hover:border-power/50"
                 }`}
                 onClick={() => {
-                  setF(presetFormState(p));
-                  setBtm(p.supply.map((o) => ({ ...o })));
-                  setObjective(p.objective);
-                  setTemplateId(p.id);
-                  setSynthetic(true);
+                  const s = templateLoadState(p);
+                  setF(s.form);
+                  setBtm(s.btm);
+                  setObjective(s.objective);
+                  setTemplateId(s.templateId);
+                  setSynthetic(s.synthetic);
                   setOut(null);
                   setError(null);
                 }}
@@ -213,9 +231,9 @@ export function TtpCompare() {
             <div role="status" className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
               <p><strong>{PRESET_DISCLOSURE}.</strong></p>
               <p className="mt-1 text-mute">
-                Started from &ldquo;{preset.name}&rdquo;. {templateStill} of {PRESET_VALUE_KEYS.length} values are still the template&apos;s and are sent
-                to the engine as assumed ({PRESET_VALUE_CLASS}); a value you change is yours from then on. The identity fields and the on-site
-                supply options are labels and candidates, not measurements.
+                Started from &ldquo;{preset.name}&rdquo;. {templateStill} of {PRESET_VALUE_KEYS.length} values are still the template&apos;s; this site marks
+                them assumed ({PRESET_VALUE_CLASS}) on the request, and a value you change is yours from then on. The identity fields and the on-site
+                supply options are labels and candidates, not measurements. Until a value or a supply option is changed, the comparison cannot be saved.
               </p>
             </div>
           ) : null}
@@ -416,8 +434,9 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
           <p><strong>{PRESET_DISCLOSURE}.</strong></p>
           <p className="mt-1 text-mute">
             This result started from &ldquo;{out.template.name}&rdquo;. {out.template.assumed} of {out.template.assumed + out.template.edited} template
-            values were still the template&apos;s when it was run and went to the engine as assumed ({PRESET_VALUE_CLASS})
-            {out.template.edited > 0 ? `; ${out.template.edited} had been changed by you` : ""}. Do not read it as a finding about any site.
+            values were still the template&apos;s when it was run{out.template.edited > 0 ? `; ${out.template.edited} had been changed by you` : ""}.
+            This site marked those {out.template.assumed} assumed ({PRESET_VALUE_CLASS}) on the request and records the marking in a saved comparison;
+            the engine&apos;s result carries no per-input classes. Do not read it as a finding about any site.
           </p>
         </div>
       ) : out.synthetic ? (
@@ -538,7 +557,7 @@ export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result:
           <code className="data">gridforge compare</code> returns the same numbers.
         </p>
         <div className="flex flex-wrap gap-3">
-          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", r)}>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("ttp_compare_result.json", out.template ? { template_derived: templateDerivedNote(out.template, out.request), ...r } : r)}>
             <Download className="h-3.5 w-3.5" aria-hidden /> Result (JSON)
           </button>
           <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2 px-3 py-1.5 text-xs" onClick={() => download("request.json", out.request)}>

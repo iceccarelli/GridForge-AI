@@ -6,6 +6,9 @@
  * project with nothing assumed and the project whose files are already verified. (3) The whole path through the real routes and the REAL
  * Python engine (spawned, not stubbed): a comparison saved to a project, read back as the project's state, turned into a ladder.
  * The wording is held to the honesty gates: no promised gain, no review step the code does not enforce.
+ *
+ * The real-engine suites use describe.runIf(hasPython); the guard test at the end FAILS when GRIDFORGE_REQUIRE_ENGINE=1 or CI=true and python3 is
+ * missing, so CI cannot skip them silently.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -17,8 +20,10 @@ import { siteUrl } from "@/lib/site";
 import { screenIntakeSchema, toIntakeDocument } from "@/lib/engagement-intake";
 import { EvidenceLadderCard } from "@/components/ai/EvidenceLadderCard";
 import {
+  ALL_STATED_TEXT,
   LADDER_FAMILIES,
   LADDER_LIMITS,
+  TCS_AFTER_RELIEF,
   LADDER_PATHS,
   LADDER_STEPS,
   SPEC_RELIEF_IDS,
@@ -32,6 +37,7 @@ import { EVIDENCE_MAX_BYTES } from "@/lib/project-evidence-upload";
 import { HALL_PRESETS, presetFormState, presetById } from "@/lib/hall-presets";
 import { buildCompareBody } from "@/components/TtpCompare";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
+import { engineAvailable } from "./_engine-guard";
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 
@@ -80,12 +86,35 @@ describe("every document and class on the ladder is the engine's own", () => {
     for (const p of LADDER_PATHS) expect(basis.inputs.find((i) => i.path === p)?.supplied, p).toBe(true);
   });
 
+  it("the trim-chiller limit's inputs follow the engine's own branches (thermal/constraints.py tcs_supply_achievable)", () => {
+    const py = read("gridforge/thermal/constraints.py");
+    const fn = py.slice(py.indexOf("def tcs_supply_achievable"), py.indexOf("def tcs_supply_achievable") + 2600);
+    // full DLC: design dry-bulb plus the library dry-cooler approach, simulated; the plant supply temperature is not used
+    const dry = fn.slice(fn.indexOf("elif ctx.architecture == Architecture.FULL_DLC"), fn.indexOf("else:", fn.indexOf("elif ctx.architecture == Architecture.FULL_DLC")));
+    expect(dry).toContain("ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K");
+    expect(dry).not.toContain("design_supply_C");
+    expect(dry).toContain("step_evidence=SIMULATED");
+    // every other architecture: the existing plant's supply temperature, used as an ESTIMATE
+    const plant = fn.slice(fn.indexOf("else:\n        achievable = t.plant.design_supply_C"));
+    expect(plant).toContain("thermal.plant_fws");
+    expect(plant).toContain("step_evidence=ESTIMATED");
+    // after the relief: the temperature a proposed trim chiller is ASSUMED to hold
+    expect(fn.slice(0, fn.indexOf("elif ctx.architecture"))).toContain("step_evidence=ASSUMED");
+    const [dryDef, supplyDef] = LADDER_FAMILIES.tcs_supply_achievable!;
+    expect(dryDef).toMatchObject({ path: "site.design_drybulb_C", onlyFor: ["full_dlc"] });
+    expect(supplyDef).toMatchObject({ path: "thermal.plant.design_supply_C", notFor: ["full_dlc"], cap: "E3" });
+  });
+
   it("the unevaluated-limit wording quotes the engine's own warnings", () => {
     const loader = read("gridforge/intake/loader.py").replace(/"\s*\n\s*"/g, "");
     expect(loader).toContain("No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.");
     expect(loader).toContain("No UPS schedule supplied: the load is treated as unprotected.");
   });
 
+  // DEFERRED, on purpose (reviewer's recommendation, to be scheduled as its own change): make busway runs, LV voltage and power factor .optional() in
+  // baseShape (lib/engagement-intake.ts) so compact() omits them unless the visitor gave them; send the engagement form's prefill only if edited; accept the
+  // new request digests; then rewrite this test to expect them absent and add the three paths to the ladder. Until then the ladder leaves them out and
+  // says, in LADDER_LIMITS and ALL_STATED_TEXT, that a comparison carries them as site defaults.
   it("the busway runs, LV voltage and power factor are not on the ladder, because the site always sends them", () => {
     for (const p of ["lv.busway_runs", "lv.voltage_V", "grid.power_factor"]) expect(LADDER_PATHS).not.toContain(p);
     const doc = toIntakeDocument(screenIntakeSchema.parse({ siteName: "x", hallId: "h", contractedMW: 1, currentPeakMW: 1, currentItLoadMW: 1, buswayAmpacityA: 1, tapoffMaxA: 1, positionsAvailable: 1, plantSupplyC: 1 })) as any;
@@ -103,6 +132,7 @@ function basis(over: Partial<LadderBasis> & { states?: LadderInputState[] } = {}
   const states = new Map((over.states ?? []).map((s) => [s.path, s]));
   return {
     scenario: "Full liquid cooling",
+    architecture: "hybrid_dlc",
     bindsNow: "rack_feed_tapoff",
     bindsNext: "grid_firm_capacity",
     ...over,
@@ -168,7 +198,7 @@ describe("evidenceLadder", () => {
     }
     const heat = evidenceLadder(basis({ bindsNow: "plant_capacity", bindsNext: null, states: LADDER_PATHS.map(missing) }), NO_FILES).rungs[0].rows.map((r) => r.path);
     expect(heat).toContain("thermal.plant.existing_non_it_heat_kW");
-    const trim = evidenceLadder(basis({ bindsNow: "tcs_supply_achievable", bindsNext: null, states: LADDER_PATHS.map(missing) }), NO_FILES).rungs[0].rows.map((r) => r.path);
+    const trim = evidenceLadder(basis({ architecture: "full_dlc", bindsNow: "tcs_supply_achievable", bindsNext: null, states: LADDER_PATHS.map(missing) }), NO_FILES).rungs[0].rows.map((r) => r.path);
     expect(trim).toContain("site.design_drybulb_C");
   });
 
@@ -188,7 +218,10 @@ describe("evidenceLadder", () => {
     expect(l.status).toBe("all_stated");
     for (const rung of l.rungs) for (const row of rung.rows) expect(row).toMatchObject({ classNow: "E5", state: "stated" });
     const html = renderToStaticMarkup(React.createElement(EvidenceLadderCard, { ladder: l, projectToken: "tok" }));
-    expect(html).toMatch(/No input behind the limits? named below is assumed/);
+    // it must not claim that nothing is assumed: the limit also rests on library factors and on site defaults the page cannot see
+    expect(l.status).toBe("all_stated");
+    expect(html).toContain(ALL_STATED_TEXT.replace("'", "&#x27;"));
+    expect(html).not.toMatch(/No input behind|each is held as customer data|or better/);
     expect(html).toMatch(/would not change the class/);
     expect(html).not.toMatch(/A figure you enter for it is classed/);
     // the document and what it would not prove are still shown: a stated figure can still have a reviewed file behind it
@@ -235,19 +268,80 @@ describe("evidenceLadder", () => {
   });
 });
 
+describe("the trim-chiller limit is scenario-aware", () => {
+  const rows = (architecture: string, role: "now" | "next" = "now", st: LadderInputState[] = LADDER_PATHS.map(missing)) =>
+    evidenceLadder(basis({ architecture, bindsNow: role === "now" ? "tcs_supply_achievable" : "rack_feed_tapoff", bindsNext: role === "next" ? "tcs_supply_achievable" : null, states: st }), NO_FILES);
+
+  it("full liquid cooling: the design dry-bulb is the input, the plant supply temperature is not listed", () => {
+    const l = rows("full_dlc");
+    expect(l.rungs[0].rows.map((r) => r.path)).toEqual(["site.design_drybulb_C"]);
+    expect(l.rungs[0].rows[0].notProved).toMatch(/dry-cooler approach added to it is the engine's library figure/);
+  });
+
+  it("any other architecture: the plant supply temperature is the input, used by the limit as an estimate (E3) even when supplied as E5", () => {
+    for (const arch of ["hybrid_dlc", "rdhx", "retained_air"]) {
+      const l = rows(arch, "now", [plain("thermal.plant.design_supply_C"), plain("site.design_drybulb_C")]);
+      expect(l.rungs[0].rows.map((r) => r.path), arch).toEqual(["thermal.plant.design_supply_C"]);
+      expect(l.rungs[0].rows[0], arch).toMatchObject({ classNow: "E3", state: "estimated" });
+      expect(l.rungs[0].rows[0].classIfEntered.code).toBe("E3");
+      expect(l.rungs[0].rows[0].stateText).toMatch(/uses it as an estimate \(E3, not customer data\)/);
+    }
+    // declared E5 is still capped at E3 for this limit; declared E0 stays assumed
+    expect(rows("hybrid_dlc", "now", [declared("thermal.plant.design_supply_C", "E5")]).rungs[0].rows[0]).toMatchObject({ classNow: "E3", state: "estimated" });
+    expect(rows("hybrid_dlc", "now", [declared("thermal.plant.design_supply_C", "E0")]).rungs[0].rows[0]).toMatchObject({ classNow: "E0", state: "assumed" });
+    // with the architecture unknown, only the input that applies to every scenario is listed
+    expect(evidenceLadder(basis({ architecture: null, bindsNow: "tcs_supply_achievable", bindsNext: null }), NO_FILES).rungs[0].rows.map((r) => r.path)).toEqual(["thermal.plant.design_supply_C"]);
+  });
+
+  it("after the engine's relief the limit rests on an assumed trim-chiller temperature, so no document about the existing plant is offered", () => {
+    const l = rows("full_dlc", "next");
+    expect(l.rungs.map((r) => r.constraint)).toEqual(["rack_feed_tapoff"]);
+    expect(l.named.find((n) => n.constraint === "tcs_supply_achievable")).toMatchObject({ role: "binds_next", note: TCS_AFTER_RELIEF });
+    expect(renderToStaticMarkup(React.createElement(EvidenceLadderCard, { ladder: l, projectToken: "t" }))).toContain("an assumption about equipment that is not installed");
+    expect(TCS_AFTER_RELIEF).not.toMatch(/will|guarantee/i);
+  });
+
+  it("a limit named only after relief that has no document to offer leaves the status honest", () => {
+    const l = evidenceLadder(basis({ architecture: "full_dlc", bindsNow: null, bindsNext: "tcs_supply_achievable" }), NO_FILES);
+    expect(l.status).toBe("no_inputs");
+    expect(renderToStaticMarkup(React.createElement(EvidenceLadderCard, { ladder: l, projectToken: "t" }))).toContain("assumption about equipment that is not installed");
+  });
+});
+
+describe("an unreadable stored comparison is not an absent one", () => {
+  it("a saved comparison with no readable basis is 'unreadable'; none saved is 'no_comparison'", () => {
+    expect(evidenceLadder(null, NO_FILES, { comparisons: 2 }).status).toBe("unreadable");
+    expect(evidenceLadder(null, NO_FILES, { comparisons: 0 }).status).toBe("no_comparison");
+    expect(evidenceLadder(null, NO_FILES).status).toBe("no_comparison");
+    const html = renderToStaticMarkup(React.createElement(EvidenceLadderCard, { ladder: evidenceLadder(null, NO_FILES, { comparisons: 1 }), projectToken: "t" }));
+    expect(html).toContain("A saved comparison exists but could not be read");
+    expect(html).not.toContain("Not yet created");
+  });
+  it("the panel tells the ladder how many comparisons exist", () => {
+    expect(read("components/ai/ProjectPanel.tsx")).toContain("{ comparisons: state.comparisons.items.length }");
+  });
+});
+
+describe("a template-declared input is said to be the site's marking", () => {
+  it("a figure declared E0 reads as a reference-template value marked by this site, not as something the engine reported", () => {
+    const l = evidenceLadder(basis({ states: [declared("lv.tapoff_max_A", "E0")] }), NO_FILES);
+    expect(l.rungs[0].rows[0].stateText).toBe("A reference-template value, marked assumed (E0) by this site on the request.");
+  });
+});
+
 describe("ladderBasisFromComparison", () => {
   const result = (over: Record<string, unknown> = {}) => ({
     baseline: "retained_air",
     ranking: { leader: "full_dlc" },
     scenarios: [
-      { id: "retained_air", name: "Retained air", as_found: { binding: "rack_feed_tapoff" }, after_ladder: { binding: "architecture_capability" } },
-      { id: "full_dlc", name: "Full liquid cooling", as_found: { binding: "residual_air_removal" }, after_ladder: { binding: "grid_firm_capacity" } },
+      { id: "retained_air", name: "Retained air", architecture: "retained_air", as_found: { binding: "rack_feed_tapoff" }, after_ladder: { binding: "architecture_capability" } },
+      { id: "full_dlc", name: "Full liquid cooling", architecture: "full_dlc", as_found: { binding: "residual_air_removal" }, after_ladder: { binding: "grid_firm_capacity" } },
     ],
     ...over,
   });
 
   it("speaks about the scenario ranked first, else the baseline, else the first", () => {
-    expect(ladderBasisFromComparison({}, result())).toMatchObject({ scenario: "Full liquid cooling", bindsNow: "residual_air_removal", bindsNext: "grid_firm_capacity" });
+    expect(ladderBasisFromComparison({}, result())).toMatchObject({ scenario: "Full liquid cooling", architecture: "full_dlc", bindsNow: "residual_air_removal", bindsNext: "grid_firm_capacity" });
     expect(ladderBasisFromComparison({}, result({ ranking: { leader: null } }))).toMatchObject({ scenario: "Retained air", bindsNow: "rack_feed_tapoff" });
     expect(ladderBasisFromComparison({}, result({ ranking: {}, baseline: "gone" }))).toMatchObject({ scenario: "Retained air" });
   });
@@ -380,7 +474,7 @@ async function saveAndRead(compare: Record<string, unknown>) {
 describe.runIf(hasPython)("a comparison saved to a project becomes a ladder, through the real routes and engine", () => {
   it("a reference-template comparison: its values are E0 in the saved request, so the inputs behind the binding limit are assumed", async () => {
     const p = presetById("legacy_air_to_dlc")!;
-    const state = await saveAndRead(buildCompareBody({ ...presetFormState(p), siteName: "Edited name" }, [], p.objective, p));
+    const state = await saveAndRead(buildCompareBody({ ...presetFormState(p), siteName: "Edited name", designDrybulbC: "31" }, [], p.objective, p));
     const item = state.comparisons.items[0];
     expect(item.ladder).not.toBeNull();
     const l = evidenceLadder(item.ladder, state.evidence);
@@ -397,12 +491,32 @@ describe.runIf(hasPython)("a comparison saved to a project becomes a ladder, thr
 
   it("the ladder's binding limits are the engine's: they match the saved result", async () => {
     const p = presetById("legacy_air_to_dlc")!;
-    const state = await saveAndRead(buildCompareBody({ ...presetFormState(p), siteName: "Edited name" }, [], p.objective, p));
+    const state = await saveAndRead(buildCompareBody({ ...presetFormState(p), siteName: "Edited name", designDrybulbC: "31" }, [], p.objective, p));
     const stored = db.rows("project_comparisons")[0] as any;
     const lead = stored.result.scenarios.find((s: any) => s.id === stored.result.ranking.leader) ?? stored.result.scenarios.find((s: any) => s.id === stored.result.baseline);
     expect(state.comparisons.items[0].ladder).toMatchObject({ scenario: lead.name, bindsNow: lead.as_found.binding, bindsNext: lead.after_ladder.binding });
     // classes only: no figure from the request is in the basis
     expect(JSON.stringify(state.comparisons.items[0].ladder)).not.toMatch(/"value"|3200|4500/);
+  });
+
+  it("perturbing the inputs on the real engine: in full liquid cooling the plant supply temperature changes nothing and the design dry-bulb does", async () => {
+    const p = presetById("busway_colocation")!;
+    const run = async (over: Record<string, string>) => {
+      const res = await (await import("@/app/api/power/compare/route")).POST(post("/api/power/compare", buildCompareBody({ ...presetFormState(p), ...over }, [], p.objective, p)));
+      expect(res.status).toBe(200);
+      const r = (await res.json()).result as { scenarios: { id: string; architecture: string; as_found: unknown; after_ladder: unknown; time_to_power: unknown }[] };
+      const pick = (id: string) => JSON.stringify(r.scenarios.find((s) => s.id === id));
+      return { full: pick("full_dlc"), hybrid: pick("hybrid_dlc"), arch: r.scenarios.find((s) => s.id === "full_dlc")!.architecture, bind: r.scenarios.find((s) => s.id === "full_dlc")!.as_found as { binding: string } };
+    };
+    const supply = await Promise.all(["5", "12", "20"].map((v) => run({ plantSupplyC: v })));
+    expect(supply[0].arch).toBe("full_dlc");                       // the saved scenario names the architecture the ladder keys on
+    expect(supply[1].full).toBe(supply[0].full);
+    expect(supply[2].full).toBe(supply[0].full);
+    const hot = await run({ designDrybulbC: "40" });
+    const cool = await run({ designDrybulbC: "15" });
+    expect(hot.bind.binding).toBe("tcs_supply_achievable");
+    expect(cool.bind.binding).not.toBe("tcs_supply_achievable");   // a lower design dry-bulb changes what binds
+    expect(cool.full).not.toBe(hot.full);
   });
 
   it("a project with no saved comparison has no ladder to read", async () => {
@@ -427,4 +541,16 @@ describe("the project panel shows the ladder and nothing else about it", () => {
     expect(panel).toContain("so no ladder is shown (not");
   });
   void HALL_PRESETS;
+});
+
+describe("the real-engine suites cannot be skipped silently where they are required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
+  });
+  it("the guard itself fails a missing python3 when required, and allows it when not", () => {
+    expect(engineAvailable(false, true).ok).toBe(false);
+    expect(engineAvailable(false, false).ok).toBe(true);
+    expect(engineAvailable(true, true).ok).toBe(true);
+  });
 });

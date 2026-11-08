@@ -1,4 +1,4 @@
-import type { EvidenceLadder, LadderRow } from "@/lib/project-spec-relief";
+import { ALL_STATED_TEXT, type EvidenceLadder, type LadderRow } from "@/lib/project-spec-relief";
 
 /**
  * "What evidence could move the binding limit": the inside of the ProjectPanel card of that name.
@@ -42,6 +42,14 @@ function Row({ row }: { row: LadderRow }) {
 
 export function EvidenceLadderCard({ ladder, projectToken }: { ladder: EvidenceLadder; projectToken: string }) {
   const compareHref = `/power/compare?project=${encodeURIComponent(projectToken)}`;
+  if (ladder.status === "unreadable") {
+    return (
+      <>
+        <p className="text-flag">A saved comparison exists but could not be read, so no ladder is shown (not &ldquo;none saved&rdquo;).</p>
+        <p className="text-faint">{ladder.fileLine}</p>
+      </>
+    );
+  }
   if (ladder.status === "no_comparison") {
     return (
       <>
@@ -70,8 +78,7 @@ export function EvidenceLadderCard({ ladder, projectToken }: { ladder: EvidenceL
       )}
       {ladder.status === "all_stated" && (
         <p>
-          No input behind the limit{ladder.named.length > 1 ? "s" : ""} named below is assumed: each is held as customer data (E5) or better.
-          A reviewed file would put a document behind a stated figure; it would not change the class.
+          {ALL_STATED_TEXT} A reviewed file would put a document behind a stated figure; it would not change the class.
         </p>
       )}
 
@@ -87,6 +94,13 @@ export function EvidenceLadderCard({ ladder, projectToken }: { ladder: EvidenceL
             ))}
           </ul>
         </section>
+      ))}
+
+      {ladder.named.filter((n) => n.note).map((n) => (
+        <p key={n.constraint} className="border-t border-line pt-2">
+          <span className="text-faint">{n.constraintName}: </span>
+          {n.note}
+        </p>
       ))}
 
       {ladder.unevaluated.length > 0 && (

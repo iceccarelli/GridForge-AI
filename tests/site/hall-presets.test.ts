@@ -2,7 +2,10 @@
  * The reference hall templates: input values only, validated against the real intake schema and run through the REAL engine
  * (spawned, not stubbed) via the real comparison route and the real /v1/screen route. A template is shown to a visitor only as inputs;
  * this file is where it is proved that each one is solved by the engine, and that the "assumed (E0)" label reaches the engine and comes
- * back in the engine's own wording. Nothing here asserts a figure the engine should return: the expectations are about what was asked.
+ * in the Density Screen's basis text for the same intake document. (The comparison result itself carries no per-input classes, and the marking
+ * changes only its request digest; this file does not claim otherwise.) Nothing here asserts a figure the engine should return: the
+ * expectations are about what was asked. The real-engine suites use describe.runIf(hasPython); the guard test at the end FAILS when
+ * GRIDFORGE_REQUIRE_ENGINE=1 or CI=true and python3 is missing, so CI cannot skip them silently.
  */
 import React from "react";
 import fs from "node:fs";
@@ -18,6 +21,9 @@ import {
   PRESET_DISCLOSURE,
   PRESET_VALUE_KEYS,
   editedTemplateValues,
+  isUntouchedTemplate,
+  templateLoadState,
+  templateSupplyUnchanged,
   presetById,
   presetFormState,
   stillTemplateValues,
@@ -25,6 +31,8 @@ import {
 } from "@/lib/hall-presets";
 import { TtpCompare, buildCompareBody } from "@/components/TtpCompare";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
+import { ComparisonResults } from "@/components/TtpCompare";
+import { engineAvailable } from "./_engine-guard";
 
 const ROOT = path.resolve(__dirname, "../..");
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
@@ -129,6 +137,57 @@ describe("the disclosure and the edit tracking", () => {
   });
 });
 
+describe("an untouched template is a synthetic example, whatever its labels say", () => {
+  const p = presetById("grid_capped_onsite")!;
+  it("a template click loads a synthetic, unedited state", () => {
+    const s = templateLoadState(p);
+    expect(s.synthetic).toBe(true);
+    expect(s.templateId).toBe(p.id);
+    expect(isUntouchedTemplate(p, s.form, s.btm)).toBe(true);
+  });
+  it("renaming the site, the hall, the platform or adding a metro does not make it a hall", () => {
+    const s = templateLoadState(p);
+    for (const label of [{ siteName: "My hall" }, { hallId: "H9" }, { platform: "gb200_nvl72" }, { metro: "Dublin" }]) {
+      expect(isUntouchedTemplate(p, { ...s.form, ...label }, s.btm), JSON.stringify(label)).toBe(true);
+    }
+  });
+  it("changing any one value, or any supply option, does", () => {
+    const s = templateLoadState(p);
+    for (const k of PRESET_VALUE_KEYS) expect(isUntouchedTemplate(p, { ...s.form, [k]: s.form[k] + "1" }, s.btm), k).toBe(false);
+    expect(isUntouchedTemplate(p, { ...s.form, tapoffMaxA: "" }, s.btm)).toBe(false);
+    expect(isUntouchedTemplate(p, s.form, [])).toBe(false);
+    expect(isUntouchedTemplate(p, s.form, s.btm.map((o, i) => (i === 0 ? { ...o, capacity_MW: "3" } : o)))).toBe(false);
+    expect(isUntouchedTemplate(p, s.form, [...s.btm, { ...s.btm[0], id: "x" }])).toBe(false);
+    expect(templateSupplyUnchanged(p, s.btm)).toBe(true);
+    expect(templateSupplyUnchanged(presetById("legacy_air_to_dlc")!, [])).toBe(true);
+  });
+  it("the page renders a loaded template with its disclosure, a tag on every value, and the 'cannot be saved' sentence", () => {
+    const html = renderToStaticMarkup(React.createElement(TtpCompare, { initialTemplateId: p.id })).replace(/&#x27;/g, "'");
+    expect(html).toContain(PRESET_DISCLOSURE);
+    expect((html.match(/Template value · assumed \(E0\)/g) ?? []).length).toBe(PRESET_VALUE_KEYS.length);
+    expect(html).toContain("the comparison cannot be saved");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("this site marks");
+    expect(html).not.toMatch(/sent\s+to the engine as assumed|engine's own basis text/);
+    expect(html).not.toContain("Save to a project");
+  });
+  it("the result banner is rendered with the disclosure, the counts, and who made the marking; removing it fails here", () => {
+    const out = { result: { schema: "x", objective: "max_compute", baseline: "a", scenarios: [], ranking: { objective: "", metric: "", order: [], values: {}, excluded: [], leader: null, tie: false, note: "n" }, grade: "indicative", caveats: [], request_digest: "0".repeat(64), intake_completeness: 1, provenance: { digest: "d", engine_version: "x", code_sha256: "c", report_date: "2026-01-01" } } as unknown as CompareResult, request: {}, synthetic: true, template: { name: p.name, assumed: 13, edited: 1 } };
+    const html = renderToStaticMarkup(React.createElement(ComparisonResults, { out, cli: "curl", copied: false, onCopy: () => {} })).replace(/&#x27;/g, "'");
+    const text = html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain(PRESET_DISCLOSURE);
+    expect(text).toContain(`started from “${p.name}”`);
+    expect(text).toMatch(/13 of 14 template values were still the template's when it was run; 1 had been changed by you/);
+    expect(text).toContain("This site marked those 13 assumed (E0) on the request and records the marking in a saved comparison");
+    expect(text).toContain("the engine's result carries no per-input classes");
+    expect(text).not.toContain("Synthetic example.");
+    // without a template the plain banner is still there
+    const plain = renderToStaticMarkup(React.createElement(ComparisonResults, { out: { ...out, template: undefined }, cli: "curl", copied: false, onCopy: () => {} }));
+    expect(plain).toContain("Synthetic example.");
+    expect(plain).not.toContain(PRESET_DISCLOSURE.replace("'", "&#x27;"));
+  });
+});
+
 describe.runIf(hasPython)("each template, run through the real engine", () => {
   it.each(HALL_PRESETS.map((p) => [p.id, p] as const))("%s is solved by POST /v1/compare, or refused naming a field", async (_id, p) => {
     const res = await post(requestFor(p));
@@ -169,7 +228,7 @@ describe.runIf(hasPython)("each template, run through the real engine", () => {
     expect(by(campus, "full_dlc_btm").after_ladder.racks).toBeGreaterThan(by(campus, "full_dlc").after_ladder.racks);
   });
 
-  it("the engine reads the declared class: a template's tap-off is E0 in its own basis text, and E5 once the figure is declared the visitor's", async () => {
+  it("the Density Screen's basis text for the same intake shows a marked tap-off as E0, and E5 once the figure is the visitor's; the comparison's rack counts do not move", async () => {
     const p = presetById("legacy_air_to_dlc")!;
     const assumed = (await (await post(requestFor(p))).json()).result as CompareResult;
     const yours = (await (await post({ ...requestFor(p), assumed_fields: [] })).json()).result as CompareResult;
@@ -215,5 +274,58 @@ describe.runIf(hasPython)("each template, run through the real engine", () => {
     const res = await post(body);
     expect(res.status).toBe(422);
     expect(JSON.stringify(await res.json())).toMatch(/existingNonItHeatKW/);
+  });
+});
+
+describe.runIf(hasPython)("the save route refuses an unedited template, and accepts one that has been edited", () => {
+  const TABLES = ["projects", "project_links", "project_events", "project_evidence", "project_comparisons", "project_shares", "rate_limit_windows", "leads", "deliverables", "watches", "engagement_deposits", "cost_evidence_state"];
+  it("a request that marks every template value assumed is a 422 naming why, before any project is created or the engine is asked", async () => {
+    const { PostgrestFake } = await import("./postgrest-fake");
+    const { installProjectRpcs } = await import("./project-rpc-fake");
+    process.env.SUPABASE_URL = "https://stub.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
+    const db = new PostgrestFake(TABLES);
+    installProjectRpcs(db);
+    const restore = db.install();
+    const engineCalls: string[] = [];
+    const dbFetch = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof i === "string" ? i : i instanceof URL ? i.href : i.url;
+      if (ENGINE && url.startsWith(ENGINE)) { engineCalls.push(url); return realFetch(i as RequestInfo, init); }
+      return dbFetch(i, init);
+    }) as typeof fetch;
+    try {
+      const save = async (compare: unknown) =>
+        (await import("@/app/api/power/compare/save/route")).POST(new Request(siteUrl("/api/power/compare/save"), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.77" }, body: JSON.stringify({ compare, project: { project_name: "T" } }) }));
+      const p = presetById("legacy_air_to_dlc")!;
+      // an untouched template, even with every label renamed
+      const untouched = requestFor(p, { ...presetFormState(p), siteName: "My own hall", hallId: "H1", metro: "Dublin" });
+      const refused = await save(untouched);
+      expect(refused.status).toBe(422);
+      expect((await refused.json()).error).toMatch(/unedited reference template/);
+      expect(db.rows("projects")).toHaveLength(0);
+      expect(engineCalls).toHaveLength(0);
+      // the same template with one value replaced is a hall with a template-derived part, and saves
+      const edited = await save(requestFor(p, { ...presetFormState(p), tapoffMaxA: "125" }));
+      expect(edited.status).toBeLessThan(300);
+      expect(db.rows("projects")).toHaveLength(1);
+      // the saved request records how many figures are the site's template marking
+      const stored = db.rows("project_comparisons")[0] as { request: { site_annotations?: { template_derived_fields: number } } };
+      expect(stored.request.site_annotations?.template_derived_fields).toBe(PRESET_VALUE_KEYS.length - 1);
+    } finally {
+      restore();
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe("the real-engine suites cannot be skipped silently where they are required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
+  });
+  it("the guard itself fails a missing python3 when required, and allows it when not", () => {
+    expect(engineAvailable(false, true).ok).toBe(false);
+    expect(engineAvailable(false, false).ok).toBe(true);
   });
 });

@@ -119,6 +119,19 @@ try {
     check(!(await page.getByRole("region", { name: "Save to a project" }).count()), `${where} an untouched template cannot be saved`);
     check(await overflow(page), `${where} no horizontal overflow with a result`);
 
+    // the downloaded result says it was template-derived
+    const [dl] = await Promise.all([page.waitForEvent("download"), result.getByRole("button", { name: /Result \(JSON\)/ }).click()]);
+    const dlText = fs.readFileSync(await dl.path(), "utf8");
+    check(/"template_derived"/.test(dlText) && /"values_marked_assumed_e0": 14/.test(dlText), `${where} the downloaded result JSON carries a template_derived header`);
+
+    // renaming an untouched template does not make it a hall: still no save panel
+    await page.getByLabel("Site name").fill("My own hall");
+    await page.getByLabel("Hall id").fill("H-1");
+    await page.getByRole("button", { name: "Compare scenarios" }).click();
+    await result.waitFor({ timeout: 60_000 });
+    await page.waitForFunction(() => document.body.innerText.includes("cannot be saved or shared"), null, { timeout: 60_000 });
+    check(!(await page.getByRole("region", { name: "Save to a project" }).count()), `${where} an untouched template with its labels renamed still cannot be saved`);
+
     // an edit: the field flips to the visitor's, the disclosure stays, the count falls
     const tap = page.getByLabel("Tap-off rating, max (A)");
     await tap.fill("125");

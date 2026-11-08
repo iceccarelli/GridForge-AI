@@ -6,10 +6,11 @@
 // validates every template against the real intake schema and runs each one through the real engine, asserting that it is solved or
 // refused with a named field.
 //
-// Every numeric value in a template is ASSUMED. When one is sent, the request lists it in `assumed_fields` and lib/ttp-compare.ts declares
-// it to the engine as evidence class E0 (assumed), so the engine's own basis text reads "(E0)" instead of "(E5)", the class it gives a
-// figure a client supplies. A value the visitor changes is theirs from that moment and is no longer declared assumed. The identity fields
-// (site name, hall id) are labels, not values, and are not declared.
+// Every numeric value in a template is ASSUMED. When one is sent, the request lists it in `assumed_fields` and lib/ttp-compare.ts marks it
+// E0 (assumed) on the request: the marking is made by this site and recorded in the saved request. The comparison result itself carries no
+// per-input classes (the Density Screen's basis text does, and shows "(E0)" for a marked figure), and the marking changes only the request
+// digest, never an arithmetic result. A value the visitor changes is theirs from that moment and is no longer marked. The identity fields
+// (site name, hall id) are labels, not values, and are not marked.
 
 import type { CompareObjective } from "@/lib/ttp-compare";
 
@@ -171,4 +172,33 @@ export function editedTemplateValues(preset: HallPreset, form: Record<string, st
 /** The form state a template loads: every value as text, the platform, and the identity labels. */
 export function presetFormState(preset: HallPreset): Record<string, string> {
   return { ...preset.values, siteName: preset.siteName, hallId: preset.hallId, platform: preset.platform };
+}
+
+/** A supply option as the form holds it: every field is text. */
+export type SupplyText = Record<keyof PresetSupplyOption, string>;
+
+/** Whether the supply options are still exactly the template's (every field, compared as trimmed text). */
+export function templateSupplyUnchanged(preset: HallPreset, btm: readonly SupplyText[]): boolean {
+  if (btm.length !== preset.supply.length) return false;
+  const keys = ["id", "kind", "capacity_MW", "lead_time_weeks", "capex_eur_per_kW", "energy_MWh"] as const;
+  return preset.supply.every((o, i) => keys.every((k) => String(btm[i][k] ?? "").trim() === o[k]));
+}
+
+/**
+ * True while the form is still exactly the template: every template VALUE is the template's and the supply options are unchanged. Labels (site
+ * name, hall id, platform, metro) are not the hall's figures and do not count: renaming a template does not make it a hall, so it still cannot be saved.
+ */
+export function isUntouchedTemplate(preset: HallPreset, form: Record<string, string | undefined>, btm: readonly SupplyText[]): boolean {
+  return stillTemplateValues(preset, form).length === PRESET_VALUE_KEYS.length && templateSupplyUnchanged(preset, btm);
+}
+
+/** Everything a template click puts into the form, in one place the component and the tests share. An untouched template is a synthetic example. */
+export function templateLoadState(preset: HallPreset) {
+  return {
+    form: presetFormState(preset),
+    btm: preset.supply.map((o) => ({ ...o })),
+    objective: preset.objective,
+    templateId: preset.id,
+    synthetic: true,
+  };
 }

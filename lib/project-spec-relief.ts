@@ -89,11 +89,18 @@ export interface LadderInputDef {
   document: string;
   /** What that document would not establish. */
   notProved: string;
+  /** The input moves the limit only in these scenario architectures (the engine's ids, as a saved scenario names them). Absent: in all. */
+  onlyFor?: readonly string[];
+  /** The input does NOT move the limit in these architectures. */
+  notFor?: readonly string[];
+  /** The limit uses the figure at no better than this class, whatever class it has elsewhere (the engine's `step_evidence`). */
+  cap?: "E3";
 }
 
-const D = (path: string, label: string, suppliedClass: "E3" | "E5", document: string, notProved: string): LadderInputDef => ({
-  path, label, suppliedClass, document, notProved,
-});
+const D = (
+  path: string, label: string, suppliedClass: "E3" | "E5", document: string, notProved: string,
+  extra: Pick<LadderInputDef, "onlyFor" | "notFor" | "cap"> = {}
+): LadderInputDef => ({ path, label, suppliedClass, document, notProved, ...extra });
 
 /**
  * The inputs behind each constraint family, limited to the ones a saved comparison can carry (lib/ttp-compare.ts toIntakeDocument).
@@ -140,11 +147,18 @@ export const LADDER_FAMILIES: Partial<Record<SpecReliefId, readonly LadderInputD
       "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
       "the flow the existing loops need at full load: readings show the flow at the times they were taken"),
   ],
+  // Scenario-aware (gridforge/thermal/constraints.py, tcs_supply_achievable). In the full direct-liquid-cooling scenario the achievable facility water
+  // temperature is the design dry-bulb plus the engine's library dry-cooler approach: the plant supply temperature does not move it (verified against the
+  // engine by perturbing it: tests/site/evidence-ladder.test.ts). In the other scenarios it is the existing plant's supply temperature, which the limit uses
+  // as an estimate (step_evidence ESTIMATED, E3) even though the intake class for that figure is E5. After the engine's relief it is the temperature a
+  // proposed trim chiller is assumed to hold (ASSUMED), which no document about the existing plant changes: see TCS_AFTER_RELIEF.
   tcs_supply_achievable: [
-    D("thermal.plant.design_supply_C", "Plant supply temperature", "E5", "BMS setpoint and 12 months of trend.",
-      "that the plant can hold the setpoint in the site's hottest hours: a setpoint is what the plant is told to hold"),
     D("site.design_drybulb_C", "Summer design dry bulb", "E3", "Nearest TMY station.",
-      "conditions at this site: a weather-station value is a climate basis, and it says nothing about how the heat-rejection plant performs"),
+      "conditions at this site: a weather-station value is a climate basis, and it says nothing about how the heat-rejection plant performs. The dry-cooler approach added to it is the engine's library figure, not an input",
+      { onlyFor: ["full_dlc"] }),
+    D("thermal.plant.design_supply_C", "Plant supply temperature", "E5", "BMS setpoint and 12 months of trend.",
+      "that the plant can hold the setpoint in the site's hottest hours: a setpoint is what the plant is told to hold",
+      { notFor: ["full_dlc"], cap: "E3" }),
   ],
   residual_air_removal: [
     D("thermal.residual_air_capacity_kW_per_rack", "Air removal per rack position", "E3", "Measured per-tile airflow, or CFD.",
@@ -159,6 +173,17 @@ export const LADDER_FAMILIES: Partial<Record<SpecReliefId, readonly LadderInputD
       "the floor as it stands today: a design value from drawings is not a survey"),
   ],
 };
+
+/** What replaces the inputs for tcs_supply_achievable once the engine's relief for it has been applied. */
+export const TCS_AFTER_RELIEF =
+  "Where the engine's relief for this limit (adiabatic assist plus a proposed trim chiller) has been applied, the limit is computed from the supply temperature that chiller is assumed to hold (class E0, an assumption about equipment that is not installed). A document about the existing plant does not change that.";
+
+/** The inputs of a family that move the limit in this scenario architecture (all of them when the architecture is not known). */
+function defsFor(id: string, architecture: string | null): readonly LadderInputDef[] {
+  return (LADDER_FAMILIES[id as SpecReliefId] ?? []).filter(
+    (d) => (!d.onlyFor || (architecture !== null && d.onlyFor.includes(architecture))) && !(architecture !== null && d.notFor?.includes(architecture))
+  );
+}
 
 /** Every path the ladder reads from a saved request. */
 export const LADDER_PATHS: readonly string[] = Object.values(LADDER_FAMILIES).flatMap((defs) => (defs ?? []).map((d) => d.path));
@@ -176,6 +201,8 @@ export interface LadderInputState {
 export interface LadderBasis {
   /** The scenario the ladder speaks about: the one the comparison ranked first, else its baseline, else its first. */
   scenario: string;
+  /** That scenario's cooling architecture id (for example "full_dlc"), which decides which inputs move some limits; null when not stored. */
+  architecture: string | null;
   /** The constraint that binds as found, and the one that binds after the engine's relief steps; null when the engine named none. */
   bindsNow: string | null;
   bindsNext: string | null;
@@ -208,6 +235,7 @@ function inputState(intake: unknown, path: string): LadderInputState {
 interface SavedScenario {
   id?: unknown;
   name?: unknown;
+  architecture?: unknown;
   as_found?: { binding?: unknown };
   after_ladder?: { binding?: unknown };
 }
@@ -227,6 +255,7 @@ export function ladderBasisFromComparison(request: unknown, result: unknown): La
   const intake = request && typeof request === "object" ? (request as { intake?: unknown }).intake : undefined;
   return {
     scenario: id(pick.name) ?? id(pick.id) ?? "the first scenario",
+    architecture: id(pick.architecture),
     bindsNow: id(pick.as_found?.binding),
     bindsNext: id(pick.after_ladder?.binding),
     inputs: LADDER_PATHS.map((p) => inputState(intake, p)),
@@ -269,13 +298,13 @@ export interface LadderUnevaluated {
   text: string;
 }
 
-export type LadderStatus = "no_comparison" | "no_limit" | "no_inputs" | "all_stated" | "has_assumed";
+export type LadderStatus = "no_comparison" | "unreadable" | "no_limit" | "no_inputs" | "all_stated" | "has_assumed";
 
 export interface EvidenceLadder {
   status: LadderStatus;
   scenario: string | null;
   /** The limits the saved comparison names for this scenario, with or without inputs this page can speak to. */
-  named: { constraint: string; constraintName: string; role: LadderRung["role"] }[];
+  named: { constraint: string; constraintName: string; role: LadderRung["role"]; note?: string }[];
   rungs: LadderRung[];
   /** Limits the engine could not evaluate for want of a schedule; they cannot be named as binding, and may be. */
   unevaluated: LadderUnevaluated[];
@@ -300,7 +329,12 @@ export const LADDER_STEPS: readonly string[] = [
 export const LADDER_LIMITS: readonly string[] = [
   "A verified file means the stored bytes are unchanged since upload and that a reviewer judged them relevant. It does not make the engine's output calibrated: the calibration ledger holds no approved production records.",
   "A figure from a document may relax the limit, leave it as it is, or tighten it. The engine decides; this page does not estimate a gain.",
+  "A limit also rests on library factors the engine applies (such as the busway derating, PUE and the platform's current per rack) and, for the busway and tap-off limits, on busway runs, LV voltage and power factor, which a comparison carries as site defaults rather than as figures you supplied.",
 ];
+
+/** Said when every input this page can see is stated. It must not claim more than that. */
+export const ALL_STATED_TEXT =
+  "The inputs this page can see are stated; the limit also rests on library factors and, for the busway and tap-off limits, on busway runs, LV voltage and power factor, which a comparison carries as site defaults.";
 
 function fileLine(f: LadderFiles): string {
   if (f.total === 0) return "No file is attached to this project yet.";
@@ -315,15 +349,24 @@ function fileLine(f: LadderFiles): string {
 }
 
 function rowFor(def: LadderInputDef, st: LadderInputState | undefined): LadderRow {
-  const ifEntered = { code: def.suppliedClass, verb: verbOf(def.suppliedClass) };
+  const entered = def.cap ?? def.suppliedClass;
+  const ifEntered = { code: entered, verb: verbOf(entered) };
   const base = { path: def.path, label: def.label, classIfEntered: ifEntered, document: def.document, notProved: def.notProved };
   if (!st || !st.supplied) {
     return { ...base, classNow: "E0", state: "not_supplied", stateText: "Not supplied: the engine used its own library placeholder (E0, assumed)." };
   }
   if (st.declared !== null) {
     const n = Number(st.declared.slice(1));
-    if (n <= 3) return { ...base, classNow: st.declared, state: "assumed", stateText: `Supplied and declared ${st.declared} (${verbOf(st.declared)}).` };
-    return { ...base, classNow: st.declared, state: "stated", stateText: `Supplied and declared ${st.declared} (${verbOf(st.declared)}).` };
+    const text =
+      st.declared === "E0"
+        ? "A reference-template value, marked assumed (E0) by this site on the request."
+        : `Supplied and declared ${st.declared} (${verbOf(st.declared)}).`;
+    if (n <= 3) return { ...base, classNow: st.declared, state: "assumed", stateText: text };
+    if (def.cap) return { ...base, classNow: def.cap, state: "estimated", stateText: `${text} This limit uses it as an estimate (${def.cap}).` };
+    return { ...base, classNow: st.declared, state: "stated", stateText: text };
+  }
+  if (def.cap) {
+    return { ...base, classNow: def.cap, state: "estimated", stateText: `Supplied. For this limit the engine uses it as an estimate (${def.cap}, not customer data), whatever its class elsewhere.` };
   }
   if (def.suppliedClass === "E3") {
     return { ...base, classNow: "E3", state: "estimated", stateText: "Supplied; the engine classes this kind of figure E3 (estimated) even when supplied." };
@@ -349,9 +392,10 @@ const UNEVALUATED: Record<string, string> = {
  * E0..E3, or an estimate-class figure) and "stated" when the engine holds it as customer data or better; only the first kind asks for a
  * document before the limit can be read as firm. Nothing here is computed from a number: it reads classes, never values.
  */
-export function evidenceLadder(basis: LadderBasis | null, files: LadderFiles): EvidenceLadder {
+export function evidenceLadder(basis: LadderBasis | null, files: LadderFiles, saved: { comparisons: number } = { comparisons: basis ? 1 : 0 }): EvidenceLadder {
   const common = { steps: [...LADDER_STEPS], fileLine: fileLine(files), limits: [...LADDER_LIMITS] };
-  if (!basis) return { status: "no_comparison", scenario: null, named: [], rungs: [], unevaluated: [], ...common };
+  // A saved comparison whose stored row could not be read is not the same as no comparison: say which.
+  if (!basis) return { status: saved.comparisons > 0 ? "unreadable" : "no_comparison", scenario: null, named: [], rungs: [], unevaluated: [], ...common };
   const byPath = new Map(basis.inputs.map((i) => [i.path, i]));
 
   const unevaluated: LadderUnevaluated[] = (["transformers", "ups"] as const).flatMap((path) => {
@@ -366,9 +410,10 @@ export function evidenceLadder(basis: LadderBasis | null, files: LadderFiles): E
     if (!id) continue;
     // The same limit can bind now and after relief; it is listed once, as the one binding now.
     if (named.some((n) => n.constraint === id)) continue;
-    named.push({ constraint: id, constraintName: specReliefName(id) ?? id, role });
-    const defs = LADDER_FAMILIES[id as SpecReliefId];
-    if (!defs) continue;
+    const afterRelief = id === "tcs_supply_achievable" && role === "binds_next";
+    named.push({ constraint: id, constraintName: specReliefName(id) ?? id, role, ...(afterRelief ? { note: TCS_AFTER_RELIEF } : {}) });
+    const defs = afterRelief ? [] : defsFor(id, basis.architecture);
+    if (defs.length === 0) continue;
     const rows = defs.map((d) => rowFor(d, byPath.get(d.path)));
     // Inputs that still need a document come first.
     rows.sort((a, b) => Number(a.state === "stated") - Number(b.state === "stated"));
