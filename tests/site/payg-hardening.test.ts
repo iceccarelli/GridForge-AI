@@ -4,6 +4,7 @@
  * tests/test_payg_migration.py and tests/site/payg.realdb.test.ts run the real SQL and PostgREST). No live service is contacted.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { engineAvailable } from "./_engine-guard";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { siteUrl } from "@/lib/site";
@@ -551,6 +552,11 @@ describe("F13: one billing-rule text, equal to the engine's string parsed out of
   } catch {
     engineText = null;
   }
+
+  it("the engine's rule could be read wherever the real engine is required (otherwise the next test would skip silently)", () => {
+    const g = engineAvailable(engineText !== null);
+    expect(g.ok, g.reason).toBe(true);
+  });
 
   it.skipIf(engineText === null)("lib/payg-pricing.ts billingRuleText() equals the engine's BILLING_RULE, and lib/payg.ts is that same function", async () => {
     const { billingRuleText } = await import("@/lib/payg-pricing");

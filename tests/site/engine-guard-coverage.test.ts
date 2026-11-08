@@ -15,6 +15,12 @@ import { describe, expect, it } from "vitest";
 
 const DIR = __dirname;
 const USES_ENGINE = /spawn(?:Sync)?\(\s*["']python3["']|\bhasPython\b/;
+// A file that runs python3 through execFile/exec AND can skip a test on the result (it.skipIf / it.runIf) skips silently when the engine is missing:
+// payg-hardening.test.ts read the engine's billing rule that way and `it.skipIf(engineText === null)` quietly dropped the check. A bare execFileSync
+// with no skip throws when python3 is missing, which is loud, so it is not a silent-skip risk and is not flagged.
+const EXEC_PYTHON = /exec(?:File)?(?:Sync)?\(\s*["']python3?["']/;
+const CAN_SKIP = /\.(?:skipIf|runIf)\(/;
+const usesEngineSilently = (src: string) => USES_ENGINE.test(src) || (EXEC_PYTHON.test(src) && CAN_SKIP.test(src));
 const GUARDED = /from\s+["']\.\/_engine-guard["']/;
 
 const KNOWN_UNGUARDED: readonly string[] = [
@@ -32,7 +38,7 @@ const KNOWN_UNGUARDED: readonly string[] = [
 
 // *.realdb.test.ts are the real-database journeys: they have their own switch (GF_REQUIRE_REALDB=1 fails a missing stack, python3 included).
 const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".test.ts") && !f.endsWith(".realdb.test.ts") && f !== path.basename(__filename));
-const engineFiles = files.filter((f) => USES_ENGINE.test(fs.readFileSync(path.join(DIR, f), "utf8")));
+const engineFiles = files.filter((f) => usesEngineSilently(fs.readFileSync(path.join(DIR, f), "utf8")));
 const unguarded = engineFiles.filter((f) => !GUARDED.test(fs.readFileSync(path.join(DIR, f), "utf8")));
 
 describe("real-engine tests are guarded against silent skips", () => {
@@ -49,8 +55,16 @@ describe("real-engine tests are guarded against silent skips", () => {
     expect(KNOWN_UNGUARDED.filter((f) => !unguarded.includes(f))).toEqual([]);
   });
 
+  it("the scan sees the exec-and-skip pattern (the hole that hid payg-hardening.test.ts) and ignores a bare exec that throws when python3 is missing", () => {
+    expect(usesEngineSilently('execFileSync("python3", ["-c", "x"]); it.skipIf(engineText === null)("x", () => {})')).toBe(true);
+    expect(usesEngineSilently('execSync("python3 -c x"); it.runIf(ok)("x", () => {})')).toBe(false);          // a shell string is not matched: add the form if it appears
+    expect(usesEngineSilently('execFileSync("python3", ["-I", "-c", code])')).toBe(false);
+    expect(usesEngineSilently("spawnSync('python3', ['--version'])")).toBe(true);
+    expect(engineFiles).toContain("payg-hardening.test.ts");
+  });
+
   it("the files this change owns are guarded", () => {
-    for (const f of ["ttp-compare.test.ts", "adversarial-compare-route.test.ts", "existing-flow-intake.test.ts", "existing-non-it-heat-intake.test.ts", "honest-intake-defaults.test.ts", "qualify-presets.test.ts", "hall-presets.test.ts", "evidence-ladder.test.ts"]) {
+    for (const f of ["payg-hardening.test.ts", "ttp-compare.test.ts", "adversarial-compare-route.test.ts", "existing-flow-intake.test.ts", "existing-non-it-heat-intake.test.ts", "honest-intake-defaults.test.ts", "qualify-presets.test.ts", "hall-presets.test.ts", "evidence-ladder.test.ts"]) {
       expect(engineFiles, f).toContain(f);
       expect(unguarded, f).not.toContain(f);
     }
