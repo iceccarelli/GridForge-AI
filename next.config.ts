@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   async headers() {
     return securityHeaderRules();
   },
+  async redirects() {
+    return [
+      { source: "/compare", destination: "/power/compare", permanent: true },
+    ];
+  },
   // The Observatory routes are rendered per request and read the generated scenario file from disk
   // (lib/observatory/scenario-data.ts builds the path at run time, which file tracing cannot see). Without this, the
   // serverless function ships without the file and the page can only say "the demonstration data cannot be shown".

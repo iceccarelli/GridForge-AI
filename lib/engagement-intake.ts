@@ -176,7 +176,17 @@ function plantFigureRules(
  * Everything, required. The Procurement Specification, and the safe default for
  * any product that does not say otherwise.
  */
-export const engagementIntakeSchema = z.object(baseShape).superRefine(plantFigureRules);
+// Ensure .shape is accessible both at runtime and in TypeScript when wrapped in ZodEffects
+function withShape<T extends z.ZodTypeAny>(schema: T): T & { shape: typeof baseShape } {
+  let cur: any = schema;
+  while (cur && !cur.shape && cur._def?.schema) cur = cur._def.schema;
+  if (cur?.shape && !(schema as any).shape) {
+    Object.defineProperty(schema, "shape", { value: cur.shape, enumerable: false, configurable: true });
+  }
+  return schema as any;
+}
+
+export const engagementIntakeSchema = withShape(z.object(baseShape).superRefine(plantFigureRules));
 
 /**
  * The Density Screen: the seven the free qualifier proves are enough to name what
@@ -187,14 +197,16 @@ export const engagementIntakeSchema = z.object(baseShape).superRefine(plantFigur
  * Nothing below the free tier's own bar: a Screen built on fewer numbers than the
  * qualifier answers on would have no site-specific content to sell.
  */
-export const screenIntakeSchema = z
-  .object({
-    ...baseShape,
-    firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
-    floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
-    plantCapacityKW: baseShape.plantCapacityKW.optional(),
-  })
-  .superRefine(plantFigureRules);
+export const screenIntakeSchema = withShape(
+  z
+    .object({
+      ...baseShape,
+      firmCapacityMVA: baseShape.firmCapacityMVA.optional(),
+      floorLoadingKPa: baseShape.floorLoadingKPa.optional(),
+      plantCapacityKW: baseShape.plantCapacityKW.optional(),
+    })
+    .superRefine(plantFigureRules)
+);
 
 /**
  * The schema for a product kind.
@@ -203,18 +215,6 @@ export const screenIntakeSchema = z
  * decision here asks for everything, which is the failure that costs a form field
  * rather than a wrong number in a specification.
  */
-
-// Ensure .shape is accessible even when wrapped in ZodEffects (.superRefine / .refine)
-function withShape<T extends z.ZodTypeAny>(schema: T): T & { shape: Record<string, z.ZodTypeAny> } {
-let cur: any = schema;
-while (cur && !cur.shape && cur._def?.schema) cur = cur._def.schema;
-if (cur?.shape && !(schema as any).shape) {
-Object.defineProperty(schema, "shape", { value: cur.shape, enumerable: false, configurable: true });
-}
-return schema as any;
-}
-withShape(screenIntakeSchema);
-withShape(engagementIntakeSchema);
 
 export function intakeSchemaFor(kind: string) {
   return kind === "density_screen" ? screenIntakeSchema : engagementIntakeSchema;
