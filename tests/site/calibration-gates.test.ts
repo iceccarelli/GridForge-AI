@@ -25,6 +25,7 @@ import {
   RESIDUALS_SCHEMA,
   VIEW_CONDITIONS,
   VIEW_CONDITION_COUNT,
+  VIEW_WHERE_TERMS,
   WITHHELD_VARIABLES,
   conditionsOf,
   type ViewCondition,
@@ -35,6 +36,45 @@ const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 const flat = (s: string) => s.replace(/\s+/g, " ").toLowerCase();
 const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&rsquo;/g, "'").replace(/\s+/g, " ").trim();
+
+/** The migrations directory; GRIDFORGE_MIGRATIONS_DIR points at a scratch copy (as the Python rig's does) to watch a mutated view fail. */
+const MIGRATIONS_DIR = process.env.GRIDFORGE_MIGRATIONS_DIR ?? path.join(ROOT, "supabase", "migrations");
+
+/** Splits `text` on a keyword ` and ` that sits outside every parenthesis and string literal. */
+function topLevelAnd(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, quote = false, last = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "'") quote = !quote;
+    else if (!quote && ch === "(") depth++;
+    else if (!quote && ch === ")") depth--;
+    else if (!quote && depth === 0 && text.startsWith(" and ", i)) {
+      parts.push(text.slice(last, i));
+      last = i + 5;
+    }
+  }
+  parts.push(text.slice(last));
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+/** The top-level AND terms of the WHERE clause of the FINAL view in the migrations directory. */
+function finalViewWhereTerms(): { file: string; terms: string[] } {
+  const holders = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql") && readFileSync(path.join(MIGRATIONS_DIR, f), "utf8").includes("create or replace view public.calibration_ledger_rows")).sort();
+  const file = holders[holders.length - 1];
+  const sql = flat(readFileSync(path.join(MIGRATIONS_DIR, file), "utf8").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n"));
+  const from = sql.indexOf("create or replace view public.calibration_ledger_rows");
+  const body = sql.slice(from, sql.indexOf(";", from));
+  // the first top-level " where " (those inside exists( ... ) are deeper)
+  let depth = 0, w = -1;
+  for (let i = 0; i < body.length && w < 0; i++) {
+    if (body[i] === "(") depth++;
+    else if (body[i] === ")") depth--;
+    else if (depth === 0 && body.startsWith(" where ", i)) w = i;
+  }
+  expect(w).toBeGreaterThan(-1);
+  return { file, terms: topLevelAnd(body.slice(w + 7)) };
+}
 
 /** The keys of the VIEW_GATES dict in the Python test, in order. */
 function pythonViewGateKeys(): string[] {
@@ -72,13 +112,24 @@ describe("the gate list in code is the final view's, not a copy that can drift",
   });
 
   it("every condition's SQL fragment appears in the migration that holds the FINAL view, and that migration is the last one that defines it", () => {
-    const dir = path.join(ROOT, "supabase", "migrations");
-    const holders = readdirSync(dir).filter((f) => f.endsWith(".sql") && read(`supabase/migrations/${f}`).includes("create or replace view public.calibration_ledger_rows")).sort();
-    const final = holders[holders.length - 1];
+    const { file } = finalViewWhereTerms();
     // A later migration that redefines the view is a new decision: it must update this list (and the Python test), not slip by.
-    expect(final.slice(0, 4)).toBe("0052");
-    const sql = flat(read(`supabase/migrations/${final}`));
+    expect(file.slice(0, 4)).toBe("0052");
+    const sql = flat(readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
     for (const c of VIEW_CONDITIONS) expect(sql, c.label).toContain(c.sql.toLowerCase());
+  });
+
+  it("the final view has no condition beyond the listed ones: its WHERE clause has exactly as many top-level AND terms as the list accounts for", () => {
+    const { terms } = finalViewWhereTerms();
+    expect(terms.length, terms.join("\n")).toBe(VIEW_WHERE_TERMS);
+  });
+
+  it("the term counter bites: a condition appended to, or removed from, a copy of the clause changes the count", () => {
+    const { terms } = finalViewWhereTerms();
+    expect(topLevelAnd([...terms, "o.observed_value < 9000"].join(" and ")).length).toBe(terms.length + 1);
+    expect(topLevelAnd(terms.slice(1).join(" and ")).length).toBe(terms.length - 1);
+    // an AND inside parentheses or a string is not top level
+    expect(topLevelAnd("a = 1 and (b = 2 and c = 3) and d = 'x and y'").length).toBe(3);
   });
 
   it("states the real number of gates: six, each with at least one view condition, plus the record's shape", () => {

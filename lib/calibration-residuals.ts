@@ -45,6 +45,8 @@ export interface ResidualReport {
   n_sites: number;
   subsystems: ResidualSubsystem[];
   withheld_variables: string[];
+  /** The thresholds the body itself states under `requirements`; null when it does not state both. */
+  requirements: { min_approved_observations_per_variable: number; min_distinct_sites_per_variable: number } | null;
 }
 
 export type ResidualRead =
@@ -52,7 +54,9 @@ export type ResidualRead =
   | { status: "unreadable"; reason: "unreachable" | "not_served" | "http_error" | "malformed" };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const count = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+/** The largest count taken at face value: far above anything real, far below a magnitude that is a unit error or an attack. */
+export const COUNT_MAX = 1_000_000_000;
+const count = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= COUNT_MAX ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 function cell(v: unknown): ResidualCell | null {
@@ -116,10 +120,40 @@ export function parseResiduals(body: unknown): ResidualReport | null {
   const withheld = Array.isArray(body.withheld_variables) && body.withheld_variables.every((x) => typeof x === "string")
     ? (body.withheld_variables as string[])
     : [];
-  return { schema: RESIDUALS_SCHEMA, state, n_records, n_sites, subsystems, withheld_variables: withheld };
+  const req = isObj(body.requirements) ? body.requirements : null;
+  const minObs = req ? count(req.min_approved_observations_per_variable) : null;
+  const minSites = req ? count(req.min_distinct_sites_per_variable) : null;
+  const requirements = minObs !== null && minSites !== null ? { min_approved_observations_per_variable: minObs, min_distinct_sites_per_variable: minSites } : null;
+  return { schema: RESIDUALS_SCHEMA, state, n_records, n_sites, subsystems, withheld_variables: withheld, requirements };
 }
 
 export const RESIDUALS_TIMEOUT_MS = 6_000;
+/** The most of the response body that is read. The real report is a few kilobytes; a larger answer is not the documented one. */
+export const RESIDUALS_MAX_BYTES = 64 * 1024;
+
+/** The body as text, or null when it is larger than `max` bytes (the rest is cancelled unread). */
+async function readCapped(res: Response, max: number): Promise<string | null> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > max) {
+    void res.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 export function engineBase(env: Record<string, string | undefined> = process.env): string {
   return (env.GRIDFORGE_API_URL || "https://gridforge-engine.fly.dev").replace(/\/$/, "");
@@ -141,7 +175,9 @@ export async function readLiveResiduals(): Promise<ResidualRead> {
   if (!res.ok) return { status: "unreadable", reason: "http_error" };
   let body: unknown;
   try {
-    body = await res.json();
+    const raw = await readCapped(res, RESIDUALS_MAX_BYTES);
+    if (raw === null) return { status: "unreadable", reason: "malformed" };
+    body = JSON.parse(raw);
   } catch {
     return { status: "unreadable", reason: "malformed" };
   }

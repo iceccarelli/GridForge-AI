@@ -27,6 +27,8 @@ export interface ViewCondition {
   group: ConditionGroup;
   /** A fragment (lower-case, whitespace collapsed) that appears in the migration holding the final view. */
   sql: string;
+  /** How many top-level AND terms of the view's WHERE clause this condition covers (1 unless stated). */
+  terms?: number;
 }
 
 /** Every condition the final view applies. 18 today. */
@@ -50,7 +52,9 @@ export const VIEW_CONDITIONS: readonly ViewCondition[] = [
   {
     label: "the project's LATEST permission is a grant",
     group: "owner_permission",
-    sql: "cp.scope_type = 'project' and cp.scope_id = o.project_id and cp.kind = 'granted'",
+    sql:
+      "and exists ( select 1 from public.calibration_permissions cp where cp.scope_type = 'project' and cp.scope_id = o.project_id and cp.kind = 'granted' " +
+      "and cp.seq = (select max(c2.seq) from public.calibration_permissions c2 where c2.scope_type = 'project' and c2.scope_id = o.project_id))",
   },
 
   { label: "the review recorded the evidence digest", group: "file_decision", sql: "r.evidence_sha256 is not null" },
@@ -58,17 +62,25 @@ export const VIEW_CONDITIONS: readonly ViewCondition[] = [
     label: "file status verified now and unchanged since the review",
     group: "file_decision",
     sql: "e.review_status = 'verified' and e.sha256 = r.evidence_sha256",
+    terms: 2,
   },
   {
     label: "a verified decision row whose confirmed digest equals the stored one",
     group: "file_decision",
-    sql: "er.decision = 'verified' and er.sha256_confirmed = e.sha256",
+    sql:
+      "and exists (select 1 from public.project_evidence_reviews er where er.evidence_id = e.id and er.decision = 'verified' and er.sha256_confirmed = e.sha256)",
   },
 
-  { label: "the project was never filed under a non-production site", group: "never_test_site", sql: "st.data_origin <> 'production'" },
+  {
+    label: "the project was never filed under a non-production site",
+    group: "never_test_site",
+    sql:
+      "and not exists ( select 1 from public.hall_project_attachments hpa join public.sites st on st.id = hpa.site_id " +
+      "where hpa.project_id = o.project_id and st.data_origin <> 'production')",
+  },
 
   { label: "a measurement kind", group: "record_shape", sql: "o.measurement_kind in ('metered', 'bms_trend', 'commissioning_record')" },
-  { label: "the one reconcilable key in MW", group: "record_shape", sql: "o.calibration_key = 'btm.firm_mw' and o.unit = 'mw'" },
+  { label: "the one reconcilable key in MW", group: "record_shape", sql: "o.calibration_key = 'btm.firm_mw' and o.unit = 'mw'", terms: 2 },
   { label: "a site reference", group: "record_shape", sql: "o.site_ref is not null" },
   { label: "the engine digest of the prediction", group: "record_shape", sql: "o.engine_provenance_digest is not null" },
 ];
@@ -122,7 +134,7 @@ export const LEDGER_GATES: readonly LedgerGate[] = [
     rule:
       "The evidence file has a recorded decision of verified whose confirmed SHA-256 equals the digest stored for the file, the file's status is verified, and that digest is the one the observation's reviewer recorded.",
     limit:
-      "The server read the stored bytes back and hashed them, so the file is unchanged since upload. It does not read or interpret the contents: the reviewer vouches that the file is what it claims to be. A verdict is final and cannot be withdrawn.",
+      "The file was unchanged when the reviewer's decision was recorded: the hash is taken once, at review time, by the review route, and the database cannot confirm the route really hashed the stored object. Nothing reads or interprets the contents: the reviewer vouches that the file is what it claims to be. A verdict is final and cannot be withdrawn.",
   },
   {
     id: "never_test_site",
@@ -143,6 +155,11 @@ export const RECORD_SHAPE = {
 /** How many gates the final view enforces (not counting the record's shape). */
 export const GATE_COUNT: number = LEDGER_GATES.length;
 export const VIEW_CONDITION_COUNT: number = VIEW_CONDITIONS.length;
+/**
+ * The top-level AND terms of the final view's WHERE clause that the conditions above account for. tests/site/calibration-gates.test.ts and
+ * tests/test_calibration_final_gate.py count the terms the view really has and fail if it has more (or fewer) than this.
+ */
+export const VIEW_WHERE_TERMS: number = VIEW_CONDITIONS.reduce((n, c) => n + (c.terms ?? 1), 0);
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
 /** The gate count in words, for copy ("six"); the number itself is never typed into prose. */
 export const GATE_COUNT_WORD: string = NUMBER_WORDS[GATE_COUNT] ?? String(GATE_COUNT);

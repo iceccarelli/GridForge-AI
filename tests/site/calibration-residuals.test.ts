@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CalibrationTransparency } from "@/components/CalibrationTransparency";
 import { RESIDUAL_CELL_FIELDS, RESIDUALS_SCHEMA } from "@/lib/calibration-gates";
-import { parseResiduals, readLiveResiduals } from "@/lib/calibration-residuals";
+import { COUNT_MAX, RESIDUALS_MAX_BYTES, parseResiduals, readLiveResiduals } from "@/lib/calibration-residuals";
 
 const text = (h: string) => h.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&rsquo;/g, "'").replace(/\s+/g, " ").trim();
 
@@ -106,6 +106,51 @@ describe("readLiveResiduals", () => {
   });
 });
 
+describe("bounds on what is read", () => {
+  it("refuses a body larger than the cap, whether declared or streamed", async () => {
+    const big = JSON.stringify({ ...EMPTY, note: "x".repeat(RESIDUALS_MAX_BYTES + 10) });
+    serve(big);
+    expect(await readLiveResiduals()).toEqual({ status: "unreadable", reason: "malformed" });
+    globalThis.fetch = (async () => new Response(JSON.stringify(EMPTY), { status: 200, headers: { "content-length": String(RESIDUALS_MAX_BYTES + 1) } })) as typeof fetch;
+    expect(await readLiveResiduals()).toEqual({ status: "unreadable", reason: "malformed" });
+  });
+  it("refuses a count beyond a sane range (1e21 is not a number of records)", () => {
+    expect(parseResiduals({ ...WITH_RECORDS, n_records: 1e21 })).toBeNull();
+    expect(parseResiduals({ ...WITH_RECORDS, n_records: COUNT_MAX + 1 })).toBeNull();
+    expect(parseResiduals({ ...WITH_RECORDS, n_records: COUNT_MAX })).not.toBeNull();
+  });
+  it("words the thresholds as the body's own when it states them, otherwise as documented", async () => {
+    serve({ ...WITH_RECORDS, requirements: { min_approved_observations_per_variable: 12, min_distinct_sites_per_variable: 4 } });
+    let t = await render();
+    expect(t).toContain("As the report states it, a variable is called calibrated only with at least 12 approved");
+    expect(t).toContain("from 4 distinct sites");
+    serve({ ...WITH_RECORDS, requirements: undefined });
+    t = await render();
+    expect(t).toContain("By the engine's documented thresholds, a variable is called calibrated only with at least 10 approved");
+  });
+});
+
+describe("the read time is shown, and nothing is called live", () => {
+  it("renders when it was read and how often the page refreshes, for a read with and without records", async () => {
+    for (const body of [EMPTY, WITH_RECORDS]) {
+      serve(body);
+      const read = await readLiveResiduals();
+      expect(read.status).toBe("read");
+      const t = text(renderToStaticMarkup(React.createElement(CalibrationTransparency, { live: read })));
+      const at = (read as { readAt: string }).readAt.replace("T", " ").slice(0, 16);
+      expect(t).toContain(`Read from the engine at ${at} UTC (this page refreshes about every five minutes)`);
+      expect(t).not.toMatch(/\blive\b/i);
+      expect(t).not.toMatch(/report, now/i);
+    }
+  });
+  it("the not-read state names no time and no count", async () => {
+    globalThis.fetch = (async () => { throw new Error("down"); }) as typeof fetch;
+    const t = await render();
+    expect(t).not.toContain("Read from the engine at");
+    expect(t).not.toMatch(/\blive\b/i);
+  });
+});
+
 describe("the public panel's live status", () => {
   it("with no approved records: uncalibrated, 0 approved production records, and the exact schema of what will populate", async () => {
     serve(EMPTY);
@@ -126,7 +171,7 @@ describe("the public panel's live status", () => {
   it("when the read fails it says so and shows no count or residual from anywhere", async () => {
     globalThis.fetch = (async () => { throw new Error("down"); }) as typeof fetch;
     const t = await render();
-    expect(t).toContain("The live residual report could not be read.");
+    expect(t).toContain("The residual report could not be read.");
     expect(t).not.toContain("0 approved production records");
     expect(t).not.toContain("Uncalibrated:");
     expect(t).not.toMatch(/State: (indicative|calibrated)/);
@@ -170,7 +215,7 @@ describe("/evidence and /reference", () => {
     globalThis.fetch = (async () => { throw new Error("down"); }) as typeof fetch;
     const { default: Page } = await import("@/app/evidence/page");
     const t = text(renderToStaticMarkup(await Page()));
-    expect(t).toContain("The live residual report could not be read.");
+    expect(t).toContain("The residual report could not be read.");
     expect(t).toContain("snapshot committed with this site");
   });
 

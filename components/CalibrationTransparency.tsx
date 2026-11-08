@@ -16,7 +16,7 @@ import {
 import type { ResidualRead, ResidualReport } from "@/lib/calibration-residuals";
 
 /**
- * The public account of how a site measurement reaches the calibration ledger, and what the engine's published residual report says now.
+ * The public account of how a site measurement reaches the calibration ledger, and what the engine's published residual report says.
  * Server-rendered from lib/calibration-gates.ts (one typed list, pinned to the database view by tests) and from one fresh read of the
  * engine. It claims nothing about accuracy: with no approved records it says so, and when the read fails it says that and shows no number.
  */
@@ -30,11 +30,13 @@ const UNREADABLE_TEXT = {
 
 const fmt = (n: number | null, unit: string) => (n === null ? "undefined" : `${Number(n.toPrecision(4))} ${unit}`);
 
+const utc = (iso: string) => iso.replace("T", " ").slice(0, 16);
+
 function Status({ read }: { read: ResidualRead }) {
   if (read.status === "unreadable") {
     return (
       <div role="status" className="rounded border border-queue/40 bg-queue/10 p-4">
-        <p className="font-semibold text-ghost">The live residual report could not be read.</p>
+        <p className="font-semibold text-ghost">The residual report could not be read.</p>
         <p className="mt-1 text-sm text-mute">
           Reading <span className="font-mono">{RESIDUALS_PATH}</span> failed ({UNREADABLE_TEXT[read.reason]}), so this page shows no residual
           and no count from it. It does not substitute an earlier number. Reload to try again.
@@ -43,9 +45,12 @@ function Status({ read }: { read: ResidualRead }) {
     );
   }
   const r = read.report;
+  const need = r.requirements ?? RESIDUAL_REQUIREMENTS;
   return (
     <div role="status" className="rounded border border-line bg-panel-2 p-4">
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Live: read from the deployed engine; this page refreshes about every five minutes</p>
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        Read from the engine at {utc(read.readAt)} UTC (this page refreshes about every five minutes)
+      </p>
       {r.n_records === 0 ? (
         <>
           <p className="mt-1 text-lg font-semibold text-ghost">Uncalibrated: 0 approved production records.</p>
@@ -60,10 +65,10 @@ function Status({ read }: { read: ResidualRead }) {
             State: {r.state}. {r.n_records} approved record{r.n_records === 1 ? "" : "s"} from {r.n_sites} site{r.n_sites === 1 ? "" : "s"}.
           </p>
           <p className="mt-1 text-sm text-mute">
-            A variable is called calibrated only with at least {RESIDUAL_REQUIREMENTS.min_approved_observations_per_variable} approved,
-            non-low-quality observations from {RESIDUAL_REQUIREMENTS.min_distinct_sites_per_variable} distinct sites. Below that, the figures
-            below are indicative at most. They describe this engine&rsquo;s past error at the contributing sites and are not a guarantee for
-            any other site.
+            {r.requirements ? "As the report states it" : "By the engine's documented thresholds"}, a variable is called calibrated only with at
+            least {need.min_approved_observations_per_variable} approved, non-low-quality observations from {need.min_distinct_sites_per_variable}{" "}
+            distinct sites. Below that, the figures below are indicative at most. They describe this engine&rsquo;s past error at the contributing
+            sites and are not a guarantee for any other site.
           </p>
         </>
       )}
@@ -131,7 +136,7 @@ function Schema() {
           <h4 className="font-semibold text-ghost">Top level</h4>
           <p className="mt-1 font-mono text-[13px] break-words">{RESIDUAL_TOP_FIELDS.join(", ")}</p>
           <p className="mt-1">
-            <span className="font-mono">requirements</span> states the thresholds: at least{" "}
+            <span className="font-mono">requirements</span> states the thresholds; the engine&rsquo;s documented ones are at least{" "}
             {RESIDUAL_REQUIREMENTS.min_approved_observations_per_variable} approved observations from at least{" "}
             {RESIDUAL_REQUIREMENTS.min_distinct_sites_per_variable} distinct sites per variable, with low-quality records not counting.
           </p>
@@ -227,7 +232,7 @@ export function CalibrationTransparency({ live }: { live: ResidualRead }) {
         ))}
       </ul>
 
-      <h3 className="mt-6 text-base font-semibold text-ghost" id="residuals">The engine&rsquo;s residual report, now</h3>
+      <h3 className="mt-6 text-base font-semibold text-ghost" id="residuals">The engine&rsquo;s residual report</h3>
       <div className="mt-3">
         <Status read={live} />
       </div>

@@ -94,6 +94,13 @@ export const REVIEW_PAGE = 100;
 export const REVIEW_SCAN_MAX = 5000;
 /** How many already-verified observations the checklist section lists (newest review first). */
 export const VERIFIED_SHOW_MAX = 50;
+/**
+ * The columns the verified list reads, named: never `*` and never `prediction_ref` (it embeds the case token, a bearer credential). `case_token` is
+ * read to find the stored forecast and is not returned to the screen.
+ */
+const OBSERVATION_COLUMNS =
+  "id,project_id,case_token,case_revision,architecture,calibration_key,unit,predicted_value,observed_value,observed_on,method,evidence_id,installed_basis,note,submitted_by,submitted_at,delta_pct,measurement_kind,site_ref,engine_provenance_digest,data_origin";
+const REVIEW_COLUMNS = "id,observation_id,project_id,decision,evidence_class,reviewer,reviewed_at,evidence_sha256";
 /** How many of the most recently submitted observations are searched for verified ones. */
 export const VERIFIED_SCAN = 100;
 
@@ -244,9 +251,9 @@ export async function reviewQueue(): Promise<ReviewQueue> {
   // permission or file decision actually blocks the export. They are looked for among the VERIFIED_SCAN newest SUBMITTED observations
   // (a review is asked for by the ids in hand, as for the pending queue, never as one capped list of reviews), and a failed read is
   // `null`, never an empty list standing in for it.
-  const recent = await rest<ObservationRow[]>("GET", `project_observations?select=*&order=submitted_at.desc,id.desc&limit=${VERIFIED_SCAN}`);
+  const recent = await rest<ObservationRow[]>("GET", `project_observations?select=${OBSERVATION_COLUMNS}&order=submitted_at.desc,id.desc&limit=${VERIFIED_SCAN}`);
   const recentReviews = recent.ok && (recent.data ?? []).length
-    ? await rest<ReviewRow[]>("GET", `project_observation_reviews?observation_id=in.(${(recent.data ?? []).map((r) => encodeURIComponent(r.id)).join(",")})&select=*`)
+    ? await rest<ReviewRow[]>("GET", `project_observation_reviews?observation_id=in.(${(recent.data ?? []).map((r) => encodeURIComponent(r.id)).join(",")})&select=${REVIEW_COLUMNS}`)
     : null;
   const verifiedReviews: ReviewRow[] | null = !recent.ok ? null : (recent.data ?? []).length === 0 ? [] : recentReviews && recentReviews.ok
     ? (recentReviews.data ?? [])

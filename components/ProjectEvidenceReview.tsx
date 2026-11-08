@@ -182,7 +182,7 @@ export function ProjectEvidenceReview({
             {verified === null ? (
               <p role="alert" className="text-sm text-flag">The verified observations could not be read, so no checklist is shown.</p>
             ) : verified.length === 0 ? (
-              <p className="text-sm text-mute">No observation has been verified.</p>
+              <p className="text-sm text-mute">None among the {VERIFIED_SCAN} most recently submitted observations.</p>
             ) : (
               verified.map((v) => <VerifiedCard key={v.id} item={v} />)
             )}
@@ -202,6 +202,17 @@ const STATUS_ICON = {
 } as const;
 
 /**
+ * The one-line summary. "Every gate" is said only when nothing was checked in part: the forecast's digest and predicted value are
+ * recomputed by the export view alone (the digest is over Postgres's own jsonb text, which cannot be reproduced faithfully from the
+ * JSON PostgREST returns), so a forecast gate that passes here is never a full pass.
+ */
+export function headline(gates: readonly GateResult[], blocking: readonly GateResult[]): string {
+  if (blocking.length > 0) return `Export gates: ${blocking.length} of ${gates.length} blocking the export`;
+  if (gates.some((g) => g.partial)) return "No gate blocks here; the forecast digest and predicted value are checked only by the export view.";
+  return "Export gates: every gate read and met here (the export view still decides)";
+}
+
+/**
  * Every gate the calibration export view enforces, for one observation: met, not met or cannot be read, with the reason. The status is
  * written out as a word as well as shown by an icon. A gate that could not be read is a blocker, like one that is not met.
  */
@@ -210,9 +221,7 @@ export function GateChecklist({ gates, label }: { gates: readonly GateResult[]; 
   return (
     <details open className="rounded border border-line bg-ink/40 p-3 text-sm">
       <summary className="cursor-pointer text-xs font-semibold text-ghost focus:outline-none focus:ring-2 focus:ring-power/60">
-        {blocking.length === 0
-          ? "Export gates: every gate read and met here (the export view still decides)"
-          : `Export gates: ${blocking.length} of ${gates.length} blocking the export`}
+        {headline(gates, blocking)}
       </summary>
       <ul aria-label={label} className="mt-2 grid gap-2">
         {gates.map((g) => (

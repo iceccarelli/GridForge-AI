@@ -11,7 +11,7 @@ import { adminToken } from "@/lib/admin";
 import { LEDGER_GATES, blockingGates, type GateResult } from "@/lib/calibration-gates";
 import { exportChecklists } from "@/lib/calibration-gate-inputs";
 import { exportBlockers, ledgerBlockers, ledgerGateChecklist, type GateInputs } from "@/lib/project-observations";
-import { VERIFIED_SCAN as COMPONENT_SCAN, VERIFIED_SHOWN, GateChecklist } from "@/components/ProjectEvidenceReview";
+import { VERIFIED_SCAN as COMPONENT_SCAN, VERIFIED_SHOWN, GateChecklist, headline } from "@/components/ProjectEvidenceReview";
 import { VERIFIED_SCAN, VERIFIED_SHOW_MAX } from "@/lib/project-review-queue";
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
@@ -276,7 +276,9 @@ describe("the admin screen", () => {
     const html = renderToStaticMarkup(await Page());
     const t = text(html);
     expect(t).toContain("Verified observations: what still blocks the export (1)");
-    expect(t).toContain("every gate read and met here");           // the verified one
+    // the verified one: the forecast gate is checked in part, so the headline must not claim every gate was met
+    expect(t).toContain("No gate blocks here; the forecast digest and predicted value are checked only by the export view.");
+    expect(t).not.toMatch(/every gate read and met/i);
     expect(t).toMatch(/Export gates: \d of 7 blocking the export/); // the pending one: not reviewed, file gate waits for the review
     for (const g of LEDGER_GATES) expect(t).toContain(g.title);
     expect(t).toContain("Met");
@@ -321,3 +323,59 @@ describe("the admin screen", () => {
     expect(t).toContain("1 of 7 blocking the export");
   });
 });
+
+describe("the headline never overstates what was checked", () => {
+  it("with the forecast gate checked in part it never says every gate, whatever else is true", () => {
+    const allMet = ledgerGateChecklist(o, r, ev, good);
+    expect(allMet.some((g) => g.partial)).toBe(true);
+    const h = headline(allMet, blockingGates(allMet));
+    expect(h).toBe("No gate blocks here; the forecast digest and predicted value are checked only by the export view.");
+    expect(h).not.toMatch(/every gate/i);
+    const html = text0(renderToStaticMarkup(React.createElement(GateChecklist, { gates: allMet, label: "Export gates" })));
+    expect(html).toContain(h);
+    expect(html).not.toMatch(/every gate/i);
+  });
+  it("blocking gates are counted first; only a checklist with nothing partial and nothing blocking may say every gate", () => {
+    const blocked = ledgerGateChecklist(o, r, ev, { ...good, standing: "none" });
+    expect(headline(blocked, blockingGates(blocked))).toBe("Export gates: 1 of 7 blocking the export");
+    const full = ledgerGateChecklist(o, r, ev, good).map((g) => ({ ...g, partial: undefined }));
+    expect(headline(full, [])).toMatch(/every gate read and met here/);
+  });
+});
+
+describe("reads that may have been cut short, and column lists", () => {
+  it("a batch that comes back full (Supabase's max-rows) is unreadable, not complete", async () => {
+    db.tables.set("calibration_permissions", Array.from({ length: 1000 }, (_, i) => ({ scope_type: "project", scope_id: PROJECT, kind: "granted", seq: i + 1 })));
+    const g = byId(await read());
+    expect(g.owner_permission.status).toBe("unreadable");
+    db.tables.set("calibration_permissions", Array.from({ length: 999 }, (_, i) => ({ scope_type: "project", scope_id: PROJECT, kind: "granted", seq: i + 1 })));
+    expect(byId(await read()).owner_permission.status).toBe("met");
+  });
+
+  it("the verified-list reads name their columns: no select=*, and no prediction_ref (it embeds the case token)", async () => {
+    const { reviewQueue } = await import("@/lib/project-review-queue");
+    db.calls.length = 0;
+    const q = await reviewQueue();
+    expect(q.ok).toBe(true);
+    const reads = db.calls.map((c) => decodeURIComponent(c.url));
+    const recent = reads.filter((u) => u.includes("project_observations?select=id,project_id,case_token") && u.includes("limit=100"));
+    expect(recent).toHaveLength(1);
+    expect(recent[0]).not.toContain("select=*");
+    expect(recent[0]).not.toContain("prediction_ref");
+    const revs = reads.filter((u) => u.includes("project_observation_reviews?observation_id=in.("));
+    expect(revs.length).toBeGreaterThan(0);
+    for (const u of revs.filter((x) => x.includes("evidence_sha256"))) expect(u).not.toContain("select=*");
+  });
+
+  it("an empty verified list says what was searched, not that nothing was ever verified", async () => {
+    db.tables.set("project_observation_reviews", []);
+    signIn0();
+    const { default: Page } = await import("@/app/admin/reviews/page");
+    const t = text0(renderToStaticMarkup(await Page()));
+    expect(t).toContain("None among the 100 most recently submitted observations.");
+    expect(t).not.toContain("No observation has been verified");
+  });
+});
+
+const text0 = (h: string) => h.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
+const signIn0 = () => jar.push({ name: "gf_admin", value: adminToken()! });

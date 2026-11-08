@@ -21,8 +21,11 @@ import {
   type SiteOriginRead,
 } from "@/lib/project-observations";
 
-/** Rows one batched read may return before the answer is treated as incomplete (and so unreadable) rather than trusted. */
-const BATCH_MAX = 5000;
+/**
+ * Rows one batched read asks for. Supabase caps a response at its own max-rows (1000 by default), so a read that comes back with this many
+ * rows may have been cut short: it is treated as unreadable, never as complete.
+ */
+const BATCH_MAX = 1000;
 
 export interface ChecklistSubject {
   observation: ObservationRow;

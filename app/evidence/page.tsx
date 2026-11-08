@@ -157,7 +157,7 @@ export default async function EvidencePage() {
         )}
         <p className="mt-3 text-sm text-faint">
           The figures above are a snapshot committed with this site: the file the deliverables read (<span className="font-mono">/reference/calibration.json</span>),
-          which changes when the site is rebuilt. The live status of the engine&rsquo;s residual report is in the next section.
+          which changes when the site is rebuilt. The engine&rsquo;s residual report, read from the engine, is in the next section.
         </p>
       </section>
 
