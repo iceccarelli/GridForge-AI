@@ -180,3 +180,28 @@ def test_the_salted_site_reference_migration_test_runs_on_real_postgres():
     assert "never skips" in name
     assert any("0001-0053" in n for n in steps), "the whole-chain step must say it covers 0001-0053"
     assert not any("0001-0052" in n for n in steps), "a step still claims the chain ends at 0052"
+
+
+def test_project_supplier_quotation_tests_run_on_real_postgres():
+    steps = _realdb_steps()
+    py = {n: r for n, r in steps.items() if n.startswith("Project supplier quotations (0054)")}
+    assert len(py) == 1, "the real-database job needs exactly one 'Project supplier quotations (0054)' step"
+    (name, run), = py.items()
+    assert run == "python -m pytest tests/test_project_quotation_claims_migration.py tests/test_project_quotation_final_gate.py -q"
+    assert "never skips" in name
+    vit = [r for n, r in steps.items() if n.startswith("Project supplier quotations - claims through the real routes")]
+    assert vit == ["bash scripts/realdb-run.sh npx vitest run tests/site/project-quotation-claims.realdb.test.ts"]
+    # the job sets the switches that turn a missing database into a failure, and its service cluster is UTF-8 (the official image's default)
+    job = _job("real-database")
+    assert 'GRIDFORGE_REQUIRE_DB: "1"' in job and 'GF_REQUIRE_REALDB: "1"' in job
+    assert "image: postgres:16" in job
+
+
+def test_every_test_that_drives_a_real_postgres_rig_is_wired_into_the_real_database_job():
+    """Data-driven: a file that imports a PostgreSQL rig needs a database, which only this job provides. (Not every name contains 'migration'.)"""
+    job = _job("real-database")
+    rigs = re.compile(r"^(?:from|import) (?:registry_pg|calibration_pg_rig)\b", re.M)
+    found = [f for f in sorted((ROOT / "tests").glob("test_*.py")) if rigs.search(f.read_text())]
+    assert found, "no test imports a PostgreSQL rig: the glob is wrong"
+    for f in found:
+        assert f.name in job, f"{f.name} drives a real PostgreSQL rig but is in no real-database step: it would skip or fail elsewhere"

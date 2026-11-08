@@ -777,6 +777,10 @@ jobs:
         run: python -m pytest tests/test_migration_chain_0046_0052.py -q
       - name: Salted site reference (0053) - function body, malformed refusal, both orders, legacy rows untouched, importer alias on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_salted_site_ref_migration.py -q
+      - name: Project supplier quotations (0054) - file gate in function AND trigger, final-state reader, 100-claim cap, locks, hostile text, legacy rows untouched on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_project_quotation_claims_migration.py tests/test_project_quotation_final_gate.py -q
+      - name: Project supplier quotations - claims through the real routes, real PostgREST + PostgreSQL (UTF-8 cluster: the hostile-text cases need it) (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/project-quotation-claims.realdb.test.ts
       - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)
