@@ -511,12 +511,10 @@ def test_an_argument_that_is_not_valid_utf8_is_a_clean_refusal(tmp_path):
     assert not (tmp_path / "l.json").exists() and not (tmp_path / siteref.ALIAS_FILENAME).exists()
 
 
-def _add_many(args):
-    path, start, count, barrier = args
+def _add_many(path, start, count, barrier):
     barrier.wait(timeout=60)                                   # all writers begin together, so unlocked read-modify-write cycles interleave
     for i in range(start, start + count):
         siteref.add_alias(Path(path), "site_%012x" % (i + 1), "site_%012x" % (i + 100001))
-    return count
 
 
 def test_concurrent_alias_writers_do_not_lose_each_others_lines(tmp_path):
@@ -525,8 +523,12 @@ def test_concurrent_alias_writers_do_not_lose_each_others_lines(tmp_path):
     ctx = multiprocessing.get_context("fork")
     workers, each = 8, 40
     barrier = ctx.Barrier(workers)
-    with ctx.Pool(workers) as pool:
-        pool.map(_add_many, [(str(path), w * each, each, barrier) for w in range(workers)], chunksize=1)
+    procs = [ctx.Process(target=_add_many, args=(str(path), w * each, each, barrier)) for w in range(workers)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(120)
+    assert all(p.exitcode == 0 for p in procs), [p.exitcode for p in procs]
     aliases = siteref.read_aliases(path)
     assert len(aliases) == workers * each, f"{workers * each - len(aliases)} aliases were lost"
     assert aliases["site_%012x" % 5] == "site_%012x" % 100005
