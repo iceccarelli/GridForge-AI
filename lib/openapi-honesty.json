@@ -4,7 +4,8 @@
     "idempotency_key_max_chars": 150,
     "idempotency_window_hours": 24,
     "max_body_bytes": 524288,
-    "max_mcp_batch": 10
+    "max_mcp_batch": 10,
+    "max_estimate_halls": 100000
   },
   "calibration_block_fields": [
     "state",

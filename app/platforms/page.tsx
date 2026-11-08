@@ -9,11 +9,12 @@ import { QUALIFY_LINK } from "@/lib/nav";
 import { pageablePlatforms } from "@/lib/platform-pages";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, collectionPageJsonLd, datasetJsonLd } from "@/lib/jsonld";
+import { PLATFORM_FIGURES_NOTE } from "@/lib/definitions";
 
 export const metadata: Metadata = {
   title: "AI rack power, flow and floor loading",
   description:
-    "Published rack power, liquid fraction, residual air, flow and floor loading for AI platforms, and the platforms left out for want of a published power.",
+    "Rack power, liquid fraction, residual air, flow and floor loading for AI platforms, with sources, and the platforms left out for want of a published power.",
   alternates: { canonical: "/platforms" },
   twitter: { card: "summary_large_image", images: pageImages("platforms") },
   openGraph: {
@@ -54,9 +55,9 @@ export default async function PlatformsPage() {
             "/platforms",
             "AI rack platform library",
             DESCRIPTION,
-            pages.map((p) => ({ name: p.name, path: `/platforms/${p.id}`, description: "Manufacturer-published rack power, liquid fraction, flow and floor loading." })),
+            pages.map((p) => ({ name: p.name, path: `/platforms/${p.id}`, description: "Rack power, liquid fraction, flow and floor loading, from the cited sources." })),
           ),
-          datasetJsonLd("/platforms", "AI rack platform library", "Published rack power, liquid capture fraction, residual air, flow and floor loading per platform, with sources. Vendor-published figures, not measurements.", {
+          datasetJsonLd("/platforms", "AI rack platform library", "Rack power, liquid capture fraction, residual air, flow and floor loading per platform, with the sources cited. Held in the library as assumptions with bands; not measurements.", {
             path: "/reference/platforms.json",
             format: "application/json",
           }),
@@ -74,9 +75,7 @@ export default async function PlatformsPage() {
           What an existing hall is actually being asked to carry.
         </h1>
         <p className="mt-4 text-mute">
-          Every figure below comes from the manufacturer&rsquo;s own published material and is
-          used unchanged by the engine that screens halls. Vendor-sourced values are marked as
-          such in the provenance of every study they appear in.
+          {PLATFORM_FIGURES_NOTE} Vendor-sourced values are marked [V] and as such in the provenance of every study they appear in.
         </p>
       </header>
 

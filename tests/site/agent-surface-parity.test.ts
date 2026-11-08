@@ -85,9 +85,12 @@ describe("OpenAPI parity with the deployed engine", () => {
   });
 
   it("uses the method the engine uses: POST for the POST route table, GET for GET_ROUTES, and /mcp as POST", () => {
+    // GET /v1/estimate is real too (do_GET answers it from the query string; the site's snippets and cost estimator call it).
+    const getsEstimate = /if path == "\/v1\/estimate":/.test(server.slice(server.indexOf("def do_GET")));
+    expect(getsEstimate).toBe(true);
     for (const [route] of POST_ROUTES) {
       if (route in ENGINE_UNDOCUMENTED) continue;
-      expect(Object.keys(doc.paths[route]), route).toEqual(["post"]);
+      expect(Object.keys(doc.paths[route]).sort(), route).toEqual(route === "/v1/estimate" ? ["get", "post"] : ["post"]);
     }
     for (const route of GET_ROUTES) expect(Object.keys(doc.paths[route]), route).toEqual(["get"]);
     expect(Object.keys(doc.paths[mcpPath])).toEqual(["post"]);
@@ -99,7 +102,25 @@ describe("OpenAPI parity with the deployed engine", () => {
       expect(doc.paths[route].post.security, route).toEqual(tier === "CLIENT" ? [{ ApiKeyAuth: [] }] : []);
     }
     for (const route of GET_ROUTES) expect(doc.paths[route].get.security, route).toEqual(route === "/v1/usage" ? [{ ApiKeyAuth: [] }] : []);
-    expect(doc.paths[mcpPath].post.security).toEqual([]);
+    // The estimator's query form: no key needed, and a key is accepted (it then says where the key stands). So does the open MCP transport.
+    expect(doc.paths["/v1/estimate"].get.security).toEqual([{}, { ApiKeyAuth: [] }]);
+    expect(doc.paths[mcpPath].post.security).toEqual([{}, { ApiKeyAuth: [] }]);
+  });
+
+  it("describes GET /v1/estimate with its two query parameters, as do_GET reads them", () => {
+    const get = doc.paths["/v1/estimate"].get;
+    expect(get.parameters.map((p: any) => [p.name, p.in, p.required])).toEqual([["endpoint", "query", true], ["hall_count", "query", false]]);
+    expect(server).toMatch(/q\.get\("hall_count"\)/);
+    expect(server).toMatch(/\(q\.get\("endpoint"\) or \[""\]\)\[0\]/);
+    expect(get.parameters[1].schema.maximum).toBe(100000);
+    expect(server).toMatch(/MAX_ESTIMATE_HALLS = 100_000/);
+    expect(get.responses["200"].content["application/json"].schema.properties.estimated_cents).toBeTruthy();
+    expect(get.responses["422"]).toBeTruthy();
+  });
+
+  it("says how many endpoints the engine serves and how many of them are documented", () => {
+    expect(doc.info.description).toContain(`serves ${deployed.length} endpoints; this document describes ${deployed.length - Object.keys(ENGINE_UNDOCUMENTED).length} of them plus /mcp`);
+    expect(doc.info.description).toContain("/v1/revoke is operator-only and deliberately undocumented");
   });
 
   it("states the unit weight the engine meters, for every weighted POST route including the deck", () => {
@@ -267,6 +288,15 @@ describe("/llms.txt parity with the deployed engine", () => {
         `For ${IDEMPOTENCY_WINDOW_HOURS} hours`,
         "X-GridForge-Idempotent-Replay: true",
         "422",
+        "JSON-RPC error -32602 with data.status 400 inside an HTTP 200",
+        "JSON-RPC error -32602 with data.status 422 inside an HTTP 200",
+        "it is the same bytes",
+        "the same arguments in any key order",
+        "units actually charged",
+        "only when it keeps its ledger durably",
+        "metering.ledger_durable: true",
+        "date-stamped fields",
+        "still counts toward the rate limit",
         "never on /v1/estimate",
         "only on a request that carries a valid API key",
       ]) {

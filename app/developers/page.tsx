@@ -20,7 +20,7 @@ import { PAYG } from "@/lib/products";
 import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
 import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
-import { ENGINE_DISCOVERY, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
+import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -275,6 +275,11 @@ export default async function DevelopersPage() {
               <span className="font-mono text-ghost">GET {r.path}</span> ({r.keyRequired ? "key required" : "free, no key"}): {r.summary}
             </li>
           ))}
+          {state("/v1/estimate") === "available" ? (
+            <li>
+              <span className="font-mono text-ghost">GET {ENGINE_ESTIMATE_GET.path}{ENGINE_ESTIMATE_GET.query}</span> (free, no key; a key adds where it stands): {ENGINE_ESTIMATE_GET.summary}
+            </li>
+          ) : null}
           {state("/mcp") === "available" ? (
             <li>
               <span className="font-mono text-ghost">POST /mcp</span>: the MCP transport, JSON-RPC 2.0, at most {MAX_MCP_BATCH} messages in a batch. The {tools.length} tools above are its tools.

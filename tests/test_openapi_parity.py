@@ -17,7 +17,8 @@ import pytest
 
 from gridforge.api import server as S
 from gridforge.api.ledger import IDEMPOTENCY_WINDOW_SECONDS
-from gridforge.api.metering import UNIT_COST
+from gridforge.api.ledger import Ledger
+from gridforge.api.metering import METER, UNIT_COST
 from gridforge.api.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,8 +94,8 @@ def base():
     os.environ.pop("GRIDFORGE_API_KEYS", None)
 
 
-def call(base, path, body=None, key=KEY, idem=None, method="POST"):
-    data = None if method == "GET" else json.dumps(body if body is not None else {}).encode()
+def call(base, path, body=None, key=KEY, idem=None, method="POST", raw=None):
+    data = raw if raw is not None else (None if method == "GET" else json.dumps(body if body is not None else {}).encode())
     req = urllib.request.Request(base + path, data=data, method=method)
     req.add_header("Content-Type", "application/json")
     if key:
@@ -178,6 +179,113 @@ def test_over_mcp_a_tools_call_replays_the_same_way(base):
     assert units_now(base) - before == UNIT_COST["/v1/screen"]
 
 
+def rpc(name, args, rid=1):
+    return {"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": {"name": name, "arguments": args}}
+
+
+def test_over_mcp_the_refusals_are_json_rpc_errors_inside_http_200(base):
+    n = HONESTY["engine_constants"]["idempotency_key_max_chars"]
+    s, _, b = call(base, "/mcp", rpc("gridforge_screen", {"intake": DUBLIN}), idem="k" * (n + 1))
+    assert s == 200 and b["error"]["code"] == -32602 and b["error"]["data"]["status"] == 400
+    first = call(base, "/mcp", rpc("gridforge_screen", {"intake": DUBLIN}), idem="parity-mcp-conflict")
+    assert first[0] == 200 and "result" in first[2]
+    other = json.loads(json.dumps(DUBLIN))
+    other["grid"]["contracted_MW"] += 1
+    s, _, b = call(base, "/mcp", rpc("gridforge_screen", {"intake": other}), idem="parity-mcp-conflict")
+    assert s == 200 and b["error"]["code"] == -32602 and b["error"]["data"]["status"] == 422
+
+
+def test_on_rest_the_same_body_means_the_same_bytes_and_over_mcp_the_same_arguments(base):
+    before = units_now(base)
+    compact = json.dumps({"intake": DUBLIN}).encode()
+    indented = json.dumps({"intake": DUBLIN}, indent=2).encode()
+    assert json.loads(compact) == json.loads(indented)
+    assert call(base, "/v1/screen", raw=compact, idem="parity-bytes")[0] == 200
+    s, _, b = call(base, "/v1/screen", raw=indented, idem="parity-bytes")
+    assert s == 422 and "different request body" in b["error"]
+    s, h, _ = call(base, "/v1/screen", raw=compact, idem="parity-bytes")
+    assert s == 200 and h["X-GridForge-Idempotent-Replay"] == "true"
+    assert units_now(base) - before == UNIT_COST["/v1/screen"]
+    # MCP hashes the canonical arguments: key order does not matter.
+    a1 = {"intake": DUBLIN, "objective": "max_compute"}
+    a2 = {"objective": "max_compute", "intake": DUBLIN}
+    assert call(base, "/mcp", rpc("gridforge_screen", a1), idem="parity-canon")[0] == 200
+    s, h, b = call(base, "/mcp", rpc("gridforge_screen", a2), idem="parity-canon")
+    assert s == 200 and "error" not in b and h["X-GridForge-Idempotent-Replay"] == "true"
+
+
+def test_a_mixed_mcp_batch_reports_replay_with_the_units_actually_charged(base):
+    first = [rpc("gridforge_screen", {"intake": DUBLIN}, 1), rpc("gridforge_compare", {"intake": DUBLIN}, 2)]
+    s, h, _ = call(base, "/mcp", first, idem="parity-batch")
+    assert s == 200 and "X-GridForge-Idempotent-Replay" not in h
+    assert h["X-GridForge-Units"] == str(UNIT_COST["/v1/screen"] + UNIT_COST["/v1/compare"])
+    mixed = [rpc("gridforge_screen", {"intake": DUBLIN}, 1), rpc("gridforge_study", {"intake": DUBLIN}, 2)]
+    before = units_now(base)
+    s, h, b = call(base, "/mcp", mixed, idem="parity-batch")
+    assert s == 200 and all("result" in m for m in b)
+    assert h["X-GridForge-Idempotent-Replay"] == "true"
+    assert h["X-GridForge-Units"] == str(UNIT_COST["/v1/study"]) != "0"
+    assert units_now(base) - before == UNIT_COST["/v1/study"]
+    allreplay = [rpc("gridforge_screen", {"intake": DUBLIN}, 1), rpc("gridforge_compare", {"intake": DUBLIN}, 2)]
+    s, h, _ = call(base, "/mcp", allreplay, idem="parity-batch")
+    assert h["X-GridForge-Idempotent-Replay"] == "true" and h["X-GridForge-Units"] == "0"
+
+
+def _diff(a, b, path=""):
+    out = []
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in set(a) | set(b):
+            out += _diff(a.get(k), b.get(k), f"{path}/{k}")
+    elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b)):
+            out += _diff(x, y, f"{path}[{i}]")
+    elif a != b:
+        out.append(path)
+    return out
+
+
+DATE_STAMPED = ("generated", "report_date", "code_sha256", "digest")
+
+
+@pytest.mark.parametrize("endpoint", ["/v1/screen", "/v1/compare"])
+def test_after_eviction_a_durable_ledger_replays_without_a_second_charge_and_the_answer_matches(base, tmp_path, monkeypatch, endpoint):
+    monkeypatch.setattr(METER, "ledger", Ledger(tmp_path / "ledger.jsonl"))
+    s, _, v = call(base, "/v1/version", key=None, method="GET")
+    assert v["metering"]["ledger_durable"] is True
+    before = units_now(base)
+    s1, h1, b1 = call(base, endpoint, {"intake": DUBLIN}, idem="parity-evict")
+    assert s1 == 200 and units_now(base) - before == UNIT_COST[endpoint]
+    S.IDEMPOTENCY._items.clear()          # the engine's memory no longer holds the answer
+    s2, h2, b2 = call(base, endpoint, {"intake": DUBLIN}, idem="parity-evict")
+    assert s2 == 200 and h2["X-GridForge-Idempotent-Replay"] == "true" and h2["X-GridForge-Units"] == "0"
+    assert units_now(base) - before == UNIT_COST[endpoint], "not charged twice"
+    changed = _diff(b1, b2)
+    assert all(p.rsplit("/", 1)[-1] in DATE_STAMPED for p in changed), f"a recomputed answer differs beyond date-stamped fields: {changed}"
+
+
+def test_without_a_durable_ledger_a_retry_after_eviction_is_a_new_charged_request(base, monkeypatch):
+    monkeypatch.setattr(METER, "ledger", Ledger(None))
+    s, _, v = call(base, "/v1/version", key=None, method="GET")
+    assert v["metering"]["ledger_durable"] is False
+    before = units_now(base)
+    assert call(base, "/v1/screen", {"intake": DUBLIN}, idem="parity-noledger")[0] == 200
+    s, h, _ = call(base, "/v1/screen", {"intake": DUBLIN}, idem="parity-noledger")
+    assert h["X-GridForge-Idempotent-Replay"] == "true", "while the answer is in memory it is replayed"
+    S.IDEMPOTENCY._items.clear()
+    s, h, _ = call(base, "/v1/screen", {"intake": DUBLIN}, idem="parity-noledger")
+    assert s == 200 and "X-GridForge-Idempotent-Replay" not in h
+    assert units_now(base) - before == 2 * UNIT_COST["/v1/screen"], "charged again: nothing durable remembered the first charge"
+
+
+def test_a_replay_still_counts_toward_the_rate_limit(base):
+    S.Handler.limiter.per_minute = 2
+    try:
+        codes = [call(base, "/v1/screen", {"intake": DUBLIN}, idem="parity-rate")[0] for _ in range(3)]
+    finally:
+        S.Handler.limiter.per_minute = 0
+    assert codes == [200, 200, 429]
+
+
 # --- the discovery routes are free and need no key, except /v1/usage ----------------------------------------------------------
 @pytest.mark.parametrize("path", ["/health", "/v1/version", "/v1/tools", "/v1/platforms", "/v1/intake/template", "/v1/calibration", "/v1/calibration/residuals"])
 def test_the_free_reads_answer_without_a_key(base, path):
@@ -201,3 +309,21 @@ def test_the_rate_card_in_the_catalogue_is_the_engines(base):
     s, _, b = call(base, "/v1/tools", key=None, method="GET")
     assert b["rate_card"] == TOOLS_JSON["rate_card"]
     assert any(r["endpoint"] == "/v1/deck" and r["tool"] is None and r["units"] == UNIT_COST["/v1/deck"] for r in b["rate_card"])
+
+
+def test_get_estimate_is_a_real_free_route_with_the_documented_query(base):
+    s, _, b = call(base, "/v1/estimate?endpoint=/v1/study", key=None, method="GET")
+    assert s == 200 and b["units"] == UNIT_COST["/v1/study"] and b["estimated_cents"] == b["units"] * b["unit_price_cents"]
+    s, _, b = call(base, "/v1/estimate?endpoint=/v1/portfolio&hall_count=7", key=None, method="GET")
+    assert s == 200 and b["units"] == 7 * UNIT_COST["/v1/portfolio"]
+    s, _, _ = call(base, "/v1/estimate?endpoint=/v1/portfolio&hall_count=0", key=None, method="GET")
+    assert s == 422
+    s, _, b = call(base, "/v1/estimate?endpoint=/nope", key=None, method="GET")
+    assert s == 422 and "available" in b
+    # a key is optional and adds where it stands
+    s, _, b = call(base, "/v1/estimate?endpoint=/v1/study", key=KEY, method="GET")
+    assert s == 200 and "fits" in b and "used_units" in b
+    # it is never metered
+    before = units_now(base)
+    call(base, "/v1/estimate?endpoint=/v1/study", key=KEY, method="GET")
+    assert units_now(base) == before

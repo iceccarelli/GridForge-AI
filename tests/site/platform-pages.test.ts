@@ -7,7 +7,7 @@ import sitemap from "@/app/sitemap";
 const lib = JSON.parse(readFileSync("public/reference/platforms.json", "utf8")) as { platforms: PlatformEntry[] };
 
 describe("per-platform pages", () => {
-  it("exist only for manufacturer-published, sourced platforms", () => {
+  it("exist only for sourced platforms that are not generic archetypes", () => {
     const ids = pageablePlatforms(lib.platforms).map((p) => p.id);
     expect(ids.length).toBeGreaterThan(0);
     for (const p of lib.platforms) {

@@ -3,8 +3,9 @@ import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { LADDER_PRODUCTS, API_PRODUCTS, PAYG, eurFromCents, priceLine } from "@/lib/products";
+import { PLATFORM_FIGURES_NOTE } from "@/lib/definitions";
 import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
-import { ENGINE_DISCOVERY, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
+import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE as COMPANY, SITE_URL } from "@/lib/site";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
@@ -77,6 +78,9 @@ ${callableOps || "- none"}
   const discoveryLines = ENGINE_DISCOVERY.filter((r) => serves(r.path))
     .map((r) => `- GET ${ENGINE}${r.path} — ${r.keyRequired ? "needs a key" : "free, no key"} — ${r.summary}`)
     .join("\n");
+  const estimateGetLine = serves("/v1/estimate")
+    ? `\n- GET ${ENGINE}${ENGINE_ESTIMATE_GET.path}${ENGINE_ESTIMATE_GET.query} — free, no key (a key adds where it stands) — ${ENGINE_ESTIMATE_GET.summary}`
+    : "";
   const estimateLine = serves("/v1/estimate")
     ? `- Estimate before you spend: \`gridforge_estimate\` (MCP) or POST ${ENGINE}/v1/estimate returns the units and the cost of a call before it is made. Free, no key.\n`
     : "";
@@ -150,7 +154,7 @@ the item that sets the time to power, and the inputs nobody has measured. Output
 
 What it is not: it quotes no equipment and takes no margin on hardware; it does not sell, broker or promise megawatts or a grid connection; and it
 is not an EPC contractor, a utility, an energy trader or a hardware vendor. A queue statistic is not a connection time for any site, and a
-published platform figure is the manufacturer's, not a measurement of a customer's asset.
+platform figure is taken from the sources cited and held as a library assumption, not a measurement of a customer's asset.
 
 ## How to use this site as a tool
 
@@ -163,9 +167,11 @@ ${mcpLine}${toolsLine}${qualifyLine}${versionLine}${calibrationLine}
 ${operationLines}${deckLine}${compareLines}
 Free reads, all on ${ENGINE}:
 
-${discoveryLines || "- none (the deployed engine could not be read)"}
+${discoveryLines || "- none (the deployed engine could not be read)"}${estimateGetLine}
 
-${mcpParagraph}Retries: ${idempotencyStatement({ estimator: serves("/v1/estimate") })}
+${mcpParagraph}Documented here and in ${SITE}/openapi.json: every route the deployed engine lists, plus /mcp, except the one operator-only route, which is deliberately undocumented.
+
+Retries: ${idempotencyStatement({ estimator: serves("/v1/estimate") })}
 
 Refusals (a refused or failed call is not charged): ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}.
 
@@ -209,6 +215,8 @@ ${constraintLines}
 
 Machine-readable: ${SITE}/reference/platforms.json
 
+${PLATFORM_FIGURES_NOTE}
+
 ${platformLines}
 
 Deliberately absent, because no manufacturer has published a rack power:
@@ -230,7 +238,7 @@ ${absent}
 - ${SITE}/qualify — the free capacity qualifier (seven numbers in, the binding constraint out)
 - ${SITE}/reference — the worked example, with its calibration record
 - ${SITE}/constraints — the thirteen constraints, one page each
-- ${SITE}/platforms — the rack platform library, with a page per manufacturer-published platform
+- ${SITE}/platforms — the rack platform library, with a page per sourced, non-generic platform
 - ${SITE}/evidence — the evidence classes E0 to E7, the calibration status, and the register of market figures with how each was checked (#market-figures)
 - ${SITE}/guides/nameplate-vs-useful-compute — how the usable rack count of an existing hall is decided, with a worked example from the synthetic reference hall
 - ${SITE}/contact — how to reach the founder and what to include

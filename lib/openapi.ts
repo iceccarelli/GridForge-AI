@@ -43,6 +43,8 @@ export const IDEMPOTENCY_KEY_MAX_CHARS: number = honesty.engine_constants.idempo
 export const IDEMPOTENCY_WINDOW_HOURS: number = honesty.engine_constants.idempotency_window_hours;
 /** The largest request body the engine reads (MAX_BODY_BYTES). */
 export const MAX_BODY_BYTES: number = honesty.engine_constants.max_body_bytes;
+/** The most halls the estimator accepts (MAX_ESTIMATE_HALLS). */
+const MAX_ESTIMATE_HALLS: number = honesty.engine_constants.max_estimate_halls;
 /** The most JSON-RPC messages in one /mcp batch (MAX_MCP_BATCH). */
 export const MAX_MCP_BATCH: number = honesty.engine_constants.max_mcp_batch;
 
@@ -54,16 +56,20 @@ export const MAX_MCP_BATCH: number = honesty.engine_constants.max_mcp_batch;
 export function idempotencyStatement(opts: { estimator?: boolean } = {}): string {
   const estimator = opts.estimator ?? true;
   return (
-    `Send an Idempotency-Key header (at most ${IDEMPOTENCY_KEY_MAX_CHARS} characters; a longer one is refused with 400) on a POST, or on an /mcp tools/call. ` +
+    `Send an Idempotency-Key header (at most ${IDEMPOTENCY_KEY_MAX_CHARS} characters) on a POST, or on an /mcp tools/call. A longer key is refused: HTTP 400 on REST; over /mcp, JSON-RPC error -32602 with data.status 400 inside an HTTP 200. ` +
     (estimator
       ? `It takes effect only on a request that carries a valid API key, and never on /v1/estimate: a keyless call to a free operation is not deduplicated. `
       : `It takes effect only on a request that carries a valid API key: a keyless call to a free operation is not deduplicated. `) +
-    `The key is scoped to your account and to the endpoint, so the same string on another endpoint is a different request. ` +
-    `For ${IDEMPOTENCY_WINDOW_HOURS} hours after the first successful answer, a retry with the same key and an identical body is answered with that first result and is not charged again; ` +
-    `the replay carries X-GridForge-Idempotent-Replay: true and X-GridForge-Units: 0. ` +
-    `The same key with a different body is refused with 422 and nothing runs. Only a successful answer is remembered: a refused or failed call was refunded, so retrying it runs it afresh. ` +
-    `If the stored answer has been evicted from the engine's memory the engine recomputes it deterministically and still does not charge twice. ` +
-    `In an /mcp batch each message is keyed as <key>#<position in the batch>. After ${IDEMPOTENCY_WINDOW_HOURS} hours the key is forgotten and a repeat is a new, chargeable request.`
+    `The key is scoped to your account and to the endpoint (over /mcp, the tool's endpoint), so the same string on another endpoint is a different request. ` +
+    `For ${IDEMPOTENCY_WINDOW_HOURS} hours after the first successful answer, a retry with the same key and the same body is answered with that first result and is not charged again; ` +
+    `the replay carries X-GridForge-Idempotent-Replay: true (also sent as Idempotent-Replay: true) and its units are 0. ` +
+    `"The same body" is exact: on REST it is the same bytes, so a re-indented or re-ordered JSON body is a different body; over /mcp it is the same arguments in any key order. ` +
+    `The same key with a different body is refused and nothing runs: HTTP 422 on REST; over /mcp, JSON-RPC error -32602 with data.status 422 inside an HTTP 200. ` +
+    `In an /mcp batch each message is keyed as <key>#<position in the batch>; a batch that mixes replays with new messages carries X-GridForge-Idempotent-Replay: true at the HTTP level, and X-GridForge-Units is the units actually charged for its new messages, not 0. ` +
+    `Only a successful answer is remembered: a refused or failed call was refunded, so retrying it runs it afresh. ` +
+    `If the stored answer has been evicted from the engine's memory, or the engine has restarted, the engine recomputes it and still does not charge twice only when it keeps its ledger durably (GET /v1/version reports metering.ledger_durable: true; keys with a spending cap or a free allowance are refused with 503 without one). Without a durable ledger such a retry is a new, charged request. ` +
+    `A recomputed answer is the same except for date-stamped fields (a generated date, provenance.report_date) and the code digest if the engine was redeployed inside the window. ` +
+    `A replay still counts toward the rate limit. After ${IDEMPOTENCY_WINDOW_HOURS} hours the key is forgotten and a repeat is a new, chargeable request.`
   );
 }
 
@@ -360,6 +366,9 @@ interface ExtraRoute {
   response: Record<string, unknown>;
   /** Extra statuses beyond the default error response. */
   extraResponses?: Record<string, unknown>;
+  parameters?: Record<string, unknown>[];
+  /** An optional key: the route answers without one, and says more with one. */
+  optionalKey?: boolean;
 }
 
 const obj = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ type: "object", properties, additionalProperties: true, ...extra });
@@ -409,8 +418,8 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
     path: "/v1/platforms", method: "get", operationId: "platforms", auth: "none",
     summary: "The rack platform library, short form.",
     description:
-      "Platforms whose manufacturer has published a rack power: id, name, status, rack_kW, gpus_per_rack. Platforms with no published rack power are absent by design and listed under " +
-      "`deliberately_absent` with the reason; nothing is estimated to fill a gap. The full set of figures with sources is the site's /reference/platforms.json. Free, no key.",
+      "The platforms in the library: id, name, status, rack_kW, gpus_per_rack. The figures are taken from the cited sources and held in the library as assumptions with bands (one entry is a generic archetype with no manufacturer); none is a measurement. Platforms whose manufacturer has not published a rack power are absent by design and listed under " +
+      "`deliberately_absent` with the reason; no rack power is estimated for them. The full set of figures with sources is the site's /reference/platforms.json. Free, no key.",
     response: obj({ platforms: { type: "array", items: obj({ id: str(), name: str(), status: str(), rack_kW: { type: "number" }, gpus_per_rack: int() }) }, deliberately_absent: { type: "object", additionalProperties: str() }, note: str() }),
   },
   {
@@ -447,6 +456,38 @@ const DISCOVERY_ROUTES: ExtraRoute[] = [
   },
 ];
 
+/**
+ * GET /v1/estimate?endpoint=&hall_count= — the same estimator as the POST tool, as a query (server.py do_GET). The site's own snippets
+ * and cost estimator call this form. Free and never metered; a key is optional and, when sent, adds where that key stands.
+ */
+const ESTIMATE_GET: ExtraRoute = {
+  path: "/v1/estimate", method: "get", operationId: "estimateGet", auth: "none", optionalKey: true,
+  summary: "What a call would cost, before it is made (query form).",
+  description:
+    "Name an engine route in `endpoint` and, for /v1/portfolio, the number of halls in `hall_count`: the answer is the units, the unit price and the cost in euro cents BEFORE anything is spent. " +
+    "The units are read by the same function the meter uses, so an estimate cannot drift from a bill. Free, never metered, no key needed; with a valid key it also says where that key stands " +
+    "(scope, cap, used, remaining, whether the call fits). The POST form with a `body` is the gridforge_estimate tool; this GET form takes no body, so it prices a call by its endpoint (and hall count) only.",
+  parameters: [
+    { name: "endpoint", in: "query", required: true, description: "The engine route to price, e.g. /v1/study. Any route that has a unit rate.", schema: { type: "string" } },
+    { name: "hall_count", in: "query", required: false, description: `Halls in a /v1/portfolio request (one unit each). A whole number from 1 to ${MAX_ESTIMATE_HALLS}.`, schema: { type: "integer", minimum: 1, maximum: MAX_ESTIMATE_HALLS } },
+  ],
+  response: obj({
+    endpoint: str(), units: int(), unit_price_cents: int(), currency: str(), estimated_cents: int(), billable: bool(), free: bool(), basis: str(), note: str(),
+    scope: str("Only with a valid key."), cap_units: { type: ["integer", "null"] }, used_units: int(), remaining_units: { type: ["integer", "null"] }, fits: bool(),
+    would_cost_after_allowance: int("Cents this call would add that the key's own allowance does not cover. Only with a valid key."),
+    key_error: str("Present when a key was sent and not recognised."),
+  }),
+  extraResponses: {
+    "422": { description: "`endpoint` is not a route with a unit rate (the answer lists the available ones), or `hall_count` is not a whole number in range.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+  },
+};
+
+/** The most halls the estimator accepts in `hall_count` (MAX_ESTIMATE_HALLS in server.py). */
+export const MAX_ESTIMATE_HALLS_DOC: number = MAX_ESTIMATE_HALLS;
+
+/** For the other surfaces that list the free reads: the estimator's query form. */
+export const ENGINE_ESTIMATE_GET = { path: "/v1/estimate", query: "?endpoint=<route>&hall_count=<n>", summary: ESTIMATE_GET.summary };
+
 /** The free-to-read engine routes, for the other surfaces (llms.txt, /developers) that list them: one description, here. */
 export const ENGINE_DISCOVERY: { path: string; method: "GET"; summary: string; keyRequired: boolean }[] = DISCOVERY_ROUTES.map((r) => ({
   path: r.path, method: "GET", summary: r.summary, keyRequired: r.auth === "key",
@@ -474,7 +515,9 @@ function operationFor(route: ExtraRoute, units: number | null): Record<string, u
     description: route.description,
     tags: [keyed ? "metered" : "free"],
     ...(units !== null ? { "x-gridforge-units": units } : {}),
-    security: keyed ? [{ ApiKeyAuth: [] }] : [],
+    ...(route.parameters ? { parameters: route.parameters } : {}),
+    // An optional key is the empty requirement beside the key one: the route works without it.
+    security: keyed ? [{ ApiKeyAuth: [] }] : route.optionalKey ? [{}, { ApiKeyAuth: [] }] : [],
     responses: {
       "200": { description: "The answer.", content: { "application/json": { schema: route.response } } },
       ...(route.extraResponses ?? {}),
@@ -613,6 +656,8 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
   for (const r of DISCOVERY_ROUTES) {
     paths[r.path] = { [r.method]: operationFor(r, null) };
   }
+  const estimatePath = paths["/v1/estimate"] as Record<string, unknown> | undefined;
+  if (estimatePath) estimatePath.get = operationFor(ESTIMATE_GET, null);
   paths[file.mcp?.endpoint ?? "/mcp"] = {
     post: {
       operationId: "mcp",
@@ -623,7 +668,8 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         `A batch holds at most ${MAX_MCP_BATCH} messages. The Idempotency-Key header applies to tools/call. ` +
         `The tool names, schemas and unit weights are the operations in this document (see x-gridforge-mcp-tool).`,
       tags: ["mcp"],
-      security: [],
+      // The transport is open and a key is optional: it is read per tool, and the paid tools are refused without one.
+      security: [{}, { ApiKeyAuth: [] }],
       parameters: [{ name: "Idempotency-Key", in: "header", required: false, description: idempotencyStatement(), schema: { type: "string", maxLength: IDEMPOTENCY_KEY_MAX_CHARS } }],
       requestBody: { required: true, content: { "application/json": { schema: { oneOf: [JSON_RPC_REQUEST, { type: "array", maxItems: MAX_MCP_BATCH, items: JSON_RPC_REQUEST }] } } } },
       responses: {
@@ -649,6 +695,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
       version: engineDeployed.engine_version,
       description:
         "Capacity and density screening for existing AI data halls. Generated from the engine's own tool list. Screening-mode output: not an issued engineering opinion. " +
+        `The deployed engine serves ${engineDeployed.endpoints.length} endpoints; this document describes ${engineDeployed.endpoints.length - Object.keys(ENGINE_UNDOCUMENTED).length} of them plus /mcp. ${Object.keys(ENGINE_UNDOCUMENTED).join(", ")} is operator-only and deliberately undocumented. ` +
         "It does not quote equipment, state megawatts available from a utility, or act as an EPC, utility or trader. " +
         file.auth.note +
         " Every figure is modelled from the inputs supplied and carries an evidence class; where the calibration block (GET /v1/calibration, and on the responses that carry it) says uncalibrated, it means uncalibrated. " +

@@ -31,18 +31,40 @@ describe("definition sentences", () => {
     }
   });
 
-  it("each platform has one that carries only the library's own figures", () => {
+  it("each platform has one that says what the record supports: the library's figures, from the cited sources, held as assumptions", () => {
     expect(platforms.length).toBeGreaterThan(1);
     for (const p of platforms) {
       const d = platformDefinition(p);
       expect(d.startsWith(p.name)).toBe(true);
       expect(d).toContain(`${p.rack_kW} kW per rack`);
-      expect(d).toContain(`${(p.liquid_fraction * 100).toFixed(0)}% of that heat`);
       expect(d).toContain(`${p.gpus_per_rack} GPUs`);
-      expect(d).toContain("as published by its manufacturer");
+      expect(d).toContain(`${(p.liquid_fraction * 100).toFixed(0)}% liquid heat-capture share is one of those assumptions`);
+      expect(d).toContain("cited sources and held as library assumptions");
+      // The library marks every figure ASSUMED (gridforge/compute/library.py); the record cites sources, some of them OEM or vendor material.
+      // So no sentence may call a figure the manufacturer's published value.
+      expect(d).not.toMatch(/as published by|manufacturer'?s? (own )?published|published by (its|the) manufacturer/i);
       expect(d).not.toMatch(BANNED);
     }
     expect(platformDefinition({ ...platforms[0], generic: true })).toContain("generic archetype with no manufacturer");
+  });
+
+  it("no platform surface calls a library figure the manufacturer's published value", async () => {
+    const lib = fs.readFileSync("public/reference/platforms.json", "utf8");
+    expect(lib).toContain("QCT"); // the GB200 entry cites an OEM brief, not NVIDIA
+    const sources = ["app/platforms/page.tsx", "app/platforms/[id]/page.tsx", "lib/qa.ts", "lib/definitions.ts", "app/llms.txt/route.ts", "lib/openapi.ts"];
+    for (const f of sources) {
+      const code = fs.readFileSync(f, "utf8");
+      expect(code, f).not.toMatch(/manufacturer(?:&rsquo;|')s own published|Manufacturer-published|Vendor-published figures|as the manufacturer publishes|per manufacturer-published/);
+    }
+    const mod = await import("@/app/platforms/[id]/page");
+    const stop = stubEngine(FULL_ENGINE);
+    try {
+      const html = renderToStaticMarkup(await mod.default({ params: Promise.resolve({ id: "gb200_nvl72" }) } as never));
+      expect(html).toContain("assumed, at 400 V three-phase; confirm against an OEM drawing");
+      expect(html).not.toMatch(/manufacturer(&#x27;|&rsquo;|')s own published/);
+    } finally {
+      stop();
+    }
   });
 
   it("the guide defines its two terms and claims nothing else", () => {

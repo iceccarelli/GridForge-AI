@@ -15,12 +15,24 @@ export function constraintDefinition(c: Pick<ConstraintDoc, "name" | "limits" | 
   return `${c.name} is ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind} limit the engine checks in an existing data hall; what it limits is ${lcfirst(noFinalStop(c.limits))}.`;
 }
 
-/** "The NVIDIA GB300 NVL72 is a rack platform in the library: 135 kW per rack, 90% of it captured by liquid, 72 GPUs, as published by its manufacturer." */
+/**
+ * What the library's figures are, in one sentence, for every place that describes a platform page or the library. The record holds the
+ * sources it cites (vendor and OEM material is marked [V]) and the library marks every figure as an assumption with a band
+ * (gridforge/compute/library.py: ASSUMED); a few, such as the liquid heat-capture share and the feed current, are the library's own
+ * working values. So a figure is "as stated in the cited sources", never "the manufacturer's published value".
+ */
+export const PLATFORM_FIGURES_NOTE =
+  "The figures are taken from the sources cited and held in the library as assumptions, each with a band; the liquid heat-capture share, the maximum inlet temperature, " +
+  "the flow and the feed current are the library's working values. None is a measurement.";
+
+/** "NVIDIA GB300 NVL72 is a rack platform in the engine's platform library: 135 kW per rack and 72 GPUs, with figures taken from the cited sources and held as library assumptions; the 90% liquid heat-capture share is one of them." */
 export function platformDefinition(p: Pick<PlatformEntry, "name" | "rack_kW" | "liquid_fraction" | "gpus_per_rack" | "generic">): string {
-  const origin = p.generic ? "a generic archetype with no manufacturer" : "figures as published by its manufacturer";
+  const origin = p.generic
+    ? "a generic archetype with no manufacturer, its figures held as library assumptions"
+    : "with figures taken from the cited sources and held as library assumptions";
   return (
-    `${p.name} is a rack platform in the engine's platform library: ${p.rack_kW} kW per rack, ${(p.liquid_fraction * 100).toFixed(0)}% of that heat ` +
-    `captured by liquid and ${p.gpus_per_rack} GPUs per rack, ${origin}.`
+    `${p.name} is a rack platform in the engine's platform library: ${p.rack_kW} kW per rack and ${p.gpus_per_rack} GPUs, ${origin}; ` +
+    `the ${(p.liquid_fraction * 100).toFixed(0)}% liquid heat-capture share is one of those assumptions.`
   );
 }
 
