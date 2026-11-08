@@ -5,6 +5,7 @@ import { ADMIN_COOKIE, adminConfigured, verifyAdminCookie } from "@/lib/admin";
 import { REVIEW_CLASS } from "@/lib/project-observations";
 import { reviewQueue } from "@/lib/project-review-queue";
 import { ProjectEvidenceReview } from "@/components/ProjectEvidenceReview";
+import { claimQueue } from "@/lib/project-quotation-claims";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -35,6 +36,8 @@ export default async function EvidenceReviewPage() {
   if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) redirect("/admin/login");
 
   const q = await reviewQueue();
+  // Supplier quotations attached to uploaded files (migration 0054). Until it is applied the queue says so; nothing else changes.
+  const quotes = await claimQueue("pending");
   return (
     <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-28 sm:px-8">
       <header className="mb-8 max-w-3xl">
@@ -58,6 +61,8 @@ export default async function EvidenceReviewPage() {
         counts={q.ok ? q.counts : undefined}
         reviewClass={REVIEW_CLASS}
         initialError={q.ok ? null : q.error}
+        quotations={quotes.ok ? quotes.claims : undefined}
+        quotationsError={quotes.ok ? null : quotes.status === 503 ? null : quotes.error}
       />
     </div>
   );

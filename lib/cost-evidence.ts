@@ -309,6 +309,14 @@ export async function reviewEvidence(input: Record<string, unknown>): Promise<Re
     if (done.ok === false && done.code === "23505") {
       return { ok: false, status: 409, error: "This quotation has already been reviewed." };
     }
+    if (done.ok === false && done.code === "GF009") {
+      // A quotation a project holder attached to an uploaded document is accepted only on a document a person has verified (0054).
+      return {
+        ok: false,
+        status: 409,
+        error: "This quotation rests on an uploaded file that has not been verified. Verify the file first (its stored bytes are checked against the digest recorded at upload), then accept the quotation.",
+      };
+    }
     if (done.ok === false && done.code === "23514") {
       return { ok: false, status: 422, error: "That quotation cannot be accepted: it is invalid or has expired." };
     }
