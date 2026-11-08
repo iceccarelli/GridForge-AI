@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from calibration_pg_rig import MIGRATIONS, database_fixture, drop_database, make_database, psql, scalar, skip_without_db
+from calibration_pg_rig import MIGRATIONS, ROOT, database_fixture, drop_database, make_database, psql, scalar, skip_without_db
 
 pytestmark = skip_without_db
 db = database_fixture()
@@ -35,7 +35,8 @@ VIEW_GATES = {
     "the prediction is the forecast's own number": r"o\.predicted_value = gf_forecast_predicted_mw\(c\.result, o\.architecture\)",
     "production origin": r"o\.data_origin = 'production'::text",
     "the project's LATEST permission is a grant":
-        r"calibration_permissions cp.*cp\.kind = 'granted'::text AND cp\.seq = .*max\(c2\.seq\).*calibration_permissions c2",
+        r"calibration_permissions cp.*cp\.scope_id = o\.project_id AND cp\.kind = 'granted'::text AND cp\.seq = .*max\(c2\.seq\).*"
+        r"calibration_permissions c2.*c2\.scope_id = o\.project_id",
     # 0052: ever having been attached to a site that is anything but production keeps the observation out (a detachment does not undo it)
     "the project was never filed under a non-production site":
         r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
@@ -43,6 +44,51 @@ VIEW_GATES = {
 }
 VIEW_COLUMNS = ["id", "key", "observed_value", "predicted_value", "unit", "site_ref", "measurement_kind", "evidence_sha256",
                 "engine_provenance_digest", "report_date", "observed_on", "method", "evidence_class", "reviewed_by", "reviewed_at"]
+
+
+def top_level_and_terms(viewdef):
+    """The top-level AND terms of a view definition's WHERE clause: paren- and quote-aware, so the ANDs inside EXISTS (...) subqueries, the
+    JOIN ... ON conditions and string literals are not counted."""
+    text = " ".join(viewdef.split())
+    depth, quote, where = 0, False, -1
+    for i, ch in enumerate(text):
+        if ch == "'":
+            quote = not quote
+        elif quote:
+            continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and text.startswith(" WHERE ", i):
+            where = i + 7
+            break
+    assert where > 0, "no top-level WHERE in the view definition"
+    clause, terms, last, depth, quote = text[where:].rstrip(";"), [], 0, 0, False
+    for i, ch in enumerate(clause):
+        if ch == "'":
+            quote = not quote
+        elif quote:
+            continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and clause.startswith(" AND ", i):
+            terms.append(clause[last:i].strip())
+            last = i + 5
+    terms.append(clause[last:].strip())
+    return [t for t in terms if t]
+
+
+def listed_where_terms():
+    """How many top-level AND terms lib/calibration-gates.ts accounts for: one per condition in VIEW_CONDITIONS, plus the extra terms a
+    condition says it covers (`terms: N`)."""
+    src = (ROOT / "lib" / "calibration-gates.ts").read_text()
+    block = src[src.index("export const VIEW_CONDITIONS"):src.index("export interface LedgerGate")]
+    labels = re.findall(r'^\s*(?:\{\s*)?label: "', block, flags=re.M)
+    extra = sum(int(n) - 1 for n in re.findall(r"terms: (\d+)", block))
+    return len(labels) + extra
 
 
 def final_gaps(name):
@@ -76,6 +122,22 @@ def final_gaps(name):
 
 def test_the_final_state_of_the_chain_holds_every_gate(db):
     assert final_gaps(db) == []
+
+
+def test_the_final_view_applies_no_condition_beyond_the_listed_ones(db):
+    """final_gaps proves every listed condition is present; this proves nothing ELSE is: the WHERE clause has exactly as many top-level AND
+    terms as lib/calibration-gates.ts accounts for, so a condition added to the view (which would silently narrow what the public page and
+    the admin checklist say) fails here until the list, and the page, are updated."""
+    view = scalar(db, "select pg_get_viewdef('public.calibration_ledger_rows'::regclass, true)")
+    terms = top_level_and_terms(view)
+    assert len(terms) == listed_where_terms(), "\n".join(terms)
+    assert len(VIEW_GATES) == len(re.findall(r'label: "', (ROOT / "lib" / "calibration-gates.ts").read_text().split("export interface LedgerGate")[0].split("export const VIEW_CONDITIONS")[1]))
+
+
+def test_the_term_counter_bites():
+    sample = "SELECT 1 FROM t a JOIN u b ON a.x = b.x AND a.y = b.y WHERE a.z = 'p AND q' AND (a.w = 1 AND a.v = 2) AND NOT (EXISTS ( SELECT 1 FROM w WHERE w.a = 1 AND w.b = 2))"
+    assert len(top_level_and_terms(sample)) == 3
+    assert len(top_level_and_terms(sample + " AND o.observed_value < 9000")) == 4
 
 
 def test_the_migrations_that_define_the_view_run_in_the_order_the_header_notes_say():

@@ -36,9 +36,44 @@ export const btmOptionSchema = z.object({
   energy_MWh: z.coerce.number().positive().max(100_000).optional(),
 });
 
+/**
+ * The hall figures a request may declare as ASSUMED (evidence class E0), and where each sits in the engine's intake document.
+ *
+ * A figure typed into the hall form reaches the engine as a plain number, which the engine classes as customer data (E5, or E3 for the
+ * estimate-class fields). That is right for a hall's own figures and wrong for a reference template's, which nobody measured. A request
+ * can therefore list the form fields that still hold a template's values; toEngineBody sends each as `{value, evidence: "E0", note}`,
+ * the engine's own annotated form (gridforge/intake/loader.py). The marking is made by THIS SITE on the request and is recorded in the saved
+ * request; the comparison result itself carries no per-input classes (only the Density Screen's basis text does), and the declaration changes
+ * only the request digest, never an arithmetic result. It can only lower a claim: E0 is the lowest class, and no other class can be
+ * declared through this field.
+ */
+export const ASSUMABLE_HALL_FIELDS = {
+  contractedMW: ["grid", "contracted_MW"],
+  currentPeakMW: ["grid", "current_site_peak_MW"],
+  currentItLoadMW: ["grid", "current_it_load_MW"],
+  firmCapacityMVA: ["grid", "firm_capacity_MVA"],
+  buswayAmpacityA: ["lv", "busway_ampacity_A"],
+  tapoffMaxA: ["lv", "tapoff_max_A"],
+  positionsAvailable: ["hall", "positions_available"],
+  floorLoadingKPa: ["hall", "floor_loading_kPa"],
+  plantSupplyC: ["thermal", "plant", "design_supply_C"],
+  plantCapacityKW: ["thermal", "plant", "chilled_water_capacity_kW"],
+  pumpFlowLPerMin: ["thermal", "plant", "pump_flow_capacity_l_per_min"],
+  existingNonItHeatKW: ["thermal", "plant", "existing_non_it_heat_kW"],
+  designDrybulbC: ["site", "design_drybulb_C"],
+  residualAirKWPerRack: ["thermal", "residual_air_capacity_kW_per_rack"],
+} as const;
+export type AssumableHallField = keyof typeof ASSUMABLE_HALL_FIELDS;
+const ASSUMABLE_KEYS = Object.keys(ASSUMABLE_HALL_FIELDS) as [AssumableHallField, ...AssumableHallField[]];
+
+/** The note the engine records beside a figure declared assumed. */
+export const ASSUMED_VALUE_NOTE = "Reference-template value, assumed. It is not this hall's figure.";
+
 export const compareRequestSchema = z
   .object({
     hall: screenIntakeSchema,
+    /** Form fields that still hold a reference template's value: declared to the engine as assumed (E0). See ASSUMABLE_HALL_FIELDS. */
+    assumed_fields: z.array(z.enum(ASSUMABLE_KEYS)).max(ASSUMABLE_KEYS.length).optional(),
     btm_options: z.array(btmOptionSchema).max(10).default([]),
     objective: z.enum(OBJECTIVES).default("max_compute"),
     scenarios: z.array(z.enum(SCENARIO_IDS)).min(2).max(5).optional(),
@@ -68,12 +103,51 @@ export const compareRequestSchema = z
 
 export type CompareRequest = z.infer<typeof compareRequestSchema>;
 
+/** Replace one figure in the intake document with its annotated form, declared E0. A figure the document does not carry is left alone. Returns whether it was marked. */
+function declareAssumed(doc: Record<string, unknown>, path: readonly string[]): boolean {
+  let cur: Record<string, unknown> = doc;
+  for (const part of path.slice(0, -1)) {
+    const next = cur[part];
+    if (!next || typeof next !== "object" || Array.isArray(next)) return false;
+    cur = next as Record<string, unknown>;
+  }
+  const key = path[path.length - 1];
+  if (cur[key] === undefined) return false;
+  cur[key] = { value: cur[key], evidence: "E0", note: ASSUMED_VALUE_NOTE };
+  return true;
+}
+
+/** The key under which this site records facts about how a request was made. The engine reads only the keys it knows and ignores this one. */
+export const SITE_ANNOTATIONS_KEY = "site_annotations";
+
+/**
+ * How many figures of a stored or sent request this site marked assumed (E0) because they were a reference template's. Read from the figures
+ * themselves (their E0 declaration carrying the site's own note), so it cannot disagree with them; 0 for a request that was not template-derived.
+ */
+export function templateDerivedCount(request: unknown): number {
+  let n = 0;
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 6 || !v || typeof v !== "object") return;
+    if (Array.isArray(v)) return;
+    const o = v as Record<string, unknown>;
+    if (o.evidence === "E0" && o.note === ASSUMED_VALUE_NOTE && typeof o.value === "number") n += 1;
+    else for (const x of Object.values(o)) walk(x, depth + 1);
+  };
+  const intake = request && typeof request === "object" ? (request as Record<string, unknown>).intake : undefined;
+  walk(intake, 0);
+  return n;
+}
+
 /** The exact body POSTed to /v1/compare for a request: what a CLI or API user would send to reproduce the page. */
 export function toEngineBody(r: CompareRequest, costEvidence?: Record<string, unknown>[]): Record<string, unknown> {
   const intake = toIntakeDocument(r.hall) as Record<string, unknown>;
+  let templateDerived = 0;
+  for (const field of new Set(r.assumed_fields ?? [])) if (declareAssumed(intake, ASSUMABLE_HALL_FIELDS[field])) templateDerived += 1;
   if (r.btm_options.length) intake.btm_options = r.btm_options;
   return {
     intake,
+    // Recorded in the saved request so any later reader can tell the comparison was template-derived. Not sent as a figure: the engine ignores it.
+    ...(templateDerived > 0 ? { [SITE_ANNOTATIONS_KEY]: { template_derived_fields: templateDerived, marked_by: "this site, on the request" } } : {}),
     objective: r.objective,
     ...(r.scenarios ? { scenarios: r.scenarios } : {}),
     ...(r.baseline ? { baseline: r.baseline } : {}),

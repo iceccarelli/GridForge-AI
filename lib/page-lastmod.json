@@ -14,68 +14,68 @@
       "hash": "45e08ebc361dec0ccdc03750086e84c235b37a41523607e78e444aea219266de"
     },
     "/constraints/achievable-facility-water-temperature": {
-      "lastmod": "2026-11-07",
-      "hash": "91ca80b10c466226afb5dac73eb71d6c8fba83e512fad06c28c4c05274b35785"
+      "lastmod": "2026-11-08",
+      "hash": "2cb5defc34721d5f05a79936e9067b945065395d49f260e511009d068aed5cb4"
     },
     "/constraints/available-rack-positions": {
-      "lastmod": "2026-11-07",
-      "hash": "f6e751bc60dc00413537a129d27f41ebe767cc3a5d2c7a1c416238c62b306278"
+      "lastmod": "2026-11-08",
+      "hash": "a2381b15cb3cf5a65d748e70c72f2292ade2da2f2e6f2377ba9d3503715ce9c1"
     },
     "/constraints/busway-ampacity": {
-      "lastmod": "2026-11-07",
-      "hash": "70d78073dc818207271ab9c7c1ed91afe15900e59f5db087338738e333b5d994"
+      "lastmod": "2026-11-08",
+      "hash": "30929787ebc562186af0c657646f409bacada8469b6d2bff8139e5b2f8ec4e3c"
     },
     "/constraints/cdu-capacity-site-conditions": {
-      "lastmod": "2026-11-07",
-      "hash": "d97352f0bfa5817d383536c95599f91374f2a108cfb8df80f0a7abdf91d2a166"
+      "lastmod": "2026-11-08",
+      "hash": "ee5ec5c3f46dcec75067d8978db968d40c2f7afb35e067d6070b44cb23570260"
     },
     "/constraints/chilled-water-plant-capacity": {
-      "lastmod": "2026-11-07",
-      "hash": "e19c2d822c7d8a4a963258a8969cc34743572c95b9783ee5f255593a6f5a773d"
+      "lastmod": "2026-11-08",
+      "hash": "9fe78400eb03b0eca8f6c60512b264750d2ee981292111fd63e9fbfcb300ceb9"
     },
     "/constraints/cooling-architecture-capability": {
-      "lastmod": "2026-11-07",
-      "hash": "a1cba77bd0320e0948fccb10dbcf87696e25a8ecc60851c4ba027943f80132fb"
+      "lastmod": "2026-11-08",
+      "hash": "97b86f4afb3265ad0a9af215a4cb6d764a7e30071b5e712d88ea34aee426c9b6"
     },
     "/constraints/firm-supply-capacity": {
-      "lastmod": "2026-11-07",
-      "hash": "3c3a4da66f5e7b26e698d05d904d0d4acad386d8d4ce108e4eeaee568d5c32c4"
+      "lastmod": "2026-11-08",
+      "hash": "fd85d4ce137583a717ca3529f4f75bac7343377a84fdf323fe7c02921b1916a5"
     },
     "/constraints/floor-loading": {
-      "lastmod": "2026-11-07",
-      "hash": "49b7ec7a5d1e3f6d1bc3df308593e843226d5bf2812fbed64a804ea6fde8d15c"
+      "lastmod": "2026-11-08",
+      "hash": "c3e9e564e2bd5331634ec65f9973b8a3e974aac7e1e2bd53c161e80b99012938"
     },
     "/constraints/hydraulic-flow-capacity": {
-      "lastmod": "2026-11-07",
-      "hash": "0c64dee297b666706cb627299df6b14545b5f76f79156fc430a0d936e0737138"
+      "lastmod": "2026-11-08",
+      "hash": "b873d2374e47210a1a2f20316fc50ca2ee95c258c0b09838ebed68bd72fc4b46"
     },
     "/constraints/rack-feed-tapoff-rating": {
-      "lastmod": "2026-11-07",
-      "hash": "30f4a51df8e9fe2dca0d5be49279d83199d13fde789db6ac21137f8f253bd346"
+      "lastmod": "2026-11-08",
+      "hash": "cd9fbbe23055e6fbf1bf421962344f6cc100f67c93dc25af75ae5b2cc7380ed1"
     },
     "/constraints/residual-air-load-removal": {
-      "lastmod": "2026-11-07",
-      "hash": "4d119f21c7357b518526920bb506a2aee3b1a553fa7e921de80e2ab45668f41c"
+      "lastmod": "2026-11-08",
+      "hash": "9e97b9217d56f79e09d8634bb41dc2e52e2bf4bafdc5496318ab71f11883801b"
     },
     "/constraints/transformer-capacity": {
-      "lastmod": "2026-11-07",
-      "hash": "1c2213636925b5796523d44d5b6999f86b708608911e0c9030754c30a3a7c6dd"
+      "lastmod": "2026-11-08",
+      "hash": "0229f75bfa3e63b7bcc7782e222b850ec57972f25854436fce47c7c7ae299ac0"
     },
     "/constraints/ups-capacity": {
-      "lastmod": "2026-11-07",
-      "hash": "64561c64dac599a6bd55aec23acbeaa79d7e2542b5098a16d69efc9a59dc09e3"
+      "lastmod": "2026-11-08",
+      "hash": "471370962da42f13bdd4d90730a9818d159fad28f35e39b4af352265638d3404"
     },
     "/contact": {
       "lastmod": "2026-11-07",
       "hash": "10f7921f758fafc8c434568fa7145dc4ba30a660296dc843a92bf55269364c27"
     },
     "/developers": {
-      "lastmod": "2026-11-07",
-      "hash": "df5467ff9eea40bb0a714fa55f6900eb7065ca176224863285215a21181ebab4"
+      "lastmod": "2026-11-08",
+      "hash": "51363af623059c4c3f7a69cd65684868ddf0ca78c1c025940b2fbd642340ba17"
     },
     "/evidence": {
-      "lastmod": "2026-11-07",
-      "hash": "00e469a50cd080a6e654df483fb72231bc645a3b360f9825e2064339cc34c4b2"
+      "lastmod": "2026-11-08",
+      "hash": "fda1ac34340b9bde6c168a6d2fd0725f0e9c0c2453c1a46892ffdcae5533c52d"
     },
     "/for": {
       "lastmod": "2026-11-07",
@@ -110,8 +110,8 @@
       "hash": "321097da15cf6efafdfa5ad9e68cfd0d276a7b05f0f5e13b3b98d91b18f0ad43"
     },
     "/guides/nameplate-vs-useful-compute": {
-      "lastmod": "2026-11-07",
-      "hash": "b30fd05e1a512a883ae187a85e5018fdc42480c2785669ffd954397e10e78d08"
+      "lastmod": "2026-11-08",
+      "hash": "04a2f5d484583315efd106b354b044d8a118deef36a00ce0de076a6bfb4b6e1f"
     },
     "/intelligence": {
       "lastmod": "2026-11-07",
@@ -138,20 +138,20 @@
       "hash": "995e8038b145bf06dcc5cdf397ac6674c2f9377ac1258950a8d4863f5c8cfcc2"
     },
     "/platforms": {
-      "lastmod": "2026-11-07",
-      "hash": "21a2aad8b7d9193c69df095bc7cdc736bd3061e5f92186f791a6850fb3c913ff"
+      "lastmod": "2026-11-08",
+      "hash": "43996aac3df2a4a1c1692c67ef1e6ae2f3da50d95fb39bceb3dc74fb2759251d"
     },
     "/platforms/gb200_nvl72": {
-      "lastmod": "2026-11-07",
-      "hash": "76bd66da33338800944f0bb7b0246d6b7a1b72a6b7d3a2b958d918b58a4c900c"
+      "lastmod": "2026-11-08",
+      "hash": "b0d65ad7356a7fac78cde018fb64c9cd6a70ff20d0c452cededf040bb731ba15"
     },
     "/platforms/gb300_nvl72": {
-      "lastmod": "2026-11-07",
-      "hash": "76bd66da33338800944f0bb7b0246d6b7a1b72a6b7d3a2b958d918b58a4c900c"
+      "lastmod": "2026-11-08",
+      "hash": "b0d65ad7356a7fac78cde018fb64c9cd6a70ff20d0c452cededf040bb731ba15"
     },
     "/power/compare": {
-      "lastmod": "2026-11-07",
-      "hash": "a7d32446282aac41f609f85e79b73476c31c4689306dbff2a79dee55705924df"
+      "lastmod": "2026-11-08",
+      "hash": "633f1824a38f03aed81672f25ee9750a2aff8453bbedd7b9d0b628bcc611e6cd"
     },
     "/power/deploy": {
       "lastmod": "2026-11-07",
@@ -186,12 +186,12 @@
       "hash": "8d6403bc836428ba0791762c646d4bc31e92610f978811bcbe6f001db1b4864d"
     },
     "/qualify": {
-      "lastmod": "2026-11-07",
-      "hash": "9756e94907010de1fc79bf6f18b7ecab5e9d7c15e8206fcdfbcadc3b5b3c9b6a"
+      "lastmod": "2026-11-08",
+      "hash": "e8bccc10e3475ba2c1f6c89d43bcf69a492d5983a6e0fe4c27536b0d6ac23bb6"
     },
     "/reference": {
-      "lastmod": "2026-11-07",
-      "hash": "191e95ac4890445a6a86a71d14df9411ca25bbe7c1f86d4e82201144c3717c4e"
+      "lastmod": "2026-11-08",
+      "hash": "df6f8ac9cc60c29bd996eaedca0cb40814d565517ea5da13642ac9222727ad82"
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-02",

@@ -12,6 +12,7 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { constraintRecordJsonLd } from "@/lib/jsonld";
+import { constraintDefinition } from "@/lib/definitions";
 
 // Constraint -> reference photograph, per time-to-power-image-pack-v1's own
 // manifest/CONSTRAINT_MAP.json. Matched by keyword against the slug/id so we
@@ -97,6 +98,7 @@ export default async function ConstraintPage({
         "@type": "TechArticle",
         headline: `${c.name} — what it limits and what relieves it`,
         description: c.headline,
+        abstract: constraintDefinition(c),
         about: c.name,
         articleSection: DOMAIN_LABEL[c.domain] ?? c.domain,
         isAccessibleForFree: true,
@@ -116,7 +118,8 @@ export default async function ConstraintPage({
       <h1 className="mt-4 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
         {c.name}
       </h1>
-      <p className="mt-4 text-lg text-mute">{c.headline}</p>
+      <p data-definition className="mt-4 text-lg text-ghost">{constraintDefinition(c)}</p>
+      <p className="mt-3 text-mute">{c.headline}</p>
 
       <TtpPhoto
         id={imageForConstraint(c.slug, c.id, c.domain)}

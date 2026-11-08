@@ -7,6 +7,8 @@ import type { ProjectState } from "@/lib/project-state";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
 import { EvidenceUpload } from "@/components/ai/EvidenceUpload";
+import { EvidenceLadderCard } from "@/components/ai/EvidenceLadderCard";
+import { evidenceLadder } from "@/lib/project-spec-relief";
 
 /**
  * The project record, as stored.
@@ -311,6 +313,7 @@ function Comparisons({ state, projectToken }: { state: ProjectState; projectToke
           <Row k="Saved" v={when(x.saved_at)} />
           <Row k="Led on its objective" v={x.leader ?? "No scenario ranked"} />
           <Row k="Grade" v={x.grade} />
+          {x.template_derived > 0 && <Row k="Origin" v={`Started from a reference template: ${x.template_derived} values marked assumed (E0) by this site`} />}
           <Row k="Priced on" v={x.quotation_lines > 0 ? `${x.quotation_lines} accepted supplier quotation${x.quotation_lines === 1 ? "" : "s"}` : "Library cost data only"} />
           <Row k="Question / engine" v={`${x.request_digest.slice(0, 12)} · ${x.engine_version}`} />
         </div>
@@ -733,6 +736,22 @@ export function ProjectPanel({
                 </p>
               ))}
               <EvidenceUpload projectToken={projectToken!} onSaved={() => void load()} />
+            </Card>
+
+            <Card title="WHAT EVIDENCE COULD MOVE THE BINDING LIMIT">
+              {state.comparisons.available ? (
+                <EvidenceLadderCard
+                  ladder={evidenceLadder(state.comparisons.items[0]?.ladder ?? null, {
+                    total: state.evidence.total,
+                    verified: state.evidence.verified,
+                    unverified: state.evidence.unverified,
+                    rejected: state.evidence.rejected,
+                  }, { comparisons: state.comparisons.items.length })}
+                  projectToken={projectToken!}
+                />
+              ) : (
+                <p className="text-flag">Saved comparisons could not be read, so no ladder is shown (not &ldquo;none saved&rdquo;).</p>
+              )}
             </Card>
 
             <Card title="COMMERCIAL / PROCUREMENT">

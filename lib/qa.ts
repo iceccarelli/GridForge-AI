@@ -46,11 +46,11 @@ export function platformQuestions(p: PlatformEntry): QA[] {
   const out: QA[] = [
     {
       q: `How much power does one ${p.name} rack draw?`,
-      a: `${p.rack_kW} kW per rack, with a peak of ${p.peak_rack_kW} kW, as the manufacturer publishes it.${src}`,
+      a: `${p.rack_kW} kW per rack, with a peak of ${p.peak_rack_kW} kW, as stated in the cited source and held in the library as an assumption.${src}`,
     },
     {
       q: `How much of the heat of a ${p.name} rack does liquid cooling capture?`,
-      a: `${(p.liquid_fraction * 100).toFixed(0)}% of the rack's power, about ${d.liquid_kW.toFixed(1)} kW, is captured by liquid. The remaining ${p.residual_air_kW} kW is residual air load that the hall's air system still has to remove.`,
+      a: `${(p.liquid_fraction * 100).toFixed(0)}% of the rack's power, about ${d.liquid_kW.toFixed(1)} kW, is captured by liquid; that share is a library assumption, with a band. The remaining ${p.residual_air_kW} kW is residual air load that the hall's air system still has to remove.`,
     },
     {
       q: `What flow and inlet temperature does a ${p.name} rack need?`,
@@ -64,7 +64,7 @@ export function platformQuestions(p: PlatformEntry): QA[] {
   if (p.rack_feed_current_A) {
     out.push({
       q: `What feed current does a ${p.name} rack need?`,
-      a: `${p.rack_feed_current_A} A per rack at 400 V three-phase, the library's reference condition. The current rises as the busway voltage falls (a 208 V hall needs about ${Math.round((p.rack_feed_current_A * 400) / 208)} A), so the tap-off rating that matters is the one at your own voltage.`,
+      a: `${p.rack_feed_current_A} A per rack at 400 V three-phase: an assumed feed current, the library's reference condition, to be confirmed against an OEM drawing. The current rises as the busway voltage falls (a 208 V hall needs about ${Math.round((p.rack_feed_current_A * 400) / 208)} A), so the tap-off rating that matters is the one at your own voltage.`,
     });
   }
   return out;

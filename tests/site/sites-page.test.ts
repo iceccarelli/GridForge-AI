@@ -8,6 +8,10 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, replace:
 import SitesPage, { metadata, dynamic } from "@/app/account/sites/page";
 import { AddedNotice, FieldHistory, InputsTable, NewHall, NewSite, RecordInput, Timeline, originText, sourceText } from "@/components/SitesWorkspace";
 import { EXPECTED_HALL_FIELDS } from "@/lib/site-registry-fields";
+import SiteRegistryDiff from "@/components/SiteRegistryDiff";
+import SiteRegistryExport from "@/components/SiteRegistryExport";
+import SiteRegistryImport, { PreviewTable, ReportView } from "@/components/SiteRegistryImport";
+import { buildPreview, type ImportReport } from "@/lib/site-registry-import";
 
 // The page's structure and honesty, without a browser. The browser-level run (a production build, a real database, a verified session at 1440 and
 // 390 px, the keyboard path and the console) is reported with the change; it is not re-run here.
@@ -219,5 +223,164 @@ describe("history, leaving, and the requests a page makes", () => {
     expect(src).not.toMatch(/onDone=\{load\}/);
     expect(src).toContain("onCreated={addedSite}");
     expect(src).toContain("onRecorded={recorded}");
+  });
+});
+
+
+describe("export, import and what-changed in a hall", () => {
+  const api = async () => ({ status: 200, body: {} });
+  const panels: [string, React.ReactElement][] = [
+    ["export", React.createElement(SiteRegistryExport, { hall, api })],
+    ["import", React.createElement(SiteRegistryImport, { hall, api, onWritten: () => {} })],
+    ["what changed", React.createElement(SiteRegistryDiff, { hall, api, current: [input()], refreshKey: 0 })],
+  ];
+  for (const [name, el] of panels) {
+    it(`${name}: a labelled section, every control labelled for its id, buttons are real buttons`, () => {
+      const out = html(el);
+      expect(out).toMatch(/<section[^>]*aria-labelledby="[a-z-]+-title"/);
+      for (const tag of [...out.matchAll(/<(input|select)\b[^>]*>/g)].map((m) => m[0])) {
+        const id = /\bid="([^"]+)"/.exec(tag)?.[1];
+        expect(id, tag).toBeTruthy();
+        expect(out, id).toMatch(new RegExp(`<label[^>]*for="${id}"`));
+      }
+      expect(out).not.toMatch(/<(div|span)[^>]*onclick/i);
+    });
+  }
+  it("export: three downloads, the declaration is on the page, nothing is promised that the file lacks, and any member may use it", () => {
+    const out = html(panels[0]![1]);
+    for (const b of ["Download JSON (figures and timeline)", "Download CSV: current figures", "Download CSV: timeline"]) expect(out).toContain(b);
+    expect(out).toContain("declaration of the person who recorded each figure");
+    expect(out).toContain("It holds no file contents, storage locations or link tokens.");
+    expect(out).toMatch(/role="alert"/);
+    expect(out).toMatch(/role="status"/);
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toMatch(/\{inputs && <SiteRegistryExport /);                            // not behind canWrite: a viewer can read, so a viewer can export
+    expect(src).toMatch(/\{inputs && canWrite && <SiteRegistryImport /);                // writing is for editors and owners
+  });
+  it("import: a labelled file input with its hint, both templates, the limits, and the promise that nothing is written before the preview is confirmed", () => {
+    const out = html(panels[1]![1]);
+    expect(out).toContain("File to import (CSV or JSON)");
+    expect(out).toMatch(/<input id="import-file"[^>]*type="file"[^>]*accept="\.csv,\.json,text\/csv,application\/json"/);
+    expect(out).toMatch(/aria-describedby="import-file-hint"/);
+    expect(out).toContain("Download CSV template");
+    expect(out).toContain("Download JSON template");
+    expect(out).toContain("up to 200 rows and 256 KB");
+    expect(out).toContain("it writes nothing");
+    expect(out).toContain("never changed to fit");
+    expect(out).toContain("nothing here checks them against the real hall");
+    expect(out).not.toContain("import-confirm");                                      // no confirm control until there is a preview
+    expect(out).not.toMatch(/Write \d+ figure/);
+  });
+  it("import: the confirm is explicit (a button, disabled until the replacements are acknowledged), rows are sent one at a time, text is never injected as HTML", () => {
+    const src = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(src).toContain("disabled={!canConfirm}");
+    expect(src).toContain("(c.supersede === 0 || okReplace)");
+    expect(src).toContain("I understand that");
+    expect(src).toContain("await runImport(");
+    expect(src).not.toMatch(/Promise\.all|dangerouslySetInnerHTML|innerHTML|eval\(/);
+    expect(src).toContain("tabIndex={-1}");                                            // the preview and the report take focus
+    expect(src).toMatch(/role="alert"/);
+    expect(src).toContain("beforeunload");                                           // leaving mid-run is confirmed
+  });
+  it("what changed: closed until asked for, says it compares recorded claims (not a recalculated capacity) and that file status is the live one", () => {
+    const out = html(panels[2]![1]);
+    expect(out).toContain("Show what changed");
+    expect(out).toMatch(/aria-expanded="false"/);
+    expect(out).toContain("It is not a recalculated capacity result.");
+    expect(out).toContain("its status now");
+    expect(out).not.toMatch(/improv|better|saving/i);
+  });
+  it("the wording of the new panels never claims verification of a figure", () => {
+    const text = ["SiteRegistryExport", "SiteRegistryImport", "SiteRegistryDiff"].map((n) => fs.readFileSync(`components/${n}.tsx`, "utf8")).join("\n")
+      + ["site-registry-export", "site-registry-import", "site-registry-diff"].map((n) => fs.readFileSync(`lib/${n}.ts`, "utf8")).join("\n");
+    expect(text).not.toMatch(/Verified Power Record/i);
+    expect(text).not.toMatch(/\bverified (figure|record|capacity|hall)/i);
+    expect(text).not.toMatch(/guarantee|certified|bankable/i);
+  });
+  it("the sign-in token still goes with every request, and the allowance's Retry-After is read from the response", () => {
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toMatch(/Authorization: "Bearer " \+ token/);
+    expect(src).toContain('res.headers.get("Retry-After")');
+  });
+});
+
+
+describe("rework: the preview, the report and the run are keyboard- and screen-reader-safe and honest", () => {
+  const preview = buildPreview([
+    { n: 1, fromCsv: false, cells: { field_path: "grid.firm_capacity_mva", value: 44, unit: "MVA", origin: "measured", class: "E5", as_of: "2026-10-01", source_kind: "project", source_id: "11111111-1111-4111-8111-111111111111" } },
+    { n: 2, fromCsv: false, cells: { field_path: "nope", value: 1, origin: "assumed", class: "E0", as_of: "2026-10-01" } },
+  ], { current: [input()], today: "2026-11-07" }, 2);
+
+  it("the preview table sits in a focusable, named region (a sideways-scrolling area must be reachable by keyboard)", () => {
+    const out = html(React.createElement(PreviewTable, { rows: preview.rows }));
+    expect(out).toMatch(/<div[^>]*role="region"[^>]*aria-labelledby="import-preview-title"[^>]*tabindex="0"[^>]*>\s*<table/);
+    expect(out).toContain('data-status="supersede"');
+    expect(out).toContain('data-status="rejected"');
+  });
+  it("a replacement that raises the class and changes the origin says so in its row, in its own list", () => {
+    const out = html(React.createElement(PreviewTable, { rows: preview.rows }));
+    expect(out).toContain('aria-label="Provenance changes"');
+    expect(out).toContain("Raises the declared class E1 → E5.");
+    expect(out).toContain("Changes the declared origin: declared assumed → declared measured.");
+  });
+  it("the confirm needs the generic acknowledgement AND the provenance one; the second is worded for what it covers", () => {
+    const src = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(src).toContain("(c.supersede === 0 || okReplace) && (c.flagged === 0 || okFlagged)");
+    expect(src).toContain('id="import-confirm-flagged"');
+    expect(src).toContain("raise the declared class, change the origin or withdraw a figure");
+    expect(preview.counts.flagged).toBe(1);
+  });
+  it("the summary says how many comment lines were skipped", () => {
+    const src = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(src).toContain("comment line");
+    expect(src).toContain("(starting with #) skipped");
+    expect(preview.commentLines).toBe(2);
+  });
+  it("a run started from the keyboard moves focus to Stop; progress is announced every ten rows, not per row, in a stable live region", () => {
+    const src = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(src).toContain("if (running) stopButton.current?.focus()");
+    expect(src).toContain('ref={stopButton}');
+    expect(src).toContain("p.done % 10 === 0");
+    expect(src).toMatch(/<p role="status" id="import-announce" className="sr-only">\{announce\}<\/p>/);
+    expect(src).not.toMatch(/<p role="status"[^>]*id="import-progress"/);                   // the per-row text is not a live region
+    const out = html(React.createElement(SiteRegistryImport, { hall, api: async () => ({ status: 200, body: {} }), onWritten: () => {} }));
+    expect(out).toContain('id="import-announce"');                                         // mounted from the start, so a change is announced
+  });
+  it("hall, site and organisation navigation is paused while an import runs, with a visible reason", () => {
+    const src = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(src).toContain("disabled={locked && hallId !== h.id}");
+    expect(src).toContain("onImportRunning={setLocked}");
+    expect(src).toContain("onRunning={onImportRunning}");
+    expect(src).toContain("are paused until it finishes or you stop it");
+    const imp = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(imp).toContain("onRunning?.(running)");
+    expect(imp).toContain("return () => onRunning?.(false)");                              // a stuck lock is impossible
+    const locked = html(React.createElement(AddedNotice, { org: { ...org, role: "viewer", addedBy: "boss@acme.example", memberId: "m1" }, onLeave: async () => null, locked: true }));
+    expect(locked).toMatch(/<button[^>]*disabled=""[^>]*>Leave Acme/);
+    const free = html(React.createElement(AddedNotice, { org: { ...org, role: "viewer", addedBy: "boss@acme.example", memberId: "m1" }, onLeave: async () => null }));
+    expect(free).not.toMatch(/<button[^>]*disabled=""[^>]*>Leave Acme/);
+  });
+  it("an unknown result is worded as unknown, never as 'NOT written', and the re-read is reported", () => {
+    const report: ImportReport = {
+      outcome: "stopped", written: [{ n: 1, fieldPath: "grid.f1", id: "x", input: null }], notAttempted: [{ n: 3, fieldPath: "grid.f3" }],
+      failed: { n: 2, fieldPath: "grid.f2", status: 503, outcomeUnknown: true, message: "The result of this row is unknown — reload and check the hall's figures before importing again. (The server answered 503.)" },
+      afterStop: { read: true, landed: [2], absent: [3], current: [] },
+    };
+    const out = html(React.createElement(ReportView, { report, headRef: { current: null }, hallLabel: "Hall 1" }));
+    expect(out).toContain("The result of this row is unknown");
+    expect(out).not.toMatch(/was NOT written|Nothing was changed/);
+    expect(out).toContain("Rows 2 ARE in the hall");
+    expect(out).toContain("Rows 3 are not in the hall");
+    const refused = html(React.createElement(ReportView, { report: { ...report, failed: { ...report.failed!, outcomeUnknown: false, status: 400, message: "No." }, afterStop: { read: false, landed: [], absent: [], current: null } }, headRef: { current: null }, hallLabel: "Hall 1" }));
+    expect(refused).toContain("was NOT written: No.");
+    expect(refused).toContain("could not be read again after the stop");
+  });
+  it("a stopped import hands the re-read figures back so the table is not stale; the diff drops its old result when a refresh fails", () => {
+    const ws = fs.readFileSync("components/SitesWorkspace.tsx", "utf8");
+    expect(ws).toContain("onSynced={synced}");
+    const imp = fs.readFileSync("components/SiteRegistryImport.tsx", "utf8");
+    expect(imp).toContain("if (result.afterStop?.current) onSynced?.(result.afterStop.current)");
+    const diff = fs.readFileSync("components/SiteRegistryDiff.tsx", "utf8");
+    expect(diff.match(/setHistory\(null\); setError\(/g)).toHaveLength(2);
   });
 });

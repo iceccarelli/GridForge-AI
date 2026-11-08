@@ -9,6 +9,7 @@ import { saveComparison, type SaveTarget } from "@/lib/project-comparisons";
 import { getProjectByToken } from "@/lib/projects";
 import { acceptedQuotations, quotationEvidenceReady } from "@/lib/project-quotations";
 import { backingLines } from "@/lib/comparison-evidence";
+import { PRESET_VALUE_KEYS } from "@/lib/hall-presets";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -69,6 +70,20 @@ export async function POST(req: Request) {
         ok: false,
         error: "Validation failed",
         problems: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      },
+      { status: 422, headers: NO_STORE }
+    );
+  }
+
+  // A request that marks EVERY reference-template value as assumed is a template nobody has edited: a synthetic example, not a hall. The page
+  // does not offer to save it; this refuses the same request made directly, before any project is touched or any limit is spent.
+  const marked = new Set(parsed.data.compare.assumed_fields ?? []);
+  if (PRESET_VALUE_KEYS.every((k) => marked.has(k))) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "This is an unedited reference template: every figure in it is a synthetic, assumed (E0) template value, so it is not a hall and cannot be saved to a project. Replace at least one value with your hall's own figure and save again.",
       },
       { status: 422, headers: NO_STORE }
     );

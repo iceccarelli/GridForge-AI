@@ -1,0 +1,100 @@
+{
+  "note": "The honesty fields the engine puts in its own responses, listed by the OpenAPI document (lib/openapi.ts) so a machine reading the contract knows where the evidence class, the calibration record and the assumption disclosure are. This is a description of what the engine returns, not a second source of it: tests/test_openapi_parity.py runs the real handlers in gridforge/api/server.py and fails if a field named here is missing from the response, or if the engine's constants named here differ.",
+  "engine_constants": {
+    "idempotency_key_max_chars": 150,
+    "idempotency_window_hours": 24,
+    "max_body_bytes": 524288,
+    "max_mcp_batch": 10,
+    "max_estimate_halls": 100000
+  },
+  "calibration_block_fields": [
+    "state",
+    "statement",
+    "observations",
+    "observations_total",
+    "observations_without_source_ref",
+    "sites",
+    "halls",
+    "keys_asserted",
+    "keys_with_site_observations",
+    "keys_calibrated",
+    "coverage",
+    "keys",
+    "uncalibrated_keys"
+  ],
+  "calibration_states": [
+    "uncalibrated",
+    "indicative",
+    "calibrated"
+  ],
+  "assumption_gap_fields": [
+    "path",
+    "input",
+    "unit",
+    "required",
+    "assumed",
+    "why_it_binds",
+    "how_to_get_it"
+  ],
+  "residual_report_fields": [
+    "schema",
+    "state",
+    "n_records",
+    "n_sites",
+    "headline",
+    "requirements",
+    "subsystem_states",
+    "subsystems"
+  ],
+  "responses": {
+    "/v1/qualify": {
+      "top_level": [
+        "as_found",
+        "after_relief",
+        "intake",
+        "calibration",
+        "notice"
+      ],
+      "after_relief": [
+        "date_basis",
+        "date_evidence_class",
+        "date_label"
+      ],
+      "intake_gaps": true,
+      "intake_fields": [
+        "completeness",
+        "required_inputs_missing",
+        "can_issue_a_study",
+        "gaps",
+        "warnings",
+        "recommended_engagement"
+      ]
+    },
+    "/v1/screen": {
+      "top_level": [
+        "scenarios",
+        "intake",
+        "calibration"
+      ],
+      "intake_gaps": true,
+      "intake_fields": [
+        "completeness",
+        "can_issue_a_study",
+        "gaps",
+        "warnings",
+        "recommended_engagement"
+      ]
+    },
+    "/v1/compare": {
+      "top_level": [
+        "schema",
+        "scenarios",
+        "ranking",
+        "grade",
+        "caveats",
+        "request_digest",
+        "provenance"
+      ]
+    }
+  }
+}

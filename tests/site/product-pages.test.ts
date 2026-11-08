@@ -55,7 +55,9 @@ describe("per-product pages", () => {
 describe("the ladder links to the pages", () => {
   it("renders a Details link for every rung", () => {
     const src = readFileSync("components/EngagementLadder.tsx", "utf8");
-    expect(src).toContain("/products/${page.slug}");
+    // The component links with a tiny slug map, not the page copy (that would put the copy into the browser bundle); a test pins the map to PRODUCT_PAGES.
+    expect(src).toContain("/products/${slug}");
+    expect(src).toContain("PRODUCT_PAGE_SLUGS");
     expect((src.match(/<DetailsLink /g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 });

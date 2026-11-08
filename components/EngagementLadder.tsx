@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
-import { PRODUCT_PAGES } from "@/lib/product-pages";
+import { PRODUCT_PAGE_SLUGS } from "@/lib/product-page-slugs";
 import { LADDER_PRODUCTS, eurFromCents, type Product, type ProductId } from "@/lib/products";
 
 /**
@@ -27,10 +27,10 @@ const NOTE: Partial<Record<ProductId, string>> = {
 
 /** The page that explains a rung in full (buyer, inputs, limits), when it has one. */
 function DetailsLink({ id }: { id: ProductId }) {
-  const page = PRODUCT_PAGES.find((x) => x.productId === id);
-  if (!page) return null;
+  const slug = PRODUCT_PAGE_SLUGS[id];
+  if (!slug) return null;
   return (
-    <Link href={`/products/${page.slug}`} className="inline-flex min-h-11 items-center px-1 text-[12px] text-power underline">
+    <Link href={`/products/${slug}`} className="inline-flex min-h-11 items-center px-1 text-[12px] text-power underline">
       Details
     </Link>
   );

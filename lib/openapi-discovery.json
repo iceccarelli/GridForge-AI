@@ -1,0 +1,548 @@
+{
+  "note": "The engine's free discovery responses, as property lists: `required` keys are always present, the rest are optional. The OpenAPI document (lib/openapi.ts) uses these as its response schemas, and tests/test_openapi_parity.py validates every REAL response against them, so a key added, renamed or dropped on the engine without this file changing fails a test. Nothing here states a price: the figures an engine returns are values, not documentation.",
+  "routes": {
+    "/health": {
+      "required": [
+        "ok",
+        "service",
+        "version",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "service": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/version": {
+      "required": [
+        "version",
+        "provenance",
+        "auth_configured",
+        "signed_keys",
+        "rate_limit_per_minute",
+        "schema",
+        "idempotency",
+        "idempotency_key_max_chars",
+        "tier",
+        "endpoints",
+        "unit_rates",
+        "payg",
+        "metering",
+        "machine_interface",
+        "calibration",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "version": {
+          "type": "string"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "type": "string"
+            },
+            "engine_version": {
+              "type": "string"
+            },
+            "code_sha256": {
+              "type": "string"
+            },
+            "cost_library_sha256": {
+              "type": "string"
+            },
+            "calibration_sha256": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "report_date": {
+              "type": "string"
+            }
+          }
+        },
+        "auth_configured": {
+          "type": "boolean"
+        },
+        "signed_keys": {
+          "type": "boolean"
+        },
+        "rate_limit_per_minute": {
+          "type": "integer"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "idempotency": {
+          "type": "string"
+        },
+        "idempotency_key_max_chars": {
+          "type": "integer"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unit_rates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Units per call by route; a route with weight 0 is free."
+        },
+        "payg": {
+          "type": "object",
+          "properties": {
+            "unit_price_cents": {
+              "type": "integer"
+            },
+            "currency": {
+              "type": "string"
+            },
+            "min_invoice_cents": {
+              "type": "integer"
+            },
+            "free_allowance_units": {
+              "type": "integer"
+            },
+            "billing_rule": {
+              "type": "string"
+            }
+          },
+          "description": "The pay-as-you-go terms: the engine's own statement, the only place this contract's prices live."
+        },
+        "metering": {
+          "type": "object",
+          "properties": {
+            "durable": {
+              "type": "boolean"
+            },
+            "ledger_durable": {
+              "type": "boolean",
+              "description": "True when a charge is recorded in a durable ledger; an Idempotency-Key survives eviction and restarts only then."
+            },
+            "over_quota_status": {
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "machine_interface": {
+          "type": "object",
+          "properties": {
+            "tools": {
+              "type": "string"
+            },
+            "mcp": {
+              "type": "string"
+            },
+            "protocolVersion": {
+              "type": "string"
+            }
+          }
+        },
+        "calibration": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/tools": {
+      "required": [
+        "tools",
+        "openai",
+        "mcp",
+        "auth",
+        "payg",
+        "rate_card",
+        "evidence_note",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "openai": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "protocol": {
+              "type": "string"
+            },
+            "protocolVersion": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "header": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "payg": {
+          "type": "object",
+          "properties": {
+            "unit_price_cents": {
+              "type": "integer"
+            },
+            "currency": {
+              "type": "string"
+            },
+            "min_invoice_cents": {
+              "type": "integer"
+            },
+            "free_allowance_units": {
+              "type": "integer"
+            },
+            "billing_rule": {
+              "type": "string"
+            }
+          },
+          "description": "The pay-as-you-go terms: the engine's own statement, the only place this contract's prices live."
+        },
+        "rate_card": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              },
+              "tool": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "evidence_note": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/platforms": {
+      "required": [
+        "platforms",
+        "deliberately_absent",
+        "note",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "rack_kW": {
+                "type": "number"
+              },
+              "gpus_per_rack": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "deliberately_absent": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/intake/template": {
+      "required": [
+        "project",
+        "scenarios",
+        "grid",
+        "lv",
+        "hall",
+        "thermal",
+        "transformers",
+        "ups",
+        "site",
+        "compute",
+        "economics",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "project": {},
+        "scenarios": {},
+        "grid": {},
+        "lv": {},
+        "hall": {},
+        "thermal": {},
+        "transformers": {},
+        "ups": {},
+        "site": {},
+        "compute": {},
+        "economics": {}
+      }
+    },
+    "/v1/calibration": {
+      "required": [
+        "ledger_sources",
+        "policy",
+        "schema_version"
+      ],
+      "includes": "calibration_block_fields",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "ledger_sources": {
+          "type": "integer"
+        },
+        "policy": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/calibration/residuals": {
+      "required": [
+        "schema",
+        "state",
+        "n_records",
+        "n_sites",
+        "headline",
+        "requirements",
+        "subsystem_states",
+        "subsystems",
+        "withheld_variables",
+        "note",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "schema": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "n_records": {
+          "type": "integer"
+        },
+        "n_sites": {
+          "type": "integer"
+        },
+        "headline": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "object"
+        },
+        "subsystem_states": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "subsystems": {
+          "type": "object"
+        },
+        "withheld_variables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Variables kept out of the public report."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "/v1/usage": {
+      "required": [
+        "account",
+        "key",
+        "key_id",
+        "scope",
+        "expires",
+        "month",
+        "units",
+        "account_units",
+        "by_scope",
+        "calls",
+        "by_endpoint",
+        "monthly_quota",
+        "units_remaining",
+        "unit_rates",
+        "durable",
+        "note",
+        "ledger_durable",
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "description": "The engine's API schema id, added to every JSON object response."
+        },
+        "account": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string",
+          "description": "The key, masked."
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "description": "trial (free allowance), payg, or a plan scope."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "month": {
+          "type": "string"
+        },
+        "units": {
+          "type": "integer",
+          "description": "Net units used this month in this key's own scope."
+        },
+        "account_units": {
+          "type": "integer"
+        },
+        "by_scope": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "calls": {
+          "type": "integer"
+        },
+        "by_endpoint": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "monthly_quota": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "units_remaining": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "unit_rates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Units per call by route; a route with weight 0 is free."
+        },
+        "durable": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "ledger_durable": {
+          "type": "boolean"
+        },
+        "unit_price_cents": {
+          "type": "integer",
+          "description": "Pay-as-you-go keys only."
+        },
+        "accrued_cents": {
+          "type": "integer",
+          "description": "Pay-as-you-go keys only: units used this month times the unit price."
+        }
+      },
+      "optional_for_payg": [
+        "unit_price_cents",
+        "accrued_cents"
+      ]
+    }
+  }
+}

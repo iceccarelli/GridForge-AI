@@ -9,6 +9,8 @@ import { latestDeploymentCase } from "@/lib/power-deploy";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { listComparisons } from "@/lib/project-comparisons";
 import { shareStatus } from "@/lib/project-share";
+import { templateDerivedCount } from "@/lib/ttp-compare";
+import { ladderBasisFromComparison, type LadderBasis } from "@/lib/project-spec-relief";
 import { ledgerBlockers, ledgerEligible, type MeasurementKind, type ObservationRow, type PermissionStanding, type ReviewRow } from "@/lib/project-observations";
 import {
   creds,
@@ -193,6 +195,14 @@ export interface ProjectState {
       leader: string | null;
       /** How many accepted quotation lines its prices rest on (0 = library cost data only). */
       quotation_lines: number;
+      /**
+       * Which inputs the saved request supplied (and any it declared assumed), and which limit the answer names as binding: the basis of the
+       * "what evidence could move the binding limit" card (lib/project-spec-relief.ts). Classes only, never the figures; null if the stored
+       * row is not a shape that can be read.
+       */
+      ladder: LadderBasis | null;
+      /** How many figures in the saved request are a reference template's, marked assumed (E0) by the site; 0 when the comparison is of the owner's own hall. */
+      template_derived: number;
     }[];
   };
   /** Whether a read-only buyer link is active. The link's secret is never retrievable. */
@@ -476,6 +486,8 @@ export async function getProjectState(token: string): Promise<Result<{ state: Pr
               engine_version: c.engine_version,
               leader: c.result.scenarios.find((x) => x.id === c.result.ranking.leader)?.name ?? null,
               quotation_lines: (c.evidence_ids ?? []).length,
+              ladder: ladderBasisFromComparison(c.request, c.result),
+              template_derived: templateDerivedCount(c.request),
             }))
           : [],
       },

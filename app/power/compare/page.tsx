@@ -70,7 +70,7 @@ export default async function PowerComparePage() {
         Free, no account. When it is worth taking further, save it to a project, give whoever approves the spend a read-only page
         (the decision, what it rests on, the evidence class behind each date), and commission the next step from there — the{" "}
         {PRODUCTS.density_screen.name} starts at {eurFromCents(PRODUCTS.density_screen.amountCents)}.{" "}
-        <Link href="/pricing" className="text-power">
+        <Link href="/pricing" className="text-power underline">
           See pricing
         </Link>
         .
