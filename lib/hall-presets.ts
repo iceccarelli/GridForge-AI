@@ -178,6 +178,21 @@ export function qualifyTemplateState(preset: HallPreset): { raw: Record<QualifyP
 }
 
 /**
+ * What choosing a template (or none) does to the qualifier's fields. A field the visitor typed (non-empty and not the CURRENT template's value) is
+ * KEPT; every other field takes the new template's value, or is emptied when no template is chosen. Nothing the visitor typed is overwritten.
+ */
+export function switchQualifyTemplate(
+  raw: Record<QualifyPresetKey, string>,
+  from: HallPreset | null,
+  to: HallPreset | null
+): { raw: Record<QualifyPresetKey, string>; kept: QualifyPresetKey[] } {
+  const theirs = (k: QualifyPresetKey) => raw[k].trim() !== "" && !(from && raw[k].trim() === from.values[k]);
+  const kept = QUALIFY_PRESET_KEYS.filter(theirs);
+  const next = Object.fromEntries(QUALIFY_PRESET_KEYS.map((k) => [k, theirs(k) ? raw[k] : to ? to.values[k] : ""])) as Record<QualifyPresetKey, string>;
+  return { raw: next, kept: [...kept] };
+}
+
+/**
  * The qualifier fields that still hold the template's own value: the ones sent as assumed (E0). A field the visitor changed or cleared is
  * theirs. Compared as trimmed text, as stillTemplateValues does: retyping the same figure keeps it the template's number.
  */

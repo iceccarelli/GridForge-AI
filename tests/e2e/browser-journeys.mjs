@@ -195,6 +195,9 @@ try {
     const page = await ctx.newPage();
     await page.goto(BASE + "/qualify", { waitUntil: "networkidle" });
     const submit = page.getByRole("button", { name: /find the binding constraint/i });
+    // The seven fields start EMPTY (their examples are placeholders): the old journey pressed the button on the pre-filled example, which sent
+    // demo numbers as the visitor's own. It now types the seven first, then checks that nothing claims to have been saved.
+    for (const [k, v] of Object.entries({ contractedMW: "14", currentPeakMW: "8.2", currentItLoadMW: "5.1", buswayAmpacityA: "400", tapoffMaxA: "63", plantSupplyC: "6", positionsAvailable: "150" })) await page.locator(`#qualify-${k}`).fill(v);
     await submit.click();
     await page.waitForTimeout(2500);
     const body = (await page.locator("body").innerText()).toLowerCase();

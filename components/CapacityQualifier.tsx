@@ -10,6 +10,7 @@ import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
+import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
   PRESET_DISCLOSURE,
@@ -19,6 +20,8 @@ import {
   presetById,
   qualifyTemplateState,
   stillTemplateQualifyValues,
+  switchQualifyTemplate,
+  type QualifyPresetKey,
   type HallPreset,
 } from "@/lib/hall-presets";
 
@@ -59,6 +62,11 @@ interface FieldDef {
   integer?: boolean;
 }
 
+/**
+ * An EXAMPLE of each figure, shown as the field's placeholder and nothing else. The fields start empty: a pre-filled value was submitted as the
+ * visitor's own customer data (class E5) when they pressed the button without typing, and the engine then reported demo numbers as their hall.
+ * Choosing "no template" empties the fields again for the same reason.
+ */
 const DEFAULTS = {
   contractedMW: 12,
   currentPeakMW: 7.4,
@@ -94,6 +102,7 @@ const PLATFORMS = [
 
 type Values = typeof DEFAULTS;
 type Raw = Record<keyof Values, string>;
+const EMPTY_RAW = Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, ""])) as Raw;
 type FieldErrors = Partial<Record<keyof Values, string>>;
 
 /** The first problem with one field's text, or null. Mirrors the engine's bounds so the message sits beside the field. */
@@ -108,7 +117,7 @@ function fieldProblem(f: FieldDef, raw: string): string | null {
 }
 
 /** What a result remembers about the template it started from: the label stays with the answer, whatever was edited afterwards. */
-type TemplateUsed = { name: string; assumed: number; total: number; untouched: boolean };
+type TemplateUsed = { name: string; assumed: number; total: number; untouched: boolean; fields: QualifyAssumable[] };
 
 /** Under a field a template filled in: whether the figure is still the template's (assumed) or has become the visitor's. */
 function TemplateTag({ id, preset, fieldKey, value }: { id: string; preset: HallPreset; fieldKey: string; value: string }) {
@@ -126,10 +135,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
   const start = presetsAvailable ? presetById(initialTemplateId) : null;
   const [templateId, setTemplateId] = useState<string | null>(start?.id ?? null);
   const preset = presetsAvailable ? presetById(templateId) : null;
-  const [raw, setRaw] = useState<Raw>(() => ({
-    ...(Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw),
-    ...(start ? qualifyTemplateState(start).raw : {}),
-  }));
+  const [raw, setRaw] = useState<Raw>(() => ({ ...EMPTY_RAW, ...(start ? qualifyTemplateState(start).raw : {}) }));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const alertRef = useRef<HTMLDivElement>(null);
   const [platform, setPlatform] = useState<string>(start ? qualifyTemplateState(start).platform : "gb300_nvl72");
@@ -154,6 +160,16 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
   const [templateUsed, setTemplateUsed] = useState<TemplateUsed | null>(null);
   const templateStill = preset ? stillTemplateQualifyValues(preset, raw).length : 0;
 
+  /**
+   * What a screen reader is told when a template is chosen or cleared, or a template result arrives. The live region that carries it is
+   * rendered from the first paint and only its text changes: a region inserted together with its message is often not announced at all.
+   */
+  const [announcement, setAnnouncement] = useState("");
+
+  /**
+   * Choosing a template (or "no template") never overwrites what the visitor typed. A field they changed (non-empty and not the previous
+   * template's value) is kept and tagged "Your value"; the others take the new template's value, or are emptied. The announcement says how many were kept.
+   */
   const chooseTemplate = (id: string) => {
     const p = presetById(id);
     setResult(null);
@@ -161,17 +177,18 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
     setError(null);
     setFieldErrors({});
     setTemplateUsed(null);
+    const { raw: next, kept } = switchQualifyTemplate(raw, preset, p);
+    const keptNote = kept.length ? ` ${kept.length} figure${kept.length === 1 ? "" : "s"} you had typed ${kept.length === 1 ? "was" : "were"} kept as yours.` : "";
+    setRaw(next);
     if (!p) {
-      // Back to the form's own starting values: choosing "no template" does not leave a template's numbers behind as if they were typed.
       setTemplateId(null);
-      setRaw(Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, String(v)])) as Raw);
-      setPlatform("gb300_nvl72");
+      if (preset && platform === preset.platform) setPlatform("gb300_nvl72");
+      setAnnouncement(`Template cleared.${keptNote || " The fields it filled are empty again."}`);
       return;
     }
-    const t = qualifyTemplateState(p);
     setTemplateId(p.id);
-    setRaw((cur) => ({ ...cur, ...t.raw }));
-    setPlatform(t.platform);
+    if (platform === "gb300_nvl72" || (preset && platform === preset.platform)) setPlatform(p.platform);
+    setAnnouncement(`${PRESET_DISCLOSURE}. Template loaded: ${p.name}.${keptNote} Figures still the template's are assumed (${PRESET_VALUE_CLASS}).`);
   };
 
   const set = (key: keyof Values, text: string) => {
@@ -218,7 +235,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
     const assumedFields = preset ? stillTemplateQualifyValues(preset, raw) : [];
     const used: TemplateUsed | null =
       preset && assumedFields.length > 0
-        ? { name: preset.name, assumed: assumedFields.length, total: QUALIFY_PRESET_KEYS.length, untouched: isUntouchedQualifyTemplate(preset, raw) }
+        ? { name: preset.name, assumed: assumedFields.length, total: QUALIFY_PRESET_KEYS.length, untouched: isUntouchedQualifyTemplate(preset, raw), fields: assumedFields }
         : null;
     try {
       const res = await fetch("/api/qualify", {
@@ -242,8 +259,16 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
         }
         return;
       }
+      // The page claims a figure is assumed only when the engine's own record says so, and lists exactly what was declared (a rolling deploy can
+      // send the request to an engine that ignored it): otherwise no result is shown, not even the numbers.
+      if (used && !assumedRecordMatches(body.result, used.fields)) {
+        setError("The capacity engine did not confirm that it labels the template's figures as assumed, so no result is shown. Enter your own figures instead.");
+        setAlertTick((t) => t + 1);
+        return;
+      }
       setResult(body.result as QualifyResult);
       setTemplateUsed(used);
+      if (used) setAnnouncement(`Result ready for a reference template. ${used.assumed} of ${used.total} figures are the template's and are classed assumed (${PRESET_VALUE_CLASS}); this read is not saved.`);
       setHeadline(String(body.headline ?? ""));
       setShare(typeof body.share === "string" ? body.share : null);
       setQualificationId(typeof body.qualificationId === "string" ? body.qualificationId : null);
@@ -275,6 +300,9 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
 
       {presetsAvailable ? (
         <div className="mb-5">
+          <div id="qualify-template-live" role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {announcement}
+          </div>
           <label htmlFor="qualify-template" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
             No figures to hand? Start from a reference template
           </label>
@@ -298,7 +326,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
             until you press the button.
           </span>
           {preset ? (
-            <div role="status" data-testid="qualify-template-disclosure" className="mt-3 rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
+            <div data-testid="qualify-template-disclosure" className="mt-3 rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
               <p>
                 <strong>{PRESET_DISCLOSURE}.</strong>
               </p>
@@ -330,6 +358,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
                   min={f.min}
                   max={f.max}
                   value={raw[f.key]}
+                  placeholder={`e.g. ${DEFAULTS[f.key]}`}
                   onChange={(e) => set(f.key, e.target.value)}
                   aria-required="true"
                   aria-invalid={err ? true : undefined}
@@ -588,6 +617,9 @@ function NextSteps({ share, templateDerived, commission }: { share: string | nul
             approves the spend.
             {share ? " This read also has a permanent page, private to whoever holds its link (above)." : ""}
           </p>
+          {!share && !templateDerived ? (
+            <p className="mt-1 text-xs text-mute">It was not saved to a page on this deployment, so copy the figures above before you leave.</p>
+          ) : null}
           <a href={NEXT_STEP_HREFS.compare} className="mt-2 inline-flex min-h-11 items-center text-sm text-power underline">
             Run the comparison
           </a>
@@ -626,28 +658,41 @@ function NextSteps({ share, templateDerived, commission }: { share: string | nul
   );
 }
 
-/** Said above a read whose figures include a reference template's: what it is, how many figures are the template's, and what the engine recorded. */
+/**
+ * Said above a read whose figures include a reference template's: what it is, how many figures are the template's, and what the engine recorded.
+ * It asserts the class E0 ONLY when the engine's own record lists exactly the figures that were declared, each as E0 (assumedRecordMatches);
+ * otherwise it says the engine did not confirm it and claims nothing. (The route and the form already refuse such an answer; this is the last lock.)
+ * Not a live region of its own: the announcement is made through the one region the form renders from its first paint.
+ */
 export function TemplateNotice({ template, recorded }: { template: TemplateUsed; recorded: NonNullable<QualifyResult["inputs_declared_assumed"]> }) {
+  const confirmed = assumedRecordMatches({ inputs_declared_assumed: recorded }, template.fields);
   return (
-    <div role="status" data-testid="qualify-template-result" className="mb-5 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost">
+    <div data-testid="qualify-template-result" className="mb-5 rounded border border-queue/40 bg-queue/10 p-4 text-sm text-ghost">
       <p>
         <strong>{PRESET_DISCLOSURE}.</strong>
       </p>
-      <p className="mt-1 text-mute">
-        {template.untouched
-          ? `This read is for the template “${template.name}”, not for any hall: all ${template.total} figures are the template's and are classed assumed (${PRESET_VALUE_CLASS}) in the result.`
-          : `${template.assumed} of ${template.total} figures in this read are still the template's “${template.name}” and are classed assumed (${PRESET_VALUE_CLASS}) in the result; the others are yours.`}{" "}
-        It is not saved and has no share link.
-      </p>
-      {recorded.length ? (
-        <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-faint">
-          {recorded.map((r) => (
-            <li key={r.path}>
-              · {r.input}: {r.value} {r.unit} · {r.evidence} assumed
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {confirmed ? (
+        <>
+          <p className="mt-1 text-mute">
+            {template.untouched
+              ? `This read is for the template “${template.name}”, not for any hall: all ${template.total} figures are the template's and are classed assumed (${PRESET_VALUE_CLASS}) in the result.`
+              : `${template.assumed} of ${template.total} figures in this read are still the template's “${template.name}” and are classed assumed (${PRESET_VALUE_CLASS}) in the result; the others are yours.`}{" "}
+            It is not saved and has no share link.
+          </p>
+          <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-faint">
+            {recorded.map((r) => (
+              <li key={r.path}>
+                · {r.input}: {r.value} {r.unit} · {r.evidence} assumed
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="mt-1 text-mute">
+          This read started from the template “{template.name}”, but the engine did not confirm which figures it recorded as assumed, so do not read any figure
+          in it as a hall&apos;s own, and do not use it. It is not saved and has no share link.
+        </p>
+      )}
     </div>
   );
 }

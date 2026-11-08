@@ -33,10 +33,12 @@ import {
   isUntouchedQualifyTemplate,
   qualifyTemplateState,
   stillTemplateQualifyValues,
+  switchQualifyTemplate,
 } from "@/lib/hall-presets";
 import { QUALIFY_ASSUMED_FIELDS_FLAG, capabilityFlagsFromVersion, deployedEngineFlags, engineHas } from "@/lib/engine-capabilities";
 import { NEXT_STEPS, NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
-import { CapacityQualifier, QualifyReadout } from "@/components/CapacityQualifier";
+import { QUALIFY_ENGINE_PATH, assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
+import { CapacityQualifier, QualifyReadout, TemplateNotice } from "@/components/CapacityQualifier";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
 import { resetEngineCapabilityCache } from "@/lib/engine-capabilities";
 import { engineAvailable } from "./_engine-guard";
@@ -87,6 +89,12 @@ describe("the request: assumed_fields is in the engine body only when a figure i
     const block = server.slice(server.indexOf("QUALIFY_FIELDS = {"), server.indexOf("}", server.indexOf("QUALIFY_FIELDS = {")));
     for (const engineName of Object.values(QUALIFY_ASSUMABLE)) expect(block, engineName).toContain(`"${engineName}"`);
     expect(Object.keys(QUALIFY_ASSUMABLE)).toEqual([...QUALIFY_PRESET_KEYS]);
+  });
+
+  it("the engine path recorded for each figure is the engine's own QUALIFY_FIELDS mapping", () => {
+    const server = read("gridforge/api/server.py");
+    const block = server.slice(server.indexOf("QUALIFY_FIELDS = {"), server.indexOf("}", server.indexOf("QUALIFY_FIELDS = {")));
+    for (const [form, engineName] of Object.entries(QUALIFY_ASSUMABLE)) expect(block, form).toContain(`"${engineName}": "${QUALIFY_ENGINE_PATH[form as QualifyAssumable]}"`);
   });
 
   it.each([
@@ -159,6 +167,9 @@ let restoreDb: () => void;
 let restoreEngine: () => void;
 let qualifyBodies: Record<string, unknown>[];
 let versionBody: Record<string, unknown> | "down";
+/** What the stub does with assumed_fields: record them (an engine that has the capability), ignore the key (an older machine), or record only some. */
+let recordMode: "records" | "ignores" | "partial" | "wrong-class" = "records";
+const PATH_OF: Record<string, string> = Object.fromEntries(Object.entries(QUALIFY_ASSUMABLE).map(([k, engineName]) => [engineName, QUALIFY_ENGINE_PATH[k as QualifyAssumable]]));
 
 function installStubEngine() {
   const previous = globalThis.fetch;
@@ -169,9 +180,14 @@ function installStubEngine() {
       if (versionBody === "down") throw new Error("engine unreachable");
       return new Response(JSON.stringify(versionBody), { status: 200, headers: { "content-type": "application/json" } });
     }
-    qualifyBodies.push(JSON.parse(String(init?.body)));
+    const sent = JSON.parse(String(init?.body));
+    qualifyBodies.push(sent);
+    const asked: string[] = Array.isArray(sent.assumed_fields) ? sent.assumed_fields : [];
+    const rows = asked.map((n) => ({ path: PATH_OF[n], input: n, unit: "-", value: 1, evidence: recordMode === "wrong-class" ? "E5" : "E0", note: "n" }));
+    const recorded = recordMode === "ignores" || rows.length === 0 ? {} : { inputs_declared_assumed: recordMode === "partial" ? rows.slice(1) : rows };
     return new Response(
       JSON.stringify({
+        ...recorded,
         platform: { id: "gb300_nvl72", name: "NVIDIA GB300 NVL72" },
         as_found: { racks: 0, binding_constraint: "Rack feed / tap-off rating", domain: "electrical", basis: "b", it_load_kW: { evidence: "E0_ASSUMPTION" } },
         after_relief: { racks: 28, architecture: "full_dlc", then_binds_on: null, sets_the_date: "plant" },
@@ -198,6 +214,7 @@ describe("POST /api/qualify with figures declared assumed", () => {
     funnel.events.length = 0;
     qualifyBodies = [];
     versionBody = ADVERTISES;
+    recordMode = "records";
     db = new PostgrestFake(["qualifications"]);
     restoreDb = db.install();
     restoreEngine = installStubEngine();
@@ -214,7 +231,8 @@ describe("POST /api/qualify with figures declared assumed", () => {
     expect(body).toMatchObject({ ok: true, templateDerived: true, share: null, saved: false, qualificationId: null, qualificationToken: null });
     // not a hall: nothing stored (so nothing joins a purchase, feeds the benchmark or seeds an intake), not counted as a completed qualification
     expect(db.rows("qualifications")).toHaveLength(0);
-    expect(funnel.events.map((e) => e.name)).toEqual(["qualify_started"]);
+    // a template read is not a hall: neither a started nor a completed qualification
+    expect(funnel.events.map((e) => e.name)).toEqual([]);
   });
 
   it("an engine that does NOT advertise it is never sent the field, and nothing is calculated (it would be answered as customer data)", async () => {
@@ -232,6 +250,54 @@ describe("POST /api/qualify with figures declared assumed", () => {
     expect(db.rows("qualifications")).toHaveLength(0);
   });
 
+  it.each(["ignores", "partial", "wrong-class"] as const)(
+    "an engine that advertises the flag but did not record the declared figures as assumed (%s: a rolling deploy or a rollback) shows nothing",
+    async (mode) => {
+      recordMode = mode;
+      const { POST } = await import("@/app/api/qualify/route");
+      const res = await POST(post({ ...SEVEN, assumedFields: ["contractedMW", "tapoffMaxA"] }));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body).toMatchObject({ ok: false, reason: "template_not_supported" });
+      expect(body).not.toHaveProperty("result");
+      expect(body).not.toHaveProperty("headline");
+      expect(JSON.stringify(body)).not.toMatch(/racks|binding|tap-off/i);
+      expect(db.rows("qualifications")).toHaveLength(0);
+    }
+  );
+
+  it("a plain request is not held to that check, and the check demands exactly what was declared", () => {
+    const rec = (paths: string[], evidence = "E0") => ({ inputs_declared_assumed: paths.map((path) => ({ path, evidence })) });
+    const two: QualifyAssumable[] = ["contractedMW", "tapoffMaxA"];
+    expect(assumedRecordMatches(rec(["grid.contracted_MW", "lv.tapoff_max_A"]), two)).toBe(true);
+    expect(assumedRecordMatches(rec(["lv.tapoff_max_A", "grid.contracted_MW"]), two)).toBe(true);            // order is not the engine's promise
+    for (const bad of [{}, null, undefined, rec([]), rec(["grid.contracted_MW"]), rec(["grid.contracted_MW", "lv.tapoff_max_A", "hall.positions_available"]),
+      rec(["grid.contracted_MW", "grid.contracted_MW"]), rec(["grid.contracted_MW", "lv.busway_ampacity_A"]), rec(["grid.contracted_MW", "lv.tapoff_max_A"], "E5"),
+      { inputs_declared_assumed: "grid.contracted_MW" }, { inputs_declared_assumed: [null, null] }]) {
+      expect(assumedRecordMatches(bad, two), JSON.stringify(bad)).toBe(false);
+    }
+    expect(assumedRecordMatches({}, [])).toBe(true);
+    expect(assumedRecordMatches(rec(["grid.contracted_MW"]), [])).toBe(false);           // nothing declared, yet the engine lists some
+  });
+
+  it("the selector is offered only where /api/qualify can run: no engine configured, no selector, whatever /v1/version says", async () => {
+    const { engineConfigured } = await import("@/lib/qualify");
+    expect(engineConfigured()).toBe(true);
+    delete process.env.GRIDFORGE_API_URL;
+    expect(engineConfigured()).toBe(false);
+    const { default: Qualify } = await import("@/app/qualify/page");
+    const stop = stubEngine(FULL_ENGINE, { [QUALIFY_ASSUMED_FIELDS_FLAG]: true });
+    expect(renderToStaticMarkup(await Qualify())).not.toContain("qualify-template");
+    stop();
+    process.env.GRIDFORGE_API_URL = ENGINE;
+  });
+
+  it("an unsaved NON-template read says so beside the next steps; a saved one does not", () => {
+    expect(text(readout(null, null))).toContain("It was not saved to a page on this deployment, so copy the figures above before you leave.");
+    expect(text(readout(null, "/q/tok"))).not.toContain("It was not saved to a page");
+    expect(text(readout({ name: "T", assumed: 7, total: 7, untouched: true, fields: ALL_FIELDS }, null))).not.toContain("copy the figures above");
+  });
+
   it("a plain request does not depend on the flag at all: it works against an engine without it, is stored, and carries no assumed_fields", async () => {
     versionBody = PREDATES;
     const { POST } = await import("@/app/api/qualify/route");
@@ -239,7 +305,7 @@ describe("POST /api/qualify with figures declared assumed", () => {
     expect(body).toMatchObject({ ok: true, templateDerived: false, saved: true });
     expect(qualifyBodies[0]).not.toHaveProperty("assumed_fields");
     expect(db.rows("qualifications")).toHaveLength(1);
-    expect(funnel.events.map((e) => e.name)).toEqual(["qualify_started", "qualify_completed"]);
+    expect(funnel.events.map((e) => e.name)).toEqual(["qualify_started", "qualify_completed"]);        // a plain read is counted as before
   });
 
   it("an empty assumedFields is a plain request", async () => {
@@ -295,6 +361,54 @@ describe("the template state", () => {
   });
 });
 
+describe("the seven fields start empty: their examples are placeholders, never values", () => {
+  it("renders every field with an empty value and the example as placeholder text, with or without the flag", () => {
+    for (const out of [renderToStaticMarkup(React.createElement(CapacityQualifier)), renderToStaticMarkup(React.createElement(CapacityQualifier as React.ComponentType<{ presetsAvailable: boolean }>, { presetsAvailable: true }))]) {
+      for (const [k, ex] of Object.entries({ contractedMW: 12, currentPeakMW: 7.4, currentItLoadMW: 4.9, buswayAmpacityA: 400, tapoffMaxA: 63, plantSupplyC: 6, positionsAvailable: 180 })) {
+        const tag = new RegExp(`<input[^>]*id="qualify-${k}"[^>]*>`).exec(out)![0];
+        expect(tag, k).toMatch(/value=""/);
+        expect(tag, k).toContain(`placeholder="e.g. ${ex}"`);
+      }
+      expect(out.match(/aria-required="true"/g)?.length).toBe(7);
+    }
+  });
+  it("pressing the button on an untouched form sends nothing: the existing validation names all seven", () => {
+    const src = read("components/CapacityQualifier.tsx");
+    expect(src).toContain('if (raw.trim() === "") return "Enter a value.";');
+    expect(src).toMatch(/const EMPTY_RAW = Object\.fromEntries\(Object\.keys\(DEFAULTS\)\.map\(\(k\) => \[k, ""\]\)\) as Raw;/);
+    expect(src).not.toMatch(/String\(v\)\]\)\) as Raw/);
+  });
+});
+
+describe("choosing a template never overwrites what the visitor typed", () => {
+  const [a, b] = [HALL_PRESETS[0], HALL_PRESETS[1]];
+  const empty = Object.fromEntries(QUALIFY_PRESET_KEYS.map((k) => [k, ""])) as Record<(typeof QUALIFY_PRESET_KEYS)[number], string>;
+  it("from empty fields it loads every value; with 'no template' it empties the fields it filled", () => {
+    const loaded = switchQualifyTemplate(empty, null, a);
+    expect(loaded.raw).toEqual(qualifyTemplateState(a).raw);
+    expect(loaded.kept).toEqual([]);
+    expect(switchQualifyTemplate(loaded.raw, a, null)).toEqual({ raw: empty, kept: [] });
+  });
+  it("keeps a figure the visitor typed (and says so) when another template, or none, is chosen", () => {
+    const edited = { ...qualifyTemplateState(a).raw, tapoffMaxA: "250", contractedMW: "" };
+    const toB = switchQualifyTemplate(edited, a, b);
+    expect(toB.kept).toEqual(["tapoffMaxA"]);
+    expect(toB.raw.tapoffMaxA).toBe("250");
+    expect(toB.raw.contractedMW).toBe(b.values.contractedMW);             // a cleared field takes the new template's value
+    expect(toB.raw.positionsAvailable).toBe(b.values.positionsAvailable);
+    const none = switchQualifyTemplate(edited, a, null);
+    expect(none.raw.tapoffMaxA).toBe("250");
+    expect(none.raw.positionsAvailable).toBe("");
+  });
+  it("typed figures survive even when no template was active before", () => {
+    const typed = { ...empty, contractedMW: "14" };
+    const r = switchQualifyTemplate(typed, null, a);
+    expect(r.kept).toEqual(["contractedMW"]);
+    expect(r.raw.contractedMW).toBe("14");
+    expect(r.raw.tapoffMaxA).toBe(a.values.tapoffMaxA);
+  });
+});
+
 describe("the form as rendered", () => {
   type Props = { presetsAvailable?: boolean; initialTemplateId?: string | null };
   const html = (props: Props) => renderToStaticMarkup(React.createElement(CapacityQualifier as React.ComponentType<Props>, props));
@@ -319,6 +433,16 @@ describe("the form as rendered", () => {
     expect(out.match(/aria-required="true"/g)?.length).toBe(7);
   });
 
+  it("an empty live region is on the page from the first paint, so a template choice is announced; the visible notices are not live regions of their own", () => {
+    const out = html({ presetsAvailable: true });
+    expect(out).toMatch(/<div id="qualify-template-live" role="status" aria-live="polite" aria-atomic="true" class="sr-only"><\/div>/);
+    const chosen = html({ presetsAvailable: true, initialTemplateId: HALL_PRESETS[0].id });
+    expect(chosen).not.toMatch(/role="status"[^>]*data-testid="qualify-template-disclosure"/);
+    expect(chosen.match(/role="status"/g)?.length).toBe(1);               // the one region, nothing inserted alongside its message
+    expect(renderToStaticMarkup(React.createElement(TemplateNotice, { template: { name: "T", assumed: 7, total: 7, untouched: true, fields: ALL_FIELDS }, recorded: resultFor(ALL_FIELDS).inputs_declared_assumed! }))).not.toContain("role=");
+    expect(html({})).not.toContain("qualify-template-live");
+  });
+
   it("a template loads its values, shows PRESET_DISCLOSURE, and tags every figure as the template's", () => {
     const p = HALL_PRESETS[1];
     const out = html({ presetsAvailable: true, initialTemplateId: p.id });
@@ -338,12 +462,14 @@ describe("the form as rendered", () => {
     expect(src).toContain("const still = value.trim() === preset.values[fieldKey");
     expect(src).toContain('{still ? `Template value · assumed (${PRESET_VALUE_CLASS})` : "Your value"}');
     // the disclosure renders for any chosen template, edited or not
-    expect(src).toMatch(/\{preset \? \(\s*<div role="status" data-testid="qualify-template-disclosure"/);
+    expect(src).toMatch(/\{preset \? \(\s*<div data-testid="qualify-template-disclosure"/);
     // only figures still holding the template's value are sent as assumed
     expect(src).toContain("const assumedFields = preset ? stillTemplateQualifyValues(preset, raw) : [];");
     expect(src).toContain("...(assumedFields.length ? { assumedFields } : {})");
-    // choosing 'no template' puts the form's own starting values back rather than leaving a template's numbers as if typed
-    expect(src).toContain("Back to the form's own starting values");
+    // choosing a template (or none) goes through switchQualifyTemplate: what the visitor typed is kept, the rest is the template's or empty
+    expect(src).toContain("switchQualifyTemplate(raw, preset, p)");
+    // and a result is shown only when the engine's own record confirms the declared figures
+    expect(src).toContain("if (used && !assumedRecordMatches(body.result, used.fields))");
   });
 });
 
@@ -356,29 +482,46 @@ const RESULT: QualifyResult = {
   intake: { completeness: 0.29, required_inputs_missing: 3, can_issue_a_study: false, warnings: [],
     gaps: [{ input: "Site power factor", unit: "-", required: false, assumed: "0.97 [0.95–0.99] (E0)", why_it_binds: "Converts MVA into MW.", how_to_get_it: "Utility bills." }], recommended_engagement: "Sell the Density Screen." },
   notice: "n",
-  inputs_declared_assumed: [{ path: "lv.tapoff_max_A", input: "Installed tap-off rating", unit: "A", value: 63, evidence: "E0", note: "n" }],
 };
-const readout = (template: React.ComponentProps<typeof QualifyReadout>["template"], share: string | null) =>
+const ALL_FIELDS = Object.keys(QUALIFY_ENGINE_PATH) as QualifyAssumable[];
+/** A result whose engine record lists exactly the declared figures, as a real engine's does. */
+const resultFor = (fields: QualifyAssumable[]): QualifyResult => ({
+  ...RESULT,
+  ...(fields.length ? { inputs_declared_assumed: fields.map((k) => ({ path: QUALIFY_ENGINE_PATH[k], input: `Input ${k}`, unit: "A", value: 63, evidence: "E0", note: "n" })) } : {}),
+});
+const readout = (template: React.ComponentProps<typeof QualifyReadout>["template"], share: string | null, result: QualifyResult = resultFor(template ? template.fields : [])) =>
   renderToStaticMarkup(
-    React.createElement(QualifyReadout, { result: RESULT, headline: "About 0 racks today.", share, qualificationId: share ? "id" : null, qualificationToken: share ? "tok" : null, template })
+    React.createElement(QualifyReadout, { result, headline: "About 0 racks today.", share, qualificationId: share ? "id" : null, qualificationToken: share ? "tok" : null, template })
   );
 
 describe("the result", () => {
-  const untouched = { name: HALL_PRESETS[0].name, assumed: 7, total: 7, untouched: true };
-  const partly = { name: HALL_PRESETS[0].name, assumed: 3, total: 7, untouched: false };
+  const untouched = { name: HALL_PRESETS[0].name, assumed: 7, total: 7, untouched: true, fields: ALL_FIELDS };
+  const partly = { name: HALL_PRESETS[0].name, assumed: 3, total: 7, untouched: false, fields: ["contractedMW", "currentPeakMW", "tapoffMaxA"] as QualifyAssumable[] };
 
   it("an untouched template result carries the template notice and offers nothing to keep or commission", () => {
     const out = readout(untouched, null);
     expect(text(out)).toContain(PRESET_DISCLOSURE);
     expect(text(out)).toContain("not for any hall: all 7 figures are the template's and are classed assumed (E0)");
     expect(text(out)).toContain("It is not saved and has no share link.");
-    expect(text(out)).toContain("· Installed tap-off rating: 63 A · E0 assumed");
+    expect(text(out)).toContain("· Input tapoffMaxA: 63 A · E0 assumed");
     expect(out).not.toMatch(/Commission the/);
     expect(out).not.toContain("Send this to whoever owns the capex");
     // the completeness score would count the template's figures as supplied, so it is not displayed
     expect(text(out)).toContain("Assumed, because nobody supplied it");
     expect(text(out)).not.toMatch(/intake \d+% complete/);
     expect(text(out)).toContain("the engine's completeness score would count them as supplied, so it is not shown for a template");
+  });
+
+  it("asserts E0 only when the engine's record lists exactly the declared figures: otherwise it claims nothing", () => {
+    const t = { name: "T", assumed: 3, total: 7, untouched: false, fields: ["contractedMW", "currentPeakMW", "tapoffMaxA"] as QualifyAssumable[] };
+    for (const recorded of [[], resultFor(["contractedMW"]).inputs_declared_assumed!, resultFor(ALL_FIELDS).inputs_declared_assumed!, resultFor(["contractedMW", "currentPeakMW", "tapoffMaxA"]).inputs_declared_assumed!.map((r) => ({ ...r, evidence: "E5" }))]) {
+      const out = text(renderToStaticMarkup(React.createElement(TemplateNotice, { template: t, recorded })));
+      expect(out).toContain(PRESET_DISCLOSURE);
+      expect(out).toContain("the engine did not confirm which figures it recorded as assumed");
+      expect(out).not.toMatch(/classed assumed|E0 assumed/);
+    }
+    const ok = text(renderToStaticMarkup(React.createElement(TemplateNotice, { template: t, recorded: resultFor(t.fields).inputs_declared_assumed! })));
+    expect(ok).toContain("classed assumed (E0)");
   });
 
   it("an edited template result says how many figures are still the template's, and the disclosure persists", () => {
@@ -400,7 +543,7 @@ describe("what to do next: compare, then a free key, then the paid Density Scree
   const order = (html: string) => ["compare", "free-key", "density-screen"].map((id) => html.indexOf(`data-next-step="${id}"`));
 
   it("are three steps in that order, for a plain read and for a template read", () => {
-    for (const out of [readout(null, "/q/tok"), readout({ name: "T", assumed: 7, total: 7, untouched: true }, null)]) {
+    for (const out of [readout(null, "/q/tok"), readout({ name: "T", assumed: 7, total: 7, untouched: true, fields: ALL_FIELDS }, null)]) {
       const [a, b, c] = order(out);
       expect(a).toBeGreaterThan(-1);
       expect(b).toBeGreaterThan(a);
@@ -414,7 +557,7 @@ describe("what to do next: compare, then a free key, then the paid Density Scree
   it("the paid step is the existing commission flow for a real read, and the product page for a template read", () => {
     const real = readout(null, "/q/tok");
     expect(real.slice(real.indexOf('data-next-step="density-screen"'))).toContain("Commission the Density Screen");
-    const tpl = readout({ name: "T", assumed: 7, total: 7, untouched: true }, null);
+    const tpl = readout({ name: "T", assumed: 7, total: 7, untouched: true, fields: ALL_FIELDS }, null);
     const tail = tpl.slice(tpl.indexOf('data-next-step="density-screen"'));
     expect(tail).toContain(`href="${NEXT_STEP_HREFS.densityScreen}"`);
     expect(tail).not.toContain("Commission the");

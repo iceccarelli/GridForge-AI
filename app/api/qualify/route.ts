@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { engineUnavailableMessage } from "./unavailable-message";
-import { assumedEngineFields, callEngine, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { assumedEngineFields, callEngine, engineConfigured, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { QUALIFY_ASSUMABLE, assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
 import { guardRequest, spendRefused } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
@@ -55,20 +56,22 @@ export async function POST(req: Request) {
     // does not know, so sending `assumed_fields` to one that predates it would return the template's number classed as customer data (E5):
     // refuse instead, calling nothing, and say why. A plain request never reaches this check.
     const assumed = assumedEngineFields(input);
-    if (assumed.length && !(await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG))) {
-      return NextResponse.json(
+    const refuseTemplate = (why: string) =>
+      NextResponse.json(
         {
           ok: false,
           error:
-            "Reference templates are not available yet: the capacity engine this site is connected to cannot label template values as assumed, so nothing was calculated. Enter your own figures instead.",
+            "Reference templates are not available right now: the capacity engine did not confirm that it labels template values as assumed, so no result is shown. Enter your own figures instead.",
           reason: "template_not_supported",
+          detail: why,
         },
         { status: 409 }
       );
-    }
+    if (assumed.length && engineConfigured() && !(await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG))) return refuseTemplate("capability not advertised");
     // Adoption funnel, anonymous by construction: a started qualification carries NOTHING (no input, no address, no account), and a
     // completed one carries only the evidence class of the answer. The two cannot be joined to a person or to each other.
-    await recordFunnelEvent("qualify_started");
+    // A template read is not a qualification of a hall, so it is not a started one either (it would skew the started -> completed step).
+    if (assumed.length === 0) await recordFunnelEvent("qualify_started");
     // Minted before the engine runs, so a result that fails to persist still has an
     // identity and an unreachable engine still produces a row we can come back to.
     const token = newQualificationToken();
@@ -100,6 +103,14 @@ export async function POST(req: Request) {
         },
         { status }
       );
+    }
+
+    // The flag is cached for minutes and a POST can reach an older machine (a rolling deploy or a rollback): an engine that ignored assumed_fields
+    // returns the template's numbers classed as customer data. Only the engine's own record can say otherwise, and it must list exactly what was
+    // declared, each as E0. Anything else: nothing is shown, not even the numbers.
+    if (templateDerived) {
+      const declared = (Object.keys(QUALIFY_ASSUMABLE) as QualifyAssumable[]).filter((k) => QUALIFY_ASSUMABLE[k] && assumed.includes(QUALIFY_ASSUMABLE[k]));
+      if (!assumedRecordMatches(outcome.result, declared)) return refuseTemplate("the engine's answer did not record the declared figures as assumed");
     }
 
     const evidence = /^E[0-7]/.exec(String(outcome.result?.as_found?.it_load_kW?.evidence ?? ""))?.[0];

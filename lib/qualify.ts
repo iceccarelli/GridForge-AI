@@ -13,22 +13,8 @@ import { z } from "zod";
 import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
 
-/**
- * The seven figures a request may declare ASSUMED (class E0), as the form calls them, and the name each has in POST /v1/qualify.
- * Declaring one lowers it: the engine classes it E0 in the result's own basis and evidence instead of E5 (customer data). It is the only
- * thing the declaration can do; there is no way through it to name any other class (gridforge/api/server.py qualify_assumed_fields).
- * The order is the qualifier's own, which is the order the engine reports them in.
- */
-export const QUALIFY_ASSUMABLE = {
-  contractedMW: "contracted_MW",
-  currentPeakMW: "current_site_peak_MW",
-  currentItLoadMW: "current_it_load_MW",
-  buswayAmpacityA: "busway_ampacity_A",
-  tapoffMaxA: "tapoff_max_A",
-  plantSupplyC: "plant_supply_C",
-  positionsAvailable: "positions_available",
-} as const;
-export type QualifyAssumable = keyof typeof QUALIFY_ASSUMABLE;
+import { QUALIFY_ASSUMABLE, type QualifyAssumable } from "@/lib/qualify-assumed";
+export { QUALIFY_ASSUMABLE, type QualifyAssumable };
 const QUALIFY_ASSUMABLE_KEYS = Object.keys(QUALIFY_ASSUMABLE) as [QualifyAssumable, ...QualifyAssumable[]];
 
 export const qualifySchema = z.object({
@@ -148,10 +134,18 @@ export type EngineOutcome =
   | { ok: true; result: QualifyResult }
   | { ok: false; reason: "unconfigured" | "unreachable" | "rejected"; detail: string };
 
+/**
+ * Whether this deployment can call the engine at all (the same test callEngine applies). A page that offers something only the engine can do
+ * (the reference-template selector) asks this as well as the engine's capabilities, so it is never offered where /api/qualify answers 503.
+ */
+export function engineConfigured(): boolean {
+  return Boolean(process.env.GRIDFORGE_API_URL);
+}
+
 /** Server-side only. Never expose GRIDFORGE_API_URL or the key to the browser. */
 export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
   const base = process.env.GRIDFORGE_API_URL;
-  if (!base) {
+  if (!base || !engineConfigured()) {
     return {
       ok: false,
       reason: "unconfigured",
