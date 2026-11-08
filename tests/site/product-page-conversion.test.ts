@@ -131,3 +131,14 @@ describe("the Density Screen's data request is the sample's list of what it had 
     expect(fs.readFileSync(path.join(process.cwd(), "public/reference/density_screen.html"), "utf8")).toMatch(/<h2 id='data-request'>4\. What we had to assume/);
   });
 });
+
+describe("the slug map a client component links with", () => {
+  it("equals the slugs of PRODUCT_PAGES exactly, so it cannot drift from the pages", async () => {
+    const { PRODUCT_PAGE_SLUGS } = await import("@/lib/product-page-slugs");
+    expect(PRODUCT_PAGE_SLUGS).toEqual(Object.fromEntries(PRODUCT_PAGES.map((p) => [p.productId, p.slug])));
+  });
+  it("keeps the long page copy out of the browser bundle: EngagementLadder does not import lib/product-pages", () => {
+    const src = fs.readFileSync(path.join(process.cwd(), "components/EngagementLadder.tsx"), "utf8");
+    expect(src).not.toMatch(/from "@\/lib\/product-pages"/);
+  });
+});
