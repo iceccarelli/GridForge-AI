@@ -89,6 +89,31 @@ function parseCsvRows(text: string): Parsed {
   return { ok: true, rows, format: "csv", commentLines: p.comments };
 }
 
+/** Whether this JavaScript engine hands a JSON.parse reviver the number's own text (context.source): Node 21+ and recent browsers, not Node 20. */
+export function jsonNumberSourceSupported(): boolean {
+  let seen = false;
+  try {
+    JSON.parse("1", ((_k: string, v: unknown, ctx?: { source?: string }) => { if (ctx && typeof ctx.source === "string") seen = true; return v; }) as Parameters<typeof JSON.parse>[1]);
+  } catch { /* unsupported */ }
+  return seen;
+}
+
+/**
+ * For an engine that cannot give the reviver a number's text: every numeric literal in the file (outside strings) is checked on its own, and the first
+ * one a double cannot hold faithfully is returned, so the whole file is refused rather than a figure being silently rounded or flushed to zero.
+ */
+export function firstUnstorableNumberLiteral(text: string): { literal: string; problem: string } | null {
+  const outsideStrings = text.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const m of outsideStrings.matchAll(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g)) {
+    const literal = m[0];
+    const n = Number(literal);
+    if (!Number.isFinite(n)) continue;                                            // out of range is reported by the row's own value check
+    const problem = numberLiteralProblem(literal, n);
+    if (problem) return { literal, problem };
+  }
+  return null;
+}
+
 function parseJsonRows(text: string): Parsed {
   let doc: unknown;
   // Where the engine gives the reviver the number's own text (context.source), a number that JSON.parse would round or flush to zero is noted against its row.
@@ -102,6 +127,11 @@ function parseJsonRows(text: string): Parsed {
       return val;
     } as Parameters<typeof JSON.parse>[1]);
   } catch { return { ok: false, error: "The file is not valid JSON." }; }
+  if (!jsonNumberSourceSupported()) {
+    // This browser cannot report a number's own text, so it cannot attribute a problem to a row: refuse the file instead of risking a silent change.
+    const bad = firstUnstorableNumberLiteral(text);
+    if (bad) return { ok: false, error: `The file contains the number ${bad.literal.length > 40 ? bad.literal.slice(0, 40) + "…" : bad.literal}. ${bad.problem} Nothing was read.` };
+  }
   let list: unknown = doc;
   if (doc && typeof doc === "object" && !Array.isArray(doc)) {
     const keys = Object.keys(doc);

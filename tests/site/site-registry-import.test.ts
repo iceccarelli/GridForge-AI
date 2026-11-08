@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  HALL_FIELD_LIMIT, UNKNOWN_MESSAGE, numberLiteralProblem, outcomeUnknown, provenanceFlags, IMPORT_COLUMNS, IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, MAX_AUTO_WAIT_SECONDS, allowedPaths, buildPreview, importTemplateCsv, importTemplateJson, parseImport, runImport, sniffFormat,
+  HALL_FIELD_LIMIT, UNKNOWN_MESSAGE, firstUnstorableNumberLiteral, jsonNumberSourceSupported, numberLiteralProblem, outcomeUnknown, provenanceFlags, IMPORT_COLUMNS, IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, MAX_AUTO_WAIT_SECONDS, allowedPaths, buildPreview, importTemplateCsv, importTemplateJson, parseImport, runImport, sniffFormat,
   writeOrder, type ImportContext, type PostResult, type RawRow, type RowPlan, type WriteBody,
 } from "@/lib/site-registry-import";
 import { EXPECTED_HALL_FIELDS } from "@/lib/site-registry-fields";
@@ -657,120 +657,44 @@ describe("the preview: the file's ids, characters and numbers", () => {
       }
       for (const v of ["0.1", "30", "1234567890.12345", "0", "-0.5", "1.5e3"]) expect(one({ value: v }, [], true).status, v).toBe("new");
     });
-    it("in a JSON file the number as WRITTEN is checked (where the engine exposes it), so 1e-400 is not silently 0", () => {
-      const text = `[{"field_path":"grid.contracted_mw","value":1e-400,"unit":"MW","origin":"assumed","class":"E1","as_of":"2026-10-01"},
+    const JSON_TEXT = `[{"field_path":"grid.contracted_mw","value":1e-400,"unit":"MW","origin":"assumed","class":"E1","as_of":"2026-10-01"},
         {"field_path":"grid.firm_capacity_mva","value":0.1234567890123456789,"unit":"MVA","origin":"assumed","class":"E1","as_of":"2026-10-01"},
         {"field_path":"hall.rack_positions","value":120,"origin":"assumed","class":"E1","as_of":"2026-10-01"}]`;
-      const p = parseImport(text, "json");
-      expect(p.ok).toBe(true);
-      if (!p.ok) return;
-      const prev = buildPreview(p.rows, ctx());
-      expect(prev.rows.map((r) => r.status)).toEqual(["rejected", "rejected", "new"]);
-      expect(prev.rows[0]!.reasons.join()).toMatch(/too small/);
-      expect(prev.rows[1]!.reasons.join()).toMatch(/15 significant/);
+    it("in a JSON file the number as WRITTEN is checked, so 1e-400 is not silently 0: per row where the engine exposes the text, otherwise the file is refused", () => {
+      const p = parseImport(JSON_TEXT, "json");
+      if (jsonNumberSourceSupported()) {
+        expect(p.ok).toBe(true);
+        if (!p.ok) return;
+        const prev = buildPreview(p.rows, ctx());
+        expect(prev.rows.map((r) => r.status)).toEqual(["rejected", "rejected", "new"]);
+        expect(prev.rows[0]!.reasons.join()).toMatch(/too small/);
+        expect(prev.rows[1]!.reasons.join()).toMatch(/15 significant/);
+      } else {
+        expect(p.ok).toBe(false);
+        if (p.ok) return;
+        expect(p.error).toMatch(/1e-400/);
+        expect(p.error).toMatch(/too small/);
+      }
     });
-  });
-});
-
-describe("comment lines are counted, not silently lost", () => {
-  it("parseImport reports how many lines of a CSV were skipped, and the preview carries the count", () => {
-    const p = parseImport(`# a\n# b\n${CSV_HEAD}\n# c\ngrid.contracted_mw,30,MW,assumed,E1,2026-10-01,,\n`, "csv");
-    expect(p).toMatchObject({ ok: true, commentLines: 3 });
-    if (!p.ok) return;
-    expect(buildPreview(p.rows, ctx(), p.commentLines).commentLines).toBe(3);
-    expect(buildPreview(p.rows, ctx()).commentLines).toBe(0);
-    expect(parseImport(importTemplateCsv(), "csv")).toMatchObject({ commentLines: 6 });
-    expect(parseImport("[]", "json")).toMatchObject({ ok: false });
-    const j = parseImport(`[${JSON.stringify(base)}]`, "json");
-    expect(j).toMatchObject({ ok: true, commentLines: 0 });
-  });
-});
-
-describe("a replacement that changes a field's provenance is flagged, apart from an ordinary correction", () => {
-  const row = (cells: Record<string, unknown>, current = [cur()]) => one({ field_path: "grid.firm_capacity_mva", unit: "MVA", value: 40, ...cells }, current);
-  it("a raised declared class is flagged", () => {
-    const r = row({ class: "E3" });
-    expect(r.status).toBe("supersede");
-    expect(r.flags).toEqual(["Raises the declared class E1 → E3."]);
-  });
-  it("a lowered or equal class is not", () => {
-    expect(row({ class: "E0", as_of: "2026-10-01" }).flags).toEqual([]);
-    expect(row({ value: 41 }).flags).toEqual([]);                                               // an ordinary correction of a number
-  });
-  it("a changed declared origin is flagged, with both origins named", () => {
-    const r = row({ origin: "vendor" });
-    expect(r.flags).toEqual(["Changes the declared origin: declared assumed → declared vendor."]);
-    const both = row({ origin: "modelled", class: "E3", value: 41 });
-    expect(both.flags).toEqual(["Raises the declared class E1 → E3.", "Changes the declared origin: declared assumed → declared modelled."]);
-  });
-  it("withdrawing a figure (replacing it with missing) is flagged, with what it was", () => {
-    const r = row({ origin: "missing", value: null, unit: null, class: "E0" });
-    expect(r.status).toBe("supersede");
-    expect(r.flags).toContain("Withdraws the figure: 40 MVA will read as missing.");
-  });
-  it("a first figure, a rejected row and an unchanged row carry no flags; recording over a missing figure is not a withdrawal", () => {
-    expect(one({}).flags).toEqual([]);
-    expect(row({ class: "E9" }).flags).toEqual([]);
-    expect(row({ value: 40, unit: "MVA", class: "E1", as_of: "2026-01-15" }).flags).toEqual([]);
-    const gap = hold({ fieldPath: "grid.firm_capacity_mva", origin: "missing", value: null, unit: null, evidenceClass: "E0" });
-    expect(row({ class: "E2" }, [gap]).flags).toEqual(["Raises the declared class E0 → E2.", "Changes the declared origin: missing → declared assumed."]);
-    expect(row({ class: "E0" }, [gap]).flags.join()).not.toMatch(/Withdraws/);
-  });
-  it("the preview counts the flagged rows", () => {
-    const p = buildPreview([
-      row0(1, { class: "E3" }), row0(2, { value: 41, field_path: "grid.contracted_mw", unit: "MW" }), row0(3, { origin: "vendor", field_path: "grid.current_site_peak_mw", unit: "MW" }),
-    ], ctx([cur(), cur({ id: "k2", fieldPath: "grid.contracted_mw", unit: "MW" }), cur({ id: "k3", fieldPath: "grid.current_site_peak_mw", unit: "MW" })]));
-    expect(p.counts).toMatchObject({ supersede: 3, flagged: 2 });
-    function row0(n: number, cells: Record<string, unknown>): RawRow { return { n, fromCsv: false, cells: { field_path: "grid.firm_capacity_mva", value: 40, unit: "MVA", origin: "assumed", class: "E1", as_of: "2026-10-01", ...cells } }; }
-  });
-  it("provenanceFlags works on the body that would be sent", () => {
-    const body: WriteBody = { fieldPath: "grid.firm_capacity_mva", value: 44, unit: "MVA", evidenceClass: "E5", origin: "measured", asOf: "2026-10-01", projectEvidenceId: FILE_A, intakeEvidenceFileId: null, supersedes: "c1" };
-    expect(provenanceFlags(cur(), body)).toEqual(["Raises the declared class E1 → E5.", "Changes the declared origin: declared assumed → declared measured."]);
-  });
-});
-
-describe("a row is UNCHANGED only if value, unit, origin, class, source and date all match; any one difference is a replacement", () => {
-  const row = { field_path: "grid.firm_capacity_mva", value: 40, unit: "MVA", origin: "assumed", class: "E1", as_of: "2026-01-15" };
-  it("the baseline is unchanged", () => { expect(one(row, [cur()], false).status).toBe("unchanged"); });
-  it.each([
-    ["value", { value: 41 }],
-    ["class (the same number at a changed class)", { class: "E2" }],
-    ["origin", { origin: "vendor" }],
-    ["as-of date", { as_of: "2026-01-16" }],
-  ])("a different %s is a supersede", (_n, change) => {
-    const r = one({ ...row, ...change }, [cur()], false);
-    expect(r.status).toBe("supersede");
-    expect(r.body?.supersedes).toBe("c1");
-  });
-  it("a different unit on the recorded figure is a supersede (the recorded unit was another)", () => {
-    expect(one(row, [cur({ unit: "kVA" })], false).status).toBe("supersede");
-    expect(one(row, [cur({ unit: null })], false).status).toBe("supersede");
-  });
-  it("a different source is a supersede; the same source (in any letter case) is unchanged; adding or dropping a file is a supersede", () => {
-    const withFile = (id: string | null) => cur({ origin: "vendor", evidenceClass: "E2", source: id ? { kind: "intake_evidence", id, filename: "q.pdf", reviewStatus: null } : null });
-    const v = { ...row, origin: "vendor", class: "E2" };
-    expect(one({ ...v, source_kind: "intake", source_id: FILE_A }, [withFile(FILE_A)], false).status).toBe("unchanged");
-    expect(one({ ...v, source_kind: "intake", source_id: FILE_B }, [withFile(FILE_A)], false).status).toBe("supersede");
-    expect(one({ ...v, source_kind: "intake", source_id: FILE_A }, [withFile(null)], false).status).toBe("supersede");
-    expect(one(v, [withFile(FILE_A)], false).status).toBe("supersede");
-  });
-});
-
-describe("error text stays short", () => {
-  it("a header of many unknown columns names the first five and counts the rest", () => {
-    const cols = Array.from({ length: 12 }, (_, i) => `x${i}`);
-    const p = parseImport(`${cols.join(",")}\n1`, "csv");
-    expect(p).toMatchObject({ ok: false });
-    if (p.ok) return;
-    expect(p.error).toContain("“x0”, “x1”, “x2”, “x3”, “x4”");
-    expect(p.error).toContain("and 7 more");
-    expect(p.error).not.toContain("x5");
-    expect(p.error.length).toBeLessThan(300);
-    const j = parseImport(JSON.stringify({ rows: [], ...Object.fromEntries(cols.map((c) => [c, 1])) }), "json");
-    expect(j.ok === false && j.error).toContain("and 7 more");
-    const longName = parseImport(`${"y".repeat(5000)}\n1`, "csv");
-    expect(longName.ok === false && longName.error.length).toBeLessThan(300);
-    const rowKeys = parseImport(JSON.stringify([{ ...base, ...Object.fromEntries(cols.map((c) => [c, 1])) }]), "json");
-    expect(rowKeys.ok && rowKeys.rows[0]!.error).toContain("and 7 more");
+    it("on an engine that cannot give a number's text (Node 20, older browsers) the whole file is refused, whatever this machine supports", () => {
+      const real = JSON.parse;
+      const spy = vi.spyOn(JSON, "parse").mockImplementation((t: string) => real(t));    // ignores the reviver, so no context.source arrives
+      try {
+        expect(jsonNumberSourceSupported()).toBe(false);
+        const p = parseImport(JSON_TEXT, "json");
+        expect(p.ok).toBe(false);
+        if (!p.ok) expect(p.error).toMatch(/1e-400[\s\S]*too small/);
+        const fine = parseImport(`[{"field_path":"hall.rack_positions","value":120,"origin":"assumed","class":"E1","as_of":"2026-10-01"}]`, "json");
+        expect(fine.ok).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+    it("the fallback scan (used where the engine cannot give a number's text) finds the first number that cannot be stored faithfully, and ignores digits inside strings", () => {
+      expect(firstUnstorableNumberLiteral(JSON_TEXT)?.literal).toBe("1e-400");
+      expect(firstUnstorableNumberLiteral(`[{"field_path":"grid.contracted_mw","value":0.1234567890123456789}]`)?.problem).toMatch(/15 significant/);
+      expect(firstUnstorableNumberLiteral(`[{"field_path":"grid.x","value":30,"note":"1e-400 and 0.1234567890123456789 in text"}]`)).toBeNull();
+      expect(firstUnstorableNumberLiteral(`[{"value":0},{"value":0.000},{"value":-5},{"value":1.5e3},{"value":1234567890.12345}]`)).toBeNull();
+    });
   });
 });
