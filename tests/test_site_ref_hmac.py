@@ -19,7 +19,8 @@ from gridforge.calibration.schema import SITE_REF_RE, site_only_ref
 from gridforge.validation.evidence import EvidenceClass
 
 ROOT = Path(__file__).resolve().parents[1]
-VECTORS = json.loads((ROOT / "tests" / "site_ref_vectors.json").read_text())["vectors"]
+_VECTOR_FILE = json.loads((ROOT / "tests" / "site_ref_vectors.json").read_text())
+VECTORS, KEY_VECTORS = _VECTOR_FILE["vectors"], _VECTOR_FILE["key_vectors"]
 K1, K2 = "vector-key-one-0123456789abcdef", "vector-key-two-0123456789abcdef"
 SHA, DIGEST = "b" * 64, "a" * 64
 
@@ -31,7 +32,7 @@ def keyed(label, key=K1):
 # ---------------------------------------------------------------------------------------------------- parity with the website
 
 def test_every_shared_vector_is_reproduced():
-    assert len(VECTORS) >= 30 and {v["key"] for v in VECTORS} == {K1, K2}
+    assert len(VECTORS) >= 50 and {v["key"] for v in VECTORS} == {K1, K2}
     assert any(v["expected"] is None for v in VECTORS) and any(v["expected"] for v in VECTORS)
     for v in VECTORS:
         if v["expected"] is None:
@@ -42,13 +43,37 @@ def test_every_shared_vector_is_reproduced():
 
 
 def test_the_vectors_were_not_made_with_this_module_alone():
-    """An independent restatement of the algorithm (stdlib hmac, no helper from the module under test) agrees with the file."""
+    """An independent restatement of the algorithm (stdlib hmac and unicodedata, no helper from the module under test) agrees with the file."""
+    import re
+    import unicodedata
+    edge = re.compile("^[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$")
     for v in VECTORS:
         if v["expected"] is not None:
-            import re
-            n = re.sub("^[\t-\r    -     　﻿]+|[\t-\r    -     　﻿]+$", "", v["label"]).lower()
+            n = unicodedata.normalize("NFC", edge.sub("", v["label"]))
+            n = "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in n)          # ASCII letters only
             n = n.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
-            assert v["expected"] == "site_" + stdlib_hmac.new(v["key"].encode(), n.encode(), hashlib.sha256).hexdigest()[:12]
+            assert v["expected"] == "site_" + stdlib_hmac.new(v["key"].encode(), b"site\x00" + n.encode(), hashlib.sha256).hexdigest()[:12]
+
+
+def test_the_key_length_rule_counts_code_points_as_the_website_does():
+    for kv in KEY_VECTORS:
+        key, source = siteref.resolve_key({"GRIDFORGE_SITE_REF_SECRET": kv["secret"], "GRIDFORGE_KEY_SECRET": "signing"})
+        assert (source == siteref.ENV_DEDICATED) is kv["accepted"], kv["secret"][:6]
+    assert {kv["accepted"] for kv in KEY_VECTORS} == {True, False} and any(len(kv["secret"].encode("utf-16-le")) // 2 != len(kv["secret"]) for kv in KEY_VECTORS)
+
+
+def test_the_site_message_is_domain_separated_from_the_hall_suffix():
+    n = siteref.normalise_label("Dublin DC1")
+    plain = "site_" + stdlib_hmac.new(K1.encode(), n.encode(), hashlib.sha256).hexdigest()[:12]
+    assert keyed("Dublin DC1") != plain                                               # keyed over "site\0" + label, not the bare label
+    assert keyed("Dublin DC1") == "site_" + stdlib_hmac.new(K1.encode(), b"site\x00" + n.encode(), hashlib.sha256).hexdigest()[:12]
+
+
+def test_normalisation_is_nfc_and_ascii_lowercase_only_and_the_consequence_is_the_stated_one():
+    assert keyed("Fr\u00e1ncfort") == keyed("Fra\u0301ncfort")                         # composed and decomposed: one label
+    assert keyed("Ab\u00c7") != keyed("ab\u00e7")                                       # a NON-ASCII letter's case is a different site (stated consequence)
+    assert keyed("\U00010d50 x") == keyed("\U00010d50 X")                               # a Unicode-16 letter is untouched, so Python 3.11-3.13 and Node agree
+    assert siteref.normalise_label("  \u0130STANBUL ") == "\u0130stanbul"
 
 
 def test_a_different_secret_gives_a_different_reference_and_the_same_secret_a_stable_one():
@@ -228,11 +253,11 @@ def export(*rows):
 def test_without_a_declaration_the_two_references_are_two_sites_and_the_importer_says_so(tmp_path):
     led, ex = tmp_path / "ledger.json", tmp_path / "export.json"
     ex.write_text(json.dumps(export(export_row(1, LEGACY, "2026-05-01"), export_row(2, KEYED, "2026-06-01"))))
-    r = run_cli("calibrate", "import", str(ex), "--ledger", str(led))
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(led), "--accept-mixed-refs")
     assert r.returncode == 0, r.stderr
     assert len({o.site for o in read_chain(led)[0]}) == 2                          # as the data stands: honest, not merged by guesswork
     assert "UNSALTED" in r.stderr and "calibrate alias" in r.stderr and "TWO sites" in r.stderr
-    assert "re-keyed by your alias file: 0 of 2" in r.stdout
+    assert "counted as: 2 distinct site reference(s)" in r.stdout and "0 of 2 row(s) re-keyed" in r.stdout
 
 
 def test_a_declared_alias_makes_the_importer_store_one_site_and_read_old_rows_as_that_site_too(tmp_path):
@@ -240,7 +265,7 @@ def test_a_declared_alias_makes_the_importer_store_one_site_and_read_old_rows_as
     # an OLD import already in the ledger under the unsalted reference
     first = tmp_path / "first.json"
     first.write_text(json.dumps(export(export_row(1, LEGACY, "2026-05-01"))))
-    assert run_cli("calibrate", "import", str(first), "--ledger", str(led)).returncode == 0
+    assert run_cli("calibrate", "import", str(first), "--ledger", str(led), "--accept-mixed-refs").returncode == 0
     a = run_cli("calibrate", "alias", "--site", "  cork dc2 ", "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
     assert a.returncode == 0 and LEGACY in a.stdout and KEYED in a.stdout, a.stderr
     assert K1 not in a.stdout + a.stderr
@@ -250,7 +275,7 @@ def test_a_declared_alias_makes_the_importer_store_one_site_and_read_old_rows_as
     ex.write_text(json.dumps(export(export_row(2, LEGACY, "2026-06-01"), export_row(3, KEYED, "2026-07-01"))))
     r = run_cli("calibrate", "import", str(ex), "--ledger", str(led))
     assert r.returncode == 0, r.stderr
-    assert "re-keyed by your alias file: 1 of 2" in r.stdout
+    assert "1 of 2 row(s) re-keyed" in r.stdout and "1 alias(es) declared" in r.stdout
     stored = [o.site_ref for o in read_chain(led)[0]]
     assert stored == [LEGACY, KEYED, KEYED]                           # the old row is NOT edited (the chain stands); the new legacy row was stored keyed
     assert {o.site for o in _load(led)} == {KEYED}                   # and the ledger reads all three as one site
@@ -269,12 +294,12 @@ def test_the_same_measurement_under_both_references_is_not_counted_twice_once_de
 
 def test_the_importer_works_with_both_reference_formats_and_with_hall_suffixed_ones(tmp_path):
     led = tmp_path / "ledger.json"
-    out = import_export(export(export_row(1, LEGACY, "2026-05-01"), export_row(2, KEYED, "2026-05-01")), led)
+    out = import_export(export(export_row(1, LEGACY, "2026-05-01"), export_row(2, KEYED, "2026-05-01")), led, accept_mixed_refs=True)
     assert out["imported"] == 2 and out["rekeyed"] == 0
     assert SITE_REF_RE.match(KEYED) and SITE_REF_RE.match(KEYED + "-0123abcd")
     bad = export(export_row(3, "site_NOT-HEX", "2026-05-02"))
     with pytest.raises(ObservationError):
-        import_export(bad, led)
+        import_export(bad, led, accept_mixed_refs=True)
     assert len(read_chain(led)[0]) == 2
 
 
@@ -301,9 +326,10 @@ def test_a_corrupt_alias_file_stops_the_import_instead_of_guessing(tmp_path):
     led, ex = tmp_path / "ledger.json", tmp_path / "export.json"
     (tmp_path / siteref.ALIAS_FILENAME).write_text("{ broken")
     ex.write_text(json.dumps(export(export_row(1, LEGACY, "2026-05-01"))))
-    r = run_cli("calibrate", "import", str(ex), "--ledger", str(led))
-    assert r.returncode != 0 and "alias" in r.stderr.lower()
-    assert not led.exists()
+    for extra in ([], ["--accept-mixed-refs"]):                                      # not even the explicit flag lets a corrupt file through
+        r = run_cli("calibrate", "import", str(ex), "--ledger", str(led), *extra)
+        assert r.returncode != 0 and "alias" in r.stderr.lower()
+        assert not led.exists()
 
 
 def test_calibrate_alias_needs_a_site_and_where_reports_the_count(tmp_path):
@@ -331,3 +357,192 @@ def test_the_environment_check_warns_when_the_dedicated_secret_is_unset_or_too_s
             assert expect in w["reason"]
         assert "zzzz" not in r.stdout                                                  # a value is never printed
         assert "GRIDFORGE_SITE_REF_SECRET" not in [p["name"] for p in doc["problems"]]  # optional: a warning, never a failure
+
+
+# ---------------------------------------------------------------------------------------------------- "$" accepts a trailing newline
+
+def test_no_validator_in_the_calibration_package_accepts_a_trailing_newline():
+    """In a Python regex "$" also matches before a final newline, so an identifier ending in one would pass a "^...$" check and be stored. Every anchored
+    pattern in gridforge/calibration now ends in \\Z; each one is shown to refuse the newline-suffixed form of a value it accepts."""
+    from gridforge.calibration import ledger, records, schema
+    good = {
+        (schema, "KEY_RE"): "envelope.racks", (schema, "SITE_REF_RE"): "site_0123456789ab-01234567", (schema, "SHA256_RE"): "a" * 64,
+        (schema, "SOURCE_REF_RE"): "obs-0001-" + "x" * 3 + ":" + "b" * 64, (records, "_ID_RE"): "obs-0001", (records, "_SITE_RE"): "site_0123456789ab",
+        (records, "_HALL_RE"): "DH-02", (records, "_VERSION_RE"): "1.2.3", (ledger, "_UUID_RE"): "00000001-0000-0000-0000-000000000000",
+        (siteref, "SITE_ONLY_RE"): "site_0123456789ab",
+    }
+    for (mod, name), value in good.items():
+        rx = getattr(mod, name)
+        assert rx.match(value), (name, value)
+        for hostile in (value + "\n", value + "\r\n", value + "\n\n"):
+            assert not rx.match(hostile), (name, hostile)
+    source = "\n".join(p.read_text() for p in (ROOT / "gridforge" / "calibration").glob("*.py"))
+    import re
+    assert not re.search(r're\.compile\(r?"\^[^"\n]*[^\\]\$"\)', source), "an anchored pattern ends in a bare $"
+
+
+# ---------------------------------------------------------------------------------------------------- the conservative default for mixed references
+
+def test_import_refuses_by_default_writes_nothing_and_says_what_it_would_have_counted(tmp_path):
+    led, ex = tmp_path / "ledger.json", tmp_path / "export.json"
+    ex.write_text(json.dumps(export(export_row(1, LEGACY, "2026-05-01"), export_row(2, KEYED, "2026-06-01"), export_row(3, KEYED, "2026-07-01"))))
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(led))
+    assert r.returncode == 2 and not led.exists() and "Nothing was imported" in r.stderr
+    assert "2 distinct site reference(s) in 3 row(s)" in r.stderr and "UNSALTED" in r.stderr and "TWO independent sites" in r.stderr
+    assert "--none-needed" in r.stderr and "--accept-mixed-refs" in r.stderr and "calibrate alias --site" in r.stderr
+    with pytest.raises(ObservationError, match="Decide first"):
+        import_export(json.loads(ex.read_text()), led)
+    assert not led.exists()
+    # an export with no rows has nothing to decide
+    empty = tmp_path / "empty.json"
+    empty.write_text(json.dumps(export()))
+    assert run_cli("calibrate", "import", str(empty), "--ledger", str(led)).returncode == 0
+
+
+def test_each_recorded_decision_lets_the_import_through_and_says_which_it_was(tmp_path):
+    ex = tmp_path / "export.json"
+    ex.write_text(json.dumps(export(export_row(1, LEGACY, "2026-05-01"), export_row(2, KEYED, "2026-06-01"))))
+    # (1) the flag, for this one import only
+    a = tmp_path / "a" / "ledger.json"
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(a), "--accept-mixed-refs")
+    assert r.returncode == 0 and "--accept-mixed-refs for this import only" in r.stdout and "nothing was merged" in r.stderr
+    assert run_cli("calibrate", "import", str(ex), "--ledger", str(a)).returncode == 2                     # it did not become a standing decision
+    # (2) a dated acknowledgement in the alias file
+    b = tmp_path / "b" / "ledger.json"
+    ack = run_cli("calibrate", "alias", "--none-needed", "--ledger", str(b))
+    assert ack.returncode == 0 and "no site spans" in ack.stdout
+    doc = json.loads((b.parent / siteref.ALIAS_FILENAME).read_text())
+    assert doc["aliases"] == {} and set(doc["acknowledgement"]) == {"none_needed_on"} and len(doc["acknowledgement"]["none_needed_on"]) == 10
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(b))
+    assert r.returncode == 0 and "you recorded that no site spans the 0053 boundary" in r.stdout
+    assert "already recorded" in run_cli("calibrate", "alias", "--none-needed", "--ledger", str(b)).stdout
+    # (3) aliases
+    c = tmp_path / "c" / "ledger.json"
+    assert run_cli("calibrate", "alias", "--site", "Cork DC2", "--ledger", str(c), env={"GRIDFORGE_SITE_REF_SECRET": K1}).returncode == 0
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(c))
+    assert r.returncode == 0 and "1 alias(es) declared" in r.stdout
+
+
+def test_an_acknowledgement_survives_an_alias_being_added_and_is_validated(tmp_path):
+    led = tmp_path / "ledger.json"
+    assert run_cli("calibrate", "alias", "--none-needed", "--ledger", str(led)).returncode == 0
+    assert run_cli("calibrate", "alias", "--site", "Cork DC2", "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1}).returncode == 0
+    path = tmp_path / siteref.ALIAS_FILENAME
+    _, ack = siteref.read_alias_file(path)
+    assert ack and ack["none_needed_on"]
+    for bad in ({"none_needed_on": "tomorrow"}, {"none_needed_on": "2026-11-08", "by": "x"}, "yes", {}):
+        doc = json.loads(path.read_text())
+        doc["acknowledgement"] = bad
+        path.write_text(json.dumps(doc))
+        with pytest.raises(siteref.SiteRefError):
+            siteref.read_alias_file(path)
+    assert run_cli("calibrate", "alias", "--none-needed", "--site", "x", "--ledger", str(led)).returncode == 2        # it stands alone
+
+
+# ---------------------------------------------------------------------------------------------------- the legacy reference is the database's, not a guess
+
+LEGACY_VECTORS = json.loads((ROOT / "tests" / "site_ref_legacy_vectors.json").read_text())
+
+
+def test_plain_ascii_labels_have_the_databases_legacy_reference_and_everything_else_is_refused_not_guessed():
+    for v in LEGACY_VECTORS["ascii"]:
+        assert siteref.legacy_site_only_ref(v["label"]) == v["legacy_ref"], repr(v["label"])
+    for label in LEGACY_VECTORS["needs_database"]:
+        if "\ud83d" in label:
+            continue                                                                          # a lone surrogate is refused as not-UTF-8 instead (below)
+        with pytest.raises(siteref.LegacyRefNeedsDatabase, match="select 'site_'"):
+            siteref.legacy_site_only_ref(label)
+    assert "lower(regexp_replace(" in siteref.LEGACY_REF_SQL and "'^\\s+|\\s+$'" in siteref.LEGACY_REF_SQL
+
+
+def test_the_sql_the_cli_prints_is_the_expression_the_migration_uses():
+    sql = (ROOT / "supabase" / "migrations" / "0047_calibration_consent_and_origin.sql").read_text()
+    assert "label := lower(regexp_replace(coalesce(pr.site_label, ''), '^\\s+|\\s+$', '', 'g'));" in sql
+    assert "'site_' || substr(encode(sha256(convert_to(label, 'UTF8')), 'hex'), 1, 12)" in sql
+    assert "lower(regexp_replace(coalesce(site_label, ''), '^\\s+|\\s+$', '', 'g'))" in siteref.LEGACY_REF_SQL
+    assert "substr(encode(sha256(convert_to(" in siteref.LEGACY_REF_SQL and "'UTF8')), 'hex'), 1, 12)" in siteref.LEGACY_REF_SQL
+
+
+@pytest.mark.parametrize("label", ["\u039f\u0394\u039f\u03a3", "\u0130stanbul", "\u1e9e", "\x85Hall"])
+def test_alias_with_a_non_ascii_name_needs_the_reference_from_the_database_and_writes_nothing_without_it(tmp_path, label):
+    led = tmp_path / "ledger.json"
+    r = run_cli("calibrate", "alias", "--site", label, "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert r.returncode == 2 and "--legacy-ref" in r.stderr and "select 'site_'" in r.stderr and "Traceback" not in r.stderr
+    assert not (tmp_path / siteref.ALIAS_FILENAME).exists()
+    given = "site_53ad14b05bf3"
+    ok = run_cli("calibrate", "alias", "--site", label, "--legacy-ref", given, "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert ok.returncode == 0, ok.stderr
+    assert siteref.read_aliases(tmp_path / siteref.ALIAS_FILENAME) == {given: keyed(label)}
+    assert run_cli("calibrate", "alias", "--site", label, "--legacy-ref", given, "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1}).stdout.startswith("already recorded")
+
+
+@pytest.mark.parametrize("bad", ["", "site_", "SITE_0123456789ab", "site_0123456789AB", "site_0123456789ab\n", "site_0123456789abc", "x"])
+def test_a_malformed_legacy_ref_is_refused(tmp_path, bad):
+    r = run_cli("calibrate", "alias", "--site", "Cork DC2", "--legacy-ref", bad or " ", "--ledger", str(tmp_path / "l.json"), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert r.returncode == 2 and "Traceback" not in r.stderr
+    assert not (tmp_path / siteref.ALIAS_FILENAME).exists()
+
+
+def test_a_legacy_ref_that_contradicts_a_plain_ascii_name_is_refused(tmp_path):
+    r = run_cli("calibrate", "alias", "--site", "Cork DC2", "--legacy-ref", "site_000000000000", "--ledger", str(tmp_path / "l.json"), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert r.returncode == 2 and "database derives" in r.stderr
+    assert run_cli("calibrate", "alias", "--site", "Cork DC2", "--legacy-ref", LEGACY, "--ledger", str(tmp_path / "l.json"), env={"GRIDFORGE_SITE_REF_SECRET": K1}).returncode == 0
+
+
+def test_calibrate_add_warns_instead_of_silently_missing_when_it_cannot_check_a_non_ascii_name(tmp_path):
+    led = tmp_path / "ledger.json"
+    r = run_cli(*ADD, "--site", "\u039f\u0394\u039f\u03a3", "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert r.returncode == 0 and "cannot check whether" in r.stderr and "--legacy-ref" in r.stderr
+    # given the database's reference, the check is made: a ledger already holding that site under it refuses
+    legacy = "site_53ad14b05bf3"
+    append_observation(Observation(key="envelope.racks", site_ref=legacy + "-0123abcd", predicted=26.0, observed=24.0, unit="racks", observed_on="2026-05-30",
+                                   evidence=EvidenceClass.E5_CUSTOMER_DATA, method="metering"), tmp_path / "other.json")
+    r = run_cli(*ADD, "--site", "\u039f\u0394\u039f\u03a3", "--legacy-ref", legacy, "--ledger", str(tmp_path / "other.json"), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert r.returncode == 2 and "UNSALTED" in r.stderr
+
+
+# ---------------------------------------------------------------------------------------------------- hostile arguments, locking, an unreadable file
+
+def test_an_argument_that_is_not_valid_utf8_is_a_clean_refusal(tmp_path):
+    for args in (["alias", "--site", b"Hall\xff"], [*ADD[1:], "--site", b"Hall\xff"]):
+        r = subprocess.run([sys.executable, "-m", "gridforge", "calibrate", *[a.encode() if isinstance(a, str) else a for a in args], b"--ledger", str(tmp_path / "l.json").encode()],
+                           cwd=ROOT, capture_output=True, env={k: v for k, v in os.environ.items() if k != "GRIDFORGE_SITE_REF_SECRET"})
+        assert r.returncode == 2 and b"Traceback" not in r.stderr and b"not valid UTF-8" in r.stderr, r.stderr
+    assert not (tmp_path / "l.json").exists() and not (tmp_path / siteref.ALIAS_FILENAME).exists()
+
+
+def _add_one(args):
+    path, i = args
+    siteref.add_alias(Path(path), "site_%012x" % (i + 1), "site_%012x" % (i + 100001))
+    return i
+
+
+def test_concurrent_alias_writers_do_not_lose_each_others_lines(tmp_path):
+    import multiprocessing
+    path = tmp_path / siteref.ALIAS_FILENAME
+    n = 24
+    with multiprocessing.get_context("spawn").Pool(8) as pool:
+        pool.map(_add_one, [(str(path), i) for i in range(n)])
+    assert len(siteref.read_aliases(path)) == n
+    assert siteref.read_aliases(path)["site_%012x" % 5] == "site_%012x" % 100005
+
+
+def test_where_works_with_an_unreadable_alias_file_and_says_so_while_import_and_add_stop(tmp_path):
+    led = tmp_path / "ledger.json"
+    (tmp_path / siteref.ALIAS_FILENAME).write_text("{ broken")
+    w = run_cli("calibrate", "where", env={"GRIDFORGE_CALIBRATION_LEDGER": str(led)})
+    assert w.returncode == 0 and "alias file unreadable" in w.stdout and "IGNORE it" in w.stdout
+    add = run_cli(*ADD, "--site", "Dublin DC1", "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert add.returncode == 2 and "not valid JSON" in add.stderr and not led.exists()
+    al = run_cli("calibrate", "alias", "--site", "Dublin DC1", "--ledger", str(led), env={"GRIDFORGE_SITE_REF_SECRET": K1})
+    assert al.returncode == 2 and "not valid JSON" in al.stderr
+    assert run_cli("calibrate", "show", env={"GRIDFORGE_CALIBRATION_LEDGER": str(led)}).returncode != 0         # a count of sites needs the aliases
+
+
+# ---------------------------------------------------------------------------------------------------- git
+
+def test_the_alias_file_and_its_lock_and_temp_files_are_gitignored():
+    names = [siteref.ALIAS_FILENAME, siteref.ALIAS_FILENAME + ".lock", f".{siteref.ALIAS_FILENAME}.12345.tmp", ".calibration.local.json.12345.tmp"]
+    r = subprocess.run(["git", "check-ignore", "-v", *names], cwd=ROOT, capture_output=True, text=True)
+    ignored = {line.split("\t")[1] for line in r.stdout.splitlines()}
+    assert ignored == set(names), (r.stdout, r.stderr)

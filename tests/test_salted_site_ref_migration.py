@@ -252,7 +252,7 @@ def test_the_cli_importer_reads_an_unsalted_and_a_keyed_reference_as_one_site_on
         doc = {"schema": EXPORT_SCHEMA, "rows": exported}
 
         plain = tmp_path / "plain.json"
-        import_export(doc, plain)
+        import_export(doc, plain, accept_mixed_refs=True)
         assert len({o.site for o in read_chain(plain)[0]}) == 2                      # undeclared: two sites, as the database holds them
 
         aliased = tmp_path / "aliased.json"
@@ -269,3 +269,59 @@ def test_the_cli_importer_reads_an_unsalted_and_a_keyed_reference_as_one_site_on
         assert len({o.site for o in load_ledger().observations}) == 1
     finally:
         drop_database(name)
+
+
+# ---------------------------------------------------------------------------------------------------- the legacy reference, from the database itself
+
+LEGACY_VECTORS = json.loads((ROOT / "tests" / "site_ref_legacy_vectors.json").read_text())
+
+
+def database_legacy_ref(db, label):
+    """The reference the DATABASE derives (the expression of 0038/0047, run on a stored project label), not anything computed in Python."""
+    project = new_project(db, label.replace("'", "''"))          # the rig puts the label in a SQL literal
+    return scalar(db, "select 'site_' || substr(encode(sha256(convert_to(lower(regexp_replace(coalesce(site_label, ''), '^\\s+|\\s+$', '', 'g')), 'UTF8')), 'hex'), 1, 12) "
+                      f"from projects where id = '{project}'"), project
+
+
+def test_the_python_legacy_reference_equals_the_databases_for_every_plain_ascii_label(db):
+    from gridforge.calibration import siteref
+    for v in LEGACY_VECTORS["ascii"]:
+        from_db, project = database_legacy_ref(db, v["label"])
+        assert from_db == v["legacy_ref"] == siteref.legacy_site_only_ref(v["label"]), repr(v["label"])
+        # and it is what gf_submit_observation actually stored for that project, when called as the old application did
+        stored = submitted(db, project=project)[2]["site_ref"]
+        assert stored == from_db, repr(v["label"])
+
+
+def test_the_printed_sql_is_the_expression_the_database_runs(db):
+    from gridforge.calibration import siteref
+    label = f"Printed {uuid.uuid4().hex[:6]}"
+    project = new_project(db, label)
+    got = scalar(db, siteref.LEGACY_REF_SQL + f" and id = '{project}'")
+    assert got == submitted(db, project=project)[2]["site_ref"] == unsalted(label)
+
+
+@pytest.mark.parametrize("label", ["\u039f\u0394\u039f\u03a3", "\u0130stanbul", "\u1e9e", "Stra\u00dfe"])
+def test_for_a_non_ascii_name_the_cli_takes_the_databases_reference_and_merges_the_site(db, tmp_path, monkeypatch, label):
+    """Python's str.lower() and the database's lower() disagree on these (which way depends on the database's locale), so the CLI refuses to guess and the
+    operator passes what the database derived. That reference then merges the real export rows into one site."""
+    from gridforge.calibration import siteref
+    from gridforge.calibration.ledger import EXPORT_SCHEMA, import_export, read_chain
+    from gridforge.cli import main
+    legacy, project_a = database_legacy_ref(db, label)
+    with pytest.raises(siteref.LegacyRefNeedsDatabase):
+        siteref.legacy_site_only_ref(label)
+    exported = []
+    for day, ref in (("2026-06-30", None), ("2026-07-01", keyed(label))):
+        project, _, o = submitted(db, site=label, on=day, **({"site_ref": ref} if ref else {}))
+        assert o["site_ref"] == (ref or legacy)
+        assert review(db, o["id"]).returncode == 0
+        record_permission(db, project)
+        exported += export_rows(db, f"id = '{o['id']}'")
+    doc = {"schema": EXPORT_SCHEMA, "rows": exported}
+    led = tmp_path / "ledger.json"
+    monkeypatch.delenv("GRIDFORGE_SITE_REF_ALIASES", raising=False)
+    monkeypatch.setenv("GRIDFORGE_SITE_REF_SECRET", KEY)
+    assert main(["calibrate", "alias", "--site", label, "--legacy-ref", legacy, "--ledger", str(led)]) == 0
+    out = import_export(doc, led)
+    assert out["rekeyed"] == 1 and {o.site for o in read_chain(led)[0]} == {keyed(label)}

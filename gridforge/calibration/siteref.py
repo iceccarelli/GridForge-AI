@@ -3,7 +3,7 @@
 Until migration 0053 a site reference was ``site_`` + the first 12 hex of the UNSALTED SHA-256 of the lower-cased label, so anyone who could
 guess a label ("Hall A") could confirm it by hashing. The website now computes
 
-    site_ref = "site_" + first 12 hex of HMAC-SHA256(key, lower(trim(label)))
+    site_ref = "site_" + first 12 hex of HMAC-SHA256(key, "site\\0" + normalised(label))      (normalised: trim, NFC, ASCII lower-case)
 
 (lib/site-ref.ts) and `gridforge calibrate add` computes THE SAME VALUE here from the same environment variables, so a hand-entered row and an
 exported row for one site agree. tests/site_ref_vectors.json holds the shared vectors; tests/site/site-ref.test.ts and tests/test_site_ref_hmac.py
@@ -25,12 +25,14 @@ that is done for a site, the two references ARE counted as two, and every import
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import json
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Mapping
 
@@ -48,18 +50,26 @@ ALIAS_FILENAME = "site_ref_aliases.local.json"
 ALIAS_ENV = "GRIDFORGE_SITE_REF_ALIASES"
 
 #: The characters trimmed from both ends of a label. An explicit set: str.strip() and JavaScript's trim() disagree about a few code points.
-_EDGE = re.compile("^[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$")
+_EDGE = re.compile("^[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+\\Z")
 
 
 class SiteRefError(ValueError):
     pass
 
 
+_ASCII_LOWER = {c: c + 32 for c in range(ord("A"), ord("Z") + 1)}
+
+
 def normalise_label(label: str) -> str:
-    """lower(trim(label)): two spellings of one site agree on it. Empty means there is no label."""
+    """The label as two spellings of one site agree on it: trim the explicit whitespace set, NFC, lower-case ASCII LETTERS ONLY. Empty = no label.
+
+    Not a full Unicode lower-case on purpose: Python and Node carry different Unicode tables, so a letter that became cased in a later Unicode version would
+    be lower-cased by one and not the other and the two sides would disagree silently. CONSEQUENCE: two spellings of a NON-ASCII label that differ only in the
+    case of a non-ASCII letter are two different sites to the keyed reference; write such a label the same way every time. lib/site-ref.ts is identical.
+    """
     if not isinstance(label, str):
         raise SiteRefError("a site label must be text")
-    return _EDGE.sub("", label).lower()
+    return unicodedata.normalize("NFC", _EDGE.sub("", label)).translate(_ASCII_LOWER)
 
 
 def _utf8(text: str) -> bytes:
@@ -71,7 +81,7 @@ def resolve_key(env: Mapping[str, str] | None = None) -> tuple[str, str]:
     """(key, source): source is ENV_DEDICATED, ENV_SIGNING or 'fallback'. The key is never to be printed."""
     e = os.environ if env is None else env
     dedicated = e.get(ENV_DEDICATED) or ""
-    if len(dedicated) >= SECRET_MIN:
+    if len(dedicated) >= SECRET_MIN:                      # code points, as lib/site-ref.ts counts them
         return dedicated, ENV_DEDICATED
     signing = e.get(ENV_SIGNING) or ""
     if signing:
@@ -91,11 +101,11 @@ def key_warning(source: str) -> str | None:
 
 
 def keyed_site_only_ref(label: str, key: str) -> str:
-    """The website's reference for a site: site_ + 12 hex of HMAC-SHA256(key, lower(trim(label)))."""
+    """The website's reference for a site: site_ + 12 hex of HMAC-SHA256(key, "site\\0" + normalised(label))."""
     n = normalise_label(label)
     if not n:
         raise SiteRefError("a site name is required: there is no reference for an empty one")
-    return "site_" + hmac.new(key.encode("utf-8"), _utf8(n), hashlib.sha256).hexdigest()[:12]
+    return "site_" + hmac.new(key.encode("utf-8"), b"site\x00" + _utf8(n), hashlib.sha256).hexdigest()[:12]
 
 
 def keyed_hall_suffix(label: str, hall: str, key: str) -> str:
@@ -111,12 +121,53 @@ def keyed_site_ref(label: str, hall: str, key: str) -> str:
     return f"{keyed_site_only_ref(label, key)}-{keyed_hall_suffix(label, hall, key)}"
 
 
+#: The database's own derivation of the unsalted reference, copied from migrations 0038/0047 (gf_submit_observation); `label` is the project's site_label.
+#: Its result depends on the database's locale (lower() and \s), which is why a non-ASCII label's legacy reference is read FROM THE DATABASE, never guessed.
+LEGACY_REF_SQL = (
+    "select 'site_' || substr(encode(sha256(convert_to(lower(regexp_replace(coalesce(site_label, ''), '^\\s+|\\s+$', '', 'g')), 'UTF8')), 'hex'), 1, 12) "
+    "from projects where site_label is not null"
+)
+
+
+class LegacyRefNeedsDatabase(SiteRefError):
+    """The label is not plain ASCII, so Python cannot know what the database derived (lower-casing, \\s and trimming differ: a final sigma, a dotted I,
+    U+1E9E, the C0 separators, U+0085). The caller must take the reference from the database and pass it explicitly."""
+
+
+def is_plain_ascii_label(label: str) -> bool:
+    """True when every character is printable ASCII (0x20-0x7e): the only labels whose unsalted reference Python computes identically to the database
+    in any locale."""
+    return isinstance(label, str) and label != "" and all(0x20 <= ord(c) <= 0x7E for c in label)
+
+
+def check_argv_text(label: str) -> None:
+    """A command-line argument that was not valid UTF-8 reaches Python as text holding lone surrogates; it cannot name a site."""
+    if any(0xD800 <= ord(c) <= 0xDFFF for c in label):
+        raise SiteRefError("that site name is not valid UTF-8 (the command line carried bytes that are not text); nothing was done")
+
+
 def legacy_site_only_ref(label: str) -> str:
-    """The UNSALTED reference migrations 0038-0052 derived and `gridforge calibrate add` produced before 0053: kept only to recognise old rows."""
-    from .schema import site_only_ref
+    """The UNSALTED reference migrations 0038-0052 derived and `gridforge calibrate add` produced before 0053: kept only to recognise old rows.
+
+    Computed here ONLY for a plain-ASCII label. Anything else raises LegacyRefNeedsDatabase: the database's lower() and \\s differ from Python's, so a guess
+    would record the WRONG reference and merge nothing (or the wrong site). Read it from the database (LEGACY_REF_SQL) and pass it explicitly."""
     if not isinstance(label, str) or not label.strip():
         raise SiteRefError("a site name is required: there is no reference for an empty one")
+    check_argv_text(label)
+    # Trimmed with exactly the ASCII set the database's \\s trims (Python's own strip() also trims U+001C-U+001F, U+0085 and the Unicode spaces, which it does not).
+    if not is_plain_ascii_label(label.strip(" \t\n\r\v\f")):
+        raise LegacyRefNeedsDatabase(
+            f"the unsalted reference of {label!r} cannot be computed here: it is not plain ASCII, and the database's lower-casing and trimming differ from "
+            f"Python's, so a guess could be wrong. Compute it in the database that holds the project and pass it with --legacy-ref: "
+            f"{LEGACY_REF_SQL} and 'site_label' = <the label>.")
+    from .schema import site_only_ref
     return site_only_ref(label)
+
+
+def validated_legacy_ref(ref: str) -> str:
+    if not isinstance(ref, str) or not SITE_ONLY_RE.match(ref):
+        raise SiteRefError("--legacy-ref must be a site reference: site_ followed by 12 lowercase hex characters")
+    return ref
 
 
 # ---------------------------------------------------------------------------------------------- aliases (legacy -> keyed)
@@ -131,13 +182,15 @@ def alias_path(ledger: Path | None = None, private: Path | None = None) -> Path:
     return base.with_name(ALIAS_FILENAME)
 
 
-def read_aliases(path: Path) -> dict[str, str]:
-    """The legacy -> keyed map in `path` (empty when there is no file). Refuses a file that could not be trusted to merge sites correctly."""
+def read_alias_file(path: Path) -> tuple[dict[str, str], dict | None]:
+    """(aliases, acknowledgement) in `path`: both empty/None when there is no file. Refuses a file that could not be trusted to merge sites correctly.
+
+    The acknowledgement is the operator's recorded decision that no site spans the migration-0053 boundary: {"none_needed_on": "YYYY-MM-DD"}."""
     if not path.exists():
-        return {}
+        return {}, None
     try:
         doc = json.loads(path.read_text() or "{}")
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SiteRefError(f"{path}: not valid JSON ({exc})")
     if not isinstance(doc, dict) or doc.get("schema") != ALIAS_SCHEMA or not isinstance(doc.get("aliases"), dict):
         raise SiteRefError(f"{path}: not a site-reference alias file (expected schema {ALIAS_SCHEMA!r} and an 'aliases' object)")
@@ -150,28 +203,65 @@ def read_aliases(path: Path) -> dict[str, str]:
         out[old] = new
     if any(new in out for new in out.values()):
         raise SiteRefError(f"{path}: an alias target is itself aliased; aliases must not chain")
-    return out
+    ack = doc.get("acknowledgement")
+    if ack is not None:
+        try:
+            if not isinstance(ack, dict) or set(ack) != {"none_needed_on"}:
+                raise ValueError
+            datetime.date.fromisoformat(ack["none_needed_on"])
+        except (ValueError, TypeError):
+            raise SiteRefError(f"{path}: the acknowledgement must be {{\"none_needed_on\": \"YYYY-MM-DD\"}}")
+    return out, ack
+
+
+def read_aliases(path: Path) -> dict[str, str]:
+    """The legacy -> keyed map in `path` (empty when there is no file)."""
+    return read_alias_file(path)[0]
+
+
+def _write_alias_file(path: Path, aliases: Mapping[str, str], ack: dict | None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc: dict = {"schema": ALIAS_SCHEMA, "aliases": dict(sorted(aliases.items()))}
+    if ack:
+        doc["acknowledgement"] = ack
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n")
+    os.replace(tmp, path)
 
 
 def add_alias(path: Path, legacy: str, keyed: str) -> bool:
-    """Record legacy -> keyed. True when it was new, False when it was already there. Refuses a conflicting mapping."""
-    current = read_aliases(path)
-    if legacy == keyed:
-        raise SiteRefError("the unsalted and keyed references are the same: nothing to alias (the key is probably the public fallback)")
-    if current.get(legacy) == keyed:
-        return False
-    if legacy in current:
-        raise SiteRefError(f"{legacy} is already aliased to a different reference ({current[legacy]}); the key may have changed. Nothing was written.")
-    if keyed in current:
-        raise SiteRefError(f"{keyed} is already an unsalted reference of another site; nothing was written.")
-    if legacy in current.values():
-        raise SiteRefError(f"{legacy} is already a keyed reference of another alias; aliases must not chain. Nothing was written.")
-    current[legacy] = keyed
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({"schema": ALIAS_SCHEMA, "aliases": dict(sorted(current.items()))}, indent=2) + "\n")
-    os.replace(tmp, path)
-    return True
+    """Record legacy -> keyed. True when it was new, False when it was already there. Refuses a conflicting mapping. One writer at a time (the ledger's
+    lock), so two concurrent `calibrate alias` runs cannot lose each other's line."""
+    from .ledger import _locked
+    with _locked(path):
+        current, ack = read_alias_file(path)
+        if legacy == keyed:
+            raise SiteRefError("the unsalted and keyed references are the same: nothing to alias (the key is probably the public fallback)")
+        if current.get(legacy) == keyed:
+            return False
+        if legacy in current:
+            raise SiteRefError(f"{legacy} is already aliased to a different reference ({current[legacy]}); the key may have changed. Nothing was written.")
+        if keyed in current:
+            raise SiteRefError(f"{keyed} is already an unsalted reference of another site; nothing was written.")
+        if legacy in current.values():
+            raise SiteRefError(f"{legacy} is already a keyed reference of another alias; aliases must not chain. Nothing was written.")
+        current[legacy] = keyed
+        _write_alias_file(path, current, ack)
+        return True
+
+
+def acknowledge_none_needed(path: Path, today: str | None = None) -> bool:
+    """Record, dated, that the operator has decided no site spans the migration-0053 boundary (every site in the ledger and its exports has only one kind of
+    reference). True when newly recorded. This is a statement by a person, not something the software can check."""
+    from .ledger import _locked
+    day = today or datetime.date.today().isoformat()
+    datetime.date.fromisoformat(day)
+    with _locked(path):
+        current, ack = read_alias_file(path)
+        if ack:
+            return False
+        _write_alias_file(path, current, {"none_needed_on": day})
+        return True
 
 
 def canonical(ref: str, aliases: Mapping[str, str]) -> str:

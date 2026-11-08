@@ -414,7 +414,7 @@ def test_the_exported_rows_pass_the_ledgers_own_import_policy_end_to_end(db, tmp
     rows = [r for r in export_rows(db) if r["id"] in ids]
     assert len(rows) == 3
     ledger = tmp_path / "led.json"
-    out = import_export({"schema": EXPORT_SCHEMA, "rows": rows}, ledger)
+    out = import_export({"schema": EXPORT_SCHEMA, "rows": rows}, ledger, accept_mixed_refs=True)   # the mixed-reference decision is tested in test_site_ref_hmac.py
     assert out["imported"] == 3
     obs, head = read_chain(ledger)
     assert {o.source_ref.split(":")[0] for o in obs} == set(ids) and head

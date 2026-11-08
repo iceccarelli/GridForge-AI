@@ -522,7 +522,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
       site_ref: row.site_ref, observed_value: engineMW - 3 })]);
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gf-cal-"));
     fs.writeFileSync(path.join(tmp, "export.json"), JSON.stringify({ ...exported, rows: mine }));
-    const imp = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+    const imp = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json"), "--accept-mixed-refs"],
       { encoding: "utf8", cwd: process.cwd() });
     expect(imp.status, imp.stderr).toBe(0);
     expect(imp.stdout).toMatch(/imported 1 verified/);
@@ -530,7 +530,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(chain).toHaveLength(1);
     expect(chain[0]).toMatchObject({ source: "import", source_ref: `${row.id}:${mine[0].evidence_sha256}`, model_digest: live.provenance.digest, kind: "measured" });
     expect(chain[0].prev_hash).toBe("0".repeat(64));
-    const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+    const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json"), "--accept-mixed-refs"],
       { encoding: "utf8", cwd: process.cwd() });
     expect(again.status).toBe(2);                                          // the same row cannot be imported twice
 

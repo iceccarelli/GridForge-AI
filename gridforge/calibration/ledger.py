@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from .schema import Observation, ObservationError, SHA256_RE
-from .siteref import SiteRefError, alias_path, canonical, read_aliases
+from .siteref import SiteRefError, alias_path, canonical, read_alias_file
 from ..validation.evidence import EvidenceClass
 
 try:                                  # POSIX. Elsewhere a lock-file fallback keeps two writers apart.
@@ -33,7 +33,7 @@ GENESIS = "0" * 64
 EXPORT_SCHEMA = "gridforge/calibration-export/1"
 #: What a reviewer's measurement may be, in the admin export (see supabase/migrations/0038_calibration_capture.sql).
 MEASUREMENT_KINDS = ("metered", "bms_trend", "commissioning_record")
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 
 
 class LedgerIntegrityError(ObservationError):
@@ -45,12 +45,21 @@ def private_path() -> Path:
     return Path(env) if env else Path.cwd() / PRIVATE_FILENAME
 
 
-def site_aliases(ledger: Path | None = None) -> dict[str, str]:
-    """The legacy -> keyed site-reference aliases that apply to a ledger file (see siteref.py: MIXED REFERENCES). Empty when there is no alias file."""
+class AliasFileUnreadable(ObservationError):
+    """The site-reference alias file exists but cannot be trusted. Anything that needs the aliases to count sites correctly stops; `where` reports it."""
+
+
+def site_alias_file(ledger: Path | None = None) -> tuple[dict[str, str], dict | None]:
+    """(aliases, acknowledgement) that apply to a ledger file (see siteref.py: MIXED REFERENCES). Empty/None when there is no alias file."""
     try:
-        return read_aliases(alias_path(private=Path(ledger) if ledger else private_path()))
+        return read_alias_file(alias_path(private=Path(ledger) if ledger else private_path()))
     except SiteRefError as exc:
-        raise ObservationError(str(exc))
+        raise AliasFileUnreadable(str(exc))
+
+
+def site_aliases(ledger: Path | None = None) -> dict[str, str]:
+    """The legacy -> keyed site-reference aliases that apply to a ledger file. Empty when there is no alias file."""
+    return site_alias_file(ledger)[0]
 
 
 def _canonicalised(obs: list[Observation], aliases: dict[str, str]) -> list[Observation]:
@@ -160,7 +169,7 @@ def _read(path: Path) -> list[Observation]:
     return read_chain(path)[0]
 
 
-def load_ledger(published_only: bool = False) -> Ledger:
+def load_ledger(published_only: bool = False, use_aliases: bool = True) -> Ledger:
     """The ledger in effect. `published_only` drops the private overlay — used when
     the output is going somewhere public, so client site data cannot escape through
     a build script that forgot which ledger it was reading. Entries not marked published are
@@ -173,7 +182,8 @@ def load_ledger(published_only: bool = False) -> Ledger:
                       private_loaded=False, heads=heads)
     p = private_path()
     private, phead = read_chain(p)
-    private = _canonicalised(private, site_aliases(p))
+    # use_aliases=False exists for `calibrate where` alone, to report an unreadable alias file instead of stopping; every count of sites wants the aliases.
+    private = _canonicalised(private, site_aliases(p) if use_aliases else {})
     if private:
         sources.append(str(p))
         heads[str(p)] = phead
@@ -342,7 +352,7 @@ def _row_to_observation(row, i: int) -> Observation:
         raise ObservationError(f"{tag}: {exc}")
 
 
-def import_export(doc, path: Path | None = None) -> dict:
+def import_export(doc, path: Path | None = None, *, accept_mixed_refs: bool = False) -> dict:
     """Append the rows of an admin calibration export, and only those that pass the ledger's own policy.
 
     All or nothing: one row that fails the policy, or repeats a source_ref, refuses the whole export and writes
@@ -357,7 +367,19 @@ def import_export(doc, path: Path | None = None) -> dict:
     # An export row carries a site_<12 hex> in EITHER of two forms: the unsalted hash (rows made before migration 0053 is applied) or the keyed HMAC
     # (after). Nothing in the row says which, and the ledger holds no label, so the two can be told to be one site only from what the operator declared
     # (`gridforge calibrate alias`). A declared legacy reference is stored as the keyed one, so the two are ONE site; any other is stored as exported.
-    aliases = site_aliases(target)
+    aliases, acknowledgement = site_alias_file(target)
+    if new:
+        # CONSERVATIVE DEFAULT. The number of independent sites is what lifts a key to CALIBRATED, and a site seen under both kinds of reference would be
+        # counted twice. So nothing is imported until a person has decided how mixed references are to be treated, in one of three recorded ways.
+        decision = ("aliases" if aliases else "none_needed" if acknowledgement else "accept_mixed_refs" if accept_mixed_refs else None)
+        if decision is None:
+            sites = {o.site for o in new}
+            raise ObservationError(
+                f"this export carries {len(sites)} distinct site reference(s) in {len(new)} row(s). A reference made before migration 0053 is applied is UNSALTED "
+                f"and one made after is KEYED, and a reference does not say which: a site exported under both would be counted as TWO independent sites, which "
+                f"can lift a key over the n_sites >= 3 line for CALIBRATED. Decide first, once: `gridforge calibrate alias --site 'NAME'` (or --legacy-ref) for "
+                f"each site that spans the boundary; `gridforge calibrate alias --none-needed` if none does (dated in the alias file); or --accept-mixed-refs "
+                f"for this one import. Nothing was imported.")
     rekeyed = 0
     if aliases:
         fixed = []
@@ -372,4 +394,5 @@ def import_export(doc, path: Path | None = None) -> dict:
         _append_many(new, target)
     total = len(read_chain(target)[0]) if target.exists() else 0
     return {"imported": len(new), "ledger_observations": total, "path": str(target), "rekeyed": rekeyed,
-            "aliases": len(aliases), "distinct_sites_imported": len({o.site for o in new})}
+            "aliases": len(aliases), "distinct_sites_imported": len({o.site for o in new}),
+            "mixed_ref_decision": (decision if new else None)}

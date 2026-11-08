@@ -336,7 +336,7 @@ def export(rows):
 
 def test_import_appends_only_verified_rows_hash_chained_with_source_refs(tmp_path):
     p = tmp_path / "imp.json"
-    out = import_export(export([row(1), row(2), row(3)]), p)
+    out = import_export(export([row(1), row(2), row(3)]), p, accept_mixed_refs=True)
     assert out["imported"] == 3
     got, _ = read_chain(p)
     assert [o.source for o in got] == ["import"] * 3 and all(o.published for o in got)
@@ -348,12 +348,12 @@ def test_import_appends_only_verified_rows_hash_chained_with_source_refs(tmp_pat
 
 def test_import_refuses_duplicates_by_source_ref_and_changes_nothing(tmp_path):
     p = tmp_path / "imp.json"
-    import_export(export([row(1)]), p)
+    import_export(export([row(1)]), p, accept_mixed_refs=True)
     before = p.read_text()
     with pytest.raises(ObservationError, match="already"):
-        import_export(export([row(1)]), p)
+        import_export(export([row(1)]), p, accept_mixed_refs=True)
     with pytest.raises(ObservationError, match="duplicate"):
-        import_export(export([row(2), row(2)]), p)
+        import_export(export([row(2), row(2)]), p, accept_mixed_refs=True)
     assert p.read_text() == before
 
 
@@ -367,7 +367,7 @@ def test_import_refuses_duplicates_by_source_ref_and_changes_nothing(tmp_path):
 def test_import_refuses_any_row_that_fails_the_policy_and_is_all_or_nothing(tmp_path, bad):
     p = tmp_path / "imp.json"
     with pytest.raises(ObservationError):
-        import_export(export([row(1), row(2, **bad)]), p)
+        import_export(export([row(1), row(2, **bad)]), p, accept_mixed_refs=True)
     assert not p.exists() or _read(p) == []
 
 
@@ -375,14 +375,14 @@ def test_import_refuses_a_malformed_export(tmp_path):
     p = tmp_path / "imp.json"
     for doc in ({}, {"rows": "x"}, {"schema": "other/1", "rows": []}, [], "x"):
         with pytest.raises(ObservationError):
-            import_export(doc, p)
+            import_export(doc, p, accept_mixed_refs=True)
 
 
 def test_importing_zero_rows_leaves_the_ledger_empty_and_says_so(tmp_path):
     p = tmp_path / "zero.json"
     ex = tmp_path / "export.json"
     ex.write_text(json.dumps(export([])))
-    r = run_cli("calibrate", "import", str(ex), "--ledger", str(p))
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(p), "--accept-mixed-refs")
     assert r.returncode == 0, r.stderr
     assert "0 verified" in r.stdout and "empty" in r.stdout
     assert not p.exists()
@@ -392,9 +392,9 @@ def test_cli_import_round_trip_and_refusal(tmp_path):
     p = tmp_path / "imp.json"
     ex = tmp_path / "export.json"
     ex.write_text(json.dumps(export([row(1), row(2)])))
-    r = run_cli("calibrate", "import", str(ex), "--ledger", str(p))
+    r = run_cli("calibrate", "import", str(ex), "--ledger", str(p), "--accept-mixed-refs")
     assert r.returncode == 0 and "imported 2" in r.stdout, r.stderr
-    again = run_cli("calibrate", "import", str(ex), "--ledger", str(p))
+    again = run_cli("calibrate", "import", str(ex), "--ledger", str(p), "--accept-mixed-refs")
     assert again.returncode == 2 and "already" in again.stderr
     assert len(_read(p)) == 2
 

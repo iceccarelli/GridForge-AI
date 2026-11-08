@@ -14,8 +14,9 @@
 -- gf_submit_observation and exported in the ledger by GET /api/admin/calibration-export. Anyone who can guess a label ("Hall A", "Dublin DC1") can hash
 -- it and confirm that a ledger row is from that site. The application (lib/project-observations.ts, lib/site-ref.ts) now computes
 --
---     site_ref = 'site_' || first 12 hex of HMAC-SHA256(key, lower(trim(label)))      key = GRIDFORGE_SITE_REF_SECRET, else GRIDFORGE_KEY_SECRET
+--     site_ref = 'site_' || first 12 hex of HMAC-SHA256(key, 'site' || chr(0) || normalised(label))      key = GRIDFORGE_SITE_REF_SECRET, else GRIDFORGE_KEY_SECRET
 --
+-- (normalised = trim an explicit whitespace set, NFC, lower-case ASCII letters only; the message is domain-separated from the hall suffix of `calibrate add`)
 -- and passes it in the payload. The database cannot compute it (it never holds the key), so it takes the value.
 --
 -- The one change, in gf_submit_observation:
@@ -32,8 +33,11 @@
 -- (the label is not in the ledger and the key is not in the database). A site that has observations from before and after the boundary therefore
 -- appears under TWO different references, and any count of distinct sites across the boundary counts it once per scheme: it OVER-counts independent
 -- sites. A reference does not say which scheme made it. The operator, who knows the label, declares the two to be one site with
--- `gridforge calibrate alias --site "NAME"`; `gridforge calibrate import` and the ledger reader then treat both as one site (the chained file is never
--- edited). Until that is done for a site the two ARE counted as two, and the importer says so. The same applies, forever, to a ROTATION of the key: it
+-- `gridforge calibrate alias --site "NAME"` (for a name that is not plain ASCII the unsalted reference must be read from the DATABASE with the expression
+-- of this migration's family and passed as --legacy-ref: Python cannot reproduce the database's lower-casing); `gridforge calibrate import` and the ledger
+-- reader then treat both as one site (the chained file is never edited). The importer's default is CONSERVATIVE: `calibrate import` REFUSES, writing
+-- nothing, until the operator has recorded a decision: aliases, or `calibrate alias --none-needed` (a dated statement that no site spans the boundary),
+-- or --accept-mixed-refs for that one import. Until a site is declared the two ARE counted as two, and the importer prints what it counted. The same applies, forever, to a ROTATION of the key: it
 -- changes every reference from then on, so treat GRIDFORGE_SITE_REF_SECRET as a long-lived key.
 --
 -- RESIDUAL, stated plainly. The keyed reference defeats confirming a guessed label by hashing; it does not hide that two rows are from the same site

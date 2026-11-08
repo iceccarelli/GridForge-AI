@@ -6,7 +6,7 @@
  * tests/site_ref_vectors.json is read by this file AND tests/test_site_ref_hmac.py: both must reproduce every vector.
  */
 import fs from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
 import {
@@ -15,17 +15,37 @@ import {
 import { PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 
-const VECTORS: { key: string; label: string; expected: string | null }[] = JSON.parse(fs.readFileSync("tests/site_ref_vectors.json", "utf8")).vectors;
+const VECTOR_FILE = JSON.parse(fs.readFileSync("tests/site_ref_vectors.json", "utf8"));
+const VECTORS: { key: string; label: string; expected: string | null }[] = VECTOR_FILE.vectors;
+const KEY_VECTORS: { secret: string; accepted: boolean }[] = VECTOR_FILE.key_vectors;
 const K1 = "vector-key-one-0123456789abcdef";
 const K2 = "vector-key-two-0123456789abcdef";
 const unsalted = (label: string) => "site_" + createHash("sha256").update(label.trim().toLowerCase()).digest("hex").slice(0, 12);
 
 describe("parity with the Python implementation", () => {
   it("reproduces every shared vector (null = no label, no reference)", () => {
-    expect(VECTORS.length).toBeGreaterThanOrEqual(30);
+    expect(VECTORS.length).toBeGreaterThanOrEqual(50);
     expect(new Set(VECTORS.map((v) => v.key))).toEqual(new Set([K1, K2]));
     expect(VECTORS.some((v) => v.expected === null) && VECTORS.some((v) => v.expected !== null)).toBe(true);
     for (const v of VECTORS) expect(siteRefFor(v.label, v.key), JSON.stringify(v.label).slice(0, 60)).toBe(v.expected);
+  });
+
+  it("the key length rule counts code points, as Python does (8 emoji are 16 UTF-16 units but 8 characters)", () => {
+    for (const kv of KEY_VECTORS) {
+      const k = siteRefKey({ GRIDFORGE_SITE_REF_SECRET: kv.secret, GRIDFORGE_KEY_SECRET: "signing" });
+      expect(k.ok && k.source === "GRIDFORGE_SITE_REF_SECRET", kv.secret.slice(0, 4)).toBe(kv.accepted);
+    }
+    expect(new Set(KEY_VECTORS.map((k) => k.accepted))).toEqual(new Set([true, false]));
+  });
+
+  it("is keyed over a domain-separated message and normalised as NFC + ASCII lower-case only", () => {
+    const plain = createHmac("sha256", K1).update(normaliseSiteLabel("Dublin DC1")).digest("hex").slice(0, 12);
+    expect(siteRefFor("Dublin DC1", K1)).not.toBe("site_" + plain);
+    expect(siteRefFor("Dublin DC1", K1)).toBe("site_" + createHmac("sha256", K1).update("site\u0000dublin dc1").digest("hex").slice(0, 12));
+    expect(siteRefFor("Fr\u00e1ncfort", K1)).toBe(siteRefFor("Fra\u0301ncfort", K1));
+    expect(siteRefFor("Ab\u00c7", K1)).not.toBe(siteRefFor("ab\u00e7", K1));                // the stated consequence for non-ASCII letters
+    expect(siteRefFor("\u{10d50} x", K1)).toBe(siteRefFor("\u{10d50} X", K1));              // a Unicode-16 letter: untouched on every Node
+    expect(normaliseSiteLabel("  \u0130STANBUL ")).toBe("\u0130stanbul");
   });
 
   it("a different secret gives a different reference; the same label and secret a stable one; and it is not the old bare hash", () => {
